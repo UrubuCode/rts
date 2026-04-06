@@ -13,7 +13,7 @@ pub mod type_system;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use codegen::object::ObjectArtifact;
 use compile_options::CompileOptions;
 use hir::nodes::HirModule;
@@ -27,6 +27,9 @@ pub struct CompileSummary {
     pub input: PathBuf,
     pub object_file: PathBuf,
     pub binary_file: PathBuf,
+    pub app_object_bytes: usize,
+    pub runtime_object_bytes: usize,
+    pub binary_bytes: u64,
     pub profile: String,
     pub link_backend: String,
     pub link_format: String,
@@ -76,17 +79,26 @@ pub fn compile_source_with_options(
     let object_path = output.with_extension("o");
 
     let ObjectArtifact {
-        path: object_file, ..
+        path: object_file,
+        bytes_written: app_object_bytes,
     } = codegen::generate_object_with_metadata(&mir, &metadata, &object_path)?;
 
     let linked = linker::link_object_to_binary(&object_file, output)?;
     let bootstrap = runtime::bootstrap::compile_source(source, options);
-    runtime::bundle::package_bootstrap_payload(&linked.path, &bootstrap.encode())?;
+    let runtime_object_payload =
+        runtime::runtime_object::build_for_sources(std::iter::once(source), &bootstrap)?;
+    runtime::bundle::package_bootstrap_payload(&linked.path, &runtime_object_payload)?;
+    let binary_bytes = std::fs::metadata(&linked.path)
+        .with_context(|| format!("failed to stat {}", linked.path.display()))?
+        .len();
 
     Ok(CompileSummary {
         input: input.to_path_buf(),
         object_file,
         binary_file: linked.path,
+        app_object_bytes,
+        runtime_object_bytes: runtime_object_payload.len(),
+        binary_bytes,
         profile: options.profile.to_string(),
         link_backend: linked.backend,
         link_format: linked.format,
@@ -105,12 +117,21 @@ fn compile_graph(
     let modules = graph.modules().collect::<Vec<_>>();
 
     if options.emit_module_progress {
+        let color_enabled = std::env::var_os("NO_COLOR").is_none();
         for module in &modules {
-            println!(
-                "Compiling module [{}]: {}",
-                module.kind.as_str(),
-                module.path.display()
-            );
+            if color_enabled {
+                println!(
+                    "\x1b[2mCompiling module\x1b[0m [\x1b[36m{}\x1b[0m]: \x1b[90m{}\x1b[0m",
+                    module.kind.as_str(),
+                    module.path.display()
+                );
+            } else {
+                println!(
+                    "Compiling module [{}]: {}",
+                    module.kind.as_str(),
+                    module.path.display()
+                );
+            }
         }
     }
 
@@ -153,17 +174,28 @@ fn compile_graph(
     let object_path = output.with_extension("o");
 
     let ObjectArtifact {
-        path: object_file, ..
+        path: object_file,
+        bytes_written: app_object_bytes,
     } = codegen::generate_object_with_metadata(&mir, &metadata, &object_path)?;
 
     let linked = linker::link_object_to_binary(&object_file, output)?;
     let bootstrap = runtime::bootstrap::compile_graph(graph, options)?;
-    runtime::bundle::package_bootstrap_payload(&linked.path, &bootstrap.encode())?;
+    let runtime_object_payload = runtime::runtime_object::build_for_sources(
+        graph.modules().map(|module| module.source.as_str()),
+        &bootstrap,
+    )?;
+    runtime::bundle::package_bootstrap_payload(&linked.path, &runtime_object_payload)?;
+    let binary_bytes = std::fs::metadata(&linked.path)
+        .with_context(|| format!("failed to stat {}", linked.path.display()))?
+        .len();
 
     Ok(CompileSummary {
         input: input.to_path_buf(),
         object_file,
         binary_file: linked.path,
+        app_object_bytes,
+        runtime_object_bytes: runtime_object_payload.len(),
+        binary_bytes,
         profile: options.profile.to_string(),
         link_backend: linked.backend,
         link_format: linked.format,

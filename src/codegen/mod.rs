@@ -15,11 +15,21 @@ pub fn generate_object_with_metadata(
     metadata: &MetadataTable,
     output: &Path,
 ) -> Result<ObjectArtifact> {
-    let clif = cranelift::clif_builder::lower_to_clif(mir);
+    let bytes = match cranelift::object_builder::lower_to_native_object(mir) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!(
+                "RTS AOT: failed to emit native object ({}). Falling back to CLIF payload object.",
+                error
+            );
 
-    let mut bytes = clif.render().into_bytes();
-    bytes.extend_from_slice(b"\n--rts-type-metadata--\n");
-    bytes.extend(cranelift::metadata::emit_type_metadata(metadata));
+            let clif = cranelift::clif_builder::lower_to_clif(mir);
+            let mut fallback = clif.render().into_bytes();
+            fallback.extend_from_slice(b"\n--rts-type-metadata--\n");
+            fallback.extend(cranelift::metadata::emit_type_metadata(metadata));
+            fallback
+        }
+    };
 
     object::write_object_file(output, &bytes)
 }

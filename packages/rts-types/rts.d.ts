@@ -26,14 +26,6 @@ declare module "rts" {
     close(): void;
   }
 
-  export interface Process {
-    stdout: WritableStream;
-    stderr: WritableStream;
-    argv: globalThis.Array<str>;
-    cwd(): str;
-    exit(code?: i32): never;
-  }
-
   export namespace io {
     export interface Error {
       message: str;

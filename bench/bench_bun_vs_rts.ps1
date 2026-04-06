@@ -12,8 +12,8 @@ $rtsOutput = "target/bench_simple"
 $rtsExe = "target/bench_simple.exe"
 $bunSource = "bench/bun_simple.ts"
 
-Write-Host "Building RTS benchmark binary..."
-cargo run --quiet -- build $rtsSource $rtsOutput | Out-Null
+Write-Host "Building RTS benchmark binary (release + production profile)..."
+cargo run --release --quiet -- build -p $rtsSource $rtsOutput | Out-Null
 
 if (!(Test-Path $rtsExe)) {
   throw "RTS binary not found at $rtsExe"

@@ -2,9 +2,9 @@ pub mod bootstrap;
 pub(crate) mod bootstrap_lang;
 pub(crate) mod bootstrap_utils;
 pub mod bundle;
-pub mod intrinsics;
 pub(crate) mod namespaces;
 pub mod runner;
+pub mod runtime_object;
 pub mod state;
 
 use std::collections::BTreeSet;
@@ -63,7 +63,6 @@ const RTS_EXPORTS: &[&str] = &[
     "WritableStream",
     "ReadableStream",
     "FileHandle",
-    "Process",
     "fs",
     "io",
     "process",

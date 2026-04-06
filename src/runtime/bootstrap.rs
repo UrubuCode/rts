@@ -758,7 +758,7 @@ fn derive_payload_key(program: &BootstrapProgram) -> u32 {
 
 fn obfuscate(input: &[u8], base_key: u32, op_index: u32, lane: u32) -> Vec<u8> {
     let mut state = base_key
-        .wrapping_add(op_index.wrapping_mul(0x45D9_F3B))
+        .wrapping_add(op_index.wrapping_mul(0x045D_9F3B))
         .wrapping_add(lane.wrapping_mul(0x9E37_79B9));
     let mut out = Vec::with_capacity(input.len());
 

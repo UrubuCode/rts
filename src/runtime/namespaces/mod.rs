@@ -89,6 +89,14 @@ impl NamespaceUsage {
         };
         SPECS.iter().any(|spec| spec.name == root)
     }
+
+    pub fn enabled_functions(&self) -> impl Iterator<Item = &str> {
+        self.functions.iter().map(String::as_str)
+    }
+
+    pub fn enabled_namespaces(&self) -> impl Iterator<Item = &str> {
+        self.namespaces.iter().map(String::as_str)
+    }
 }
 
 pub fn namespace_object(name: &str, usage: &NamespaceUsage) -> Option<JsValue> {

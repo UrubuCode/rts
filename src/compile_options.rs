@@ -1,7 +1,8 @@
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompilationProfile {
+    #[default]
     Development,
     Production,
 }
@@ -16,12 +17,6 @@ impl CompilationProfile {
 
     pub fn includes_trace_data(self, debug: bool) -> bool {
         matches!(self, Self::Development) || debug
-    }
-}
-
-impl Default for CompilationProfile {
-    fn default() -> Self {
-        Self::Development
     }
 }
 

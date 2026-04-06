@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-object = { version = "0.39", default-features = false, features = ["write", "std", "coff", "elf", "macho", "pe"] }
+object = { version = "0.39", default-features = false, features = ["write", "read", "std", "coff", "elf", "macho", "pe"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ureq = { version = "2.12", default-features = true }
@@ -14,5 +14,16 @@ cranelift-frontend = "0.124"
 cranelift-jit = "0.124"
 cranelift-module = "0.124"
 cranelift-native = "0.124"
+cranelift-object = "0.124"
 rayon = "1.10"
 sha2 = "0.10"
+flate2 = "1.1"
+tar = "0.4"
+target-lexicon = "0.13"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

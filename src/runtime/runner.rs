@@ -11,6 +11,6 @@ pub fn run_entry(graph: &ModuleGraph, options: CompileOptions) -> Result<RunRepo
 }
 
 pub fn run_embedded_program(payload: &[u8]) -> Result<RunReport> {
-    let program = super::bootstrap::BootstrapProgram::decode(payload)?;
+    let program = super::runtime_object::decode_runtime_object(payload)?;
     Ok(super::bootstrap::execute(&program))
 }

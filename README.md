@@ -111,6 +111,33 @@ Exemplo:
 
 Sem `RTS_MODULES_PATH`, o padrao tambem e `~/.rts/modules`.
 
+## Linker nativo (Fase 1)
+
+O linker agora suporta estrategia automatica:
+
+- `RTS_LINKER_BACKEND=auto` (padrao): tenta linker do sistema e cai para backend manual (`object`) se falhar.
+- `RTS_LINKER_BACKEND=system`: exige linker do sistema.
+- `RTS_LINKER_BACKEND=object`: usa apenas backend manual atual.
+
+No modo `auto/system`, o RTS tenta nesta ordem:
+
+- `~/.rts/toolchains/<target>/bin`
+- `rustup` / sysroot do `rustc` (`rust-lld`)
+- `PATH` do sistema
+- download automatico do Rust Dist estavel para extrair `rust-lld` por target
+
+Configuracoes adicionais:
+
+- `RTS_TARGET=<target-triple>` para escolher target explicitamente.
+- `RTS_TOOLCHAINS_PATH=<path>` para alterar cache de toolchains (padrao `~/.rts/toolchains`).
+- `RTS_LINKER_DOWNLOAD_URL=<template>` para provisionar linker automaticamente no cache (o template aceita `{target}` e `{binary}`).
+- `RTS_LINKER_SHA256=<hash>` para validar o binario baixado.
+
+## AOT nativo
+
+O codegen agora tenta emitir objeto nativo real (`.o/.obj`) via Cranelift Object por padrao.
+Se a emissao nativa falhar, o RTS cai para o payload textual CLIF para nao quebrar o fluxo.
+
 ## Dependencias do compilador
 
 - `anyhow`
