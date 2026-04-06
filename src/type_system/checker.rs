@@ -1,0 +1,145 @@
+﻿use std::collections::{BTreeMap, BTreeSet};
+
+use anyhow::{bail, Result};
+
+use crate::parser::ast::{ClassMember, Item, Program};
+
+use super::types::{TypeField, TypeKind};
+use super::TypeRegistry;
+
+pub type ImportExports = BTreeMap<String, BTreeSet<String>>;
+
+pub fn check_program(
+    program: &Program,
+    registry: &mut TypeRegistry,
+    import_exports: &ImportExports,
+) -> Result<()> {
+    ensure_primitives(registry);
+
+    let mut declared_in_module = BTreeSet::new();
+
+    for item in &program.items {
+        match item {
+            Item::Import(import_decl) => check_import(import_decl, import_exports)?,
+            Item::Interface(interface_decl) => {
+                ensure_local_name_available(&interface_decl.name, &mut declared_in_module)?;
+
+                let fields = interface_decl
+                    .fields
+                    .iter()
+                    .map(|field| TypeField {
+                        name: field.name.clone(),
+                        type_name: field.type_annotation.clone(),
+                    })
+                    .collect();
+
+                registry.register(interface_decl.name.clone(), TypeKind::Interface { fields });
+            }
+            Item::Class(class_decl) => {
+                ensure_local_name_available(&class_decl.name, &mut declared_in_module)?;
+
+                let mut fields = Vec::new();
+
+                for member in &class_decl.members {
+                    match member {
+                        ClassMember::Property(prop) => {
+                            fields.push(TypeField {
+                                name: prop.name.clone(),
+                                type_name: prop
+                                    .type_annotation
+                                    .clone()
+                                    .unwrap_or_else(|| "any".to_string()),
+                            });
+                        }
+                        ClassMember::Constructor(ctor) => {
+                            for param in &ctor.parameters {
+                                if param.modifiers.visibility.is_some() {
+                                    fields.push(TypeField {
+                                        name: param.name.clone(),
+                                        type_name: param
+                                            .type_annotation
+                                            .clone()
+                                            .unwrap_or_else(|| "any".to_string()),
+                                    });
+                                }
+                            }
+                        }
+                        ClassMember::Method(_) => {}
+                    }
+                }
+
+                registry.register(class_decl.name.clone(), TypeKind::Class { fields });
+            }
+            Item::Function(_) | Item::Statement(_) => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn check_import(
+    import_decl: &crate::parser::ast::ImportDecl,
+    import_exports: &ImportExports,
+) -> Result<()> {
+    let Some(exports) = import_exports.get(&import_decl.from) else {
+        bail!("unknown module import: {}", import_decl.from);
+    };
+
+    for symbol in &import_decl.names {
+        if !exports.contains(symbol) {
+            bail!(
+                "module '{}' does not export symbol '{}': available exports = {}",
+                import_decl.from,
+                symbol,
+                exports.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_local_name_available(name: &str, declared_in_module: &mut BTreeSet<String>) -> Result<()> {
+    if is_primitive_name(name) {
+        bail!("'{}' is reserved as primitive type name", name);
+    }
+
+    if !declared_in_module.insert(name.to_string()) {
+        bail!("duplicated type declaration in module: {}", name);
+    }
+
+    Ok(())
+}
+
+fn is_primitive_name(name: &str) -> bool {
+    matches!(
+        name,
+        "number"
+            | "string"
+            | "boolean"
+            | "void"
+            | "any"
+            | "null"
+            | "undefined"
+            | "unknown"
+            | "never"
+    )
+}
+
+fn ensure_primitives(registry: &mut TypeRegistry) {
+    for primitive in [
+        "number",
+        "string",
+        "boolean",
+        "void",
+        "any",
+        "null",
+        "undefined",
+        "unknown",
+        "never",
+    ] {
+        if registry.get_by_name(primitive).is_none() {
+            let _ = registry.register(primitive, TypeKind::Primitive);
+        }
+    }
+}

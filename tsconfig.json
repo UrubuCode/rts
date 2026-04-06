@@ -1,0 +1,8 @@
+{
+    "compilerOptions": {
+        "module": "es2022",
+        "types": [
+            "rts.d.ts"
+        ]
+    }
+}

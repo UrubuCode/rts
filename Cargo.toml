@@ -1,0 +1,8 @@
+﻿[package]
+name = "rts"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+object = { version = "0.39", default-features = false, features = ["write", "std", "coff", "elf", "macho", "pe"] }
