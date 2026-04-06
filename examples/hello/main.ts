@@ -1,9 +1,5 @@
-import { console } from "rts";
-
-function unused() {
-  console.log("Nao deve ser compilada");
-}
+import { io } from "rts";
 
 function main() {
-  console.log("Hello, RustTS!");
+  io.print("Hello, RustTS!");
 }

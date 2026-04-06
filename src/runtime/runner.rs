@@ -1,11 +1,12 @@
 use anyhow::Result;
 
+use crate::compile_options::CompileOptions;
 use crate::module_system::ModuleGraph;
 
 pub use super::bootstrap::RunReport;
 
-pub fn run_entry(graph: &ModuleGraph) -> Result<RunReport> {
-    let program = super::bootstrap::compile_graph(graph)?;
+pub fn run_entry(graph: &ModuleGraph, options: CompileOptions) -> Result<RunReport> {
+    let program = super::bootstrap::compile_graph(graph, options)?;
     Ok(super::bootstrap::execute(&program))
 }
 

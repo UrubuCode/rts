@@ -1,17 +1,7 @@
-﻿import { process, print } from "rts";
+import { io, process } from "rts";
+import { console } from "../packages/console";
 
-class Console {
-  public log(...messages: Array<string | number | boolean | object | null | undefined>): void {
-    this.stdout.write("Log: ");
-    if (messages.length > 0) {
-      this.stdout.write(String(messages[0]));
-    }
-  }
-
-  constructor(public stdout: typeof process.stdout, public stderr: typeof process.stderr) {}
-}
-
-export const console = new Console(process.stdout, process.stderr);
-
-console.log("hello from console.ts");
-print("hello from print() call");
+console.time("console example");
+console.log(1 + 1 + " hello from package console");
+io.print(process.arch() + " hello from print() call");
+console.timeEnd("console example");

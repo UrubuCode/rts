@@ -1,0 +1,9 @@
+{
+  "name": "process",
+  "version": "0.1.0",
+  "main": "main.ts",
+  "types": "process.d.ts",
+  "dependencies": {
+    "rts": "npm:0.1.0"
+  }
+}

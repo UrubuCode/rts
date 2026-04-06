@@ -30,8 +30,12 @@ pub fn package_bootstrap_payload(output_binary: &Path, payload: &[u8]) -> Result
     packaged.extend_from_slice(&payload_len.to_le_bytes());
     packaged.extend_from_slice(payload);
 
-    std::fs::write(output_binary, &packaged)
-        .with_context(|| format!("failed to write packaged binary {}", output_binary.display()))?;
+    std::fs::write(output_binary, &packaged).with_context(|| {
+        format!(
+            "failed to write packaged binary {}",
+            output_binary.display()
+        )
+    })?;
 
     Ok(())
 }

@@ -1,7 +1,7 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 
-use super::types::TypeId;
 use super::TypeRegistry;
+use super::types::TypeId;
 
 #[derive(Debug, Clone, Default)]
 pub struct TypeResolver {

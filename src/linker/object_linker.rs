@@ -1,10 +1,10 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{bail, Context, Result};
-use object::write::{pe as pe_writer, Object, StandardSegment, Symbol, SymbolSection};
+use anyhow::{Context, Result, bail};
+use object::write::{Object, StandardSegment, Symbol, SymbolSection, pe as pe_writer};
 use object::{
-    pe, Architecture, BinaryFormat, Endianness, SectionKind, SymbolFlags, SymbolKind, SymbolScope,
+    Architecture, BinaryFormat, Endianness, SectionKind, SymbolFlags, SymbolKind, SymbolScope, pe,
 };
 
 #[derive(Debug, Clone)]
@@ -21,7 +21,10 @@ pub fn link(object_path: &Path, output_path: &Path) -> Result<LinkedArtifact> {
     let final_path = normalize_output_path(output_path, target.flavor);
 
     let (bytes, format) = match target.flavor {
-        LinkFlavor::Coff => (build_windows_pe_executable(&payload, target)?, "pe-exe".to_string()),
+        LinkFlavor::Coff => (
+            build_windows_pe_executable(&payload, target)?,
+            "pe-exe".to_string(),
+        ),
         LinkFlavor::Elf | LinkFlavor::MachO => (
             build_binary_container(&payload, target)?,
             format!("{}-object", target.format_name()),
@@ -215,7 +218,10 @@ impl LinkTarget {
     }
 
     fn is_64(self) -> bool {
-        matches!(self.architecture, Architecture::X86_64 | Architecture::Aarch64)
+        matches!(
+            self.architecture,
+            Architecture::X86_64 | Architecture::Aarch64
+        )
     }
 
     fn windows_machine(self) -> Result<u16> {

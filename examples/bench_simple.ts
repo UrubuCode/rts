@@ -1,4 +1,4 @@
-﻿import { print } from "rts";
+import { io } from "rts";
 
 console.log("bench");
-print("done");
+io.print("done");

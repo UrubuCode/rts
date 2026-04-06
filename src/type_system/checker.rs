@@ -1,26 +1,49 @@
-﻿use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::parser::ast::{ClassMember, Item, Program};
 
-use super::types::{TypeField, TypeKind};
 use super::TypeRegistry;
+use super::types::{TypeField, TypeKind};
 
 pub type ImportExports = BTreeMap<String, BTreeSet<String>>;
+
+#[derive(Debug, Clone)]
+pub struct TypeDeclaration {
+    pub name: String,
+    pub kind: TypeKind,
+}
 
 pub fn check_program(
     program: &Program,
     registry: &mut TypeRegistry,
     import_exports: &ImportExports,
 ) -> Result<()> {
-    ensure_primitives(registry);
+    seed_primitives(registry);
+    check_imports(program, import_exports)?;
+    let declarations = collect_type_declarations(program)?;
+    register_type_declarations(registry, declarations);
 
+    Ok(())
+}
+
+pub fn check_imports(program: &Program, import_exports: &ImportExports) -> Result<()> {
+    for item in &program.items {
+        if let Item::Import(import_decl) = item {
+            check_import(import_decl, import_exports)?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn collect_type_declarations(program: &Program) -> Result<Vec<TypeDeclaration>> {
     let mut declared_in_module = BTreeSet::new();
+    let mut declarations = Vec::new();
 
     for item in &program.items {
         match item {
-            Item::Import(import_decl) => check_import(import_decl, import_exports)?,
             Item::Interface(interface_decl) => {
                 ensure_local_name_available(&interface_decl.name, &mut declared_in_module)?;
 
@@ -33,7 +56,10 @@ pub fn check_program(
                     })
                     .collect();
 
-                registry.register(interface_decl.name.clone(), TypeKind::Interface { fields });
+                declarations.push(TypeDeclaration {
+                    name: interface_decl.name.clone(),
+                    kind: TypeKind::Interface { fields },
+                });
             }
             Item::Class(class_decl) => {
                 ensure_local_name_available(&class_decl.name, &mut declared_in_module)?;
@@ -68,13 +94,25 @@ pub fn check_program(
                     }
                 }
 
-                registry.register(class_decl.name.clone(), TypeKind::Class { fields });
+                declarations.push(TypeDeclaration {
+                    name: class_decl.name.clone(),
+                    kind: TypeKind::Class { fields },
+                });
             }
-            Item::Function(_) | Item::Statement(_) => {}
+            Item::Import(_) | Item::Function(_) | Item::Statement(_) => {}
         }
     }
 
-    Ok(())
+    Ok(declarations)
+}
+
+pub fn register_type_declarations(
+    registry: &mut TypeRegistry,
+    declarations: impl IntoIterator<Item = TypeDeclaration>,
+) {
+    for declaration in declarations {
+        registry.register(declaration.name, declaration.kind);
+    }
 }
 
 fn check_import(
@@ -99,7 +137,10 @@ fn check_import(
     Ok(())
 }
 
-fn ensure_local_name_available(name: &str, declared_in_module: &mut BTreeSet<String>) -> Result<()> {
+fn ensure_local_name_available(
+    name: &str,
+    declared_in_module: &mut BTreeSet<String>,
+) -> Result<()> {
     if is_primitive_name(name) {
         bail!("'{}' is reserved as primitive type name", name);
     }
@@ -126,7 +167,7 @@ fn is_primitive_name(name: &str) -> bool {
     )
 }
 
-fn ensure_primitives(registry: &mut TypeRegistry) {
+pub fn seed_primitives(registry: &mut TypeRegistry) {
     for primitive in [
         "number",
         "string",

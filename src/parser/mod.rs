@@ -1,4 +1,4 @@
-﻿pub mod ast;
+pub mod ast;
 pub mod lexer;
 pub mod span;
 
@@ -214,7 +214,10 @@ fn parse_class_member(line: &str, span: Span) -> Option<ClassMember> {
 
     if line.starts_with("constructor") || line.starts_with("public constructor") {
         let (_, parameters, _) = parse_callable_signature(line, span);
-        return Some(ClassMember::Constructor(ConstructorDecl { parameters, span }));
+        return Some(ClassMember::Constructor(ConstructorDecl {
+            parameters,
+            span,
+        }));
     }
 
     if line.contains('(') && line.contains(')') {

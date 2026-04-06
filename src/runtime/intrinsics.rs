@@ -1,6 +1,5 @@
-﻿#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntrinsicKind {
-    Function,
     Global,
 }
 
@@ -12,27 +11,35 @@ pub struct Intrinsic {
 
 pub const INTRINSICS: &[Intrinsic] = &[
     Intrinsic {
-        name: "alloc",
-        kind: IntrinsicKind::Function,
+        name: "io",
+        kind: IntrinsicKind::Global,
     },
     Intrinsic {
-        name: "dealloc",
-        kind: IntrinsicKind::Function,
-    },
-    Intrinsic {
-        name: "panic",
-        kind: IntrinsicKind::Function,
-    },
-    Intrinsic {
-        name: "print",
-        kind: IntrinsicKind::Function,
-    },
-    Intrinsic {
-        name: "clockNow",
-        kind: IntrinsicKind::Function,
+        name: "fs",
+        kind: IntrinsicKind::Global,
     },
     Intrinsic {
         name: "process",
+        kind: IntrinsicKind::Global,
+    },
+    Intrinsic {
+        name: "crypto",
+        kind: IntrinsicKind::Global,
+    },
+    Intrinsic {
+        name: "global",
+        kind: IntrinsicKind::Global,
+    },
+    Intrinsic {
+        name: "buffer",
+        kind: IntrinsicKind::Global,
+    },
+    Intrinsic {
+        name: "promise",
+        kind: IntrinsicKind::Global,
+    },
+    Intrinsic {
+        name: "task",
         kind: IntrinsicKind::Global,
     },
 ];

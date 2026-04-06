@@ -1,7 +1,11 @@
 pub mod bootstrap;
+pub(crate) mod bootstrap_lang;
+pub(crate) mod bootstrap_utils;
 pub mod bundle;
 pub mod intrinsics;
+pub(crate) mod namespaces;
 pub mod runner;
+pub mod state;
 
 use std::collections::BTreeSet;
 
@@ -29,6 +33,18 @@ pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
     }
 }
 
+pub fn rts_exports() -> &'static [&'static str] {
+    RTS_EXPORTS
+}
+
+pub fn compiler_dependencies() -> &'static [&'static str] {
+    COMPILER_DEPENDENCIES
+}
+
+pub fn rts_pending_apis() -> &'static [&'static str] {
+    RTS_PENDING_APIS
+}
+
 const RTS_EXPORTS: &[&str] = &[
     "i8",
     "u8",
@@ -45,11 +61,38 @@ const RTS_EXPORTS: &[&str] = &[
     "bool",
     "str",
     "WritableStream",
+    "ReadableStream",
+    "FileHandle",
     "Process",
+    "fs",
+    "io",
     "process",
-    "print",
-    "panic",
-    "clockNow",
-    "alloc",
-    "dealloc",
+    "crypto",
+    "global",
+    "buffer",
+    "promise",
+    "task",
+];
+
+const COMPILER_DEPENDENCIES: &[&str] = &[
+    "anyhow",
+    "object",
+    "serde",
+    "serde_json",
+    "ureq",
+    "rayon",
+    "sha2",
+];
+
+const RTS_PENDING_APIS: &[&str] = &[
+    "FFI ABI stable layer (C-compatible calls and symbol loader)",
+    "Expandir namespaces sem aumentar API plana no modulo `rts`",
+    "Process spawn + piping API (stdin/stdout/stderr + exit status)",
+    "Async runtime primitives (timers, poller, task scheduler)",
+    "Memory safety contract for alloc/dealloc in userland packages",
+    "Binary package format for precompiled RTS modules",
+    "Cross-platform path API package (normalize/join/resolve)",
+    "Networking primitives (TCP, UDP, DNS, HTTP client/server)",
+    "Structured diagnostics protocol and source maps for AOT binaries",
+    "Package publish/install workflow for ~/.rts/modules registry layout",
 ];

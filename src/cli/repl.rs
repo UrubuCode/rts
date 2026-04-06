@@ -1,4 +1,4 @@
-﻿use std::io::{self, Write};
+use std::io::{self, Write};
 
 use anyhow::Result;
 
@@ -37,7 +37,11 @@ pub fn command() -> Result<()> {
                 {
                     println!("type error: {error}");
                 } else {
-                    println!("ok (items={}, known_types={})", program.items.len(), registry.len());
+                    println!(
+                        "ok (items={}, known_types={})",
+                        program.items.len(),
+                        registry.len()
+                    );
                 }
             }
             Err(error) => println!("parse error: {error}"),

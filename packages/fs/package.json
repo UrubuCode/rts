@@ -1,0 +1,8 @@
+{
+  "name": "fs",
+  "version": "0.1.0",
+  "main": "main.ts",
+  "dependencies": {
+    "rts": "npm:0.1.0"
+  }
+}
