@@ -4,7 +4,7 @@ pub mod toolchain;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 #[derive(Debug, Clone)]
 pub struct LinkedBinary {
@@ -64,7 +64,18 @@ impl LinkRequest {
 }
 
 pub fn link_object_to_binary(object_path: &Path, output_path: &Path) -> Result<LinkedBinary> {
-    link_object_to_binary_with_request(object_path, output_path, &LinkRequest::from_env())
+    link_objects_to_binary_with_request(
+        &[object_path.to_path_buf()],
+        output_path,
+        &LinkRequest::from_env(),
+    )
+}
+
+pub fn link_objects_to_binary(
+    object_paths: &[PathBuf],
+    output_path: &Path,
+) -> Result<LinkedBinary> {
+    link_objects_to_binary_with_request(object_paths, output_path, &LinkRequest::from_env())
 }
 
 pub fn link_object_to_binary_with_request(
@@ -72,28 +83,47 @@ pub fn link_object_to_binary_with_request(
     output_path: &Path,
     request: &LinkRequest,
 ) -> Result<LinkedBinary> {
+    link_objects_to_binary_with_request(&[object_path.to_path_buf()], output_path, request)
+}
+
+pub fn link_objects_to_binary_with_request(
+    object_paths: &[PathBuf],
+    output_path: &Path,
+    request: &LinkRequest,
+) -> Result<LinkedBinary> {
+    if object_paths.is_empty() {
+        bail!("linker received no object files");
+    }
+
     match request.backend_or_default() {
-        LinkBackendPreference::Object => link_with_object_backend(object_path, output_path),
+        LinkBackendPreference::Object => link_with_object_backend(object_paths, output_path),
         LinkBackendPreference::System => {
-            link_with_system_backend(object_path, output_path, request)
+            link_with_system_backend(object_paths, output_path, request)
         }
         LinkBackendPreference::Auto => {
-            match link_with_system_backend(object_path, output_path, request) {
+            match link_with_system_backend(object_paths, output_path, request) {
                 Ok(linked) => Ok(linked),
                 Err(system_error) => {
                     eprintln!(
                         "RTS linker: system backend unavailable ({}). Falling back to object backend.",
                         system_error
                     );
-                    link_with_object_backend(object_path, output_path)
+                    link_with_object_backend(object_paths, output_path)
                 }
             }
         }
     }
 }
 
-fn link_with_object_backend(object_path: &Path, output_path: &Path) -> Result<LinkedBinary> {
-    let artifact = object_linker::link(object_path, output_path)?;
+fn link_with_object_backend(object_paths: &[PathBuf], output_path: &Path) -> Result<LinkedBinary> {
+    if object_paths.len() != 1 {
+        bail!(
+            "object linker backend only supports one object file (received {})",
+            object_paths.len()
+        );
+    }
+
+    let artifact = object_linker::link(&object_paths[0], output_path)?;
     Ok(LinkedBinary {
         path: artifact.path,
         backend: "object".to_string(),
@@ -102,11 +132,12 @@ fn link_with_object_backend(object_path: &Path, output_path: &Path) -> Result<Li
 }
 
 fn link_with_system_backend(
-    object_path: &Path,
+    object_paths: &[PathBuf],
     output_path: &Path,
     request: &LinkRequest,
 ) -> Result<LinkedBinary> {
-    let artifact = system_linker::link(object_path, output_path, request.target_triple.as_deref())?;
+    let artifact =
+        system_linker::link(object_paths, output_path, request.target_triple.as_deref())?;
     Ok(LinkedBinary {
         path: artifact.path,
         backend: format!("system:{}", artifact.linker),

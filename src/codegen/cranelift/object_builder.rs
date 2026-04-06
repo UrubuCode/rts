@@ -13,7 +13,26 @@ use target_lexicon::Triple;
 use crate::mir::{MirFunction, MirModule};
 
 pub fn lower_to_native_object(mir: &MirModule) -> Result<Vec<u8>> {
-    let mut object_module = initialize_object_module()?;
+    lower_to_native_object_with_options(
+        mir,
+        &ObjectBuildOptions {
+            emit_entrypoint: true,
+            optimize_for_production: false,
+        },
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ObjectBuildOptions {
+    pub emit_entrypoint: bool,
+    pub optimize_for_production: bool,
+}
+
+pub fn lower_to_native_object_with_options(
+    mir: &MirModule,
+    options: &ObjectBuildOptions,
+) -> Result<Vec<u8>> {
+    let mut object_module = initialize_object_module(options)?;
     let mut declarations = BTreeMap::<String, FuncId>::new();
 
     let signature = function_signature(&mut object_module);
@@ -24,7 +43,7 @@ pub fn lower_to_native_object(mir: &MirModule) -> Result<Vec<u8>> {
         declarations.insert(function.name.clone(), id);
     }
 
-    let needs_synthetic_start = !declarations.contains_key("_start");
+    let needs_synthetic_start = options.emit_entrypoint && !declarations.contains_key("_start");
     if needs_synthetic_start {
         let start_id = object_module
             .declare_function("_start", Linkage::Export, &signature)
@@ -49,15 +68,15 @@ pub fn lower_to_native_object(mir: &MirModule) -> Result<Vec<u8>> {
         .map_err(|error| anyhow::anyhow!("failed to emit native object bytes: {error}"))
 }
 
-fn initialize_object_module() -> Result<ObjectModule> {
-    let isa = resolve_target_isa()?;
+fn initialize_object_module(options: &ObjectBuildOptions) -> Result<ObjectModule> {
+    let isa = resolve_target_isa(options)?;
 
     let builder = ObjectBuilder::new(isa, "rts_aot".to_string(), default_libcall_names())
         .context("failed to initialize Cranelift object builder")?;
     Ok(ObjectModule::new(builder))
 }
 
-fn resolve_target_isa() -> Result<std::sync::Arc<dyn isa::TargetIsa>> {
+fn resolve_target_isa(options: &ObjectBuildOptions) -> Result<std::sync::Arc<dyn isa::TargetIsa>> {
     if let Some(target) = env::var("RTS_TARGET")
         .ok()
         .map(|value| value.trim().to_string())
@@ -69,7 +88,7 @@ fn resolve_target_isa() -> Result<std::sync::Arc<dyn isa::TargetIsa>> {
 
         match isa::lookup(triple.clone()) {
             Ok(builder) => {
-                let flags = build_cranelift_flags()?;
+                let flags = build_cranelift_flags(options)?;
                 return builder
                     .finish(flags)
                     .with_context(|| format!("failed to finalize AOT ISA for '{}'", triple));
@@ -83,7 +102,7 @@ fn resolve_target_isa() -> Result<std::sync::Arc<dyn isa::TargetIsa>> {
         }
     }
 
-    let flags = build_cranelift_flags()?;
+    let flags = build_cranelift_flags(options)?;
     let isa_builder = cranelift_native::builder()
         .map_err(|error| anyhow::anyhow!("failed to build host ISA for AOT: {error}"))?;
     isa_builder
@@ -91,11 +110,21 @@ fn resolve_target_isa() -> Result<std::sync::Arc<dyn isa::TargetIsa>> {
         .context("failed to finalize host ISA for AOT")
 }
 
-fn build_cranelift_flags() -> Result<settings::Flags> {
+fn build_cranelift_flags(options: &ObjectBuildOptions) -> Result<settings::Flags> {
     let mut settings_builder = settings::builder();
     settings_builder
         .set("is_pic", "false")
         .context("failed to configure Cranelift setting 'is_pic' for AOT")?;
+    settings_builder
+        .set(
+            "opt_level",
+            if options.optimize_for_production {
+                "speed_and_size"
+            } else {
+                "none"
+            },
+        )
+        .context("failed to configure Cranelift setting 'opt_level' for AOT")?;
     Ok(settings::Flags::new(settings_builder))
 }
 

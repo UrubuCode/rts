@@ -15,7 +15,23 @@ pub fn generate_object_with_metadata(
     metadata: &MetadataTable,
     output: &Path,
 ) -> Result<ObjectArtifact> {
-    let bytes = match cranelift::object_builder::lower_to_native_object(mir) {
+    generate_object_with_metadata_options(mir, metadata, output, true, false)
+}
+
+pub fn generate_object_with_metadata_options(
+    mir: &MirModule,
+    metadata: &MetadataTable,
+    output: &Path,
+    emit_entrypoint: bool,
+    optimize_for_production: bool,
+) -> Result<ObjectArtifact> {
+    let bytes = match cranelift::object_builder::lower_to_native_object_with_options(
+        mir,
+        &cranelift::object_builder::ObjectBuildOptions {
+            emit_entrypoint,
+            optimize_for_production,
+        },
+    ) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!(

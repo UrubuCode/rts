@@ -23,6 +23,60 @@ pub fn build_for_sources<'a>(
     build_runtime_object(program, &usage)
 }
 
+pub fn build_builtin_namespace_object(namespace: &str, functions: &[String]) -> Result<Vec<u8>> {
+    let target = HostObjectTarget::resolve()?;
+    let mut object = Object::new(
+        target.binary_format,
+        target.architecture,
+        Endianness::Little,
+    );
+
+    let runtime_segment = object.segment_name(StandardSegment::Data).to_vec();
+    let namespace_token = sanitize_symbol_token(namespace);
+
+    let namespace_section_name = format!(".rts.builtin.{namespace_token}");
+    let namespace_section = object.add_section(
+        runtime_segment.clone(),
+        namespace_section_name.into_bytes(),
+        SectionKind::ReadOnlyData,
+    );
+    let namespace_bytes = namespace.as_bytes();
+    let namespace_offset = object.append_section_data(namespace_section, namespace_bytes, 1);
+    object.add_symbol(Symbol {
+        name: format!("__rts_builtin_namespace_{namespace_token}").into_bytes(),
+        value: namespace_offset,
+        size: namespace_bytes.len() as u64,
+        kind: SymbolKind::Data,
+        scope: SymbolScope::Compilation,
+        weak: false,
+        section: SymbolSection::Section(namespace_section),
+        flags: SymbolFlags::None,
+    });
+
+    let functions_section_name = format!(".rts.builtin.{namespace_token}.functions");
+    let functions_section = object.add_section(
+        runtime_segment,
+        functions_section_name.into_bytes(),
+        SectionKind::ReadOnlyData,
+    );
+    let functions_bytes = functions.join("\n").into_bytes();
+    let functions_offset = object.append_section_data(functions_section, &functions_bytes, 1);
+    object.add_symbol(Symbol {
+        name: format!("__rts_builtin_functions_{namespace_token}").into_bytes(),
+        value: functions_offset,
+        size: functions_bytes.len() as u64,
+        kind: SymbolKind::Data,
+        scope: SymbolScope::Compilation,
+        weak: false,
+        section: SymbolSection::Section(functions_section),
+        flags: SymbolFlags::None,
+    });
+
+    object.write().map_err(|error| {
+        anyhow::anyhow!("failed to emit builtin namespace runtime object: {error}")
+    })
+}
+
 pub fn decode_runtime_object(payload: &[u8]) -> Result<BootstrapProgram> {
     let file = object::File::parse(payload)
         .map_err(|error| anyhow::anyhow!("invalid runtime object payload: {error}"))?;
@@ -118,6 +172,24 @@ fn build_runtime_object(program: &BootstrapProgram, usage: &NamespaceUsage) -> R
     object
         .write()
         .map_err(|error| anyhow::anyhow!("failed to emit runtime object payload: {error}"))
+}
+
+fn sanitize_symbol_token(raw: &str) -> String {
+    let mut value = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            value.push(ch);
+        } else {
+            value.push('_');
+        }
+    }
+
+    let value = value.trim_matches('_');
+    if value.is_empty() {
+        "module".to_string()
+    } else {
+        value.to_string()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -25,12 +25,20 @@ pub fn command(
 
     options.emit_module_progress = true;
     let colors = Colors::new();
+    let pure_aot = pure_aot_mode_enabled();
 
     println!(
         "{} {}",
         colors.paint("1;34", "RTS"),
         colors.paint("2", "build pipeline started")
     );
+    if pure_aot {
+        println!(
+            "{} {}",
+            colors.paint("33", "warning:"),
+            "RTS_PURE_AOT is enabled (runtime bundle disabled; builtin runtime objects are emitted to target/.deps)"
+        );
+    }
 
     let summary = crate::compile_file_with_options(&input, &output, options)
         .with_context(|| format!("failed to compile {}", input.display()))?;
@@ -55,10 +63,21 @@ pub fn command(
         summary.link_format
     );
     println!(
-        "  {} app.o={} runtime.o(embedded)={} final={}",
+        "  {} objects={} cache(hit/miss)={}/{}",
+        colors.paint("32", "deps"),
+        summary.dependency_objects,
+        summary.cache_hits,
+        summary.cache_misses
+    );
+    println!(
+        "  {} app.o(total)={} runtime={} final={}",
         colors.paint("33", "size"),
         format_bytes(summary.app_object_bytes as u64),
-        format_bytes(summary.runtime_object_bytes as u64),
+        if summary.runtime_object_bytes == 0 {
+            "disabled".to_string()
+        } else {
+            format_bytes(summary.runtime_object_bytes as u64)
+        },
         format_bytes(summary.binary_bytes)
     );
 
@@ -133,6 +152,16 @@ fn format_bytes(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[unit])
     } else {
         format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
+fn pure_aot_mode_enabled() -> bool {
+    match std::env::var("RTS_PURE_AOT") {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
     }
 }
 

@@ -1,7 +1,0 @@
-{
-  "name": "rts-types",
-  "version": "0.1.0",
-  "main": "rts.d.ts",
-  "types": "rts.d.ts",
-  "dependencies": {}
-}
