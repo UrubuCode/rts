@@ -2,10 +2,8 @@ pub mod bootstrap;
 pub(crate) mod bootstrap_lang;
 pub(crate) mod bootstrap_utils;
 pub mod bundle;
-pub(crate) mod namespaces;
 pub mod runner;
 pub mod runtime_object;
-pub mod state;
 
 use std::collections::BTreeSet;
 

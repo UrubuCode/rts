@@ -44,8 +44,6 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
     let jit_report = crate::codegen::cranelift::jit::execute(&mir, "main")
         .context("failed to execute MIR through Cranelift JIT")?;
 
-    let run_report = crate::runtime::runner::run_entry(&graph, options)?;
-
     if jit_report.executed {
         println!(
             "JIT executou '{}': {} funcoes lowerizadas, retorno={} (profile={}, modulos={}).",
@@ -63,10 +61,6 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
             options.profile,
             graph.module_count()
         );
-    }
-
-    if run_report.lines_emitted == 0 {
-        println!("Nenhuma saida de runtime detectada no fallback atual.");
     }
 
     Ok(())

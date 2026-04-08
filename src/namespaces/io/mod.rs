@@ -8,40 +8,63 @@ const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "print",
         callee: "io.print",
+        doc: "Writes a message to stdout.",
+        ts_signature: "print(message: str): void",
     },
     NamespaceMember {
         name: "panic",
         callee: "io.panic",
+        doc: "Aborts execution with a runtime panic message.",
+        ts_signature: "panic(message?: str): never",
     },
     NamespaceMember {
         name: "stdin_read",
         callee: "io.stdin_read",
+        doc: "Reads a line or payload from stdin.",
+        ts_signature: "stdin_read(maxBytes?: usize): str",
     },
     NamespaceMember {
         name: "stdout_write",
         callee: "io.stdout_write",
+        doc: "Writes raw text to stdout.",
+        ts_signature: "stdout_write(message: str): void",
     },
     NamespaceMember {
         name: "stderr_write",
         callee: "io.stderr_write",
+        doc: "Writes raw text to stderr.",
+        ts_signature: "stderr_write(message: str): void",
     },
     NamespaceMember {
         name: "is_ok",
         callee: "io.is_ok",
+        doc: "Returns true when an io.Result is successful.",
+        ts_signature: "is_ok<T>(result: Result<T>): bool",
     },
     NamespaceMember {
         name: "is_err",
         callee: "io.is_err",
+        doc: "Returns true when an io.Result is an error.",
+        ts_signature: "is_err<T>(result: Result<T>): bool",
     },
     NamespaceMember {
         name: "unwrap_or",
         callee: "io.unwrap_or",
+        doc: "Returns the inner value or a fallback when the result is an error.",
+        ts_signature: "unwrap_or<T>(result: Result<T>, fallback: T): T",
     },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "io",
+    doc: "Input/output utilities and Result helpers.",
     members: MEMBERS,
+    ts_prelude: &[
+        "export interface Error {\n  message: str;\n}",
+        "export interface Ok<T> {\n  ok: true;\n  tag: \"ok\";\n  value: T;\n  error: undefined;\n}",
+        "export interface Err {\n  ok: false;\n  tag: \"err\";\n  value: undefined;\n  error: Error;\n}",
+        "export type Result<T> = Ok<T> | Err;",
+    ],
 };
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {

@@ -7,6 +7,18 @@ pub fn command() -> Result<()> {
     }
 
     println!();
+    println!("RTS Namespace Catalog (Rust -> Cranelift):");
+    for namespace in crate::namespaces::documentation_catalog() {
+        println!("  - {}: {}", namespace.namespace, namespace.doc);
+        for function in namespace.functions {
+            println!(
+                "      * {} ({}) -> {}",
+                function.callee, function.ts_signature, function.doc
+            );
+        }
+    }
+
+    println!();
     println!("RTS Compiler Dependencies (Cargo):");
     for dependency in crate::runtime::compiler_dependencies() {
         println!("  - {dependency}");

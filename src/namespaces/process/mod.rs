@@ -9,52 +9,76 @@ const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "args",
         callee: "process.args",
+        doc: "Returns process CLI arguments.",
+        ts_signature: "args(): globalThis.Array<str> | str",
     },
     NamespaceMember {
         name: "cwd",
         callee: "process.cwd",
+        doc: "Returns current working directory.",
+        ts_signature: "cwd(): str",
     },
     NamespaceMember {
         name: "chdir",
         callee: "process.chdir",
+        doc: "Changes process working directory.",
+        ts_signature: "chdir(path: str): void",
     },
     NamespaceMember {
         name: "env_get",
         callee: "process.env_get",
+        doc: "Reads an environment variable.",
+        ts_signature: "env_get(name: str): str | undefined",
     },
     NamespaceMember {
         name: "env_set",
         callee: "process.env_set",
+        doc: "Sets an environment variable.",
+        ts_signature: "env_set(name: str, value: str): void",
     },
     NamespaceMember {
         name: "platform",
         callee: "process.platform",
+        doc: "Returns target OS name.",
+        ts_signature: "platform(): str",
     },
     NamespaceMember {
         name: "arch",
         callee: "process.arch",
+        doc: "Returns target architecture.",
+        ts_signature: "arch(): str",
     },
     NamespaceMember {
         name: "pid",
         callee: "process.pid",
+        doc: "Returns current process id.",
+        ts_signature: "pid(): i32",
     },
     NamespaceMember {
         name: "sleep",
         callee: "process.sleep",
+        doc: "Sleeps current thread for milliseconds.",
+        ts_signature: "sleep(ms: f64): void",
     },
     NamespaceMember {
         name: "exit",
         callee: "process.exit",
+        doc: "Aborts execution with an exit code signal.",
+        ts_signature: "exit(code?: i32): never",
     },
     NamespaceMember {
         name: "clock_now",
         callee: "process.clock_now",
+        doc: "Returns wall clock time in milliseconds.",
+        ts_signature: "clock_now(): f64",
     },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "process",
+    doc: "Process utilities such as env, cwd, pid and time.",
     members: MEMBERS,
+    ts_prelude: &[],
 };
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {

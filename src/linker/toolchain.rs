@@ -12,6 +12,7 @@ const TARGET_ENV_VAR: &str = "RTS_TARGET";
 const LINKER_DOWNLOAD_URL_ENV_VAR: &str = "RTS_LINKER_DOWNLOAD_URL";
 const LINKER_SHA256_ENV_VAR: &str = "RTS_LINKER_SHA256";
 const RUST_DIST_MANIFEST_URL: &str = "https://static.rust-lang.org/dist/channel-rust-stable.toml";
+const RUST_LLD_TOOL_NAME: &str = "rust-lld";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetFlavor {
@@ -104,11 +105,38 @@ impl ResolvedLinker {
 
 pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {
     let candidates = preferred_linker_names(layout.target.flavor);
+    let toolchains_base = resolve_toolchains_base_dir()?;
 
     for candidate in candidates {
         if let Some(path) = find_binary_in_dir(&layout.bin_dir, candidate) {
             return Ok(ResolvedLinker { path });
         }
+    }
+
+    for candidate in candidates {
+        for dir in
+            tool_cache_search_dirs(&toolchains_base, RUST_LLD_TOOL_NAME, &layout.target.triple)
+        {
+            if let Some(path) = find_binary_in_dir(&dir, candidate) {
+                return Ok(ResolvedLinker { path });
+            }
+        }
+    }
+
+    for candidate in candidates {
+        for dir in tool_cache_search_dirs(
+            &toolchains_base,
+            sanitize_tool_dir_name(candidate).as_str(),
+            &layout.target.triple,
+        ) {
+            if let Some(path) = find_binary_in_dir(&dir, candidate) {
+                return Ok(ResolvedLinker { path });
+            }
+        }
+    }
+
+    if let Some(path) = find_linker_near_current_exe(candidates) {
+        return Ok(ResolvedLinker { path });
     }
 
     if let Some(path) = rustup_rust_lld() {
@@ -126,7 +154,7 @@ pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {
     }
 
     if let Some(primary) = candidates.first().copied() {
-        if let Some(path) = maybe_download_linker(layout, primary)? {
+        if let Some(path) = maybe_download_linker(layout, primary, &toolchains_base)? {
             eprintln!(
                 "RTS toolchain: cached target '{}' linker at {}",
                 layout.target.triple,
@@ -136,7 +164,7 @@ pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {
         }
     }
 
-    if let Some(path) = maybe_download_rust_dist_linker(layout)? {
+    if let Some(path) = maybe_download_rust_dist_linker(layout, &toolchains_base)? {
         eprintln!(
             "RTS toolchain: cached target '{}' linker at {}",
             layout.target.triple,
@@ -146,11 +174,24 @@ pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {
     }
 
     bail!(
-        "no system linker found for target '{}' (searched in {}, PATH, rustup/sysroot, optional download via {}, and Rust dist)",
+        "no system linker found for target '{}' (searched in {}, ~/.rts/toolchains/rust-lld, ~/.rts/toolchains/<tool>, PATH, rustup/sysroot, optional download via {}, and Rust dist)",
         layout.target.triple,
         layout.bin_dir.display(),
         LINKER_DOWNLOAD_URL_ENV_VAR
     )
+}
+
+fn find_linker_near_current_exe(candidates: &[&str]) -> Option<PathBuf> {
+    let current_exe = std::env::current_exe().ok()?;
+    let bin_dir = current_exe.parent()?;
+
+    for candidate in candidates {
+        if let Some(path) = find_binary_in_dir(bin_dir, candidate) {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 fn preferred_linker_names(flavor: TargetFlavor) -> &'static [&'static str] {
@@ -159,6 +200,16 @@ fn preferred_linker_names(flavor: TargetFlavor) -> &'static [&'static str] {
         TargetFlavor::Elf => &["ld.lld", "rust-lld", "lld", "clang", "cc"],
         TargetFlavor::MachO => &["ld64.lld", "rust-lld", "ld", "clang", "cc"],
     }
+}
+
+fn tool_cache_search_dirs(base: &Path, tool_name: &str, target: &str) -> Vec<PathBuf> {
+    let normalized_tool = sanitize_tool_dir_name(tool_name);
+    let tool_root = base.join(&normalized_tool);
+    vec![
+        tool_root.clone(),
+        tool_root.join(target),
+        tool_root.join(target).join("bin"),
+    ]
 }
 
 fn rustup_rust_lld() -> Option<PathBuf> {
@@ -273,7 +324,11 @@ fn expand_tilde_path(raw: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(raw))
 }
 
-fn maybe_download_linker(layout: &ToolchainLayout, binary_name: &str) -> Result<Option<PathBuf>> {
+fn maybe_download_linker(
+    layout: &ToolchainLayout,
+    binary_name: &str,
+    toolchains_base: &Path,
+) -> Result<Option<PathBuf>> {
     let Some(template) = env::var(LINKER_DOWNLOAD_URL_ENV_VAR)
         .ok()
         .map(|value| value.trim().to_string())
@@ -287,7 +342,13 @@ fn maybe_download_linker(layout: &ToolchainLayout, binary_name: &str) -> Result<
         .replace("{target}", &layout.target.triple)
         .replace("{binary}", &binary_file);
 
-    let destination = layout.bin_dir.join(&binary_file);
+    let destination = cache_destination_for_tool(
+        toolchains_base,
+        sanitize_tool_dir_name(binary_name).as_str(),
+        &layout.target.triple,
+        &binary_file,
+    )?;
+    mirror_to_legacy_layout(&layout.bin_dir, &binary_file, &destination)?;
     if destination.is_file() {
         eprintln!(
             "RTS toolchain: using cached target '{}' from {}",
@@ -311,17 +372,13 @@ fn maybe_download_linker(layout: &ToolchainLayout, binary_name: &str) -> Result<
         verify_sha256(&bytes, &expected, &url)?;
     }
 
-    if let Some(parent) = destination.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-
     std::fs::write(&destination, &bytes).with_context(|| {
         format!(
             "failed to write downloaded linker {}",
             destination.display()
         )
     })?;
+    mirror_to_legacy_layout(&layout.bin_dir, &binary_file, &destination)?;
     set_executable_if_supported(&destination)?;
 
     eprintln!(
@@ -332,8 +389,18 @@ fn maybe_download_linker(layout: &ToolchainLayout, binary_name: &str) -> Result<
     Ok(Some(destination))
 }
 
-fn maybe_download_rust_dist_linker(layout: &ToolchainLayout) -> Result<Option<PathBuf>> {
-    let destination = layout.bin_dir.join(expected_binary_name("rust-lld"));
+fn maybe_download_rust_dist_linker(
+    layout: &ToolchainLayout,
+    toolchains_base: &Path,
+) -> Result<Option<PathBuf>> {
+    let binary_name = expected_binary_name("rust-lld");
+    let destination = cache_destination_for_tool(
+        toolchains_base,
+        RUST_LLD_TOOL_NAME,
+        &layout.target.triple,
+        &binary_name,
+    )?;
+    mirror_to_legacy_layout(&layout.bin_dir, &binary_name, &destination)?;
     if destination.is_file() {
         eprintln!(
             "RTS toolchain: using cached target '{}' from {}",
@@ -361,6 +428,7 @@ fn maybe_download_rust_dist_linker(layout: &ToolchainLayout) -> Result<Option<Pa
             artifact.url
         );
     }
+    mirror_to_legacy_layout(&layout.bin_dir, &binary_name, &destination)?;
 
     eprintln!(
         "RTS toolchain: target '{}' downloaded and cached.",
@@ -368,6 +436,41 @@ fn maybe_download_rust_dist_linker(layout: &ToolchainLayout) -> Result<Option<Pa
     );
 
     Ok(Some(destination))
+}
+
+fn cache_destination_for_tool(
+    toolchains_base: &Path,
+    tool_name: &str,
+    target: &str,
+    binary_file: &str,
+) -> Result<PathBuf> {
+    let dir = toolchains_base
+        .join(sanitize_tool_dir_name(tool_name))
+        .join(target);
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    Ok(dir.join(binary_file))
+}
+
+fn mirror_to_legacy_layout(legacy_bin_dir: &Path, binary_file: &str, source: &Path) -> Result<()> {
+    if !source.is_file() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(legacy_bin_dir)
+        .with_context(|| format!("failed to create {}", legacy_bin_dir.display()))?;
+    let destination = legacy_bin_dir.join(binary_file);
+    if destination == source {
+        return Ok(());
+    }
+    std::fs::copy(source, &destination).with_context(|| {
+        format!(
+            "failed to mirror tool '{}' to legacy layout at {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    set_executable_if_supported(&destination)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -464,9 +567,7 @@ fn extract_rust_lld_from_rustc_archive(archive_bytes: &[u8], destination: &Path)
             .context("failed to read Rust dist archive entry path")?;
         let normalized = path.to_string_lossy().replace('\\', "/");
 
-        if normalized.ends_with("/rustc/bin/rust-lld")
-            || normalized.ends_with("/rustc/bin/rust-lld.exe")
-        {
+        if normalized.ends_with("/bin/rust-lld") || normalized.ends_with("/bin/rust-lld.exe") {
             if let Some(parent) = destination.parent() {
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -566,6 +667,28 @@ fn expected_binary_name(binary_name: &str) -> String {
     } else {
         binary_name.to_string()
     }
+}
+
+fn sanitize_tool_dir_name(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-') {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+
+    let trimmed = out.trim_matches('_').to_string();
+    if trimmed.is_empty() {
+        "tool".to_string()
+    } else {
+        trimmed
+    }
+}
+
+pub fn toolchains_base_dir() -> Result<PathBuf> {
+    resolve_toolchains_base_dir()
 }
 
 fn host_target_triple() -> String {

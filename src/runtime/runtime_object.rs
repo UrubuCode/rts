@@ -5,8 +5,8 @@ use object::{
     SymbolFlags, SymbolKind, SymbolScope,
 };
 
+use crate::namespaces::NamespaceUsage;
 use crate::runtime::bootstrap::BootstrapProgram;
-use crate::runtime::namespaces::NamespaceUsage;
 
 const PROGRAM_SECTION: &[u8] = b".rts.program";
 const USAGE_SECTION: &[u8] = b".rts.usage";

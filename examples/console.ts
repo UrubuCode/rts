@@ -1,7 +1,6 @@
-import { io, process } from "rts";
-import { console } from "../packages/console";
+import { type i8, io, process, fs } from "rts";
 
-console.time("console example");
-console.log(1 + 1 + " hello from package console");
+io.print("console example");
+io.print(1 + 1 + " hello from package console");
 io.print(process.arch() + " hello from print() call");
-console.timeEnd("console example");
+io.print("console example");

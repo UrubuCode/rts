@@ -1,5 +1,5 @@
+use crate::namespaces::state as runtime_state;
 use crate::runtime::bootstrap_lang::JsValue;
-use crate::runtime::state as runtime_state;
 
 use super::{
     DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u8, arg_to_u64,
@@ -10,44 +10,64 @@ const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "alloc",
         callee: "buffer.alloc",
+        doc: "Allocates a runtime buffer and returns its handle.",
+        ts_signature: "alloc(size: usize): Handle",
     },
     NamespaceMember {
         name: "free",
         callee: "buffer.free",
+        doc: "Releases a runtime buffer handle.",
+        ts_signature: "free(handle: Handle): bool",
     },
     NamespaceMember {
         name: "len",
         callee: "buffer.len",
+        doc: "Returns current buffer length.",
+        ts_signature: "len(handle: Handle): usize | undefined",
     },
     NamespaceMember {
         name: "read_u8",
         callee: "buffer.read_u8",
+        doc: "Reads an unsigned byte from offset.",
+        ts_signature: "read_u8(handle: Handle, offset: usize): u8 | undefined",
     },
     NamespaceMember {
         name: "write_u8",
         callee: "buffer.write_u8",
+        doc: "Writes an unsigned byte at offset.",
+        ts_signature: "write_u8(handle: Handle, offset: usize, value: u8): bool",
     },
     NamespaceMember {
         name: "fill",
         callee: "buffer.fill",
+        doc: "Fills entire buffer with a byte value.",
+        ts_signature: "fill(handle: Handle, value: u8): bool",
     },
     NamespaceMember {
         name: "write_text",
         callee: "buffer.write_text",
+        doc: "Writes UTF-8 text into a buffer from optional offset.",
+        ts_signature: "write_text(handle: Handle, content: str, offset?: usize): usize | undefined",
     },
     NamespaceMember {
         name: "read_text",
         callee: "buffer.read_text",
+        doc: "Reads UTF-8 text from buffer range.",
+        ts_signature: "read_text(handle: Handle, offset: usize, length?: usize): str | undefined",
     },
     NamespaceMember {
         name: "copy",
         callee: "buffer.copy",
+        doc: "Copies bytes between two runtime buffers.",
+        ts_signature: "copy(source: Handle, target: Handle, sourceOffset?: usize, targetOffset?: usize, length?: usize): usize | undefined",
     },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "buffer",
+    doc: "Low-level byte buffer API with explicit handles.",
     members: MEMBERS,
+    ts_prelude: &["export type Handle = usize;"],
 };
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {

@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use colored::Colorize;
+use console::style;
 use object::{Object, ObjectSection};
 
 use crate::compile_options::CompileOptions;
@@ -24,97 +26,149 @@ pub fn command(
     }
 
     options.emit_module_progress = true;
-    let colors = Colors::new();
-    let pure_aot = pure_aot_mode_enabled();
 
+    // Cabeçalho moderno com ícone e gradiente de cores
     println!(
         "{} {}",
-        colors.paint("1;34", "RTS"),
-        colors.paint("2", "build pipeline started")
+        "⚡".bright_blue().bold(),
+        "RTS Build Pipeline".bright_blue().bold()
     );
-    if pure_aot {
-        println!(
-            "{} {}",
-            colors.paint("33", "warning:"),
-            "RTS_PURE_AOT is enabled (runtime bundle disabled; builtin runtime objects are emitted to target/.deps)"
-        );
-    }
+    println!("{}", "─".repeat(50).dimmed());
 
     let summary = crate::compile_file_with_options(&input, &output, options)
         .with_context(|| format!("failed to compile {}", input.display()))?;
 
+    // Sucesso com ícone
     println!(
-        "{} {}",
-        colors.paint("1;32", "Build complete:"),
-        colors.paint("1", &summary.binary_file.display().to_string())
-    );
-    println!(
-        "  {} profile={} modules={} types={} functions={}",
-        colors.paint("36", "stats"),
-        summary.profile,
-        summary.compiled_modules,
-        summary.discovered_types,
-        summary.lowered_functions
-    );
-    println!(
-        "  {} backend={} format={}",
-        colors.paint("35", "link"),
-        summary.link_backend,
-        summary.link_format
-    );
-    println!(
-        "  {} objects={} cache(hit/miss)={}/{}",
-        colors.paint("32", "deps"),
-        summary.dependency_objects,
-        summary.cache_hits,
-        summary.cache_misses
-    );
-    println!(
-        "  {} app.o(total)={} runtime={} final={}",
-        colors.paint("33", "size"),
-        format_bytes(summary.app_object_bytes as u64),
-        if summary.runtime_object_bytes == 0 {
-            "disabled".to_string()
-        } else {
-            format_bytes(summary.runtime_object_bytes as u64)
-        },
-        format_bytes(summary.binary_bytes)
+        "\n{} {}\n{}",
+        "✔".green().bold(),
+        "Build completed successfully".green().bold(),
+        format!("  {}", summary.binary_file.display()).dimmed()
     );
 
-    emit_object_diagnostics(&summary.object_file, &colors);
+    // Layout de tabela para estatísticas
+    println!("\n{}", "📊 Build Summary".cyan().bold());
+    println!("{}", "─".repeat(50).dimmed());
+
+    // Função auxiliar para imprimir linha alinhada
+    let print_row = |label: &str, value: String| {
+        println!("  {:<20} {}", label.dimmed(), value);
+    };
+
+    print_row("Profile", style(&summary.profile).yellow().to_string());
+    print_row(
+        "Modules",
+        style(summary.compiled_modules).cyan().to_string(),
+    );
+    print_row("Types", style(summary.discovered_types).cyan().to_string());
+    print_row(
+        "Functions",
+        style(summary.lowered_functions).cyan().to_string(),
+    );
+
+    println!("{}", "  ──────────────────────────────────".dimmed());
+
+    let runtime_ns = if summary.runtime_namespaces.is_empty() {
+        "none".to_string()
+    } else {
+        summary.runtime_namespaces.join(", ")
+    };
+    print_row(
+        "Runtime namespaces",
+        style(runtime_ns).magenta().to_string(),
+    );
+    print_row(
+        "Runtime functions",
+        style(summary.runtime_functions).magenta().to_string(),
+    );
+    print_row(
+        "Cache directory",
+        style(summary.runtime_cache_dir.display()).dim().to_string(),
+    );
+
+    println!("{}", "  ──────────────────────────────────".dimmed());
+
+    print_row(
+        "Link backend",
+        style(&summary.link_backend).blue().to_string(),
+    );
+    print_row(
+        "Link format",
+        style(&summary.link_format).blue().to_string(),
+    );
+
+    println!("{}", "  ──────────────────────────────────".dimmed());
+
+    print_row(
+        "Dependency objects",
+        style(summary.dependency_objects).green().to_string(),
+    );
+    print_row(
+        "Cache hits/misses",
+        format!(
+            "{}/{}",
+            style(summary.cache_hits).green(),
+            style(summary.cache_misses).red()
+        ),
+    );
+
+    println!("{}", "  ──────────────────────────────────".dimmed());
+
+    // Tamanhos dos arquivos com ícones
+    println!("  {} {}", "📦".yellow(), "Size breakdown".yellow().bold());
+    println!(
+        "    {:<18} {}",
+        "App object".dimmed(),
+        format_bytes(summary.app_object_bytes as u64).cyan()
+    );
+    let runtime_size = if summary.runtime_object_bytes == 0 {
+        "disabled".dimmed().to_string()
+    } else {
+        format_bytes(summary.runtime_object_bytes as u64)
+            .magenta()
+            .to_string()
+    };
+    println!("    {:<18} {}", "Runtime".dimmed(), runtime_size);
+    println!(
+        "    {:<18} {}",
+        "Final binary".dimmed(),
+        format_bytes(summary.binary_bytes).green().bold()
+    );
+
+    emit_object_diagnostics(&summary.object_file);
 
     Ok(())
 }
 
-fn emit_object_diagnostics(path: &Path, colors: &Colors) {
+fn emit_object_diagnostics(path: &Path) {
     match read_object_section_sizes(path) {
         Ok(mut sections) if !sections.is_empty() => {
             sections.sort_by(|a, b| b.1.cmp(&a.1));
             println!(
-                "  {} {}",
-                colors.paint("94", "object sections"),
-                colors.paint("2", &path.display().to_string())
+                "\n{} {}",
+                "🔬".bright_blue(),
+                "Object sections".bright_blue().bold()
             );
+            println!("   {}", path.display().to_string().dimmed());
 
             for (name, size) in sections.into_iter().take(8) {
+                let bar = generate_usage_bar(size, 1024 * 1024); // escala relativa a 1MB
                 println!(
-                    "    {:<20} {}",
-                    colors.paint("90", &name),
-                    colors.paint("96", &format_bytes(size))
+                    "    {:<20} {} {}",
+                    name.dimmed(),
+                    format_bytes(size).cyan(),
+                    bar
                 );
             }
         }
         Ok(_) => {
-            println!(
-                "  {} {}",
-                colors.paint("94", "object sections"),
-                colors.paint("2", "none")
-            );
+            println!("\n{} {}", "🔬".bright_blue(), "No object sections".dimmed());
         }
         Err(error) => {
             println!(
-                "  {} {}",
-                colors.paint("31", "object diagnostics unavailable:"),
+                "\n{} {} {}",
+                "⚠".yellow(),
+                "Object diagnostics unavailable:".red(),
                 error
             );
         }
@@ -155,31 +209,15 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn pure_aot_mode_enabled() -> bool {
-    match std::env::var("RTS_PURE_AOT") {
-        Ok(value) => matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        ),
-        Err(_) => false,
-    }
-}
-
-struct Colors {
-    enabled: bool,
-}
-
-impl Colors {
-    fn new() -> Self {
-        let enabled = std::env::var_os("NO_COLOR").is_none();
-        Self { enabled }
-    }
-
-    fn paint(&self, code: &str, text: &str) -> String {
-        if self.enabled {
-            format!("\x1b[{code}m{text}\x1b[0m")
-        } else {
-            text.to_string()
-        }
-    }
+/// Gera uma barra de uso proporcional (estilo moderna)
+fn generate_usage_bar(value: u64, max: u64) -> String {
+    let ratio = (value as f64 / max as f64).min(1.0);
+    let bar_width = 20;
+    let filled = (ratio * bar_width as f64).round() as usize;
+    let empty = bar_width - filled;
+    format!(
+        "[{}{}]",
+        "█".repeat(filled).green(),
+        "░".repeat(empty).dimmed()
+    )
 }

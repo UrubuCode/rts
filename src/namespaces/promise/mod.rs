@@ -1,5 +1,5 @@
+use crate::namespaces::state as runtime_state;
 use crate::runtime::bootstrap_lang::JsValue;
-use crate::runtime::state as runtime_state;
 
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64};
 
@@ -7,28 +7,43 @@ const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "resolve",
         callee: "promise.resolve",
+        doc: "Creates a fulfilled promise handle.",
+        ts_signature: "resolve(value: str): Handle",
     },
     NamespaceMember {
         name: "reject",
         callee: "promise.reject",
+        doc: "Creates a rejected promise handle.",
+        ts_signature: "reject(reason: str): Handle",
     },
     NamespaceMember {
         name: "status",
         callee: "promise.status",
+        doc: "Returns current state of a promise handle.",
+        ts_signature: "status(handle: Handle): State | undefined",
     },
     NamespaceMember {
         name: "is_settled",
         callee: "promise.is_settled",
+        doc: "Checks whether promise is fulfilled or rejected.",
+        ts_signature: "is_settled(handle: Handle): bool",
     },
     NamespaceMember {
         name: "await",
         callee: "promise.await",
+        doc: "Waits for promise completion and returns its payload.",
+        ts_signature: "await(handle: Handle): str | undefined",
     },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "promise",
+    doc: "Promise handles and synchronous await bridge.",
     members: MEMBERS,
+    ts_prelude: &[
+        "export type Handle = usize;",
+        "export type State = \"pending\" | \"fulfilled\" | \"rejected\";",
+    ],
 };
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {

@@ -1,16 +1,36 @@
 use std::collections::BTreeMap;
 use std::env;
+use std::hash::{Hash, Hasher};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
 use cranelift_codegen::isa;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
 use crate::mir::{MirFunction, MirModule};
+use crate::runtime::bootstrap_utils::split_top_level;
+
+const ABI_ARG_SLOTS: usize = 6;
+const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1; // argc + arg slots
+const ABI_UNDEFINED_HANDLE: i64 = 0;
+const RTS_CALL_DISPATCH_SYMBOL: &str = "__rts_call_dispatch";
+const RTS_EVAL_EXPR_SYMBOL: &str = "__rts_eval_expr";
+
+#[derive(Debug, Clone, Copy)]
+pub struct ObjectBuildOptions {
+    pub emit_entrypoint: bool,
+    pub optimize_for_production: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedCall {
+    callee: String,
+    args: Vec<String>,
+}
 
 pub fn lower_to_native_object(mir: &MirModule) -> Result<Vec<u8>> {
     lower_to_native_object_with_options(
@@ -22,18 +42,13 @@ pub fn lower_to_native_object(mir: &MirModule) -> Result<Vec<u8>> {
     )
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ObjectBuildOptions {
-    pub emit_entrypoint: bool,
-    pub optimize_for_production: bool,
-}
-
 pub fn lower_to_native_object_with_options(
     mir: &MirModule,
     options: &ObjectBuildOptions,
 ) -> Result<Vec<u8>> {
     let mut object_module = initialize_object_module(options)?;
     let mut declarations = BTreeMap::<String, FuncId>::new();
+    let mut data_cache = BTreeMap::<String, DataId>::new();
 
     let signature = function_signature(&mut object_module);
     for function in &mir.functions {
@@ -52,10 +67,17 @@ pub fn lower_to_native_object_with_options(
     }
 
     for function in &mir.functions {
-        let id = declarations.get(&function.name).copied().ok_or_else(|| {
-            anyhow::anyhow!("missing declaration for AOT function '{}'", function.name)
-        })?;
-        define_function(&mut object_module, &declarations, id, function)?;
+        let id = declarations
+            .get(&function.name)
+            .copied()
+            .ok_or_else(|| anyhow!("missing declaration for AOT function '{}'", function.name))?;
+        define_function(
+            &mut object_module,
+            &mut declarations,
+            &mut data_cache,
+            id,
+            function,
+        )?;
     }
 
     if needs_synthetic_start {
@@ -65,12 +87,109 @@ pub fn lower_to_native_object_with_options(
     let object = object_module.finish();
     object
         .emit()
-        .map_err(|error| anyhow::anyhow!("failed to emit native object bytes: {error}"))
+        .map_err(|error| anyhow!("failed to emit native object bytes: {error}"))
+}
+
+pub fn build_namespace_dispatch_object(
+    callees: &[String],
+    optimize_for_production: bool,
+) -> Result<Vec<u8>> {
+    let mut module = initialize_object_module(&ObjectBuildOptions {
+        emit_entrypoint: false,
+        optimize_for_production,
+    })?;
+
+    let wrapper_signature = function_signature(&mut module);
+    let dispatch_signature = runtime_dispatch_signature(&mut module);
+    let dispatch_id = module
+        .declare_function(
+            RTS_CALL_DISPATCH_SYMBOL,
+            Linkage::Import,
+            &dispatch_signature,
+        )
+        .context("failed to declare runtime dispatch import for namespace wrappers")?;
+
+    let mut declarations = BTreeMap::<String, FuncId>::new();
+    for callee in callees {
+        let id = module
+            .declare_function(callee, Linkage::Export, &wrapper_signature)
+            .with_context(|| format!("failed to declare namespace wrapper '{}'", callee))?;
+        declarations.insert(callee.clone(), id);
+    }
+
+    let mut data_cache = BTreeMap::<String, DataId>::new();
+
+    for callee in callees {
+        let Some(function_id) = declarations.get(callee).copied() else {
+            continue;
+        };
+
+        let mut context = module.make_context();
+        context.func.signature = wrapper_signature.clone();
+        let mut builder_context = FunctionBuilderContext::new();
+
+        {
+            let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
+            let entry_block = builder.create_block();
+            builder.append_block_params_for_function_params(entry_block);
+            builder.switch_to_block(entry_block);
+            builder.seal_block(entry_block);
+
+            let params = builder.block_params(entry_block).to_vec();
+            let argc = params
+                .first()
+                .copied()
+                .unwrap_or_else(|| builder.ins().iconst(types::I64, 0));
+
+            let data_id = declare_string_data(
+                &mut module,
+                &mut data_cache,
+                "__rts_callee_",
+                callee.as_str(),
+                callee.as_bytes(),
+            )?;
+            let callee_ref = module.declare_data_in_func(data_id, builder.func);
+            let callee_ptr = builder.ins().symbol_value(types::I64, callee_ref);
+            let callee_len = builder.ins().iconst(types::I64, callee.len() as i64);
+
+            let local_dispatch = module.declare_func_in_func(dispatch_id, builder.func);
+            let mut dispatch_args = Vec::with_capacity(3 + ABI_ARG_SLOTS);
+            dispatch_args.push(callee_ptr);
+            dispatch_args.push(callee_len);
+            dispatch_args.push(argc);
+            for index in 0..ABI_ARG_SLOTS {
+                dispatch_args.push(
+                    params
+                        .get(index + 1)
+                        .copied()
+                        .unwrap_or_else(|| builder.ins().iconst(types::I64, 0)),
+                );
+            }
+
+            let call = builder.ins().call(local_dispatch, &dispatch_args);
+            let returned = builder
+                .inst_results(call)
+                .first()
+                .copied()
+                .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+            builder.ins().return_(&[returned]);
+            builder.finalize();
+        }
+
+        module
+            .define_function(function_id, &mut context)
+            .with_context(|| format!("failed to define namespace wrapper '{}'", callee))?;
+        module.clear_context(&mut context);
+    }
+
+    let object = module.finish();
+    object
+        .emit()
+        .map_err(|error| anyhow!("failed to emit namespace wrapper object: {error}"))
 }
 
 fn initialize_object_module(options: &ObjectBuildOptions) -> Result<ObjectModule> {
     let isa = resolve_target_isa(options)?;
-
     let builder = ObjectBuilder::new(isa, "rts_aot".to_string(), default_libcall_names())
         .context("failed to initialize Cranelift object builder")?;
     Ok(ObjectModule::new(builder))
@@ -82,9 +201,9 @@ fn resolve_target_isa(options: &ObjectBuildOptions) -> Result<std::sync::Arc<dyn
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {
-        let triple = target.parse::<Triple>().map_err(|error| {
-            anyhow::anyhow!("invalid RTS_TARGET triple '{}': {}", target, error)
-        })?;
+        let triple = target
+            .parse::<Triple>()
+            .map_err(|error| anyhow!("invalid RTS_TARGET triple '{}': {}", target, error))?;
 
         match isa::lookup(triple.clone()) {
             Ok(builder) => {
@@ -104,7 +223,7 @@ fn resolve_target_isa(options: &ObjectBuildOptions) -> Result<std::sync::Arc<dyn
 
     let flags = build_cranelift_flags(options)?;
     let isa_builder = cranelift_native::builder()
-        .map_err(|error| anyhow::anyhow!("failed to build host ISA for AOT: {error}"))?;
+        .map_err(|error| anyhow!("failed to build host ISA for AOT: {error}"))?;
     isa_builder
         .finish(flags)
         .context("failed to finalize host ISA for AOT")
@@ -130,13 +249,37 @@ fn build_cranelift_flags(options: &ObjectBuildOptions) -> Result<settings::Flags
 
 fn function_signature(module: &mut ObjectModule) -> Signature {
     let mut signature = module.make_signature();
+    for _ in 0..ABI_PARAM_COUNT {
+        signature.params.push(AbiParam::new(types::I64));
+    }
+    signature.returns.push(AbiParam::new(types::I64));
+    signature
+}
+
+fn runtime_eval_signature(module: &mut ObjectModule) -> Signature {
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(types::I64));
+    signature.params.push(AbiParam::new(types::I64));
+    signature.returns.push(AbiParam::new(types::I64));
+    signature
+}
+
+fn runtime_dispatch_signature(module: &mut ObjectModule) -> Signature {
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(types::I64)); // callee ptr
+    signature.params.push(AbiParam::new(types::I64)); // callee len
+    signature.params.push(AbiParam::new(types::I64)); // argc
+    for _ in 0..ABI_ARG_SLOTS {
+        signature.params.push(AbiParam::new(types::I64));
+    }
     signature.returns.push(AbiParam::new(types::I64));
     signature
 }
 
 fn define_function(
     module: &mut ObjectModule,
-    declarations: &BTreeMap<String, FuncId>,
+    declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
     function_id: FuncId,
     function: &MirFunction,
 ) -> Result<()> {
@@ -147,15 +290,22 @@ fn define_function(
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
         let entry_block = builder.create_block();
+        builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        let mut default_return = builder.ins().iconst(types::I64, 0);
+        let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
 
         for block in &function.blocks {
             for statement in &block.statements {
                 let text = statement.text.trim();
-                if text.is_empty() || text == "ret" || text.starts_with("enter ") {
+                if text.is_empty()
+                    || text == "ret"
+                    || text == "{"
+                    || text == "}"
+                    || text.starts_with("enter ")
+                    || text.starts_with("import ")
+                {
                     continue;
                 }
 
@@ -164,18 +314,57 @@ fn define_function(
                     continue;
                 }
 
-                if let Some(callee_name) = parse_call_statement(text) {
-                    let Some(callee_id) = declarations.get(callee_name) else {
-                        continue;
-                    };
+                if let Some(call) = parse_call_statement(text) {
+                    let call_signature = function_signature(module);
+                    let callee_id = resolve_or_declare_import(
+                        module,
+                        declarations,
+                        call.callee.as_str(),
+                        &call_signature,
+                        function,
+                    )?;
 
-                    let local = module.declare_func_in_func(*callee_id, builder.func);
-                    let call = builder.ins().call(local, &[]);
-                    if let Some(value) = builder.inst_results(call).first().copied() {
+                    let mut args = Vec::with_capacity(ABI_PARAM_COUNT);
+                    args.push(builder.ins().iconst(types::I64, call.args.len() as i64));
+                    for expression in call.args.iter().take(ABI_ARG_SLOTS) {
+                        let value = lower_runtime_expression(
+                            module,
+                            declarations,
+                            data_cache,
+                            &mut builder,
+                            function,
+                            expression,
+                        )?;
+                        args.push(value);
+                    }
+
+                    if call.args.len() > ABI_ARG_SLOTS {
+                        bail!(
+                            "function '{}' called '{}' with {} arguments, but RTS ABI supports up to {} arguments per call",
+                            function.name,
+                            call.callee,
+                            call.args.len(),
+                            ABI_ARG_SLOTS
+                        );
+                    }
+
+                    while args.len() < ABI_PARAM_COUNT {
+                        args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+                    }
+
+                    let local = module.declare_func_in_func(callee_id, builder.func);
+                    let call_inst = builder.ins().call(local, &args);
+                    if let Some(value) = builder.inst_results(call_inst).first().copied() {
                         default_return = value;
                     }
                     continue;
                 }
+
+                bail!(
+                    "unsupported MIR statement '{}' in function '{}'; direct Cranelift backend supports only 'ret <i64>' and function calls",
+                    text,
+                    function.name
+                );
             }
         }
 
@@ -188,6 +377,115 @@ fn define_function(
         .with_context(|| format!("failed to define AOT function '{}'", function.name))?;
     module.clear_context(&mut context);
     Ok(())
+}
+
+fn lower_runtime_expression(
+    module: &mut ObjectModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    function: &MirFunction,
+    expression: &str,
+) -> Result<cranelift_codegen::ir::Value> {
+    let eval_signature = runtime_eval_signature(module);
+    let eval_id = resolve_or_declare_import(
+        module,
+        declarations,
+        RTS_EVAL_EXPR_SYMBOL,
+        &eval_signature,
+        function,
+    )?;
+
+    let expression = expression.trim();
+    let data_id = declare_string_data(
+        module,
+        data_cache,
+        "__rts_expr_",
+        expression,
+        expression.as_bytes(),
+    )?;
+    let data_ref = module.declare_data_in_func(data_id, builder.func);
+    let expression_ptr = builder.ins().symbol_value(types::I64, data_ref);
+    let expression_len = builder.ins().iconst(types::I64, expression.len() as i64);
+
+    let local_eval = module.declare_func_in_func(eval_id, builder.func);
+    let call = builder
+        .ins()
+        .call(local_eval, &[expression_ptr, expression_len]);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
+fn resolve_or_declare_import(
+    module: &mut ObjectModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+    name: &str,
+    signature: &Signature,
+    function: &MirFunction,
+) -> Result<FuncId> {
+    if let Some(existing) = declarations.get(name).copied() {
+        return Ok(existing);
+    }
+
+    let id = module
+        .declare_function(name, Linkage::Import, signature)
+        .with_context(|| {
+            format!(
+                "failed to declare imported callee '{}' for function '{}'",
+                name, function.name
+            )
+        })?;
+    declarations.insert(name.to_string(), id);
+    Ok(id)
+}
+
+fn declare_string_data(
+    module: &mut ObjectModule,
+    data_cache: &mut BTreeMap<String, DataId>,
+    prefix: &str,
+    symbol_seed: &str,
+    payload: &[u8],
+) -> Result<DataId> {
+    let key = format!("{prefix}{symbol_seed}");
+    if let Some(existing) = data_cache.get(&key).copied() {
+        return Ok(existing);
+    }
+
+    let symbol = format!("{prefix}{:016x}", stable_hash(symbol_seed));
+    let name = sanitize_symbol_name(symbol.as_str());
+    let id = module
+        .declare_data(name.as_str(), Linkage::Local, false, false)
+        .with_context(|| format!("failed to declare data symbol '{}'", name))?;
+
+    let mut description = DataDescription::new();
+    description.define(payload.to_vec().into_boxed_slice());
+    module
+        .define_data(id, &description)
+        .with_context(|| format!("failed to define data payload for '{}'", name))?;
+
+    data_cache.insert(key, id);
+    Ok(id)
+}
+
+fn stable_hash(input: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    input.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn sanitize_symbol_name(raw: &str) -> String {
+    let mut output = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.') {
+            output.push(ch);
+        } else {
+            output.push('_');
+        }
+    }
+    output
 }
 
 fn define_synthetic_start(
@@ -205,19 +503,25 @@ fn define_synthetic_start(
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
         let entry_block = builder.create_block();
+        builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
         let default_return = if let Some(main_id) = declarations.get("main").copied() {
             let local = module.declare_func_in_func(main_id, builder.func);
-            let call = builder.ins().call(local, &[]);
+            let mut args = Vec::with_capacity(ABI_PARAM_COUNT);
+            args.push(builder.ins().iconst(types::I64, 0));
+            for _ in 0..ABI_ARG_SLOTS {
+                args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+            }
+            let call = builder.ins().call(local, &args);
             builder
                 .inst_results(call)
                 .first()
                 .copied()
-                .unwrap_or_else(|| builder.ins().iconst(types::I64, 0))
+                .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE))
         } else {
-            builder.ins().iconst(types::I64, 0)
+            builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
         };
 
         builder.ins().return_(&[default_return]);
@@ -236,10 +540,65 @@ fn parse_return_literal(statement: &str) -> Option<i64> {
     literal.trim().parse::<i64>().ok()
 }
 
-fn parse_call_statement(statement: &str) -> Option<&str> {
-    let callee = statement.strip_prefix("call ")?;
-    let name = callee.trim();
-    if name.is_empty() { None } else { Some(name) }
+fn parse_call_statement(statement: &str) -> Option<ParsedCall> {
+    let text = statement.trim().trim_end_matches(';').trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = text.strip_prefix("call ") {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return None;
+        }
+
+        if let Some(parsed) = parse_call_invocation(rest) {
+            return Some(parsed);
+        }
+
+        return is_valid_callee_name(rest).then(|| ParsedCall {
+            callee: rest.to_string(),
+            args: Vec::new(),
+        });
+    }
+
+    parse_call_invocation(text)
+}
+
+fn parse_call_invocation(text: &str) -> Option<ParsedCall> {
+    let open = text.find('(')?;
+    if !text.ends_with(')') {
+        return None;
+    }
+
+    let callee = text[..open].trim();
+    if !is_valid_callee_name(callee) {
+        return None;
+    }
+
+    let args_raw = text[open + 1..text.len().saturating_sub(1)].trim();
+    let args = if args_raw.is_empty() {
+        Vec::new()
+    } else {
+        split_top_level(args_raw, ',')
+            .into_iter()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+
+    Some(ParsedCall {
+        callee: callee.to_string(),
+        args,
+    })
+}
+
+fn is_valid_callee_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.' | ':'))
 }
 
 #[cfg(test)]
@@ -247,7 +606,7 @@ mod tests {
     use crate::mir::cfg::{BasicBlock, Terminator};
     use crate::mir::{MirFunction, MirModule, MirStatement};
 
-    use super::lower_to_native_object;
+    use super::{build_namespace_dispatch_object, lower_to_native_object, parse_call_statement};
 
     #[test]
     fn emits_non_empty_native_object() {
@@ -265,6 +624,42 @@ mod tests {
         };
 
         let bytes = lower_to_native_object(&module).expect("AOT object must compile");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn parses_direct_call_with_arguments() {
+        let parsed = parse_call_statement(r#"io.print("hello", 123)"#).expect("call parse");
+        assert_eq!(parsed.callee, "io.print");
+        assert_eq!(parsed.args, vec![r#""hello""#, "123"]);
+    }
+
+    #[test]
+    fn lowers_imported_namespace_call_without_panicking() {
+        let module = MirModule {
+            functions: vec![MirFunction {
+                name: "main".to_string(),
+                blocks: vec![BasicBlock {
+                    label: "entry".to_string(),
+                    statements: vec![MirStatement {
+                        text: r#"io.print("hello")"#.to_string(),
+                    }],
+                    terminator: Terminator::Return,
+                }],
+            }],
+        };
+
+        let bytes = lower_to_native_object(&module).expect("AOT object should compile");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn builds_namespace_wrapper_object() {
+        let bytes = build_namespace_dispatch_object(
+            &[String::from("io.print"), String::from("process.arch")],
+            false,
+        )
+        .expect("namespace wrapper object should compile");
         assert!(!bytes.is_empty());
     }
 }

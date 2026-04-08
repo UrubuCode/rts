@@ -4,12 +4,12 @@ use anyhow::{Context, Result, bail};
 
 use crate::compile_options::CompileOptions;
 use crate::module_system::{ModuleGraph, SourceModule};
+use crate::namespaces::{self as runtime_namespaces, DispatchOutcome, NamespaceUsage};
 use crate::runtime::bootstrap_lang::{JsValue, RuntimeContext, evaluate_expression};
 use crate::runtime::bootstrap_utils::{
     brace_delta, is_identifier_like, normalize, split_top_level, split_top_level_once,
     strip_comment,
 };
-use crate::runtime::namespaces::{self as runtime_namespaces, DispatchOutcome, NamespaceUsage};
 
 const BOOTSTRAP_MAGIC: &[u8] = b"RTS_BOOTSTRAP_BIN\0";
 

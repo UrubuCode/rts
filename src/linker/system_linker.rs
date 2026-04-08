@@ -71,6 +71,7 @@ fn build_linker_args(
     match flavor {
         TargetFlavor::Coff => {
             let mut args = Vec::new();
+            let requires_runtime = requires_windows_runtime_support(object_paths);
 
             if linker.is_rust_lld() {
                 args.push("-flavor".to_string());
@@ -85,10 +86,21 @@ fn build_linker_args(
             args.push("/nologo".to_string());
             args.push("/entry:_start".to_string());
             args.push("/subsystem:console".to_string());
-            args.push("/nodefaultlib".to_string());
+            if !requires_runtime {
+                args.push("/nodefaultlib".to_string());
+            }
             args.push(format!("/out:{}", output_path.display()));
             for object_path in object_paths {
                 args.push(object_path.display().to_string());
+            }
+
+            if requires_runtime {
+                for path in windows_runtime_lib_paths() {
+                    args.push(format!("/libpath:{}", path.display()));
+                }
+                for lib in windows_runtime_default_libs() {
+                    args.push(format!("/defaultlib:{lib}"));
+                }
             }
 
             Ok(args)
@@ -116,6 +128,92 @@ fn build_linker_args(
             Ok(args)
         }
     }
+}
+
+fn requires_windows_runtime_support(object_paths: &[PathBuf]) -> bool {
+    object_paths.iter().any(|path| {
+        path.extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.eq_ignore_ascii_case("lib"))
+            .unwrap_or(false)
+    })
+}
+
+fn windows_runtime_default_libs() -> &'static [&'static str] {
+    &[
+        "kernel32.lib",
+        "userenv.lib",
+        "advapi32.lib",
+        "bcrypt.lib",
+        "ws2_32.lib",
+        "ntdll.lib",
+        "shell32.lib",
+        "ole32.lib",
+        "synchronization.lib",
+        "libucrt.lib",
+        "ucrt.lib",
+        "vcruntime.lib",
+        "msvcrt.lib",
+        "legacy_stdio_definitions.lib",
+    ]
+}
+
+fn windows_runtime_lib_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::<PathBuf>::new();
+    if let Ok(raw) = std::env::var("LIB") {
+        for part in raw
+            .split(';')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let candidate = PathBuf::from(part);
+            if candidate.is_dir() {
+                paths.push(candidate);
+            }
+        }
+    }
+
+    let sdk_root = std::env::var("WindowsSdkDir")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)\Windows Kits\10"));
+    let lib_root = sdk_root.join("Lib");
+    if lib_root.is_dir() {
+        let mut versions = std::fs::read_dir(&lib_root)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        versions.sort();
+        if let Some(version) = versions.pop() {
+            let arch = if cfg!(target_arch = "x86_64") {
+                "x64"
+            } else if cfg!(target_arch = "x86") {
+                "x86"
+            } else if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x64"
+            };
+
+            let um = version.join("um").join(arch);
+            if um.is_dir() {
+                paths.push(um);
+            }
+
+            let ucrt = version.join("ucrt").join(arch);
+            if ucrt.is_dir() {
+                paths.push(ucrt);
+            }
+        }
+    }
+
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn normalize_output_path(path: &Path, flavor: TargetFlavor) -> PathBuf {

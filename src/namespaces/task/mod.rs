@@ -1,5 +1,5 @@
+use crate::namespaces::state::{self as runtime_state, AsyncTask};
 use crate::runtime::bootstrap_lang::JsValue;
-use crate::runtime::state::{self as runtime_state, AsyncTask};
 
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64};
 
@@ -7,28 +7,40 @@ const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "sleep",
         callee: "task.sleep",
+        doc: "Spawns an async sleep task resolved as a promise handle.",
+        ts_signature: "sleep(ms: f64, value?: str): promise.Handle",
     },
     NamespaceMember {
         name: "hash_sha256",
         callee: "task.hash_sha256",
+        doc: "Spawns an async SHA-256 task resolved as a promise handle.",
+        ts_signature: "hash_sha256(data: str): promise.Handle",
     },
     NamespaceMember {
         name: "read_text_file",
         callee: "task.read_text_file",
+        doc: "Spawns async text file read task.",
+        ts_signature: "read_text_file(path: str): promise.Handle",
     },
     NamespaceMember {
         name: "write_text_file",
         callee: "task.write_text_file",
+        doc: "Spawns async text file write task.",
+        ts_signature: "write_text_file(path: str, content: str): promise.Handle",
     },
     NamespaceMember {
         name: "append_text_file",
         callee: "task.append_text_file",
+        doc: "Spawns async text file append task.",
+        ts_signature: "append_text_file(path: str, content: str): promise.Handle",
     },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "task",
+    doc: "Async task scheduler helpers that resolve into promise handles.",
     members: MEMBERS,
+    ts_prelude: &[],
 };
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {

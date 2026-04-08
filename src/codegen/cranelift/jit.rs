@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -8,6 +8,19 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
 
 use crate::mir::{MirFunction, MirModule};
+use crate::runtime::bootstrap_utils::split_top_level;
+
+const ABI_ARG_SLOTS: usize = 6;
+const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1; // argc + args
+const ABI_UNDEFINED_HANDLE: i64 = 0;
+const RTS_CALL_DISPATCH_SYMBOL: &str = "__rts_call_dispatch";
+const RTS_EVAL_EXPR_SYMBOL: &str = "__rts_eval_expr";
+
+#[derive(Debug, Clone)]
+struct ParsedCall {
+    callee: String,
+    args: Vec<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct JitReport {
@@ -20,6 +33,7 @@ pub struct JitReport {
 pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
     let mut jit = initialize_jit_module()?;
     let mut declarations = BTreeMap::<String, FuncId>::new();
+    let mut synthetic_stubs = Vec::<String>::new();
 
     let signature = function_signature(&mut jit);
     for function in &module.functions {
@@ -30,10 +44,55 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
     }
 
     for function in &module.functions {
-        let id = declarations.get(&function.name).copied().ok_or_else(|| {
-            anyhow::anyhow!("missing declaration for function '{}'", function.name)
-        })?;
-        define_function(&mut jit, &declarations, id, function)?;
+        for block in &function.blocks {
+            for statement in &block.statements {
+                let text = statement.text.trim();
+                let Some(call) = parse_call_statement(text) else {
+                    continue;
+                };
+                let callee = call.callee;
+
+                if declarations.contains_key(callee.as_str()) {
+                    continue;
+                }
+
+                let id = jit
+                    .declare_function(callee.as_str(), Linkage::Export, &signature)
+                    .with_context(|| {
+                        format!("failed to declare synthetic JIT stub function '{}'", callee)
+                    })?;
+                declarations.insert(callee.clone(), id);
+                synthetic_stubs.push(callee);
+            }
+        }
+    }
+
+    let eval_id = declare_helper_import(&mut jit, &mut declarations, RTS_EVAL_EXPR_SYMBOL)?;
+    let dispatch_id = declare_dispatch_import(&mut jit, &mut declarations)?;
+
+    for function in &module.functions {
+        let id = declarations
+            .get(&function.name)
+            .copied()
+            .ok_or_else(|| anyhow!("missing declaration for function '{}'", function.name))?;
+        define_function(&mut jit, &declarations, eval_id, id, function)?;
+    }
+
+    for name in &synthetic_stubs {
+        let id = declarations
+            .get(name)
+            .copied()
+            .ok_or_else(|| anyhow!("missing declaration for synthetic JIT stub '{}'", name))?;
+
+        let leaked_symbol = Box::leak(name.as_bytes().to_vec().into_boxed_slice());
+        define_stub_function(
+            &mut jit,
+            id,
+            name,
+            dispatch_id,
+            leaked_symbol.as_ptr() as i64,
+            leaked_symbol.len() as i64,
+        )?;
     }
 
     jit.finalize_definitions()
@@ -51,21 +110,23 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
         let entry_id = declarations
             .get(&entry_name)
             .copied()
-            .ok_or_else(|| anyhow::anyhow!("failed to resolve JIT entry '{}'", entry_name))?;
+            .ok_or_else(|| anyhow!("failed to resolve JIT entry '{}'", entry_name))?;
 
         let address = jit.get_finalized_function(entry_id);
         let entry = unsafe {
-            // SAFETY: We emit every JIT function with signature `fn() -> i64`.
-            std::mem::transmute::<*const u8, fn() -> i64>(address)
+            // SAFETY: RTS JIT emits every lowered function with ABI `(argc, a0..a5) -> i64`.
+            std::mem::transmute::<*const u8, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(
+                address,
+            )
         };
-        (entry_name, entry(), true)
+        (entry_name, entry(0, 0, 0, 0, 0, 0, 0), true)
     } else {
-        (entry_function.to_string(), 0, false)
+        (entry_function.to_string(), ABI_UNDEFINED_HANDLE, false)
     };
 
     Ok(JitReport {
         entry_function: entry_name,
-        compiled_functions: module.functions.len(),
+        compiled_functions: declarations.len(),
         entry_return_value,
         executed,
     })
@@ -79,24 +140,90 @@ fn initialize_jit_module() -> Result<JITModule> {
     let flags = settings::Flags::new(settings_builder);
 
     let isa_builder = cranelift_native::builder()
-        .map_err(|error| anyhow::anyhow!("failed to build host ISA: {error}"))?;
+        .map_err(|error| anyhow!("failed to build host ISA: {error}"))?;
     let isa = isa_builder
         .finish(flags)
         .context("failed to finalize host ISA")?;
 
-    let builder = JITBuilder::with_isa(isa, default_libcall_names());
+    let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
+    builder.symbol(
+        RTS_EVAL_EXPR_SYMBOL,
+        crate::namespaces::abi::__rts_eval_expr as *const u8,
+    );
+    builder.symbol(
+        RTS_CALL_DISPATCH_SYMBOL,
+        crate::namespaces::abi::__rts_call_dispatch as *const u8,
+    );
+
     Ok(JITModule::new(builder))
 }
 
 fn function_signature(module: &mut JITModule) -> Signature {
     let mut signature = module.make_signature();
+    for _ in 0..ABI_PARAM_COUNT {
+        signature.params.push(AbiParam::new(types::I64));
+    }
     signature.returns.push(AbiParam::new(types::I64));
     signature
+}
+
+fn eval_signature(module: &mut JITModule) -> Signature {
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(types::I64));
+    signature.params.push(AbiParam::new(types::I64));
+    signature.returns.push(AbiParam::new(types::I64));
+    signature
+}
+
+fn dispatch_signature(module: &mut JITModule) -> Signature {
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(types::I64)); // callee ptr
+    signature.params.push(AbiParam::new(types::I64)); // callee len
+    signature.params.push(AbiParam::new(types::I64)); // argc
+    for _ in 0..ABI_ARG_SLOTS {
+        signature.params.push(AbiParam::new(types::I64));
+    }
+    signature.returns.push(AbiParam::new(types::I64));
+    signature
+}
+
+fn declare_helper_import(
+    module: &mut JITModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+    name: &str,
+) -> Result<FuncId> {
+    if let Some(existing) = declarations.get(name).copied() {
+        return Ok(existing);
+    }
+
+    let signature = eval_signature(module);
+    let id = module
+        .declare_function(name, Linkage::Import, &signature)
+        .with_context(|| format!("failed to declare JIT helper '{}'", name))?;
+    declarations.insert(name.to_string(), id);
+    Ok(id)
+}
+
+fn declare_dispatch_import(
+    module: &mut JITModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+) -> Result<FuncId> {
+    if let Some(existing) = declarations.get(RTS_CALL_DISPATCH_SYMBOL).copied() {
+        return Ok(existing);
+    }
+
+    let signature = dispatch_signature(module);
+    let id = module
+        .declare_function(RTS_CALL_DISPATCH_SYMBOL, Linkage::Import, &signature)
+        .context("failed to declare JIT dispatch helper")?;
+    declarations.insert(RTS_CALL_DISPATCH_SYMBOL.to_string(), id);
+    Ok(id)
 }
 
 fn define_function(
     module: &mut JITModule,
     declarations: &BTreeMap<String, FuncId>,
+    eval_id: FuncId,
     function_id: FuncId,
     function: &MirFunction,
 ) -> Result<()> {
@@ -107,15 +234,22 @@ fn define_function(
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
         let entry_block = builder.create_block();
+        builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        let mut default_return = builder.ins().iconst(types::I64, 0);
+        let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
 
         for block in &function.blocks {
             for statement in &block.statements {
                 let text = statement.text.trim();
-                if text.is_empty() || text == "ret" || text.starts_with("enter ") {
+                if text.is_empty()
+                    || text == "ret"
+                    || text == "{"
+                    || text == "}"
+                    || text.starts_with("enter ")
+                    || text.starts_with("import ")
+                {
                     continue;
                 }
 
@@ -124,18 +258,51 @@ fn define_function(
                     continue;
                 }
 
-                if let Some(callee_name) = parse_call_statement(text) {
-                    let Some(callee_id) = declarations.get(callee_name) else {
-                        continue;
+                if let Some(call) = parse_call_statement(text) {
+                    let Some(callee_id) = declarations.get(call.callee.as_str()) else {
+                        bail!(
+                            "unsupported MIR call target '{}' in function '{}'",
+                            call.callee,
+                            function.name
+                        );
                     };
 
+                    if call.args.len() > ABI_ARG_SLOTS {
+                        bail!(
+                            "function '{}' called '{}' with {} arguments, but RTS ABI supports up to {} arguments per call",
+                            function.name,
+                            call.callee,
+                            call.args.len(),
+                            ABI_ARG_SLOTS
+                        );
+                    }
+
+                    let mut lowered_args = Vec::with_capacity(ABI_PARAM_COUNT);
+                    lowered_args.push(builder.ins().iconst(types::I64, call.args.len() as i64));
+
+                    for expression in call.args.iter().take(ABI_ARG_SLOTS) {
+                        let value =
+                            lower_runtime_expression(module, &mut builder, eval_id, expression)?;
+                        lowered_args.push(value);
+                    }
+
+                    while lowered_args.len() < ABI_PARAM_COUNT {
+                        lowered_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+                    }
+
                     let local = module.declare_func_in_func(*callee_id, builder.func);
-                    let call = builder.ins().call(local, &[]);
-                    if let Some(value) = builder.inst_results(call).first().copied() {
+                    let call_inst = builder.ins().call(local, &lowered_args);
+                    if let Some(value) = builder.inst_results(call_inst).first().copied() {
                         default_return = value;
                     }
                     continue;
                 }
+
+                bail!(
+                    "unsupported MIR statement '{}' in function '{}'; direct Cranelift backend supports only 'ret <i64>' and function calls",
+                    text,
+                    function.name
+                );
             }
         }
 
@@ -147,7 +314,83 @@ fn define_function(
         .define_function(function_id, &mut context)
         .with_context(|| format!("failed to define JIT function '{}'", function.name))?;
     module.clear_context(&mut context);
+    Ok(())
+}
 
+fn lower_runtime_expression(
+    module: &mut JITModule,
+    builder: &mut FunctionBuilder,
+    eval_id: FuncId,
+    expression: &str,
+) -> Result<cranelift_codegen::ir::Value> {
+    let bytes = Box::leak(expression.as_bytes().to_vec().into_boxed_slice());
+    let expression_ptr = builder.ins().iconst(types::I64, bytes.as_ptr() as i64);
+    let expression_len = builder.ins().iconst(types::I64, bytes.len() as i64);
+
+    let local_eval = module.declare_func_in_func(eval_id, builder.func);
+    let call = builder
+        .ins()
+        .call(local_eval, &[expression_ptr, expression_len]);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
+fn define_stub_function(
+    module: &mut JITModule,
+    function_id: FuncId,
+    function_name: &str,
+    dispatch_id: FuncId,
+    callee_ptr: i64,
+    callee_len: i64,
+) -> Result<()> {
+    let mut context = module.make_context();
+    context.func.signature = function_signature(module);
+    let mut builder_context = FunctionBuilderContext::new();
+
+    {
+        let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
+        let entry_block = builder.create_block();
+        builder.append_block_params_for_function_params(entry_block);
+        builder.switch_to_block(entry_block);
+        builder.seal_block(entry_block);
+
+        let params = builder.block_params(entry_block).to_vec();
+        let argc = params
+            .first()
+            .copied()
+            .unwrap_or_else(|| builder.ins().iconst(types::I64, 0));
+
+        let local_dispatch = module.declare_func_in_func(dispatch_id, builder.func);
+        let mut args = Vec::with_capacity(3 + ABI_ARG_SLOTS);
+        args.push(builder.ins().iconst(types::I64, callee_ptr));
+        args.push(builder.ins().iconst(types::I64, callee_len));
+        args.push(argc);
+        for index in 0..ABI_ARG_SLOTS {
+            args.push(
+                params
+                    .get(index + 1)
+                    .copied()
+                    .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)),
+            );
+        }
+
+        let call = builder.ins().call(local_dispatch, &args);
+        let returned = builder
+            .inst_results(call)
+            .first()
+            .copied()
+            .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+        builder.ins().return_(&[returned]);
+        builder.finalize();
+    }
+
+    module
+        .define_function(function_id, &mut context)
+        .with_context(|| format!("failed to define synthetic JIT stub '{}'", function_name))?;
+    module.clear_context(&mut context);
     Ok(())
 }
 
@@ -156,10 +399,65 @@ fn parse_return_literal(statement: &str) -> Option<i64> {
     literal.trim().parse::<i64>().ok()
 }
 
-fn parse_call_statement(statement: &str) -> Option<&str> {
-    let callee = statement.strip_prefix("call ")?;
-    let name = callee.trim();
-    if name.is_empty() { None } else { Some(name) }
+fn parse_call_statement(statement: &str) -> Option<ParsedCall> {
+    let text = statement.trim().trim_end_matches(';').trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = text.strip_prefix("call ") {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return None;
+        }
+
+        if let Some(parsed) = parse_call_invocation(rest) {
+            return Some(parsed);
+        }
+
+        return is_valid_callee_name(rest).then(|| ParsedCall {
+            callee: rest.to_string(),
+            args: Vec::new(),
+        });
+    }
+
+    parse_call_invocation(text)
+}
+
+fn parse_call_invocation(text: &str) -> Option<ParsedCall> {
+    let open = text.find('(')?;
+    if !text.ends_with(')') {
+        return None;
+    }
+
+    let callee = text[..open].trim();
+    if !is_valid_callee_name(callee) {
+        return None;
+    }
+
+    let args_raw = text[open + 1..text.len().saturating_sub(1)].trim();
+    let args = if args_raw.is_empty() {
+        Vec::new()
+    } else {
+        split_top_level(args_raw, ',')
+            .into_iter()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+
+    Some(ParsedCall {
+        callee: callee.to_string(),
+        args,
+    })
+}
+
+fn is_valid_callee_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.' | ':'))
 }
 
 #[cfg(test)]
@@ -186,7 +484,7 @@ mod tests {
 
         let report = execute(&module, "main").expect("jit should compile");
         assert_eq!(report.entry_function, "main");
-        assert_eq!(report.compiled_functions, 1);
+        assert!(report.compiled_functions >= 1);
         assert_eq!(report.entry_return_value, 7);
         assert!(report.executed);
     }
@@ -242,5 +540,25 @@ mod tests {
         assert_eq!(report.entry_function, "main");
         assert_eq!(report.entry_return_value, 0);
         assert!(!report.executed);
+    }
+
+    #[test]
+    fn jit_unknown_namespace_call_falls_back_to_runtime_dispatch() {
+        let module = MirModule {
+            functions: vec![MirFunction {
+                name: "main".to_string(),
+                blocks: vec![BasicBlock {
+                    label: "entry".to_string(),
+                    statements: vec![MirStatement {
+                        text: r#"io.print("hello from jit")"#.to_string(),
+                    }],
+                    terminator: Terminator::Return,
+                }],
+            }],
+        };
+
+        let report = execute(&module, "main").expect("jit should compile");
+        assert_eq!(report.entry_return_value, 0);
+        assert!(report.executed);
     }
 }

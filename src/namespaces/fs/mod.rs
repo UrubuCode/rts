@@ -1,5 +1,5 @@
+use crate::namespaces::state as runtime_state;
 use crate::runtime::bootstrap_lang::JsValue;
-use crate::runtime::state as runtime_state;
 
 use super::io;
 use super::{
@@ -11,20 +11,28 @@ const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "read_to_string",
         callee: "fs.read_to_string",
+        doc: "Reads an UTF-8 file and returns io.Result<string>.",
+        ts_signature: "read_to_string<P extends str>(path: P): io.Result<str>",
     },
     NamespaceMember {
         name: "read",
         callee: "fs.read",
+        doc: "Reads a file as bytes encoded as a hex payload string in io.Result.",
+        ts_signature: "read<P extends str>(path: P): io.Result<str>",
     },
     NamespaceMember {
         name: "write",
         callee: "fs.write",
+        doc: "Writes text or hex payload bytes to a file path.",
+        ts_signature: "write<P extends str>(path: P, data: str): io.Result<void>",
     },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "fs",
+    doc: "Filesystem operations backed by std::fs.",
     members: MEMBERS,
+    ts_prelude: &[],
 };
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
