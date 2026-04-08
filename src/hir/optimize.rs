@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::compile_options::FrontendMode;
+
 use super::nodes::{HirImport, HirItem, HirModule};
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -11,6 +13,10 @@ pub struct HirOptimizationReport {
 }
 
 pub fn optimize(module: &mut HirModule) -> HirOptimizationReport {
+    optimize_with_mode(module, FrontendMode::Native)
+}
+
+pub fn optimize_with_mode(module: &mut HirModule, mode: FrontendMode) -> HirOptimizationReport {
     let mut report = HirOptimizationReport::default();
     let mut new_items = Vec::with_capacity(module.items.len());
     let mut seen_imports = BTreeSet::<String>::new();
@@ -45,6 +51,14 @@ pub fn optimize(module: &mut HirModule) -> HirOptimizationReport {
                         report.simplified_statements += 1;
                     }
 
+                    if let Some(folded) = fold_numeric_expression(&expr) {
+                        if folded != expr.trim() {
+                            report.simplified_statements += 1;
+                        }
+                        expr = folded;
+                        inferred_type = infer_literal_type(&expr);
+                    }
+
                     if declaration.keyword == "const" {
                         if let Some((inline_name, inline_body)) =
                             parse_inline_arrow_assignment(&declaration)
@@ -59,7 +73,9 @@ pub fn optimize(module: &mut HirModule) -> HirOptimizationReport {
                         constants.remove(&declaration.name);
                     }
 
-                    let annotation = declaration.explicit_type.or(inferred_type);
+                    let annotation = declaration
+                        .explicit_type
+                        .or_else(|| annotation_for_mode(mode, inferred_type));
                     let rebuilt = if let Some(annotation) = annotation {
                         format!(
                             "{} {}: {} = {};",
@@ -261,15 +277,17 @@ fn infer_literal_type(expr: &str) -> Option<String> {
 fn infer_number_type(text: &str) -> Option<&'static str> {
     let digits = text.strip_prefix('-').unwrap_or(text);
     if !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()) {
-        let value = text.parse::<i64>().ok()?;
-        return Some(if (i8::MIN as i64..=i8::MAX as i64).contains(&value) {
+        let value = text.parse::<i128>().ok()?;
+        return Some(if (i8::MIN as i128..=i8::MAX as i128).contains(&value) {
             "i8"
-        } else if (i16::MIN as i64..=i16::MAX as i64).contains(&value) {
+        } else if (i16::MIN as i128..=i16::MAX as i128).contains(&value) {
             "i16"
-        } else if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
+        } else if (i32::MIN as i128..=i32::MAX as i128).contains(&value) {
             "i32"
-        } else {
+        } else if (i64::MIN as i128..=i64::MAX as i128).contains(&value) {
             "i64"
+        } else {
+            "f64"
         });
     }
 
@@ -278,6 +296,257 @@ fn infer_number_type(text: &str) -> Option<&'static str> {
     }
 
     None
+}
+
+fn annotation_for_mode(mode: FrontendMode, inferred_type: Option<String>) -> Option<String> {
+    match mode {
+        FrontendMode::Native => inferred_type,
+        FrontendMode::Compat => inferred_type.or_else(|| Some("any".to_string())),
+    }
+}
+
+fn fold_numeric_expression(expr: &str) -> Option<String> {
+    let mut parser = NumericExprParser::new(expr);
+    let value = parser.parse_expression()?;
+    parser.skip_ws();
+    if !parser.is_end() {
+        return None;
+    }
+    Some(value.to_source())
+}
+
+#[derive(Debug, Clone, Copy)]
+enum NumericValue {
+    Int(i128),
+    Float(f64),
+}
+
+impl NumericValue {
+    fn add(self, rhs: Self) -> Option<Self> {
+        match (self, rhs) {
+            (Self::Int(left), Self::Int(right)) => left.checked_add(right).map(Self::Int),
+            (left, right) => Some(Self::Float(left.as_f64()? + right.as_f64()?)),
+        }
+    }
+
+    fn sub(self, rhs: Self) -> Option<Self> {
+        match (self, rhs) {
+            (Self::Int(left), Self::Int(right)) => left.checked_sub(right).map(Self::Int),
+            (left, right) => Some(Self::Float(left.as_f64()? - right.as_f64()?)),
+        }
+    }
+
+    fn mul(self, rhs: Self) -> Option<Self> {
+        match (self, rhs) {
+            (Self::Int(left), Self::Int(right)) => left.checked_mul(right).map(Self::Int),
+            (left, right) => Some(Self::Float(left.as_f64()? * right.as_f64()?)),
+        }
+    }
+
+    fn div(self, rhs: Self) -> Option<Self> {
+        match (self, rhs) {
+            (_, Self::Int(0)) => None,
+            (_, Self::Float(value)) if value == 0.0 => None,
+            (Self::Int(left), Self::Int(right)) => {
+                if left % right == 0 {
+                    Some(Self::Int(left / right))
+                } else {
+                    Some(Self::Float((left as f64) / (right as f64)))
+                }
+            }
+            (left, right) => Some(Self::Float(left.as_f64()? / right.as_f64()?)),
+        }
+    }
+
+    fn rem(self, rhs: Self) -> Option<Self> {
+        match (self, rhs) {
+            (_, Self::Int(0)) => None,
+            (_, Self::Float(value)) if value == 0.0 => None,
+            (Self::Int(left), Self::Int(right)) => Some(Self::Int(left % right)),
+            (left, right) => Some(Self::Float(left.as_f64()? % right.as_f64()?)),
+        }
+    }
+
+    fn neg(self) -> Option<Self> {
+        match self {
+            Self::Int(value) => value.checked_neg().map(Self::Int),
+            Self::Float(value) => Some(Self::Float(-value)),
+        }
+    }
+
+    fn as_f64(self) -> Option<f64> {
+        match self {
+            Self::Int(value) => Some(value as f64),
+            Self::Float(value) if value.is_finite() => Some(value),
+            Self::Float(_) => None,
+        }
+    }
+
+    fn to_source(self) -> String {
+        match self {
+            Self::Int(value) => value.to_string(),
+            Self::Float(value) => format_float(value),
+        }
+    }
+}
+
+fn format_float(value: f64) -> String {
+    if !value.is_finite() {
+        return value.to_string();
+    }
+
+    let mut text = format!("{value:.12}");
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.push('0');
+    }
+    text
+}
+
+#[derive(Debug)]
+struct NumericExprParser<'a> {
+    input: &'a str,
+    cursor: usize,
+}
+
+impl<'a> NumericExprParser<'a> {
+    fn new(input: &'a str) -> Self {
+        Self { input, cursor: 0 }
+    }
+
+    fn parse_expression(&mut self) -> Option<NumericValue> {
+        self.parse_add_sub()
+    }
+
+    fn parse_add_sub(&mut self) -> Option<NumericValue> {
+        let mut value = self.parse_mul_div()?;
+
+        loop {
+            self.skip_ws();
+            if self.consume('+') {
+                value = value.add(self.parse_mul_div()?)?;
+            } else if self.consume('-') {
+                value = value.sub(self.parse_mul_div()?)?;
+            } else {
+                break;
+            }
+        }
+
+        Some(value)
+    }
+
+    fn parse_mul_div(&mut self) -> Option<NumericValue> {
+        let mut value = self.parse_unary()?;
+
+        loop {
+            self.skip_ws();
+            if self.consume('*') {
+                value = value.mul(self.parse_unary()?)?;
+            } else if self.consume('/') {
+                value = value.div(self.parse_unary()?)?;
+            } else if self.consume('%') {
+                value = value.rem(self.parse_unary()?)?;
+            } else {
+                break;
+            }
+        }
+
+        Some(value)
+    }
+
+    fn parse_unary(&mut self) -> Option<NumericValue> {
+        self.skip_ws();
+
+        if self.consume('+') {
+            return self.parse_unary();
+        }
+
+        if self.consume('-') {
+            return self.parse_unary()?.neg();
+        }
+
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Option<NumericValue> {
+        self.skip_ws();
+
+        if self.consume('(') {
+            let value = self.parse_expression()?;
+            self.skip_ws();
+            if !self.consume(')') {
+                return None;
+            }
+            return Some(value);
+        }
+
+        self.parse_number()
+    }
+
+    fn parse_number(&mut self) -> Option<NumericValue> {
+        self.skip_ws();
+        let start = self.cursor;
+        let mut seen_dot = false;
+
+        while let Some(ch) = self.peek() {
+            if ch.is_ascii_digit() {
+                self.bump();
+                continue;
+            }
+            if ch == '.' && !seen_dot {
+                seen_dot = true;
+                self.bump();
+                continue;
+            }
+            break;
+        }
+
+        if self.cursor == start {
+            return None;
+        }
+
+        let text = &self.input[start..self.cursor];
+        if seen_dot {
+            text.parse::<f64>().ok().map(NumericValue::Float)
+        } else {
+            text.parse::<i128>().ok().map(NumericValue::Int)
+        }
+    }
+
+    fn skip_ws(&mut self) {
+        while let Some(ch) = self.peek() {
+            if ch.is_whitespace() {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn consume(&mut self, expected: char) -> bool {
+        if self.peek() == Some(expected) {
+            self.bump();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.input[self.cursor..].chars().next()
+    }
+
+    fn bump(&mut self) {
+        if let Some(ch) = self.peek() {
+            self.cursor += ch.len_utf8();
+        }
+    }
+
+    fn is_end(&self) -> bool {
+        self.cursor >= self.input.len()
+    }
 }
 
 fn canonicalize_import(mut import: HirImport) -> HirImport {
@@ -376,7 +645,9 @@ fn is_identifier(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{HirItem, HirModule, optimize};
+    use crate::compile_options::FrontendMode;
+
+    use super::{HirItem, HirModule, optimize, optimize_with_mode};
 
     #[test]
     fn deduplicates_imports_and_simplifies_const_alias() {
@@ -422,6 +693,38 @@ mod tests {
 
         assert!(module.items.iter().any(
             |item| matches!(item, HirItem::Statement(text) if text == "console.log(\"Hello\");")
+        ));
+    }
+
+    #[test]
+    fn folds_arithmetic_expression_and_narrows_integer_type() {
+        let mut module = HirModule {
+            items: vec![HirItem::Statement(
+                "const valor = 2 * 60 * 60 * 1000;".to_string(),
+            )],
+            ..Default::default()
+        };
+
+        let _ = optimize(&mut module);
+
+        assert!(module.items.iter().any(
+            |item| matches!(item, HirItem::Statement(text) if text == "const valor: i32 = 7200000;")
+        ));
+    }
+
+    #[test]
+    fn compat_mode_falls_back_to_dynamic_type_when_not_inferable() {
+        let mut module = HirModule {
+            items: vec![HirItem::Statement(
+                "const valor = chamarAlgo();".to_string(),
+            )],
+            ..Default::default()
+        };
+
+        let _ = optimize_with_mode(&mut module, FrontendMode::Compat);
+
+        assert!(module.items.iter().any(
+            |item| matches!(item, HirItem::Statement(text) if text == "const valor: any = chamarAlgo();")
         ));
     }
 }

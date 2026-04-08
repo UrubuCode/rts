@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::runtime::bootstrap_lang::JsValue;
+use crate::namespaces::lang::JsValue;
 
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_value};
 

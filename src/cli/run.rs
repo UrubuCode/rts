@@ -10,7 +10,7 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("examples/console.ts"));
 
-    let graph = crate::module_system::ModuleGraph::load(&input, options)
+    let graph = crate::module::ModuleGraph::load(&input, options)
         .with_context(|| format!("failed to load module graph from {}", input.display()))?;
 
     let modules = graph.modules().collect::<Vec<_>>();
@@ -23,7 +23,8 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         .par_iter()
         .map(|module| {
             let mut lowered = crate::hir::lower::lower(&module.program, &resolver);
-            let _hir_opt = crate::hir::optimize::optimize(&mut lowered);
+            let _hir_opt =
+                crate::hir::optimize::optimize_with_mode(&mut lowered, options.frontend_mode);
             lowered
         })
         .collect::<Vec<_>>();

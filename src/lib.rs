@@ -5,7 +5,7 @@ pub mod diagnostics;
 pub mod hir;
 pub mod linker;
 pub mod mir;
-pub mod module_system;
+pub mod module;
 pub mod namespaces;
 pub mod parser;
 pub mod runtime;
@@ -20,7 +20,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use codegen::object::ObjectArtifact;
 use compile_options::CompileOptions;
-use module_system::{ModuleGraph, ModuleKind, SourceModule};
+use module::{ModuleGraph, ModuleKind, SourceModule};
 use parser::ast::{Item, Program};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -82,7 +82,7 @@ pub fn compile_source_with_options(
         options.profile,
         crate::compile_options::CompilationProfile::Production
     );
-    let program = parser::parse_source(source)?;
+    let program = parser::parse_source_with_mode(source, options.frontend_mode)?;
 
     let mut registry = type_system::TypeRegistry::default();
     let empty_imports = type_system::checker::ImportExports::default();
@@ -90,7 +90,7 @@ pub fn compile_source_with_options(
 
     let resolver = type_system::resolver::TypeResolver::from_registry(&registry);
     let mut hir = hir::lower::lower(&program, &resolver);
-    let _hir_opt = hir::optimize::optimize(&mut hir);
+    let _hir_opt = hir::optimize::optimize_with_mode(&mut hir, options.frontend_mode);
 
     let mut mir = mir::build::build(&hir);
     let _mono = mir::monomorphize::monomorphize(&mut mir);
@@ -211,7 +211,7 @@ fn compile_graph(
             );
 
             let mut lowered = hir::lower::lower(&pruned_program, &resolver);
-            let _hir_opt = hir::optimize::optimize(&mut lowered);
+            let _hir_opt = hir::optimize::optimize_with_mode(&mut lowered, options.frontend_mode);
             lowered
         })
         .collect::<Vec<_>>();
@@ -1066,7 +1066,7 @@ mod incremental_cache_tests {
     use std::collections::BTreeSet;
     use std::path::PathBuf;
 
-    use crate::module_system::{ModuleKind, SourceModule};
+    use crate::module::{ModuleKind, SourceModule};
     use crate::parser::ast::Program;
 
     use super::{

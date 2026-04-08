@@ -78,6 +78,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                 name: format!("{}::constructor", class_decl.name),
                                 parameters,
                                 return_type: None,
+                                body: Vec::new(),
                             };
 
                             module.functions.push(ctor_fn.clone());
@@ -104,6 +105,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                     .return_type
                                     .as_ref()
                                     .map(|name| annotate(name, resolver)),
+                                body: Vec::new(),
                             };
 
                             module.functions.push(function.clone());
@@ -146,6 +148,13 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                         .return_type
                         .as_ref()
                         .map(|name| annotate(name, resolver)),
+                    body: function_decl
+                        .body
+                        .iter()
+                        .map(|statement| match statement {
+                            Statement::Raw(raw) => raw.value.clone(),
+                        })
+                        .collect(),
                 };
 
                 module.items.push(HirItem::Function(function.clone()));

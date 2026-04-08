@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::runtime::bootstrap_lang::JsValue;
+use crate::namespaces::lang::JsValue;
 
 pub mod abi;
 pub mod buffer;
@@ -11,6 +11,7 @@ pub mod crypto;
 pub mod fs;
 pub mod global;
 pub mod io;
+pub(crate) mod lang;
 pub mod process;
 pub mod promise;
 pub(crate) mod state;

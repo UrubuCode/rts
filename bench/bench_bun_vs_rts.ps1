@@ -18,7 +18,7 @@ cargo run --release
 # Prepara o binário compilado (uma única vez antes dos benchmarks)
 # -------------------------------------------------------------------
 Write-Host "=== Building standalone executable with RTS ==="
-& $RtsExe build -p $SourceFile $BuildOutput --development
+& $RtsExe build -p $SourceFile $BuildOutput --production
 $CompiledExe = "$BuildOutput.exe"
 if (!(Test-Path $CompiledExe)) {
   throw "Compiled executable not found at $CompiledExe"

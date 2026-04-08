@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "rts"
 version = "0.1.0"
 edition = "2024"
@@ -25,6 +25,9 @@ tar = "0.4"
 target-lexicon = "0.13"
 colored = "2.1"
 console = "0.15"
+swc_common = "21.0.0"
+swc_ecma_ast = "23.0.0"
+swc_ecma_parser = "38.0.0"
 
 [profile.release]
 opt-level = "z"

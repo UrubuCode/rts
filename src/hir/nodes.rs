@@ -48,6 +48,7 @@ pub struct HirFunction {
     pub name: String,
     pub parameters: Vec<HirParameter>,
     pub return_type: Option<TypeAnnotation>,
+    pub body: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]

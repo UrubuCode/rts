@@ -98,13 +98,14 @@ impl ModuleGraph {
                 )
             })?;
 
-            let program = parser::parse_source(&source).with_context(|| {
-                attach_trace(
-                    format!("failed to parse module {}", current.path.display()),
-                    &current.trace_route,
-                    options,
-                )
-            })?;
+            let program = parser::parse_source_with_mode(&source, options.frontend_mode)
+                .with_context(|| {
+                    attach_trace(
+                        format!("failed to parse module {}", current.path.display()),
+                        &current.trace_route,
+                        options,
+                    )
+                })?;
 
             let owner_manifest = find_owner_manifest(
                 &current.path,
@@ -338,7 +339,11 @@ fn resolve_entry_path(input: &Path) -> Result<PathBuf> {
         bail!("entry module not found: {}", input.display());
     }
 
-    for candidate in [input.with_extension("ts"), input.with_extension("rts")] {
+    for candidate in [
+        input.with_extension("ts"),
+        input.with_extension("rts"),
+        input.with_extension("js"),
+    ] {
         if candidate.exists() {
             return candidate.canonicalize().with_context(|| {
                 format!("failed to canonicalize entry path {}", candidate.display())
@@ -347,24 +352,25 @@ fn resolve_entry_path(input: &Path) -> Result<PathBuf> {
     }
 
     bail!(
-        "entry module not found. tried: {}, {} and {}",
+        "entry module not found. tried: {}, {}, {} and {}",
         input.display(),
         input.with_extension("ts").display(),
-        input.with_extension("rts").display()
+        input.with_extension("rts").display(),
+        input.with_extension("js").display()
     )
 }
 
 fn validate_source_extension(path: &Path) -> Result<()> {
     let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
         bail!(
-            "source file must have .rts or .ts extension: {}",
+            "source file must have .rts, .ts or .js extension: {}",
             path.display()
         );
     };
 
-    if ext != "rts" && ext != "ts" {
+    if ext != "rts" && ext != "ts" && ext != "js" {
         bail!(
-            "unsupported source extension '.{}' in {} (expected .rts or .ts)",
+            "unsupported source extension '.{}' in {} (expected .rts, .ts or .js)",
             ext,
             path.display()
         );
@@ -468,8 +474,10 @@ fn resolve_source_candidate(candidate: &Path) -> Result<PathBuf> {
     } else {
         attempts.push(candidate.with_extension("ts"));
         attempts.push(candidate.with_extension("rts"));
+        attempts.push(candidate.with_extension("js"));
         attempts.push(candidate.join("index.ts"));
         attempts.push(candidate.join("index.rts"));
+        attempts.push(candidate.join("index.js"));
     }
 
     for path in attempts {
@@ -507,8 +515,10 @@ fn resolve_directory_entry(directory: &Path) -> Result<PathBuf> {
     for candidate in [
         directory.join("main.ts"),
         directory.join("main.rts"),
+        directory.join("main.js"),
         directory.join("index.ts"),
         directory.join("index.rts"),
+        directory.join("index.js"),
     ] {
         if candidate.exists() {
             return resolve_source_candidate(&candidate);
@@ -565,13 +575,23 @@ fn resolve_package_entry(
         return resolve_source_candidate(&fallback_main);
     }
 
+    let fallback_main_js = package_dir.join("main.js");
+    if fallback_main_js.exists() {
+        return resolve_source_candidate(&fallback_main_js);
+    }
+
     let fallback_index = package_dir.join("index.ts");
     if fallback_index.exists() {
         return resolve_source_candidate(&fallback_index);
     }
 
+    let fallback_index_js = package_dir.join("index.js");
+    if fallback_index_js.exists() {
+        return resolve_source_candidate(&fallback_index_js);
+    }
+
     bail!(
-        "workspace package '{}' has no valid entry file (expected package.json main, main.ts or index.ts)",
+        "workspace package '{}' has no valid entry file (expected package.json main, main.ts/main.js or index.ts/index.js)",
         package_dir.display()
     )
 }
@@ -801,7 +821,9 @@ fn resolve_cached_module_entry(root: &Path) -> Result<PathBuf> {
 
     for candidate in [
         root.join("main.ts"),
+        root.join("main.js"),
         root.join("index.ts"),
+        root.join("index.js"),
         root.join("mod.ts"),
     ] {
         if candidate.exists() {

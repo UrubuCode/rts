@@ -1,17 +1,19 @@
 pub mod apis;
 pub mod build;
+pub mod eval;
 pub mod init;
 pub mod repl;
 pub mod run;
 
 use anyhow::{Result, anyhow};
 
-use crate::compile_options::{CompilationProfile, CompileOptions};
+use crate::compile_options::{CompilationProfile, CompileOptions, FrontendMode};
 
 #[derive(Debug, Clone, Copy)]
 struct CliFlags {
     profile: CompilationProfile,
     debug: bool,
+    frontend_mode: FrontendMode,
 }
 
 impl Default for CliFlags {
@@ -19,6 +21,7 @@ impl Default for CliFlags {
         Self {
             profile: CompilationProfile::Development,
             debug: false,
+            frontend_mode: FrontendMode::Native,
         }
     }
 }
@@ -28,6 +31,7 @@ impl CliFlags {
         CompileOptions {
             profile: self.profile,
             debug: self.debug,
+            frontend_mode: self.frontend_mode,
             emit_module_progress: false,
         }
     }
@@ -42,7 +46,12 @@ where
     let bin_name = args.next().unwrap_or_else(|| "rts".to_string());
     let raw_args = args.collect::<Vec<_>>();
 
-    let (flags, positional) = parse_flags(raw_args)?;
+    let (flags, positional, eval_source) = parse_flags(raw_args)?;
+
+    if let Some(source) = eval_source {
+        let result = eval::command(Some(source), flags.as_compile_options());
+        return result.map_err(|error| render_compiler_error(error, flags));
+    }
 
     if positional.is_empty() {
         print_help(&bin_name);
@@ -69,21 +78,38 @@ where
     result.map_err(|error| render_compiler_error(error, flags))
 }
 
-fn parse_flags(raw_args: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
+fn parse_flags(raw_args: Vec<String>) -> Result<(CliFlags, Vec<String>, Option<String>)> {
     let mut flags = CliFlags::default();
     let mut positional = Vec::new();
+    let mut eval_source = None::<String>;
+    let mut index = 0usize;
 
-    for arg in raw_args {
+    while index < raw_args.len() {
+        let arg = &raw_args[index];
         match arg.as_str() {
             "--development" | "-d" => flags.profile = CompilationProfile::Development,
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
             "--debug" | "-D" => flags.debug = true,
-            _ if arg.starts_with('-') => bail_unknown_option(&arg)?,
-            _ => positional.push(arg),
+            "--native" => flags.frontend_mode = FrontendMode::Native,
+            "--compat" => flags.frontend_mode = FrontendMode::Compat,
+            "--eval" | "-e" => {
+                if eval_source.is_some() {
+                    return Err(anyhow!("option '-e/--eval' can only be provided once"));
+                }
+
+                index += 1;
+                let Some(source) = raw_args.get(index) else {
+                    return Err(anyhow!("missing source for '-e/--eval'"));
+                };
+                eval_source = Some(source.clone());
+            }
+            _ if arg.starts_with('-') => bail_unknown_option(arg)?,
+            _ => positional.push(arg.clone()),
         }
+        index += 1;
     }
 
-    Ok((flags, positional))
+    Ok((flags, positional, eval_source))
 }
 
 fn bail_unknown_option(option: &str) -> Result<()> {
@@ -126,12 +152,55 @@ fn fnv1a32(input: &[u8]) -> u32 {
 fn print_help(bin_name: &str) {
     println!("RTS compiler bootstrap CLI");
     println!("Usage:");
-    println!("  {bin_name} [--development|-d] [--production|-p] [--debug|-D] <input.(rts|ts)>");
     println!(
-        "  {bin_name} build [--development|-d] [--production|-p] [--debug|-D] [input.(rts|ts)] [output]"
+        "  {bin_name} -e|--eval <code> [--development|-d] [--production|-p] [--debug|-D] [--native|--compat]"
     );
-    println!("  {bin_name} run [--development|-d] [--production|-p] [--debug|-D] [input.(rts|ts)]");
+    println!(
+        "  {bin_name} [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] <input.(rts|ts|js)>"
+    );
+    println!(
+        "  {bin_name} build [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)] [output]"
+    );
+    println!(
+        "  {bin_name} run [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)]"
+    );
     println!("  {bin_name} init [project-name]");
     println!("  {bin_name} apis");
     println!("  {bin_name} repl");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_flags;
+
+    #[test]
+    fn parse_eval_flag_extracts_source() {
+        let (flags, positional, eval_source) = parse_flags(vec![
+            "--compat".to_string(),
+            "-e".to_string(),
+            "const valor = 42;".to_string(),
+        ])
+        .expect("flags should parse");
+
+        assert!(matches!(
+            flags.frontend_mode,
+            crate::compile_options::FrontendMode::Compat
+        ));
+        assert!(positional.is_empty());
+        assert_eq!(eval_source.as_deref(), Some("const valor = 42;"));
+    }
+
+    #[test]
+    fn parse_eval_flag_requires_source() {
+        let error = parse_flags(vec!["-e".to_string()]).expect_err("must fail");
+        assert!(error.to_string().contains("missing source for '-e/--eval'"));
+    }
+
+    #[test]
+    fn parse_regular_positional_without_eval() {
+        let (_flags, positional, eval_source) =
+            parse_flags(vec!["run".to_string()]).expect("flags should parse");
+        assert_eq!(positional, vec!["run".to_string()]);
+        assert!(eval_source.is_none());
+    }
 }

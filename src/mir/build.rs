@@ -9,7 +9,7 @@ pub fn build(hir: &HirModule) -> MirModule {
     let mut top_level = collect_top_level_statements(hir);
 
     for function in &hir.functions {
-        mir.functions.push(build_stub_function(function));
+        mir.functions.push(build_function(function));
     }
 
     if !top_level.is_empty() {
@@ -47,18 +47,43 @@ pub fn build(hir: &HirModule) -> MirModule {
     mir
 }
 
-fn build_stub_function(function: &HirFunction) -> MirFunction {
+fn build_function(function: &HirFunction) -> MirFunction {
+    let mut statements = Vec::new();
+    let enter_statement = if function.parameters.is_empty() {
+        format!("enter {}", function.name)
+    } else {
+        format!(
+            "enter {}({})",
+            function.name,
+            function
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+
+    statements.push(MirStatement {
+        text: enter_statement,
+    });
+
+    for statement in &function.body {
+        let trimmed = statement.trim();
+        if !trimmed.is_empty() {
+            statements.push(MirStatement {
+                text: trimmed.to_string(),
+            });
+        }
+    }
+
+    statements.push(MirStatement {
+        text: "ret".to_string(),
+    });
+
     MirFunction {
         name: function.name.clone(),
-        blocks: ControlFlowGraph::linear(vec![
-            MirStatement {
-                text: format!("enter {}", function.name),
-            },
-            MirStatement {
-                text: "ret".to_string(),
-            },
-        ])
-        .blocks,
+        blocks: ControlFlowGraph::linear(statements).blocks,
     }
 }
 

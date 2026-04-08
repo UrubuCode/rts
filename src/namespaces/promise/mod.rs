@@ -1,5 +1,5 @@
+use crate::namespaces::lang::JsValue;
 use crate::namespaces::state as runtime_state;
-use crate::runtime::bootstrap_lang::JsValue;
 
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64};
 

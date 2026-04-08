@@ -2,442 +2,716 @@ pub mod ast;
 pub mod lexer;
 pub mod span;
 
-use anyhow::Result;
-use ast::{
-    ClassDecl, ClassMember, ConstructorDecl, FunctionDecl, ImportDecl, InterfaceDecl, Item,
-    MemberModifiers, MethodDecl, Parameter, Program, PropertyDecl, Statement, Visibility,
+use anyhow::{Result, anyhow};
+use swc_common::{FileName, SourceMap, SourceMapper, Span as SwcSpan, Spanned, sync::Lrc};
+use swc_ecma_ast::{
+    Accessibility, Class as SwcClass, ClassDecl as SwcClassDecl, ClassMember as SwcClassMember,
+    Decl, DefaultDecl, Expr, FnDecl as SwcFnDecl, Function as SwcFunction,
+    ImportDecl as SwcImportDecl, ImportSpecifier, Lit, ModuleDecl, ModuleExportName, ModuleItem,
+    Param as SwcParam, ParamOrTsParamProp, Pat, Program as SwcProgram, PropName, Stmt,
+    TsInterfaceDecl as SwcTsInterfaceDecl, TsParamProp, TsParamPropParam, TsTypeAnn, TsTypeElement,
 };
-use span::{Span, Spanned};
+use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
+
+use crate::compile_options::FrontendMode;
+
+use ast::{
+    ClassDecl, ClassMember, ConstructorDecl, FieldDecl, FunctionDecl, ImportDecl, InterfaceDecl,
+    Item, MemberModifiers, MethodDecl, Parameter, Program, PropertyDecl, Statement, Visibility,
+};
+use span::{Position, Span, Spanned as LocalSpanned};
 
 pub fn parse_source(source: &str) -> Result<Program> {
-    let _tokens = lexer::tokenize(source);
+    parse_source_with_mode(source, FrontendMode::Native)
+}
 
+pub fn parse_source_with_mode(source: &str, mode: FrontendMode) -> Result<Program> {
+    let syntax_order = match mode {
+        FrontendMode::Native => [ts_syntax(), es_syntax()],
+        FrontendMode::Compat => [es_syntax(), ts_syntax()],
+    };
+
+    let mut first_error = None::<String>;
+
+    for syntax in syntax_order {
+        match parse_with_syntax(source, syntax) {
+            Ok(program) => return Ok(program),
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error.to_string());
+                }
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "failed to parse source in {} mode: {}",
+        mode,
+        first_error.unwrap_or_else(|| "unknown parser error".to_string())
+    ))
+}
+
+fn parse_with_syntax(source: &str, syntax: Syntax) -> Result<Program> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(
+        Lrc::new(FileName::Custom("rts-input.ts".into())),
+        source.to_string(),
+    );
+
+    let lexer = Lexer::new(syntax, Default::default(), StringInput::from(&*fm), None);
+    let mut parser = Parser::new_from(lexer);
+
+    let parsed = parser
+        .parse_program()
+        .map_err(|error| anyhow!(format_parser_error(&cm, &error)))?;
+
+    if let Some(error) = parser.take_errors().into_iter().next() {
+        return Err(anyhow!(format_parser_error(&cm, &error)));
+    }
+
+    Ok(lower_program(&cm, &parsed))
+}
+
+fn format_parser_error(cm: &Lrc<SourceMap>, error: &swc_ecma_parser::error::Error) -> String {
+    let message = error.kind().msg();
+    let span = error.span();
+
+    if span.is_dummy() {
+        return message.into_owned();
+    }
+
+    let loc = cm.lookup_char_pos(span.lo());
+    format!(
+        "{} at {}:{}",
+        message,
+        loc.line,
+        loc.col_display.saturating_add(1)
+    )
+}
+
+fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     let mut program = Program::default();
-    let mut lines = source.lines().enumerate().peekable();
 
-    while let Some((line_index, raw_line)) = lines.next() {
-        let trimmed = strip_inline_comment(trim_bom(raw_line).trim());
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let span = Span::new(line_index + 1, 1, raw_line.len().max(1));
-
-        if let Some(import_decl) = parse_import_decl(trimmed, span) {
-            program.items.push(Item::Import(import_decl));
-            continue;
-        }
-
-        let normalized = strip_export_prefix(trimmed);
-
-        if let Some(interface_name) = normalized.strip_prefix("interface ") {
-            let mut interface_decl = InterfaceDecl {
-                name: parse_decl_name(interface_name),
-                fields: Vec::new(),
-                span,
-            };
-
-            let mut depth = brace_delta(normalized);
-
-            while depth > 0 {
-                let Some((field_line_index, field_line)) = lines.next() else {
-                    break;
-                };
-
-                let field_trimmed = strip_inline_comment(trim_bom(field_line).trim());
-
-                if depth == 1 {
-                    if let Some(field) = parse_field_decl(
-                        field_trimmed,
-                        Span::new(field_line_index + 1, 1, field_line.len().max(1)),
-                    ) {
-                        interface_decl.fields.push(field);
-                    }
-                }
-
-                depth += brace_delta(field_trimmed);
+    match source {
+        SwcProgram::Module(module) => {
+            for item in &module.body {
+                lower_module_item(cm, item, &mut program.items);
             }
-
-            program.items.push(Item::Interface(interface_decl));
-            continue;
         }
-
-        if let Some(class_name) = normalized.strip_prefix("class ") {
-            let mut class_decl = ClassDecl {
-                name: parse_decl_name(class_name),
-                members: Vec::new(),
-                span,
-            };
-
-            let mut depth = brace_delta(normalized);
-
-            while depth > 0 {
-                let Some((member_line_index, member_line)) = lines.next() else {
-                    break;
-                };
-
-                let member_trimmed = strip_inline_comment(trim_bom(member_line).trim());
-
-                if depth == 1 {
-                    let member_span = Span::new(member_line_index + 1, 1, member_line.len().max(1));
-                    if let Some(member) = parse_class_member(member_trimmed, member_span) {
-                        class_decl.members.push(member);
-                    }
-                }
-
-                depth += brace_delta(member_trimmed);
+        SwcProgram::Script(script) => {
+            for stmt in &script.body {
+                lower_stmt(cm, stmt, &mut program.items);
             }
-
-            program.items.push(Item::Class(class_decl));
-            continue;
         }
+    }
 
-        if let Some(rest) = normalized.strip_prefix("function ") {
-            let (name, parameters, return_type) = parse_callable_signature(rest, span);
-            program.items.push(Item::Function(FunctionDecl {
-                name,
-                parameters,
-                return_type,
-                body: Vec::new(),
-                span,
-            }));
-            continue;
+    program
+}
+
+fn lower_module_item(cm: &Lrc<SourceMap>, item: &ModuleItem, out: &mut Vec<Item>) {
+    match item {
+        ModuleItem::ModuleDecl(decl) => lower_module_decl(cm, decl, out),
+        ModuleItem::Stmt(stmt) => lower_stmt(cm, stmt, out),
+    }
+}
+
+fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>) {
+    match decl {
+        ModuleDecl::Import(import_decl) => {
+            out.push(Item::Import(lower_import_decl(cm, import_decl)));
         }
-
-        program
-            .items
-            .push(Item::Statement(Statement::Raw(Spanned::new(
-                trimmed.to_string(),
-                span,
-            ))));
+        ModuleDecl::ExportDecl(export_decl) => {
+            lower_decl(cm, &export_decl.decl, out);
+        }
+        ModuleDecl::ExportDefaultDecl(default_decl) => match &default_decl.decl {
+            DefaultDecl::Class(class_expr) => {
+                if let Some(name) = class_expr.ident.as_ref().map(|ident| ident.sym.to_string()) {
+                    out.push(Item::Class(lower_class(
+                        cm,
+                        &name,
+                        &class_expr.class,
+                        class_expr.span(),
+                    )));
+                } else {
+                    push_raw_statement(cm, decl.span(), out);
+                }
+            }
+            DefaultDecl::Fn(fn_expr) => {
+                if let Some(name) = fn_expr.ident.as_ref().map(|ident| ident.sym.to_string()) {
+                    out.push(Item::Function(lower_function(
+                        cm,
+                        &name,
+                        &fn_expr.function,
+                        fn_expr.function.span,
+                    )));
+                } else {
+                    push_raw_statement(cm, decl.span(), out);
+                }
+            }
+            DefaultDecl::TsInterfaceDecl(interface_decl) => {
+                out.push(Item::Interface(lower_interface_decl(cm, interface_decl)));
+            }
+        },
+        _ => push_raw_statement(cm, decl.span(), out),
     }
-
-    Ok(program)
 }
 
-fn trim_bom(line: &str) -> &str {
-    line.trim_start_matches('\u{feff}')
-}
-
-fn strip_export_prefix(line: &str) -> &str {
-    line.strip_prefix("export ").unwrap_or(line).trim_start()
-}
-
-fn strip_inline_comment(line: &str) -> &str {
-    if let Some(idx) = line.find("//") {
-        &line[..idx]
-    } else {
-        line
+fn lower_stmt(cm: &Lrc<SourceMap>, stmt: &Stmt, out: &mut Vec<Item>) {
+    match stmt {
+        Stmt::Decl(decl) => lower_decl(cm, decl, out),
+        _ => push_raw_statement(cm, stmt.span(), out),
     }
-    .trim()
 }
 
-fn parse_import_decl(line: &str, span: Span) -> Option<ImportDecl> {
-    if !line.starts_with("import ") {
-        return None;
+fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
+    match decl {
+        Decl::Class(class_decl) => {
+            out.push(Item::Class(lower_class_decl(cm, class_decl)));
+        }
+        Decl::Fn(fn_decl) => {
+            out.push(Item::Function(lower_fn_decl(cm, fn_decl)));
+        }
+        Decl::TsInterface(interface_decl) => {
+            out.push(Item::Interface(lower_interface_decl(cm, interface_decl)));
+        }
+        _ => push_raw_statement(cm, decl.span(), out),
     }
+}
 
-    let open = line.find('{')?;
-    let close = line[open + 1..].find('}')? + open + 1;
-    let names = line[open + 1..close]
-        .split(',')
-        .filter_map(normalize_import_name)
+fn lower_import_decl(cm: &Lrc<SourceMap>, import_decl: &SwcImportDecl) -> ImportDecl {
+    let names = import_decl
+        .specifiers
+        .iter()
+        .filter_map(|specifier| match specifier {
+            ImportSpecifier::Named(named) => {
+                if let Some(imported) = &named.imported {
+                    Some(module_export_name(imported))
+                } else {
+                    Some(named.local.sym.to_string())
+                }
+            }
+            ImportSpecifier::Default(_) | ImportSpecifier::Namespace(_) => None,
+        })
         .collect::<Vec<_>>();
 
-    if names.is_empty() {
-        return None;
-    }
-
-    let remainder = line[close + 1..].trim();
-    let from_index = remainder.find("from")?;
-    let source = remainder[from_index + "from".len()..]
-        .trim()
-        .trim_end_matches(';')
-        .trim();
-
-    let module_name = source.trim_matches('"').trim_matches('\'');
-    if module_name.is_empty() {
-        return None;
-    }
-
-    Some(ImportDecl {
+    ImportDecl {
         names,
-        from: module_name.to_string(),
-        span,
-    })
-}
-
-fn normalize_import_name(raw: &str) -> Option<String> {
-    let mut text = raw.trim();
-
-    if let Some(stripped) = text.strip_prefix("type ") {
-        text = stripped.trim_start();
-    }
-
-    if let Some((left, _right)) = text.split_once(" as ") {
-        text = left.trim();
-    }
-
-    if text.is_empty() {
-        None
-    } else {
-        Some(text.to_string())
+        from: import_decl.src.value.to_string_lossy().to_string(),
+        span: convert_span(cm, import_decl.span),
     }
 }
 
-fn parse_field_decl(line: &str, span: Span) -> Option<ast::FieldDecl> {
-    if line.is_empty() || line.starts_with('}') {
-        return None;
+fn lower_interface_decl(cm: &Lrc<SourceMap>, interface_decl: &SwcTsInterfaceDecl) -> InterfaceDecl {
+    let mut fields = Vec::new();
+
+    for member in &interface_decl.body.body {
+        if let TsTypeElement::TsPropertySignature(property) = member {
+            if let Some(name) = property_key_name(&property.key, cm) {
+                let field = FieldDecl {
+                    name,
+                    type_annotation: property
+                        .type_ann
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation))
+                        .unwrap_or_else(|| "any".to_string()),
+                    span: convert_span(cm, property.span),
+                };
+                fields.push(field);
+            }
+        }
     }
 
-    let content = line.trim_end_matches(';').trim();
-    let mut parts = content.splitn(2, ':');
-    let name = parts.next()?.trim();
-    let ty = parts.next()?.trim();
+    InterfaceDecl {
+        name: interface_decl.id.sym.to_string(),
+        fields,
+        span: convert_span(cm, interface_decl.span),
+    }
+}
 
-    if name.is_empty() || ty.is_empty() {
-        return None;
+fn lower_class_decl(cm: &Lrc<SourceMap>, class_decl: &SwcClassDecl) -> ClassDecl {
+    lower_class(
+        cm,
+        &class_decl.ident.sym.to_string(),
+        &class_decl.class,
+        class_decl.class.span,
+    )
+}
+
+fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan) -> ClassDecl {
+    let mut members = Vec::new();
+
+    for member in &class.body {
+        match member {
+            SwcClassMember::Constructor(constructor) => {
+                let parameters = constructor
+                    .params
+                    .iter()
+                    .filter_map(|parameter| lower_constructor_param(cm, parameter))
+                    .collect::<Vec<_>>();
+
+                members.push(ClassMember::Constructor(ConstructorDecl {
+                    parameters,
+                    span: convert_span(cm, constructor.span),
+                }));
+            }
+            SwcClassMember::Method(method) => {
+                let name = prop_name_to_string(&method.key, cm);
+                if name.is_empty() {
+                    continue;
+                }
+
+                let parameters = method
+                    .function
+                    .params
+                    .iter()
+                    .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
+                    .collect::<Vec<_>>();
+
+                members.push(ClassMember::Method(MethodDecl {
+                    name,
+                    modifiers: MemberModifiers {
+                        visibility: map_accessibility(method.accessibility),
+                        readonly: false,
+                        is_static: method.is_static,
+                    },
+                    parameters,
+                    return_type: method
+                        .function
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    span: convert_span(cm, method.span),
+                }));
+            }
+            SwcClassMember::PrivateMethod(method) => {
+                let parameters = method
+                    .function
+                    .params
+                    .iter()
+                    .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
+                    .collect::<Vec<_>>();
+
+                members.push(ClassMember::Method(MethodDecl {
+                    name: format!("#{}", method.key.name),
+                    modifiers: MemberModifiers {
+                        visibility: Some(Visibility::Private),
+                        readonly: false,
+                        is_static: method.is_static,
+                    },
+                    parameters,
+                    return_type: method
+                        .function
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    span: convert_span(cm, method.span),
+                }));
+            }
+            SwcClassMember::ClassProp(prop) => {
+                let name = prop_name_to_string(&prop.key, cm);
+                if name.is_empty() {
+                    continue;
+                }
+
+                members.push(ClassMember::Property(PropertyDecl {
+                    name,
+                    modifiers: MemberModifiers {
+                        visibility: map_accessibility(prop.accessibility),
+                        readonly: prop.readonly,
+                        is_static: prop.is_static,
+                    },
+                    type_annotation: prop
+                        .type_ann
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    span: convert_span(cm, prop.span),
+                }));
+            }
+            SwcClassMember::PrivateProp(prop) => {
+                members.push(ClassMember::Property(PropertyDecl {
+                    name: format!("#{}", prop.key.name),
+                    modifiers: MemberModifiers {
+                        visibility: Some(Visibility::Private),
+                        readonly: prop.readonly,
+                        is_static: prop.is_static,
+                    },
+                    type_annotation: prop
+                        .type_ann
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    span: convert_span(cm, prop.span),
+                }));
+            }
+            SwcClassMember::AutoAccessor(accessor) => {
+                let name = key_to_string(&accessor.key, cm);
+                if name.is_empty() {
+                    continue;
+                }
+
+                members.push(ClassMember::Property(PropertyDecl {
+                    name,
+                    modifiers: MemberModifiers {
+                        visibility: map_accessibility(accessor.accessibility),
+                        readonly: false,
+                        is_static: accessor.is_static,
+                    },
+                    type_annotation: accessor
+                        .type_ann
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    span: convert_span(cm, accessor.span),
+                }));
+            }
+            _ => {}
+        }
     }
 
-    Some(ast::FieldDecl {
+    ClassDecl {
         name: name.to_string(),
-        type_annotation: ty.to_string(),
-        span,
-    })
+        members,
+        span: convert_span(cm, span),
+    }
 }
 
-fn parse_class_member(line: &str, span: Span) -> Option<ClassMember> {
-    if line.is_empty() || line == "}" {
-        return None;
-    }
-
-    if line.starts_with("constructor") || line.starts_with("public constructor") {
-        let (_, parameters, _) = parse_callable_signature(line, span);
-        return Some(ClassMember::Constructor(ConstructorDecl {
-            parameters,
-            span,
-        }));
-    }
-
-    if line.contains('(') && line.contains(')') {
-        let (name, parameters, return_type, modifiers) = parse_method_signature(line, span);
-        if !name.is_empty() {
-            return Some(ClassMember::Method(MethodDecl {
-                name,
-                modifiers,
-                parameters,
-                return_type,
-                span,
-            }));
-        }
-    }
-
-    parse_property_signature(line, span).map(ClassMember::Property)
+fn lower_fn_decl(cm: &Lrc<SourceMap>, fn_decl: &SwcFnDecl) -> FunctionDecl {
+    lower_function(
+        cm,
+        &fn_decl.ident.sym.to_string(),
+        &fn_decl.function,
+        fn_decl.function.span,
+    )
 }
 
-fn parse_method_signature(
-    line: &str,
-    span: Span,
-) -> (String, Vec<Parameter>, Option<String>, MemberModifiers) {
-    let call_open = match line.find('(') {
-        Some(index) => index,
-        None => return (String::new(), Vec::new(), None, MemberModifiers::default()),
+fn lower_function(
+    cm: &Lrc<SourceMap>,
+    name: &str,
+    function: &SwcFunction,
+    span: SwcSpan,
+) -> FunctionDecl {
+    let parameters = function
+        .params
+        .iter()
+        .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
+        .collect::<Vec<_>>();
+
+    let body = function
+        .body
+        .as_ref()
+        .map(|body| {
+            body.stmts
+                .iter()
+                .filter_map(|stmt| raw_statement(cm, stmt.span()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    FunctionDecl {
+        name: name.to_string(),
+        parameters,
+        return_type: function
+            .return_type
+            .as_ref()
+            .map(|annotation| normalize_type_annotation(cm, annotation)),
+        body,
+        span: convert_span(cm, span),
+    }
+}
+
+fn lower_constructor_param(
+    cm: &Lrc<SourceMap>,
+    parameter: &ParamOrTsParamProp,
+) -> Option<Parameter> {
+    match parameter {
+        ParamOrTsParamProp::Param(param) => lower_param(cm, param, MemberModifiers::default()),
+        ParamOrTsParamProp::TsParamProp(param_prop) => lower_ts_param_prop(cm, param_prop),
+    }
+}
+
+fn lower_ts_param_prop(cm: &Lrc<SourceMap>, param_prop: &TsParamProp) -> Option<Parameter> {
+    let modifiers = MemberModifiers {
+        visibility: map_accessibility(param_prop.accessibility),
+        readonly: param_prop.readonly,
+        is_static: false,
     };
 
-    let call_close = match line.rfind(')') {
-        Some(index) if index > call_open => index,
-        _ => return (String::new(), Vec::new(), None, MemberModifiers::default()),
-    };
-
-    let head = line[..call_open].trim();
-    let (modifiers, name) = parse_modifiers_and_name(head);
-
-    let params_raw = line[call_open + 1..call_close].trim();
-    let parameters = parse_parameters(params_raw, span);
-
-    let tail = line[call_close + 1..].trim();
-    let return_type = parse_return_type(tail);
-
-    (name, parameters, return_type, modifiers)
+    match &param_prop.param {
+        TsParamPropParam::Ident(binding) => Some(Parameter {
+            name: binding.id.sym.to_string(),
+            type_annotation: binding
+                .type_ann
+                .as_ref()
+                .map(|annotation| normalize_type_annotation(cm, annotation)),
+            modifiers,
+            variadic: false,
+            span: convert_span(cm, param_prop.span),
+        }),
+        TsParamPropParam::Assign(assign) => Some(Parameter {
+            name: pat_name(&assign.left, cm).unwrap_or_else(|| "param".to_string()),
+            type_annotation: pat_type_annotation(cm, &assign.left),
+            modifiers,
+            variadic: false,
+            span: convert_span(cm, param_prop.span),
+        }),
+    }
 }
 
-fn parse_property_signature(line: &str, span: Span) -> Option<PropertyDecl> {
-    let content = line.trim_end_matches(';').trim();
-    if content.contains('(') {
-        return None;
-    }
-
-    let mut parts = content.splitn(2, ':');
-    let left = parts.next()?.trim();
-    let type_annotation = parts.next().map(|value| value.trim().to_string());
-
-    let (modifiers, name) = parse_modifiers_and_name(left);
-    if name.is_empty() {
-        return None;
-    }
-
-    Some(PropertyDecl {
-        name,
-        modifiers,
-        type_annotation,
-        span,
-    })
-}
-
-fn parse_callable_signature(text: &str, span: Span) -> (String, Vec<Parameter>, Option<String>) {
-    let line = text.trim();
-    let open = match line.find('(') {
-        Some(index) => index,
-        None => return (parse_decl_name(line), Vec::new(), None),
-    };
-
-    let close = match line.rfind(')') {
-        Some(index) if index > open => index,
-        _ => return (parse_decl_name(line), Vec::new(), None),
-    };
-
-    let head = line[..open].trim();
-    let name = parse_decl_name(head);
-
-    let params = parse_parameters(line[open + 1..close].trim(), span);
-    let return_type = parse_return_type(line[close + 1..].trim());
-
-    (name, params, return_type)
-}
-
-fn parse_parameters(raw: &str, span: Span) -> Vec<Parameter> {
-    if raw.is_empty() {
-        return Vec::new();
-    }
-
-    split_top_level(raw, ',')
-        .into_iter()
-        .filter_map(|piece| parse_parameter(piece.trim(), span))
-        .collect()
-}
-
-fn parse_parameter(raw: &str, span: Span) -> Option<Parameter> {
-    if raw.is_empty() {
-        return None;
-    }
-
-    let mut modifiers = MemberModifiers::default();
-    let mut rest = raw.trim();
-    let mut variadic = false;
-
-    if let Some(stripped) = rest.strip_prefix("...") {
-        variadic = true;
-        rest = stripped.trim_start();
-    }
-
-    loop {
-        let Some((keyword, tail)) = next_keyword(rest) else {
-            break;
-        };
-
-        match keyword {
-            "public" => modifiers.visibility = Some(Visibility::Public),
-            "private" => modifiers.visibility = Some(Visibility::Private),
-            "protected" => modifiers.visibility = Some(Visibility::Protected),
-            "readonly" => modifiers.readonly = true,
-            "static" => modifiers.is_static = true,
-            _ => break,
-        }
-
-        rest = tail.trim_start();
-    }
-
-    let mut parts = rest.splitn(2, ':');
-    let name = parts.next()?.trim();
-    if name.is_empty() {
-        return None;
-    }
-
-    let type_annotation = parts.next().map(|value| value.trim().to_string());
+fn lower_param(
+    cm: &Lrc<SourceMap>,
+    param: &SwcParam,
+    modifiers: MemberModifiers,
+) -> Option<Parameter> {
+    let name = pat_name(&param.pat, cm)?;
+    let variadic = matches!(param.pat, Pat::Rest(_));
+    let type_annotation = pat_type_annotation(cm, &param.pat);
 
     Some(Parameter {
-        name: name.to_string(),
+        name,
         type_annotation,
         modifiers,
         variadic,
-        span,
+        span: convert_span(cm, param.span),
     })
 }
 
-fn parse_modifiers_and_name(raw: &str) -> (MemberModifiers, String) {
-    let mut modifiers = MemberModifiers::default();
-    let mut name_tokens = Vec::new();
-
-    for token in raw.split_whitespace() {
-        match token {
-            "public" => modifiers.visibility = Some(Visibility::Public),
-            "private" => modifiers.visibility = Some(Visibility::Private),
-            "protected" => modifiers.visibility = Some(Visibility::Protected),
-            "readonly" => modifiers.readonly = true,
-            "static" => modifiers.is_static = true,
-            _ => name_tokens.push(token),
-        }
+fn pat_name(pat: &Pat, cm: &Lrc<SourceMap>) -> Option<String> {
+    match pat {
+        Pat::Ident(ident) => Some(ident.id.sym.to_string()),
+        Pat::Assign(assign) => pat_name(&assign.left, cm),
+        Pat::Rest(rest) => pat_name(&rest.arg, cm),
+        Pat::Expr(expr) => match &**expr {
+            Expr::Ident(ident) => Some(ident.sym.to_string()),
+            _ => span_snippet(cm, expr.span()),
+        },
+        _ => span_snippet(cm, pat.span()),
     }
-
-    let name = name_tokens.last().copied().unwrap_or("").to_string();
-    (modifiers, name)
 }
 
-fn parse_return_type(raw: &str) -> Option<String> {
-    let content = raw.trim().trim_end_matches('{').trim();
-    let stripped = content.strip_prefix(':')?.trim();
+fn pat_type_annotation(cm: &Lrc<SourceMap>, pat: &Pat) -> Option<String> {
+    match pat {
+        Pat::Ident(ident) => ident
+            .type_ann
+            .as_ref()
+            .map(|annotation| normalize_type_annotation(cm, annotation)),
+        Pat::Array(array) => array
+            .type_ann
+            .as_ref()
+            .map(|annotation| normalize_type_annotation(cm, annotation)),
+        Pat::Object(object) => object
+            .type_ann
+            .as_ref()
+            .map(|annotation| normalize_type_annotation(cm, annotation)),
+        Pat::Rest(rest) => rest
+            .type_ann
+            .as_ref()
+            .map(|annotation| normalize_type_annotation(cm, annotation)),
+        Pat::Assign(assign) => pat_type_annotation(cm, &assign.left),
+        _ => None,
+    }
+}
+
+fn normalize_type_annotation(cm: &Lrc<SourceMap>, annotation: &TsTypeAnn) -> String {
+    let snippet = span_snippet(cm, annotation.span())
+        .unwrap_or_else(|| "any".to_string())
+        .trim()
+        .to_string();
+
+    let stripped = snippet
+        .strip_prefix(':')
+        .map(str::trim)
+        .unwrap_or(&snippet)
+        .to_string();
+
     if stripped.is_empty() {
-        None
+        "any".to_string()
     } else {
-        Some(stripped.to_string())
+        stripped
     }
 }
 
-fn split_top_level(input: &str, separator: char) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0usize;
-    let mut angle = 0i32;
-    let mut square = 0i32;
-    let mut round = 0i32;
+fn property_key_name(key: &Expr, cm: &Lrc<SourceMap>) -> Option<String> {
+    match key {
+        Expr::Ident(ident) => Some(ident.sym.to_string()),
+        Expr::Lit(Lit::Str(text)) => Some(text.value.to_string_lossy().to_string()),
+        Expr::Lit(Lit::Num(number)) => Some(number.value.to_string()),
+        Expr::Lit(Lit::BigInt(number)) => Some(number.value.to_string()),
+        _ => span_snippet(cm, key.span()),
+    }
+}
 
-    for (index, ch) in input.char_indices() {
-        match ch {
-            '<' => angle += 1,
-            '>' => angle -= 1,
-            '[' => square += 1,
-            ']' => square -= 1,
-            '(' => round += 1,
-            ')' => round -= 1,
-            _ => {}
-        }
+fn prop_name_to_string(name: &PropName, cm: &Lrc<SourceMap>) -> String {
+    match name {
+        PropName::Ident(ident) => ident.sym.to_string(),
+        PropName::Str(text) => text.value.to_string_lossy().to_string(),
+        PropName::Num(number) => number.value.to_string(),
+        PropName::BigInt(number) => number.value.to_string(),
+        PropName::Computed(computed) => span_snippet(cm, computed.expr.span()).unwrap_or_default(),
+    }
+}
 
-        if ch == separator && angle == 0 && square == 0 && round == 0 {
-            parts.push(input[start..index].trim());
-            start = index + ch.len_utf8();
-        }
+fn key_to_string(key: &swc_ecma_ast::Key, cm: &Lrc<SourceMap>) -> String {
+    match key {
+        swc_ecma_ast::Key::Private(name) => format!("#{}", name.name),
+        swc_ecma_ast::Key::Public(name) => prop_name_to_string(name, cm),
+    }
+}
+
+fn module_export_name(name: &ModuleExportName) -> String {
+    match name {
+        ModuleExportName::Ident(ident) => ident.sym.to_string(),
+        ModuleExportName::Str(value) => value.value.to_string_lossy().to_string(),
+    }
+}
+
+fn map_accessibility(accessibility: Option<Accessibility>) -> Option<Visibility> {
+    match accessibility {
+        Some(Accessibility::Public) => Some(Visibility::Public),
+        Some(Accessibility::Protected) => Some(Visibility::Protected),
+        Some(Accessibility::Private) => Some(Visibility::Private),
+        None => None,
+    }
+}
+
+fn push_raw_statement(cm: &Lrc<SourceMap>, span: SwcSpan, out: &mut Vec<Item>) {
+    if let Some(statement) = raw_statement(cm, span) {
+        out.push(Item::Statement(statement));
+    }
+}
+
+fn raw_statement(cm: &Lrc<SourceMap>, span: SwcSpan) -> Option<Statement> {
+    let snippet = span_snippet(cm, span)?;
+    let text = snippet.trim();
+    if text.is_empty() {
+        return None;
     }
 
-    parts.push(input[start..].trim());
-    parts
+    Some(Statement::Raw(LocalSpanned::new(
+        text.to_string(),
+        convert_span(cm, span),
+    )))
 }
 
-fn next_keyword(input: &str) -> Option<(&str, &str)> {
-    let mut iter = input.splitn(2, char::is_whitespace);
-    let first = iter.next()?;
-    let rest = iter.next().unwrap_or("");
-    Some((first, rest))
+fn span_snippet(cm: &Lrc<SourceMap>, span: SwcSpan) -> Option<String> {
+    if span.is_dummy() {
+        return None;
+    }
+    cm.span_to_snippet(span).ok()
 }
 
-fn brace_delta(line: &str) -> i32 {
-    let open = line.chars().filter(|ch| *ch == '{').count() as i32;
-    let close = line.chars().filter(|ch| *ch == '}').count() as i32;
-    open - close
+fn convert_span(cm: &Lrc<SourceMap>, span: SwcSpan) -> Span {
+    if span.is_dummy() {
+        return Span::default();
+    }
+
+    let start = cm.lookup_char_pos(span.lo());
+    let end = cm.lookup_char_pos(span.hi());
+
+    Span {
+        start: Position {
+            line: start.line,
+            column: start.col_display.saturating_add(1),
+        },
+        end: Position {
+            line: end.line,
+            column: end.col_display.saturating_add(1),
+        },
+    }
 }
 
-fn parse_decl_name(rest: &str) -> String {
-    rest.split(|c: char| c == '{' || c == '(' || c.is_whitespace())
-        .find(|segment| !segment.is_empty())
-        .unwrap_or("anonymous")
-        .to_string()
+fn ts_syntax() -> Syntax {
+    Syntax::Typescript(TsSyntax {
+        tsx: false,
+        decorators: true,
+        ..Default::default()
+    })
+}
+
+fn es_syntax() -> Syntax {
+    Syntax::Es(EsSyntax {
+        jsx: false,
+        decorators: true,
+        ..Default::default()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ast::Item;
+    use super::{parse_source, parse_source_with_mode};
+    use crate::compile_options::FrontendMode;
+
+    #[test]
+    fn parses_typescript_module_items_into_internal_ast() {
+        let source = r#"
+            import { print } from "rts";
+
+            interface Teste {
+                valor: i32;
+            }
+
+            class A {
+                private readonly x: i8;
+                constructor(public value: i16) {}
+                run(): void {}
+            }
+
+            function main(x: i8): i32 {
+                return x;
+            }
+
+            const valor = 2 * 60 * 60 * 1000;
+        "#;
+
+        let program = parse_source(source).expect("parser should accept valid TS");
+        assert!(
+            program
+                .items
+                .iter()
+                .any(|item| matches!(item, Item::Import(_)))
+        );
+        assert!(
+            program
+                .items
+                .iter()
+                .any(|item| matches!(item, Item::Interface(_)))
+        );
+        assert!(
+            program
+                .items
+                .iter()
+                .any(|item| matches!(item, Item::Class(_)))
+        );
+        assert!(
+            program
+                .items
+                .iter()
+                .any(|item| matches!(item, Item::Function(_)))
+        );
+        assert!(
+            program
+                .items
+                .iter()
+                .any(|item| matches!(item, Item::Statement(_)))
+        );
+    }
+
+    #[test]
+    fn compat_mode_parses_plain_javascript() {
+        let source = "const valor = 1 + 2;";
+        let program = parse_source_with_mode(source, FrontendMode::Compat)
+            .expect("compat mode should parse plain JS");
+        assert!(!program.items.is_empty());
+    }
+
+    #[test]
+    fn compat_mode_falls_back_to_typescript_when_needed() {
+        let source = "const valor: i8 = 42;";
+        let program = parse_source_with_mode(source, FrontendMode::Compat)
+            .expect("compat mode should fallback to TS parser");
+        assert!(
+            program
+                .items
+                .iter()
+                .any(|item| matches!(item, Item::Statement(_)))
+        );
+    }
 }

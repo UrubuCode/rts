@@ -12,13 +12,16 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
 use crate::mir::{MirFunction, MirModule};
-use crate::runtime::bootstrap_utils::split_top_level;
+
+use super::parse_utils::split_top_level;
 
 const ABI_ARG_SLOTS: usize = 6;
 const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1; // argc + arg slots
 const ABI_UNDEFINED_HANDLE: i64 = 0;
 const RTS_CALL_DISPATCH_SYMBOL: &str = "__rts_call_dispatch";
 const RTS_EVAL_EXPR_SYMBOL: &str = "__rts_eval_expr";
+const RTS_EVAL_STMT_SYMBOL: &str = "__rts_eval_stmt";
+const RTS_BIND_IDENTIFIER_SYMBOL: &str = "__rts_bind_identifier";
 
 #[derive(Debug, Clone, Copy)]
 pub struct ObjectBuildOptions {
@@ -30,6 +33,13 @@ pub struct ObjectBuildOptions {
 struct ParsedCall {
     callee: String,
     args: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedDeclaration {
+    name: String,
+    initializer: Option<String>,
+    mutable: bool,
 }
 
 pub fn lower_to_native_object(mir: &MirModule) -> Result<Vec<u8>> {
@@ -276,6 +286,16 @@ fn runtime_dispatch_signature(module: &mut ObjectModule) -> Signature {
     signature
 }
 
+fn runtime_bind_signature(module: &mut ObjectModule) -> Signature {
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(types::I64)); // name ptr
+    signature.params.push(AbiParam::new(types::I64)); // name len
+    signature.params.push(AbiParam::new(types::I64)); // value handle
+    signature.params.push(AbiParam::new(types::I64)); // mutable flag
+    signature.returns.push(AbiParam::new(types::I64));
+    signature
+}
+
 fn define_function(
     module: &mut ObjectModule,
     declarations: &mut BTreeMap<String, FuncId>,
@@ -295,22 +315,97 @@ fn define_function(
         builder.seal_block(entry_block);
 
         let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+        let entry_params = builder.block_params(entry_block).to_vec();
+        let mut terminated = false;
 
-        for block in &function.blocks {
+        'emit: for block in &function.blocks {
             for statement in &block.statements {
                 let text = statement.text.trim();
-                if text.is_empty()
-                    || text == "ret"
-                    || text == "{"
-                    || text == "}"
-                    || text.starts_with("enter ")
-                    || text.starts_with("import ")
-                {
+                if text.is_empty() || text == "ret" || text == "{" || text == "}" {
+                    continue;
+                }
+
+                if text.starts_with("enter ") {
+                    if let Some(parameter_names) = parse_enter_parameters(text) {
+                        for (index, parameter_name) in
+                            parameter_names.into_iter().take(ABI_ARG_SLOTS).enumerate()
+                        {
+                            if !is_valid_binding_name(parameter_name.as_str()) {
+                                continue;
+                            }
+
+                            let value_handle = entry_params
+                                .get(index + 1)
+                                .copied()
+                                .unwrap_or_else(|| {
+                                    builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
+                                });
+                            let _ = lower_runtime_binding(
+                                module,
+                                declarations,
+                                data_cache,
+                                &mut builder,
+                                function,
+                                parameter_name.as_str(),
+                                value_handle,
+                                true,
+                            )?;
+                        }
+                    }
+                    continue;
+                }
+
+                if text.starts_with("import ") {
                     continue;
                 }
 
                 if let Some(value) = parse_return_literal(text) {
                     default_return = builder.ins().iconst(types::I64, value);
+                    continue;
+                }
+
+                if let Some(return_expr) = parse_return_expression(text) {
+                    let return_value = if let Some(expression) = return_expr {
+                        lower_runtime_expression(
+                            module,
+                            declarations,
+                            data_cache,
+                            &mut builder,
+                            function,
+                            expression.as_str(),
+                        )?
+                    } else {
+                        builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
+                    };
+                    builder.ins().return_(&[return_value]);
+                    terminated = true;
+                    break 'emit;
+                }
+
+                if let Some(declaration) = parse_declaration_statement(text) {
+                    let initializer_handle =
+                        if let Some(initializer) = declaration.initializer.as_deref() {
+                            lower_runtime_expression(
+                                module,
+                                declarations,
+                                data_cache,
+                                &mut builder,
+                                function,
+                                initializer,
+                            )?
+                        } else {
+                            builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
+                        };
+                    let _ = lower_runtime_binding(
+                        module,
+                        declarations,
+                        data_cache,
+                        &mut builder,
+                        function,
+                        declaration.name.as_str(),
+                        initializer_handle,
+                        declaration.mutable,
+                    )?;
                     continue;
                 }
 
@@ -327,7 +422,7 @@ fn define_function(
                     let mut args = Vec::with_capacity(ABI_PARAM_COUNT);
                     args.push(builder.ins().iconst(types::I64, call.args.len() as i64));
                     for expression in call.args.iter().take(ABI_ARG_SLOTS) {
-                        let value = lower_runtime_expression(
+                        let value = lower_call_argument(
                             module,
                             declarations,
                             data_cache,
@@ -360,15 +455,21 @@ fn define_function(
                     continue;
                 }
 
-                bail!(
-                    "unsupported MIR statement '{}' in function '{}'; direct Cranelift backend supports only 'ret <i64>' and function calls",
+                let value = lower_runtime_statement(
+                    module,
+                    declarations,
+                    data_cache,
+                    &mut builder,
+                    function,
                     text,
-                    function.name
-                );
+                )?;
+                default_return = value;
             }
         }
 
-        builder.ins().return_(&[default_return]);
+        if !terminated {
+            builder.ins().return_(&[default_return]);
+        }
         builder.finalize();
     }
 
@@ -412,6 +513,141 @@ fn lower_runtime_expression(
     let call = builder
         .ins()
         .call(local_eval, &[expression_ptr, expression_len]);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
+fn lower_call_argument(
+    module: &mut ObjectModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    function: &MirFunction,
+    expression: &str,
+) -> Result<cranelift_codegen::ir::Value> {
+    let text = expression.trim();
+    if let Some(nested_call) = parse_call_statement(text) {
+        if let Some(callee_id) = declarations.get(nested_call.callee.as_str()).copied() {
+            if nested_call.args.len() > ABI_ARG_SLOTS {
+                bail!(
+                    "function argument call '{}' has {} arguments, but RTS ABI supports up to {} arguments per call",
+                    nested_call.callee,
+                    nested_call.args.len(),
+                    ABI_ARG_SLOTS
+                );
+            }
+
+            let mut args = Vec::with_capacity(ABI_PARAM_COUNT);
+            args.push(builder.ins().iconst(types::I64, nested_call.args.len() as i64));
+            for nested_arg in nested_call.args.iter().take(ABI_ARG_SLOTS) {
+                let lowered_nested = lower_call_argument(
+                    module,
+                    declarations,
+                    data_cache,
+                    builder,
+                    function,
+                    nested_arg,
+                )?;
+                args.push(lowered_nested);
+            }
+
+            while args.len() < ABI_PARAM_COUNT {
+                args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+            }
+
+            let local = module.declare_func_in_func(callee_id, builder.func);
+            let call_inst = builder.ins().call(local, &args);
+            return Ok(builder
+                .inst_results(call_inst)
+                .first()
+                .copied()
+                .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)));
+        }
+    }
+
+    lower_runtime_expression(module, declarations, data_cache, builder, function, text)
+}
+
+fn lower_runtime_binding(
+    module: &mut ObjectModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    function: &MirFunction,
+    name: &str,
+    value_handle: cranelift_codegen::ir::Value,
+    mutable: bool,
+) -> Result<cranelift_codegen::ir::Value> {
+    let bind_signature = runtime_bind_signature(module);
+    let bind_id = resolve_or_declare_import(
+        module,
+        declarations,
+        RTS_BIND_IDENTIFIER_SYMBOL,
+        &bind_signature,
+        function,
+    )?;
+
+    let data_id = declare_string_data(
+        module,
+        data_cache,
+        "__rts_bind_name_",
+        name,
+        name.as_bytes(),
+    )?;
+    let data_ref = module.declare_data_in_func(data_id, builder.func);
+    let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+    let name_len = builder.ins().iconst(types::I64, name.len() as i64);
+    let mutable_flag = builder
+        .ins()
+        .iconst(types::I64, if mutable { 1 } else { 0 });
+
+    let local_bind = module.declare_func_in_func(bind_id, builder.func);
+    let call = builder
+        .ins()
+        .call(local_bind, &[name_ptr, name_len, value_handle, mutable_flag]);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
+fn lower_runtime_statement(
+    module: &mut ObjectModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    function: &MirFunction,
+    statement: &str,
+) -> Result<cranelift_codegen::ir::Value> {
+    let eval_signature = runtime_eval_signature(module);
+    let eval_id = resolve_or_declare_import(
+        module,
+        declarations,
+        RTS_EVAL_STMT_SYMBOL,
+        &eval_signature,
+        function,
+    )?;
+
+    let statement = statement.trim();
+    let data_id = declare_string_data(
+        module,
+        data_cache,
+        "__rts_stmt_",
+        statement,
+        statement.as_bytes(),
+    )?;
+    let data_ref = module.declare_data_in_func(data_id, builder.func);
+    let statement_ptr = builder.ins().symbol_value(types::I64, data_ref);
+    let statement_len = builder.ins().iconst(types::I64, statement.len() as i64);
+
+    let local_eval = module.declare_func_in_func(eval_id, builder.func);
+    let call = builder
+        .ins()
+        .call(local_eval, &[statement_ptr, statement_len]);
     Ok(builder
         .inst_results(call)
         .first()
@@ -540,6 +776,46 @@ fn parse_return_literal(statement: &str) -> Option<i64> {
     literal.trim().parse::<i64>().ok()
 }
 
+fn parse_return_expression(statement: &str) -> Option<Option<String>> {
+    let text = statement.trim().trim_end_matches(';').trim();
+    let rest = text.strip_prefix("return")?;
+    if !rest.is_empty() {
+        let first = rest.chars().next()?;
+        if first == '_' || first == '$' || first.is_ascii_alphanumeric() {
+            return None;
+        }
+    }
+    let expression = rest.trim();
+    if expression.is_empty() {
+        Some(None)
+    } else {
+        Some(Some(expression.to_string()))
+    }
+}
+
+fn parse_enter_parameters(statement: &str) -> Option<Vec<String>> {
+    let text = statement.trim();
+    let rest = text.strip_prefix("enter ")?;
+    let open = rest.find('(')?;
+    if !rest.ends_with(')') {
+        return None;
+    }
+
+    let args = &rest[open + 1..rest.len().saturating_sub(1)];
+    if args.trim().is_empty() {
+        return Some(Vec::new());
+    }
+
+    let names = split_top_level(args, ',')
+        .into_iter()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+
+    Some(names)
+}
+
 fn parse_call_statement(statement: &str) -> Option<ParsedCall> {
     let text = statement.trim().trim_end_matches(';').trim();
     if text.is_empty() {
@@ -563,6 +839,49 @@ fn parse_call_statement(statement: &str) -> Option<ParsedCall> {
     }
 
     parse_call_invocation(text)
+}
+
+fn parse_declaration_statement(statement: &str) -> Option<ParsedDeclaration> {
+    let text = statement.trim().trim_end_matches(';').trim();
+    let (rest, mutable) = if let Some(rest) = text.strip_prefix("const ") {
+        (rest, false)
+    } else if let Some(rest) = text.strip_prefix("let ") {
+        (rest, true)
+    } else if let Some(rest) = text.strip_prefix("var ") {
+        (rest, true)
+    } else {
+        return None;
+    };
+
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return None;
+    }
+
+    let (left, initializer) = if let Some((left, right)) = rest.split_once('=') {
+        (left.trim(), {
+            let value = right.trim().to_string();
+            (!value.is_empty()).then_some(value)
+        })
+    } else {
+        (rest, None)
+    };
+
+    let name = if let Some((name, _type_annotation)) = left.split_once(':') {
+        name.trim()
+    } else {
+        left
+    };
+
+    if !is_valid_binding_name(name) {
+        return None;
+    }
+
+    Some(ParsedDeclaration {
+        name: name.to_string(),
+        initializer,
+        mutable,
+    })
 }
 
 fn parse_call_invocation(text: &str) -> Option<ParsedCall> {
@@ -599,6 +918,19 @@ fn is_valid_callee_name(value: &str) -> bool {
         && value
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.' | ':'))
+}
+
+fn is_valid_binding_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    if first != '_' && first != '$' && !first.is_ascii_alphabetic() {
+        return false;
+    }
+
+    chars.all(|ch| ch == '_' || ch == '$' || ch.is_ascii_alphanumeric())
 }
 
 #[cfg(test)]
@@ -660,6 +992,44 @@ mod tests {
             false,
         )
         .expect("namespace wrapper object should compile");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn lowers_typed_variable_declaration_without_panicking() {
+        let module = MirModule {
+            functions: vec![MirFunction {
+                name: "main".to_string(),
+                blocks: vec![BasicBlock {
+                    label: "entry".to_string(),
+                    statements: vec![MirStatement {
+                        text: "const valor: i32 = 2 * 60 * 60 * 1000;".to_string(),
+                    }],
+                    terminator: Terminator::Return,
+                }],
+            }],
+        };
+
+        let bytes = lower_to_native_object(&module).expect("declaration should lower to AOT");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn lowers_if_else_statement_via_runtime_evaluator() {
+        let module = MirModule {
+            functions: vec![MirFunction {
+                name: "main".to_string(),
+                blocks: vec![BasicBlock {
+                    label: "entry".to_string(),
+                    statements: vec![MirStatement {
+                        text: "if (true) { io.print(1); } else { io.print(2); }".to_string(),
+                    }],
+                    terminator: Terminator::Return,
+                }],
+            }],
+        };
+
+        let bytes = lower_to_native_object(&module).expect("if/else should lower to AOT");
         assert!(!bytes.is_empty());
     }
 }

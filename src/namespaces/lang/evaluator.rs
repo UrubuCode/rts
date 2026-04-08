@@ -6,6 +6,19 @@ use super::value::JsValue;
 pub trait RuntimeContext {
     fn read_identifier(&self, name: &str) -> Option<JsValue>;
     fn call_function(&mut self, callee: &str, args: Vec<JsValue>) -> Result<JsValue>;
+
+    fn define_identifier(
+        &mut self,
+        _name: &str,
+        value: JsValue,
+        _mutable: bool,
+    ) -> Result<JsValue> {
+        Ok(value)
+    }
+
+    fn write_identifier(&mut self, _name: &str, value: JsValue) -> Result<JsValue> {
+        Ok(value)
+    }
 }
 
 pub fn evaluate(expression: &Expression, runtime: &mut dyn RuntimeContext) -> Result<JsValue> {
