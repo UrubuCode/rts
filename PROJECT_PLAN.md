@@ -1,138 +1,101 @@
 # PROJECT_PLAN
 
-## Objetivo Atual
-Consolidar o RTS como compilador/runtime TypeScript com:
-- pipeline modular (`parser -> type_system -> hir -> mir -> codegen -> linker -> runtime`);
-- execucao funcional no modo bootstrap;
-- API builtin `"rts"` alinhada ao estilo `std::` do Rust (por namespaces e tipos de resultado);
-- base preparada para backend nativo completo e runtime mais robusto.
+## Objetivo atual
+Consolidar o RTS como runtime/app builder TS com:
+- compilacao nativa (AOT) com Cranelift + linker;
+- execucao JIT para ciclo rapido de desenvolvimento;
+- API builtin `"rts"` orientada a namespaces;
+- distribuicao multiplataforma com cache de toolchains e fallback de download.
 
-## Estado Atual (Abril/2026)
+## Estado atual (2026-04-08)
 
-### 1) CLI e Fluxo de Build
-- `Concluido`: comandos `run`, `build`, `repl`, `init`, `apis`.
-- `Concluido`: perfis `development` / `production` / `debug`.
-- `Concluido`: pipeline principal em `src/lib.rs`.
-- `Parcial`: mensagens de erro estao boas, mas ainda sem diagnostico/sourcemap completo.
+### 1) CLI e fluxo principal
+- Concluido: `build`, `run`, `repl`, `init`, `apis`.
+- Concluido: perfis `development` e `production`, mais `--debug`.
+- Concluido: resumo de build com dados de objetos, cache e linking.
+- Parcial: erros ainda podem ser melhorados com spans/sourcemap.
 
-### 2) Modulos e Imports
-- `Concluido`: resolver de modulos locais (`.ts/.rts`), pacotes em `packages/`, builtin (`"rts"`), URL e cache.
-- `Concluido`: leitura de `package.json` com `dependencies`.
-- `Concluido`: grafo de modulos em `src/module_system`.
-- `Parcial`: politica de cache/publicacao ainda bootstrap.
+### 2) Frontend do compilador
+- Concluido: parser/AST proprietarios para subset atual.
+- Concluido: `type_system` com registro/check/resolver/metadata.
+- Parcial: cobertura TS ainda longe de linguagem completa.
 
-### 3) Parser / AST
-- `Concluido`: AST propria com itens principais (import/interface/class/function/statement).
-- `Concluido`: parse de assinaturas e metadados basicos de tipo.
-- `Parcial`: parser ainda simplificado para TS completo (sem cobertura total da linguagem).
+### 3) HIR e MIR
+- Concluido: lowering AST -> HIR -> MIR.
+- Concluido: otimizacoes basicas em HIR/MIR.
+- Parcial: MIR ainda textual em varios pontos; falta IR tipado mais rico.
 
-### 4) Type System
-- `Concluido`: `TypeRegistry`, `TypeResolver`, `checker`, `metadata`.
-- `Concluido`: primitivos registrados e validacao basica de imports/export.
-- `Parcial`: inferencia e checagem semantica profunda ainda limitada.
+### 4) Codegen Cranelift
+- Concluido: JIT funcional em `src/codegen/cranelift/jit.rs`.
+- Concluido: AOT funcional em `src/codegen/cranelift/object_builder.rs`.
+- Concluido: ABI interna por handle com assinatura:
+  - `(argc, a0..a5) -> i64`
+- Concluido: avaliacao de expressoes de argumentos via `__rts_eval_expr`.
+- Concluido: dispatch de builtin via `__rts_call_dispatch`.
+- Parcial: limite atual de ate 6 argumentos por chamada ABI.
 
-### 5) HIR
-- `Concluido`: lowering AST -> HIR.
-- `Concluido`: pass de otimizacao HIR (`src/hir/optimize.rs`) com:
-  - deduplicacao de imports,
-  - simplificacao de declaracoes,
-  - inferencia basica de literais,
-  - inlining simples de chamadas triviais.
-- `Parcial`: HIR ainda sem modelagem semantica rica de expressoes/controle.
+### 5) Namespaces e API `"rts"`
+- Concluido: namespaces em `src/namespaces/*` (fora de `src/runtime`).
+- Concluido: estado compartilhado centralizado em `src/namespaces/state.rs`.
+- Concluido: geracao de `packages/rts-types/rts.d.ts` por catalogo + comentarios.
+- Concluido: `io`, `fs`, `process`, `crypto`, `global`, `buffer`, `promise`, `task`.
+- Parcial: ainda faltam APIs de runtime para casos mais avancados de app builder.
 
-### 6) MIR
-- `Concluido`: build HIR -> MIR e CFG linear.
-- `Concluido`: pass de otimizacao MIR com limpeza de `noop`, dedupe de imports, propagacao/inferencia basica e inlining textual.
-- `Parcial`: MIR ainda textual em varios pontos (nao totalmente estruturado/SSA).
+### 6) Build seletivo de runtime
+- Concluido: compilacao por uso real:
+  - gera apenas `builtin_rts_<callee>.o/.m` necessarios.
+- Concluido: limpeza de cache de objetos runtime nao usados.
+- Concluido: catalogo de namespaces em `target/.launcher/rts_namespace_catalog.json`.
 
-### 7) Codegen / Cranelift
-- `Concluido`: integracao real de JIT com Cranelift em `src/codegen/cranelift/jit.rs`.
-- `Concluido`: execucao de entry JIT e testes de JIT.
-- `Parcial`: caminho AOT ainda usa CLIF textual + container/linker bootstrap.
+### 7) Linker e toolchains
+- Concluido: backend `system` com fallback `object`.
+- Concluido: resolucao de linker com cache e busca em multiplas fontes.
+- Concluido: padrao de cache em `~/.rts/toolchains`.
+- Concluido: suporte a estrutura:
+  - `~/.rts/toolchains/rust-lld/<target>/...`
+  - `~/.rts/toolchains/<tool>/<target>/...`
+- Concluido: download automatico de linker se nao encontrado.
+- Parcial: experiencia offline ainda depende de cache pre-populado.
 
-### 8) Linker
-- `Concluido`: backend Rust com crate `object` (`PE/ELF/Mach-O` containerizados).
-- `Concluido`: empacotamento de payload bootstrap no binario.
-- `Parcial`: linkagem nativa completa do codigo gerado ainda em evolucao.
+### 8) Runtime support library
+- Concluido: AOT inclui runtime support library no link final.
+- Concluido: busca local + fallback de build (`cargo build --lib`).
+- Concluido: opcao de download por template (via env) para runtime lib.
+- Parcial: estrategia de distribuicao prebuilt por release/plataforma pode ser refinada.
 
-### 9) Runtime Bootstrap
-- `Concluido`: runtime builtin `"rts"` com varios intrinsecos (`print`, IO basico, fs basico, env/process).
-- `Concluido`: avaliador de expressoes com precedencia e coercao basica.
-- `Concluido`: suporte a `const/let/var`, chamadas e `return` em fluxo bootstrap.
-- `Parcial`: semantica JS/TS completa (objetos/closures/heap completo) ainda nao finalizada.
+### 9) Testes
+- Concluido: suite unitaria cobrindo JIT, AOT, bootstrap runtime, namespaces e linker.
+- Concluido: exemplos executaveis para validacao rapida.
+- Parcial: falta suite de regressao maior (cenarios multi-modulo e stress de ABI).
 
-### 10) Paralelismo (Multithread)
-- `Concluido`: paralelizacao com `rayon` no lowering/otimizacao por modulo em `compile_graph` e `cli run`.
-- `Parcial`: type-check global ainda sequencial.
+## Riscos tecnicos atuais
+1. MIR textual aumenta fragilidade de parsing/lowering.
+2. ABI por handle ainda simples (sem tipagem rica no boundary).
+3. limite de args (6) exige expansao para APIs mais complexas.
+4. semantica TS/JS completa ainda nao esta implementada.
 
-### 11) Testes
-- `Concluido`: testes unitarios de runtime, JIT, HIR optimize e MIR optimize.
-- `Concluido`: exemplos de execucao em `examples/` e pacote `packages/tests`.
-- `Parcial`: suites de regressao/benchmark mais amplas ainda pendentes.
+## Prioridades recomendadas (proximas fases)
 
-### 12) Superficie de API "rts" (Padrao std::)
-- `Concluido`: Fase 1 ativa com API `std::` por namespaces (`rts.io`, `rts.fs`, `rts.process`, `rts.crypto`, `rts.global`, `rts.buffer`, `rts.promise`, `rts.task`).
-- `Concluido`: funcoes legadas removidas da superficie builtin do modulo `"rts"` (sem API plana).
-- `Concluido`: operacoes de FS ligadas diretamente ao `std::fs` no runtime Rust.
-- `Concluido`: `io.Result<T>` agora usa estrutura nativa de objeto (`ok/tag/value/error`) no bootstrap.
+### Fase A - Robustez de IR
+- [ ] Migrar MIR textual para instrucoes tipadas.
+- [ ] Melhorar modelagem de CFG e controle de fluxo.
+- [ ] Reduzir parsing textual no codegen.
 
-## Fase 1 Ativa (Sem Legado)
+### Fase B - ABI e runtime core
+- [ ] Evoluir ABI de valores (mais tipos nativos e menos roundtrip textual).
+- [ ] Remover limite fixo de 6 args.
+- [ ] Definir contrato estavel de FFI/runtime para longo prazo.
 
-### Contrato Oficial
-- API publica de filesystem:
-  - `import { fs, io } from "rts"`
-  - `fs.read_to_string<P>(path: P): io.Result<string>`
-  - `fs.read<P>(path: P): io.Result<Uint8Array>`
-  - `fs.write<P>(path: P, data: string | Uint8Array): io.Result<void>`
-- API publica de resultado:
-  - `io.is_ok(result)`
-  - `io.is_err(result)`
-  - `io.unwrap_or(result, fallback)`
+### Fase C - Toolchain/distribuicao
+- [ ] Fechar fluxo oficial de distribuicao sem Rust preinstalado.
+- [ ] Publicar artefatos prebuilt por target para runtime lib/linker.
+- [ ] Melhorar diagnostico quando download/cache falhar.
 
-### Decisoes de Fase 1
-- Nao manter funcoes legadas de FS no builtin `"rts"`.
-- Nao adicionar camada de compatibilidade para `readTextFile/writeTextFile/...`.
-- Todo tratamento de arquivo desta fase passa por `std::fs` diretamente no runtime Rust.
-
-### Legado Removido do Builtin "rts"
-- `readTextFile`
-- `writeTextFile`
-- `appendTextFile`
-- `createDir`
-- `removeDir`
-- `removeFile`
-- `fileExists`
-
-## Roadmap Atualizado
-
-### Fase A - Normalizacao da API std:: em "rts"
-- [x] Definir `io.Result<T>` e `io.Error` em `packages/rts-types/rts.d.ts`.
-- [x] Criar namespace `rts.fs` com `read_to_string`, `read`, `write`.
-- [x] Remover funcoes legadas de FS do builtin `"rts"` (sem compat layer).
-- [x] Atualizar `packages/fs` para consumir `rts.fs` e `rts.io`.
-- [x] Evoluir `io.Result<T>` para representacao estruturada (sem encoding textual).
-
-### Fase B - Curto Prazo
-- [ ] Estruturar MIR sem formato textual (instrucoes tipadas e CFG mais rico).
-- [ ] Ampliar type-check para inferencia e validacao semantica mais forte.
-- [ ] Paralelizar parte do type-check com merge seguro de registries.
-- [ ] Melhorar diagnosticos com spans mais precisos.
-
-### Fase C - Backend Nativo
-- [ ] Fechar lowering MIR -> Cranelift IR nativo (AOT real).
-- [ ] Reduzir dependencia do caminho bootstrap para execucao final.
-- [ ] Melhorar estrategia de linkagem por plataforma.
-
-### Fase D - Runtime
-- [ ] Evoluir heap/gerenciamento automatico de memoria para objetos de alto nivel.
-- [ ] Expandir semantica JS/TS suportada (arrays/objetos/closures/controle).
-- [ ] Definir API de concorrencia/runtime (`spawn/join/channels`) no modulo `"rts"`.
-
-### Fase E - Qualidade e Distribuicao
-- [ ] Expandir cobertura de testes de compilacao e execucao.
-- [ ] Adicionar benchmarks comparativos (tempo de build/run).
-- [ ] Documentar contrato estavel para pacotes `packages/*` e cache de modulos.
+### Fase D - Linguagem e apps
+- [ ] Expandir suporte TS/JS (objetos, arrays, closures e mais semantica).
+- [ ] Evoluir APIs de app builder (processo, rede, FS, async).
+- [ ] Fortalecer contratos de pacote em `packages/*`.
 
 ## Relacao com PROJECT_MAP
-Este `PROJECT_PLAN.md` descreve **status e direcao**.
-O `PROJECT_MAP.md` descreve **estrutura de arquivos e componentes**.
+- `PROJECT_MAP.md`: estrutura atual dos modulos e arquivos.
+- `PROJECT_PLAN.md`: status, riscos e direcao de evolucao.
