@@ -65,6 +65,26 @@ pub enum MirType {
     Unknown,
 }
 
+/// SIMD vector size for operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdWidth {
+    V128, // 128-bit vectors (4x f32 or 2x f64 or 4x i32)
+    V256, // 256-bit vectors (8x f32 or 4x f64 or 8x i32) - AVX
+}
+
+/// SIMD operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Max,
+    Min,
+    Sqrt,
+    FMA, // Fused multiply-add
+}
+
 /// A single typed MIR instruction.
 #[derive(Debug, Clone)]
 pub enum MirInstruction {
@@ -96,6 +116,25 @@ pub enum MirInstruction {
     Break,
     /// Continue to next iteration of current loop
     Continue,
+    /// SIMD vector operations for parallel arithmetic
+    SimdConst(VReg, SimdWidth, Vec<f64>), // Load vector constant
+    SimdOp(VReg, SimdOp, SimdWidth, VReg, VReg), // SIMD binary operation
+    SimdLoad(VReg, SimdWidth, VReg, i32), // Load vector from memory[base + offset]
+    SimdStore(SimdWidth, VReg, VReg, i32), // Store vector to memory[base + offset]
+    /// Loop unrolling hint with factor
+    UnrollHint(u32),
+    /// Mark the beginning of a hot loop for optimization
+    LoopBegin(String), // loop_id
+    /// Mark the end of a hot loop
+    LoopEnd(String), // loop_id
+    /// Strength reduction hint - replace expensive operations with cheaper ones
+    StrengthReduce(VReg, MirBinOp, VReg, VReg), // expensive_op -> cheaper_alternative
+    /// Hoist loop-invariant computation out of loop
+    HoistInvariant(VReg, String), // vreg, loop_id
+    /// Mark function as inline candidate
+    InlineCandidate(String), // function_name
+    /// Inline function call directly instead of calling
+    InlineCall(VReg, String, Vec<VReg>), // dst, inlined_function_name, args
     RuntimeEval(VReg, String),
 }
 

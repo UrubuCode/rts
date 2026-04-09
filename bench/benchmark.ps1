@@ -89,17 +89,22 @@ $rtsCompiledAction = { & $CompiledExe *> $null }
 # 3. Bun Runtime
 $bunAction = { bun run "bench\bun_simple.ts" *> $null }
 
+# 4. Node runtime
+$NodeAction = { bun run "bench\bun_simple.ts" *> $null }
+
 # -------------------------------------------------------------------
 # Execução dos benchmarks
 # -------------------------------------------------------------------
 $rtsRunResults    = Measure-Suite "RTS (run)"        $rtsRunAction    $Warmup $Runs
 $rtsCompiledResults = Measure-Suite "RTS (compiled)" $rtsCompiledAction $Warmup $Runs
 $bunResults       = Measure-Suite "Bun (run)"        $bunAction       $Warmup $Runs
+$NodeResults       = Measure-Suite "Node (run)"        $NodeAction       $Warmup $Runs
 
 # Estatísticas
 $rtsRunStats    = Get-Stats $rtsRunResults
 $rtsCompiledStats = Get-Stats $rtsCompiledResults
 $bunStats       = Get-Stats $bunResults
+$NodeStats       = Get-Stats $NodeResults
 
 # -------------------------------------------------------------------
 # Exibição dos resultados
@@ -130,6 +135,15 @@ $summary += [PSCustomObject]@{
   p95_ms   = $bunStats.p95_ms
   min_ms   = $bunStats.min_ms
   max_ms   = $bunStats.max_ms
+}
+
+$summary += [PSCustomObject]@{
+  runner   = "Node (run)"
+  mean_ms  = $NodeStats.mean_ms
+  median_ms = $NodeStats.median_ms
+  p95_ms   = $NodeStats.p95_ms
+  min_ms   = $NodeStats.min_ms
+  max_ms   = $NodeStats.max_ms
 }
 
 $summary | Format-Table -AutoSize

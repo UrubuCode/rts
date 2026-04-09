@@ -783,6 +783,15 @@ fn define_synthetic_start(
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
+        // Reset runtime state before executing main (like JIT does)
+        // This ensures consistent state between JIT and AOT execution
+        let reset_sig = module.make_signature(); // () -> ()
+        let reset_id = module
+            .declare_function("__rts_reset_thread_state", Linkage::Import, &reset_sig)
+            .context("failed to declare reset_thread_state for AOT")?;
+        let reset_local = module.declare_func_in_func(reset_id, builder.func);
+        builder.ins().call(reset_local, &[]);
+
         let default_return = if let Some(main_id) = declarations.get("main").copied() {
             let local = module.declare_func_in_func(main_id, builder.func);
             let mut args = Vec::with_capacity(ABI_PARAM_COUNT);

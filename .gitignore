@@ -28,3 +28,4 @@ target
 # Added by cargo
 
 /target
+debug_*

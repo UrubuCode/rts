@@ -327,6 +327,12 @@ pub fn reset_thread_state() {
     super::lang::reset_caches();
 }
 
+/// C-compatible wrapper for reset_thread_state for AOT linking
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_reset_thread_state() {
+    reset_thread_state();
+}
+
 fn push_value(value: JsValue) -> i64 {
     with_store_mut(|store| store.allocate_value(value))
 }
