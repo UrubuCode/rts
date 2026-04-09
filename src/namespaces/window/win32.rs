@@ -118,15 +118,22 @@ pub fn create(title: &str, width: i32, height: i32) -> Result<u64, String> {
         let hinstance = GetModuleHandleW(None)
             .map_err(|e| format!("GetModuleHandle: {e:?}"))?;
 
+        // Adjust for window chrome (title bar, borders) so client area is exactly width x height
+        let style = WS_OVERLAPPEDWINDOW;
+        let mut rect = RECT { left: 0, top: 0, right: width, bottom: height };
+        let _ = AdjustWindowRectEx(&mut rect, style, false, WINDOW_EX_STYLE::default());
+        let adj_w = rect.right - rect.left;
+        let adj_h = rect.bottom - rect.top;
+
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS_NAME,
             PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW,
+            style,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            width,
-            height,
+            adj_w,
+            adj_h,
             HWND::default(),
             HMENU::default(),
             hinstance,
@@ -145,7 +152,10 @@ pub fn show(window_id: u64) -> Result<(), String> {
     let state = lock_win();
     let entry = state.windows.get(&window_id)
         .ok_or_else(|| "window.show: invalid handle".to_string())?;
-    unsafe { ShowWindow(entry.hwnd(), SW_SHOW); }
+    unsafe {
+        ShowWindow(entry.hwnd(), SW_SHOW);
+        let _ = UpdateWindow(entry.hwnd());
+    }
     Ok(())
 }
 
