@@ -1,4 +1,4 @@
-import { io } from "rts";
+import { bool, i32, io, str } from "rts";
 
 const LCG_MOD: i32 = 2147483647;
 const LIMB_BASE: i32 = 1000000;

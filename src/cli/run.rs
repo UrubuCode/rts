@@ -14,7 +14,7 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         .with_context(|| format!("failed to load module graph from {}", input.display()))?;
 
     let modules = graph.modules().collect::<Vec<_>>();
-    let registry = crate::build_registry_for_graph(&graph)
+    let registry = crate::pipeline::build_registry_for_graph(&graph)
         .with_context(|| format!("type check failed for graph rooted at {}", input.display()))?;
 
     let resolver = crate::type_system::resolver::TypeResolver::from_registry(&registry);
@@ -38,11 +38,9 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         merged_hir.interfaces.extend(lowered.interfaces);
     }
 
-    let mut mir = crate::mir::build::build(&merged_hir);
-    let _mono = crate::mir::monomorphize::monomorphize(&mut mir);
-    let _opt = crate::mir::optimize::optimize(&mut mir);
+    let typed_mir = crate::mir::typed_build::typed_build(&merged_hir);
 
-    let jit_report = crate::codegen::cranelift::jit::execute(&mir, "main")
+    let jit_report = crate::codegen::cranelift::jit::execute_typed(&typed_mir, "main")
         .context("failed to execute MIR through Cranelift JIT")?;
 
     if jit_report.executed {

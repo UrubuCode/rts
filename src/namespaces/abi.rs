@@ -9,9 +9,9 @@ const MAX_ARGS: usize = 6;
 const UNDEFINED_HANDLE: i64 = 0;
 const HANDLE_SLOT_MASK: u64 = u32::MAX as u64;
 const MAX_HANDLE_GENERATION: u32 = i32::MAX as u32;
-const MAX_OVERLAY_HANDLES: usize = 2_048;
-const TARGET_OVERLAY_BYTES: usize = 4 * 1024 * 1024;
-const MIN_RECLAIM_AGE: u64 = 2;
+const MAX_OVERLAY_HANDLES: usize = 8_192;  // 4x larger for better performance
+const TARGET_OVERLAY_BYTES: usize = 16 * 1024 * 1024;  // 16MB for intensive workloads
+const MIN_RECLAIM_AGE: u64 = 5;  // Wait longer before reclaiming for better temporal locality
 
 #[derive(Debug, Clone)]
 struct BindingEntry {
@@ -37,6 +37,8 @@ struct ValueStore {
     bindings: BTreeMap<String, BindingEntry>,
     epoch: u64,
     live_bytes: usize,
+    intensive_mode: bool,  // Skip GC during intensive computation
+    last_allocation_time: u64,  // Track allocation frequency
 }
 
 impl ValueStore {
@@ -55,6 +57,17 @@ impl ValueStore {
         }
 
         let epoch = self.bump_epoch();
+
+        // Detect intensive computation mode based on allocation frequency
+        let allocation_gap = epoch.saturating_sub(self.last_allocation_time);
+        if allocation_gap <= 100 && self.overlay.len() > 50 {
+            // Rapid allocations with significant pressure -> enter intensive mode
+            self.intensive_mode = true;
+        } else if allocation_gap > 1000 {
+            // Long gap between allocations -> exit intensive mode
+            self.intensive_mode = false;
+        }
+
         let slot_index = if let Some(index) = self.free_indices.pop() {
             index
         } else {
@@ -226,13 +239,36 @@ impl ValueStore {
     }
 
     fn reclaim_if_needed(&mut self) {
-        if self.overlay.len() <= MAX_OVERLAY_HANDLES && self.live_bytes <= TARGET_OVERLAY_BYTES {
+        // Update allocation tracking for intensive mode detection
+        self.last_allocation_time = self.epoch;
+
+        // In intensive mode, be much more conservative about GC
+        let effective_max_handles = if self.intensive_mode {
+            MAX_OVERLAY_HANDLES * 2
+        } else {
+            MAX_OVERLAY_HANDLES
+        };
+
+        let effective_max_bytes = if self.intensive_mode {
+            TARGET_OVERLAY_BYTES * 2
+        } else {
+            TARGET_OVERLAY_BYTES
+        };
+
+        if self.overlay.len() <= effective_max_handles && self.live_bytes <= effective_max_bytes {
             return;
         }
 
+        // In intensive mode, reclaim more conservatively
+        let reclaim_age = if self.intensive_mode {
+            MIN_RECLAIM_AGE * 2
+        } else {
+            MIN_RECLAIM_AGE
+        };
+
         let mut budget = self.overlay.len();
         while budget > 0
-            && (self.overlay.len() > MAX_OVERLAY_HANDLES || self.live_bytes > TARGET_OVERLAY_BYTES)
+            && (self.overlay.len() > effective_max_handles || self.live_bytes > effective_max_bytes)
         {
             budget = budget.saturating_sub(1);
 
@@ -250,7 +286,7 @@ impl ValueStore {
             }
 
             let age = self.epoch.saturating_sub(slot.last_touch_epoch);
-            let reclaimable = slot.pin_count == 0 && age >= MIN_RECLAIM_AGE;
+            let reclaimable = slot.pin_count == 0 && age >= reclaim_age;
             if reclaimable {
                 self.release_slot(slot_index);
             } else {
@@ -288,6 +324,13 @@ fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
 
 pub fn reset_thread_state() {
     with_store_mut(ValueStore::reset);
+    super::lang::reset_caches();
+}
+
+/// C-compatible wrapper for reset_thread_state for AOT linking
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_reset_thread_state() {
+    reset_thread_state();
 }
 
 fn push_value(value: JsValue) -> i64 {
@@ -498,6 +541,78 @@ pub extern "C" fn __rts_eval_stmt(stmt_ptr: i64, stmt_len: i64) -> i64 {
     push_value(value)
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_read_identifier(name_ptr: i64, name_len: i64) -> i64 {
+    let Some(name) = read_utf8(name_ptr, name_len) else {
+        return UNDEFINED_HANDLE;
+    };
+
+    match read_identifier(&name) {
+        Some(value) => push_value(value),
+        None => UNDEFINED_HANDLE,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_binop(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 {
+    let lhs = read_value(lhs_handle);
+    let rhs = read_value(rhs_handle);
+
+    let result = match op {
+        0 => {
+            // Add
+            if lhs.is_string_like() || rhs.is_string_like() {
+                JsValue::String(format!("{}{}", lhs.to_js_string(), rhs.to_js_string()))
+            } else {
+                JsValue::Number(lhs.to_number() + rhs.to_number())
+            }
+        }
+        1 => JsValue::Number(lhs.to_number() - rhs.to_number()),       // Sub
+        2 => JsValue::Number(lhs.to_number() * rhs.to_number()),       // Mul
+        3 => JsValue::Number(lhs.to_number() / rhs.to_number()),       // Div
+        4 => JsValue::Number(lhs.to_number() % rhs.to_number()),       // Mod
+        5 => JsValue::Bool(lhs.to_number() > rhs.to_number()),         // Gt
+        6 => JsValue::Bool(lhs.to_number() >= rhs.to_number()),        // Gte
+        7 => JsValue::Bool(lhs.to_number() < rhs.to_number()),         // Lt
+        8 => JsValue::Bool(lhs.to_number() <= rhs.to_number()),        // Lte
+        9 => JsValue::Bool(lhs == rhs),                                 // Eq (===)
+        10 => JsValue::Bool(lhs != rhs),                                // Ne (!==)
+        11 => {
+            // LogicAnd
+            if !lhs.truthy() { lhs } else { rhs }
+        }
+        12 => {
+            // LogicOr
+            if lhs.truthy() { lhs } else { rhs }
+        }
+        _ => JsValue::Undefined,
+    };
+
+    push_value(result)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_is_truthy(handle: i64) -> i64 {
+    if handle == UNDEFINED_HANDLE {
+        return 0;
+    }
+    let value = read_value(handle);
+    if value.truthy() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_unbox_number(handle: i64) -> i64 {
+    let value = read_value(handle);
+    let n = value.to_number();
+    i64::from_ne_bytes(n.to_ne_bytes())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_box_number(bits: i64) -> i64 {
+    let n = f64::from_ne_bytes(bits.to_ne_bytes());
+    push_value(JsValue::Number(n))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::namespaces::lang::JsValue;
@@ -519,7 +634,8 @@ mod tests {
     #[test]
     fn overlay_reclaims_old_unpinned_values() {
         reset_thread_state();
-        let allocated = MAX_OVERLAY_HANDLES + 512;
+        // Allocate enough to exceed even intensive_mode limits (2x MAX)
+        let allocated = MAX_OVERLAY_HANDLES * 2 + 512;
         let mut first_handle = 0i64;
 
         for index in 0..allocated {
@@ -530,7 +646,8 @@ mod tests {
         }
 
         let live_after_sweep = with_store_mut(|store| store.live_slots());
-        assert!(live_after_sweep <= MAX_OVERLAY_HANDLES);
+        // In intensive mode the effective limit is MAX_OVERLAY_HANDLES * 2
+        assert!(live_after_sweep <= MAX_OVERLAY_HANDLES * 2);
         assert_eq!(read_value(first_handle), JsValue::Undefined);
 
         let bytes_live = with_store_mut(|store| store.live_bytes);

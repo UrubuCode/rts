@@ -5,32 +5,16 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{DataId, FuncId, Linkage, Module, default_libcall_names};
 
 use crate::mir::{MirFunction, MirModule};
 
-use super::parse_utils::split_top_level;
-
-const ABI_ARG_SLOTS: usize = 6;
-const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1; // argc + args
-const ABI_UNDEFINED_HANDLE: i64 = 0;
-const RTS_CALL_DISPATCH_SYMBOL: &str = "__rts_call_dispatch";
-const RTS_EVAL_EXPR_SYMBOL: &str = "__rts_eval_expr";
-const RTS_EVAL_STMT_SYMBOL: &str = "__rts_eval_stmt";
-const RTS_BIND_IDENTIFIER_SYMBOL: &str = "__rts_bind_identifier";
-
-#[derive(Debug, Clone)]
-struct ParsedCall {
-    callee: String,
-    args: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-struct ParsedDeclaration {
-    name: String,
-    initializer: Option<String>,
-    mutable: bool,
-}
+use super::mir_parse::{
+    ABI_ARG_SLOTS, ABI_PARAM_COUNT, ABI_UNDEFINED_HANDLE, RTS_BIND_IDENTIFIER_SYMBOL,
+    RTS_CALL_DISPATCH_SYMBOL, RTS_EVAL_EXPR_SYMBOL, RTS_EVAL_STMT_SYMBOL, is_valid_binding_name,
+    parse_call_statement, parse_declaration_statement, parse_enter_parameters,
+    parse_return_expression, parse_return_literal,
+};
 
 #[derive(Debug, Clone)]
 pub struct JitReport {
@@ -183,6 +167,26 @@ fn initialize_jit_module() -> Result<JITModule> {
     builder.symbol(
         RTS_BIND_IDENTIFIER_SYMBOL,
         crate::namespaces::abi::__rts_bind_identifier as *const u8,
+    );
+    builder.symbol(
+        "__rts_read_identifier",
+        crate::namespaces::abi::__rts_read_identifier as *const u8,
+    );
+    builder.symbol(
+        "__rts_binop",
+        crate::namespaces::abi::__rts_binop as *const u8,
+    );
+    builder.symbol(
+        "__rts_box_number",
+        crate::namespaces::abi::__rts_box_number as *const u8,
+    );
+    builder.symbol(
+        "__rts_unbox_number",
+        crate::namespaces::abi::__rts_unbox_number as *const u8,
+    );
+    builder.symbol(
+        "__rts_is_truthy",
+        crate::namespaces::abi::__rts_is_truthy as *const u8,
     );
 
     Ok(JITModule::new(builder))
@@ -606,166 +610,82 @@ fn define_stub_function(
     Ok(())
 }
 
-fn parse_return_literal(statement: &str) -> Option<i64> {
-    let literal = statement.strip_prefix("ret ")?;
-    literal.trim().parse::<i64>().ok()
-}
+pub fn execute_typed(
+    module: &crate::mir::TypedMirModule,
+    entry_function: &str,
+) -> Result<JitReport> {
+    crate::namespaces::abi::reset_thread_state();
+    let mut jit = initialize_jit_module()?;
+    let mut declarations = BTreeMap::<String, FuncId>::new();
+    let mut data_cache = BTreeMap::<String, DataId>::new();
 
-fn parse_return_expression(statement: &str) -> Option<Option<String>> {
-    let text = statement.trim().trim_end_matches(';').trim();
-    let rest = text.strip_prefix("return")?;
-    if !rest.is_empty() {
-        let first = rest.chars().next()?;
-        if first == '_' || first == '$' || first.is_ascii_alphanumeric() {
-            return None;
-        }
+    let signature = super::typed_codegen::function_signature(&mut jit);
+    for function in &module.functions {
+        let id = jit
+            .declare_function(&function.name, Linkage::Export, &signature)
+            .with_context(|| {
+                format!("failed to declare typed JIT function '{}'", function.name)
+            })?;
+        declarations.insert(function.name.clone(), id);
     }
-    let expression = rest.trim();
-    if expression.is_empty() {
-        Some(None)
+
+    for function in &module.functions {
+        let id = declarations
+            .get(&function.name)
+            .copied()
+            .ok_or_else(|| {
+                anyhow!(
+                    "missing declaration for typed JIT function '{}'",
+                    function.name
+                )
+            })?;
+        super::typed_codegen::define_typed_function(
+            &mut jit,
+            &mut declarations,
+            &mut data_cache,
+            id,
+            function,
+        )?;
+    }
+
+    jit.finalize_definitions()
+        .context("failed to finalize typed JIT definitions")?;
+
+    let selected_entry = if declarations.contains_key(entry_function) {
+        Some(entry_function.to_string())
+    } else if entry_function != "main" && declarations.contains_key("main") {
+        Some("main".to_string())
     } else {
-        Some(Some(expression.to_string()))
-    }
-}
-
-fn parse_enter_parameters(statement: &str) -> Option<Vec<String>> {
-    let text = statement.trim();
-    let rest = text.strip_prefix("enter ")?;
-    let open = rest.find('(')?;
-    if !rest.ends_with(')') {
-        return None;
-    }
-
-    let args = &rest[open + 1..rest.len().saturating_sub(1)];
-    if args.trim().is_empty() {
-        return Some(Vec::new());
-    }
-
-    let names = split_top_level(args, ',')
-        .into_iter()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-
-    Some(names)
-}
-
-fn parse_call_statement(statement: &str) -> Option<ParsedCall> {
-    let text = statement.trim().trim_end_matches(';').trim();
-    if text.is_empty() {
-        return None;
-    }
-
-    if let Some(rest) = text.strip_prefix("call ") {
-        let rest = rest.trim();
-        if rest.is_empty() {
-            return None;
-        }
-
-        if let Some(parsed) = parse_call_invocation(rest) {
-            return Some(parsed);
-        }
-
-        return is_valid_callee_name(rest).then(|| ParsedCall {
-            callee: rest.to_string(),
-            args: Vec::new(),
-        });
-    }
-
-    parse_call_invocation(text)
-}
-
-fn parse_declaration_statement(statement: &str) -> Option<ParsedDeclaration> {
-    let text = statement.trim().trim_end_matches(';').trim();
-    let (rest, mutable) = if let Some(rest) = text.strip_prefix("const ") {
-        (rest, false)
-    } else if let Some(rest) = text.strip_prefix("let ") {
-        (rest, true)
-    } else if let Some(rest) = text.strip_prefix("var ") {
-        (rest, true)
-    } else {
-        return None;
+        None
     };
 
-    let rest = rest.trim();
-    if rest.is_empty() {
-        return None;
-    }
-
-    let (left, initializer) = if let Some((left, right)) = rest.split_once('=') {
-        (left.trim(), {
-            let value = right.trim().to_string();
-            (!value.is_empty()).then_some(value)
-        })
+    let (entry_name, entry_return_value, executed) = if let Some(entry_name) = selected_entry {
+        let entry_id = declarations
+            .get(&entry_name)
+            .copied()
+            .ok_or_else(|| anyhow!("failed to resolve typed JIT entry '{}'", entry_name))?;
+        let address = jit.get_finalized_function(entry_id);
+        let entry = unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64,
+            >(address)
+        };
+        (entry_name, entry(0, 0, 0, 0, 0, 0, 0), true)
     } else {
-        (rest, None)
+        (
+            entry_function.to_string(),
+            super::mir_parse::ABI_UNDEFINED_HANDLE,
+            false,
+        )
     };
 
-    let name = if let Some((name, _type_annotation)) = left.split_once(':') {
-        name.trim()
-    } else {
-        left
-    };
-
-    if !is_valid_binding_name(name) {
-        return None;
-    }
-
-    Some(ParsedDeclaration {
-        name: name.to_string(),
-        initializer,
-        mutable,
+    Ok(JitReport {
+        entry_function: entry_name,
+        compiled_functions: declarations.len(),
+        entry_return_value,
+        executed,
     })
-}
-
-fn parse_call_invocation(text: &str) -> Option<ParsedCall> {
-    let open = text.find('(')?;
-    if !text.ends_with(')') {
-        return None;
-    }
-
-    let callee = text[..open].trim();
-    if !is_valid_callee_name(callee) {
-        return None;
-    }
-
-    let args_raw = text[open + 1..text.len().saturating_sub(1)].trim();
-    let args = if args_raw.is_empty() {
-        Vec::new()
-    } else {
-        split_top_level(args_raw, ',')
-            .into_iter()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-    };
-
-    Some(ParsedCall {
-        callee: callee.to_string(),
-        args,
-    })
-}
-
-fn is_valid_callee_name(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.' | ':'))
-}
-
-fn is_valid_binding_name(value: &str) -> bool {
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-
-    if first != '_' && first != '$' && !first.is_ascii_alphabetic() {
-        return false;
-    }
-
-    chars.all(|ch| ch == '_' || ch == '$' || ch.is_ascii_alphanumeric())
 }
 
 #[cfg(test)]

@@ -28,3 +28,5 @@ target
 # Added by cargo
 
 /target
+debug_*
+.claude/settings.local.json

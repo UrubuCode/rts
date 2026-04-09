@@ -142,6 +142,9 @@ fn requires_windows_runtime_support(object_paths: &[PathBuf]) -> bool {
 fn windows_runtime_default_libs() -> &'static [&'static str] {
     &[
         "kernel32.lib",
+        "user32.lib",
+        "gdi32.lib",
+        "oleaut32.lib",
         "userenv.lib",
         "advapi32.lib",
         "bcrypt.lib",

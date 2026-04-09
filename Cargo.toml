@@ -28,6 +28,7 @@ console = "0.15"
 swc_common = "21.0.0"
 swc_ecma_ast = "23.0.0"
 swc_ecma_parser = "38.0.0"
+minifb = "0.27"
 
 [profile.release]
 opt-level = "z"

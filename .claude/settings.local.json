@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls:*)",
+      "Bash(find:*)",
+      "Bash(xargs head:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo build:*)",
+      "Bash(./target/release/rts.exe:*)",
+      "Bash(powershell:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(time ./target/rts_app.exe:*)",
+      "Bash(objdump -t target/rts_app.exe)",
+      "Bash(./debug_app.exe:*)",
+      "Bash(./debug_loop_app.exe)",
+      "Bash(./debug_arith_app.exe)",
+      "Bash(./debug_full_app.exe)",
+      "Bash(./debug_bigint_app.exe)",
+      "Bash(./debug_overflow_app.exe)"
+    ]
+  }
+}
