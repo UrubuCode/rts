@@ -1,15 +1,17 @@
-//! Centralized runtime state manager.
+//! Central State Manager - THE single point of control for ALL runtime state
 //!
-//! Every namespace that needs persistent state MUST register it here via
-//! `Mutex::get_or_init("name", ...)`. Direct `OnceLock`/`Mutex` creation inside
-//! namespaces is forbidden — all state flows through this module so the future
-//! GC can track allocations.
+//! This is the ONLY place where state can be stored in the RTS runtime.
+//! Every namespace, cache, buffer, handle, etc. MUST go through this controller.
 //!
-//! This module exposes **primitives only** (Mutex, Globals, executor). Namespace
-//! logic belongs in the respective `namespaces/<name>/mod.rs`.
+//! This enables the GC to track and manage ALL allocations from a single point.
+//!
+//! **REGRA PRINCIPAL**: Todo estado de runtime DEVE ser gerenciado via este módulo.
+//! Proibido criar `OnceLock`, `Mutex`, `RefCell` ou qualquer estado local nos namespaces.
 
+pub mod central;
+
+pub use central::{central, CentralState, AllocationInfo};
 use sha2::{Digest, Sha256};
-use std::any::Any;
 use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, OnceLock};
@@ -17,94 +19,60 @@ use std::thread;
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
-// Named Mutex registry — the core state primitive
+// Legacy compatibility layer - will be removed after migration
 // ---------------------------------------------------------------------------
 
-/// Thread-safe named-mutex registry.  Each namespace registers its own state
-/// under a unique string key.  The registry guarantees that `get_or_init` is
-/// called at most once per key and returns the same `Arc` on every subsequent
-/// call.
-pub struct NamedMutex {
-    slots: std::sync::Mutex<BTreeMap<&'static str, Arc<dyn Any + Send + Sync>>>,
+/// Legacy namespace state access - DEPRECATED, use central().namespace_state() instead
+#[deprecated(note = "Use central().namespace_state() instead")]
+pub fn namespace_state<T: Send + Sync + 'static + Default>(namespace: &'static str) -> Arc<std::sync::Mutex<T>> {
+    central().namespace_state::<T>(namespace)
 }
 
-impl NamedMutex {
-    const fn new() -> Self {
-        Self {
-            slots: std::sync::Mutex::new(BTreeMap::new()),
-        }
-    }
+// ---------------------------------------------------------------------------
+// Globals — key/value string storage via central state
+// ---------------------------------------------------------------------------
 
-    /// Returns the mutex for `name`, creating it with `init` on first access.
-    pub fn get_or_init<T: Send + Sync + 'static>(
-        &self,
-        name: &'static str,
-        init: std::sync::Mutex<T>,
-    ) -> Arc<std::sync::Mutex<T>> {
-        let mut slots = match self.slots.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-
-        if let Some(existing) = slots.get(name) {
-            return existing
-                .clone()
-                .downcast::<std::sync::Mutex<T>>()
-                .expect("state type mismatch for named mutex");
-        }
-
-        let arc: Arc<std::sync::Mutex<T>> = Arc::new(init);
-        slots.insert(name, arc.clone() as Arc<dyn Any + Send + Sync>);
-        arc
-    }
+#[derive(Default)]
+struct GlobalsState {
+    global: BTreeMap<String, String>,
 }
-
-/// Global singleton — the single entry point for all runtime state.
-pub static Mutex: NamedMutex = NamedMutex::new();
-
-// ---------------------------------------------------------------------------
-// Globals — key/value string storage
-// ---------------------------------------------------------------------------
 
 pub struct Globals;
 
 impl Globals {
     pub fn set(key: impl Into<String>, value: impl Into<String>) {
-        let mut state = lock_state();
-        state.global.insert(key.into(), value.into());
+        let state = central().cache::<GlobalsState>("globals");
+        let mut guard = state.lock().unwrap();
+        guard.global.insert(key.into(), value.into());
     }
 
     pub fn get(key: &str) -> Option<String> {
-        let state = lock_state();
-        state.global.get(key).cloned()
+        let state = central().cache::<GlobalsState>("globals");
+        let guard = state.lock().unwrap();
+        guard.global.get(key).cloned()
     }
 
     pub fn has(key: &str) -> bool {
-        let state = lock_state();
-        state.global.contains_key(key)
+        let state = central().cache::<GlobalsState>("globals");
+        let guard = state.lock().unwrap();
+        guard.global.contains_key(key)
     }
 
     pub fn delete(key: &str) -> bool {
-        let mut state = lock_state();
-        state.global.remove(key).is_some()
+        let state = central().cache::<GlobalsState>("globals");
+        let mut guard = state.lock().unwrap();
+        guard.global.remove(key).is_some()
     }
 
     pub fn keys_csv() -> String {
-        let state = lock_state();
-        state.global.keys().cloned().collect::<Vec<_>>().join(",")
+        let state = central().cache::<GlobalsState>("globals");
+        let guard = state.lock().unwrap();
+        guard.global.keys().cloned().collect::<Vec<_>>().join(",")
     }
 }
 
 // ---------------------------------------------------------------------------
-// State — convenience re-export for namespace authors
-// ---------------------------------------------------------------------------
-
-/// Marker / convenience type so namespaces can write
-/// `use crate::namespaces::state::{State, Mutex, Globals};`
-pub struct State;
-
-// ---------------------------------------------------------------------------
-// Core runtime state (private — managed via public functions below)
+// Runtime services moved to central state system
 // ---------------------------------------------------------------------------
 
 type RuntimeJob = Box<dyn FnOnce() + Send + 'static>;
@@ -157,19 +125,19 @@ impl PromiseCell {
     }
 
     fn fulfill(&self, value: String) {
-        let mut guard = lock_or_recover(&self.result);
+        let mut guard = self.lock_or_recover(&self.result);
         *guard = PromiseResult::Fulfilled(value);
         self.ready.notify_all();
     }
 
     fn reject(&self, reason: String) {
-        let mut guard = lock_or_recover(&self.result);
+        let mut guard = self.lock_or_recover(&self.result);
         *guard = PromiseResult::Rejected(reason);
         self.ready.notify_all();
     }
 
     fn status(&self) -> PromiseStatus {
-        let guard = lock_or_recover(&self.result);
+        let guard = self.lock_or_recover(&self.result);
         match &*guard {
             PromiseResult::Pending => PromiseStatus::Pending,
             PromiseResult::Fulfilled(_) => PromiseStatus::Fulfilled,
@@ -178,7 +146,7 @@ impl PromiseCell {
     }
 
     fn await_result(&self) -> Result<String, String> {
-        let mut guard = lock_or_recover(&self.result);
+        let mut guard = self.lock_or_recover(&self.result);
         loop {
             match &*guard {
                 PromiseResult::Pending => {
@@ -190,6 +158,13 @@ impl PromiseCell {
                 PromiseResult::Fulfilled(value) => return Ok(value.clone()),
                 PromiseResult::Rejected(reason) => return Err(reason.clone()),
             }
+        }
+    }
+
+    fn lock_or_recover<'a, T>(&self, mutex: &'a std::sync::Mutex<T>) -> std::sync::MutexGuard<'a, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
         }
     }
 }
@@ -211,7 +186,10 @@ impl RuntimeExecutor {
                 .spawn(move || {
                     loop {
                         let job = {
-                            let receiver_guard = lock_or_recover(&worker_receiver);
+                            let receiver_guard = match worker_receiver.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                             receiver_guard.recv()
                         };
 
@@ -236,7 +214,6 @@ impl RuntimeExecutor {
 
 #[derive(Default)]
 struct RuntimeState {
-    global: BTreeMap<String, String>,
     buffers: BTreeMap<u64, Vec<u8>>,
     next_buffer_id: u64,
     promises: BTreeMap<u64, Arc<PromiseCell>>,
@@ -244,7 +221,6 @@ struct RuntimeState {
 }
 
 struct RuntimeServices {
-    state: std::sync::Mutex<RuntimeState>,
     executor: RuntimeExecutor,
 }
 
@@ -252,7 +228,6 @@ static RUNTIME_SERVICES: OnceLock<RuntimeServices> = OnceLock::new();
 
 fn services() -> &'static RuntimeServices {
     RUNTIME_SERVICES.get_or_init(|| RuntimeServices {
-        state: std::sync::Mutex::new(RuntimeState::default()),
         executor: RuntimeExecutor::new(
             thread::available_parallelism()
                 .map(usize::from)
@@ -261,19 +236,12 @@ fn services() -> &'static RuntimeServices {
     })
 }
 
-fn lock_state() -> std::sync::MutexGuard<'static, RuntimeState> {
-    lock_or_recover(&services().state)
-}
-
-pub(crate) fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    match mutex.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+fn runtime_state() -> Arc<std::sync::Mutex<RuntimeState>> {
+    central().cache::<RuntimeState>("runtime_state")
 }
 
 // ---------------------------------------------------------------------------
-// Globals (delegating to Globals struct — kept for backward compat)
+// Public API functions (now using central state)
 // ---------------------------------------------------------------------------
 
 pub fn global_set(key: impl Into<String>, value: impl Into<String>) {
@@ -297,38 +265,43 @@ pub fn global_keys_csv() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Buffers
+// Buffers (now using central state handles)
 // ---------------------------------------------------------------------------
 
 pub fn buffer_alloc(size: usize) -> u64 {
-    let mut state = lock_state();
-    state.next_buffer_id = state.next_buffer_id.saturating_add(1);
-    let id = state.next_buffer_id;
-    state.buffers.insert(id, vec![0; size]);
+    let state = runtime_state();
+    let mut guard = state.lock().unwrap();
+    guard.next_buffer_id = guard.next_buffer_id.saturating_add(1);
+    let id = guard.next_buffer_id;
+    guard.buffers.insert(id, vec![0; size]);
     id
 }
 
 pub fn buffer_free(id: u64) -> bool {
-    let mut state = lock_state();
-    state.buffers.remove(&id).is_some()
+    let state = runtime_state();
+    let mut guard = state.lock().unwrap();
+    guard.buffers.remove(&id).is_some()
 }
 
 pub fn buffer_len(id: u64) -> Option<usize> {
-    let state = lock_state();
-    state.buffers.get(&id).map(Vec::len)
+    let state = runtime_state();
+    let guard = state.lock().unwrap();
+    guard.buffers.get(&id).map(Vec::len)
 }
 
 pub fn buffer_read_u8(id: u64, offset: usize) -> Option<u8> {
-    let state = lock_state();
-    state
+    let state = runtime_state();
+    let guard = state.lock().unwrap();
+    guard
         .buffers
         .get(&id)
         .and_then(|buffer| buffer.get(offset).copied())
 }
 
 pub fn buffer_write_u8(id: u64, offset: usize, value: u8) -> bool {
-    let mut state = lock_state();
-    let Some(buffer) = state.buffers.get_mut(&id) else {
+    let state = runtime_state();
+    let mut guard = state.lock().unwrap();
+    let Some(buffer) = guard.buffers.get_mut(&id) else {
         return false;
     };
 
@@ -341,8 +314,9 @@ pub fn buffer_write_u8(id: u64, offset: usize, value: u8) -> bool {
 }
 
 pub fn buffer_fill(id: u64, value: u8) -> bool {
-    let mut state = lock_state();
-    let Some(buffer) = state.buffers.get_mut(&id) else {
+    let state = runtime_state();
+    let mut guard = state.lock().unwrap();
+    let Some(buffer) = guard.buffers.get_mut(&id) else {
         return false;
     };
     buffer.fill(value);
@@ -350,8 +324,9 @@ pub fn buffer_fill(id: u64, value: u8) -> bool {
 }
 
 pub fn buffer_write_text(id: u64, offset: usize, text: &str) -> Option<usize> {
-    let mut state = lock_state();
-    let buffer = state.buffers.get_mut(&id)?;
+    let state = runtime_state();
+    let mut guard = state.lock().unwrap();
+    let buffer = guard.buffers.get_mut(&id)?;
     let bytes = text.as_bytes();
     let end = offset.saturating_add(bytes.len());
     if end > buffer.len() {
@@ -362,8 +337,9 @@ pub fn buffer_write_text(id: u64, offset: usize, text: &str) -> Option<usize> {
 }
 
 pub fn buffer_read_text(id: u64, offset: usize, length: usize) -> Option<String> {
-    let state = lock_state();
-    let buffer = state.buffers.get(&id)?;
+    let state = runtime_state();
+    let guard = state.lock().unwrap();
+    let buffer = guard.buffers.get(&id)?;
 
     if offset > buffer.len() {
         return None;
@@ -381,8 +357,9 @@ pub fn buffer_copy(
     dst_offset: usize,
     length: usize,
 ) -> Option<usize> {
-    let mut state = lock_state();
-    let source = state.buffers.get(&src_id)?;
+    let state = runtime_state();
+    let mut guard = state.lock().unwrap();
+    let source = guard.buffers.get(&src_id)?;
     if src_offset > source.len() {
         return None;
     }
@@ -390,7 +367,7 @@ pub fn buffer_copy(
     let source_end = src_offset.saturating_add(length).min(source.len());
     let payload = source[src_offset..source_end].to_vec();
 
-    let target = state.buffers.get_mut(&dst_id)?;
+    let target = guard.buffers.get_mut(&dst_id)?;
     let target_end = dst_offset.saturating_add(payload.len());
     if target_end > target.len() {
         target.resize(target_end, 0);
@@ -451,7 +428,7 @@ pub fn fs_write(path: &str, data: &[u8]) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Promises
+// Promises (using central state handles)
 // ---------------------------------------------------------------------------
 
 pub fn promise_resolve(value: impl Into<String>) -> u64 {
@@ -501,17 +478,19 @@ pub fn promise_await(id: u64) -> Option<Result<String, String>> {
 }
 
 fn create_pending_promise() -> (u64, Arc<PromiseCell>) {
-    let mut state = lock_state();
-    state.next_promise_id = state.next_promise_id.saturating_add(1);
-    let id = state.next_promise_id;
+    let state = runtime_state();
+    let mut guard = state.lock().unwrap();
+    guard.next_promise_id = guard.next_promise_id.saturating_add(1);
+    let id = guard.next_promise_id;
     let promise = Arc::new(PromiseCell::pending());
-    state.promises.insert(id, Arc::clone(&promise));
+    guard.promises.insert(id, Arc::clone(&promise));
     (id, promise)
 }
 
 fn get_promise(id: u64) -> Option<Arc<PromiseCell>> {
-    let state = lock_state();
-    state.promises.get(&id).cloned()
+    let state = runtime_state();
+    let guard = state.lock().unwrap();
+    guard.promises.get(&id).cloned()
 }
 
 fn run_task(task: AsyncTask) -> Result<String, String> {
@@ -593,11 +572,34 @@ mod tests {
     }
 
     #[test]
-    fn named_mutex_registers_and_retrieves() {
-        let m1 = Mutex.get_or_init("test_ns", std::sync::Mutex::new(42u64));
-        let m2 = Mutex.get_or_init("test_ns", std::sync::Mutex::new(999u64));
-        // Should be the same Arc — init is ignored on second call
-        assert_eq!(*lock_or_recover(&m1), 42);
-        assert_eq!(*lock_or_recover(&m2), 42);
+    fn central_state_integration() {
+        // Test namespace state
+        let ns_state = central().namespace_state::<i32>("test_namespace");
+        {
+            let mut guard = ns_state.lock().unwrap();
+            *guard = 42;
+        }
+        {
+            let guard = ns_state.lock().unwrap();
+            assert_eq!(*guard, 42);
+        }
+
+        // Test cache
+        let cache = central().cache::<String>("test_cache");
+        {
+            let mut guard = cache.lock().unwrap();
+            *guard = "cached_value".to_string();
+        }
+        {
+            let guard = cache.lock().unwrap();
+            assert_eq!(*guard, "cached_value");
+        }
+
+        // Test handle creation
+        let handle_id = central().create_handle("test_handle_value".to_string());
+        let value = central().get_handle::<String>(handle_id);
+        assert_eq!(value, Some("test_handle_value".to_string()));
+        assert!(central().remove_handle::<String>(handle_id));
+        assert_eq!(central().get_handle::<String>(handle_id), None);
     }
 }

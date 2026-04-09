@@ -371,7 +371,8 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
 // Utilities
 fn close(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let mut state = common::lock_net_state();
+    let net_state = common::lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     let closed = state.remove_tcp_listener(handle)
         || state.remove_tcp_stream(handle)

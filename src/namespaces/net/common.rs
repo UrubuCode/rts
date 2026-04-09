@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream, UdpSocket};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use crate::namespaces::lang::JsValue;
-use crate::namespaces::state;
+use crate::namespaces::state::central;
 
 #[derive(Debug, Default)]
 pub struct NetState {
@@ -50,19 +50,22 @@ impl NetState {
     }
 }
 
-static NET_STATE_STORAGE: OnceLock<Arc<Mutex<NetState>>> = OnceLock::new();
-
-fn net_state() -> &'static Arc<Mutex<NetState>> {
-    NET_STATE_STORAGE.get_or_init(|| {
-        state::Mutex.get_or_init("net", Mutex::new(NetState::default()))
-    })
+pub fn lock_net_state() -> Arc<Mutex<NetState>> {
+    central().namespace_state::<NetState>("net")
 }
 
-pub fn lock_net_state() -> std::sync::MutexGuard<'static, NetState> {
-    match net_state().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+/// Helper to safely access net state with a closure to avoid temporary value issues
+pub fn with_net_state<R>(f: impl FnOnce(&NetState) -> R) -> R {
+    let state = lock_net_state();
+    let guard = state.lock().unwrap();
+    f(&*guard)
+}
+
+/// Helper to safely access mutable net state with a closure
+pub fn with_net_state_mut<R>(f: impl FnOnce(&mut NetState) -> R) -> R {
+    let state = lock_net_state();
+    let mut guard = state.lock().unwrap();
+    f(&mut *guard)
 }
 
 // Helper functions for io.Result

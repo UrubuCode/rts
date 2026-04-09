@@ -12,7 +12,7 @@ pub fn udp_bind(args: &[JsValue]) -> DispatchOutcome {
 
     match UdpSocket::bind(&addr_str) {
         Ok(socket) => {
-            let handle = lock_net_state().insert_udp_socket(socket);
+            let handle = lock_net_state().lock().unwrap().insert_udp_socket(socket);
             DispatchOutcome::Value(result_ok(JsValue::Number(handle as f64)))
         }
         Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
@@ -22,7 +22,8 @@ pub fn udp_bind(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_connect(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let addr_str = arg_to_string(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         match socket.connect(&addr_str) {
@@ -37,7 +38,8 @@ pub fn udp_connect(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_send(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let data = arg_to_string(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         match socket.send(data.as_bytes()) {
@@ -52,7 +54,8 @@ pub fn udp_send(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_recv(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let max_bytes = arg_to_usize(args, 1).max(1).min(65536);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         let mut buffer = vec![0; max_bytes];
@@ -73,7 +76,8 @@ pub fn udp_send_to(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let data = arg_to_string(args, 1);
     let addr_str = arg_to_string(args, 2);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         match socket.send_to(data.as_bytes(), &addr_str) {
@@ -88,7 +92,8 @@ pub fn udp_send_to(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_recv_from(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let max_bytes = arg_to_usize(args, 1).max(1).min(65536);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         let mut buffer = vec![0; max_bytes];
@@ -111,7 +116,8 @@ pub fn udp_recv_from(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn udp_local_addr(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get(&handle) {
         match socket.local_addr() {
@@ -125,7 +131,8 @@ pub fn udp_local_addr(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn udp_peer_addr(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get(&handle) {
         match socket.peer_addr() {
@@ -140,7 +147,8 @@ pub fn udp_peer_addr(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_set_read_timeout(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let timeout_ms = arg_to_u64(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         let timeout = if timeout_ms == 0 {
@@ -161,7 +169,8 @@ pub fn udp_set_read_timeout(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_set_write_timeout(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let timeout_ms = arg_to_u64(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         let timeout = if timeout_ms == 0 {
@@ -182,7 +191,8 @@ pub fn udp_set_write_timeout(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_set_broadcast(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let broadcast = matches!(args.get(1), Some(JsValue::Bool(true)));
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         match socket.set_broadcast(broadcast) {
@@ -196,7 +206,8 @@ pub fn udp_set_broadcast(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn udp_broadcast(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get(&handle) {
         match socket.broadcast() {
@@ -211,7 +222,8 @@ pub fn udp_broadcast(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_set_multicast_loop_v4(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let multicast_loop_v4 = matches!(args.get(1), Some(JsValue::Bool(true)));
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         match socket.set_multicast_loop_v4(multicast_loop_v4) {
@@ -225,7 +237,8 @@ pub fn udp_set_multicast_loop_v4(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn udp_multicast_loop_v4(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get(&handle) {
         match socket.multicast_loop_v4() {
@@ -240,7 +253,8 @@ pub fn udp_multicast_loop_v4(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_set_multicast_ttl_v4(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let multicast_ttl_v4 = arg_to_usize(args, 1) as u32;
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         match socket.set_multicast_ttl_v4(multicast_ttl_v4) {
@@ -254,7 +268,8 @@ pub fn udp_set_multicast_ttl_v4(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn udp_multicast_ttl_v4(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get(&handle) {
         match socket.multicast_ttl_v4() {
@@ -269,7 +284,8 @@ pub fn udp_multicast_ttl_v4(args: &[JsValue]) -> DispatchOutcome {
 pub fn udp_set_ttl(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let ttl = arg_to_usize(args, 1) as u32;
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         match socket.set_ttl(ttl) {
@@ -283,7 +299,8 @@ pub fn udp_set_ttl(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn udp_ttl(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get(&handle) {
         match socket.ttl() {
@@ -299,7 +316,8 @@ pub fn udp_join_multicast_v4(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let multiaddr_str = arg_to_string(args, 1);
     let interface_str = arg_to_string(args, 2);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         let multiaddr: Result<Ipv4Addr, _> = multiaddr_str.parse();
@@ -323,7 +341,8 @@ pub fn udp_leave_multicast_v4(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let multiaddr_str = arg_to_string(args, 1);
     let interface_str = arg_to_string(args, 2);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(socket) = state.udp_sockets.get_mut(&handle) {
         let multiaddr: Result<Ipv4Addr, _> = multiaddr_str.parse();

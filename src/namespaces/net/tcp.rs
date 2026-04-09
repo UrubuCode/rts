@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::namespaces::lang::JsValue;
 use crate::namespaces::{arg_to_string, arg_to_u64, arg_to_usize, DispatchOutcome};
 
-use super::common::{lock_net_state, result_err, result_ok};
+use super::common::{lock_net_state, with_net_state_mut, with_net_state, result_err, result_ok};
 
 // TcpListener functions
 pub fn tcp_listen(args: &[JsValue]) -> DispatchOutcome {
@@ -13,7 +13,7 @@ pub fn tcp_listen(args: &[JsValue]) -> DispatchOutcome {
 
     match TcpListener::bind(&addr_str) {
         Ok(listener) => {
-            let handle = lock_net_state().insert_tcp_listener(listener);
+            let handle = with_net_state_mut(|state| state.insert_tcp_listener(listener));
             DispatchOutcome::Value(result_ok(JsValue::Number(handle as f64)))
         }
         Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
@@ -22,7 +22,8 @@ pub fn tcp_listen(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn tcp_accept(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(listener) = state.tcp_listeners.get(&handle) {
         match listener.accept() {
@@ -43,7 +44,8 @@ pub fn tcp_accept(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn tcp_local_addr(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(listener) = state.tcp_listeners.get(&handle) {
         match listener.local_addr() {
@@ -61,7 +63,7 @@ pub fn tcp_connect(args: &[JsValue]) -> DispatchOutcome {
 
     match TcpStream::connect(&addr_str) {
         Ok(stream) => {
-            let handle = lock_net_state().insert_tcp_stream(stream);
+            let handle = with_net_state_mut(|state| state.insert_tcp_stream(stream));
             DispatchOutcome::Value(result_ok(JsValue::Number(handle as f64)))
         }
         Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
@@ -71,7 +73,8 @@ pub fn tcp_connect(args: &[JsValue]) -> DispatchOutcome {
 pub fn tcp_read(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let max_bytes = arg_to_usize(args, 1).max(1).min(65536);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get_mut(&handle) {
         let mut buffer = vec![0; max_bytes];
@@ -91,7 +94,8 @@ pub fn tcp_read(args: &[JsValue]) -> DispatchOutcome {
 pub fn tcp_write(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let data = arg_to_string(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get_mut(&handle) {
         match stream.write(data.as_bytes()) {
@@ -105,7 +109,8 @@ pub fn tcp_write(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn tcp_flush(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get_mut(&handle) {
         match stream.flush() {
@@ -120,7 +125,8 @@ pub fn tcp_flush(args: &[JsValue]) -> DispatchOutcome {
 pub fn tcp_shutdown(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let how_str = arg_to_string(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     let shutdown_how = match how_str.as_str() {
         "Read" => Shutdown::Read,
@@ -141,7 +147,8 @@ pub fn tcp_shutdown(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn tcp_peer_addr(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get(&handle) {
         match stream.peer_addr() {
@@ -156,7 +163,8 @@ pub fn tcp_peer_addr(args: &[JsValue]) -> DispatchOutcome {
 pub fn tcp_set_read_timeout(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let timeout_ms = arg_to_u64(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get_mut(&handle) {
         let timeout = if timeout_ms == 0 {
@@ -177,7 +185,8 @@ pub fn tcp_set_read_timeout(args: &[JsValue]) -> DispatchOutcome {
 pub fn tcp_set_write_timeout(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let timeout_ms = arg_to_u64(args, 1);
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get_mut(&handle) {
         let timeout = if timeout_ms == 0 {
@@ -198,7 +207,8 @@ pub fn tcp_set_write_timeout(args: &[JsValue]) -> DispatchOutcome {
 pub fn tcp_set_nodelay(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let nodelay = matches!(args.get(1), Some(JsValue::Bool(true)));
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get_mut(&handle) {
         match stream.set_nodelay(nodelay) {
@@ -212,7 +222,8 @@ pub fn tcp_set_nodelay(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn tcp_nodelay(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get(&handle) {
         match stream.nodelay() {
@@ -227,7 +238,8 @@ pub fn tcp_nodelay(args: &[JsValue]) -> DispatchOutcome {
 pub fn tcp_set_ttl(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let ttl = arg_to_usize(args, 1) as u32;
-    let mut state = lock_net_state();
+    let net_state = lock_net_state();
+    let mut state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get_mut(&handle) {
         match stream.set_ttl(ttl) {
@@ -241,7 +253,8 @@ pub fn tcp_set_ttl(args: &[JsValue]) -> DispatchOutcome {
 
 pub fn tcp_ttl(args: &[JsValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
-    let state = lock_net_state();
+    let net_state = lock_net_state();
+    let state = net_state.lock().unwrap();
 
     if let Some(stream) = state.tcp_streams.get(&handle) {
         match stream.ttl() {
