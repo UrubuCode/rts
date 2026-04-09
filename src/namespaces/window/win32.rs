@@ -19,11 +19,18 @@ use crate::namespaces::state::{self, Mutex};
 
 struct WindowEntry {
     hwnd_raw: isize,
+    backbuffer_dc: isize,   // HDC for offscreen bitmap
+    backbuffer_bmp: isize,  // HBITMAP
+    bb_width: i32,
+    bb_height: i32,
 }
 
 impl WindowEntry {
     fn hwnd(&self) -> HWND {
         HWND(self.hwnd_raw)
+    }
+    fn dc(&self) -> HDC {
+        HDC(self.backbuffer_dc)
     }
 }
 
@@ -49,11 +56,26 @@ fn lock_win() -> std::sync::MutexGuard<'static, WindowState> {
     state::lock_or_recover(leaked)
 }
 
-fn alloc_window(hwnd: HWND) -> u64 {
+fn alloc_window(hwnd: HWND, width: i32, height: i32) -> u64 {
+    let (bb_dc, bb_bmp) = unsafe {
+        let screen_dc = GetDC(hwnd);
+        let mem_dc = CreateCompatibleDC(screen_dc);
+        let bmp = CreateCompatibleBitmap(screen_dc, width, height);
+        SelectObject(mem_dc, bmp);
+        ReleaseDC(hwnd, screen_dc);
+        (mem_dc.0, bmp.0)
+    };
+
     let mut state = lock_win();
     state.next_id = state.next_id.saturating_add(1);
     let id = state.next_id;
-    state.windows.insert(id, WindowEntry { hwnd_raw: hwnd.0 });
+    state.windows.insert(id, WindowEntry {
+        hwnd_raw: hwnd.0,
+        backbuffer_dc: bb_dc,
+        backbuffer_bmp: bb_bmp,
+        bb_width: width,
+        bb_height: height,
+    });
     id
 }
 
@@ -67,6 +89,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     match msg {
         WM_DESTROY => {
             PostQuitMessage(0);
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => {
+            // Don't erase background — we handle all painting ourselves
+            LRESULT(1)
+        }
+        WM_PAINT => {
+            // Validate the region without painting — our render loop draws directly
+            let mut ps = PAINTSTRUCT::default();
+            let _ = BeginPaint(hwnd, &mut ps);
+            let _ = EndPaint(hwnd, &ps);
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -89,7 +122,7 @@ fn ensure_class_registered() -> Result<(), String> {
             lpfnWndProc: Some(wndproc),
             hInstance: hinstance.into(),
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
-            hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as isize),
+            hbrBackground: HBRUSH(0), // No background brush — render loop paints everything
             lpszClassName: CLASS_NAME,
             ..Default::default()
         };
@@ -144,7 +177,7 @@ pub fn create(title: &str, width: i32, height: i32) -> Result<u64, String> {
             return Err("CreateWindowExW failed".to_string());
         }
 
-        Ok(alloc_window(hwnd))
+        Ok(alloc_window(hwnd, width, height))
     }
 }
 
@@ -170,7 +203,11 @@ pub fn hide(window_id: u64) -> Result<(), String> {
 pub fn close(window_id: u64) {
     let mut state = lock_win();
     if let Some(entry) = state.windows.remove(&window_id) {
-        unsafe { let _ = DestroyWindow(entry.hwnd()); }
+        unsafe {
+            DeleteObject(HGDIOBJ(entry.backbuffer_bmp));
+            DeleteDC(entry.dc());
+            let _ = DestroyWindow(entry.hwnd());
+        }
     }
 }
 
@@ -255,12 +292,10 @@ pub fn fill_rect(window_id: u64, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b
     let entry = state.windows.get(&window_id)
         .ok_or_else(|| "window.fill_rect: invalid handle".to_string())?;
     unsafe {
-        let hdc = GetDC(entry.hwnd());
         let brush = CreateSolidBrush(colorref(r, g, b));
         let rect = RECT { left: x, top: y, right: x + w, bottom: y + h };
-        FillRect(hdc, &rect, brush);
+        FillRect(entry.dc(), &rect, brush);
         DeleteObject(brush);
-        ReleaseDC(entry.hwnd(), hdc);
     }
     Ok(())
 }
@@ -271,12 +306,10 @@ pub fn draw_text(window_id: u64, text: &str, x: i32, y: i32, r: u8, g: u8, b: u8
         .ok_or_else(|| "window.draw_text: invalid handle".to_string())?;
     let mut text_wide: Vec<u16> = text.encode_utf16().collect();
     unsafe {
-        let hdc = GetDC(entry.hwnd());
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, colorref(r, g, b));
+        SetBkMode(entry.dc(), TRANSPARENT);
+        SetTextColor(entry.dc(), colorref(r, g, b));
         let mut rect = RECT { left: x, top: y, right: x + 1000, bottom: y + 50 };
-        DrawTextW(hdc, &mut text_wide, &mut rect, DT_LEFT | DT_TOP | DT_NOCLIP);
-        ReleaseDC(entry.hwnd(), hdc);
+        DrawTextW(entry.dc(), &mut text_wide, &mut rect, DT_LEFT | DT_TOP | DT_NOCLIP);
     }
     Ok(())
 }
@@ -286,9 +319,7 @@ pub fn set_pixel(window_id: u64, x: i32, y: i32, r: u8, g: u8, b: u8) -> Result<
     let entry = state.windows.get(&window_id)
         .ok_or_else(|| "window.set_pixel: invalid handle".to_string())?;
     unsafe {
-        let hdc = GetDC(entry.hwnd());
-        SetPixel(hdc, x, y, colorref(r, g, b));
-        ReleaseDC(entry.hwnd(), hdc);
+        SetPixel(entry.dc(), x, y, colorref(r, g, b));
     }
     Ok(())
 }
@@ -298,13 +329,24 @@ pub fn clear(window_id: u64, r: u8, g: u8, b: u8) -> Result<(), String> {
     let entry = state.windows.get(&window_id)
         .ok_or_else(|| "window.clear: invalid handle".to_string())?;
     unsafe {
-        let hdc = GetDC(entry.hwnd());
-        let mut rect = RECT::default();
-        GetClientRect(entry.hwnd(), &mut rect);
+        let rect = RECT { left: 0, top: 0, right: entry.bb_width, bottom: entry.bb_height };
         let brush = CreateSolidBrush(colorref(r, g, b));
-        FillRect(hdc, &rect, brush);
+        FillRect(entry.dc(), &rect, brush);
         DeleteObject(brush);
-        ReleaseDC(entry.hwnd(), hdc);
+    }
+    Ok(())
+}
+
+/// Copies the backbuffer to the window (call after drawing a frame).
+pub fn present(window_id: u64) -> Result<(), String> {
+    let state = lock_win();
+    let entry = state.windows.get(&window_id)
+        .ok_or_else(|| "window.present: invalid handle".to_string())?;
+    unsafe {
+        let screen_dc = GetDC(entry.hwnd());
+        BitBlt(screen_dc, 0, 0, entry.bb_width, entry.bb_height, entry.dc(), 0, 0, SRCCOPY)
+            .map_err(|e| format!("BitBlt: {e:?}"))?;
+        ReleaseDC(entry.hwnd(), screen_dc);
     }
     Ok(())
 }

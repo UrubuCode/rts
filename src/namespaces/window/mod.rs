@@ -73,6 +73,12 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Clears the entire window with a background color.",
         ts_signature: "clear(handle: u64, r: u8, g: u8, b: u8): io.Result<void>",
     },
+    NamespaceMember {
+        name: "present",
+        callee: "window.present",
+        doc: "Copies the backbuffer to the window. Call after drawing a frame.",
+        ts_signature: "present(handle: u64): io.Result<void>",
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
@@ -186,6 +192,14 @@ fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let g = arg_to_u8(args, 4);
             let b = arg_to_u8(args, 5);
             let result = match win32::set_pixel(id, x, y, r, g, b) {
+                Ok(()) => io::result_ok(JsValue::Undefined),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "window.present" if !args.is_empty() => {
+            let id = args[0].to_number() as u64;
+            let result = match win32::present(id) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
