@@ -6,7 +6,7 @@
 //! This enables the GC to track and manage ALL allocations from a single point.
 
 use std::any::{Any, TypeId};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The single, global state controller for the entire RTS runtime

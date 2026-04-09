@@ -2,7 +2,7 @@ use crate::hir::nodes::{HirFunction, HirItem, HirModule};
 
 use super::cfg::Terminator;
 use super::{
-    MirBinOp, MirInstruction, MirUnaryOp, SimdOp, SimdWidth, TypedBasicBlock, TypedMirFunction, TypedMirModule, VReg,
+    MirBinOp, MirInstruction, MirUnaryOp, SimdOp, TypedBasicBlock, TypedMirFunction, TypedMirModule, VReg,
 };
 
 use std::collections::HashMap;
@@ -1348,7 +1348,7 @@ fn inline_function_calls(
                 if inline_candidates.contains(function_name) => {
 
                 // Find the function to inline
-                if let Some(target_function) = all_functions.iter().find(|f| &f.name == function_name) {
+                if let Some(_target_function) = all_functions.iter().find(|f| &f.name == function_name) {
                     // Mark as inlined
                     result.push(MirInstruction::InlineCandidate(function_name.clone()));
 

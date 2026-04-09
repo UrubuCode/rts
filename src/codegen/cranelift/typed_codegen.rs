@@ -691,7 +691,7 @@ pub fn define_typed_function<M: Module>(
                     vreg_kinds.insert(*dst, VRegKind::NativeF64);
                 }
 
-                MirInstruction::SimdOp(dst, op, width, lhs, rhs) => {
+                MirInstruction::SimdOp(dst, op, _width, lhs, rhs) => {
                     let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
                     let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
 
@@ -722,25 +722,25 @@ pub fn define_typed_function<M: Module>(
                     vreg_kinds.insert(*dst, VRegKind::NativeF64);
                 }
 
-                MirInstruction::SimdStore(width, vec, base, offset) => {
+                MirInstruction::SimdStore(_width, vec, base, offset) => {
                     let vec_val = resolve_vreg(&vreg_map, vec, &mut builder);
                     let base_val = resolve_vreg(&vreg_map, base, &mut builder);
                     let addr = builder.ins().iadd_imm(base_val, *offset as i64);
                     builder.ins().store(MemFlags::new(), vec_val, addr, 0);
                 }
 
-                MirInstruction::UnrollHint(factor) => {
+                MirInstruction::UnrollHint(_factor) => {
                     // Add comment about unrolling for debugging
                     // In a full implementation, this would guide the instruction scheduler
                     // For now, we just acknowledge the hint
                 }
 
-                MirInstruction::LoopBegin(loop_id) => {
+                MirInstruction::LoopBegin(_loop_id) => {
                     // Mark beginning of optimized loop region
                     // Could be used for register allocation hints or branch prediction
                 }
 
-                MirInstruction::LoopEnd(loop_id) => {
+                MirInstruction::LoopEnd(_loop_id) => {
                     // Mark end of optimized loop region
                 }
 
@@ -791,18 +791,18 @@ pub fn define_typed_function<M: Module>(
                     vreg_kinds.insert(*dst, VRegKind::NativeI32);
                 }
 
-                MirInstruction::HoistInvariant(vreg, loop_id) => {
+                MirInstruction::HoistInvariant(_vreg, _loop_id) => {
                     // Invariant hoisting hint - in a real implementation, this would
                     // inform the register allocator to keep this value in a register
                     // across loop iterations
                 }
 
-                MirInstruction::InlineCandidate(function_name) => {
+                MirInstruction::InlineCandidate(_function_name) => {
                     // Mark that the following code was inlined from function_name
                     // This could be used for debugging or profiling information
                 }
 
-                MirInstruction::InlineCall(dst, function_name, args) => {
+                MirInstruction::InlineCall(dst, _function_name, _args) => {
                     // This would contain the actual inlined function body
                     // For now, just emit a placeholder
                     let result = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);

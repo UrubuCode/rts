@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::namespaces::lang::JsValue;
 use crate::namespaces::{arg_to_string, arg_to_u64, arg_to_usize, DispatchOutcome};
 
-use super::common::{lock_net_state, with_net_state_mut, with_net_state, result_err, result_ok};
+use super::common::{lock_net_state, with_net_state_mut, result_err, result_ok};
 
 // TcpListener functions
 pub fn tcp_listen(args: &[JsValue]) -> DispatchOutcome {

@@ -10,7 +10,7 @@
 
 pub mod central;
 
-pub use central::{central, CentralState, AllocationInfo};
+pub use central::central;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::mpsc;
@@ -22,11 +22,6 @@ use std::time::Duration;
 // Legacy compatibility layer - will be removed after migration
 // ---------------------------------------------------------------------------
 
-/// Legacy namespace state access - DEPRECATED, use central().namespace_state() instead
-#[deprecated(note = "Use central().namespace_state() instead")]
-pub fn namespace_state<T: Send + Sync + 'static + Default>(namespace: &'static str) -> Arc<std::sync::Mutex<T>> {
-    central().namespace_state::<T>(namespace)
-}
 
 // ---------------------------------------------------------------------------
 // Globals — key/value string storage via central state
