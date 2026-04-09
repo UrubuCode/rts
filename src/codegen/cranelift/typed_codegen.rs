@@ -2,9 +2,16 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
 use anyhow::{Context, Result};
-use cranelift_codegen::ir::{AbiParam, InstBuilder, types, Value};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlags, types, Value};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
+
+/// Tracks whether a VReg holds a native f64 (bitcast to i64) or an opaque handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VRegKind {
+    Handle,     // i64 handle to ValueStore
+    NativeF64,  // raw f64 bits stored as i64
+}
 
 use crate::mir::{MirBinOp, MirInstruction, MirUnaryOp, TypedMirFunction, VReg};
 
@@ -103,7 +110,9 @@ pub fn define_typed_function<M: Module>(
 
         let entry_params = builder.block_params(entry_block).to_vec();
         let mut vreg_map = BTreeMap::<VReg, Value>::new();
+        let mut vreg_kinds = BTreeMap::<VReg, VRegKind>::new();
         let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+        let mut default_return_is_native = false;
         let mut terminated = false;
 
         let instructions: Vec<_> = function
@@ -120,14 +129,11 @@ pub fn define_typed_function<M: Module>(
             match instruction {
                 MirInstruction::ConstNumber(dst, val) => {
                     let bits = i64::from_ne_bytes(val.to_ne_bytes());
-                    let bits_val = builder.ins().iconst(types::I64, bits);
-                    let sig = box_number_signature(module);
-                    let box_fn = ensure_import(module, func_declarations, RTS_BOX_NUMBER, &sig)?;
-                    let local = module.declare_func_in_func(box_fn, builder.func);
-                    let call = builder.ins().call(local, &[bits_val]);
-                    let result = builder.inst_results(call)[0];
+                    let result = builder.ins().iconst(types::I64, bits);
                     vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::NativeF64);
                     default_return = result;
+                    default_return_is_native = true;
                 }
 
                 MirInstruction::ConstString(dst, s) => {
@@ -144,6 +150,7 @@ pub fn define_typed_function<M: Module>(
                     )?;
                     vreg_map.insert(*dst, result);
                     default_return = result;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::ConstBool(dst, b) => {
@@ -157,6 +164,7 @@ pub fn define_typed_function<M: Module>(
                     )?;
                     vreg_map.insert(*dst, result);
                     default_return = result;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::ConstNull(dst) => {
@@ -169,6 +177,7 @@ pub fn define_typed_function<M: Module>(
                     )?;
                     vreg_map.insert(*dst, result);
                     default_return = result;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::ConstUndef(dst) => {
@@ -187,25 +196,67 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::BinOp(dst, op, lhs, rhs) => {
-                    let op_tag = binop_to_tag(op);
-                    let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                    let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
-                    let op_val = builder.ins().iconst(types::I64, op_tag);
-                    let sig = binop_signature(module);
-                    let binop_fn =
-                        ensure_import(module, func_declarations, RTS_BINOP, &sig)?;
-                    let local = module.declare_func_in_func(binop_fn, builder.func);
-                    let call = builder.ins().call(local, &[op_val, lhs_val, rhs_val]);
-                    let result = builder.inst_results(call)[0];
-                    vreg_map.insert(*dst, result);
-                    default_return = result;
+                    let lhs_kind = vreg_kinds.get(lhs).copied().unwrap_or(VRegKind::Handle);
+                    let rhs_kind = vreg_kinds.get(rhs).copied().unwrap_or(VRegKind::Handle);
+                    let is_arith = matches!(op, MirBinOp::Add | MirBinOp::Sub | MirBinOp::Mul | MirBinOp::Div | MirBinOp::Mod);
+
+                    if lhs_kind == VRegKind::NativeF64 && rhs_kind == VRegKind::NativeF64 && is_arith {
+                        // Native f64 arithmetic path
+                        let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
+                        let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
+                        let lhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), lhs_val);
+                        let rhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), rhs_val);
+                        let result_f64 = match op {
+                            MirBinOp::Add => builder.ins().fadd(lhs_f64, rhs_f64),
+                            MirBinOp::Sub => builder.ins().fsub(lhs_f64, rhs_f64),
+                            MirBinOp::Mul => builder.ins().fmul(lhs_f64, rhs_f64),
+                            MirBinOp::Div => builder.ins().fdiv(lhs_f64, rhs_f64),
+                            MirBinOp::Mod => {
+                                // f64 mod: a - floor(a/b) * b
+                                let div = builder.ins().fdiv(lhs_f64, rhs_f64);
+                                let floored = builder.ins().floor(div);
+                                let product = builder.ins().fmul(floored, rhs_f64);
+                                builder.ins().fsub(lhs_f64, product)
+                            }
+                            _ => unreachable!(),
+                        };
+                        let result = builder.ins().bitcast(types::I64, MemFlags::new(), result_f64);
+                        vreg_map.insert(*dst, result);
+                        vreg_kinds.insert(*dst, VRegKind::NativeF64);
+                        default_return = result;
+                        default_return_is_native = true;
+                    } else {
+                        // Fallback: box any native f64 operands, then call __rts_binop
+                        let lhs_val = ensure_handle(&vreg_map, &vreg_kinds, lhs, module, func_declarations, &mut builder)?;
+                        let rhs_val = ensure_handle(&vreg_map, &vreg_kinds, rhs, module, func_declarations, &mut builder)?;
+                        let op_tag = binop_to_tag(op);
+                        let op_val = builder.ins().iconst(types::I64, op_tag);
+                        let sig = binop_signature(module);
+                        let binop_fn =
+                            ensure_import(module, func_declarations, RTS_BINOP, &sig)?;
+                        let local = module.declare_func_in_func(binop_fn, builder.func);
+                        let call = builder.ins().call(local, &[op_val, lhs_val, rhs_val]);
+                        let result = builder.inst_results(call)[0];
+                        vreg_map.insert(*dst, result);
+                        vreg_kinds.insert(*dst, VRegKind::Handle);
+                        default_return = result;
+                        default_return_is_native = false;
+                    }
                 }
 
                 MirInstruction::UnaryOp(dst, op, src) => {
+                    let src_kind = vreg_kinds.get(src).copied().unwrap_or(VRegKind::Handle);
                     let src_val = resolve_vreg(&vreg_map, src, &mut builder);
-                    let result = match op {
+                    let (result, result_kind) = match op {
+                        MirUnaryOp::Negate if src_kind == VRegKind::NativeF64 => {
+                            // Native fneg
+                            let src_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), src_val);
+                            let neg = builder.ins().fneg(src_f64);
+                            let r = builder.ins().bitcast(types::I64, MemFlags::new(), neg);
+                            (r, VRegKind::NativeF64)
+                        }
                         MirUnaryOp::Negate => {
-                            // -x == 0 - x
+                            // Fallback: -x == 0 - x via runtime
                             let zero_bits =
                                 i64::from_ne_bytes(0.0f64.to_ne_bytes());
                             let zero_val = builder.ins().iconst(types::I64, zero_bits);
@@ -233,10 +284,15 @@ pub fn define_typed_function<M: Module>(
                                 builder
                                     .ins()
                                     .call(local, &[op_val, zero_handle, src_val]);
-                            builder.inst_results(call)[0]
+                            (builder.inst_results(call)[0], VRegKind::Handle)
                         }
                         MirUnaryOp::Not => {
-                            // !x: compare x === false via Eq(x, false_handle)
+                            // !x: box native f64 first if needed
+                            let handle_val = if src_kind == VRegKind::NativeF64 {
+                                box_native_f64(module, func_declarations, &mut builder, src_val)?
+                            } else {
+                                src_val
+                            };
                             let false_handle = emit_eval_expr(
                                 module,
                                 func_declarations,
@@ -253,16 +309,18 @@ pub fn define_typed_function<M: Module>(
                                 &sig,
                             )?;
                             let local = module.declare_func_in_func(binop_fn, builder.func);
-                            let call = builder.ins().call(local, &[op_val, src_val, false_handle]);
-                            builder.inst_results(call)[0]
+                            let call = builder.ins().call(local, &[op_val, handle_val, false_handle]);
+                            (builder.inst_results(call)[0], VRegKind::Handle)
                         }
                         MirUnaryOp::Positive => {
                             // +x is identity for numbers
-                            src_val
+                            (src_val, src_kind)
                         }
                     };
                     vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, result_kind);
                     default_return = result;
+                    default_return_is_native = result_kind == VRegKind::NativeF64;
                 }
 
                 MirInstruction::Call(dst, callee, args) => {
@@ -273,7 +331,8 @@ pub fn define_typed_function<M: Module>(
                         call_args
                             .push(builder.ins().iconst(types::I64, args.len() as i64));
                         for arg in args.iter().take(ABI_ARG_SLOTS) {
-                            call_args.push(resolve_vreg(&vreg_map, arg, &mut builder));
+                            let val = ensure_handle(&vreg_map, &vreg_kinds, arg, module, func_declarations, &mut builder)?;
+                            call_args.push(val);
                         }
                         while call_args.len() < ABI_PARAM_COUNT {
                             call_args.push(
@@ -308,8 +367,8 @@ pub fn define_typed_function<M: Module>(
                         dispatch_args
                             .push(builder.ins().iconst(types::I64, args.len() as i64));
                         for arg in args.iter().take(ABI_ARG_SLOTS) {
-                            dispatch_args
-                                .push(resolve_vreg(&vreg_map, arg, &mut builder));
+                            let val = ensure_handle(&vreg_map, &vreg_kinds, arg, module, func_declarations, &mut builder)?;
+                            dispatch_args.push(val);
                         }
                         while dispatch_args.len() < 3 + ABI_ARG_SLOTS {
                             dispatch_args.push(
@@ -323,11 +382,13 @@ pub fn define_typed_function<M: Module>(
                         builder.inst_results(call)[0]
                     };
                     vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
                     default_return = result;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::Bind(name, src, mutable) => {
-                    let value_handle = resolve_vreg(&vreg_map, src, &mut builder);
+                    let value_handle = ensure_handle(&vreg_map, &vreg_kinds, src, module, func_declarations, &mut builder)?;
                     let sig = bind_signature(module);
                     let bind_fn =
                         ensure_import(module, func_declarations, RTS_BIND, &sig)?;
@@ -349,6 +410,7 @@ pub fn define_typed_function<M: Module>(
                     );
                     let result = builder.inst_results(call)[0];
                     default_return = result;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::LoadBinding(dst, name) => {
@@ -367,11 +429,18 @@ pub fn define_typed_function<M: Module>(
                     let call = builder.ins().call(local, &[name_ptr, name_len]);
                     let result = builder.inst_results(call)[0];
                     vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
                     default_return = result;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::Return(Some(vreg)) => {
-                    let value = resolve_vreg(&vreg_map, vreg, &mut builder);
+                    let raw = resolve_vreg(&vreg_map, vreg, &mut builder);
+                    let value = if vreg_kinds.get(vreg) == Some(&VRegKind::NativeF64) {
+                        box_native_f64(module, func_declarations, &mut builder, raw)?
+                    } else {
+                        raw
+                    };
                     builder.ins().return_(&[value]);
                     terminated = true;
                 }
@@ -397,12 +466,18 @@ pub fn define_typed_function<M: Module>(
                     )?;
                     vreg_map.insert(*dst, result);
                     default_return = result;
+                    default_return_is_native = false;
                 }
             }
         }
 
         if !terminated {
-            builder.ins().return_(&[default_return]);
+            let ret_val = if default_return_is_native {
+                box_native_f64(module, func_declarations, &mut builder, default_return)?
+            } else {
+                default_return
+            };
+            builder.ins().return_(&[ret_val]);
         }
         builder.finalize();
     }
@@ -506,6 +581,35 @@ fn emit_eval_stmt<M: Module>(
     let len = builder.ins().iconst(types::I64, text.len() as i64);
     let local = module.declare_func_in_func(eval_fn, builder.func);
     let call = builder.ins().call(local, &[ptr, len]);
+    Ok(builder.inst_results(call)[0])
+}
+
+fn ensure_handle<M: Module>(
+    vreg_map: &BTreeMap<VReg, Value>,
+    vreg_kinds: &BTreeMap<VReg, VRegKind>,
+    vreg: &VReg,
+    module: &mut M,
+    func_declarations: &mut BTreeMap<String, FuncId>,
+    builder: &mut FunctionBuilder,
+) -> Result<Value> {
+    let val = resolve_vreg(vreg_map, vreg, builder);
+    if vreg_kinds.get(vreg) == Some(&VRegKind::NativeF64) {
+        box_native_f64(module, func_declarations, builder, val)
+    } else {
+        Ok(val)
+    }
+}
+
+fn box_native_f64<M: Module>(
+    module: &mut M,
+    func_declarations: &mut BTreeMap<String, FuncId>,
+    builder: &mut FunctionBuilder,
+    bits: Value,
+) -> Result<Value> {
+    let sig = box_number_signature(module);
+    let box_fn = ensure_import(module, func_declarations, RTS_BOX_NUMBER, &sig)?;
+    let local = module.declare_func_in_func(box_fn, builder.func);
+    let call = builder.ins().call(local, &[bits]);
     Ok(builder.inst_results(call)[0])
 }
 
