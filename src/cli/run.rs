@@ -14,7 +14,7 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         .with_context(|| format!("failed to load module graph from {}", input.display()))?;
 
     let modules = graph.modules().collect::<Vec<_>>();
-    let registry = crate::build_registry_for_graph(&graph)
+    let registry = crate::pipeline::build_registry_for_graph(&graph)
         .with_context(|| format!("type check failed for graph rooted at {}", input.display()))?;
 
     let resolver = crate::type_system::resolver::TypeResolver::from_registry(&registry);
