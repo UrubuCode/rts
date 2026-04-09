@@ -102,68 +102,6 @@ declare module "rts" {
   }
 
   /**
-   * TCP/UDP networking primitives backed by std::net.
-   */
-  export namespace net {
-    /**
-     * Creates a TCP listener bound to the given host and port.
-     */
-    export function listen(host: str, port: u16): io.Result<u64>;
-    /**
-     * Accepts the next incoming TCP connection on a listener. Blocks until a client connects.
-     */
-    export function accept(listener: u64): io.Result<u64>;
-    /**
-     * Opens a TCP connection to the given host and port.
-     */
-    export function connect(host: str, port: u16): io.Result<u64>;
-    /**
-     * Reads up to maxBytes from a TCP stream. Returns the data as a UTF-8 string.
-     */
-    export function read(stream: u64, maxBytes?: usize): io.Result<str>;
-    /**
-     * Writes data to a TCP stream. Returns the number of bytes written.
-     */
-    export function write(stream: u64, data: str): io.Result<usize>;
-    /**
-     * Closes a TCP listener, stream, or UDP socket handle.
-     */
-    export function close(handle: u64): void;
-    /**
-     * Sets the read/write timeout in milliseconds for a TCP stream. Pass 0 to disable.
-     */
-    export function set_timeout(stream: u64, millis: u64): void;
-    /**
-     * Returns the local address of a listener, stream, or UDP socket as "host:port".
-     */
-    export function local_addr(handle: u64): io.Result<str>;
-    /**
-     * Returns the remote address of a TCP stream as "host:port".
-     */
-    export function peer_addr(stream: u64): io.Result<str>;
-    /**
-     * Creates a UDP socket bound to the given host and port.
-     */
-    export function udp_bind(host: str, port: u16): io.Result<u64>;
-    /**
-     * Sends data to a specific address via UDP. Returns bytes sent.
-     */
-    export function udp_send_to(socket: u64, data: str, host: str, port: u16): io.Result<usize>;
-    /**
-     * Receives data from UDP socket. Returns "data\0sender_addr" (null-separated).
-     */
-    export function udp_recv_from(socket: u64, maxBytes?: usize): io.Result<str>;
-    /**
-     * Associates the UDP socket with a remote address for use with udp_send.
-     */
-    export function udp_connect(socket: u64, host: str, port: u16): io.Result<void>;
-    /**
-     * Sends data on a connected UDP socket. Returns bytes sent.
-     */
-    export function udp_send(socket: u64, data: str): io.Result<usize>;
-  }
-
-  /**
    * Process utilities such as env, cwd, pid and time.
    */
   export namespace process {
@@ -347,40 +285,6 @@ declare module "rts" {
      * Spawns async text file append task.
      */
     export function append_text_file(path: str, content: str): promise.Handle;
-  }
-
-  /**
-   * Native window management (Win32 on Windows).
-   */
-  export namespace window {
-    /**
-     * Creates a native window with the given title, width, and height. Returns a handle.
-     */
-    export function create(title: str, width: u32, height: u32): io.Result<u64>;
-    /**
-     * Shows a window.
-     */
-    export function show(handle: u64): io.Result<void>;
-    /**
-     * Hides a window.
-     */
-    export function hide(handle: u64): io.Result<void>;
-    /**
-     * Closes and destroys a window.
-     */
-    export function close(handle: u64): void;
-    /**
-     * Changes the window title.
-     */
-    export function set_title(handle: u64, title: str): io.Result<void>;
-    /**
-     * Resizes a window.
-     */
-    export function set_size(handle: u64, width: u32, height: u32): io.Result<void>;
-    /**
-     * Polls the next window event. Returns event string or "none".
-     */
-    export function poll_event(): str;
   }
 
 }

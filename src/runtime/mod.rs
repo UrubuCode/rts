@@ -65,7 +65,6 @@ const RTS_EXPORTS: &[&str] = &[
     "buffer",
     "promise",
     "task",
-    "window",
 ];
 
 const COMPILER_DEPENDENCIES: &[&str] = &[

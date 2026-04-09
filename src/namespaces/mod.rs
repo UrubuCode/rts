@@ -14,7 +14,6 @@ pub mod io;
 pub(crate) mod lang;
 pub mod net;
 pub mod process;
-pub mod window;
 pub mod promise;
 pub(crate) mod state;
 pub mod task;
@@ -45,7 +44,6 @@ const SPECS: &[NamespaceSpec] = &[
     buffer::SPEC,
     promise::SPEC,
     task::SPEC,
-    window::SPEC,
 ];
 
 #[derive(Debug, Clone)]
@@ -213,7 +211,6 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
         .or_else(|| buffer::dispatch(callee, args))
         .or_else(|| promise::dispatch(callee, args))
         .or_else(|| task::dispatch(callee, args))
-        .or_else(|| window::dispatch(callee, args))
 }
 
 pub fn default_typescript_output_path() -> PathBuf {

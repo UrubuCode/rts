@@ -1,106 +1,254 @@
-use std::io::{Read, Write as IoWrite};
+use std::io::{Read, Write};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::time::Duration;
 
-use super::{alloc_handle, lock_net, NetHandle};
+use crate::namespaces::lang::JsValue;
+use crate::namespaces::{arg_to_string, arg_to_u64, arg_to_usize, DispatchOutcome};
 
-pub fn listen(host: &str, port: u16) -> Result<u64, String> {
-    let addr = format!("{host}:{port}");
-    let listener =
-        std::net::TcpListener::bind(&addr).map_err(|e| format!("net.listen('{addr}'): {e}"))?;
-    Ok(alloc_handle(NetHandle::Listener(listener)))
+use super::common::{lock_net_state, result_err, result_ok};
+
+// TcpListener functions
+pub fn tcp_listen(args: &[JsValue]) -> DispatchOutcome {
+    let addr_str = arg_to_string(args, 0);
+
+    match TcpListener::bind(&addr_str) {
+        Ok(listener) => {
+            let handle = lock_net_state().insert_tcp_listener(listener);
+            DispatchOutcome::Value(result_ok(JsValue::Number(handle as f64)))
+        }
+        Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+    }
 }
 
-pub fn accept(listener_id: u64) -> Result<u64, String> {
-    let listener = {
-        let mut state = lock_net();
-        match state.handles.remove(&listener_id) {
-            Some(NetHandle::Listener(l)) => l,
-            Some(other) => {
-                state.handles.insert(listener_id, other);
-                return Err("net.accept: handle is not a listener".to_string());
+pub fn tcp_accept(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let mut state = lock_net_state();
+
+    if let Some(listener) = state.tcp_listeners.get(&handle) {
+        match listener.accept() {
+            Ok((stream, addr)) => {
+                let stream_handle = state.insert_tcp_stream(stream);
+                let connection = JsValue::Object([
+                    ("stream".to_string(), JsValue::Number(stream_handle as f64)),
+                    ("peer_addr".to_string(), JsValue::String(addr.to_string())),
+                ].into_iter().collect());
+                DispatchOutcome::Value(result_ok(connection))
             }
-            None => return Err("net.accept: invalid listener handle".to_string()),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
         }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid listener handle".to_string()))
+    }
+}
+
+pub fn tcp_local_addr(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let state = lock_net_state();
+
+    if let Some(listener) = state.tcp_listeners.get(&handle) {
+        match listener.local_addr() {
+            Ok(addr) => DispatchOutcome::Value(result_ok(JsValue::String(addr.to_string()))),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid listener handle".to_string()))
+    }
+}
+
+// TcpStream functions
+pub fn tcp_connect(args: &[JsValue]) -> DispatchOutcome {
+    let addr_str = arg_to_string(args, 0);
+
+    match TcpStream::connect(&addr_str) {
+        Ok(stream) => {
+            let handle = lock_net_state().insert_tcp_stream(stream);
+            DispatchOutcome::Value(result_ok(JsValue::Number(handle as f64)))
+        }
+        Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+    }
+}
+
+pub fn tcp_read(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let max_bytes = arg_to_usize(args, 1).max(1).min(65536);
+    let mut state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        let mut buffer = vec![0; max_bytes];
+        match stream.read(&mut buffer) {
+            Ok(n) => {
+                buffer.truncate(n);
+                let data = String::from_utf8_lossy(&buffer).to_string();
+                DispatchOutcome::Value(result_ok(JsValue::String(data)))
+            }
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
+    }
+}
+
+pub fn tcp_write(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let data = arg_to_string(args, 1);
+    let mut state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        match stream.write(data.as_bytes()) {
+            Ok(n) => DispatchOutcome::Value(result_ok(JsValue::Number(n as f64))),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
+    }
+}
+
+pub fn tcp_flush(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let mut state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        match stream.flush() {
+            Ok(()) => DispatchOutcome::Value(result_ok(JsValue::Undefined)),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
+    }
+}
+
+pub fn tcp_shutdown(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let how_str = arg_to_string(args, 1);
+    let mut state = lock_net_state();
+
+    let shutdown_how = match how_str.as_str() {
+        "Read" => Shutdown::Read,
+        "Write" => Shutdown::Write,
+        "Both" => Shutdown::Both,
+        _ => return DispatchOutcome::Value(result_err("Invalid shutdown method".to_string())),
     };
 
-    let result = listener.accept();
-
-    {
-        let mut state = lock_net();
-        state.handles.insert(listener_id, NetHandle::Listener(listener));
-    }
-
-    match result {
-        Ok((stream, _addr)) => Ok(alloc_handle(NetHandle::Stream(stream))),
-        Err(e) => Err(format!("net.accept: {e}")),
-    }
-}
-
-pub fn connect(host: &str, port: u16) -> Result<u64, String> {
-    let addr = format!("{host}:{port}");
-    let stream =
-        std::net::TcpStream::connect(&addr).map_err(|e| format!("net.connect('{addr}'): {e}"))?;
-    Ok(alloc_handle(NetHandle::Stream(stream)))
-}
-
-pub fn read(stream_id: u64, max_bytes: usize) -> Result<String, String> {
-    let mut state = lock_net();
-    let handle = state
-        .handles
-        .get_mut(&stream_id)
-        .ok_or_else(|| "net.read: invalid stream handle".to_string())?;
-
-    match handle {
-        NetHandle::Stream(stream) => {
-            let mut buf = vec![0u8; max_bytes];
-            let n = stream.read(&mut buf).map_err(|e| format!("net.read: {e}"))?;
-            Ok(String::from_utf8_lossy(&buf[..n]).to_string())
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        match stream.shutdown(shutdown_how) {
+            Ok(()) => DispatchOutcome::Value(result_ok(JsValue::Undefined)),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
         }
-        _ => Err("net.read: handle is not a stream".to_string()),
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
     }
 }
 
-pub fn write(stream_id: u64, data: &str) -> Result<usize, String> {
-    let mut state = lock_net();
-    let handle = state
-        .handles
-        .get_mut(&stream_id)
-        .ok_or_else(|| "net.write: invalid stream handle".to_string())?;
+pub fn tcp_peer_addr(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let state = lock_net_state();
 
-    match handle {
-        NetHandle::Stream(stream) => {
-            let n = stream
-                .write(data.as_bytes())
-                .map_err(|e| format!("net.write: {e}"))?;
-            stream
-                .flush()
-                .map_err(|e| format!("net.write flush: {e}"))?;
-            Ok(n)
+    if let Some(stream) = state.tcp_streams.get(&handle) {
+        match stream.peer_addr() {
+            Ok(addr) => DispatchOutcome::Value(result_ok(JsValue::String(addr.to_string()))),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
         }
-        _ => Err("net.write: handle is not a stream".to_string()),
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
     }
 }
 
-pub fn set_timeout(stream_id: u64, millis: u64) {
-    let state = lock_net();
-    if let Some(NetHandle::Stream(stream)) = state.handles.get(&stream_id) {
-        let timeout = if millis == 0 {
+pub fn tcp_set_read_timeout(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let timeout_ms = arg_to_u64(args, 1);
+    let mut state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        let timeout = if timeout_ms == 0 {
             None
         } else {
-            Some(Duration::from_millis(millis))
+            Some(Duration::from_millis(timeout_ms))
         };
-        let _ = stream.set_read_timeout(timeout);
-        let _ = stream.set_write_timeout(timeout);
+
+        match stream.set_read_timeout(timeout) {
+            Ok(()) => DispatchOutcome::Value(result_ok(JsValue::Undefined)),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
     }
 }
 
-pub fn peer_addr(stream_id: u64) -> Result<String, String> {
-    let state = lock_net();
-    match state.handles.get(&stream_id) {
-        Some(NetHandle::Stream(s)) => s
-            .peer_addr()
-            .map(|a| a.to_string())
-            .map_err(|e| format!("net.peer_addr: {e}")),
-        _ => Err("net.peer_addr: handle is not a stream".to_string()),
+pub fn tcp_set_write_timeout(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let timeout_ms = arg_to_u64(args, 1);
+    let mut state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        let timeout = if timeout_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(timeout_ms))
+        };
+
+        match stream.set_write_timeout(timeout) {
+            Ok(()) => DispatchOutcome::Value(result_ok(JsValue::Undefined)),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
+    }
+}
+
+pub fn tcp_set_nodelay(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let nodelay = matches!(args.get(1), Some(JsValue::Bool(true)));
+    let mut state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        match stream.set_nodelay(nodelay) {
+            Ok(()) => DispatchOutcome::Value(result_ok(JsValue::Undefined)),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
+    }
+}
+
+pub fn tcp_nodelay(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get(&handle) {
+        match stream.nodelay() {
+            Ok(nodelay) => DispatchOutcome::Value(result_ok(JsValue::Bool(nodelay))),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
+    }
+}
+
+pub fn tcp_set_ttl(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let ttl = arg_to_usize(args, 1) as u32;
+    let mut state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get_mut(&handle) {
+        match stream.set_ttl(ttl) {
+            Ok(()) => DispatchOutcome::Value(result_ok(JsValue::Undefined)),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
+    }
+}
+
+pub fn tcp_ttl(args: &[JsValue]) -> DispatchOutcome {
+    let handle = arg_to_u64(args, 0);
+    let state = lock_net_state();
+
+    if let Some(stream) = state.tcp_streams.get(&handle) {
+        match stream.ttl() {
+            Ok(ttl) => DispatchOutcome::Value(result_ok(JsValue::Number(ttl as f64))),
+            Err(e) => DispatchOutcome::Value(result_err(e.to_string())),
+        }
+    } else {
+        DispatchOutcome::Value(result_err("Invalid stream handle".to_string()))
     }
 }
