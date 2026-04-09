@@ -12,6 +12,7 @@ pub mod fs;
 pub mod global;
 pub mod io;
 pub(crate) mod lang;
+pub mod net;
 pub mod process;
 pub mod promise;
 pub(crate) mod state;
@@ -36,6 +37,7 @@ pub struct NamespaceSpec {
 const SPECS: &[NamespaceSpec] = &[
     io::SPEC,
     fs::SPEC,
+    net::SPEC,
     process::SPEC,
     crypto::SPEC,
     global::SPEC,
@@ -202,6 +204,7 @@ pub fn namespace_object(name: &str, usage: &NamespaceUsage) -> Option<JsValue> {
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     io::dispatch(callee, args)
         .or_else(|| fs::dispatch(callee, args))
+        .or_else(|| net::dispatch(callee, args))
         .or_else(|| process::dispatch(callee, args))
         .or_else(|| crypto::dispatch(callee, args))
         .or_else(|| global::dispatch(callee, args))

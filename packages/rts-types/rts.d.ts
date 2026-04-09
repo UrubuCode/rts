@@ -102,6 +102,48 @@ declare module "rts" {
   }
 
   /**
+   * TCP networking primitives backed by std::net.
+   */
+  export namespace net {
+    /**
+     * Creates a TCP listener bound to the given host and port.
+     */
+    export function listen(host: str, port: u16): io.Result<u64>;
+    /**
+     * Accepts the next incoming TCP connection on a listener. Blocks until a client connects.
+     */
+    export function accept(listener: u64): io.Result<u64>;
+    /**
+     * Opens a TCP connection to the given host and port.
+     */
+    export function connect(host: str, port: u16): io.Result<u64>;
+    /**
+     * Reads up to maxBytes from a TCP stream. Returns the data as a UTF-8 string.
+     */
+    export function read(stream: u64, maxBytes?: usize): io.Result<str>;
+    /**
+     * Writes data to a TCP stream. Returns the number of bytes written.
+     */
+    export function write(stream: u64, data: str): io.Result<usize>;
+    /**
+     * Closes a TCP listener or stream handle.
+     */
+    export function close(handle: u64): void;
+    /**
+     * Sets the read/write timeout in milliseconds for a TCP stream. Pass 0 to disable.
+     */
+    export function set_timeout(stream: u64, millis: u64): void;
+    /**
+     * Returns the local address of a listener or stream as "host:port".
+     */
+    export function local_addr(handle: u64): io.Result<str>;
+    /**
+     * Returns the remote address of a TCP stream as "host:port".
+     */
+    export function peer_addr(stream: u64): io.Result<str>;
+  }
+
+  /**
    * Process utilities such as env, cwd, pid and time.
    */
   export namespace process {

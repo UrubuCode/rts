@@ -58,6 +58,7 @@ const RTS_EXPORTS: &[&str] = &[
     "FileHandle",
     "fs",
     "io",
+    "net",
     "process",
     "crypto",
     "global",
