@@ -498,6 +498,69 @@ pub extern "C" fn __rts_eval_stmt(stmt_ptr: i64, stmt_len: i64) -> i64 {
     push_value(value)
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_read_identifier(name_ptr: i64, name_len: i64) -> i64 {
+    let Some(name) = read_utf8(name_ptr, name_len) else {
+        return UNDEFINED_HANDLE;
+    };
+
+    match read_identifier(&name) {
+        Some(value) => push_value(value),
+        None => UNDEFINED_HANDLE,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_binop(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 {
+    let lhs = read_value(lhs_handle);
+    let rhs = read_value(rhs_handle);
+
+    let result = match op {
+        0 => {
+            // Add
+            if lhs.is_string_like() || rhs.is_string_like() {
+                JsValue::String(format!("{}{}", lhs.to_js_string(), rhs.to_js_string()))
+            } else {
+                JsValue::Number(lhs.to_number() + rhs.to_number())
+            }
+        }
+        1 => JsValue::Number(lhs.to_number() - rhs.to_number()),       // Sub
+        2 => JsValue::Number(lhs.to_number() * rhs.to_number()),       // Mul
+        3 => JsValue::Number(lhs.to_number() / rhs.to_number()),       // Div
+        4 => JsValue::Number(lhs.to_number() % rhs.to_number()),       // Mod
+        5 => JsValue::Bool(lhs.to_number() > rhs.to_number()),         // Gt
+        6 => JsValue::Bool(lhs.to_number() >= rhs.to_number()),        // Gte
+        7 => JsValue::Bool(lhs.to_number() < rhs.to_number()),         // Lt
+        8 => JsValue::Bool(lhs.to_number() <= rhs.to_number()),        // Lte
+        9 => JsValue::Bool(lhs == rhs),                                 // Eq (===)
+        10 => JsValue::Bool(lhs != rhs),                                // Ne (!==)
+        11 => {
+            // LogicAnd
+            if !lhs.truthy() { lhs } else { rhs }
+        }
+        12 => {
+            // LogicOr
+            if lhs.truthy() { lhs } else { rhs }
+        }
+        _ => JsValue::Undefined,
+    };
+
+    push_value(result)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_unbox_number(handle: i64) -> i64 {
+    let value = read_value(handle);
+    let n = value.to_number();
+    i64::from_ne_bytes(n.to_ne_bytes())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_box_number(bits: i64) -> i64 {
+    let n = f64::from_ne_bytes(bits.to_ne_bytes());
+    push_value(JsValue::Number(n))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::namespaces::lang::JsValue;

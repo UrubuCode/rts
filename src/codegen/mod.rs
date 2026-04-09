@@ -18,6 +18,24 @@ pub fn generate_object_with_metadata(
     generate_object_with_metadata_options(mir, metadata, output, true, false)
 }
 
+pub fn generate_typed_object(
+    mir: &crate::mir::TypedMirModule,
+    output: &Path,
+    emit_entrypoint: bool,
+    optimize_for_production: bool,
+) -> Result<ObjectArtifact> {
+    let bytes = cranelift::object_builder::lower_typed_to_native_object(
+        mir,
+        &cranelift::object_builder::ObjectBuildOptions {
+            emit_entrypoint,
+            optimize_for_production,
+        },
+    )
+    .context("failed to lower typed MIR to native object with Cranelift")?;
+
+    object::write_object_file(output, &bytes)
+}
+
 pub fn generate_object_with_metadata_options(
     mir: &MirModule,
     metadata: &MetadataTable,

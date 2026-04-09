@@ -82,11 +82,9 @@ pub fn compile_source_with_options(
     let mut hir = hir::lower::lower(&program, &resolver);
     let _hir_opt = hir::optimize::optimize_with_mode(&mut hir, options.frontend_mode);
 
-    let mut mir = mir::build::build(&hir);
-    let _mono = mir::monomorphize::monomorphize(&mut mir);
-    let _opt = mir::optimize::optimize(&mut mir);
+    let typed_mir = mir::typed_build::typed_build(&hir);
 
-    let metadata = MetadataTable::from_registry(&registry);
+    let _metadata = MetadataTable::from_registry(&registry);
     let deps_dir = pipeline::resolve_deps_dir(output)?;
     let launcher_dir = pipeline::resolve_launcher_cache_dir(output)?;
     pipeline::sync_namespace_artifacts(&launcher_dir)?;
@@ -107,9 +105,8 @@ pub fn compile_source_with_options(
     let ObjectArtifact {
         path: object_file,
         bytes_written: app_object_bytes,
-    } = codegen::generate_object_with_metadata_options(
-        &mir,
-        &metadata,
+    } = codegen::generate_typed_object(
+        &typed_mir,
         &object_path,
         true,
         optimize_for_production,
@@ -147,7 +144,7 @@ pub fn compile_source_with_options(
         link_backend: linked.backend,
         link_format: linked.format,
         discovered_types: registry.len(),
-        lowered_functions: mir.functions.len(),
+        lowered_functions: typed_mir.functions.len(),
         compiled_modules: 1,
         runtime_namespaces,
         runtime_functions,

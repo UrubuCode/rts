@@ -5,3 +5,4 @@ pub mod metadata;
 pub mod object_builder;
 pub(crate) mod parse_utils;
 pub mod type_layout;
+pub mod typed_codegen;

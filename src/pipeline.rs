@@ -121,20 +121,22 @@ pub(crate) fn compile_graph(
         }
 
         let is_entry_module = entry_key.is_some_and(|key| key == module.key);
-        let mut mir = mir::build::build(&lowered);
-        let _mono = mir::monomorphize::monomorphize(&mut mir);
-        let _opt = mir::optimize::optimize(&mut mir);
+        let typed_mir = mir::typed_build::typed_build(&lowered);
 
-        if !is_entry_module {
-            mir.functions
+        let filtered_mir = if !is_entry_module {
+            let mut m = typed_mir;
+            m.functions
                 .retain(|function| function.name != "main" && function.name != "_start");
-        }
+            m
+        } else {
+            typed_mir
+        };
 
-        if mir.functions.is_empty() {
+        if filtered_mir.functions.is_empty() {
             continue;
         }
 
-        lowered_functions += mir.functions.len();
+        lowered_functions += filtered_mir.functions.len();
         let stem = module_object_stem(&app_name, module, input);
         let object_path = deps_dir.join(format!("{stem}.o"));
         let meta_path = deps_dir.join(format!("{stem}.m"));
@@ -155,9 +157,8 @@ pub(crate) fn compile_graph(
             continue;
         }
 
-        let artifact = codegen::generate_object_with_metadata_options(
-            &mir,
-            &metadata,
+        let artifact = codegen::generate_typed_object(
+            &filtered_mir,
             &object_path,
             is_entry_module,
             optimize_for_production,
@@ -407,29 +408,23 @@ pub(crate) fn resolve_launcher_cache_dir(output: &Path) -> Result<PathBuf> {
 fn emit_fallback_main_object(
     deps_dir: &Path,
     app_name: &str,
-    metadata: &MetadataTable,
+    _metadata: &MetadataTable,
     optimize_for_production: bool,
 ) -> Result<ObjectArtifact> {
     let object_path = deps_dir.join(format!("{app_name}_bootstrap_main.o"));
-    let mut fallback_mir = mir::MirModule::default();
-    fallback_mir.functions.push(mir::MirFunction {
-        name: "main".to_string(),
-        blocks: vec![mir::cfg::BasicBlock {
-            label: "entry".to_string(),
-            statements: vec![mir::MirStatement {
-                text: "ret 0".to_string(),
+    let typed_mir = mir::TypedMirModule {
+        functions: vec![mir::TypedMirFunction {
+            name: "main".to_string(),
+            param_count: 0,
+            blocks: vec![mir::TypedBasicBlock {
+                label: "entry".to_string(),
+                instructions: vec![mir::MirInstruction::Return(None)],
+                terminator: mir::cfg::Terminator::Return,
             }],
-            terminator: mir::cfg::Terminator::Return,
+            next_vreg: 0,
         }],
-    });
-
-    codegen::generate_object_with_metadata_options(
-        &fallback_mir,
-        metadata,
-        &object_path,
-        true,
-        optimize_for_production,
-    )
+    };
+    codegen::generate_typed_object(&typed_mir, &object_path, true, optimize_for_production)
 }
 
 fn build_cranelift_namespace_stub_object(

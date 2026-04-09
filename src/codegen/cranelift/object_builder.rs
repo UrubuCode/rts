@@ -182,6 +182,62 @@ pub fn build_namespace_dispatch_object(
         .map_err(|error| anyhow!("failed to emit namespace wrapper object: {error}"))
 }
 
+pub fn lower_typed_to_native_object(
+    mir: &crate::mir::TypedMirModule,
+    options: &ObjectBuildOptions,
+) -> Result<Vec<u8>> {
+    let mut object_module = initialize_object_module(options)?;
+    let mut declarations = BTreeMap::<String, FuncId>::new();
+    let mut data_cache = BTreeMap::<String, DataId>::new();
+
+    let signature = super::typed_codegen::function_signature(&mut object_module);
+
+    for function in &mir.functions {
+        let id = object_module
+            .declare_function(&function.name, Linkage::Export, &signature)
+            .with_context(|| {
+                format!("failed to declare typed AOT function '{}'", function.name)
+            })?;
+        declarations.insert(function.name.clone(), id);
+    }
+
+    let needs_start = options.emit_entrypoint && !declarations.contains_key("_start");
+    if needs_start {
+        let start_id = object_module
+            .declare_function("_start", Linkage::Export, &signature)
+            .context("failed to declare typed AOT synthetic '_start'")?;
+        declarations.insert("_start".to_string(), start_id);
+    }
+
+    for function in &mir.functions {
+        let id = declarations
+            .get(&function.name)
+            .copied()
+            .ok_or_else(|| {
+                anyhow!(
+                    "missing declaration for typed AOT function '{}'",
+                    function.name
+                )
+            })?;
+        super::typed_codegen::define_typed_function(
+            &mut object_module,
+            &mut declarations,
+            &mut data_cache,
+            id,
+            function,
+        )?;
+    }
+
+    if needs_start {
+        define_synthetic_start(&mut object_module, &declarations)?;
+    }
+
+    let object = object_module.finish();
+    object
+        .emit()
+        .map_err(|e| anyhow!("failed to emit typed AOT object: {e}"))
+}
+
 fn initialize_object_module(options: &ObjectBuildOptions) -> Result<ObjectModule> {
     let isa = resolve_target_isa(options)?;
     let builder = ObjectBuilder::new(isa, "rts_aot".to_string(), default_libcall_names())

@@ -23,11 +23,9 @@ pub fn command(source_arg: Option<String>, options: CompileOptions) -> Result<()
     let mut lowered = crate::hir::lower::lower(&program, &resolver);
     let _hir_opt = crate::hir::optimize::optimize_with_mode(&mut lowered, options.frontend_mode);
 
-    let mut mir = crate::mir::build::build(&lowered);
-    let _mono = crate::mir::monomorphize::monomorphize(&mut mir);
-    let _opt = crate::mir::optimize::optimize(&mut mir);
+    let typed_mir = crate::mir::typed_build::typed_build(&lowered);
 
-    let jit_report = crate::codegen::cranelift::jit::execute(&mir, "main")
+    let jit_report = crate::codegen::cranelift::jit::execute_typed(&typed_mir, "main")
         .context("failed to execute inline eval through Cranelift JIT")?;
 
     if jit_report.executed {

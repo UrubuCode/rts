@@ -5,7 +5,7 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{DataId, FuncId, Linkage, Module, default_libcall_names};
 
 use crate::mir::{MirFunction, MirModule};
 
@@ -167,6 +167,22 @@ fn initialize_jit_module() -> Result<JITModule> {
     builder.symbol(
         RTS_BIND_IDENTIFIER_SYMBOL,
         crate::namespaces::abi::__rts_bind_identifier as *const u8,
+    );
+    builder.symbol(
+        "__rts_read_identifier",
+        crate::namespaces::abi::__rts_read_identifier as *const u8,
+    );
+    builder.symbol(
+        "__rts_binop",
+        crate::namespaces::abi::__rts_binop as *const u8,
+    );
+    builder.symbol(
+        "__rts_box_number",
+        crate::namespaces::abi::__rts_box_number as *const u8,
+    );
+    builder.symbol(
+        "__rts_unbox_number",
+        crate::namespaces::abi::__rts_unbox_number as *const u8,
     );
 
     Ok(JITModule::new(builder))
@@ -588,6 +604,84 @@ fn define_stub_function(
         .with_context(|| format!("failed to define synthetic JIT stub '{}'", function_name))?;
     module.clear_context(&mut context);
     Ok(())
+}
+
+pub fn execute_typed(
+    module: &crate::mir::TypedMirModule,
+    entry_function: &str,
+) -> Result<JitReport> {
+    crate::namespaces::abi::reset_thread_state();
+    let mut jit = initialize_jit_module()?;
+    let mut declarations = BTreeMap::<String, FuncId>::new();
+    let mut data_cache = BTreeMap::<String, DataId>::new();
+
+    let signature = super::typed_codegen::function_signature(&mut jit);
+    for function in &module.functions {
+        let id = jit
+            .declare_function(&function.name, Linkage::Export, &signature)
+            .with_context(|| {
+                format!("failed to declare typed JIT function '{}'", function.name)
+            })?;
+        declarations.insert(function.name.clone(), id);
+    }
+
+    for function in &module.functions {
+        let id = declarations
+            .get(&function.name)
+            .copied()
+            .ok_or_else(|| {
+                anyhow!(
+                    "missing declaration for typed JIT function '{}'",
+                    function.name
+                )
+            })?;
+        super::typed_codegen::define_typed_function(
+            &mut jit,
+            &mut declarations,
+            &mut data_cache,
+            id,
+            function,
+        )?;
+    }
+
+    jit.finalize_definitions()
+        .context("failed to finalize typed JIT definitions")?;
+
+    let selected_entry = if declarations.contains_key(entry_function) {
+        Some(entry_function.to_string())
+    } else if entry_function != "main" && declarations.contains_key("main") {
+        Some("main".to_string())
+    } else {
+        None
+    };
+
+    let (entry_name, entry_return_value, executed) = if let Some(entry_name) = selected_entry {
+        let entry_id = declarations
+            .get(&entry_name)
+            .copied()
+            .ok_or_else(|| anyhow!("failed to resolve typed JIT entry '{}'", entry_name))?;
+        let address = jit.get_finalized_function(entry_id);
+        let entry = unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64,
+            >(address)
+        };
+        (entry_name, entry(0, 0, 0, 0, 0, 0, 0), true)
+    } else {
+        (
+            entry_function.to_string(),
+            super::mir_parse::ABI_UNDEFINED_HANDLE,
+            false,
+        )
+    };
+
+    Ok(JitReport {
+        entry_function: entry_name,
+        compiled_functions: declarations.len(),
+        entry_return_value,
+        executed,
+    })
 }
 
 #[cfg(test)]
