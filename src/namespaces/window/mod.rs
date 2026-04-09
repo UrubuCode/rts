@@ -1,5 +1,4 @@
-#[cfg(windows)]
-mod win32;
+mod backend;
 
 use crate::namespaces::lang::JsValue;
 
@@ -44,10 +43,16 @@ const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "set_size(handle: u64, width: u32, height: u32): io.Result<void>",
     },
     NamespaceMember {
+        name: "is_open",
+        callee: "window.is_open",
+        doc: "Returns true if the window is still open.",
+        ts_signature: "is_open(handle: u64): bool",
+    },
+    NamespaceMember {
         name: "poll_event",
         callee: "window.poll_event",
-        doc: "Polls the next window event. Returns event string or \"none\".",
-        ts_signature: "poll_event(): str",
+        doc: "Polls events and updates the window. Returns event string or \"none\".",
+        ts_signature: "poll_event(handle: u64): str",
     },
     NamespaceMember {
         name: "fill_rect",
@@ -58,7 +63,7 @@ const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "draw_text",
         callee: "window.draw_text",
-        doc: "Draws text at position (x,y) with a color.",
+        doc: "Draws text at position (x,y) with a color (bitmap font, no-op until font loaded).",
         ts_signature: "draw_text(handle: u64, text: str, x: i32, y: i32, r: u8, g: u8, b: u8): io.Result<void>",
     },
     NamespaceMember {
@@ -83,59 +88,45 @@ const MEMBERS: &[NamespaceMember] = &[
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "window",
-    doc: "Native window management (Win32 on Windows).",
+    doc: "Native window management with pixel buffer (cross-platform via minifb).",
     members: MEMBERS,
     ts_prelude: &[],
 };
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
-    #[cfg(windows)]
-    return dispatch_win32(callee, args);
-
-    #[cfg(not(windows))]
-    {
-        let _ = (callee, args);
-        None
-    }
-}
-
-#[cfg(windows)]
-fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {
         "window.create" if args.len() >= 3 => {
             let title = arg_to_string(args, 0);
-            let width = arg_to_usize_or_default(args, 1, 800) as i32;
-            let height = arg_to_usize_or_default(args, 2, 600) as i32;
-            let result = match win32::create(&title, width, height) {
+            let width = arg_to_usize_or_default(args, 1, 800);
+            let height = arg_to_usize_or_default(args, 2, 600);
+            let result = match backend::create(&title, width, height) {
                 Ok(id) => io::result_ok(JsValue::Number(id as f64)),
                 Err(e) => io::result_err(&e),
             };
             Some(DispatchOutcome::Value(result))
         }
         "window.show" if !args.is_empty() => {
-            let id = args[0].to_number() as u64;
-            let result = match win32::show(id) {
+            let result = match backend::show(args[0].to_number() as u64) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
             Some(DispatchOutcome::Value(result))
         }
         "window.hide" if !args.is_empty() => {
-            let id = args[0].to_number() as u64;
-            let result = match win32::hide(id) {
+            let result = match backend::hide(args[0].to_number() as u64) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
             Some(DispatchOutcome::Value(result))
         }
         "window.close" if !args.is_empty() => {
-            win32::close(args[0].to_number() as u64);
+            backend::close(args[0].to_number() as u64);
             Some(DispatchOutcome::Value(JsValue::Undefined))
         }
         "window.set_title" if args.len() >= 2 => {
             let id = args[0].to_number() as u64;
             let title = arg_to_string(args, 1);
-            let result = match win32::set_title(id, &title) {
+            let result = match backend::set_title(id, &title) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
@@ -143,16 +134,20 @@ fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
         }
         "window.set_size" if args.len() >= 3 => {
             let id = args[0].to_number() as u64;
-            let width = arg_to_usize_or_default(args, 1, 800) as i32;
-            let height = arg_to_usize_or_default(args, 2, 600) as i32;
-            let result = match win32::set_size(id, width, height) {
+            let w = arg_to_usize_or_default(args, 1, 800);
+            let h = arg_to_usize_or_default(args, 2, 600);
+            let result = match backend::set_size(id, w, h) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
             Some(DispatchOutcome::Value(result))
         }
-        "window.poll_event" => {
-            let event = win32::poll_event();
+        "window.is_open" if !args.is_empty() => {
+            let open = backend::is_open(args[0].to_number() as u64);
+            Some(DispatchOutcome::Value(JsValue::Bool(open)))
+        }
+        "window.poll_event" if !args.is_empty() => {
+            let event = backend::poll_event(args[0].to_number() as u64);
             Some(DispatchOutcome::Value(JsValue::String(event)))
         }
         "window.fill_rect" if args.len() >= 8 => {
@@ -164,7 +159,7 @@ fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let r = arg_to_u8(args, 5);
             let g = arg_to_u8(args, 6);
             let b = arg_to_u8(args, 7);
-            let result = match win32::fill_rect(id, x, y, w, h, r, g, b) {
+            let result = match backend::fill_rect(id, x, y, w, h, r, g, b) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
@@ -178,7 +173,7 @@ fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let r = arg_to_u8(args, 4);
             let g = arg_to_u8(args, 5);
             let b = arg_to_u8(args, 6);
-            let result = match win32::draw_text(id, &text, x, y, r, g, b) {
+            let result = match backend::draw_text(id, &text, x, y, r, g, b) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
@@ -191,15 +186,7 @@ fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let r = arg_to_u8(args, 3);
             let g = arg_to_u8(args, 4);
             let b = arg_to_u8(args, 5);
-            let result = match win32::set_pixel(id, x, y, r, g, b) {
-                Ok(()) => io::result_ok(JsValue::Undefined),
-                Err(e) => io::result_err(&e),
-            };
-            Some(DispatchOutcome::Value(result))
-        }
-        "window.present" if !args.is_empty() => {
-            let id = args[0].to_number() as u64;
-            let result = match win32::present(id) {
+            let result = match backend::set_pixel(id, x, y, r, g, b) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
@@ -210,7 +197,15 @@ fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let r = arg_to_u8(args, 1);
             let g = arg_to_u8(args, 2);
             let b = arg_to_u8(args, 3);
-            let result = match win32::clear(id, r, g, b) {
+            let result = match backend::clear(id, r, g, b) {
+                Ok(()) => io::result_ok(JsValue::Undefined),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "window.present" if !args.is_empty() => {
+            let id = args[0].to_number() as u64;
+            let result = match backend::present(id) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
                 Err(e) => io::result_err(&e),
             };
