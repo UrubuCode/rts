@@ -1,7 +1,8 @@
-use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
+use std::thread;
 
 use crate::namespaces::lang::{JsValue, RuntimeContext, evaluate_expression, evaluate_statement};
+use crate::namespaces::state::central;
 
 use super::DispatchOutcome;
 
@@ -311,15 +312,14 @@ impl ValueStore {
     }
 }
 
-thread_local! {
-    static VALUE_STORE: RefCell<ValueStore> = RefCell::new(ValueStore::default());
+fn value_store_key() -> String {
+    format!("value_store_thread_{:?}", thread::current().id())
 }
 
 fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
-    VALUE_STORE.with(|store| {
-        let mut borrowed = store.borrow_mut();
-        callback(&mut borrowed)
-    })
+    let store_state = central().cache::<ValueStore>(&value_store_key());
+    let mut guard = store_state.lock().unwrap();
+    callback(&mut *guard)
 }
 
 pub fn reset_thread_state() {
