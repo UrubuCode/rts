@@ -69,6 +69,7 @@ pub enum MirType {
 #[derive(Debug, Clone)]
 pub enum MirInstruction {
     ConstNumber(VReg, f64),
+    ConstInt32(VReg, i32),
     ConstString(VReg, String),
     ConstBool(VReg, bool),
     ConstNull(VReg),
@@ -83,6 +84,18 @@ pub enum MirInstruction {
     WriteBind(String, VReg),
     Return(Option<VReg>),
     Import { names: Vec<String>, from: String },
+    /// Jump to a labeled block unconditionally
+    Jump(String),
+    /// Conditional jump based on boolean register
+    JumpIf(VReg, String),
+    /// Jump if register is falsy
+    JumpIfNot(VReg, String),
+    /// Label marker for jump targets
+    Label(String),
+    /// Break from current loop context
+    Break,
+    /// Continue to next iteration of current loop
+    Continue,
     RuntimeEval(VReg, String),
 }
 

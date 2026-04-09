@@ -9,9 +9,9 @@ const MAX_ARGS: usize = 6;
 const UNDEFINED_HANDLE: i64 = 0;
 const HANDLE_SLOT_MASK: u64 = u32::MAX as u64;
 const MAX_HANDLE_GENERATION: u32 = i32::MAX as u32;
-const MAX_OVERLAY_HANDLES: usize = 2_048;
-const TARGET_OVERLAY_BYTES: usize = 4 * 1024 * 1024;
-const MIN_RECLAIM_AGE: u64 = 2;
+const MAX_OVERLAY_HANDLES: usize = 8_192;  // 4x larger for better performance
+const TARGET_OVERLAY_BYTES: usize = 16 * 1024 * 1024;  // 16MB for intensive workloads
+const MIN_RECLAIM_AGE: u64 = 5;  // Wait longer before reclaiming for better temporal locality
 
 #[derive(Debug, Clone)]
 struct BindingEntry {
@@ -37,6 +37,8 @@ struct ValueStore {
     bindings: BTreeMap<String, BindingEntry>,
     epoch: u64,
     live_bytes: usize,
+    intensive_mode: bool,  // Skip GC during intensive computation
+    last_allocation_time: u64,  // Track allocation frequency
 }
 
 impl ValueStore {
@@ -55,6 +57,17 @@ impl ValueStore {
         }
 
         let epoch = self.bump_epoch();
+
+        // Detect intensive computation mode based on allocation frequency
+        let allocation_gap = epoch.saturating_sub(self.last_allocation_time);
+        if allocation_gap <= 100 && self.overlay.len() > 50 {
+            // Rapid allocations with significant pressure -> enter intensive mode
+            self.intensive_mode = true;
+        } else if allocation_gap > 1000 {
+            // Long gap between allocations -> exit intensive mode
+            self.intensive_mode = false;
+        }
+
         let slot_index = if let Some(index) = self.free_indices.pop() {
             index
         } else {
@@ -226,13 +239,36 @@ impl ValueStore {
     }
 
     fn reclaim_if_needed(&mut self) {
-        if self.overlay.len() <= MAX_OVERLAY_HANDLES && self.live_bytes <= TARGET_OVERLAY_BYTES {
+        // Update allocation tracking for intensive mode detection
+        self.last_allocation_time = self.epoch;
+
+        // In intensive mode, be much more conservative about GC
+        let effective_max_handles = if self.intensive_mode {
+            MAX_OVERLAY_HANDLES * 2
+        } else {
+            MAX_OVERLAY_HANDLES
+        };
+
+        let effective_max_bytes = if self.intensive_mode {
+            TARGET_OVERLAY_BYTES * 2
+        } else {
+            TARGET_OVERLAY_BYTES
+        };
+
+        if self.overlay.len() <= effective_max_handles && self.live_bytes <= effective_max_bytes {
             return;
         }
 
+        // In intensive mode, reclaim more conservatively
+        let reclaim_age = if self.intensive_mode {
+            MIN_RECLAIM_AGE * 2
+        } else {
+            MIN_RECLAIM_AGE
+        };
+
         let mut budget = self.overlay.len();
         while budget > 0
-            && (self.overlay.len() > MAX_OVERLAY_HANDLES || self.live_bytes > TARGET_OVERLAY_BYTES)
+            && (self.overlay.len() > effective_max_handles || self.live_bytes > effective_max_bytes)
         {
             budget = budget.saturating_sub(1);
 
@@ -250,7 +286,7 @@ impl ValueStore {
             }
 
             let age = self.epoch.saturating_sub(slot.last_touch_epoch);
-            let reclaimable = slot.pin_count == 0 && age >= MIN_RECLAIM_AGE;
+            let reclaimable = slot.pin_count == 0 && age >= reclaim_age;
             if reclaimable {
                 self.release_slot(slot_index);
             } else {

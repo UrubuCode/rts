@@ -5,7 +5,120 @@ use super::{
     MirBinOp, MirInstruction, MirUnaryOp, TypedBasicBlock, TypedMirFunction, TypedMirModule, VReg,
 };
 
+use std::collections::HashMap;
+
 use swc_common::{FileName, SourceMap, sync::Lrc};
+
+/// Constant pool for deduplicating and hoisting constants
+#[derive(Debug, Default)]
+struct ConstantPool {
+    numbers: HashMap<OrderedFloat, VReg>,
+    integers: HashMap<i32, VReg>,
+    strings: HashMap<String, VReg>,
+    booleans: HashMap<bool, VReg>,
+    null_vreg: Option<VReg>,
+    undef_vreg: Option<VReg>,
+    hoisted_instructions: Vec<MirInstruction>,
+}
+
+/// Wrapper to make f64 hashable for constant pool
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct OrderedFloat(i64); // Store f64 bits as i64
+
+impl From<f64> for OrderedFloat {
+    fn from(f: f64) -> Self {
+        OrderedFloat(f.to_bits() as i64)
+    }
+}
+
+impl From<OrderedFloat> for f64 {
+    fn from(o: OrderedFloat) -> Self {
+        f64::from_bits(o.0 as u64)
+    }
+}
+
+impl ConstantPool {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn get_or_create_number(&mut self, value: f64, next_vreg: &mut u32) -> VReg {
+        // Check if this is actually an integer that fits in i32
+        if value.fract() == 0.0 && value >= i32::MIN as f64 && value <= i32::MAX as f64 {
+            let int_val = value as i32;
+            return self.get_or_create_int32(int_val, next_vreg);
+        }
+
+        let key = OrderedFloat::from(value);
+        if let Some(&vreg) = self.numbers.get(&key) {
+            vreg
+        } else {
+            let vreg = alloc(next_vreg);
+            self.numbers.insert(key, vreg);
+            self.hoisted_instructions.push(MirInstruction::ConstNumber(vreg, value));
+            vreg
+        }
+    }
+
+    fn get_or_create_int32(&mut self, value: i32, next_vreg: &mut u32) -> VReg {
+        if let Some(&vreg) = self.integers.get(&value) {
+            vreg
+        } else {
+            let vreg = alloc(next_vreg);
+            self.integers.insert(value, vreg);
+            self.hoisted_instructions.push(MirInstruction::ConstInt32(vreg, value));
+            vreg
+        }
+    }
+
+    fn get_or_create_string(&mut self, value: String, next_vreg: &mut u32) -> VReg {
+        if let Some(&vreg) = self.strings.get(&value) {
+            vreg
+        } else {
+            let vreg = alloc(next_vreg);
+            self.strings.insert(value.clone(), vreg);
+            self.hoisted_instructions.push(MirInstruction::ConstString(vreg, value));
+            vreg
+        }
+    }
+
+    fn get_or_create_bool(&mut self, value: bool, next_vreg: &mut u32) -> VReg {
+        if let Some(&vreg) = self.booleans.get(&value) {
+            vreg
+        } else {
+            let vreg = alloc(next_vreg);
+            self.booleans.insert(value, vreg);
+            self.hoisted_instructions.push(MirInstruction::ConstBool(vreg, value));
+            vreg
+        }
+    }
+
+    fn get_or_create_null(&mut self, next_vreg: &mut u32) -> VReg {
+        if let Some(vreg) = self.null_vreg {
+            vreg
+        } else {
+            let vreg = alloc(next_vreg);
+            self.null_vreg = Some(vreg);
+            self.hoisted_instructions.push(MirInstruction::ConstNull(vreg));
+            vreg
+        }
+    }
+
+    fn get_or_create_undef(&mut self, next_vreg: &mut u32) -> VReg {
+        if let Some(vreg) = self.undef_vreg {
+            vreg
+        } else {
+            let vreg = alloc(next_vreg);
+            self.undef_vreg = Some(vreg);
+            self.hoisted_instructions.push(MirInstruction::ConstUndef(vreg));
+            vreg
+        }
+    }
+
+    fn into_hoisted_instructions(self) -> Vec<MirInstruction> {
+        self.hoisted_instructions
+    }
+}
 use swc_ecma_ast::*;
 use swc_ecma_parser::{Parser, StringInput, Syntax, TsSyntax};
 
@@ -91,6 +204,7 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
     };
 
     let mut instructions: Vec<MirInstruction> = Vec::new();
+    let mut constant_pool = ConstantPool::new();
 
     // Emit LoadParam + Bind for each parameter
     for (index, param) in function.parameters.iter().enumerate() {
@@ -99,11 +213,11 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
         instructions.push(MirInstruction::Bind(param.name.clone(), vreg, true));
     }
 
-    // Lower each body statement
+    // Lower each body statement with constant pooling
     for statement in &function.body {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
-            lower_statement_text(trimmed, &mut instructions, &mut func.next_vreg);
+            lower_statement_text_with_pool(trimmed, &mut instructions, &mut func.next_vreg, &mut constant_pool);
         }
     }
 
@@ -113,9 +227,13 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
         instructions.push(MirInstruction::Return(None));
     }
 
+    // Prepend hoisted constants to the beginning of instructions
+    let mut hoisted = constant_pool.into_hoisted_instructions();
+    hoisted.extend(instructions);
+
     func.blocks.push(TypedBasicBlock {
         label: "entry".to_string(),
-        instructions,
+        instructions: hoisted,
         terminator: Terminator::Return,
     });
 
@@ -184,10 +302,104 @@ fn lower_statement_text(
     }
 }
 
+fn lower_statement_text_with_pool(
+    text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+    constant_pool: &mut ConstantPool,
+) {
+    let stmts = match try_parse_statement(text) {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            // Parse failure: emit RuntimeEval
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, text.to_string()));
+            return;
+        }
+    };
+
+    for stmt in stmts {
+        lower_stmt_with_pool(&stmt, text, instructions, next_vreg, constant_pool);
+    }
+}
+
 fn alloc(next_vreg: &mut u32) -> VReg {
     let v = VReg(*next_vreg);
     *next_vreg += 1;
     v
+}
+
+fn lower_stmt_with_pool(
+    stmt: &Stmt,
+    original_text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+    constant_pool: &mut ConstantPool,
+) {
+    match stmt {
+        Stmt::Decl(Decl::Var(var_decl)) => {
+            let mutable = var_decl.kind != VarDeclKind::Const;
+            for decl in &var_decl.decls {
+                let name = match &decl.name {
+                    Pat::Ident(ident) => ident.id.sym.to_string(),
+                    _ => {
+                        let vreg = alloc(next_vreg);
+                        instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        continue;
+                    }
+                };
+                if let Some(init) = &decl.init {
+                    let vreg = lower_expr_with_pool(init, original_text, instructions, next_vreg, constant_pool);
+                    instructions.push(MirInstruction::Bind(name, vreg, mutable));
+                } else {
+                    let vreg = constant_pool.get_or_create_undef(next_vreg);
+                    instructions.push(MirInstruction::Bind(name, vreg, mutable));
+                }
+            }
+        }
+        Stmt::Return(ret_stmt) => {
+            if let Some(arg) = &ret_stmt.arg {
+                let vreg = lower_expr_with_pool(arg, original_text, instructions, next_vreg, constant_pool);
+                instructions.push(MirInstruction::Return(Some(vreg)));
+            } else {
+                instructions.push(MirInstruction::Return(None));
+            }
+        }
+        Stmt::Expr(expr_stmt) => {
+            let _vreg = lower_expr_with_pool(&expr_stmt.expr, original_text, instructions, next_vreg, constant_pool);
+        }
+        Stmt::Block(block_stmt) => {
+            for inner_stmt in &block_stmt.stmts {
+                lower_stmt_with_pool(inner_stmt, original_text, instructions, next_vreg, constant_pool);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            // For now, use the original version without pool for control flow
+            lower_if_stmt(if_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::While(while_stmt) => {
+            lower_while_stmt(while_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::DoWhile(do_while_stmt) => {
+            lower_do_while_stmt(do_while_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::For(for_stmt) => {
+            lower_for_stmt(for_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::Switch(switch_stmt) => {
+            lower_switch_stmt(switch_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::Break(_) => {
+            instructions.push(MirInstruction::Break);
+        }
+        Stmt::Continue(_) => {
+            instructions.push(MirInstruction::Continue);
+        }
+        _ => {
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+        }
+    }
 }
 
 fn lower_stmt(
@@ -234,9 +446,179 @@ fn lower_stmt(
                 lower_stmt(inner_stmt, original_text, instructions, next_vreg);
             }
         }
+        Stmt::If(if_stmt) => {
+            lower_if_stmt(if_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::While(while_stmt) => {
+            lower_while_stmt(while_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::DoWhile(do_while_stmt) => {
+            lower_do_while_stmt(do_while_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::For(for_stmt) => {
+            lower_for_stmt(for_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::Switch(switch_stmt) => {
+            lower_switch_stmt(switch_stmt, original_text, instructions, next_vreg);
+        }
+        Stmt::Break(_) => {
+            instructions.push(MirInstruction::Break);
+        }
+        Stmt::Continue(_) => {
+            instructions.push(MirInstruction::Continue);
+        }
         _ => {
             let vreg = alloc(next_vreg);
             instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+        }
+    }
+}
+
+fn lower_expr_with_pool(
+    expr: &Expr,
+    original_text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+    constant_pool: &mut ConstantPool,
+) -> VReg {
+    match expr {
+        Expr::Lit(lit) => match lit {
+            Lit::Num(n) => {
+                constant_pool.get_or_create_number(n.value, next_vreg)
+            }
+            Lit::Str(s) => {
+                constant_pool.get_or_create_string(s.value.to_string_lossy().into_owned(), next_vreg)
+            }
+            Lit::Bool(b) => {
+                constant_pool.get_or_create_bool(b.value, next_vreg)
+            }
+            Lit::Null(_) => {
+                constant_pool.get_or_create_null(next_vreg)
+            }
+            _ => {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        },
+        Expr::Ident(ident) => {
+            let name = ident.sym.to_string();
+            if name == "undefined" {
+                constant_pool.get_or_create_undef(next_vreg)
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::LoadBinding(vreg, name));
+                vreg
+            }
+        }
+        Expr::Bin(bin) => {
+            let op = match map_bin_op(bin.op) {
+                Some(op) => op,
+                None => {
+                    let vreg = alloc(next_vreg);
+                    instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                    return vreg;
+                }
+            };
+            let lhs = lower_expr_with_pool(&bin.left, original_text, instructions, next_vreg, constant_pool);
+            let rhs = lower_expr_with_pool(&bin.right, original_text, instructions, next_vreg, constant_pool);
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::BinOp(vreg, op, lhs, rhs));
+            vreg
+        }
+        Expr::Unary(unary) => {
+            let op = match map_unary_op(unary.op) {
+                Some(op) => op,
+                None => {
+                    let vreg = alloc(next_vreg);
+                    instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                    return vreg;
+                }
+            };
+            let arg = lower_expr_with_pool(&unary.arg, original_text, instructions, next_vreg, constant_pool);
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::UnaryOp(vreg, op, arg));
+            vreg
+        }
+        Expr::Call(call) => {
+            let callee_name = extract_callee_name(&call.callee);
+            let callee_str = match callee_name {
+                Some(name) => name,
+                None => {
+                    let vreg = alloc(next_vreg);
+                    instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                    return vreg;
+                }
+            };
+            let mut arg_vregs = Vec::new();
+            for arg in &call.args {
+                let vreg = lower_expr_with_pool(&arg.expr, original_text, instructions, next_vreg, constant_pool);
+                arg_vregs.push(vreg);
+            }
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::Call(vreg, callee_str, arg_vregs));
+            vreg
+        }
+        Expr::Paren(paren) => lower_expr_with_pool(&paren.expr, original_text, instructions, next_vreg, constant_pool),
+        Expr::Assign(assign) => {
+            if let Some(name) = extract_simple_assign_target(&assign.left) {
+                match assign.op {
+                    AssignOp::Assign => {
+                        let vreg = lower_expr_with_pool(&assign.right, original_text, instructions, next_vreg, constant_pool);
+                        instructions.push(MirInstruction::WriteBind(name, vreg));
+                        vreg
+                    }
+                    AssignOp::AddAssign | AssignOp::SubAssign | AssignOp::MulAssign
+                    | AssignOp::DivAssign | AssignOp::ModAssign => {
+                        let load = alloc(next_vreg);
+                        instructions.push(MirInstruction::LoadBinding(load, name.clone()));
+                        let rhs = lower_expr_with_pool(&assign.right, original_text, instructions, next_vreg, constant_pool);
+                        let op = match assign.op {
+                            AssignOp::AddAssign => MirBinOp::Add,
+                            AssignOp::SubAssign => MirBinOp::Sub,
+                            AssignOp::MulAssign => MirBinOp::Mul,
+                            AssignOp::DivAssign => MirBinOp::Div,
+                            AssignOp::ModAssign => MirBinOp::Mod,
+                            _ => unreachable!(),
+                        };
+                        let result = alloc(next_vreg);
+                        instructions.push(MirInstruction::BinOp(result, op, load, rhs));
+                        instructions.push(MirInstruction::WriteBind(name, result));
+                        result
+                    }
+                    _ => {
+                        let vreg = alloc(next_vreg);
+                        instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        vreg
+                    }
+                }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
+        Expr::Update(update) => {
+            if let Expr::Ident(ident) = update.arg.as_ref() {
+                let name = ident.sym.to_string();
+                let load = alloc(next_vreg);
+                instructions.push(MirInstruction::LoadBinding(load, name.clone()));
+                let one = constant_pool.get_or_create_number(1.0, next_vreg);
+                let op = if update.op == UpdateOp::PlusPlus { MirBinOp::Add } else { MirBinOp::Sub };
+                let result = alloc(next_vreg);
+                instructions.push(MirInstruction::BinOp(result, op, load, one));
+                instructions.push(MirInstruction::WriteBind(name, result));
+                if update.prefix { result } else { load }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
+        _ => {
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+            vreg
         }
     }
 }
@@ -458,6 +840,182 @@ fn map_unary_op(op: UnaryOp) -> Option<MirUnaryOp> {
         UnaryOp::Bang => Some(MirUnaryOp::Not),
         _ => None,
     }
+}
+
+// Control flow lowering functions
+
+fn lower_if_stmt(
+    if_stmt: &IfStmt,
+    original_text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+) {
+    let condition = lower_expr(&if_stmt.test, original_text, instructions, next_vreg);
+
+    // Generate unique labels
+    let then_label = format!("if_then_{}", *next_vreg);
+    let else_label = format!("if_else_{}", *next_vreg);
+    let end_label = format!("if_end_{}", *next_vreg);
+
+    // Conditional jump to then block
+    instructions.push(MirInstruction::JumpIf(condition, then_label.clone()));
+    instructions.push(MirInstruction::Jump(else_label.clone()));
+
+    // Then block
+    instructions.push(MirInstruction::Label(then_label));
+    lower_stmt(&if_stmt.cons, original_text, instructions, next_vreg);
+    instructions.push(MirInstruction::Jump(end_label.clone()));
+
+    // Else block
+    instructions.push(MirInstruction::Label(else_label));
+    if let Some(else_stmt) = &if_stmt.alt {
+        lower_stmt(else_stmt, original_text, instructions, next_vreg);
+    }
+
+    // End label
+    instructions.push(MirInstruction::Label(end_label));
+}
+
+fn lower_while_stmt(
+    while_stmt: &WhileStmt,
+    original_text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+) {
+    let loop_label = format!("while_loop_{}", *next_vreg);
+    let body_label = format!("while_body_{}", *next_vreg);
+    let end_label = format!("while_end_{}", *next_vreg);
+
+    // Loop condition check
+    instructions.push(MirInstruction::Label(loop_label.clone()));
+    let condition = lower_expr(&while_stmt.test, original_text, instructions, next_vreg);
+    instructions.push(MirInstruction::JumpIf(condition, body_label.clone()));
+    instructions.push(MirInstruction::Jump(end_label.clone()));
+
+    // Loop body
+    instructions.push(MirInstruction::Label(body_label));
+    lower_stmt(&while_stmt.body, original_text, instructions, next_vreg);
+    instructions.push(MirInstruction::Jump(loop_label));
+
+    // End label
+    instructions.push(MirInstruction::Label(end_label));
+}
+
+fn lower_do_while_stmt(
+    do_while_stmt: &DoWhileStmt,
+    original_text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+) {
+    let body_label = format!("do_while_body_{}", *next_vreg);
+    let condition_label = format!("do_while_condition_{}", *next_vreg);
+    let end_label = format!("do_while_end_{}", *next_vreg);
+
+    // Execute body first
+    instructions.push(MirInstruction::Label(body_label.clone()));
+    lower_stmt(&do_while_stmt.body, original_text, instructions, next_vreg);
+
+    // Check condition
+    instructions.push(MirInstruction::Label(condition_label));
+    let condition = lower_expr(&do_while_stmt.test, original_text, instructions, next_vreg);
+    instructions.push(MirInstruction::JumpIf(condition, body_label));
+
+    // End label
+    instructions.push(MirInstruction::Label(end_label));
+}
+
+fn lower_for_stmt(
+    for_stmt: &ForStmt,
+    original_text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+) {
+    let loop_label = format!("for_loop_{}", *next_vreg);
+    let body_label = format!("for_body_{}", *next_vreg);
+    let update_label = format!("for_update_{}", *next_vreg);
+    let end_label = format!("for_end_{}", *next_vreg);
+
+    // Initialization
+    if let Some(init) = &for_stmt.init {
+        match init {
+            VarDeclOrExpr::VarDecl(var_decl) => {
+                lower_stmt(&Stmt::Decl(Decl::Var(var_decl.clone())), original_text, instructions, next_vreg);
+            }
+            VarDeclOrExpr::Expr(expr) => {
+                lower_expr(expr, original_text, instructions, next_vreg);
+            }
+        }
+    }
+
+    // Loop condition check
+    instructions.push(MirInstruction::Label(loop_label.clone()));
+    if let Some(test) = &for_stmt.test {
+        let condition = lower_expr(test, original_text, instructions, next_vreg);
+        instructions.push(MirInstruction::JumpIf(condition, body_label.clone()));
+        instructions.push(MirInstruction::Jump(end_label.clone()));
+    }
+
+    // Loop body
+    instructions.push(MirInstruction::Label(body_label));
+    lower_stmt(&for_stmt.body, original_text, instructions, next_vreg);
+
+    // Update expression
+    instructions.push(MirInstruction::Label(update_label));
+    if let Some(update) = &for_stmt.update {
+        lower_expr(update, original_text, instructions, next_vreg);
+    }
+    instructions.push(MirInstruction::Jump(loop_label));
+
+    // End label
+    instructions.push(MirInstruction::Label(end_label));
+}
+
+fn lower_switch_stmt(
+    switch_stmt: &SwitchStmt,
+    original_text: &str,
+    instructions: &mut Vec<MirInstruction>,
+    next_vreg: &mut u32,
+) {
+    let value = lower_expr(&switch_stmt.discriminant, original_text, instructions, next_vreg);
+
+    // For now, implement as a series of if-else checks
+    // TODO: Optimize for switch tables later
+    let end_label = format!("switch_end_{}", *next_vreg);
+
+    for (i, case) in switch_stmt.cases.iter().enumerate() {
+        if let Some(test) = &case.test {
+            let case_label = format!("switch_case_{}_{}", i, *next_vreg);
+            let case_test = lower_expr(test, original_text, instructions, next_vreg);
+
+            // Compare switch value with case value
+            let cmp_result = alloc(next_vreg);
+            instructions.push(MirInstruction::BinOp(cmp_result, MirBinOp::Eq, value, case_test));
+            instructions.push(MirInstruction::JumpIf(cmp_result, case_label.clone()));
+
+            // Store case label for later
+            let next_case_label = if i + 1 < switch_stmt.cases.len() {
+                format!("switch_case_{}_{}", i + 1, *next_vreg)
+            } else {
+                end_label.clone()
+            };
+            instructions.push(MirInstruction::Jump(next_case_label));
+
+            // Case body
+            instructions.push(MirInstruction::Label(case_label));
+            for stmt in &case.cons {
+                lower_stmt(stmt, original_text, instructions, next_vreg);
+            }
+        } else {
+            // Default case
+            let default_label = format!("switch_default_{}", *next_vreg);
+            instructions.push(MirInstruction::Label(default_label));
+            for stmt in &case.cons {
+                lower_stmt(stmt, original_text, instructions, next_vreg);
+            }
+        }
+    }
+
+    instructions.push(MirInstruction::Label(end_label));
 }
 
 #[cfg(test)]
