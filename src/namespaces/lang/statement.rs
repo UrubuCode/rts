@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow, bail};
 use swc_common::{FileName, SourceMap, SourceMapper, Span as SwcSpan, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -8,9 +11,56 @@ use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Le
 
 use super::{JsValue, RuntimeContext, evaluate_expression};
 
+const SCRIPT_CACHE_MAX_ENTRIES: usize = 256;
+
+struct CachedScript {
+    cm: Lrc<SourceMap>,
+    script: Script,
+}
+
+thread_local! {
+    static SCRIPT_CACHE: RefCell<HashMap<u64, CachedScript>> = RefCell::new(HashMap::new());
+}
+
+fn hash_source(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
+}
+
+pub fn reset_script_cache() {
+    SCRIPT_CACHE.with(|cache| cache.borrow_mut().clear());
+}
+
 pub fn evaluate_statement(input: &str, runtime: &mut dyn RuntimeContext) -> Result<JsValue> {
+    let key = hash_source(input);
+
+    // Try cache first
+    let cached = SCRIPT_CACHE.with(|cache| {
+        cache.borrow().get(&key).map(|entry| {
+            (entry.cm.clone(), entry.script.clone())
+        })
+    });
+
+    if let Some((cm, script)) = cached {
+        return execute_script(&script, cm.as_ref(), runtime);
+    }
+
+    // Parse and cache
     let parsed = parse_script(input)?;
-    execute_script(&parsed.script, parsed.cm.as_ref(), runtime)
+    let cm = parsed.cm.clone();
+    let script = parsed.script.clone();
+
+    SCRIPT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= SCRIPT_CACHE_MAX_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(key, CachedScript { cm: parsed.cm, script: parsed.script });
+    });
+
+    execute_script(&script, cm.as_ref(), runtime)
 }
 
 struct ParsedScript {

@@ -79,6 +79,8 @@ pub enum MirInstruction {
     Call(VReg, String, Vec<VReg>),
     Bind(String, VReg, bool),
     LoadBinding(VReg, String),
+    /// Write to an existing mutable binding: write "<name>" = %src
+    WriteBind(String, VReg),
     Return(Option<VReg>),
     Import { names: Vec<String>, from: String },
     RuntimeEval(VReg, String),

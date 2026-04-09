@@ -413,6 +413,31 @@ pub fn define_typed_function<M: Module>(
                     default_return_is_native = false;
                 }
 
+                MirInstruction::WriteBind(name, src) => {
+                    // Write to an existing mutable binding (uses same ABI as Bind with mutable=true)
+                    let value_handle = ensure_handle(&vreg_map, &vreg_kinds, src, module, func_declarations, &mut builder)?;
+                    let sig = bind_signature(module);
+                    let bind_fn =
+                        ensure_import(module, func_declarations, RTS_BIND, &sig)?;
+
+                    let data_id =
+                        declare_string_data(module, data_cache, name.as_str())?;
+                    let data_ref = module.declare_data_in_func(data_id, builder.func);
+                    let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                    let name_len =
+                        builder.ins().iconst(types::I64, name.len() as i64);
+                    let mutable_flag = builder.ins().iconst(types::I64, 1i64);
+
+                    let local = module.declare_func_in_func(bind_fn, builder.func);
+                    let call = builder.ins().call(
+                        local,
+                        &[name_ptr, name_len, value_handle, mutable_flag],
+                    );
+                    let result = builder.inst_results(call)[0];
+                    default_return = result;
+                    default_return_is_native = false;
+                }
+
                 MirInstruction::LoadBinding(dst, name) => {
                     let sig = read_signature(module);
                     let read_fn =

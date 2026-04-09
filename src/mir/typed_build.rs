@@ -229,6 +229,11 @@ fn lower_stmt(
         Stmt::Expr(expr_stmt) => {
             let _vreg = lower_expr(&expr_stmt.expr, original_text, instructions, next_vreg);
         }
+        Stmt::Block(block_stmt) => {
+            for inner_stmt in &block_stmt.stmts {
+                lower_stmt(inner_stmt, original_text, instructions, next_vreg);
+            }
+        }
         _ => {
             let vreg = alloc(next_vreg);
             instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -331,6 +336,62 @@ fn lower_expr(
             vreg
         }
         Expr::Paren(paren) => lower_expr(&paren.expr, original_text, instructions, next_vreg),
+        Expr::Assign(assign) => {
+            if let Some(name) = extract_simple_assign_target(&assign.left) {
+                match assign.op {
+                    AssignOp::Assign => {
+                        let vreg = lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        instructions.push(MirInstruction::WriteBind(name, vreg));
+                        vreg
+                    }
+                    AssignOp::AddAssign | AssignOp::SubAssign | AssignOp::MulAssign
+                    | AssignOp::DivAssign | AssignOp::ModAssign => {
+                        let load = alloc(next_vreg);
+                        instructions.push(MirInstruction::LoadBinding(load, name.clone()));
+                        let rhs = lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        let op = match assign.op {
+                            AssignOp::AddAssign => MirBinOp::Add,
+                            AssignOp::SubAssign => MirBinOp::Sub,
+                            AssignOp::MulAssign => MirBinOp::Mul,
+                            AssignOp::DivAssign => MirBinOp::Div,
+                            AssignOp::ModAssign => MirBinOp::Mod,
+                            _ => unreachable!(),
+                        };
+                        let result = alloc(next_vreg);
+                        instructions.push(MirInstruction::BinOp(result, op, load, rhs));
+                        instructions.push(MirInstruction::WriteBind(name, result));
+                        result
+                    }
+                    _ => {
+                        let vreg = alloc(next_vreg);
+                        instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        vreg
+                    }
+                }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
+        Expr::Update(update) => {
+            if let Expr::Ident(ident) = update.arg.as_ref() {
+                let name = ident.sym.to_string();
+                let load = alloc(next_vreg);
+                instructions.push(MirInstruction::LoadBinding(load, name.clone()));
+                let one = alloc(next_vreg);
+                instructions.push(MirInstruction::ConstNumber(one, 1.0));
+                let op = if update.op == UpdateOp::PlusPlus { MirBinOp::Add } else { MirBinOp::Sub };
+                let result = alloc(next_vreg);
+                instructions.push(MirInstruction::BinOp(result, op, load, one));
+                instructions.push(MirInstruction::WriteBind(name, result));
+                if update.prefix { result } else { load }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
         _ => {
             let vreg = alloc(next_vreg);
             instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -357,6 +418,16 @@ fn extract_expr_name(expr: &Expr) -> Option<String> {
             };
             Some(format!("{}.{}", obj, prop))
         }
+        _ => None,
+    }
+}
+
+fn extract_simple_assign_target(target: &AssignTarget) -> Option<String> {
+    match target {
+        AssignTarget::Simple(simple) => match simple {
+            SimpleAssignTarget::Ident(ident) => Some(ident.id.sym.to_string()),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -527,5 +598,85 @@ mod tests {
         assert!(instructions
             .iter()
             .any(|i| matches!(i, MirInstruction::Return(Some(_)))));
+    }
+
+    #[test]
+    fn lowers_simple_assignment() {
+        let hir = build_simple_module(vec!["let x = 1;", "x = 2;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        // Should have WriteBind for the assignment
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x")));
+        // The value 2 should be a ConstNumber
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 2.0)));
+    }
+
+    #[test]
+    fn lowers_compound_assignment() {
+        let hir = build_simple_module(vec!["let x = 10;", "x += 5;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        // Should have LoadBinding + BinOp(Add) + WriteBind
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::LoadBinding(_, name) if name == "x")));
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _))));
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x")));
+    }
+
+    #[test]
+    fn lowers_postfix_increment() {
+        let hir = build_simple_module(vec!["let i = 0;", "i++;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        // Should have LoadBinding + ConstNumber(1) + BinOp(Add) + WriteBind
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 1.0)));
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _))));
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "i")));
+    }
+
+    #[test]
+    fn lowers_prefix_decrement() {
+        let hir = build_simple_module(vec!["let i = 5;", "--i;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Sub, _, _))));
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "i")));
+    }
+
+    #[test]
+    fn lowers_mul_assign() {
+        let hir = build_simple_module(vec!["let x = 3;", "x *= 4;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Mul, _, _))));
+        assert!(instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x")));
     }
 }

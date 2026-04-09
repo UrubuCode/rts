@@ -288,6 +288,7 @@ fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
 
 pub fn reset_thread_state() {
     with_store_mut(ValueStore::reset);
+    super::lang::reset_caches();
 }
 
 fn push_value(value: JsValue) -> i64 {
