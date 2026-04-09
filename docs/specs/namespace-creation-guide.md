@@ -49,10 +49,27 @@ Arquivo: `src/runtime/mod.rs`
 
 ## 4. State (se precisar de handles/recursos)
 
-Arquivo: `src/namespaces/state.rs`
+Cada namespace gerencia seu proprio state interno com `OnceLock<Mutex<...>>`.
+**NAO colocar state de namespace em `src/namespaces/state.rs`** — esse arquivo e para state global compartilhado (buffers, promises, globals).
 
-- Adicionar campos no struct `RuntimeState`
-- Implementar funcoes `pub fn <name>_*()` antes do bloco `#[cfg(test)]`
+Exemplo (dentro de `src/namespaces/<name>/mod.rs`):
+
+```rust
+struct MyState {
+    handles: BTreeMap<u64, MyHandle>,
+    next_id: u64,
+}
+
+static MY_STATE: OnceLock<Mutex<MyState>> = OnceLock::new();
+
+fn lock_my() -> MutexGuard<'static, MyState> {
+    let state = MY_STATE.get_or_init(|| Mutex::new(MyState::default()));
+    match state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+```
 
 ## 5. Regenerar rts.d.ts
 

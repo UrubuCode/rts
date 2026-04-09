@@ -1,7 +1,5 @@
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::io::{Read, Write as IoWrite};
-use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
@@ -134,11 +132,6 @@ impl RuntimeExecutor {
     }
 }
 
-enum NetHandle {
-    Listener(TcpListener),
-    Stream(TcpStream),
-}
-
 #[derive(Default)]
 struct RuntimeState {
     global: BTreeMap<String, String>,
@@ -146,8 +139,6 @@ struct RuntimeState {
     next_buffer_id: u64,
     promises: BTreeMap<u64, Arc<PromiseCell>>,
     next_promise_id: u64,
-    net_handles: BTreeMap<u64, NetHandle>,
-    next_net_id: u64,
 }
 
 struct RuntimeServices {
@@ -446,139 +437,6 @@ fn run_task(task: AsyncTask) -> Result<String, String> {
                     )
                 })
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// TCP networking
-// ---------------------------------------------------------------------------
-
-fn alloc_net_handle(handle: NetHandle) -> u64 {
-    let mut state = lock_state();
-    state.next_net_id = state.next_net_id.saturating_add(1);
-    let id = state.next_net_id;
-    state.net_handles.insert(id, handle);
-    id
-}
-
-pub fn net_listen(host: &str, port: u16) -> Result<u64, String> {
-    let addr = format!("{host}:{port}");
-    let listener = TcpListener::bind(&addr).map_err(|e| format!("net.listen('{addr}'): {e}"))?;
-    Ok(alloc_net_handle(NetHandle::Listener(listener)))
-}
-
-pub fn net_accept(listener_id: u64) -> Result<u64, String> {
-    // Take the listener out briefly to avoid holding the lock during accept()
-    let listener = {
-        let mut state = lock_state();
-        match state.net_handles.remove(&listener_id) {
-            Some(NetHandle::Listener(l)) => l,
-            Some(other) => {
-                state.net_handles.insert(listener_id, other);
-                return Err("net.accept: handle is not a listener".to_string());
-            }
-            None => return Err("net.accept: invalid listener handle".to_string()),
-        }
-    };
-
-    let result = listener.accept();
-
-    // Put the listener back
-    {
-        let mut state = lock_state();
-        state.net_handles.insert(listener_id, NetHandle::Listener(listener));
-    }
-
-    match result {
-        Ok((stream, _addr)) => Ok(alloc_net_handle(NetHandle::Stream(stream))),
-        Err(e) => Err(format!("net.accept: {e}")),
-    }
-}
-
-pub fn net_connect(host: &str, port: u16) -> Result<u64, String> {
-    let addr = format!("{host}:{port}");
-    let stream = TcpStream::connect(&addr).map_err(|e| format!("net.connect('{addr}'): {e}"))?;
-    Ok(alloc_net_handle(NetHandle::Stream(stream)))
-}
-
-pub fn net_read(stream_id: u64, max_bytes: usize) -> Result<String, String> {
-    let mut state = lock_state();
-    let handle = state
-        .net_handles
-        .get_mut(&stream_id)
-        .ok_or_else(|| "net.read: invalid stream handle".to_string())?;
-
-    match handle {
-        NetHandle::Stream(stream) => {
-            let mut buf = vec![0u8; max_bytes];
-            let n = stream.read(&mut buf).map_err(|e| format!("net.read: {e}"))?;
-            Ok(String::from_utf8_lossy(&buf[..n]).to_string())
-        }
-        _ => Err("net.read: handle is not a stream".to_string()),
-    }
-}
-
-pub fn net_write(stream_id: u64, data: &str) -> Result<usize, String> {
-    let mut state = lock_state();
-    let handle = state
-        .net_handles
-        .get_mut(&stream_id)
-        .ok_or_else(|| "net.write: invalid stream handle".to_string())?;
-
-    match handle {
-        NetHandle::Stream(stream) => {
-            let n = stream
-                .write(data.as_bytes())
-                .map_err(|e| format!("net.write: {e}"))?;
-            stream.flush().map_err(|e| format!("net.write flush: {e}"))?;
-            Ok(n)
-        }
-        _ => Err("net.write: handle is not a stream".to_string()),
-    }
-}
-
-pub fn net_close(handle_id: u64) {
-    let mut state = lock_state();
-    state.net_handles.remove(&handle_id);
-    // Drop closes the socket automatically
-}
-
-pub fn net_set_timeout(stream_id: u64, millis: u64) {
-    let state = lock_state();
-    if let Some(NetHandle::Stream(stream)) = state.net_handles.get(&stream_id) {
-        let timeout = if millis == 0 {
-            None
-        } else {
-            Some(Duration::from_millis(millis))
-        };
-        let _ = stream.set_read_timeout(timeout);
-        let _ = stream.set_write_timeout(timeout);
-    }
-}
-
-pub fn net_local_addr(handle_id: u64) -> Result<String, String> {
-    let state = lock_state();
-    match state.net_handles.get(&handle_id) {
-        Some(NetHandle::Listener(l)) => l
-            .local_addr()
-            .map(|a| a.to_string())
-            .map_err(|e| format!("net.local_addr: {e}")),
-        Some(NetHandle::Stream(s)) => s
-            .local_addr()
-            .map(|a| a.to_string())
-            .map_err(|e| format!("net.local_addr: {e}")),
-        None => Err("net.local_addr: invalid handle".to_string()),
-    }
-}
-
-pub fn net_peer_addr(stream_id: u64) -> Result<String, String> {
-    let state = lock_state();
-    match state.net_handles.get(&stream_id) {
-        Some(NetHandle::Stream(s)) => s
-            .peer_addr()
-            .map(|a| a.to_string())
-            .map_err(|e| format!("net.peer_addr: {e}")),
-        _ => Err("net.peer_addr: handle is not a stream".to_string()),
     }
 }
 

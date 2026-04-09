@@ -23,12 +23,12 @@ Handles numericos (`u64`) sao gerenciados no runtime state (`NetHandle` enum).
 
 ## Arquivos
 
-- `src/namespaces/net/mod.rs` — SPEC, dispatch
-- `src/namespaces/state.rs` — NetHandle, funcoes net_*
+- `src/namespaces/net/mod.rs` — SPEC, dispatch, NetHandle, NetState, todas as operacoes TCP
 
 ## Design
 
-- Handles sao `u64` alocados incrementalmente no `RuntimeState`
+- State proprio do namespace (`NET_STATE: OnceLock<Mutex<NetState>>`) — nao depende de `state.rs`
+- Handles sao `u64` alocados incrementalmente no `NetState`
 - `NetHandle` enum: `Listener(TcpListener)` ou `Stream(TcpStream)`
 - `accept()` remove temporariamente o listener do state para nao segurar o lock durante I/O bloqueante
 - Todos os erros retornam `io.Result<Err>` com mensagem descritiva
