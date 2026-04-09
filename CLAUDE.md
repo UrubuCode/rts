@@ -64,42 +64,61 @@ Compara RTS (run), RTS (compiled), Bun e Node.
 
 ## State — REGRA PRINCIPAL DE CONSTRUCAO
 
-**Todo estado de runtime DEVE ser gerenciado via `src/namespaces/state/`.**
-O state e o centralizador de estados da aplicacao, controlado pelo GC.
+**Todo estado de runtime DEVE ser gerenciado via `src/namespaces/state/central.rs`.**
+O CentralState e o controlador unico de TODOS os estados do RTS runtime, permitindo controle completo pelo GC.
 
-### O que o state gerencia
-- Mutex nomeados (cada namespace registra o seu por nome)
-- Controle de estados do app (globals, buffers, handles, etc.)
-- Base para o GC deterministico futuro (rastreamento de alocacoes)
+### Sistema Central de Estado
+- **UNICO ponto de entrada**: `central()` retorna a instancia global do CentralState
+- **Rastreamento de alocacoes**: Todo estado e alocacao e rastreada para o GC futuro
+- **Thread-safe**: Sistema baseado em Arc<Mutex<T>> para acesso seguro entre threads
+- **Handle numericos**: Recursos como sockets, promises, buffers usam handles u64
 
-### Como usar nos namespaces
+### APIs do sistema central
 
 ```rust
-use crate::namespaces::state::{State, Mutex};
+use crate::namespaces::state::central;
 
-fn lock_net() -> std::sync::MutexGuard<'static, NetState> {
-    let state = Mutex.get_or_init("net", Mutex::new(NetState::default()));
-    match state.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+// Estado de namespace (um por namespace, Default trait required)
+let state = central().namespace_state::<NetState>("net");
+let mut guard = state.lock().unwrap();
+
+// Cache compartilhado (multiplos por ID string)
+let cache = central().cache::<String>("my-cache");
+
+// Handles tipados para recursos 
+let handle_id = central().create_handle(resource);
+let value = central().get_handle::<ResourceType>(handle_id);
+central().with_handle_mut(handle_id, |resource| { /* modify */ });
+```
+
+### Pattern para namespaces
+
+```rust
+use crate::namespaces::state::central;
+use std::sync::{Arc, Mutex};
+
+#[derive(Default)]
+struct MyNamespaceState {
+    // namespace state fields
+}
+
+pub fn with_namespace_state<R>(f: impl FnOnce(&mut MyNamespaceState) -> R) -> R {
+    let state = central().namespace_state::<MyNamespaceState>("my_namespace");
+    let mut guard = state.lock().unwrap();
+    f(&mut *guard)
 }
 ```
 
-### Exports base do state
-
-```rust
-use crate::namespaces::state::{State, Mutex, Globals};
-```
-
-### O que NAO fazer
-- **NAO criar `OnceLock`/`Mutex` soltos dentro dos namespaces** — usar o state centralizado
-- **NAO adicionar funcoes de logica de namespace dentro de `state/*.rs`** — o state so expoe primitivas de gerenciamento (Mutex, State, Globals)
-- **NAO acessar `std::sync::OnceLock` diretamente** — sempre via `crate::namespaces::state`
+### O que NAO fazer - PROIBIDO
+- **NAO criar `OnceLock`, `Mutex`, `RefCell`, `static` dentro dos namespaces**
+- **NAO criar estado local fora do sistema central**
+- **NAO acessar `std::sync::*` diretamente para storage**
+- **NAO implementar logica de negocio dentro de `state/*.rs`**
 
 ### Separacao de responsabilidades
-- `state/*.rs` → primitivas de gerenciamento: Mutex nomeado, State, Globals, rastreamento GC
-- `<namespace>/mod.rs` → logica do namespace: SPEC, dispatch, operacoes (usa state para storage)
+- `state/central.rs` → CentralState, allocation tracking, handles, cache/namespace management
+- `state/mod.rs` → public API wrappers, helpers, legacy compatibility
+- `<namespace>/mod.rs` → logica do namespace (usa central() para storage)
 
 ## Docs e especificacoes
 
