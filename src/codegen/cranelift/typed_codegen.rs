@@ -27,6 +27,7 @@ const RTS_READ: &str = "__rts_read_identifier";
 const RTS_BINOP: &str = "__rts_binop";
 const RTS_BOX_NUMBER: &str = "__rts_box_number";
 const RTS_CALL_DISPATCH: &str = "__rts_call_dispatch";
+const RTS_IS_TRUTHY: &str = "__rts_is_truthy";
 
 pub fn function_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
     let mut sig = module.make_signature();
@@ -76,6 +77,13 @@ fn box_number_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Sig
     let mut sig = module.make_signature();
     sig.params.push(AbiParam::new(types::I64)); // f64 bits as i64
     sig.returns.push(AbiParam::new(types::I64)); // handle
+    sig
+}
+
+fn truthy_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64)); // handle
+    sig.returns.push(AbiParam::new(types::I64)); // 0 or 1
     sig
 }
 
@@ -235,8 +243,53 @@ pub fn define_typed_function<M: Module>(
                     let lhs_kind = vreg_kinds.get(lhs).copied().unwrap_or(VRegKind::Handle);
                     let rhs_kind = vreg_kinds.get(rhs).copied().unwrap_or(VRegKind::Handle);
                     let is_arith = matches!(op, MirBinOp::Add | MirBinOp::Sub | MirBinOp::Mul | MirBinOp::Div | MirBinOp::Mod);
+                    let is_cmp = matches!(op, MirBinOp::Lt | MirBinOp::Lte | MirBinOp::Gt | MirBinOp::Gte | MirBinOp::Eq | MirBinOp::Ne);
 
-                    if lhs_kind == VRegKind::NativeI32 && rhs_kind == VRegKind::NativeI32 && is_arith {
+                    if lhs_kind == VRegKind::NativeI32 && rhs_kind == VRegKind::NativeI32 && is_cmp {
+                        // Native i32 comparison — returns 0 or 1 as i64
+                        let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
+                        let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
+                        let lhs_i32 = builder.ins().ireduce(types::I32, lhs_val);
+                        let rhs_i32 = builder.ins().ireduce(types::I32, rhs_val);
+                        use cranelift_codegen::ir::condcodes::IntCC;
+                        let cc = match op {
+                            MirBinOp::Lt => IntCC::SignedLessThan,
+                            MirBinOp::Lte => IntCC::SignedLessThanOrEqual,
+                            MirBinOp::Gt => IntCC::SignedGreaterThan,
+                            MirBinOp::Gte => IntCC::SignedGreaterThanOrEqual,
+                            MirBinOp::Eq => IntCC::Equal,
+                            MirBinOp::Ne => IntCC::NotEqual,
+                            _ => unreachable!(),
+                        };
+                        let cmp = builder.ins().icmp(cc, lhs_i32, rhs_i32);
+                        let result = builder.ins().uextend(types::I64, cmp);
+                        vreg_map.insert(*dst, result);
+                        vreg_kinds.insert(*dst, VRegKind::NativeI32);
+                        default_return = result;
+                        default_return_is_native = true;
+                    } else if lhs_kind == VRegKind::NativeF64 && rhs_kind == VRegKind::NativeF64 && is_cmp {
+                        // Native f64 comparison — returns 0 or 1 as i64
+                        let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
+                        let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
+                        let lhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), lhs_val);
+                        let rhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), rhs_val);
+                        use cranelift_codegen::ir::condcodes::FloatCC;
+                        let cc = match op {
+                            MirBinOp::Lt => FloatCC::LessThan,
+                            MirBinOp::Lte => FloatCC::LessThanOrEqual,
+                            MirBinOp::Gt => FloatCC::GreaterThan,
+                            MirBinOp::Gte => FloatCC::GreaterThanOrEqual,
+                            MirBinOp::Eq => FloatCC::Equal,
+                            MirBinOp::Ne => FloatCC::NotEqual,
+                            _ => unreachable!(),
+                        };
+                        let cmp = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
+                        let result = builder.ins().uextend(types::I64, cmp);
+                        vreg_map.insert(*dst, result);
+                        vreg_kinds.insert(*dst, VRegKind::NativeI32);
+                        default_return = result;
+                        default_return_is_native = true;
+                    } else if lhs_kind == VRegKind::NativeI32 && rhs_kind == VRegKind::NativeI32 && is_arith {
                         // Native i32 arithmetic path
                         let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
                         let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
@@ -561,9 +614,19 @@ pub fn define_typed_function<M: Module>(
                 MirInstruction::JumpIf(condition, label) => {
                     if let Some(&target_block) = label_blocks.get(label.as_str()) {
                         let cond_val = resolve_vreg(&vreg_map, condition, &mut builder);
-                        // Treat non-zero as true
+                        let cond_kind = vreg_kinds.get(condition).copied().unwrap_or(VRegKind::Handle);
+                        // For handles, call __rts_is_truthy to get 0/1
+                        let bool_val = if cond_kind == VRegKind::Handle {
+                            let sig = truthy_signature(module);
+                            let truthy_fn = ensure_import(module, func_declarations, RTS_IS_TRUTHY, &sig)?;
+                            let local = module.declare_func_in_func(truthy_fn, builder.func);
+                            let call = builder.ins().call(local, &[cond_val]);
+                            builder.inst_results(call)[0]
+                        } else {
+                            cond_val
+                        };
                         let zero = builder.ins().iconst(types::I64, 0);
-                        let cmp = builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::NotEqual, cond_val, zero);
+                        let cmp = builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::NotEqual, bool_val, zero);
                         let fallthrough = builder.create_block();
                         builder.ins().brif(cmp, target_block, &[], fallthrough, &[]);
                         builder.switch_to_block(fallthrough);
@@ -574,8 +637,18 @@ pub fn define_typed_function<M: Module>(
                 MirInstruction::JumpIfNot(condition, label) => {
                     if let Some(&target_block) = label_blocks.get(label.as_str()) {
                         let cond_val = resolve_vreg(&vreg_map, condition, &mut builder);
+                        let cond_kind = vreg_kinds.get(condition).copied().unwrap_or(VRegKind::Handle);
+                        let bool_val = if cond_kind == VRegKind::Handle {
+                            let sig = truthy_signature(module);
+                            let truthy_fn = ensure_import(module, func_declarations, RTS_IS_TRUTHY, &sig)?;
+                            let local = module.declare_func_in_func(truthy_fn, builder.func);
+                            let call = builder.ins().call(local, &[cond_val]);
+                            builder.inst_results(call)[0]
+                        } else {
+                            cond_val
+                        };
                         let zero = builder.ins().iconst(types::I64, 0);
-                        let cmp = builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, cond_val, zero);
+                        let cmp = builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, bool_val, zero);
                         let fallthrough = builder.create_block();
                         builder.ins().brif(cmp, target_block, &[], fallthrough, &[]);
                         builder.switch_to_block(fallthrough);

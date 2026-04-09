@@ -184,6 +184,10 @@ fn initialize_jit_module() -> Result<JITModule> {
         "__rts_unbox_number",
         crate::namespaces::abi::__rts_unbox_number as *const u8,
     );
+    builder.symbol(
+        "__rts_is_truthy",
+        crate::namespaces::abi::__rts_is_truthy as *const u8,
+    );
 
     Ok(JITModule::new(builder))
 }

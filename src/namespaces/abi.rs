@@ -592,6 +592,15 @@ pub extern "C" fn __rts_binop(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn __rts_is_truthy(handle: i64) -> i64 {
+    if handle == UNDEFINED_HANDLE {
+        return 0;
+    }
+    let value = read_value(handle);
+    if value.truthy() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn __rts_unbox_number(handle: i64) -> i64 {
     let value = read_value(handle);
     let n = value.to_number();
