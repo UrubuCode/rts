@@ -62,6 +62,45 @@ Compara RTS (run), RTS (compiled), Bun e Node.
 - Runtime slicing: so compila/linka namespaces efetivamente usados
 - Handles numericos (u64) para recursos runtime (buffers, sockets, promises)
 
+## State — REGRA PRINCIPAL DE CONSTRUCAO
+
+**Todo estado de runtime DEVE ser gerenciado via `src/namespaces/state/`.**
+O state e o centralizador de estados da aplicacao, controlado pelo GC.
+
+### O que o state gerencia
+- Mutex nomeados (cada namespace registra o seu por nome)
+- Controle de estados do app (globals, buffers, handles, etc.)
+- Base para o GC deterministico futuro (rastreamento de alocacoes)
+
+### Como usar nos namespaces
+
+```rust
+use crate::namespaces::state::{State, Mutex};
+
+fn lock_net() -> std::sync::MutexGuard<'static, NetState> {
+    let state = Mutex.get_or_init("net", Mutex::new(NetState::default()));
+    match state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+```
+
+### Exports base do state
+
+```rust
+use crate::namespaces::state::{State, Mutex, Globals};
+```
+
+### O que NAO fazer
+- **NAO criar `OnceLock`/`Mutex` soltos dentro dos namespaces** — usar o state centralizado
+- **NAO adicionar funcoes de logica de namespace dentro de `state/*.rs`** — o state so expoe primitivas de gerenciamento (Mutex, State, Globals)
+- **NAO acessar `std::sync::OnceLock` diretamente** — sempre via `crate::namespaces::state`
+
+### Separacao de responsabilidades
+- `state/*.rs` → primitivas de gerenciamento: Mutex nomeado, State, Globals, rastreamento GC
+- `<namespace>/mod.rs` → logica do namespace: SPEC, dispatch, operacoes (usa state para storage)
+
 ## Docs e especificacoes
 
 A pasta `docs/specs/` contem especificacoes de features, decisoes de design e notas tecnicas.

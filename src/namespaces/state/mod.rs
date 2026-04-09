@@ -1,9 +1,111 @@
+//! Centralized runtime state manager.
+//!
+//! Every namespace that needs persistent state MUST register it here via
+//! `Mutex::get_or_init("name", ...)`. Direct `OnceLock`/`Mutex` creation inside
+//! namespaces is forbidden — all state flows through this module so the future
+//! GC can track allocations.
+//!
+//! This module exposes **primitives only** (Mutex, Globals, executor). Namespace
+//! logic belongs in the respective `namespaces/<name>/mod.rs`.
+
 use sha2::{Digest, Sha256};
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::sync::mpsc;
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, OnceLock};
 use std::thread;
 use std::time::Duration;
+
+// ---------------------------------------------------------------------------
+// Named Mutex registry — the core state primitive
+// ---------------------------------------------------------------------------
+
+/// Thread-safe named-mutex registry.  Each namespace registers its own state
+/// under a unique string key.  The registry guarantees that `get_or_init` is
+/// called at most once per key and returns the same `Arc` on every subsequent
+/// call.
+pub struct NamedMutex {
+    slots: std::sync::Mutex<BTreeMap<&'static str, Arc<dyn Any + Send + Sync>>>,
+}
+
+impl NamedMutex {
+    const fn new() -> Self {
+        Self {
+            slots: std::sync::Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// Returns the mutex for `name`, creating it with `init` on first access.
+    pub fn get_or_init<T: Send + Sync + 'static>(
+        &self,
+        name: &'static str,
+        init: std::sync::Mutex<T>,
+    ) -> Arc<std::sync::Mutex<T>> {
+        let mut slots = match self.slots.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        if let Some(existing) = slots.get(name) {
+            return existing
+                .clone()
+                .downcast::<std::sync::Mutex<T>>()
+                .expect("state type mismatch for named mutex");
+        }
+
+        let arc: Arc<std::sync::Mutex<T>> = Arc::new(init);
+        slots.insert(name, arc.clone() as Arc<dyn Any + Send + Sync>);
+        arc
+    }
+}
+
+/// Global singleton — the single entry point for all runtime state.
+pub static Mutex: NamedMutex = NamedMutex::new();
+
+// ---------------------------------------------------------------------------
+// Globals — key/value string storage
+// ---------------------------------------------------------------------------
+
+pub struct Globals;
+
+impl Globals {
+    pub fn set(key: impl Into<String>, value: impl Into<String>) {
+        let mut state = lock_state();
+        state.global.insert(key.into(), value.into());
+    }
+
+    pub fn get(key: &str) -> Option<String> {
+        let state = lock_state();
+        state.global.get(key).cloned()
+    }
+
+    pub fn has(key: &str) -> bool {
+        let state = lock_state();
+        state.global.contains_key(key)
+    }
+
+    pub fn delete(key: &str) -> bool {
+        let mut state = lock_state();
+        state.global.remove(key).is_some()
+    }
+
+    pub fn keys_csv() -> String {
+        let state = lock_state();
+        state.global.keys().cloned().collect::<Vec<_>>().join(",")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// State — convenience re-export for namespace authors
+// ---------------------------------------------------------------------------
+
+/// Marker / convenience type so namespaces can write
+/// `use crate::namespaces::state::{State, Mutex, Globals};`
+pub struct State;
+
+// ---------------------------------------------------------------------------
+// Core runtime state (private — managed via public functions below)
+// ---------------------------------------------------------------------------
 
 type RuntimeJob = Box<dyn FnOnce() + Send + 'static>;
 
@@ -42,14 +144,14 @@ enum PromiseResult {
 
 #[derive(Debug)]
 struct PromiseCell {
-    result: Mutex<PromiseResult>,
+    result: std::sync::Mutex<PromiseResult>,
     ready: Condvar,
 }
 
 impl PromiseCell {
     fn pending() -> Self {
         Self {
-            result: Mutex::new(PromiseResult::Pending),
+            result: std::sync::Mutex::new(PromiseResult::Pending),
             ready: Condvar::new(),
         }
     }
@@ -100,7 +202,7 @@ impl RuntimeExecutor {
     fn new(worker_count: usize) -> Self {
         let workers = worker_count.max(2);
         let (sender, receiver) = mpsc::channel::<RuntimeJob>();
-        let shared_receiver = Arc::new(Mutex::new(receiver));
+        let shared_receiver = Arc::new(std::sync::Mutex::new(receiver));
 
         for index in 0..workers {
             let worker_receiver = Arc::clone(&shared_receiver);
@@ -142,7 +244,7 @@ struct RuntimeState {
 }
 
 struct RuntimeServices {
-    state: Mutex<RuntimeState>,
+    state: std::sync::Mutex<RuntimeState>,
     executor: RuntimeExecutor,
 }
 
@@ -150,7 +252,7 @@ static RUNTIME_SERVICES: OnceLock<RuntimeServices> = OnceLock::new();
 
 fn services() -> &'static RuntimeServices {
     RUNTIME_SERVICES.get_or_init(|| RuntimeServices {
-        state: Mutex::new(RuntimeState::default()),
+        state: std::sync::Mutex::new(RuntimeState::default()),
         executor: RuntimeExecutor::new(
             thread::available_parallelism()
                 .map(usize::from)
@@ -163,37 +265,40 @@ fn lock_state() -> std::sync::MutexGuard<'static, RuntimeState> {
     lock_or_recover(&services().state)
 }
 
-fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
 }
 
+// ---------------------------------------------------------------------------
+// Globals (delegating to Globals struct — kept for backward compat)
+// ---------------------------------------------------------------------------
+
 pub fn global_set(key: impl Into<String>, value: impl Into<String>) {
-    let mut state = lock_state();
-    state.global.insert(key.into(), value.into());
+    Globals::set(key, value);
 }
 
 pub fn global_get(key: &str) -> Option<String> {
-    let state = lock_state();
-    state.global.get(key).cloned()
+    Globals::get(key)
 }
 
 pub fn global_has(key: &str) -> bool {
-    let state = lock_state();
-    state.global.contains_key(key)
+    Globals::has(key)
 }
 
 pub fn global_delete(key: &str) -> bool {
-    let mut state = lock_state();
-    state.global.remove(key).is_some()
+    Globals::delete(key)
 }
 
 pub fn global_keys_csv() -> String {
-    let state = lock_state();
-    state.global.keys().cloned().collect::<Vec<_>>().join(",")
+    Globals::keys_csv()
 }
+
+// ---------------------------------------------------------------------------
+// Buffers
+// ---------------------------------------------------------------------------
 
 pub fn buffer_alloc(size: usize) -> u64 {
     let mut state = lock_state();
@@ -295,6 +400,10 @@ pub fn buffer_copy(
     Some(payload.len())
 }
 
+// ---------------------------------------------------------------------------
+// Crypto
+// ---------------------------------------------------------------------------
+
 pub fn hash_sha256(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
@@ -306,6 +415,10 @@ pub fn hash_sha256(value: &str) -> String {
     }
     output
 }
+
+// ---------------------------------------------------------------------------
+// Filesystem
+// ---------------------------------------------------------------------------
 
 pub fn fs_read_to_string(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|error| {
@@ -336,6 +449,10 @@ pub fn fs_write(path: &str, data: &[u8]) -> Result<(), String> {
         )
     })
 }
+
+// ---------------------------------------------------------------------------
+// Promises
+// ---------------------------------------------------------------------------
 
 pub fn promise_resolve(value: impl Into<String>) -> u64 {
     let value = value.into();
@@ -473,5 +590,14 @@ mod tests {
         });
         let hash = promise_await(async_hash).expect("promise should exist");
         assert!(hash.is_ok());
+    }
+
+    #[test]
+    fn named_mutex_registers_and_retrieves() {
+        let m1 = Mutex.get_or_init("test_ns", std::sync::Mutex::new(42u64));
+        let m2 = Mutex.get_or_init("test_ns", std::sync::Mutex::new(999u64));
+        // Should be the same Arc — init is ignored on second call
+        assert_eq!(*lock_or_recover(&m1), 42);
+        assert_eq!(*lock_or_recover(&m2), 42);
     }
 }

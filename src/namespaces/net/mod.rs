@@ -1,16 +1,17 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write as IoWrite};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::namespaces::lang::JsValue;
+use crate::namespaces::state::{self, Mutex};
 
 use super::io;
 use super::{arg_to_string, arg_to_usize_or_default, DispatchOutcome, NamespaceMember, NamespaceSpec};
 
 // ---------------------------------------------------------------------------
-// Handle storage (private to this module)
+// Handle storage (registered in the central state)
 // ---------------------------------------------------------------------------
 
 enum NetHandle {
@@ -32,14 +33,11 @@ impl Default for NetState {
     }
 }
 
-static NET_STATE: OnceLock<Mutex<NetState>> = OnceLock::new();
-
 fn lock_net() -> std::sync::MutexGuard<'static, NetState> {
-    let state = NET_STATE.get_or_init(|| Mutex::new(NetState::default()));
-    match state.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+    let state = Mutex.get_or_init("net", std::sync::Mutex::new(NetState::default()));
+    // leak the Arc so we get a 'static guard — safe because the named mutex lives forever
+    let leaked: &'static std::sync::Mutex<NetState> = unsafe { &*Arc::as_ptr(&state) };
+    state::lock_or_recover(leaked)
 }
 
 fn alloc_handle(handle: NetHandle) -> u64 {
@@ -61,7 +59,6 @@ fn net_listen(host: &str, port: u16) -> Result<u64, String> {
 }
 
 fn net_accept(listener_id: u64) -> Result<u64, String> {
-    // Take the listener out briefly to avoid holding the lock during accept()
     let listener = {
         let mut state = lock_net();
         match state.handles.remove(&listener_id) {
@@ -76,7 +73,6 @@ fn net_accept(listener_id: u64) -> Result<u64, String> {
 
     let result = listener.accept();
 
-    // Put the listener back
     {
         let mut state = lock_net();
         state.handles.insert(listener_id, NetHandle::Listener(listener));
