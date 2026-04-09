@@ -29,3 +29,4 @@ target
 
 /target
 debug_*
+.claude/settings.local.json

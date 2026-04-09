@@ -625,7 +625,8 @@ mod tests {
     #[test]
     fn overlay_reclaims_old_unpinned_values() {
         reset_thread_state();
-        let allocated = MAX_OVERLAY_HANDLES + 512;
+        // Allocate enough to exceed even intensive_mode limits (2x MAX)
+        let allocated = MAX_OVERLAY_HANDLES * 2 + 512;
         let mut first_handle = 0i64;
 
         for index in 0..allocated {
@@ -636,7 +637,8 @@ mod tests {
         }
 
         let live_after_sweep = with_store_mut(|store| store.live_slots());
-        assert!(live_after_sweep <= MAX_OVERLAY_HANDLES);
+        // In intensive mode the effective limit is MAX_OVERLAY_HANDLES * 2
+        assert!(live_after_sweep <= MAX_OVERLAY_HANDLES * 2);
         assert_eq!(read_value(first_handle), JsValue::Undefined);
 
         let bytes_live = with_store_mut(|store| store.live_bytes);

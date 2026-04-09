@@ -1451,9 +1451,10 @@ mod tests {
         let mir = typed_build(&hir);
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
+        // If statements are now lowered natively with JumpIf/Label
         assert!(instructions
             .iter()
-            .any(|i| matches!(i, MirInstruction::RuntimeEval(_, _))));
+            .any(|i| matches!(i, MirInstruction::JumpIf(_, _))));
     }
 
     #[test]
