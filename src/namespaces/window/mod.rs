@@ -4,7 +4,7 @@ mod win32;
 use crate::namespaces::lang::JsValue;
 
 use super::io;
-use super::{arg_to_string, arg_to_usize_or_default, DispatchOutcome, NamespaceMember, NamespaceSpec};
+use super::{arg_to_string, arg_to_u8, arg_to_usize_or_default, DispatchOutcome, NamespaceMember, NamespaceSpec};
 
 const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
@@ -48,6 +48,30 @@ const MEMBERS: &[NamespaceMember] = &[
         callee: "window.poll_event",
         doc: "Polls the next window event. Returns event string or \"none\".",
         ts_signature: "poll_event(): str",
+    },
+    NamespaceMember {
+        name: "fill_rect",
+        callee: "window.fill_rect",
+        doc: "Fills a rectangle with a color (r,g,b 0-255).",
+        ts_signature: "fill_rect(handle: u64, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8): io.Result<void>",
+    },
+    NamespaceMember {
+        name: "draw_text",
+        callee: "window.draw_text",
+        doc: "Draws text at position (x,y) with a color.",
+        ts_signature: "draw_text(handle: u64, text: str, x: i32, y: i32, r: u8, g: u8, b: u8): io.Result<void>",
+    },
+    NamespaceMember {
+        name: "set_pixel",
+        callee: "window.set_pixel",
+        doc: "Sets a single pixel color.",
+        ts_signature: "set_pixel(handle: u64, x: i32, y: i32, r: u8, g: u8, b: u8): io.Result<void>",
+    },
+    NamespaceMember {
+        name: "clear",
+        callee: "window.clear",
+        doc: "Clears the entire window with a background color.",
+        ts_signature: "clear(handle: u64, r: u8, g: u8, b: u8): io.Result<void>",
     },
 ];
 
@@ -124,6 +148,59 @@ fn dispatch_win32(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
         "window.poll_event" => {
             let event = win32::poll_event();
             Some(DispatchOutcome::Value(JsValue::String(event)))
+        }
+        "window.fill_rect" if args.len() >= 8 => {
+            let id = args[0].to_number() as u64;
+            let x = arg_to_usize_or_default(args, 1, 0) as i32;
+            let y = arg_to_usize_or_default(args, 2, 0) as i32;
+            let w = arg_to_usize_or_default(args, 3, 0) as i32;
+            let h = arg_to_usize_or_default(args, 4, 0) as i32;
+            let r = arg_to_u8(args, 5);
+            let g = arg_to_u8(args, 6);
+            let b = arg_to_u8(args, 7);
+            let result = match win32::fill_rect(id, x, y, w, h, r, g, b) {
+                Ok(()) => io::result_ok(JsValue::Undefined),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "window.draw_text" if args.len() >= 7 => {
+            let id = args[0].to_number() as u64;
+            let text = arg_to_string(args, 1);
+            let x = arg_to_usize_or_default(args, 2, 0) as i32;
+            let y = arg_to_usize_or_default(args, 3, 0) as i32;
+            let r = arg_to_u8(args, 4);
+            let g = arg_to_u8(args, 5);
+            let b = arg_to_u8(args, 6);
+            let result = match win32::draw_text(id, &text, x, y, r, g, b) {
+                Ok(()) => io::result_ok(JsValue::Undefined),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "window.set_pixel" if args.len() >= 6 => {
+            let id = args[0].to_number() as u64;
+            let x = arg_to_usize_or_default(args, 1, 0) as i32;
+            let y = arg_to_usize_or_default(args, 2, 0) as i32;
+            let r = arg_to_u8(args, 3);
+            let g = arg_to_u8(args, 4);
+            let b = arg_to_u8(args, 5);
+            let result = match win32::set_pixel(id, x, y, r, g, b) {
+                Ok(()) => io::result_ok(JsValue::Undefined),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "window.clear" if args.len() >= 4 => {
+            let id = args[0].to_number() as u64;
+            let r = arg_to_u8(args, 1);
+            let g = arg_to_u8(args, 2);
+            let b = arg_to_u8(args, 3);
+            let result = match win32::clear(id, r, g, b) {
+                Ok(()) => io::result_ok(JsValue::Undefined),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
         }
         _ => None,
     }

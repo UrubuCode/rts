@@ -7,6 +7,10 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+fn colorref(r: u8, g: u8, b: u8) -> COLORREF {
+    COLORREF(r as u32 | ((g as u32) << 8) | ((b as u32) << 16))
+}
+
 use crate::namespaces::state::{self, Mutex};
 
 // ---------------------------------------------------------------------------
@@ -234,4 +238,62 @@ pub fn poll_event() -> String {
             "none".to_string()
         }
     }
+}
+
+pub fn fill_rect(window_id: u64, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8) -> Result<(), String> {
+    let state = lock_win();
+    let entry = state.windows.get(&window_id)
+        .ok_or_else(|| "window.fill_rect: invalid handle".to_string())?;
+    unsafe {
+        let hdc = GetDC(entry.hwnd());
+        let brush = CreateSolidBrush(colorref(r, g, b));
+        let rect = RECT { left: x, top: y, right: x + w, bottom: y + h };
+        FillRect(hdc, &rect, brush);
+        DeleteObject(brush);
+        ReleaseDC(entry.hwnd(), hdc);
+    }
+    Ok(())
+}
+
+pub fn draw_text(window_id: u64, text: &str, x: i32, y: i32, r: u8, g: u8, b: u8) -> Result<(), String> {
+    let state = lock_win();
+    let entry = state.windows.get(&window_id)
+        .ok_or_else(|| "window.draw_text: invalid handle".to_string())?;
+    let text_wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let hdc = GetDC(entry.hwnd());
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, colorref(r, g, b));
+        TextOutW(hdc, x, y, &text_wide[..text_wide.len() - 1]);
+        ReleaseDC(entry.hwnd(), hdc);
+    }
+    Ok(())
+}
+
+pub fn set_pixel(window_id: u64, x: i32, y: i32, r: u8, g: u8, b: u8) -> Result<(), String> {
+    let state = lock_win();
+    let entry = state.windows.get(&window_id)
+        .ok_or_else(|| "window.set_pixel: invalid handle".to_string())?;
+    unsafe {
+        let hdc = GetDC(entry.hwnd());
+        SetPixel(hdc, x, y, colorref(r, g, b));
+        ReleaseDC(entry.hwnd(), hdc);
+    }
+    Ok(())
+}
+
+pub fn clear(window_id: u64, r: u8, g: u8, b: u8) -> Result<(), String> {
+    let state = lock_win();
+    let entry = state.windows.get(&window_id)
+        .ok_or_else(|| "window.clear: invalid handle".to_string())?;
+    unsafe {
+        let hdc = GetDC(entry.hwnd());
+        let mut rect = RECT::default();
+        GetClientRect(entry.hwnd(), &mut rect);
+        let brush = CreateSolidBrush(colorref(r, g, b));
+        FillRect(hdc, &rect, brush);
+        DeleteObject(brush);
+        ReleaseDC(entry.hwnd(), hdc);
+    }
+    Ok(())
 }
