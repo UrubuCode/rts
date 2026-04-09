@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write as IoWrite};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,6 +17,7 @@ use super::{arg_to_string, arg_to_usize_or_default, DispatchOutcome, NamespaceMe
 enum NetHandle {
     Listener(TcpListener),
     Stream(TcpStream),
+    Udp(UdpSocket),
 }
 
 struct NetState {
@@ -129,6 +130,7 @@ fn net_write(stream_id: u64, data: &str) -> Result<usize, String> {
 fn net_close(handle_id: u64) {
     let mut state = lock_net();
     state.handles.remove(&handle_id);
+    // Drop closes the socket automatically
 }
 
 fn net_set_timeout(stream_id: u64, millis: u64) {
@@ -155,6 +157,10 @@ fn net_local_addr(handle_id: u64) -> Result<String, String> {
             .local_addr()
             .map(|a| a.to_string())
             .map_err(|e| format!("net.local_addr: {e}")),
+        Some(NetHandle::Udp(u)) => u
+            .local_addr()
+            .map(|a| a.to_string())
+            .map_err(|e| format!("net.local_addr: {e}")),
         None => Err("net.local_addr: invalid handle".to_string()),
     }
 }
@@ -167,6 +173,67 @@ fn net_peer_addr(stream_id: u64) -> Result<String, String> {
             .map(|a| a.to_string())
             .map_err(|e| format!("net.peer_addr: {e}")),
         _ => Err("net.peer_addr: handle is not a stream".to_string()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UDP operations
+// ---------------------------------------------------------------------------
+
+fn net_udp_bind(host: &str, port: u16) -> Result<u64, String> {
+    let addr = format!("{host}:{port}");
+    let socket = UdpSocket::bind(&addr).map_err(|e| format!("net.udp_bind('{addr}'): {e}"))?;
+    Ok(alloc_handle(NetHandle::Udp(socket)))
+}
+
+fn net_udp_send_to(socket_id: u64, data: &str, host: &str, port: u16) -> Result<usize, String> {
+    let state = lock_net();
+    match state.handles.get(&socket_id) {
+        Some(NetHandle::Udp(socket)) => {
+            let addr = format!("{host}:{port}");
+            socket
+                .send_to(data.as_bytes(), &addr)
+                .map_err(|e| format!("net.udp_send_to: {e}"))
+        }
+        _ => Err("net.udp_send_to: handle is not a UDP socket".to_string()),
+    }
+}
+
+fn net_udp_recv_from(socket_id: u64, max_bytes: usize) -> Result<(String, String), String> {
+    let state = lock_net();
+    match state.handles.get(&socket_id) {
+        Some(NetHandle::Udp(socket)) => {
+            let mut buf = vec![0u8; max_bytes];
+            let (n, addr) = socket
+                .recv_from(&mut buf)
+                .map_err(|e| format!("net.udp_recv_from: {e}"))?;
+            let data = String::from_utf8_lossy(&buf[..n]).to_string();
+            Ok((data, addr.to_string()))
+        }
+        _ => Err("net.udp_recv_from: handle is not a UDP socket".to_string()),
+    }
+}
+
+fn net_udp_send(socket_id: u64, data: &str) -> Result<usize, String> {
+    let state = lock_net();
+    match state.handles.get(&socket_id) {
+        Some(NetHandle::Udp(socket)) => socket
+            .send(data.as_bytes())
+            .map_err(|e| format!("net.udp_send: {e}")),
+        _ => Err("net.udp_send: handle is not a UDP socket".to_string()),
+    }
+}
+
+fn net_udp_connect(socket_id: u64, host: &str, port: u16) -> Result<(), String> {
+    let state = lock_net();
+    match state.handles.get(&socket_id) {
+        Some(NetHandle::Udp(socket)) => {
+            let addr = format!("{host}:{port}");
+            socket
+                .connect(&addr)
+                .map_err(|e| format!("net.udp_connect: {e}"))
+        }
+        _ => Err("net.udp_connect: handle is not a UDP socket".to_string()),
     }
 }
 
@@ -229,11 +296,42 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the remote address of a TCP stream as \"host:port\".",
         ts_signature: "peer_addr(stream: u64): io.Result<str>",
     },
+    // UDP
+    NamespaceMember {
+        name: "udp_bind",
+        callee: "net.udp_bind",
+        doc: "Creates a UDP socket bound to the given host and port.",
+        ts_signature: "udp_bind(host: str, port: u16): io.Result<u64>",
+    },
+    NamespaceMember {
+        name: "udp_send_to",
+        callee: "net.udp_send_to",
+        doc: "Sends data to a specific address via UDP. Returns bytes sent.",
+        ts_signature: "udp_send_to(socket: u64, data: str, host: str, port: u16): io.Result<usize>",
+    },
+    NamespaceMember {
+        name: "udp_recv_from",
+        callee: "net.udp_recv_from",
+        doc: "Receives data from UDP socket. Returns \"data\\0sender_addr\" (null-separated).",
+        ts_signature: "udp_recv_from(socket: u64, maxBytes?: usize): io.Result<str>",
+    },
+    NamespaceMember {
+        name: "udp_connect",
+        callee: "net.udp_connect",
+        doc: "Associates the UDP socket with a remote address for use with udp_send/read.",
+        ts_signature: "udp_connect(socket: u64, host: str, port: u16): io.Result<void>",
+    },
+    NamespaceMember {
+        name: "udp_send",
+        callee: "net.udp_send",
+        doc: "Sends data on a connected UDP socket. Returns bytes sent.",
+        ts_signature: "udp_send(socket: u64, data: str): io.Result<usize>",
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "net",
-    doc: "TCP networking primitives backed by std::net.",
+    doc: "TCP/UDP networking primitives backed by std::net.",
     members: MEMBERS,
     ts_prelude: &[],
 };
@@ -307,6 +405,55 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let handle_id = args[0].to_number() as u64;
             let result = match net_peer_addr(handle_id) {
                 Ok(addr) => io::result_ok(JsValue::String(addr)),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        // UDP
+        "net.udp_bind" if args.len() >= 2 => {
+            let host = arg_to_string(args, 0);
+            let port = arg_to_usize_or_default(args, 1, 0) as u16;
+            let result = match net_udp_bind(&host, port) {
+                Ok(id) => io::result_ok(JsValue::Number(id as f64)),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "net.udp_send_to" if args.len() >= 4 => {
+            let socket_id = args[0].to_number() as u64;
+            let data = arg_to_string(args, 1);
+            let host = arg_to_string(args, 2);
+            let port = arg_to_usize_or_default(args, 3, 0) as u16;
+            let result = match net_udp_send_to(socket_id, &data, &host, port) {
+                Ok(n) => io::result_ok(JsValue::Number(n as f64)),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "net.udp_recv_from" if !args.is_empty() => {
+            let socket_id = args[0].to_number() as u64;
+            let max_bytes = arg_to_usize_or_default(args, 1, 4096);
+            let result = match net_udp_recv_from(socket_id, max_bytes) {
+                Ok((data, addr)) => io::result_ok(JsValue::String(format!("{data}\0{addr}"))),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "net.udp_connect" if args.len() >= 3 => {
+            let socket_id = args[0].to_number() as u64;
+            let host = arg_to_string(args, 1);
+            let port = arg_to_usize_or_default(args, 2, 0) as u16;
+            let result = match net_udp_connect(socket_id, &host, port) {
+                Ok(()) => io::result_ok(JsValue::Undefined),
+                Err(e) => io::result_err(&e),
+            };
+            Some(DispatchOutcome::Value(result))
+        }
+        "net.udp_send" if args.len() >= 2 => {
+            let socket_id = args[0].to_number() as u64;
+            let data = arg_to_string(args, 1);
+            let result = match net_udp_send(socket_id, &data) {
+                Ok(n) => io::result_ok(JsValue::Number(n as f64)),
                 Err(e) => io::result_err(&e),
             };
             Some(DispatchOutcome::Value(result))
