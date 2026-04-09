@@ -8,15 +8,22 @@ mod value;
 pub use evaluator::RuntimeContext;
 pub use value::JsValue;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::thread;
 
 use anyhow::Result;
+use crate::namespaces::state::central;
 
 const EXPR_CACHE_MAX_ENTRIES: usize = 512;
 
-thread_local! {
-    static EXPR_CACHE: RefCell<HashMap<u64, ast::Expression>> = RefCell::new(HashMap::new());
+fn expr_cache_key() -> String {
+    format!("expr_cache_thread_{:?}", thread::current().id())
+}
+
+fn with_expr_cache<R>(f: impl FnOnce(&mut HashMap<u64, ast::Expression>) -> R) -> R {
+    let cache_state = central().cache::<HashMap<u64, ast::Expression>>(&expr_cache_key());
+    let mut guard = cache_state.lock().unwrap();
+    f(&mut *guard)
 }
 
 fn hash_input(input: &str) -> u64 {
@@ -27,7 +34,7 @@ fn hash_input(input: &str) -> u64 {
 }
 
 pub fn reset_caches() {
-    EXPR_CACHE.with(|cache| cache.borrow_mut().clear());
+    with_expr_cache(|cache| cache.clear());
     statement::reset_script_cache();
 }
 
@@ -35,8 +42,8 @@ pub fn evaluate_expression(input: &str, runtime: &mut dyn RuntimeContext) -> Res
     let key = hash_input(input);
 
     // Try cache first
-    let cached = EXPR_CACHE.with(|cache| {
-        cache.borrow().get(&key).cloned()
+    let cached = with_expr_cache(|cache| {
+        cache.get(&key).cloned()
     });
 
     if let Some(expression) = cached {
@@ -47,8 +54,7 @@ pub fn evaluate_expression(input: &str, runtime: &mut dyn RuntimeContext) -> Res
     let tokens = lexer::tokenize(input)?;
     let expression = parser::parse_expression(tokens)?;
 
-    EXPR_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
+    with_expr_cache(|cache| {
         if cache.len() >= EXPR_CACHE_MAX_ENTRIES {
             cache.clear();
         }

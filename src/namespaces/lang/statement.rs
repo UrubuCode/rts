@@ -18,6 +18,8 @@ struct CachedScript {
     script: Script,
 }
 
+// NOTE: Cannot migrate to central state - Lrc<SourceMap> does not implement std Send/Sync
+// swc uses custom Send/Sync traits which are incompatible with central state requirements
 thread_local! {
     static SCRIPT_CACHE: RefCell<HashMap<u64, CachedScript>> = RefCell::new(HashMap::new());
 }
