@@ -106,15 +106,10 @@ pub fn define_typed_function<M: Module>(
         let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
         let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
-        builder.switch_to_block(entry_block);
-        builder.seal_block(entry_block);
 
         let entry_params = builder.block_params(entry_block).to_vec();
         let mut vreg_map = BTreeMap::<VReg, Value>::new();
         let mut vreg_kinds = BTreeMap::<VReg, VRegKind>::new();
-        let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
-        let mut default_return_is_native = false;
-        let mut terminated = false;
 
         let instructions: Vec<_> = function
             .blocks
@@ -122,9 +117,41 @@ pub fn define_typed_function<M: Module>(
             .flat_map(|block| block.instructions.iter())
             .collect();
 
+        // --- Pass 1: Create Cranelift blocks for all labels ---
+        let mut label_blocks = BTreeMap::<String, cranelift_codegen::ir::Block>::new();
+        for instruction in &instructions {
+            if let MirInstruction::Label(name) = instruction {
+                if !label_blocks.contains_key(name.as_str()) {
+                    let block = builder.create_block();
+                    label_blocks.insert(name.clone(), block);
+                }
+            }
+        }
+
+        // Also create a dedicated exit block for break statements
+        let exit_block = builder.create_block();
+
+        builder.switch_to_block(entry_block);
+        builder.seal_block(entry_block);
+
+        let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+        let mut default_return_is_native = false;
+        let mut terminated = false;
+
+        // --- Pass 2: Emit instructions with real control flow ---
         for instruction in &instructions {
             if terminated {
-                break;
+                // If we hit a label after termination, switch to that block
+                if let MirInstruction::Label(name) = instruction {
+                    if let Some(&target_block) = label_blocks.get(name.as_str()) {
+                        builder.switch_to_block(target_block);
+                        builder.seal_block(target_block);
+                        terminated = false;
+                    }
+                }
+                if terminated { continue; }
+                // Re-check current instruction (Label was handled above, skip it)
+                if matches!(instruction, MirInstruction::Label(_)) { continue; }
             }
 
             match instruction {
@@ -524,92 +551,109 @@ pub fn define_typed_function<M: Module>(
                     // No-op: imports are resolved at link time
                 }
 
-                MirInstruction::Jump(_label) => {
-                    // TODO: Implement proper jump handling
-                    // For now, treat as no-op since we're using linear instruction stream
+                MirInstruction::Jump(label) => {
+                    if let Some(&target_block) = label_blocks.get(label.as_str()) {
+                        builder.ins().jump(target_block, &[]);
+                        terminated = true;
+                    }
                 }
 
-                MirInstruction::JumpIf(_condition, _label) => {
-                    // TODO: Implement proper conditional jump handling
-                    // For now, treat as no-op since we're using linear instruction stream
+                MirInstruction::JumpIf(condition, label) => {
+                    if let Some(&target_block) = label_blocks.get(label.as_str()) {
+                        let cond_val = resolve_vreg(&vreg_map, condition, &mut builder);
+                        // Treat non-zero as true
+                        let zero = builder.ins().iconst(types::I64, 0);
+                        let cmp = builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::NotEqual, cond_val, zero);
+                        let fallthrough = builder.create_block();
+                        builder.ins().brif(cmp, target_block, &[], fallthrough, &[]);
+                        builder.switch_to_block(fallthrough);
+                        builder.seal_block(fallthrough);
+                    }
                 }
 
-                MirInstruction::JumpIfNot(_condition, _label) => {
-                    // TODO: Implement proper conditional jump handling
-                    // For now, treat as no-op since we're using linear instruction stream
+                MirInstruction::JumpIfNot(condition, label) => {
+                    if let Some(&target_block) = label_blocks.get(label.as_str()) {
+                        let cond_val = resolve_vreg(&vreg_map, condition, &mut builder);
+                        let zero = builder.ins().iconst(types::I64, 0);
+                        let cmp = builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, cond_val, zero);
+                        let fallthrough = builder.create_block();
+                        builder.ins().brif(cmp, target_block, &[], fallthrough, &[]);
+                        builder.switch_to_block(fallthrough);
+                        builder.seal_block(fallthrough);
+                    }
                 }
 
-                MirInstruction::Label(_label) => {
-                    // TODO: Implement proper label handling
-                    // For now, treat as no-op since we're using linear instruction stream
+                MirInstruction::Label(label) => {
+                    if let Some(&target_block) = label_blocks.get(label.as_str()) {
+                        // Fall through from current block to label block
+                        builder.ins().jump(target_block, &[]);
+                        builder.switch_to_block(target_block);
+                        builder.seal_block(target_block);
+                    }
                 }
 
                 MirInstruction::Break => {
-                    // TODO: Implement proper break handling
-                    // For now, treat as no-op
+                    builder.ins().jump(exit_block, &[]);
+                    terminated = true;
                 }
 
                 MirInstruction::Continue => {
-                    // TODO: Implement proper continue handling
-                    // For now, treat as no-op
+                    // Continue jumps back to the nearest loop header
+                    // For now, treat as no-op (requires loop tracking)
                 }
 
-                MirInstruction::SimdConst(dst, _width, values) => {
-                    // Simplified SIMD - just use first value as scalar for now
-                    let scalar_val = values.first().copied().unwrap_or(0.0);
-                    let result = builder.ins().f64const(scalar_val);
-                    let result_i64 = builder.ins().bitcast(types::I64, MemFlags::new(), result);
-                    vreg_map.insert(*dst, result_i64);
+                MirInstruction::SimdConst(dst, width, values) => {
+                    let vec_type = simd_type(*width);
+                    let lane_count = simd_lane_count(*width);
+                    // Build the vector by splatting first value, then inserting others
+                    let first = values.first().copied().unwrap_or(0.0);
+                    let first_f64 = builder.ins().f64const(first);
+                    let mut vec_val = builder.ins().splat(vec_type, first_f64);
+                    for (i, &v) in values.iter().enumerate().skip(1).take(lane_count - 1) {
+                        let lane_val = builder.ins().f64const(v);
+                        vec_val = builder.ins().insertlane(vec_val, lane_val, i as u8);
+                    }
+                    // Store as i64 handle (pointer-width placeholder for the vector SSA value)
+                    vreg_map.insert(*dst, vec_val);
                     vreg_kinds.insert(*dst, VRegKind::NativeF64);
                 }
 
-                MirInstruction::SimdOp(dst, op, _width, lhs, rhs) => {
-                    // Simplified SIMD - operate on scalars for now
+                MirInstruction::SimdOp(dst, op, width, lhs, rhs) => {
                     let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
                     let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
 
-                    let lhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), lhs_val);
-                    let rhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), rhs_val);
-
-                    let result_f64 = match op {
-                        SimdOp::Add => builder.ins().fadd(lhs_f64, rhs_f64),
-                        SimdOp::Sub => builder.ins().fsub(lhs_f64, rhs_f64),
-                        SimdOp::Mul => builder.ins().fmul(lhs_f64, rhs_f64),
-                        SimdOp::Div => builder.ins().fdiv(lhs_f64, rhs_f64),
-                        SimdOp::Max => builder.ins().fmax(lhs_f64, rhs_f64),
-                        SimdOp::Min => builder.ins().fmin(lhs_f64, rhs_f64),
-                        SimdOp::Sqrt => builder.ins().sqrt(lhs_f64),
+                    let result = match op {
+                        SimdOp::Add => builder.ins().fadd(lhs_val, rhs_val),
+                        SimdOp::Sub => builder.ins().fsub(lhs_val, rhs_val),
+                        SimdOp::Mul => builder.ins().fmul(lhs_val, rhs_val),
+                        SimdOp::Div => builder.ins().fdiv(lhs_val, rhs_val),
+                        SimdOp::Max => builder.ins().fmax(lhs_val, rhs_val),
+                        SimdOp::Min => builder.ins().fmin(lhs_val, rhs_val),
+                        SimdOp::Sqrt => builder.ins().sqrt(lhs_val),
                         SimdOp::FMA => {
-                            // FMA: lhs * rhs + lhs (simplified)
-                            let mul = builder.ins().fmul(lhs_f64, rhs_f64);
-                            builder.ins().fadd(mul, lhs_f64)
+                            let mul = builder.ins().fmul(lhs_val, rhs_val);
+                            builder.ins().fadd(mul, lhs_val)
                         }
                     };
 
-                    let result_i64 = builder.ins().bitcast(types::I64, MemFlags::new(), result_f64);
-                    vreg_map.insert(*dst, result_i64);
+                    vreg_map.insert(*dst, result);
                     vreg_kinds.insert(*dst, VRegKind::NativeF64);
                 }
 
                 MirInstruction::SimdLoad(dst, width, base, offset) => {
-                    // TODO: Implement SIMD memory loads
-                    // For now, fallback to scalar load
+                    let vec_type = simd_type(*width);
                     let base_val = resolve_vreg(&vreg_map, base, &mut builder);
                     let addr = builder.ins().iadd_imm(base_val, *offset as i64);
-                    let loaded = builder.ins().load(types::F64, MemFlags::new(), addr, 0);
-                    let result_i64 = builder.ins().bitcast(types::I64, MemFlags::new(), loaded);
-                    vreg_map.insert(*dst, result_i64);
+                    let loaded = builder.ins().load(vec_type, MemFlags::new(), addr, 0);
+                    vreg_map.insert(*dst, loaded);
                     vreg_kinds.insert(*dst, VRegKind::NativeF64);
                 }
 
                 MirInstruction::SimdStore(width, vec, base, offset) => {
-                    // TODO: Implement SIMD memory stores
-                    // For now, fallback to scalar store
                     let vec_val = resolve_vreg(&vreg_map, vec, &mut builder);
                     let base_val = resolve_vreg(&vreg_map, base, &mut builder);
                     let addr = builder.ins().iadd_imm(base_val, *offset as i64);
-                    let vec_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), vec_val);
-                    builder.ins().store(MemFlags::new(), vec_f64, addr, 0);
+                    builder.ins().store(MemFlags::new(), vec_val, addr, 0);
                 }
 
                 MirInstruction::UnrollHint(factor) => {
@@ -628,29 +672,46 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::StrengthReduce(dst, op, lhs, rhs) => {
-                    // Apply strength reduction optimizations at codegen level
                     let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
                     let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
 
                     let result = match op {
                         MirBinOp::Mul => {
-                            // TODO: Check if rhs is power of 2, then use shift
-                            // For now, just do regular multiplication
-                            builder.ins().imul(lhs_val, rhs_val)
-                        }
-                        MirBinOp::Div => {
-                            // TODO: Check if rhs is power of 2, then use right shift
-                            // For now, just do regular division
-                            builder.ins().sdiv(lhs_val, rhs_val)
-                        }
-                        _ => {
-                            // No strength reduction available, use regular operation
-                            match op {
-                                MirBinOp::Add => builder.ins().iadd(lhs_val, rhs_val),
-                                MirBinOp::Sub => builder.ins().isub(lhs_val, rhs_val),
-                                _ => builder.ins().iconst(types::I64, 0), // Fallback
+                            // Try to detect power-of-2 constant for shift optimization
+                            if let Some(MirInstruction::ConstInt32(_, val)) = instructions.iter().find(|i| {
+                                matches!(i, MirInstruction::ConstInt32(r, _) if *r == *rhs)
+                            }) {
+                                let v = *val as u64;
+                                if v.is_power_of_two() && v > 0 {
+                                    let shift = v.trailing_zeros() as i64;
+                                    let shift_val = builder.ins().iconst(types::I64, shift);
+                                    builder.ins().ishl(lhs_val, shift_val)
+                                } else {
+                                    builder.ins().imul(lhs_val, rhs_val)
+                                }
+                            } else {
+                                builder.ins().imul(lhs_val, rhs_val)
                             }
                         }
+                        MirBinOp::Div => {
+                            if let Some(MirInstruction::ConstInt32(_, val)) = instructions.iter().find(|i| {
+                                matches!(i, MirInstruction::ConstInt32(r, _) if *r == *rhs)
+                            }) {
+                                let v = *val as u64;
+                                if v.is_power_of_two() && v > 0 {
+                                    let shift = v.trailing_zeros() as i64;
+                                    let shift_val = builder.ins().iconst(types::I64, shift);
+                                    builder.ins().sshr(lhs_val, shift_val)
+                                } else {
+                                    builder.ins().sdiv(lhs_val, rhs_val)
+                                }
+                            } else {
+                                builder.ins().sdiv(lhs_val, rhs_val)
+                            }
+                        }
+                        MirBinOp::Add => builder.ins().iadd(lhs_val, rhs_val),
+                        MirBinOp::Sub => builder.ins().isub(lhs_val, rhs_val),
+                        _ => builder.ins().imul(lhs_val, rhs_val), // Fallback
                     };
 
                     vreg_map.insert(*dst, result);
@@ -692,14 +753,19 @@ pub fn define_typed_function<M: Module>(
 
         if !terminated {
             let ret_val = if default_return_is_native {
-                // Need to determine which type of native value this is
-                // For simplicity, assume f64 if native (could be improved)
                 box_native_f64(module, func_declarations, &mut builder, default_return)?
             } else {
                 default_return
             };
             builder.ins().return_(&[ret_val]);
         }
+
+        // Seal and finalize the exit block (used by Break)
+        builder.switch_to_block(exit_block);
+        builder.seal_block(exit_block);
+        let exit_ret = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+        builder.ins().return_(&[exit_ret]);
+
         builder.finalize();
     }
 
@@ -854,6 +920,20 @@ fn box_native_i32<M: Module>(
     let local = module.declare_func_in_func(box_fn, builder.func);
     let call = builder.ins().call(local, &[f64_bits]);
     Ok(builder.inst_results(call)[0])
+}
+
+fn simd_type(width: SimdWidth) -> cranelift_codegen::ir::Type {
+    match width {
+        SimdWidth::V128 => types::F64X2,  // 128-bit = 2x f64
+        SimdWidth::V256 => types::F64X2,  // Cranelift doesn't support 256-bit natively, fallback to 128
+    }
+}
+
+fn simd_lane_count(width: SimdWidth) -> usize {
+    match width {
+        SimdWidth::V128 => 2,  // 2x f64
+        SimdWidth::V256 => 2,  // Fallback to 128-bit
+    }
 }
 
 fn binop_to_tag(op: &MirBinOp) -> i64 {
