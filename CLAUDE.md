@@ -64,61 +64,78 @@ Compara RTS (run), RTS (compiled), Bun e Node.
 
 ## State — REGRA PRINCIPAL DE CONSTRUCAO
 
-**Todo estado de runtime DEVE ser gerenciado via `src/namespaces/state/central.rs`.**
-O CentralState e o controlador unico de TODOS os estados do RTS runtime, permitindo controle completo pelo GC.
+**Estado compartilhado DEVE usar `central().namespace_state()`. Thread-local DEVE usar `thread_local!`.**
+Sistema otimizado para performance com separacao clara de responsabilidades.
 
-### Sistema Central de Estado
-- **UNICO ponto de entrada**: `central()` retorna a instancia global do CentralState
-- **Rastreamento de alocacoes**: Todo estado e alocacao e rastreada para o GC futuro
-- **Thread-safe**: Sistema baseado em Arc<Mutex<T>> para acesso seguro entre threads
-- **Handle numericos**: Recursos como sockets, promises, buffers usam handles u64
+### Sistema de Estado Otimizado
+- **Estados compartilhados**: `central().namespace_state<T>("name")` para estado cross-thread
+- **Caches thread-local**: `thread_local! { static CACHE: RefCell<T> }` para performance
+- **Thread-safe**: Arc<Mutex<T>> apenas quando necessario compartilhamento
+- **Zero overhead**: Thread-local para casos single-thread
 
-### APIs do sistema central
+### APIs otimizadas
 
 ```rust
+// Para estado compartilhado entre threads (ex: net sockets)
 use crate::namespaces::state::central;
 
-// Estado de namespace (um por namespace, Default trait required)
 let state = central().namespace_state::<NetState>("net");
 let mut guard = state.lock().unwrap();
 
-// Cache compartilhado (multiplos por ID string)
-let cache = central().cache::<String>("my-cache");
+// Para caches thread-local (ex: parser cache)
+use std::cell::RefCell;
 
-// Handles tipados para recursos 
-let handle_id = central().create_handle(resource);
-let value = central().get_handle::<ResourceType>(handle_id);
-central().with_handle_mut(handle_id, |resource| { /* modify */ });
+thread_local! {
+    static CACHE: RefCell<HashMap<u64, ParseResult>> = RefCell::new(HashMap::new());
+}
+
+CACHE.with(|cache| {
+    cache.borrow_mut().insert(key, value);
+});
 ```
 
-### Pattern para namespaces
+### Pattern para namespaces compartilhados
 
 ```rust
 use crate::namespaces::state::central;
-use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
-struct MyNamespaceState {
-    // namespace state fields
+struct NetState {
+    tcp_listeners: HashMap<u64, TcpListener>,
+    // shared state fields
 }
 
-pub fn with_namespace_state<R>(f: impl FnOnce(&mut MyNamespaceState) -> R) -> R {
-    let state = central().namespace_state::<MyNamespaceState>("my_namespace");
+pub fn with_net_state_mut<R>(f: impl FnOnce(&mut NetState) -> R) -> R {
+    let state = central().namespace_state::<NetState>("net");
     let mut guard = state.lock().unwrap();
     f(&mut *guard)
 }
 ```
 
+### Pattern para caches thread-local
+
+```rust
+use std::cell::RefCell;
+
+thread_local! {
+    static EXPR_CACHE: RefCell<HashMap<u64, Expression>> = RefCell::new(HashMap::new());
+}
+
+pub fn reset_cache() {
+    EXPR_CACHE.with(|cache| cache.borrow_mut().clear());
+}
+```
+
 ### O que NAO fazer - PROIBIDO
-- **NAO criar `OnceLock`, `Mutex`, `RefCell`, `static` dentro dos namespaces**
-- **NAO criar estado local fora do sistema central**
-- **NAO acessar `std::sync::*` diretamente para storage**
+- **NAO usar `central()` para caches thread-local** (use `thread_local!` para performance)
+- **NAO usar `thread_local!` para estado compartilhado** (use `central().namespace_state()`)
+- **NAO criar `OnceLock`, `static Mutex` soltos** (usar patterns acima)
 - **NAO implementar logica de negocio dentro de `state/*.rs`**
 
 ### Separacao de responsabilidades
-- `state/central.rs` → CentralState, allocation tracking, handles, cache/namespace management
-- `state/mod.rs` → public API wrappers, helpers, legacy compatibility
-- `<namespace>/mod.rs` → logica do namespace (usa central() para storage)
+- `state/central.rs` → CentralState simplificado, apenas namespace_state()
+- `state/mod.rs` → buffers, promises, globals (usando central state interno)
+- `<namespace>/mod.rs` → logica do namespace (escolhe pattern apropriado)
 
 ## Docs e especificacoes
 

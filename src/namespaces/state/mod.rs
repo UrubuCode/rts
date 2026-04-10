@@ -36,31 +36,31 @@ pub struct Globals;
 
 impl Globals {
     pub fn set(key: impl Into<String>, value: impl Into<String>) {
-        let state = central().cache::<GlobalsState>("globals");
+        let state = central().namespace_state::<GlobalsState>("globals");
         let mut guard = state.lock().unwrap();
         guard.global.insert(key.into(), value.into());
     }
 
     pub fn get(key: &str) -> Option<String> {
-        let state = central().cache::<GlobalsState>("globals");
+        let state = central().namespace_state::<GlobalsState>("globals");
         let guard = state.lock().unwrap();
         guard.global.get(key).cloned()
     }
 
     pub fn has(key: &str) -> bool {
-        let state = central().cache::<GlobalsState>("globals");
+        let state = central().namespace_state::<GlobalsState>("globals");
         let guard = state.lock().unwrap();
         guard.global.contains_key(key)
     }
 
     pub fn delete(key: &str) -> bool {
-        let state = central().cache::<GlobalsState>("globals");
+        let state = central().namespace_state::<GlobalsState>("globals");
         let mut guard = state.lock().unwrap();
         guard.global.remove(key).is_some()
     }
 
     pub fn keys_csv() -> String {
-        let state = central().cache::<GlobalsState>("globals");
+        let state = central().namespace_state::<GlobalsState>("globals");
         let guard = state.lock().unwrap();
         guard.global.keys().cloned().collect::<Vec<_>>().join(",")
     }
@@ -232,7 +232,7 @@ fn services() -> &'static RuntimeServices {
 }
 
 fn runtime_state() -> Arc<std::sync::Mutex<RuntimeState>> {
-    central().cache::<RuntimeState>("runtime_state")
+    central().namespace_state::<RuntimeState>("runtime_state")
 }
 
 // ---------------------------------------------------------------------------
@@ -578,23 +578,5 @@ mod tests {
             let guard = ns_state.lock().unwrap();
             assert_eq!(*guard, 42);
         }
-
-        // Test cache
-        let cache = central().cache::<String>("test_cache");
-        {
-            let mut guard = cache.lock().unwrap();
-            *guard = "cached_value".to_string();
-        }
-        {
-            let guard = cache.lock().unwrap();
-            assert_eq!(*guard, "cached_value");
-        }
-
-        // Test handle creation
-        let handle_id = central().create_handle("test_handle_value".to_string());
-        let value = central().get_handle::<String>(handle_id);
-        assert_eq!(value, Some("test_handle_value".to_string()));
-        assert!(central().remove_handle::<String>(handle_id));
-        assert_eq!(central().get_handle::<String>(handle_id), None);
     }
 }

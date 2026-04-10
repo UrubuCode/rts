@@ -19,7 +19,8 @@
       "Bash(./debug_bigint_app.exe)",
       "Bash(./debug_overflow_app.exe)",
       "Bash(cargo install:*)",
-      "Bash(cargo machete:*)"
+      "Bash(cargo machete:*)",
+      "Bash(cargo test:*)"
     ]
   }
 }
