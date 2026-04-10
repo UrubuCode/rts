@@ -5,6 +5,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::compile_options::CompileOptions;
 use crate::mir::MirModule;
 use crate::type_system::metadata::MetadataTable;
 
@@ -22,18 +23,39 @@ pub fn generate_typed_object(
     mir: &crate::mir::TypedMirModule,
     output: &Path,
     emit_entrypoint: bool,
-    optimize_for_production: bool,
+    options: &CompileOptions,
 ) -> Result<ObjectArtifact> {
     let bytes = cranelift::object_builder::lower_typed_to_native_object(
         mir,
         &cranelift::object_builder::ObjectBuildOptions {
             emit_entrypoint,
-            optimize_for_production,
+            optimize_for_production: options.profile.as_str() == "production",
         },
     )
     .context("failed to lower typed MIR to native object with Cranelift")?;
 
-    object::write_object_file(output, &bytes)
+    let artifact = object::write_object_file(output, &bytes)?;
+
+    // Em modo desenvolvimento, emite .ometa com localização das funções.
+    if options.profile.is_development() {
+        emit_ometa(mir, output);
+    }
+
+    Ok(artifact)
+}
+
+fn emit_ometa(mir: &crate::mir::TypedMirModule, obj_path: &Path) {
+    use cranelift::ometa::OmetaWriter;
+
+    let mut writer = OmetaWriter::new("development", "");
+    for func in &mir.functions {
+        if let Some(ref src) = func.source_file {
+            writer.add_function(&func.name, 0, 0, src, func.source_line);
+        }
+    }
+    if !writer.is_empty() {
+        let _ = writer.write_to(obj_path);
+    }
 }
 
 pub fn generate_object_with_metadata_options(

@@ -109,7 +109,7 @@ pub fn compile_source_with_options(
         &typed_mir,
         &object_path,
         true,
-        optimize_for_production,
+        &options,
     )?;
     let runtime_objects =
         pipeline::emit_selected_namespace_objects(&deps_dir, &usage, &options)?;

@@ -161,7 +161,7 @@ pub(crate) fn compile_graph(
             &filtered_mir,
             &object_path,
             is_entry_module,
-            optimize_for_production,
+            &options,
         )?;
 
         app_object_bytes += artifact.bytes_written;
@@ -426,7 +426,15 @@ fn emit_fallback_main_object(
             source_line: 0,
         }],
     };
-    codegen::generate_typed_object(&typed_mir, &object_path, true, optimize_for_production)
+    let opts = crate::compile_options::CompileOptions {
+        profile: if optimize_for_production {
+            crate::compile_options::CompilationProfile::Production
+        } else {
+            crate::compile_options::CompilationProfile::Development
+        },
+        ..Default::default()
+    };
+    codegen::generate_typed_object(&typed_mir, &object_path, true, &opts)
 }
 
 fn build_cranelift_namespace_stub_object(

@@ -1482,6 +1482,7 @@ mod tests {
                 ],
                 return_type: None,
                 body: vec!["return a + b;".to_string()],
+                loc: None,
             })],
             functions: vec![HirFunction {
                 name: "add".to_string(),
@@ -1499,6 +1500,7 @@ mod tests {
                 ],
                 return_type: None,
                 body: vec!["return a + b;".to_string()],
+                loc: None,
             }],
             imports: Vec::new(),
             classes: Vec::new(),
