@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::namespaces::value::JsValue;
-use crate::namespaces::lang::{RuntimeContext, evaluate_expression, evaluate_statement};
 
 use super::DispatchOutcome;
 
@@ -326,7 +325,6 @@ fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
 
 pub fn reset_thread_state() {
     with_store_mut(ValueStore::reset);
-    super::lang::reset_caches();
 }
 
 /// C-compatible wrapper for reset_thread_state for AOT linking
@@ -454,31 +452,6 @@ fn dispatch_builtin(callee: &str, args: Vec<JsValue>) -> Result<JsValue, String>
     }
 }
 
-struct AbiEvalContext;
-
-impl RuntimeContext for AbiEvalContext {
-    fn read_identifier(&self, name: &str) -> Option<JsValue> {
-        read_identifier(name)
-    }
-
-    fn call_function(&mut self, callee: &str, args: Vec<JsValue>) -> anyhow::Result<JsValue> {
-        dispatch_builtin(callee, args).map_err(anyhow::Error::msg)
-    }
-
-    fn define_identifier(
-        &mut self,
-        name: &str,
-        value: JsValue,
-        mutable: bool,
-    ) -> anyhow::Result<JsValue> {
-        Ok(bind_identifier_value(name.to_string(), value, mutable))
-    }
-
-    fn write_identifier(&mut self, name: &str, value: JsValue) -> anyhow::Result<JsValue> {
-        write_identifier(name, value).map_err(anyhow::Error::msg)
-    }
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_call_dispatch(
     callee_ptr: i64,
@@ -520,27 +493,15 @@ pub extern "C" fn __rts_bind_identifier(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __rts_eval_expr(expr_ptr: i64, expr_len: i64) -> i64 {
-    let Some(expression) = read_utf8(expr_ptr, expr_len) else {
-        return UNDEFINED_HANDLE;
-    };
-
-    let mut runtime = AbiEvalContext;
-    let value =
-        evaluate_expression(&expression, &mut runtime).unwrap_or_else(|_| JsValue::Undefined);
-    push_value(value)
+pub extern "C" fn __rts_eval_expr(_expr_ptr: i64, _expr_len: i64) -> i64 {
+    eprintln!("RTS: __rts_eval_expr is legacy — use typed codegen");
+    UNDEFINED_HANDLE
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __rts_eval_stmt(stmt_ptr: i64, stmt_len: i64) -> i64 {
-    let Some(statement) = read_utf8(stmt_ptr, stmt_len) else {
-        return UNDEFINED_HANDLE;
-    };
-
-    let mut runtime = AbiEvalContext;
-    let value =
-        evaluate_statement(&statement, &mut runtime).unwrap_or_else(|_| JsValue::Undefined);
-    push_value(value)
+pub extern "C" fn __rts_eval_stmt(_stmt_ptr: i64, _stmt_len: i64) -> i64 {
+    eprintln!("RTS: __rts_eval_stmt is legacy — use typed codegen");
+    UNDEFINED_HANDLE
 }
 
 #[unsafe(no_mangle)]
@@ -656,26 +617,4 @@ mod tests {
         assert!(bytes_live <= TARGET_OVERLAY_BYTES || live_after_sweep == MAX_OVERLAY_HANDLES);
     }
 
-    #[test]
-    fn eval_statement_handles_if_and_for_control_flow() {
-        reset_thread_state();
-
-        let mut runtime = super::AbiEvalContext;
-        let result = super::evaluate_statement(
-            r#"
-            let total = 0;
-            if (true) {
-                total = 1;
-            }
-            for (let i = 0; i < 2; i++) {
-                total = total + 1;
-            }
-            total;
-        "#,
-            &mut runtime,
-        )
-        .expect("statement evaluator should execute control-flow");
-
-        assert_eq!(result, JsValue::Number(3.0));
-    }
 }

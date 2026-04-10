@@ -13,7 +13,6 @@ pub mod fs;
 pub mod gc;
 pub mod global;
 pub mod io;
-pub(crate) mod lang;
 pub mod net;
 pub mod process;
 pub mod promise;
