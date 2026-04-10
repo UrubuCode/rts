@@ -49,6 +49,7 @@ const SPECS: &[NamespaceSpec] = &[
     gc::SPEC,
     rust::SPEC,
     rust::NATIVES_SPEC,
+    rust::HOTOPS_SPEC,
 ];
 
 #[derive(Debug, Clone)]

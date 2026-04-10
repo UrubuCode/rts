@@ -1,5 +1,6 @@
 mod constants;
 mod functions;
+pub mod hotops;
 mod memory;
 pub mod natives;
 mod scope;
@@ -157,6 +158,30 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
+pub const HOTOPS_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember { name: "i64_sub", callee: "rts.hotops.i64_sub", doc: "Subtração i64.", ts_signature: "i64_sub(a: i64, b: i64): i64" },
+    NamespaceMember { name: "i64_div", callee: "rts.hotops.i64_div", doc: "Divisão i64.", ts_signature: "i64_div(a: i64, b: i64): i64" },
+    NamespaceMember { name: "i64_mod", callee: "rts.hotops.i64_mod", doc: "Módulo i64.", ts_signature: "i64_mod(a: i64, b: i64): i64" },
+    NamespaceMember { name: "i64_eq", callee: "rts.hotops.i64_eq", doc: "Igualdade i64.", ts_signature: "i64_eq(a: i64, b: i64): bool" },
+    NamespaceMember { name: "i64_lt", callee: "rts.hotops.i64_lt", doc: "Menor que i64.", ts_signature: "i64_lt(a: i64, b: i64): bool" },
+    NamespaceMember { name: "i64_le", callee: "rts.hotops.i64_le", doc: "Menor ou igual i64.", ts_signature: "i64_le(a: i64, b: i64): bool" },
+    NamespaceMember { name: "f64_add", callee: "rts.hotops.f64_add", doc: "Adição f64.", ts_signature: "f64_add(a: f64, b: f64): f64" },
+    NamespaceMember { name: "f64_sub", callee: "rts.hotops.f64_sub", doc: "Subtração f64.", ts_signature: "f64_sub(a: f64, b: f64): f64" },
+    NamespaceMember { name: "f64_div", callee: "rts.hotops.f64_div", doc: "Divisão f64.", ts_signature: "f64_div(a: f64, b: f64): f64" },
+    NamespaceMember { name: "f64_eq", callee: "rts.hotops.f64_eq", doc: "Igualdade f64.", ts_signature: "f64_eq(a: f64, b: f64): bool" },
+    NamespaceMember { name: "f64_lt", callee: "rts.hotops.f64_lt", doc: "Menor que f64.", ts_signature: "f64_lt(a: f64, b: f64): bool" },
+    NamespaceMember { name: "i64_to_string", callee: "rts.hotops.i64_to_string", doc: "i64 para string (tabela pré-computada para 0..=255).", ts_signature: "i64_to_string(n: i64): u64" },
+    NamespaceMember { name: "f64_to_string", callee: "rts.hotops.f64_to_string", doc: "f64 para string.", ts_signature: "f64_to_string(n: f64): u64" },
+];
+
+pub const HOTOPS_SPEC: NamespaceSpec = NamespaceSpec {
+    name: "rts.hotops",
+    doc: "Operações inline com tipos já conhecidos pelo MIR. \
+          Sem overhead de coerção — tipos são garantidos pelo compilador.",
+    members: HOTOPS_MEMBERS,
+    ts_prelude: &[],
+};
+
 pub const NATIVES_SPEC: NamespaceSpec = NamespaceSpec {
     name: "rts.natives",
     doc: "Extensões C nativas para coerção de tipos mistos. \
@@ -171,4 +196,5 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
         .or_else(|| constants::dispatch(callee, args))
         .or_else(|| memory::dispatch(callee, args))
         .or_else(|| natives::dispatch(callee, args))
+        .or_else(|| hotops::dispatch(callee, args))
 }
