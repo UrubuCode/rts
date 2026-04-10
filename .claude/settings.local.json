@@ -20,7 +20,8 @@
       "Bash(./debug_overflow_app.exe)",
       "Bash(cargo install:*)",
       "Bash(cargo machete:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }
