@@ -1,4 +1,5 @@
 mod constants;
+pub mod debug;
 mod functions;
 pub mod hotops;
 mod memory;
@@ -158,6 +159,34 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
+pub const DEBUG_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "load_metadata",
+        callee: "rts.debug.load_metadata",
+        doc: "Carrega arquivo .ometa, retorna handle numérico.",
+        ts_signature: "load_metadata(path_ptr: u64): u64",
+    },
+    NamespaceMember {
+        name: "resolve_location",
+        callee: "rts.debug.resolve_location",
+        doc: "Resolve offset de PC para localização no arquivo fonte.",
+        ts_signature: "resolve_location(handle: u64, pc_offset: u64): str",
+    },
+    NamespaceMember {
+        name: "format_error",
+        callee: "rts.debug.format_error",
+        doc: "Formata mensagem de erro com localização fonte (modo dev).",
+        ts_signature: "format_error(message_ptr: u64, pc_offset: u64): str",
+    },
+];
+
+pub const DEBUG_SPEC: NamespaceSpec = NamespaceSpec {
+    name: "rts.debug",
+    doc: "Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.",
+    members: DEBUG_MEMBERS,
+    ts_prelude: &[],
+};
+
 pub const HOTOPS_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember { name: "i64_sub", callee: "rts.hotops.i64_sub", doc: "Subtração i64.", ts_signature: "i64_sub(a: i64, b: i64): i64" },
     NamespaceMember { name: "i64_div", callee: "rts.hotops.i64_div", doc: "Divisão i64.", ts_signature: "i64_div(a: i64, b: i64): i64" },
@@ -197,4 +226,5 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
         .or_else(|| memory::dispatch(callee, args))
         .or_else(|| natives::dispatch(callee, args))
         .or_else(|| hotops::dispatch(callee, args))
+        .or_else(|| debug::dispatch(callee, args))
 }
