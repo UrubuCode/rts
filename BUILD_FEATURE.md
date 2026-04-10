@@ -1,4 +1,3 @@
-```markdown
 # BUILD_FEATURE: Rust Namespace Primitives
 
 ## Ideia Central
@@ -594,4 +593,3 @@ Nenhuma etapa requer cargo, rustc ou toolchain no ambiente do usuário.
 | Debug info no HIR → MIR → CL | Só no runtime | Cada camada tem info específica para seu nível |
 | .ometa + DWARF | Apenas DWARF | .ometa é mais rápido para runtime ler que DWARF |
 | .env para modo | Flag apenas | Integração com ecossistema, 12-factor apps |
-```

@@ -6,7 +6,7 @@ mod memory;
 pub mod natives;
 mod scope;
 
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 use crate::namespaces::{DispatchOutcome, NamespaceMember, NamespaceSpec};
 
 const MEMBERS: &[NamespaceMember] = &[

@@ -1,10 +1,102 @@
-use crate::namespaces::lang::JsValue;
-use crate::namespaces::state as runtime_state;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
+use crate::namespaces::value::JsValue;
 
 use super::{
     DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u8, arg_to_u64,
     arg_to_usize, arg_to_usize_or_default,
 };
+
+// ── Estado de buffers ──────────────────────────────────────────────────────────
+
+#[derive(Default)]
+struct BufferState {
+    buffers: BTreeMap<u64, Vec<u8>>,
+    next_id: u64,
+}
+
+static BUFFER_STATE: OnceLock<Arc<Mutex<BufferState>>> = OnceLock::new();
+
+fn state() -> Arc<Mutex<BufferState>> {
+    BUFFER_STATE
+        .get_or_init(|| Arc::new(Mutex::new(BufferState::default())))
+        .clone()
+}
+
+fn buffer_alloc(size: usize) -> u64 {
+    let s = state();
+    let mut s = s.lock().unwrap();
+    s.next_id = s.next_id.saturating_add(1);
+    let id = s.next_id;
+    s.buffers.insert(id, vec![0u8; size]);
+    id
+}
+
+fn buffer_free(id: u64) -> bool {
+    state().lock().unwrap().buffers.remove(&id).is_some()
+}
+
+fn buffer_len(id: u64) -> Option<usize> {
+    state().lock().unwrap().buffers.get(&id).map(Vec::len)
+}
+
+fn buffer_read_u8(id: u64, offset: usize) -> Option<u8> {
+    state().lock().unwrap().buffers.get(&id).and_then(|b| b.get(offset).copied())
+}
+
+fn buffer_write_u8(id: u64, offset: usize, value: u8) -> bool {
+    let s = state();
+    let mut s = s.lock().unwrap();
+    let Some(buf) = s.buffers.get_mut(&id) else { return false };
+    if offset >= buf.len() { return false; }
+    buf[offset] = value;
+    true
+}
+
+fn buffer_fill(id: u64, value: u8) -> bool {
+    let s = state();
+    let mut s = s.lock().unwrap();
+    let Some(buf) = s.buffers.get_mut(&id) else { return false };
+    buf.fill(value);
+    true
+}
+
+fn buffer_write_text(id: u64, offset: usize, text: &str) -> Option<usize> {
+    let s = state();
+    let mut s = s.lock().unwrap();
+    let buf = s.buffers.get_mut(&id)?;
+    let bytes = text.as_bytes();
+    let end = offset.saturating_add(bytes.len());
+    if end > buf.len() { buf.resize(end, 0); }
+    buf[offset..end].copy_from_slice(bytes);
+    Some(bytes.len())
+}
+
+fn buffer_read_text(id: u64, offset: usize, length: usize) -> Option<String> {
+    let s = state();
+    let s = s.lock().unwrap();
+    let buf = s.buffers.get(&id)?;
+    if offset > buf.len() { return None; }
+    let end = offset.saturating_add(length).min(buf.len());
+    Some(String::from_utf8_lossy(&buf[offset..end]).into_owned())
+}
+
+fn buffer_copy(src_id: u64, dst_id: u64, src_offset: usize, dst_offset: usize, length: usize) -> Option<usize> {
+    let s = state();
+    let mut s = s.lock().unwrap();
+    let src = s.buffers.get(&src_id)?;
+    if src_offset > src.len() { return None; }
+    let src_end = src_offset.saturating_add(length).min(src.len());
+    let payload = src[src_offset..src_end].to_vec();
+    let dst = s.buffers.get_mut(&dst_id)?;
+    let dst_end = dst_offset.saturating_add(payload.len());
+    if dst_end > dst.len() { dst.resize(dst_end, 0); }
+    dst[dst_offset..dst_end].copy_from_slice(&payload);
+    Some(payload.len())
+}
+
+// ── Namespace ──────────────────────────────────────────────────────────────────
 
 const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
@@ -73,33 +165,33 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {
         "buffer.alloc" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
-            runtime_state::buffer_alloc(arg_to_usize(args, 0)) as f64,
+            buffer_alloc(arg_to_usize(args, 0)) as f64,
         ))),
         "buffer.free" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            runtime_state::buffer_free(arg_to_u64(args, 0)),
+            buffer_free(arg_to_u64(args, 0)),
         ))),
         "buffer.len" if !args.is_empty() => Some(DispatchOutcome::Value(
-            runtime_state::buffer_len(arg_to_u64(args, 0))
+            buffer_len(arg_to_u64(args, 0))
                 .map(|value| JsValue::Number(value as f64))
                 .unwrap_or(JsValue::Undefined),
         )),
         "buffer.read_u8" if args.len() >= 2 => Some(DispatchOutcome::Value(
-            runtime_state::buffer_read_u8(arg_to_u64(args, 0), arg_to_usize(args, 1))
+            buffer_read_u8(arg_to_u64(args, 0), arg_to_usize(args, 1))
                 .map(|value| JsValue::Number(value as f64))
                 .unwrap_or(JsValue::Undefined),
         )),
         "buffer.write_u8" if args.len() >= 3 => Some(DispatchOutcome::Value(JsValue::Bool(
-            runtime_state::buffer_write_u8(
+            buffer_write_u8(
                 arg_to_u64(args, 0),
                 arg_to_usize(args, 1),
                 arg_to_u8(args, 2),
             ),
         ))),
         "buffer.fill" if args.len() >= 2 => Some(DispatchOutcome::Value(JsValue::Bool(
-            runtime_state::buffer_fill(arg_to_u64(args, 0), arg_to_u8(args, 1)),
+            buffer_fill(arg_to_u64(args, 0), arg_to_u8(args, 1)),
         ))),
         "buffer.write_text" if args.len() >= 2 => Some(DispatchOutcome::Value(
-            runtime_state::buffer_write_text(
+            buffer_write_text(
                 arg_to_u64(args, 0),
                 arg_to_usize_or_default(args, 2, 0),
                 &arg_to_string(args, 1),
@@ -111,10 +203,10 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let id = arg_to_u64(args, 0);
             let offset = arg_to_usize(args, 1);
             let requested =
-                arg_to_usize_or_default(args, 2, runtime_state::buffer_len(id).unwrap_or(0));
+                arg_to_usize_or_default(args, 2, buffer_len(id).unwrap_or(0));
 
             Some(DispatchOutcome::Value(
-                runtime_state::buffer_read_text(id, offset, requested)
+                buffer_read_text(id, offset, requested)
                     .map(JsValue::String)
                     .unwrap_or(JsValue::Undefined),
             ))
@@ -125,10 +217,10 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let src_offset = arg_to_usize_or_default(args, 2, 0);
             let dst_offset = arg_to_usize_or_default(args, 3, 0);
             let length =
-                arg_to_usize_or_default(args, 4, runtime_state::buffer_len(src).unwrap_or(0));
+                arg_to_usize_or_default(args, 4, buffer_len(src).unwrap_or(0));
 
             Some(DispatchOutcome::Value(
-                runtime_state::buffer_copy(src, dst, src_offset, dst_offset, length)
+                buffer_copy(src, dst, src_offset, dst_offset, length)
                     .map(|copied| JsValue::Number(copied as f64))
                     .unwrap_or(JsValue::Undefined),
             ))

@@ -1,5 +1,5 @@
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {

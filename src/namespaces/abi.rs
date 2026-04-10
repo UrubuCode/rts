@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::namespaces::lang::{JsValue, RuntimeContext, evaluate_expression, evaluate_statement};
+use crate::namespaces::value::JsValue;
+use crate::namespaces::lang::{RuntimeContext, evaluate_expression, evaluate_statement};
 
 use super::DispatchOutcome;
 
@@ -616,7 +617,7 @@ pub extern "C" fn __rts_box_number(bits: i64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::namespaces::lang::JsValue;
+    use crate::namespaces::value::JsValue;
 
     use super::{
         MAX_OVERLAY_HANDLES, TARGET_OVERLAY_BYTES, bind_identifier, push_value, read_value,

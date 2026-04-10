@@ -2,7 +2,7 @@
 ///
 /// Diferente de `natives`, aqui os tipos dos operandos são conhecidos em compile time.
 /// `TO_STRING_TABLE` elimina alocações para inteiros 0..=255 (99% dos casos práticos).
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
 
 // Tabela pré-computada: evita alocação e branch complexo para inteiros pequenos.

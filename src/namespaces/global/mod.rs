@@ -1,7 +1,52 @@
-use crate::namespaces::lang::JsValue;
-use crate::namespaces::state as runtime_state;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::namespaces::value::JsValue;
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string};
+
+// ── Estado de globals ──────────────────────────────────────────────────────────
+
+#[derive(Default)]
+struct GlobalState {
+    map: BTreeMap<String, String>,
+}
+
+static GLOBAL_STATE: OnceLock<Arc<Mutex<GlobalState>>> = OnceLock::new();
+
+fn state() -> Arc<Mutex<GlobalState>> {
+    GLOBAL_STATE
+        .get_or_init(|| Arc::new(Mutex::new(GlobalState::default())))
+        .clone()
+}
+
+fn global_set(key: impl Into<String>, value: impl Into<String>) {
+    state().lock().unwrap().map.insert(key.into(), value.into());
+}
+
+fn global_get(key: &str) -> Option<String> {
+    state().lock().unwrap().map.get(key).cloned()
+}
+
+fn global_has(key: &str) -> bool {
+    state().lock().unwrap().map.contains_key(key)
+}
+
+fn global_delete(key: &str) -> bool {
+    state().lock().unwrap().map.remove(key).is_some()
+}
+
+fn global_keys_csv() -> String {
+    state()
+        .lock()
+        .unwrap()
+        .map
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+// ── Namespace ──────────────────────────────────────────────────────────────────
 
 const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
@@ -46,22 +91,22 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {
         "global.set" if args.len() >= 2 => {
-            runtime_state::global_set(arg_to_string(args, 0), arg_to_string(args, 1));
+            global_set(arg_to_string(args, 0), arg_to_string(args, 1));
             Some(DispatchOutcome::Value(JsValue::Undefined))
         }
         "global.get" if !args.is_empty() => Some(DispatchOutcome::Value(
-            runtime_state::global_get(&arg_to_string(args, 0))
+            global_get(&arg_to_string(args, 0))
                 .map(JsValue::String)
                 .unwrap_or(JsValue::Undefined),
         )),
         "global.has" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            runtime_state::global_has(&arg_to_string(args, 0)),
+            global_has(&arg_to_string(args, 0)),
         ))),
         "global.delete" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            runtime_state::global_delete(&arg_to_string(args, 0)),
+            global_delete(&arg_to_string(args, 0)),
         ))),
         "global.keys" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
-            runtime_state::global_keys_csv(),
+            global_keys_csv(),
         ))),
         _ => None,
     }

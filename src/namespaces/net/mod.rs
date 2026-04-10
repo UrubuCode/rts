@@ -3,7 +3,7 @@ mod tcp;
 mod udp;
 mod ip;
 
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 use crate::namespaces::{arg_to_u64, DispatchOutcome, NamespaceMember, NamespaceSpec};
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {

@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
 
 #[derive(Debug, Clone)]

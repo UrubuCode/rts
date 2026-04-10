@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::namespaces::lang::JsValue;
+pub mod value;
+pub use value::JsValue;
 
 pub mod abi;
 pub mod buffer;
@@ -17,7 +18,6 @@ pub mod net;
 pub mod process;
 pub mod promise;
 pub mod rust;
-pub(crate) mod state;
 pub mod task;
 
 #[derive(Debug, Clone, Copy)]

@@ -1,6 +1,6 @@
-use crate::namespaces::lang::JsValue;
-use crate::namespaces::state as runtime_state;
+use sha2::{Digest, Sha256};
 
+use crate::namespaces::value::JsValue;
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string};
 
 const MEMBERS: &[NamespaceMember] = &[NamespaceMember {
@@ -20,8 +20,19 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {
         "crypto.sha256" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
-            runtime_state::hash_sha256(&arg_to_string(args, 0)),
+            hash_sha256(&arg_to_string(args, 0)),
         ))),
         _ => None,
     }
+}
+
+pub fn hash_sha256(value: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(value.as_bytes());
+    let digest = h.finalize();
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }

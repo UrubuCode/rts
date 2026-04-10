@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 
 static CONST_REGISTRY: OnceLock<Arc<Mutex<HashMap<u64, u64>>>> = OnceLock::new();
 

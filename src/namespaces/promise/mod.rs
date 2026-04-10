@@ -1,5 +1,5 @@
-use crate::namespaces::lang::JsValue;
-use crate::namespaces::state as runtime_state;
+use crate::namespaces::value::JsValue;
+use crate::namespaces::task::executor as runtime_state;
 
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64};
 

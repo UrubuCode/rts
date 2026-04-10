@@ -1,5 +1,4 @@
-use crate::namespaces::lang::JsValue;
-use crate::namespaces::state as runtime_state;
+use crate::namespaces::value::JsValue;
 
 use super::io;
 use super::{
@@ -39,17 +38,23 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {
         "fs.read_to_string" if !args.is_empty() => {
             let path = arg_to_string(args, 0);
-            let result = match runtime_state::fs_read_to_string(&path) {
+            let result = match std::fs::read_to_string(&path) {
                 Ok(content) => io::result_ok(JsValue::String(content)),
-                Err(error) => io::result_err(&error),
+                Err(e) => io::result_err(&format!(
+                    "fs::read_to_string('{}') failed: {e}",
+                    path.replace('\\', "/")
+                )),
             };
             Some(DispatchOutcome::Value(result))
         }
         "fs.read" if !args.is_empty() => {
             let path = arg_to_string(args, 0);
-            let result = match runtime_state::fs_read(&path) {
+            let result = match std::fs::read(&path) {
                 Ok(bytes) => io::result_ok(JsValue::String(format!("hex:{}", hex_encode(&bytes)))),
-                Err(error) => io::result_err(&error),
+                Err(e) => io::result_err(&format!(
+                    "fs::read('{}') failed: {e}",
+                    path.replace('\\', "/")
+                )),
             };
             Some(DispatchOutcome::Value(result))
         }
@@ -58,9 +63,12 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let raw_data = arg_to_value(args, 1).to_js_string();
             let payload =
                 decode_hex_payload(&raw_data).unwrap_or_else(|| raw_data.as_bytes().to_vec());
-            let result = match runtime_state::fs_write(&path, &payload) {
+            let result = match std::fs::write(&path, &payload) {
                 Ok(()) => io::result_ok(JsValue::Undefined),
-                Err(error) => io::result_err(&error),
+                Err(e) => io::result_err(&format!(
+                    "fs::write('{}') failed: {e}",
+                    path.replace('\\', "/")
+                )),
             };
             Some(DispatchOutcome::Value(result))
         }

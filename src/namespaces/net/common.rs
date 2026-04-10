@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 
 // ── Net state ────────────────────────────────────────────────────────────────
 

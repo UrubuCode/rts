@@ -1,6 +1,8 @@
-use crate::namespaces::lang::JsValue;
-use crate::namespaces::state::{self as runtime_state, AsyncTask};
+pub(crate) mod executor;
+pub use executor::{AsyncTask, PromiseStatus, promise_resolve, promise_reject,
+                   promise_spawn, promise_status, promise_is_settled, promise_await};
 
+use crate::namespaces::value::JsValue;
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64};
 
 const MEMBERS: &[NamespaceMember] = &[
@@ -54,27 +56,27 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             };
 
             Some(DispatchOutcome::Value(JsValue::Number(
-                runtime_state::promise_spawn(AsyncTask::Sleep { millis, value }) as f64,
+                promise_spawn(AsyncTask::Sleep { millis, value }) as f64,
             )))
         }
         "task.hash_sha256" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
-            runtime_state::promise_spawn(AsyncTask::HashSha256 {
+            promise_spawn(AsyncTask::HashSha256 {
                 data: arg_to_string(args, 0),
             }) as f64,
         ))),
         "task.read_text_file" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
-            runtime_state::promise_spawn(AsyncTask::ReadTextFile {
+            promise_spawn(AsyncTask::ReadTextFile {
                 path: arg_to_string(args, 0),
             }) as f64,
         ))),
         "task.write_text_file" if args.len() >= 2 => Some(DispatchOutcome::Value(JsValue::Number(
-            runtime_state::promise_spawn(AsyncTask::WriteTextFile {
+            promise_spawn(AsyncTask::WriteTextFile {
                 path: arg_to_string(args, 0),
                 content: arg_to_string(args, 1),
             }) as f64,
         ))),
         "task.append_text_file" if args.len() >= 2 => Some(DispatchOutcome::Value(
-            JsValue::Number(runtime_state::promise_spawn(AsyncTask::AppendTextFile {
+            JsValue::Number(promise_spawn(AsyncTask::AppendTextFile {
                 path: arg_to_string(args, 0),
                 content: arg_to_string(args, 1),
             }) as f64),

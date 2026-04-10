@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 
 thread_local! {
     static SCOPE_STACK: RefCell<Vec<HashMap<u64, u64>>> = RefCell::new(vec![]);

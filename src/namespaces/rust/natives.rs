@@ -2,7 +2,7 @@
 ///
 /// O HIR injeta chamadas a `rts.natives.*` quando detecta operandos de tipos
 /// incompatíveis em tempo de compilação. Sem estado — operações puras.
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 use crate::namespaces::{DispatchOutcome, arg_to_value};
 
 fn coerce_to_number(v: &JsValue) -> f64 {

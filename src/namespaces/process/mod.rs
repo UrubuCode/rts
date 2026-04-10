@@ -1,4 +1,4 @@
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 
 use super::{
     DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64,

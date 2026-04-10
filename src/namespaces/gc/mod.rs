@@ -18,7 +18,7 @@ pub use arena::{
 };
 pub use collect::{enter_scope, exit_scope, notify_alloc, safe_collect, scope_depth};
 
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 use crate::namespaces::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64, arg_to_u8};
 
 // ── Spec ────────────────────────────────────────────────────────────────────

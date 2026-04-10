@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, UdpSocket};
 use std::time::Duration;
 
-use crate::namespaces::lang::JsValue;
+use crate::namespaces::value::JsValue;
 use crate::namespaces::{arg_to_string, arg_to_u64, arg_to_usize, DispatchOutcome};
 
 use super::common::{lock_net_state, result_err, result_ok};

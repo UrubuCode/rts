@@ -28,7 +28,11 @@
       "Bash(echo \"Exit: $?\")",
       "Bash(git stash:*)",
       "Bash(cat:*)",
-      "Bash(grep -rn \"fn declare_var\\\\|fn def_var\\\\|fn use_var\" ~/.cargo/registry/src/*/cranelift-frontend-*/src/frontend.rs)"
+      "Bash(grep -rn \"fn declare_var\\\\|fn def_var\\\\|fn use_var\" ~/.cargo/registry/src/*/cranelift-frontend-*/src/frontend.rs)",
+      "Bash(gh issue:*)",
+      "Bash(grep -E \"^test|FAILED|ok$|error\\\\[\")",
+      "Bash(sed -i 's|use crate::namespaces::lang::{JsValue, RuntimeContext, evaluate_expression, evaluate_statement};|use crate::namespaces::value::JsValue;\\\\nuse crate::namespaces::lang::{RuntimeContext, evaluate_expression, evaluate_statement};|' src/namespaces/abi.rs)",
+      "Bash(sed -i 's|    use crate::namespaces::lang::JsValue;|    use crate::namespaces::value::JsValue;|' src/namespaces/abi.rs)"
     ]
   }
 }
