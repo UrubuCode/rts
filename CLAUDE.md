@@ -87,6 +87,42 @@ Compara RTS (run), RTS (compiled), Bun e Node.
 - `rts.d.ts` so contem `declare module "rts"` — nao adicionar outros modulos
 - Handles numericos (u64) para recursos runtime (buffers, sockets, promises)
 
+## Sem Codigo Legacy
+
+**Regra absoluta: codigo morto e removido imediatamente. Nunca comentar, nunca deixar "por precaucao".**
+
+- Qualquer codigo que nao e chamado por nenhum caminho vivo deve ser deletado no mesmo commit que o tornou morto
+- Stubs `todo!()` / `unimplemented!()` sao aceitaveis como marcador temporario de WIP; codigo comentado nao
+- Warnings de dead_code sao tratados como erros — o build nao pode terminar com warnings
+
+## ABI de Maquina — sem JsValue no limite
+
+`JsValue` e uma abstracao de alto nivel (semântica JS) que nao tem lugar no limite entre codegen e runtime. O caminho correto:
+
+```
+JsValue (LEGADO)              Maquina (CORRETO)
+─────────────────────────────────────────────────
+dispatch(&[JsValue]) → JsValue   extern "C" fn tipado(i64, f64, ...) → i64
+__rts_call_dispatch + handles    __rts_<ns>_<fn>(ptr, len, ...) direto
+boxing/unboxing em cada call     zero overhead — tipos nativos no registrador
+```
+
+### Convencao ABI para tipos primitivos
+
+| Tipo TS  | Tipo Rust ABI | Convencao                          |
+|----------|---------------|------------------------------------|
+| `number` | `i64` / `f64` | bits nativos, sem boxing            |
+| `bool`   | `i64`         | 0 = false, 1 = true                |
+| `string` | `(i64, i64)`  | `(ptr, len)` — dados UTF-8 estaticos do codegen |
+| handle   | `u64`         | indice opaco para recursos heap (buffers, sockets, promises, strings dinamicas) |
+
+### Regras de implementacao
+
+- Cada funcao de namespace vira um simbolo `#[unsafe(no_mangle)] pub extern "C" fn __rts_<ns>_<fn>(...)`
+- Nenhuma funcao de namespace aceita `JsValue` como argumento ou retorno no limite `extern "C"`
+- `dispatch(&[JsValue])` e mantido apenas internamente como roteador temporario enquanto a migracao ocorre — nao e parte da ABI publica
+- Strings de retorno dinamico (ex: resultado de `fs.read`) sao alocadas no heap e retornam um handle `u64`; o caller chama `__rts_string_ptr(handle)` e `__rts_string_len(handle)` para ler
+
 ## Runtime vs Compile (AOT)
 
 Runtime e AOT sao unificados — ambos geram `.o`/`.m` objects via Cranelift. A diferenca e de escopo:
