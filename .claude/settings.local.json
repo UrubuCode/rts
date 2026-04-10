@@ -17,7 +17,9 @@
       "Bash(./debug_arith_app.exe)",
       "Bash(./debug_full_app.exe)",
       "Bash(./debug_bigint_app.exe)",
-      "Bash(./debug_overflow_app.exe)"
+      "Bash(./debug_overflow_app.exe)",
+      "Bash(cargo install:*)",
+      "Bash(cargo machete:*)"
     ]
   }
 }
