@@ -188,6 +188,58 @@ fn initialize_jit_module() -> Result<JITModule> {
         "__rts_is_truthy",
         crate::namespaces::abi::__rts_is_truthy as *const u8,
     );
+    builder.symbol(
+        "__rts_box_string",
+        crate::namespaces::abi::__rts_box_string as *const u8,
+    );
+    builder.symbol(
+        "__rts_box_bool",
+        crate::namespaces::abi::__rts_box_bool as *const u8,
+    );
+    builder.symbol(
+        "__rts_reset_thread_state",
+        crate::namespaces::abi::__rts_reset_thread_state as *const u8,
+    );
+    builder.symbol(
+        "__rts_io_print",
+        crate::namespaces::abi::__rts_io_print as *const u8,
+    );
+    builder.symbol(
+        "__rts_io_stdout_write",
+        crate::namespaces::abi::__rts_io_stdout_write as *const u8,
+    );
+    builder.symbol(
+        "__rts_io_stderr_write",
+        crate::namespaces::abi::__rts_io_stderr_write as *const u8,
+    );
+    builder.symbol(
+        "__rts_io_panic",
+        crate::namespaces::abi::__rts_io_panic as *const u8,
+    );
+    builder.symbol(
+        "__rts_crypto_sha256",
+        crate::namespaces::abi::__rts_crypto_sha256 as *const u8,
+    );
+    builder.symbol(
+        "__rts_process_exit",
+        crate::namespaces::abi::__rts_process_exit as *const u8,
+    );
+    builder.symbol(
+        "__rts_global_set",
+        crate::namespaces::abi::__rts_global_set as *const u8,
+    );
+    builder.symbol(
+        "__rts_global_get",
+        crate::namespaces::abi::__rts_global_get as *const u8,
+    );
+    builder.symbol(
+        "__rts_global_has",
+        crate::namespaces::abi::__rts_global_has as *const u8,
+    );
+    builder.symbol(
+        "__rts_global_delete",
+        crate::namespaces::abi::__rts_global_delete as *const u8,
+    );
 
     Ok(JITModule::new(builder))
 }

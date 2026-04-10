@@ -19,23 +19,23 @@ fn state() -> Arc<Mutex<GlobalState>> {
         .clone()
 }
 
-fn global_set(key: impl Into<String>, value: impl Into<String>) {
+pub fn set(key: impl Into<String>, value: impl Into<String>) {
     state().lock().unwrap().map.insert(key.into(), value.into());
 }
 
-fn global_get(key: &str) -> Option<String> {
+pub fn get(key: &str) -> Option<String> {
     state().lock().unwrap().map.get(key).cloned()
 }
 
-fn global_has(key: &str) -> bool {
+pub fn has(key: &str) -> bool {
     state().lock().unwrap().map.contains_key(key)
 }
 
-fn global_delete(key: &str) -> bool {
+pub fn delete(key: &str) -> bool {
     state().lock().unwrap().map.remove(key).is_some()
 }
 
-fn global_keys_csv() -> String {
+pub fn keys_csv() -> String {
     state()
         .lock()
         .unwrap()
@@ -91,22 +91,22 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {
         "global.set" if args.len() >= 2 => {
-            global_set(arg_to_string(args, 0), arg_to_string(args, 1));
+            set(arg_to_string(args, 0), arg_to_string(args, 1));
             Some(DispatchOutcome::Value(JsValue::Undefined))
         }
         "global.get" if !args.is_empty() => Some(DispatchOutcome::Value(
-            global_get(&arg_to_string(args, 0))
+            get(&arg_to_string(args, 0))
                 .map(JsValue::String)
                 .unwrap_or(JsValue::Undefined),
         )),
         "global.has" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            global_has(&arg_to_string(args, 0)),
+            has(&arg_to_string(args, 0)),
         ))),
         "global.delete" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            global_delete(&arg_to_string(args, 0)),
+            delete(&arg_to_string(args, 0)),
         ))),
         "global.keys" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
-            global_keys_csv(),
+            keys_csv(),
         ))),
         _ => None,
     }

@@ -20,14 +20,31 @@ const ABI_ARG_SLOTS: usize = 6;
 const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1;
 const ABI_UNDEFINED_HANDLE: i64 = 0;
 
-const RTS_EVAL_EXPR: &str = "__rts_eval_expr";
 const RTS_EVAL_STMT: &str = "__rts_eval_stmt";
 const RTS_BIND: &str = "__rts_bind_identifier";
 const RTS_READ: &str = "__rts_read_identifier";
 const RTS_BINOP: &str = "__rts_binop";
 const RTS_BOX_NUMBER: &str = "__rts_box_number";
+const RTS_BOX_STRING: &str = "__rts_box_string";
 const RTS_CALL_DISPATCH: &str = "__rts_call_dispatch";
 const RTS_IS_TRUTHY: &str = "__rts_is_truthy";
+
+/// Typed extern "C" symbols keyed by callee name.
+/// `(callee, symbol, n_handle_args)` — all args are i64 handles, return is i64.
+/// When a known callee is found here the codegen emits a direct call bypassing
+/// the generic __rts_call_dispatch string-lookup path.
+const TYPED_DISPATCH: &[(&str, &str, usize)] = &[
+    ("io.print",          "__rts_io_print",          1),
+    ("io.stdout_write",   "__rts_io_stdout_write",    1),
+    ("io.stderr_write",   "__rts_io_stderr_write",    1),
+    ("io.panic",          "__rts_io_panic",           1),
+    ("crypto.sha256",     "__rts_crypto_sha256",      1),
+    ("process.exit",      "__rts_process_exit",       1),
+    ("global.set",        "__rts_global_set",         2),
+    ("global.get",        "__rts_global_get",         1),
+    ("global.has",        "__rts_global_has",         1),
+    ("global.delete",     "__rts_global_delete",      1),
+];
 
 pub fn function_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
     let mut sig = module.make_signature();
@@ -76,6 +93,14 @@ fn binop_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signatur
 fn box_number_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
     let mut sig = module.make_signature();
     sig.params.push(AbiParam::new(types::I64)); // f64 bits as i64
+    sig.returns.push(AbiParam::new(types::I64)); // handle
+    sig
+}
+
+fn box_string_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64)); // ptr
+    sig.params.push(AbiParam::new(types::I64)); // len
     sig.returns.push(AbiParam::new(types::I64)); // handle
     sig
 }
@@ -181,16 +206,12 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::ConstString(dst, s) => {
-                    let quoted = format!(
-                        "\"{}\"",
-                        s.replace('\\', "\\\\").replace('"', "\\\"")
-                    );
-                    let result = emit_eval_expr(
+                    let result = emit_box_string(
                         module,
                         func_declarations,
                         data_cache,
                         &mut builder,
-                        &quoted,
+                        s.as_str(),
                     )?;
                     vreg_map.insert(*dst, result);
                     default_return = result;
@@ -198,27 +219,17 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::ConstBool(dst, b) => {
-                    let text = if *b { "true" } else { "false" };
-                    let result = emit_eval_expr(
-                        module,
-                        func_declarations,
-                        data_cache,
-                        &mut builder,
-                        text,
-                    )?;
+                    // Emit as NativeI32 (0/1); ensure_handle will box if a handle is needed.
+                    let result = builder.ins().iconst(types::I64, if *b { 1 } else { 0 });
                     vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::NativeI32);
                     default_return = result;
-                    default_return_is_native = false;
+                    default_return_is_native = true;
                 }
 
                 MirInstruction::ConstNull(dst) => {
-                    let result = emit_eval_expr(
-                        module,
-                        func_declarations,
-                        data_cache,
-                        &mut builder,
-                        "null",
-                    )?;
+                    // null maps to UNDEFINED_HANDLE (0); indistinguishable at this level.
+                    let result = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
                     vreg_map.insert(*dst, result);
                     default_return = result;
                     default_return_is_native = false;
@@ -412,13 +423,8 @@ pub fn define_typed_function<M: Module>(
                                 }
                                 _ => src_val
                             };
-                            let false_handle = emit_eval_expr(
-                                module,
-                                func_declarations,
-                                data_cache,
-                                &mut builder,
-                                "false",
-                            )?;
+                            let false_i32 = builder.ins().iconst(types::I64, 0);
+                            let false_handle = box_native_i32(module, func_declarations, &mut builder, false_i32)?;
                             let op_val = builder.ins().iconst(types::I64, binop_to_tag(&MirBinOp::Eq));
                             let sig = binop_signature(module);
                             let binop_fn = ensure_import(
@@ -461,8 +467,31 @@ pub fn define_typed_function<M: Module>(
                         let local = module.declare_func_in_func(callee_id, builder.func);
                         let call = builder.ins().call(local, &call_args);
                         builder.inst_results(call)[0]
+                    } else if let Some(&(_, symbol, n_args)) = TYPED_DISPATCH
+                        .iter()
+                        .find(|(name, _, _)| *name == callee.as_str())
+                    {
+                        // Known namespace callee — emit direct typed call, no dispatch string.
+                        let mut typed_sig = module.make_signature();
+                        for _ in 0..n_args {
+                            typed_sig.params.push(AbiParam::new(types::I64));
+                        }
+                        typed_sig.returns.push(AbiParam::new(types::I64));
+                        let fn_id = ensure_import(module, func_declarations, symbol, &typed_sig)?;
+                        let mut call_args: Vec<Value> = Vec::with_capacity(n_args);
+                        for arg in args.iter().take(n_args) {
+                            let val = ensure_handle(&vreg_map, &vreg_kinds, arg, module, func_declarations, &mut builder)?;
+                            call_args.push(val);
+                        }
+                        // Pad with UNDEFINED_HANDLE if fewer args were provided than expected
+                        while call_args.len() < n_args {
+                            call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+                        }
+                        let local = module.declare_func_in_func(fn_id, builder.func);
+                        let call = builder.ins().call(local, &call_args);
+                        builder.inst_results(call)[0]
                     } else {
-                        // Unknown callee -> use __rts_call_dispatch
+                        // Fallback: generic __rts_call_dispatch
                         let sig = dispatch_signature(module);
                         let dispatch_fn = ensure_import(
                             module,
@@ -908,20 +937,22 @@ fn stable_hash(input: &str) -> u64 {
     hasher.finish()
 }
 
-fn emit_eval_expr<M: Module>(
+/// Emits a static string constant as object data and boxes it into a ValueStore handle
+/// via `__rts_box_string(ptr, len)`.  Replaces the legacy `__rts_eval_expr("\"...\"")` path.
+fn emit_box_string<M: Module>(
     module: &mut M,
     declarations: &mut BTreeMap<String, FuncId>,
     data_cache: &mut BTreeMap<String, DataId>,
     builder: &mut FunctionBuilder,
     text: &str,
 ) -> Result<Value> {
-    let sig = eval_signature(module);
-    let eval_fn = ensure_import(module, declarations, RTS_EVAL_EXPR, &sig)?;
+    let sig = box_string_signature(module);
+    let box_fn = ensure_import(module, declarations, RTS_BOX_STRING, &sig)?;
     let data_id = declare_string_data(module, data_cache, text)?;
     let data_ref = module.declare_data_in_func(data_id, builder.func);
     let ptr = builder.ins().symbol_value(types::I64, data_ref);
     let len = builder.ins().iconst(types::I64, text.len() as i64);
-    let local = module.declare_func_in_func(eval_fn, builder.func);
+    let local = module.declare_func_in_func(box_fn, builder.func);
     let call = builder.ins().call(local, &[ptr, len]);
     Ok(builder.inst_results(call)[0])
 }

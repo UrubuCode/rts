@@ -445,6 +445,22 @@ pub extern "C" fn __rts_bind_identifier(
     bind_identifier(name, value_handle, mutable_flag != 0)
 }
 
+/// Boxes a UTF-8 string (ptr+len from static data) into a ValueStore handle.
+/// This is the typed replacement for the legacy __rts_eval_expr("\"...\"") path.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_box_string(ptr: i64, len: i64) -> i64 {
+    match read_utf8(ptr, len) {
+        Some(s) => push_value(JsValue::String(s)),
+        None => UNDEFINED_HANDLE,
+    }
+}
+
+/// Boxes a boolean (0 = false, 1 = true) into a ValueStore handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_box_bool(flag: i64) -> i64 {
+    push_value(JsValue::Bool(flag != 0))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_eval_expr(_expr_ptr: i64, _expr_len: i64) -> i64 {
     eprintln!("RTS: __rts_eval_expr is legacy — use typed codegen");
@@ -455,6 +471,78 @@ pub extern "C" fn __rts_eval_expr(_expr_ptr: i64, _expr_len: i64) -> i64 {
 pub extern "C" fn __rts_eval_stmt(_stmt_ptr: i64, _stmt_len: i64) -> i64 {
     eprintln!("RTS: __rts_eval_stmt is legacy — use typed codegen");
     UNDEFINED_HANDLE
+}
+
+// ── Typed namespace symbols — no dispatch table, no JsValue at the boundary ──
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_print(handle: i64) -> i64 {
+    println!("{}", read_value(handle).to_js_string());
+    UNDEFINED_HANDLE
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_stdout_write(handle: i64) -> i64 {
+    print!("{}", read_value(handle).to_js_string());
+    UNDEFINED_HANDLE
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_stderr_write(handle: i64) -> i64 {
+    eprint!("{}", read_value(handle).to_js_string());
+    UNDEFINED_HANDLE
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_panic(handle: i64) -> i64 {
+    let message = if handle == UNDEFINED_HANDLE {
+        "runtime panic".to_string()
+    } else {
+        read_value(handle).to_js_string()
+    };
+    eprintln!("RTS runtime panic: {message}");
+    std::process::exit(1);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_crypto_sha256(handle: i64) -> i64 {
+    let input = read_value(handle).to_js_string();
+    let digest = crate::namespaces::crypto::hash_sha256(&input);
+    push_value(JsValue::String(digest))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_process_exit(code: i64) -> i64 {
+    std::process::exit(code as i32);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_set(key_handle: i64, val_handle: i64) -> i64 {
+    let key = read_value(key_handle).to_js_string();
+    let value = read_value(val_handle).to_js_string();
+    crate::namespaces::global::set(key, value);
+    UNDEFINED_HANDLE
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_get(key_handle: i64) -> i64 {
+    let key = read_value(key_handle).to_js_string();
+    match crate::namespaces::global::get(&key) {
+        Some(v) => push_value(JsValue::String(v)),
+        None => UNDEFINED_HANDLE,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_has(key_handle: i64) -> i64 {
+    let key = read_value(key_handle).to_js_string();
+    push_value(JsValue::Bool(crate::namespaces::global::has(&key)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_delete(key_handle: i64) -> i64 {
+    let key = read_value(key_handle).to_js_string();
+    push_value(JsValue::Bool(crate::namespaces::global::delete(&key)))
 }
 
 #[unsafe(no_mangle)]
