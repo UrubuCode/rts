@@ -26,6 +26,32 @@ src/
 
 Pipeline: `Source TS → Parser(SWC) → HIR → MIR tipado → Cranelift codegen → Object → Link → .exe`
 
+## Estrutura de Arquivos por Namespace
+
+Cada namespace fragmenta suas funcoes por tipo em arquivos separados:
+
+```
+src/namespaces/<name>/
+  mod.rs         — import map: re-exporta tudo dos submodulos, define SPEC/MEMBERS/dispatch()
+  tcp.rs         — funcoes TCP (ex: listen, connect, accept, send, recv)
+  udp.rs         — funcoes UDP
+  <fn_type>.rs   — grupo logico de funcoes relacionadas
+```
+
+E utilitarios compartilhados entre namespaces:
+
+```
+src/namespaces/utils/
+  net.rs         — utils do namespace net
+  fs.rs          — utils do namespace fs
+  <namespace>.rs — utils especificos do namespace
+```
+
+Regras de fragmentacao:
+- `mod.rs` e apenas o import map — nao contem logica de negocio
+- Cada arquivo agrupa funcoes por tipo/protocolo/responsabilidade
+- Utils compartilhados vao em `utils/<namespace>.rs`, nao dentro do namespace
+
 ## Convencoes
 
 - Linguagem do codigo: Rust (ingles nos identificadores)
@@ -39,11 +65,11 @@ Pipeline: `Source TS → Parser(SWC) → HIR → MIR tipado → Cranelift codege
 ## Como testar
 
 ```bash
-cargo test                              # testes unitarios
-cargo build --release                   # build release
-target/release/rts.exe run file.ts      # executar interpretado
-target/release/rts.exe build -p file.ts output  # compilar nativo
-target/release/rts.exe apis             # listar APIs disponiveis
+cargo test                                      # testes unitarios
+cargo build --release                           # build release
+target/release/rts.exe run file.ts             # executar (runtime)
+target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
+target/release/rts.exe apis                    # listar APIs disponiveis
 ```
 
 ## Benchmarks
@@ -59,56 +85,66 @@ Compara RTS (run), RTS (compiled), Bun e Node.
 - Nao implementar APIs de alto nivel em Rust — Rust so expoe primitivas raw via `"rts"`
 - Packages TS em `packages/*` constroem APIs ergonomicas sobre o `"rts"`
 - `rts.d.ts` so contem `declare module "rts"` — nao adicionar outros modulos
-- Runtime slicing: so compila/linka namespaces efetivamente usados
 - Handles numericos (u64) para recursos runtime (buffers, sockets, promises)
 
-## State — REGRA PRINCIPAL DE CONSTRUCAO
+## Runtime vs Compile (AOT)
 
-**Estado compartilhado DEVE usar `central().namespace_state()`. Thread-local DEVE usar `thread_local!`.**
-Sistema otimizado para performance com separacao clara de responsabilidades.
+Runtime e AOT sao unificados — ambos geram `.o`/`.m` objects via Cranelift. A diferenca e de escopo:
 
-### Sistema de Estado Otimizado
-- **Estados compartilhados**: `central().namespace_state<T>("name")` para estado cross-thread
-- **Caches thread-local**: `thread_local! { static CACHE: RefCell<T> }` para performance
-- **Thread-safe**: Arc<Mutex<T>> apenas quando necessario compartilhamento
-- **Zero overhead**: Thread-local para casos single-thread
+- **Runtime (`rts run`)**: gera objects completos de todos os modulos builtin, mesmo com `-p`. O builtin sempre tem todos os namespaces presentes nos objects.
+- **Compile (`rts compile`)**: gera apenas os objects dos modulos efetivamente usados (slicing). Produce o binario final em `target/release/`.
 
-### APIs otimizadas
+Nao ha divergencia de codepath entre runtime e AOT — o mesmo pipeline de codegen e usado. Runtime e inerentemente mais pesado por incluir todos os builtins; AOT e otimizado por slicing.
 
-```rust
-// Para estado compartilhado entre threads (ex: net sockets)
-use crate::namespaces::state::central;
+Convencao de nomes dos objects: `<module>.o` (e `.m` se houver metadata associado).
 
-let state = central().namespace_state::<NetState>("net");
-let mut guard = state.lock().unwrap();
+## GC — gc-arena (coleta deterministica)
 
-// Para caches thread-local (ex: parser cache)
-use std::cell::RefCell;
+Usar o crate `gc-arena` como sistema de GC deterministico. Coleta e disparada apos:
+- Retorno de funcoes
+- Execucao de metodos de classe
+- Fim de escopo de closures
 
-thread_local! {
-    static CACHE: RefCell<HashMap<u64, ParseResult>> = RefCell::new(HashMap::new());
-}
+Principio: `safe_collect()` e chamado em pontos de quiescencia bem definidos, nao de forma periodica/assincrona.
 
-CACHE.with(|cache| {
-    cache.borrow_mut().insert(key, value);
-});
+## Estrutura de Projeto do Usuario
+
+```
+<project>/
+  src/
+    main.ts
+  package.json
+  tsconfig.json
+
+  target/
+    modules/          — node_modules resolvidos
+    objs/
+      runtime/        — objects completos do builtin (todos os modulos)
+      compile/        — objects AOT (apenas presente em rts compile)
+
+  release/            — apenas em rts compile
+    <project_name>    — .exe / .dll / .so / .node conforme target
 ```
 
-### Pattern para namespaces compartilhados
+## State
+
+Estado de namespace usa `Arc<Mutex<T>>` direto quando necessario, ou `thread_local!` para caches por-thread. Nao ha sistema centralizado de state — cada namespace gerencia seu proprio estado com os patterns padrao de Rust.
+
+### Pattern para estado compartilhado
 
 ```rust
-use crate::namespaces::state::central;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+
+static NET_STATE: std::sync::OnceLock<Arc<Mutex<NetState>>> = std::sync::OnceLock::new();
+
+fn net_state() -> Arc<Mutex<NetState>> {
+    NET_STATE.get_or_init(|| Arc::new(Mutex::new(NetState::default()))).clone()
+}
 
 #[derive(Default)]
 struct NetState {
     tcp_listeners: HashMap<u64, TcpListener>,
-    // shared state fields
-}
-
-pub fn with_net_state_mut<R>(f: impl FnOnce(&mut NetState) -> R) -> R {
-    let state = central().namespace_state::<NetState>("net");
-    let mut guard = state.lock().unwrap();
-    f(&mut *guard)
 }
 ```
 
@@ -125,17 +161,6 @@ pub fn reset_cache() {
     EXPR_CACHE.with(|cache| cache.borrow_mut().clear());
 }
 ```
-
-### O que NAO fazer - PROIBIDO
-- **NAO usar `central()` para caches thread-local** (use `thread_local!` para performance)
-- **NAO usar `thread_local!` para estado compartilhado** (use `central().namespace_state()`)
-- **NAO criar `OnceLock`, `static Mutex` soltos** (usar patterns acima)
-- **NAO implementar logica de negocio dentro de `state/*.rs`**
-
-### Separacao de responsabilidades
-- `state/central.rs` → CentralState simplificado, apenas namespace_state()
-- `state/mod.rs` → buffers, promises, globals (usando central state interno)
-- `<namespace>/mod.rs` → logica do namespace (escolhe pattern apropriado)
 
 ## Docs e especificacoes
 

@@ -14,11 +14,11 @@ pub fn command(
 ) -> Result<()> {
     let input = input_arg
         .map(PathBuf::from)
-        .unwrap();
+        .unwrap_or_else(|| PathBuf::from("examples/hello_world.ts"));
 
     let output = output_arg
         .map(PathBuf::from)
-        .unwrap();
+        .unwrap_or_else(|| PathBuf::from("target/rts_app"));
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)
@@ -31,7 +31,7 @@ pub fn command(
     println!(
         "{} {}",
         "⚡".bright_blue().bold(),
-        "RTS Compile Pipeline".bright_blue().bold()
+        "RTS Build Pipeline".bright_blue().bold()
     );
     println!("{}", "─".repeat(50).dimmed());
 
@@ -42,12 +42,12 @@ pub fn command(
     println!(
         "\n{} {}\n{}",
         "✔".green().bold(),
-        "Compile completed successfully".green().bold(),
+        "Build completed successfully".green().bold(),
         format!("  {}", summary.binary_file.display()).dimmed()
     );
 
     // Layout de tabela para estatísticas
-    println!("\n{}", "📊 Compile Summary".cyan().bold());
+    println!("\n{}", "📊 Build Summary".cyan().bold());
     println!("{}", "─".repeat(50).dimmed());
 
     // Função auxiliar para imprimir linha alinhada

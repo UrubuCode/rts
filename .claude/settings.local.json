@@ -21,7 +21,12 @@
       "Bash(cargo install:*)",
       "Bash(cargo machete:*)",
       "Bash(cargo test:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(git rm:*)",
+      "Bash(target/release/rts.exe run:*)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(git stash:*)"
     ]
   }
 }

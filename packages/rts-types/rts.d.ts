@@ -501,4 +501,30 @@ declare module "rts" {
     export function append_text_file(path: str, content: str): promise.Handle;
   }
 
+  /**
+   * Deterministic garbage collector (gc-arena). Arena-based allocation with safe collection at quiescence points after function/class/closure execution.
+   */
+  export namespace gc {
+    /**
+     * Allocate a tagged blob into the GC arena. Returns a u64 handle.
+     */
+    export function alloc(kind: u8, payload: str): u64;
+    /**
+     * Release a handle, making the blob eligible for collection. Returns true if the handle was live.
+     */
+    export function free(handle: u64): bool;
+    /**
+     * Full GC collection. Only call at a safe quiescence point (no live handles on stack).
+     */
+    export function collect(): void;
+    /**
+     * Amortised GC — collect proportional to allocation debt. Safe to call at any time.
+     */
+    export function collect_debt(): void;
+    /**
+     * Returns a JSON string with GC diagnostics: allocated_bytes, generation, live_slots.
+     */
+    export function stats(): str;
+  }
+
 }
