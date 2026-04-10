@@ -1,5 +1,5 @@
 pub mod apis;
-pub mod build;
+pub mod compile;
 pub mod eval;
 pub mod init;
 pub mod repl;
@@ -59,7 +59,7 @@ where
     }
 
     let result = match positional[0].as_str() {
-        "build" => build::command(
+        "compile" => compile::command(
             positional.get(1).cloned(),
             positional.get(2).cloned(),
             flags.as_compile_options(),
@@ -159,7 +159,7 @@ fn print_help(bin_name: &str) {
         "  {bin_name} [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] <input.(rts|ts|js)>"
     );
     println!(
-        "  {bin_name} build [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)] [output]"
+        "  {bin_name} compile [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)] [output]"
     );
     println!(
         "  {bin_name} run [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)]"

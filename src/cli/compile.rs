@@ -31,7 +31,7 @@ pub fn command(
     println!(
         "{} {}",
         "⚡".bright_blue().bold(),
-        "RTS Build Pipeline".bright_blue().bold()
+        "RTS Compile Pipeline".bright_blue().bold()
     );
     println!("{}", "─".repeat(50).dimmed());
 
@@ -42,12 +42,12 @@ pub fn command(
     println!(
         "\n{} {}\n{}",
         "✔".green().bold(),
-        "Build completed successfully".green().bold(),
+        "Compile completed successfully".green().bold(),
         format!("  {}", summary.binary_file.display()).dimmed()
     );
 
     // Layout de tabela para estatísticas
-    println!("\n{}", "📊 Build Summary".cyan().bold());
+    println!("\n{}", "📊 Compile Summary".cyan().bold());
     println!("{}", "─".repeat(50).dimmed());
 
     // Função auxiliar para imprimir linha alinhada
