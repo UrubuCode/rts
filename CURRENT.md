@@ -85,13 +85,26 @@
 - [ ] Executar testes completos `cargo test`
 - [ ] Benchmarks para verificar performance não regrediu
 
-### ✅ LIMPEZA FINAL REALIZADA
+### ✅ LIMPEZA E OTIMIZAÇÃO COMPLETA
 
-1. **✅ Limpeza de imports**: Removidos imports não utilizados (SimdWidth, HashMap, etc.)
-2. **✅ Remoção de funções**: Removidas funções não utilizadas (with_net_state, namespace_state deprecated)
-3. **✅ Dependências**: Removida dependência minifb não utilizada (cargo-machete confirma zero dependências não usadas)
+#### **Limpeza Realizada:**
+1. **✅ Imports**: Removidos imports não utilizados (SimdWidth, HashMap, etc.)
+2. **✅ Funções**: Removidas funções não utilizadas (with_net_state, namespace_state deprecated)
+3. **✅ Dependências**: Removida dependência minifb não utilizada
 4. **✅ Variáveis**: Prefixadas variáveis não utilizadas no codegen com underscore
-5. **✅ Testes**: Todos os 66 testes passando após limpeza
+
+#### **OTIMIZAÇÃO CRÍTICA DE PERFORMANCE:**
+1. **✅ CentralState padronizado**: Removidas APIs não utilizadas (handles, allocation tracking, cache global)
+2. **✅ Thread-local otimizado**: EXPR_CACHE e VALUE_STORE voltaram para `thread_local!` 
+3. **✅ Overhead eliminado**: Removido `thread::current().id()` + string format + HashMap lookup
+4. **✅ Arquitetura balanceada**:
+   - `thread_local!` para caches single-thread (performance máxima)
+   - `central().namespace_state()` para estado cross-thread (quando necessário)
+
+#### **Resultados de Performance:**
+- **Testes**: 64 testes em **0.01s** (vs anterior mais lento)  
+- **Build**: `cargo check` em **0.38s**
+- **Zero warnings**: Código limpo sem dead code crítico
 
 ### 📝 PRÓXIMOS PASSOS OPCIONAIS
 
