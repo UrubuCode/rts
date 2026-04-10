@@ -43,6 +43,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                     name: class_decl.name.clone(),
                     fields: Vec::new(),
                     methods: Vec::new(),
+                    loc: None,
                 };
 
                 for member in &class_decl.members {
@@ -79,6 +80,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                 parameters,
                                 return_type: None,
                                 body: Vec::new(),
+                                loc: None,
                             };
 
                             module.functions.push(ctor_fn.clone());
@@ -106,6 +108,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                     .as_ref()
                                     .map(|name| annotate(name, resolver)),
                                 body: Vec::new(),
+                                loc: None,
                             };
 
                             module.functions.push(function.clone());
@@ -155,6 +158,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                             Statement::Raw(raw) => raw.value.clone(),
                         })
                         .collect(),
+                    loc: None,
                 };
 
                 module.items.push(HirItem::Function(function.clone()));
