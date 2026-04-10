@@ -48,6 +48,7 @@ const SPECS: &[NamespaceSpec] = &[
     task::SPEC,
     gc::SPEC,
     rust::SPEC,
+    rust::NATIVES_SPEC,
 ];
 
 #[derive(Debug, Clone)]

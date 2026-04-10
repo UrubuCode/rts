@@ -1,6 +1,7 @@
 mod constants;
 mod functions;
 mod memory;
+pub mod natives;
 mod scope;
 
 use crate::namespaces::lang::JsValue;
@@ -103,6 +104,51 @@ const MEMBERS: &[NamespaceMember] = &[
     },
 ];
 
+pub const NATIVES_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "to_string",
+        callee: "rts.natives.to_string",
+        doc: "Converte qualquer valor para string (semântica JS).",
+        ts_signature: "to_string(value: u64): u64",
+    },
+    NamespaceMember {
+        name: "to_number",
+        callee: "rts.natives.to_number",
+        doc: "Converte qualquer valor para número (semântica JS).",
+        ts_signature: "to_number(value: u64): f64",
+    },
+    NamespaceMember {
+        name: "to_bool",
+        callee: "rts.natives.to_bool",
+        doc: "Converte qualquer valor para bool (truthy/falsy JS).",
+        ts_signature: "to_bool(value: u64): bool",
+    },
+    NamespaceMember {
+        name: "merge",
+        callee: "rts.natives.merge",
+        doc: "Merge genérico de dois valores com coerção (string ou número).",
+        ts_signature: "merge(a: u64, b: u64): u64",
+    },
+    NamespaceMember {
+        name: "add_mixed",
+        callee: "rts.natives.add_mixed",
+        doc: "Operador `+` com coerção: string+qualquer=concat, número+número=soma.",
+        ts_signature: "add_mixed(a: u64, b: u64): u64",
+    },
+    NamespaceMember {
+        name: "eq_loose",
+        callee: "rts.natives.eq_loose",
+        doc: "Igualdade fraca `==` com coerção de tipos JS.",
+        ts_signature: "eq_loose(a: u64, b: u64): bool",
+    },
+    NamespaceMember {
+        name: "compare",
+        callee: "rts.natives.compare",
+        doc: "Comparação com coerção JS, retorna -1, 0 ou 1.",
+        ts_signature: "compare(a: u64, b: u64): i64",
+    },
+];
+
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "rts",
     doc: "Primitivas brutas de máquina: memória, escopo, funções e constantes. \
@@ -111,9 +157,18 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
+pub const NATIVES_SPEC: NamespaceSpec = NamespaceSpec {
+    name: "rts.natives",
+    doc: "Extensões C nativas para coerção de tipos mistos. \
+          Injetadas pelo HIR quando operandos têm tipos incompatíveis.",
+    members: NATIVES_MEMBERS,
+    ts_prelude: &[],
+};
+
 pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     functions::dispatch(callee, args)
         .or_else(|| scope::dispatch(callee, args))
         .or_else(|| constants::dispatch(callee, args))
         .or_else(|| memory::dispatch(callee, args))
+        .or_else(|| natives::dispatch(callee, args))
 }
