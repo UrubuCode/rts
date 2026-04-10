@@ -422,6 +422,8 @@ fn emit_fallback_main_object(
                 terminator: mir::cfg::Terminator::Return,
             }],
             next_vreg: 0,
+            source_file: None,
+            source_line: 0,
         }],
     };
     codegen::generate_typed_object(&typed_mir, &object_path, true, optimize_for_production)

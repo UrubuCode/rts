@@ -178,6 +178,8 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
                 terminator: Terminator::Return,
             }],
             next_vreg: top_level_vreg,
+            source_file: None,
+            source_line: 0,
         });
     }
 
@@ -192,6 +194,8 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
                 terminator: Terminator::Return,
             }],
             next_vreg: 0,
+            source_file: None,
+            source_line: 0,
         });
     }
 
@@ -204,6 +208,8 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
         param_count: function.parameters.len(),
         blocks: Vec::new(),
         next_vreg: 0,
+        source_file: function.loc.as_ref().map(|loc| loc.file.clone()),
+        source_line: function.loc.as_ref().map(|loc| loc.line).unwrap_or(0),
     };
 
     let mut instructions: Vec<MirInstruction> = Vec::new();

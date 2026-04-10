@@ -153,6 +153,10 @@ pub struct TypedMirFunction {
     pub param_count: usize,
     pub blocks: Vec<TypedBasicBlock>,
     pub next_vreg: u32,
+    /// Arquivo TypeScript de origem (propagado do HIR via SourceLocation).
+    pub source_file: Option<String>,
+    /// Linha de declaração da função no arquivo fonte.
+    pub source_line: u32,
 }
 
 impl TypedMirFunction {
@@ -161,6 +165,20 @@ impl TypedMirFunction {
         self.next_vreg += 1;
         reg
     }
+}
+
+/// Localização no arquivo fonte preservada através do pipeline HIR → MIR → Cranelift.
+///
+/// `byte_offset` é preenchido pelo Cranelift após emissão do código objeto.
+/// Compacta por basic block — uma entrada por bloco em vez de por instrução.
+#[derive(Debug, Clone, Default)]
+pub struct MIRLocation {
+    /// Índice do arquivo em `OmetaWriter.sources` (ou 0 quando não disponível).
+    pub file_id: u32,
+    pub line: u32,
+    pub column: u32,
+    /// Offset no código objeto — preenchido pelo Cranelift.
+    pub byte_offset: u64,
 }
 
 /// Module-level typed MIR.
