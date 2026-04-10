@@ -145,45 +145,6 @@ impl ValueStore {
         Some(self.read_value(handle))
     }
 
-    fn bind_identifier_value(&mut self, name: String, value: JsValue, mutable: bool) -> JsValue {
-        let value_handle = self.allocate_value(value);
-        let bound_handle = self.bind_identifier(name, value_handle, mutable);
-        self.read_value(bound_handle)
-    }
-
-    fn write_identifier(&mut self, name: &str, value: JsValue) -> Result<JsValue, String> {
-        let previous = self.bindings.get(name).cloned();
-
-        if let Some(entry) = &previous {
-            if !entry.mutable {
-                return Err(format!(
-                    "cannot assign to constant binding '{}'",
-                    name.replace('\n', " ")
-                ));
-            }
-        }
-
-        let value_handle = self.allocate_value(value.clone());
-        let epoch = self.bump_epoch();
-
-        if let Some(entry) = previous {
-            self.unpin(entry.handle, epoch);
-            self.pin(value_handle, epoch);
-            self.bindings.insert(
-                name.to_string(),
-                BindingEntry {
-                    handle: value_handle,
-                    mutable: true,
-                },
-            );
-        } else {
-            let _ = self.bind_identifier(name.to_string(), value_handle, true);
-        }
-
-        self.reclaim_if_needed();
-        Ok(value)
-    }
-
     fn bump_generation(&mut self, slot_index: usize) -> u32 {
         let current = self.slot_generations.get(slot_index).copied().unwrap_or(0);
         let next = if current >= MAX_HANDLE_GENERATION {
@@ -343,14 +304,6 @@ fn read_value(handle: i64) -> JsValue {
 
 fn bind_identifier(name: String, handle: i64, mutable: bool) -> i64 {
     with_store_mut(|store| store.bind_identifier(name, handle, mutable))
-}
-
-fn bind_identifier_value(name: String, value: JsValue, mutable: bool) -> JsValue {
-    with_store_mut(|store| store.bind_identifier_value(name, value, mutable))
-}
-
-fn write_identifier(name: &str, value: JsValue) -> Result<JsValue, String> {
-    with_store_mut(|store| store.write_identifier(name, value))
 }
 
 fn read_identifier(name: &str) -> Option<JsValue> {

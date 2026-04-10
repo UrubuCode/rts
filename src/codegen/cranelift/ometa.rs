@@ -136,7 +136,7 @@ impl OmetaWriter {
         // functions object
         out.push_str("  \"functions\": {\n");
         let mut fns: Vec<_> = self.functions.iter().collect();
-        fns.sort_by_key(|(k, _)| k.clone());
+        fns.sort_by_key(|(k, _)| k.as_str());
         for (i, (name, func)) in fns.iter().enumerate() {
             let comma = if i + 1 < fns.len() { "," } else { "" };
             out.push_str(&format!(

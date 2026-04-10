@@ -6,7 +6,6 @@ use crate::namespaces::value::JsValue;
 
 #[derive(Debug, Clone)]
 struct FnEntry {
-    arity: u64,
     body_ptr: u64,
 }
 
@@ -22,12 +21,11 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     match callee {
         "rts.declare_fn" => {
             let name_ptr = arg_to_u64(args, 0);
-            let arity = arg_to_u64(args, 1);
             let body_ptr = arg_to_u64(args, 2);
             fn_registry()
                 .lock()
                 .unwrap()
-                .insert(name_ptr, FnEntry { arity, body_ptr });
+                .insert(name_ptr, FnEntry { body_ptr });
             Some(DispatchOutcome::Value(JsValue::Undefined))
         }
         "rts.call_fn" => {

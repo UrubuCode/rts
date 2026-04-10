@@ -34,7 +34,3 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
     }
 }
 
-pub const MEMBERS: &[(&str, &str, &str, &str)] = &[
-    ("declare_const", "rts.declare_const", "Declara constante global imutável.", "declare_const(name_hash: u64, value: u64): void"),
-    ("get_const", "rts.get_const", "Lê constante global pelo hash do nome.", "get_const(name_hash: u64): u64"),
-];

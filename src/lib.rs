@@ -68,10 +68,6 @@ pub fn compile_source_with_options(
     output: &Path,
     options: CompileOptions,
 ) -> Result<CompileSummary> {
-    let optimize_for_production = matches!(
-        options.profile,
-        crate::compile_options::CompilationProfile::Production
-    );
     let program = parser::parse_source_with_mode(source, options.frontend_mode)?;
 
     let mut registry = type_system::TypeRegistry::default();
