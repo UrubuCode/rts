@@ -65,6 +65,7 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
 
 fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecutionReport> {
     crate::namespaces::rust::eval::set_metrics_enabled(options.debug);
+    crate::namespaces::abi::set_dispatch_metrics_enabled(options.debug);
 
     let total_started = Instant::now();
     let mut stage_timings = RunStageTimings::default();

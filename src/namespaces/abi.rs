@@ -191,6 +191,18 @@ thread_local! {
     static RUNTIME_METRICS: RefCell<RuntimeMetrics> = RefCell::new(RuntimeMetrics::default());
 }
 
+static DISPATCH_METRICS_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[inline(always)]
+fn metrics_enabled() -> bool {
+    DISPATCH_METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn set_dispatch_metrics_enabled(enabled: bool) {
+    DISPATCH_METRICS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
     VALUE_STORE.with(|store| {
         let mut borrowed = store.borrow_mut();
@@ -365,7 +377,15 @@ pub extern "C" fn __rts_dispatch(
     _a4: i64,
     _a5: i64,
 ) -> i64 {
-    let started = Instant::now();
+    // Instrumentação de tempo por call é cara (2 syscalls QPC + RefCell borrow
+    // em um hot path de ~80ns); ligamos apenas em modo debug via
+    // metrics_enabled(), que usa AtomicBool relaxed.
+    let metrics_on = metrics_enabled();
+    let started = if metrics_on {
+        Some(Instant::now())
+    } else {
+        None
+    };
     let result = match fn_id {
         FN_RESET_THREAD_STATE => {
             reset_thread_state();
@@ -437,20 +457,22 @@ pub extern "C" fn __rts_dispatch(
         _ => UNDEFINED_HANDLE,
     };
 
-    let elapsed = started.elapsed().as_nanos();
-    RUNTIME_METRICS.with(|metrics| {
-        let mut metrics = metrics.borrow_mut();
-        metrics.dispatch_calls = metrics.dispatch_calls.saturating_add(1);
-        metrics.dispatch_nanos = metrics.dispatch_nanos.saturating_add(elapsed);
-        if fn_id == FN_EVAL_EXPR {
-            metrics.eval_expr_calls = metrics.eval_expr_calls.saturating_add(1);
-            metrics.eval_expr_nanos = metrics.eval_expr_nanos.saturating_add(elapsed);
-        }
-        if fn_id == FN_EVAL_STMT {
-            metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
-            metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
-        }
-    });
+    if let Some(started) = started {
+        let elapsed = started.elapsed().as_nanos();
+        RUNTIME_METRICS.with(|metrics| {
+            let mut metrics = metrics.borrow_mut();
+            metrics.dispatch_calls = metrics.dispatch_calls.saturating_add(1);
+            metrics.dispatch_nanos = metrics.dispatch_nanos.saturating_add(elapsed);
+            if fn_id == FN_EVAL_EXPR {
+                metrics.eval_expr_calls = metrics.eval_expr_calls.saturating_add(1);
+                metrics.eval_expr_nanos = metrics.eval_expr_nanos.saturating_add(elapsed);
+            }
+            if fn_id == FN_EVAL_STMT {
+                metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
+                metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
+            }
+        });
+    }
 
     result
 }
