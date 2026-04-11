@@ -32,6 +32,9 @@ pub(crate) const FN_GLOBAL_HAS: i64 = 19;
 pub(crate) const FN_GLOBAL_DELETE: i64 = 20;
 pub(crate) const FN_BOX_NATIVE_FN: i64 = 21; // (ptr, len) -> handle to NativeFunction
 pub(crate) const FN_CALL_BY_HANDLE: i64 = 22; // (fn_handle, argc, a0..a5) -> i64
+pub(crate) const FN_NEW_INSTANCE: i64 = 23; // (class_ptr, class_len) -> object_handle (fields vazios)
+pub(crate) const FN_LOAD_FIELD: i64 = 24; // (obj_handle, field_ptr, field_len) -> value_handle
+pub(crate) const FN_STORE_FIELD: i64 = 25; // (obj_handle, field_ptr, field_len, value_handle) -> 1/0
 
 #[derive(Debug, Clone)]
 struct BindingEntry {
@@ -511,6 +514,48 @@ pub extern "C" fn __rts_dispatch(
                 }
                 _ => UNDEFINED_HANDLE,
             }
+        }
+        FN_NEW_INSTANCE => {
+            // a0 = class_name_ptr, a1 = class_name_len
+            // Por enquanto ignoramos o class_name — criamos um Object vazio
+            // e deixamos o constructor (chamado separadamente pelo codegen)
+            // popular os campos. O nome da classe servirá no futuro para
+            // lookup de metadata / checagem de tipo em runtime.
+            let _ = read_utf8(a0, a1);
+            push_value(RuntimeValue::Object(std::collections::BTreeMap::new()))
+        }
+        FN_LOAD_FIELD => {
+            // a0 = obj_handle, a1 = field_ptr, a2 = field_len
+            let Some(field) = read_utf8(a1, a2) else {
+                return UNDEFINED_HANDLE;
+            };
+            let value = read_value(a0)
+                .get_property(&field)
+                .unwrap_or(RuntimeValue::Undefined);
+            push_value(value)
+        }
+        FN_STORE_FIELD => {
+            // a0 = obj_handle, a1 = field_ptr, a2 = field_len, a3 = value_handle
+            let Some(field) = read_utf8(a1, a2) else {
+                return 0;
+            };
+            let new_value = read_value(a3);
+            with_store_mut(|store| {
+                // Handle = index+1; handle 0 reservado para Undefined.
+                if a0 <= 0 {
+                    return 0i64;
+                }
+                let index = (a0 - 1) as usize;
+                let Some(slot) = store.values.get_mut(index) else {
+                    return 0i64;
+                };
+                if let RuntimeValue::Object(map) = slot {
+                    map.insert(field, new_value);
+                    1
+                } else {
+                    0
+                }
+            })
         }
         _ => UNDEFINED_HANDLE,
     };
