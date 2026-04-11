@@ -33,7 +33,7 @@ const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1;
 const ABI_UNDEFINED_HANDLE: i64 = 0;
 
 use crate::namespaces::abi::{
-    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
+    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_BOOL, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
     FN_CALL_BY_HANDLE, FN_CRYPTO_SHA256, FN_EVAL_STMT, FN_GLOBAL_DELETE, FN_GLOBAL_GET,
     FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT, FN_IO_STDERR_WRITE,
     FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE, FN_PROCESS_EXIT,
@@ -403,12 +403,30 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::ConstBool(dst, b) => {
-                    // Emit as NativeI32 (0/1); ensure_handle will box if a handle is needed.
-                    let result = builder.ins().iconst(types::I64, if *b { 1 } else { 0 });
+                    // Emit como handle de RuntimeValue::Bool via FN_BOX_BOOL.
+                    //
+                    // Antigamente esta variante emitia NativeI32 (0/1) direto e
+                    // confiava em ensure_handle para boxar quando preciso. O
+                    // problema: `ensure_handle` chama box_native_i32 que
+                    // converte para f64 e cria RuntimeValue::Number, perdendo
+                    // a informacao de bool. Resultado pratico: JSON.stringify
+                    // de um campo bool serializava "true" como 1 ("flag":1).
+                    //
+                    // Correcao: emit direto como handle. Perdemos o fast path
+                    // local (comparacoes e if/while usam outros caminhos que
+                    // nao dependem disto), mas ganhamos tipo correto em boxing.
+                    let flag = builder.ins().iconst(types::I64, if *b { 1 } else { 0 });
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_BOX_BOOL,
+                        &[flag],
+                    )?;
                     vreg_map.insert(*dst, result);
-                    vreg_kinds.insert(*dst, VRegKind::NativeI32);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
                     default_return = result;
-                    default_return_is_native = true;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::ConstNull(dst) => {
