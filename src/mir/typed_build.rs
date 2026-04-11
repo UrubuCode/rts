@@ -149,6 +149,45 @@ fn lookup_unique_method(method_name: &str) -> Option<String> {
     })
 }
 
+/// Aliases de métodos JS nativos de `String` para o namespace `str`.
+/// Quando `obj.method(args)` não resolve via `METHOD_LOOKUP` mas o nome
+/// está nesta tabela, o lowering emite `Call("str.<snake>", [obj, args])`.
+/// Essa reescrita é puramente sintática — o runtime `str.*` decide em
+/// tempo de execução via pattern match. Se `obj` não for uma String, o
+/// comportamento depende do handler específico (geralmente retorna
+/// undefined/empty).
+///
+/// A tabela lista explicitamente cada par (JS method, namespace callee)
+/// em vez de usar `camelToSnake`, porque alguns nomes do namespace foram
+/// abreviados (`toUpperCase` → `to_upper`, não `to_upper_case`).
+const STRING_METHOD_ALIASES: &[(&str, &str)] = &[
+    ("replaceAll", "str.replace_all"),
+    ("replace", "str.replace"),
+    ("indexOf", "str.index_of"),
+    ("lastIndexOf", "str.last_index_of"),
+    ("startsWith", "str.starts_with"),
+    ("endsWith", "str.ends_with"),
+    ("includes", "str.includes"),
+    ("toUpperCase", "str.to_upper"),
+    ("toLowerCase", "str.to_lower"),
+    ("padStart", "str.pad_start"),
+    ("padEnd", "str.pad_end"),
+    ("charAt", "str.char_at"),
+    ("trimStart", "str.trim_start"),
+    ("trimEnd", "str.trim_end"),
+    ("slice", "str.slice"),
+    ("trim", "str.trim"),
+    ("split", "str.split"),
+    ("repeat", "str.repeat"),
+];
+
+fn lookup_string_method_alias(method_name: &str) -> Option<&'static str> {
+    STRING_METHOD_ALIASES
+        .iter()
+        .find(|(js, _)| *js == method_name)
+        .map(|(_, ns)| *ns)
+}
+
 fn collect_method_lookup(hir: &HirModule) -> HashMap<String, Vec<String>> {
     let mut lookup: HashMap<String, Vec<String>> = HashMap::new();
     for class in &hir.classes {
@@ -820,6 +859,40 @@ fn lower_expr_with_pool(
                                 .push(MirInstruction::Call(vreg, qualified, arg_vregs));
                             return vreg;
                         }
+
+                        // Nenhum método de classe bateu. Se o nome for um
+                        // método JS nativo de String (replaceAll, indexOf,
+                        // startsWith, slice, etc.), reescreve como chamada
+                        // ao namespace `str.*` com o receiver como primeiro
+                        // argumento. O runtime do namespace cuida da checagem
+                        // de tipo (string vs outro).
+                        if let Some(ns_callee) = lookup_string_method_alias(&method_short) {
+                            let obj_vreg = lower_expr_with_pool(
+                                &member.obj,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                                constant_pool,
+                            );
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr_with_pool(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                    constant_pool,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions.push(MirInstruction::Call(
+                                vreg,
+                                ns_callee.to_string(),
+                                arg_vregs,
+                            ));
+                            return vreg;
+                        }
                     }
                 }
             }
@@ -1241,6 +1314,34 @@ fn lower_expr(
                             let vreg = alloc(next_vreg);
                             instructions
                                 .push(MirInstruction::Call(vreg, qualified, arg_vregs));
+                            return vreg;
+                        }
+
+                        // Alias para métodos JS nativos de String — ver
+                        // versão pooled para detalhes.
+                        if let Some(ns_callee) = lookup_string_method_alias(&method_short) {
+                            let obj_vreg = lower_expr(
+                                &member.obj,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                            );
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions.push(MirInstruction::Call(
+                                vreg,
+                                ns_callee.to_string(),
+                                arg_vregs,
+                            ));
                             return vreg;
                         }
                     }
@@ -2365,6 +2466,48 @@ mod tests {
                     if callee == "Point::constructor" && args.len() == 3
             )),
             "deve emitir Call(_, \"Point::constructor\", [instance, 3, 4])"
+        );
+    }
+
+    #[test]
+    fn lowers_string_method_alias_to_str_namespace() {
+        // `s.replaceAll("foo", "X")` deve virar Call(_, "str.replace_all", [s, "foo", "X"])
+        // sem que o usuario precise importar ou chamar o namespace explicitamente.
+        let hir = build_simple_module(vec![
+            r#"const s = "foo bar foo";"#,
+            r#"s.replaceAll("foo", "X");"#,
+        ]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args)
+                    if callee == "str.replace_all" && args.len() == 3
+            )),
+            "s.replaceAll deve ser reescrito para str.replace_all com 3 args (receiver + 2)"
+        );
+    }
+
+    #[test]
+    fn lowers_string_method_slice_alias() {
+        let hir = build_simple_module(vec![
+            r#"const s = "hello";"#,
+            r#"s.slice(0, 3);"#,
+        ]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args)
+                    if callee == "str.slice" && args.len() == 3
+            )),
+            "s.slice(a, b) deve virar str.slice(s, a, b)"
         );
     }
 
