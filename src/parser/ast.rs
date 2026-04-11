@@ -16,7 +16,10 @@ pub enum Item {
 
 #[derive(Debug, Clone)]
 pub struct ImportDecl {
+    /// Named imports: `import { foo, bar } from "…"`
     pub names: Vec<String>,
+    /// Default import local name: `import io from "…"`
+    pub default_name: Option<String>,
     pub from: String,
     pub span: Span,
 }

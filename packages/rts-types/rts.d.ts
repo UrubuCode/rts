@@ -528,6 +528,40 @@ declare module "rts" {
   }
 
   /**
+   * Assertion helpers and test output utilities for rts:test.
+   */
+  export namespace test {
+    /**
+     * Panics if condition is false. Optional message is shown on failure.
+     */
+    export function assert(condition: bool, message?: str): void;
+    /**
+     * Panics if a and b are not equal (string comparison). Optional message shown on failure.
+     */
+    export function assert_eq(a: str, b: str, message?: str): void;
+    /**
+     * Panics if a and b are equal (string comparison). Optional message shown on failure.
+     */
+    export function assert_ne(a: str, b: str, message?: str): void;
+    /**
+     * Emits a passing test message to stdout.
+     */
+    export function pass(message?: str): void;
+    /**
+     * Unconditionally panics with an optional message.
+     */
+    export function fail(message?: str): never;
+    /**
+     * Emits a test suite header to stdout.
+     */
+    export function describe(name: str): void;
+    /**
+     * Emits a test case header to stdout.
+     */
+    export function it(name: str): void;
+  }
+
+  /**
    * Primitivas brutas de máquina: memória, escopo, funções e constantes. Rust expõe apenas tipos de máquina (i64, f64, u64, bool) — sem semântica JS.
    */
   export namespace rts {

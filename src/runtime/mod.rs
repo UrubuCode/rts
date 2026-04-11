@@ -20,10 +20,17 @@ impl BuiltinModule {
 }
 
 pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
-    match name {
-        "rts" => Some(BuiltinModule::new("rts", RTS_EXPORTS.iter().copied())),
-        _ => None,
+    if name == "rts" {
+        return Some(BuiltinModule::new("rts", RTS_EXPORTS.iter().copied()));
     }
+
+    if let Some(ns_name) = name.strip_prefix("rts:") {
+        if let Some(exports) = crate::namespaces::namespace_exports_for(ns_name) {
+            return Some(BuiltinModule::new(name, exports));
+        }
+    }
+
+    None
 }
 
 pub fn rts_exports() -> &'static [&'static str] {
@@ -65,6 +72,7 @@ const RTS_EXPORTS: &[&str] = &[
     "buffer",
     "promise",
     "task",
+    "test",
 ];
 
 const COMPILER_DEPENDENCIES: &[&str] = &[

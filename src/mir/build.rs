@@ -111,8 +111,17 @@ fn collect_top_level_statements(hir: &HirModule) -> Vec<MirStatement> {
 }
 
 fn render_import_statement(import: &HirImport) -> String {
-    let joined = import.names.join(", ");
-    format!("import {{{joined}}} from \"{}\";", import.from)
+    match (&import.default_name, import.names.is_empty()) {
+        (Some(def), true) => format!("import {} from \"{}\";", def, import.from),
+        (Some(def), false) => {
+            let named = import.names.join(", ");
+            format!("import {}, {{{}}} from \"{}\";", def, named, import.from)
+        }
+        (None, _) => {
+            let named = import.names.join(", ");
+            format!("import {{{}}} from \"{}\";", named, import.from)
+        }
+    }
 }
 
 fn inject_statements_into_function(function: &mut MirFunction, mut statements: Vec<MirStatement>) {

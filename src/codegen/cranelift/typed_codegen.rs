@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use cranelift_codegen::ir::{
     AbiParam, InstBuilder, MemFlags, StackSlot, StackSlotData, StackSlotKind, Value, types,
 };
@@ -33,10 +33,10 @@ const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1;
 const ABI_UNDEFINED_HANDLE: i64 = 0;
 
 use crate::namespaces::abi::{
-    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NUMBER, FN_BOX_STRING, FN_CRYPTO_SHA256, FN_EVAL_STMT,
-    FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT,
-    FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_PROCESS_EXIT, FN_READ_IDENTIFIER,
-    FN_UNBOX_NUMBER,
+    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
+    FN_CALL_BY_HANDLE, FN_CRYPTO_SHA256, FN_EVAL_STMT, FN_GLOBAL_DELETE, FN_GLOBAL_GET,
+    FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT, FN_IO_STDERR_WRITE,
+    FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_PROCESS_EXIT, FN_READ_IDENTIFIER, FN_UNBOX_NUMBER,
 };
 
 const RTS_DISPATCH: &str = "__rts_dispatch";
@@ -255,6 +255,41 @@ pub fn define_typed_function<M: Module>(
 
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
+
+        // Prologue: bind every declared user function as a NativeFunction handle so that
+        // LoadBinding + FN_CALL_BY_HANDLE can call them when passed as callbacks.
+        // Only emitted in `main` to avoid redundant work in other functions.
+        if function.name == "main" {
+            // Collect names first to avoid holding the iterator borrow alongside emit_dispatch.
+            let user_fn_names: Vec<String> = func_declarations
+                .keys()
+                .filter(|n| !n.starts_with("__"))
+                .cloned()
+                .collect();
+            for fn_name in user_fn_names {
+                let name_data_id = declare_string_data(module, data_cache, fn_name.as_str())?;
+                let name_data_ref = module.declare_data_in_func(name_data_id, builder.func);
+                let name_ptr = builder.ins().symbol_value(types::I64, name_data_ref);
+                let name_len = builder.ins().iconst(types::I64, fn_name.len() as i64);
+                let not_mutable = builder.ins().iconst(types::I64, 0);
+                // Box the function name as a NativeFunction handle
+                let fn_handle = emit_dispatch(
+                    module,
+                    func_declarations,
+                    &mut builder,
+                    FN_BOX_NATIVE_FN,
+                    &[name_ptr, name_len],
+                )?;
+                // Bind it in the VALUE_STORE so LoadBinding can find it
+                emit_dispatch(
+                    module,
+                    func_declarations,
+                    &mut builder,
+                    FN_BIND_IDENTIFIER,
+                    &[name_ptr, name_len, fn_handle, not_mutable],
+                )?;
+            }
+        }
 
         // --- Pass 0: promoção de globais para shadow stack slots ---
         //
@@ -737,11 +772,59 @@ pub fn define_typed_function<M: Module>(
                             fn_id_val,
                             &handle_args,
                         )?
+                    } else if crate::namespaces::is_catalog_callee(callee.as_str()) {
+                        // Dynamic fallback: namespace callee not in CALLEE_FN_IDS.
+                        // Route through __rts_call_dispatch so all registered namespaces work.
+                        let mut handle_args: Vec<Value> = Vec::with_capacity(args.len());
+                        for arg in args.iter().take(6) {
+                            let val = ensure_handle(
+                                &vreg_map,
+                                &vreg_kinds,
+                                arg,
+                                module,
+                                func_declarations,
+                                &mut builder,
+                            )?;
+                            handle_args.push(val);
+                        }
+                        emit_call_dispatch(
+                            module,
+                            func_declarations,
+                            data_cache,
+                            &mut builder,
+                            callee.as_str(),
+                            &handle_args,
+                        )?
                     } else {
-                        return Err(anyhow!(
-                            "typed codegen cannot lower unresolved callee '{}': add a direct typed runtime symbol or function",
-                            callee
-                        ));
+                        // Last resort: callee may be a local binding holding a NativeFunction handle.
+                        // Emit FN_CALL_BY_HANDLE(fn_handle, argc=0) so the runtime can look up
+                        // and call it (e.g., a named user function passed as a callback).
+                        let fn_handle = if use_local_bindings {
+                            if let Some(state) = local_bindings.get(callee.as_str()) {
+                                builder.ins().stack_load(types::I64, state.slot, 0)
+                            } else {
+                                // Try from global VALUE_STORE
+                                let data_id = declare_string_data(module, data_cache, callee.as_str())?;
+                                let data_ref = module.declare_data_in_func(data_id, builder.func);
+                                let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                                let name_len = builder.ins().iconst(types::I64, callee.len() as i64);
+                                emit_dispatch(module, func_declarations, &mut builder, FN_READ_IDENTIFIER, &[name_ptr, name_len])?
+                            }
+                        } else {
+                            let data_id = declare_string_data(module, data_cache, callee.as_str())?;
+                            let data_ref = module.declare_data_in_func(data_id, builder.func);
+                            let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                            let name_len = builder.ins().iconst(types::I64, callee.len() as i64);
+                            emit_dispatch(module, func_declarations, &mut builder, FN_READ_IDENTIFIER, &[name_ptr, name_len])?
+                        };
+                        let argc = builder.ins().iconst(types::I64, args.len() as i64);
+                        emit_dispatch(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            FN_CALL_BY_HANDLE,
+                            &[fn_handle, argc],
+                        )?
                     };
                     vreg_map.insert(*dst, result);
                     vreg_kinds.insert(*dst, VRegKind::Handle);
@@ -1348,6 +1431,55 @@ fn emit_dispatch<M: Module>(
         call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
     }
     let local = module.declare_func_in_func(dispatch_fn, builder.func);
+    let call = builder.ins().call(local, &call_args);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
+/// Assinatura do __rts_call_dispatch: (callee_ptr, callee_len, argc, a0..a5) -> i64
+fn call_dispatch_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
+    let mut sig = module.make_signature();
+    for _ in 0..9 {
+        sig.params.push(AbiParam::new(types::I64));
+    }
+    sig.returns.push(AbiParam::new(types::I64));
+    sig
+}
+
+/// Emite uma chamada a __rts_call_dispatch com o callee como string estática e os args como handles.
+fn emit_call_dispatch<M: Module>(
+    module: &mut M,
+    declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    callee: &str,
+    args: &[Value],
+) -> Result<Value> {
+    use crate::codegen::cranelift::mir_parse::RTS_CALL_DISPATCH_SYMBOL;
+    let sig = call_dispatch_signature(module);
+    let fn_id = ensure_import(module, declarations, RTS_CALL_DISPATCH_SYMBOL, &sig)?;
+
+    let data_id = declare_string_data(module, data_cache, callee)?;
+    let data_ref = module.declare_data_in_func(data_id, builder.func);
+    let ptr = builder.ins().symbol_value(types::I64, data_ref);
+    let len = builder.ins().iconst(types::I64, callee.len() as i64);
+    let argc = builder.ins().iconst(types::I64, args.len() as i64);
+
+    let mut call_args: Vec<Value> = Vec::with_capacity(9);
+    call_args.push(ptr);
+    call_args.push(len);
+    call_args.push(argc);
+    for &arg in args.iter().take(6) {
+        call_args.push(arg);
+    }
+    while call_args.len() < 9 {
+        call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+    }
+
+    let local = module.declare_func_in_func(fn_id, builder.func);
     let call = builder.ins().call(local, &call_args);
     Ok(builder
         .inst_results(call)

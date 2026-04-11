@@ -14,6 +14,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
             Item::Import(import_decl) => {
                 let import = HirImport {
                     names: import_decl.names.clone(),
+                    default_name: import_decl.default_name.clone(),
                     from: import_decl.from.clone(),
                 };
 

@@ -179,23 +179,29 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
 }
 
 fn lower_import_decl(cm: &Lrc<SourceMap>, import_decl: &SwcImportDecl) -> ImportDecl {
-    let names = import_decl
-        .specifiers
-        .iter()
-        .filter_map(|specifier| match specifier {
+    let mut names = Vec::new();
+    let mut default_name = None;
+
+    for specifier in &import_decl.specifiers {
+        match specifier {
             ImportSpecifier::Named(named) => {
-                if let Some(imported) = &named.imported {
-                    Some(module_export_name(imported))
+                let name = if let Some(imported) = &named.imported {
+                    module_export_name(imported)
                 } else {
-                    Some(named.local.sym.to_string())
-                }
+                    named.local.sym.to_string()
+                };
+                names.push(name);
             }
-            ImportSpecifier::Default(_) | ImportSpecifier::Namespace(_) => None,
-        })
-        .collect::<Vec<_>>();
+            ImportSpecifier::Default(def) => {
+                default_name = Some(def.local.sym.to_string());
+            }
+            ImportSpecifier::Namespace(_) => {}
+        }
+    }
 
     ImportDecl {
         names,
+        default_name,
         from: import_decl.src.value.to_string_lossy().to_string(),
         span: convert_span(cm, import_decl.span),
     }

@@ -20,6 +20,7 @@ pub mod promise;
 pub mod rust;
 pub mod str;
 pub mod task;
+pub mod test;
 
 #[derive(Debug, Clone, Copy)]
 pub struct NamespaceMember {
@@ -48,10 +49,27 @@ const SPECS: &[NamespaceSpec] = &[
     promise::SPEC,
     task::SPEC,
     gc::SPEC,
+    test::SPEC,
     rust::SPEC,
     rust::NATIVES_SPEC,
     rust::HOTOPS_SPEC,
     rust::DEBUG_SPEC,
+];
+
+/// Namespaces that get a standalone `rts:<name>` module (user-facing).
+/// Internal `rts.*` sub-namespaces are excluded here.
+const SPLIT_SPECS: &[&NamespaceSpec] = &[
+    &io::SPEC,
+    &fs::SPEC,
+    &net::SPEC,
+    &process::SPEC,
+    &crypto::SPEC,
+    &global::SPEC,
+    &buffer::SPEC,
+    &promise::SPEC,
+    &task::SPEC,
+    &gc::SPEC,
+    &test::SPEC,
 ];
 
 #[derive(Debug, Clone)]
@@ -222,9 +240,24 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
         "promise" => promise::dispatch(callee, args),
         "task" => task::dispatch(callee, args),
         "gc" => gc::dispatch(callee, args),
+        "test" => test::dispatch(callee, args),
         "rust" => rust::dispatch(callee, args),
         _ => None,
     }
+}
+
+/// Returns the named exports for a `rts:<name>` builtin module.
+/// Includes each function name plus `"default"` (the namespace object).
+pub fn namespace_exports_for(name: &str) -> Option<Vec<&'static str>> {
+    SPLIT_SPECS
+        .iter()
+        .find(|spec| spec.name == name)
+        .map(|spec| {
+            let mut exports: Vec<&'static str> =
+                spec.members.iter().map(|m| m.name).collect();
+            exports.push("default");
+            exports
+        })
 }
 
 pub fn default_typescript_output_path() -> PathBuf {
@@ -240,6 +273,58 @@ pub fn emit_typescript_declarations(output_path: &Path) -> Result<()> {
     let content = render_typescript_declarations();
     std::fs::write(output_path, content)
         .with_context(|| format!("failed to write {}", output_path.display()))
+}
+
+/// Emits one `rts:<name>.d.ts` file per user-facing namespace into the given directory.
+pub fn emit_split_typescript_declarations(output_dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+
+    for spec in SPLIT_SPECS {
+        let file_name = format!("{}.d.ts", spec.name);
+        let path = output_dir.join(&file_name);
+        let content = render_namespace_declaration(spec);
+        std::fs::write(&path, content)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn render_namespace_declaration(spec: &NamespaceSpec) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("declare module \"rts:{}\" {{\n", spec.name));
+    out.push_str(RTS_BASE_TYPES_FLAT);
+    out.push('\n');
+
+    for block in spec.ts_prelude {
+        for line in block.lines() {
+            out.push_str("  ");
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    for member in spec.members {
+        write_doc_block(&mut out, 2, member.doc);
+        out.push_str("  export function ");
+        out.push_str(member.ts_signature);
+        out.push_str(";\n");
+    }
+
+    // Default export: namespace object with the same function signatures.
+    out.push_str("\n  const _default: {\n");
+    for member in spec.members {
+        out.push_str("    ");
+        out.push_str(member.ts_signature);
+        out.push_str(";\n");
+    }
+    out.push_str("  };\n");
+    out.push_str("  export default _default;\n");
+
+    out.push_str("}\n");
+    out
 }
 
 fn render_typescript_declarations() -> String {
@@ -288,6 +373,21 @@ fn write_doc_block(out: &mut String, indent: usize, doc: &str) {
     out.push_str(&padding);
     out.push_str(" */\n");
 }
+
+const RTS_BASE_TYPES_FLAT: &str = r#"  export type i8 = number;
+  export type u8 = number;
+  export type i16 = number;
+  export type u16 = number;
+  export type i32 = number;
+  export type u32 = number;
+  export type i64 = number;
+  export type u64 = number;
+  export type isize = number;
+  export type usize = number;
+  export type f32 = number;
+  export type f64 = number;
+  export type bool = boolean;
+  export type str = string;"#;
 
 const RTS_BASE_TYPES: &str = r#"  export type i8 = number;
   export type u8 = number;
