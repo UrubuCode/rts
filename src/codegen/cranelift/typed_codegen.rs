@@ -389,11 +389,31 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::LoadParam(dst, index) => {
-                    let value = entry_params
+                    let handle = entry_params
                         .get(index + 1)
                         .copied()
                         .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
-                    vreg_map.insert(*dst, value);
+                    // Parâmetros numéricos (anotação `number`/`i32`/etc. no HIR)
+                    // são unboxed UMA VEZ aqui no entry block para evitar
+                    // FN_UNBOX_NUMBER em cada uso dentro de loops. Parâmetros
+                    // sem anotação ou com tipo não-numérico permanecem como
+                    // handles — o `adapt_to_kind` genérico do BinOp faz a
+                    // conversão caso-a-caso quando necessário, e callees como
+                    // `io.print(msg: str)` recebem o handle direto.
+                    if function.param_is_numeric.get(*index).copied().unwrap_or(false) {
+                        let bits = emit_dispatch(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            FN_UNBOX_NUMBER,
+                            &[handle],
+                        )?;
+                        vreg_map.insert(*dst, bits);
+                        vreg_kinds.insert(*dst, VRegKind::NativeF64);
+                    } else {
+                        vreg_map.insert(*dst, handle);
+                        // VRegKind default é Handle.
+                    }
                 }
 
                 MirInstruction::BinOp(dst, op, lhs, rhs) => {

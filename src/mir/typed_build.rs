@@ -265,6 +265,7 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
         module.functions.push(TypedMirFunction {
             name: "main".to_string(),
             param_count: 0,
+            param_is_numeric: Vec::new(),
             blocks: vec![TypedBasicBlock {
                 label: "entry".to_string(),
                 instructions: top_level_instructions,
@@ -281,6 +282,7 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
         module.functions.push(TypedMirFunction {
             name: "main".to_string(),
             param_count: 0,
+            param_is_numeric: Vec::new(),
             blocks: vec![TypedBasicBlock {
                 label: "entry".to_string(),
                 instructions: vec![MirInstruction::Return(None)],
@@ -295,10 +297,34 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
     module
 }
 
+/// Retorna true se o tipo anotado é garantidamente numérico (number/i32/f64/etc.).
+/// Usado pra decidir se um parâmetro pode ser unboxed para NativeF64 uma única
+/// vez no entry block, eliminando FN_UNBOX_NUMBER em cada uso dentro de loops.
+///
+/// Conservador: sem anotação ou com tipo desconhecido, devolve false — o
+/// parâmetro permanece Handle e o adapt_to_kind genérico do BinOp cuida de
+/// qualquer conversão necessária.
+fn is_numeric_type_annotation(ann: Option<&crate::hir::annotations::TypeAnnotation>) -> bool {
+    let Some(ann) = ann else {
+        return false;
+    };
+    matches!(
+        ann.name.as_str(),
+        "number" | "i32" | "i64" | "f32" | "f64" | "u32" | "u64" | "i16" | "u16" | "i8" | "u8"
+    )
+}
+
 fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
+    let param_is_numeric = function
+        .parameters
+        .iter()
+        .map(|p| is_numeric_type_annotation(p.type_annotation.as_ref()))
+        .collect::<Vec<_>>();
+
     let mut func = TypedMirFunction {
         name: function.name.clone(),
         param_count: function.parameters.len(),
+        param_is_numeric,
         blocks: Vec::new(),
         next_vreg: 0,
         source_file: function.loc.as_ref().map(|loc| loc.file.clone()),
