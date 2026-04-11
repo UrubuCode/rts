@@ -39,26 +39,10 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         print_debug_timeline(&input, options, &report);
     }
 
-    let jit_report = &report.jit_report;
-
-    if jit_report.executed {
-        println!(
-            "JIT executou '{}': {} funcoes lowerizadas, retorno={} (profile={}, modulos={}).",
-            jit_report.entry_function,
-            jit_report.compiled_functions,
-            jit_report.entry_return_value,
-            options.profile,
-            report.module_count
-        );
-    } else {
-        println!(
-            "JIT compilou {} funcoes, mas a entry '{}' nao foi encontrada (profile={}, modulos={}).",
-            jit_report.compiled_functions,
-            jit_report.entry_function,
-            options.profile,
-            report.module_count
-        );
-    }
+    // Relatório do JIT só aparece em modo --debug (ver print_debug_timeline).
+    // Sem --debug, não poluímos stdout: o programa do usuário é o único output.
+    let _ = &report.jit_report;
+    let _ = options;
 
     Ok(())
 }
