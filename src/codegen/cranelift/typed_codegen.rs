@@ -36,7 +36,8 @@ use crate::namespaces::abi::{
     FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
     FN_CALL_BY_HANDLE, FN_CRYPTO_SHA256, FN_EVAL_STMT, FN_GLOBAL_DELETE, FN_GLOBAL_GET,
     FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT, FN_IO_STDERR_WRITE,
-    FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_PROCESS_EXIT, FN_READ_IDENTIFIER, FN_UNBOX_NUMBER,
+    FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE, FN_PROCESS_EXIT,
+    FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER,
 };
 
 const RTS_DISPATCH: &str = "__rts_dispatch";
@@ -1259,6 +1260,102 @@ pub fn define_typed_function<M: Module>(
                     vreg_kinds.insert(*dst, VRegKind::Handle);
                     default_return = result;
                     default_return_is_native = false;
+                }
+                MirInstruction::NewInstance(dst, class_name) => {
+                    // Aloca RuntimeValue::Object vazio via FN_NEW_INSTANCE.
+                    // O class_name é passado por enquanto apenas como diagnóstico
+                    // — o runtime ainda ignora (ver abi.rs FN_NEW_INSTANCE).
+                    let data_id =
+                        declare_string_data(module, data_cache, class_name.as_str())?;
+                    let data_ref = module.declare_data_in_func(data_id, builder.func);
+                    let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                    let name_len =
+                        builder.ins().iconst(types::I64, class_name.len() as i64);
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_NEW_INSTANCE,
+                        &[name_ptr, name_len],
+                    )?;
+                    vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
+                    default_return = result;
+                    default_return_is_native = false;
+                }
+                MirInstruction::LoadField(dst, obj_vreg, field_name) => {
+                    // dst = obj.field
+                    let obj_value = resolve_vreg(&vreg_map, obj_vreg, &mut builder);
+                    let obj_handle = adapt_to_kind(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        obj_value,
+                        vreg_kinds
+                            .get(obj_vreg)
+                            .copied()
+                            .unwrap_or(VRegKind::Handle),
+                        VRegKind::Handle,
+                    )?;
+                    let data_id =
+                        declare_string_data(module, data_cache, field_name.as_str())?;
+                    let data_ref = module.declare_data_in_func(data_id, builder.func);
+                    let field_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                    let field_len =
+                        builder.ins().iconst(types::I64, field_name.len() as i64);
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_LOAD_FIELD,
+                        &[obj_handle, field_ptr, field_len],
+                    )?;
+                    vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
+                    default_return = result;
+                    default_return_is_native = false;
+                }
+                MirInstruction::StoreField(obj_vreg, field_name, value_vreg) => {
+                    // obj.field = value
+                    let obj_value = resolve_vreg(&vreg_map, obj_vreg, &mut builder);
+                    let obj_handle = adapt_to_kind(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        obj_value,
+                        vreg_kinds
+                            .get(obj_vreg)
+                            .copied()
+                            .unwrap_or(VRegKind::Handle),
+                        VRegKind::Handle,
+                    )?;
+                    let value_raw = resolve_vreg(&vreg_map, value_vreg, &mut builder);
+                    let value_handle = adapt_to_kind(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        value_raw,
+                        vreg_kinds
+                            .get(value_vreg)
+                            .copied()
+                            .unwrap_or(VRegKind::Handle),
+                        VRegKind::Handle,
+                    )?;
+                    let data_id =
+                        declare_string_data(module, data_cache, field_name.as_str())?;
+                    let data_ref = module.declare_data_in_func(data_id, builder.func);
+                    let field_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                    let field_len =
+                        builder.ins().iconst(types::I64, field_name.len() as i64);
+                    let _ = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_STORE_FIELD,
+                        &[obj_handle, field_ptr, field_len, value_handle],
+                    )?;
+                    // StoreField não produz valor consumível — não muda
+                    // default_return.
                 }
             }
         }

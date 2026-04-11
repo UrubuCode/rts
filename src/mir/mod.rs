@@ -138,6 +138,18 @@ pub enum MirInstruction {
     /// Inline function call directly instead of calling
     InlineCall(VReg, String, Vec<VReg>), // dst, inlined_function_name, args
     RuntimeEval(VReg, String),
+    /// Aloca uma nova instância de classe. Cria um `RuntimeValue::Object`
+    /// vazio no `ValueStore` via `FN_NEW_INSTANCE` e carrega o handle no
+    /// vreg destino. O constructor é chamado separadamente pelo lowering
+    /// de `Expr::New` — esta instrução apenas materializa a instância.
+    NewInstance(VReg, String),
+    /// Lê um campo de um objeto: `dst = obj.field`. Emite
+    /// `FN_LOAD_FIELD(obj_handle, field_ptr, field_len)` → value_handle.
+    LoadField(VReg, VReg, String),
+    /// Escreve um campo de um objeto: `obj.field = value`. Emite
+    /// `FN_STORE_FIELD(obj_handle, field_ptr, field_len, value_handle)`.
+    /// Muta a `BTreeMap` do Object in-place no `ValueStore`.
+    StoreField(VReg, String, VReg),
 }
 
 /// A basic block using typed instructions.
