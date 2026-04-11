@@ -476,9 +476,23 @@ pub fn define_typed_function<M: Module>(
                     // Resolve os valores uma vez e aplica promoção numérica quando
                     // os kinds divergem. Unificamos no kind mais largo (Handle/F64 > I32)
                     // antes das branches nativas.
+                    //
+                    // Caso especial: `Add` com pelo menos um Handle é ambíguo —
+                    // pode ser concat de string ou soma numérica. O runtime
+                    // decide em FN_BINOP via `is_string_like`. Por isso a
+                    // promoção Handle↔Native é DESLIGADA para Add: ambos são
+                    // mantidos como Handle (boxando o native se necessário) e
+                    // o fallback dispatch cuida do resto.
                     let mut lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
                     let mut rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
-                    if (is_arith || is_cmp) && lhs_kind != rhs_kind {
+                    let has_handle_operand =
+                        lhs_kind == VRegKind::Handle || rhs_kind == VRegKind::Handle;
+                    let skip_numeric_promotion =
+                        matches!(op, MirBinOp::Add) && has_handle_operand;
+                    if (is_arith || is_cmp)
+                        && lhs_kind != rhs_kind
+                        && !skip_numeric_promotion
+                    {
                         let target = match (lhs_kind, rhs_kind) {
                             (VRegKind::NativeI32, VRegKind::NativeF64)
                             | (VRegKind::NativeF64, VRegKind::NativeI32)
