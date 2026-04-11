@@ -1,20 +1,24 @@
 //! `rts clean` — limpa o cache de objects gerado por builds anteriores.
 //!
-//! Remove `target/.deps/` (e futuramente `node_modules/.rts/objs/` quando
-//! a Etapa 5 for entregue). Nao mexe em `target/release` nem em outros
-//! artefatos fora do escopo do cache RTS.
+//! Remove os dois caminhos de cache que o RTS pode ter gerado:
+//! - `node_modules/.rts/` (padrao a partir da Etapa 5 — objs + launcher)
+//! - `target/.deps/` e `target/.launcher/` (legado, anterior a Etapa 5)
+//!
+//! Nao mexe em `target/release` nem em outros artefatos fora do escopo
+//! do cache RTS.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 /// Diretorios considerados cache de objects gerados pelo RTS.
-/// Quando a Etapa 5 migrar para `node_modules/.rts/objs/`, basta
-/// adicionar o novo path aqui.
 fn cache_dirs() -> Vec<PathBuf> {
     vec![
+        // Padrao atual — Etapa 5
+        PathBuf::from("node_modules").join(".rts"),
+        // Legado — pode coexistir em projetos que ainda nao migraram
         PathBuf::from("target").join(".deps"),
-        PathBuf::from("node_modules").join(".rts").join("objs"),
+        PathBuf::from("target").join(".launcher"),
     ]
 }
 

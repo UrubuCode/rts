@@ -40,6 +40,22 @@ pub fn command(project_name_arg: Option<String>) -> Result<()> {
         &project_dir.join("README.md"),
         &render_readme(&project_name, version),
     )?;
+    write_new_file(&project_dir.join("tsconfig.json"), &render_tsconfig())?;
+    write_new_file(&project_dir.join(".gitignore"), &render_gitignore())?;
+
+    // Gera os .d.ts em `node_modules/.rts/builtin/rts-types/` para que
+    // o VSCode tenha IntelliSense de primeiro dia. O tsconfig aponta
+    // exatamente para esse diretorio via `typeRoots`.
+    let types_dir = project_dir
+        .join("node_modules")
+        .join(".rts")
+        .join("builtin")
+        .join("rts-types");
+    std::fs::create_dir_all(&types_dir).with_context(|| {
+        format!("failed to create {}", types_dir.display())
+    })?;
+    crate::namespaces::emit_split_typescript_declarations(&types_dir)?;
+    crate::namespaces::emit_typescript_declarations(&types_dir.join("rts.d.ts"))?;
 
     println!(
         "Project '{}' generated at {}",
@@ -124,8 +140,11 @@ fn write_new_file(path: &Path, content: &str) -> Result<()> {
 }
 
 fn render_main_ts(project_name: &str) -> String {
+    // O RTS ja invoca `main()` automaticamente como entry point.
+    // Nao incluir `main();` no top-level — isso cria uma chamada recursiva
+    // com o bootstrap do runtime.
     format!(
-        "import {{ io }} from \"rts\";\n\nfunction main(): void {{\n  io.print(\"hello from {project_name}\");\n}}\n\nmain();\n"
+        "import {{ io }} from \"rts\";\n\nfunction main(): void {{\n  io.print(\"hello from {project_name}\");\n}}\n"
     )
 }
 
@@ -139,4 +158,51 @@ fn render_readme(project_name: &str, version: &str) -> String {
     format!(
         "### Project {project_name} generated with rts {version}\n\n## Run\n\n```bash\nrts src/main.ts\n```\n"
     )
+}
+
+/// `tsconfig.json` gerado para o projeto. Aponta o resolver do TypeScript
+/// para os types em `node_modules/.rts/builtin/rts-types/`, que sao
+/// gerados pelo `rts init` e podem ser regenerados com `rts emit-types`.
+fn render_tsconfig() -> String {
+    // Formato simples — um unico `typeRoots` + `paths` para permitir
+    // `import { io } from "rts"` e `import * as fs from "rts:fs"`.
+    r#"{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "typeRoots": ["./node_modules/.rts/builtin/rts-types"],
+    "paths": {
+      "rts": ["./node_modules/.rts/builtin/rts-types/rts.d.ts"],
+      "rts:*": ["./node_modules/.rts/builtin/rts-types/*.d.ts"]
+    },
+    "types": []
+  },
+  "include": ["src/**/*.ts"]
+}
+"#
+    .to_string()
+}
+
+/// `.gitignore` padrao — ignora caches do RTS e binarios compilados
+/// na raiz do projeto (convencao do `rts compile`).
+fn render_gitignore() -> String {
+    r#"# RTS caches
+node_modules/
+target/
+
+# Compiled binaries (rts compile default output path is project root)
+*.exe
+*.dll
+*.so
+*.dylib
+
+# OS
+.DS_Store
+Thumbs.db
+"#
+    .to_string()
 }

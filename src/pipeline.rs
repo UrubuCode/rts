@@ -349,50 +349,64 @@ fn should_keep_named_item(required_names: Option<&BTreeSet<String>>, name: &str)
 }
 
 pub(crate) fn resolve_deps_dir(output: &Path) -> Result<PathBuf> {
-    let base = if let Ok(configured) = std::env::var("RTS_DEPS_DIR") {
-        let configured = configured.trim();
-        if configured.is_empty() {
-            PathBuf::from("target").join(".deps")
-        } else {
-            PathBuf::from(configured)
-        }
-    } else {
-        let _ = output;
-        PathBuf::from("target").join(".deps")
-    };
+    // Prioridade:
+    // 1. Variavel de ambiente `RTS_DEPS_DIR` — usuario avancado pode
+    //    apontar para qualquer diretorio (testes, CI, etc)
+    // 2. `node_modules/.rts/objs/` — padrao a partir da Etapa 5, alinha
+    //    com o ecossistema JS/TS (ignorado por ferramentas como tsc,
+    //    vscode, eslint, prettier automaticamente)
+    // 3. `target/.deps/` — fallback legado, mantido apenas se o usuario
+    //    ja tem um `target/.deps/` existente (nao quebra builds atuais)
+    let _ = output;
 
-    let deps = if base.ends_with(".deps") {
-        base
-    } else {
-        base.join(".deps")
-    };
-    std::fs::create_dir_all(&deps)
-        .with_context(|| format!("failed to create {}", deps.display()))?;
-    Ok(deps)
+    if let Ok(configured) = std::env::var("RTS_DEPS_DIR") {
+        let configured = configured.trim();
+        if !configured.is_empty() {
+            let custom = PathBuf::from(configured);
+            std::fs::create_dir_all(&custom)
+                .with_context(|| format!("failed to create {}", custom.display()))?;
+            return Ok(custom);
+        }
+    }
+
+    let new_default = PathBuf::from("node_modules").join(".rts").join("objs");
+    let legacy = PathBuf::from("target").join(".deps");
+
+    // Se existe um cache legado e nao existe o novo, migramos o path
+    // mas continuamos usando o legado — evita quebrar builds em progresso.
+    // O usuario move manualmente rodando `rts clean` seguido de novo build.
+    if legacy.exists() && !new_default.exists() {
+        return Ok(legacy);
+    }
+
+    std::fs::create_dir_all(&new_default)
+        .with_context(|| format!("failed to create {}", new_default.display()))?;
+    Ok(new_default)
 }
 
 pub(crate) fn resolve_launcher_cache_dir(output: &Path) -> Result<PathBuf> {
-    let base = if let Ok(configured) = std::env::var("RTS_LAUNCHER_CACHE_DIR") {
+    let _ = output;
+
+    if let Ok(configured) = std::env::var("RTS_LAUNCHER_CACHE_DIR") {
         let configured = configured.trim();
-        if configured.is_empty() {
-            PathBuf::from("target").join(".launcher")
-        } else {
-            PathBuf::from(configured)
+        if !configured.is_empty() {
+            let custom = PathBuf::from(configured);
+            std::fs::create_dir_all(&custom)
+                .with_context(|| format!("failed to create {}", custom.display()))?;
+            return Ok(custom);
         }
-    } else {
-        let _ = output;
-        PathBuf::from("target").join(".launcher")
-    };
+    }
 
-    let launcher = if base.ends_with(".launcher") {
-        base
-    } else {
-        base.join(".launcher")
-    };
+    let new_default = PathBuf::from("node_modules").join(".rts").join("launcher");
+    let legacy = PathBuf::from("target").join(".launcher");
 
-    std::fs::create_dir_all(&launcher)
-        .with_context(|| format!("failed to create {}", launcher.display()))?;
-    Ok(launcher)
+    if legacy.exists() && !new_default.exists() {
+        return Ok(legacy);
+    }
+
+    std::fs::create_dir_all(&new_default)
+        .with_context(|| format!("failed to create {}", new_default.display()))?;
+    Ok(new_default)
 }
 
 fn emit_fallback_main_object(
