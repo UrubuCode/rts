@@ -1651,4 +1651,93 @@ mod tests {
                 .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x"))
         );
     }
+
+    #[test]
+    fn lowers_class_method_via_parser() {
+        // Full pipeline: parser -> HIR -> typed MIR. O corpo do método
+        // (`return a + b;`) precisa chegar como instrução MIR real agora
+        // que o pedaço 0a foi implementado.
+        let source = r#"
+            class Calc {
+                static add(a: number, b: number): number {
+                    return a + b;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        // lower empurra métodos para module.functions com nome qualificado
+        let method = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Calc::add")
+            .expect("Calc::add deve aparecer em hir.functions");
+        assert_eq!(method.parameters.len(), 2);
+        assert!(!method.body.is_empty(), "body do método deve ter snippets");
+
+        let mir = typed_build(&hir);
+        let typed = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Calc::add")
+            .expect("Calc::add deve aparecer no MIR tipado");
+        assert_eq!(typed.param_count, 2);
+
+        let instructions = &typed.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _))),
+            "corpo do método deve emitir BinOp::Add"
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Return(Some(_)))),
+            "corpo do método deve emitir Return com valor"
+        );
+    }
+
+    #[test]
+    fn lowers_class_constructor_body_via_parser() {
+        // Constructor body também precisa chegar ao MIR agora.
+        let source = r#"
+            class Counter {
+                constructor(initial: number) {
+                    let start = initial;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        let ctor = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Counter::constructor")
+            .expect("Counter::constructor deve aparecer em hir.functions");
+        assert!(
+            !ctor.body.is_empty(),
+            "body do constructor deve ter snippets"
+        );
+
+        let mir = typed_build(&hir);
+        let typed = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Counter::constructor")
+            .expect("Counter::constructor deve aparecer no MIR tipado");
+
+        let instructions = &typed.blocks[0].instructions;
+        // `let start = initial;` deve gerar ao menos um Bind("start", ...).
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Bind(name, _, _) if name == "start")),
+            "constructor deve emitir Bind para a variável local `start`"
+        );
+    }
 }

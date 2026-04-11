@@ -80,7 +80,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                 name: format!("{}::constructor", class_decl.name),
                                 parameters,
                                 return_type: None,
-                                body: Vec::new(),
+                                body: statements_to_strings(&ctor.body),
                                 loc: None,
                             };
 
@@ -108,7 +108,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                     .return_type
                                     .as_ref()
                                     .map(|name| annotate(name, resolver)),
-                                body: Vec::new(),
+                                body: statements_to_strings(&method.body),
                                 loc: None,
                             };
 
@@ -152,13 +152,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                         .return_type
                         .as_ref()
                         .map(|name| annotate(name, resolver)),
-                    body: function_decl
-                        .body
-                        .iter()
-                        .map(|statement| match statement {
-                            Statement::Raw(raw) => raw.value.clone(),
-                        })
-                        .collect(),
+                    body: statements_to_strings(&function_decl.body),
                     loc: None,
                 };
 
@@ -184,4 +178,13 @@ fn annotate(type_name: &str, resolver: &TypeResolver) -> TypeAnnotation {
     } else {
         TypeAnnotation::unresolved(type_name)
     }
+}
+
+fn statements_to_strings(statements: &[Statement]) -> Vec<String> {
+    statements
+        .iter()
+        .map(|statement| match statement {
+            Statement::Raw(raw) => raw.value.clone(),
+        })
+        .collect()
 }
