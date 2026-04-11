@@ -9,6 +9,7 @@ pub mod test;
 use anyhow::{Result, anyhow};
 
 use crate::compile_options::{CompilationProfile, CompileOptions, FrontendMode};
+use crate::diagnostics::reporter;
 
 #[derive(Debug, Clone, Copy)]
 struct CliFlags {
@@ -49,6 +50,11 @@ where
 
     let (flags, positional, eval_source) = parse_flags(raw_args)?;
 
+    // Zera o engine de diagnosticos antes de cada build. Diagnostics
+    // emitidos durante a compilacao sao rendered ao final (ou quando
+    // houver erro) via `render_compiler_error`.
+    reporter::reset_global_engine();
+
     if let Some(source) = eval_source {
         let result = eval::command(Some(source), flags.as_compile_options());
         return result.map_err(|error| render_compiler_error(error, flags));
@@ -88,7 +94,19 @@ where
         entry => run::command(Some(entry.to_string()), flags.as_compile_options()),
     };
 
-    result.map_err(|error| render_compiler_error(error, flags))
+    let rendered = result.map_err(|error| render_compiler_error(error, flags));
+
+    // Em caminho feliz, ainda podemos ter warnings acumulados — renderiza.
+    if rendered.is_ok() {
+        let engine = reporter::global_engine();
+        if engine.warnings_count() > 0 {
+            let use_color = reporter::stderr_supports_color();
+            eprint!("{}", engine.render_all(use_color));
+            eprintln!("compilacao concluida com {} aviso(s)", engine.warnings_count());
+        }
+    }
+
+    rendered
 }
 
 fn parse_flags(raw_args: Vec<String>) -> Result<(CliFlags, Vec<String>, Option<String>)> {
@@ -130,6 +148,27 @@ fn bail_unknown_option(option: &str) -> Result<()> {
 }
 
 fn render_compiler_error(error: anyhow::Error, flags: CliFlags) -> anyhow::Error {
+    // Se o engine global acumulou diagnosticos, renderiza eles primeiro.
+    // Isso mostra ao usuario exatamente onde esta o problema com codigo,
+    // span, snippet e sugestao, independente do erro anyhow subjacente.
+    let engine = reporter::global_engine();
+    let has_diagnostics = !engine.is_empty();
+
+    if has_diagnostics {
+        let use_color = reporter::stderr_supports_color();
+        let rendered = engine.render_all(use_color);
+        eprint!("{rendered}");
+        let errors = engine.errors_count();
+        let warnings = engine.warnings_count();
+        let summary = if errors > 0 {
+            format!("compilacao falhou: {errors} erro(s), {warnings} aviso(s)")
+        } else {
+            format!("compilacao interrompida com {warnings} aviso(s)")
+        };
+        return anyhow!(summary);
+    }
+
+    // Fallback: erro inesperado (nao veio do DiagnosticEngine).
     if matches!(flags.profile, CompilationProfile::Production) && !flags.debug {
         let fingerprint = fnv1a32(format!("{error:#}").as_bytes());
         return anyhow!(

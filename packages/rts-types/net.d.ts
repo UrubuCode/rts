@@ -198,6 +198,34 @@ declare module "rts:net" {
    */
   export function udp_leave_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>;
   /**
+   * Reads a complete HTTP/1.1 request from a TCP stream and returns a handle.
+   */
+  export function http_read_request(stream: u64): io.Result<u64>;
+  /**
+   * Returns the HTTP method (GET, POST, ...) of a parsed request.
+   */
+  export function http_request_method(request: u64): io.Result<str>;
+  /**
+   * Returns the request path (with query string) of a parsed request.
+   */
+  export function http_request_path(request: u64): io.Result<str>;
+  /**
+   * Returns the value of a header by case-insensitive name. Empty string if absent.
+   */
+  export function http_request_header(request: u64, name: str): io.Result<str>;
+  /**
+   * Returns the body of a parsed request as a UTF-8 string.
+   */
+  export function http_request_body(request: u64): io.Result<str>;
+  /**
+   * Releases the memory for a parsed request handle.
+   */
+  export function http_request_free(request: u64): io.Result<bool>;
+  /**
+   * Writes a simple HTTP/1.1 response to a stream with status, body and optional content-type.
+   */
+  export function http_response_write(stream: u64, status: u32, body: str, content_type?: str): io.Result<usize>;
+  /**
    * Parses a string as an IP address.
    */
   export function parse_ip_addr(addr: str): io.Result<IpAddr>;
@@ -258,6 +286,13 @@ declare module "rts:net" {
     udp_ttl(socket: u64): io.Result<u32>;
     udp_join_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>;
     udp_leave_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>;
+    http_read_request(stream: u64): io.Result<u64>;
+    http_request_method(request: u64): io.Result<str>;
+    http_request_path(request: u64): io.Result<str>;
+    http_request_header(request: u64, name: str): io.Result<str>;
+    http_request_body(request: u64): io.Result<str>;
+    http_request_free(request: u64): io.Result<bool>;
+    http_response_write(stream: u64, status: u32, body: str, content_type?: str): io.Result<usize>;
     parse_ip_addr(addr: str): io.Result<IpAddr>;
     parse_ipv4_addr(addr: str): io.Result<Ipv4Addr>;
     parse_ipv6_addr(addr: str): io.Result<Ipv6Addr>;

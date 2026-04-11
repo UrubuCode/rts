@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 
 use crate::compile_options::CompileOptions;
+use crate::diagnostics::reporter::{self, RichDiagnostic};
+use crate::parser::span::Span;
 
 use super::manifest::{
     DependencySpec, ManifestCache, PackageManifest, RawPackageManifest, load_package_manifest,
@@ -14,6 +16,7 @@ use super::{ImportTarget, ModuleKind, attach_trace};
 pub(crate) fn resolve_import_target(
     current_module: &Path,
     specifier: &str,
+    import_span: Span,
     owner_manifest: Option<&PackageManifest>,
     workspace_root: &Path,
     module_cache: &ModuleCache,
@@ -28,11 +31,31 @@ pub(crate) fn resolve_import_target(
                 current_module.display()
             )
         })?;
-        let path = resolve_source_module(base_dir, specifier)?;
-        return Ok(ImportTarget {
-            path,
-            kind: ModuleKind::Source,
-        });
+        match resolve_source_module(base_dir, specifier) {
+            Ok(path) => {
+                return Ok(ImportTarget {
+                    path,
+                    kind: ModuleKind::Source,
+                });
+            }
+            Err(err) => {
+                reporter::emit(
+                    RichDiagnostic::error(
+                        "E001",
+                        format!("modulo nao encontrado: '{specifier}'"),
+                    )
+                    .with_span(import_span)
+                    .with_note(format!(
+                        "caminho base resolvido a partir de {}",
+                        current_module.display()
+                    ))
+                    .with_suggestion(
+                        "verifique o caminho relativo e se o arquivo existe em disco",
+                    ),
+                );
+                return Err(err);
+            }
+        }
     }
 
     if is_remote_url(specifier) {
@@ -48,6 +71,17 @@ pub(crate) fn resolve_import_target(
                     trace_route,
                     options,
                 )
+            })
+            .map_err(|err| {
+                reporter::emit(
+                    RichDiagnostic::error(
+                        "E002",
+                        format!("falha ao baixar modulo remoto '{specifier}'"),
+                    )
+                    .with_span(import_span)
+                    .with_note(err.to_string()),
+                );
+                err
             })?;
         return Ok(ImportTarget {
             path,
@@ -70,6 +104,20 @@ pub(crate) fn resolve_import_target(
                         trace_route,
                         options,
                     )
+                })
+                .map_err(|err| {
+                    reporter::emit(
+                        RichDiagnostic::error(
+                            "E003",
+                            format!(
+                                "falha ao resolver dependencia '{specifier}' declarada em {}",
+                                owner_manifest.name
+                            ),
+                        )
+                        .with_span(import_span)
+                        .with_note(err.to_string()),
+                    );
+                    err
                 });
         }
     }
@@ -82,11 +130,88 @@ pub(crate) fn resolve_import_target(
         });
     }
 
+    // Nao encontramos o modulo em nenhum lugar — tentamos sugestao via
+    // distancia de Levenshtein contra os modulos builtin e dependencias
+    // declaradas no manifest.
+    let suggestion = suggest_similar_module(specifier, owner_manifest);
+
+    let mut diag = RichDiagnostic::error(
+        "E004",
+        format!("modulo nao encontrado: '{specifier}'"),
+    )
+    .with_span(import_span)
+    .with_note(
+        "use imports relativos (.), modulos builtin (rts, fs, path, ...), \
+         dependencias do package.json, pacotes do workspace ou URLs http(s)",
+    );
+
+    if let Some(suggestion) = suggestion {
+        diag = diag.with_suggestion(format!("voce quis dizer '{suggestion}'?"));
+    }
+
+    reporter::emit(diag);
+
     bail!(
         "unsupported import specifier '{}' in {}. use relative imports, package dependencies, workspace packages, builtin modules, or URLs",
         specifier,
         current_module.display()
     )
+}
+
+/// Sugere um modulo similar usando distancia de Levenshtein contra builtins
+/// + dependencias declaradas no manifest do owner. Retorna `None` se nenhum
+/// candidato estiver dentro do limite (distancia <= 2).
+fn suggest_similar_module(
+    specifier: &str,
+    owner_manifest: Option<&PackageManifest>,
+) -> Option<String> {
+    let mut candidates: Vec<String> = crate::runtime::builtin_module_keys()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    if let Some(manifest) = owner_manifest {
+        for dep in manifest.dependencies.keys() {
+            candidates.push(dep.clone());
+        }
+    }
+
+    candidates
+        .into_iter()
+        .filter_map(|candidate| {
+            let dist = levenshtein(specifier, &candidate);
+            if dist <= 2 && dist < specifier.len() {
+                Some((dist, candidate))
+            } else {
+                None
+            }
+        })
+        .min_by_key(|(dist, _)| *dist)
+        .map(|(_, candidate)| candidate)
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let m = a.len();
+    let n = b.len();
+    if m == 0 {
+        return n;
+    }
+    if n == 0 {
+        return m;
+    }
+    let mut prev: Vec<usize> = (0..=n).collect();
+    let mut curr = vec![0usize; n + 1];
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[n]
 }
 
 fn resolve_source_module(base_dir: &Path, specifier: &str) -> Result<PathBuf> {

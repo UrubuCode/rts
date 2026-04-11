@@ -103,14 +103,22 @@ impl ModuleGraph {
                 )
             })?;
 
-            let program = parser::parse_source_with_mode(&source, options.frontend_mode)
-                .with_context(|| {
-                    attach_trace(
-                        format!("failed to parse module {}", current.path.display()),
-                        &current.trace_route,
-                        options,
-                    )
-                })?;
+            let file_id = crate::diagnostics::source_store::register(
+                current.path.clone(),
+                source.clone(),
+            );
+            let program = parser::parse_source_with_file(
+                &source,
+                options.frontend_mode,
+                file_id,
+            )
+            .with_context(|| {
+                attach_trace(
+                    format!("failed to parse module {}", current.path.display()),
+                    &current.trace_route,
+                    options,
+                )
+            })?;
 
             let owner_manifest = find_owner_manifest(
                 &current.path,
@@ -121,7 +129,7 @@ impl ModuleGraph {
             )?;
 
             let mut imports = Vec::new();
-            for specifier in collect_imports(&program) {
+            for (specifier, import_span) in collect_imports(&program) {
                 if let Some(builtin) = crate::runtime::builtin_module(&specifier) {
                     let resolved_key = builtin.key.clone();
                     modules
@@ -139,6 +147,7 @@ impl ModuleGraph {
                 let resolved = resolve_import_target(
                     &current.path,
                     &specifier,
+                    import_span,
                     owner_manifest.as_ref(),
                     &workspace_root,
                     &module_cache,
@@ -221,13 +230,13 @@ pub(crate) struct ImportTarget {
     pub(crate) kind: ModuleKind,
 }
 
-fn collect_imports(program: &Program) -> Vec<String> {
+fn collect_imports(program: &Program) -> Vec<(String, crate::parser::span::Span)> {
     program
         .items
         .iter()
         .filter_map(|item| {
             if let Item::Import(import_decl) = item {
-                Some(import_decl.from.clone())
+                Some((import_decl.from.clone(), import_decl.span))
             } else {
                 None
             }

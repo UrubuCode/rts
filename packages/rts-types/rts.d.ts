@@ -290,6 +290,34 @@ declare module "rts" {
      */
     export function udp_leave_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>;
     /**
+     * Reads a complete HTTP/1.1 request from a TCP stream and returns a handle.
+     */
+    export function http_read_request(stream: u64): io.Result<u64>;
+    /**
+     * Returns the HTTP method (GET, POST, ...) of a parsed request.
+     */
+    export function http_request_method(request: u64): io.Result<str>;
+    /**
+     * Returns the request path (with query string) of a parsed request.
+     */
+    export function http_request_path(request: u64): io.Result<str>;
+    /**
+     * Returns the value of a header by case-insensitive name. Empty string if absent.
+     */
+    export function http_request_header(request: u64, name: str): io.Result<str>;
+    /**
+     * Returns the body of a parsed request as a UTF-8 string.
+     */
+    export function http_request_body(request: u64): io.Result<str>;
+    /**
+     * Releases the memory for a parsed request handle.
+     */
+    export function http_request_free(request: u64): io.Result<bool>;
+    /**
+     * Writes a simple HTTP/1.1 response to a stream with status, body and optional content-type.
+     */
+    export function http_response_write(stream: u64, status: u32, body: str, content_type?: str): io.Result<usize>;
+    /**
      * Parses a string as an IP address.
      */
     export function parse_ip_addr(addr: str): io.Result<IpAddr>;
@@ -559,6 +587,130 @@ declare module "rts" {
      * Emits a test case header to stdout.
      */
     export function it(name: str): void;
+  }
+
+  /**
+   * JavaScript Object Notation helpers backed by serde_json.
+   */
+  export namespace JSON {
+    /**
+     * Serializa um valor para string JSON. Retorna "null" para undefined ou funcoes.
+     */
+    export function stringify(value: any): string;
+    /**
+     * Desserializa uma string JSON em um valor. Retorna undefined em caso de erro.
+     */
+    export function parse(text: string): any;
+  }
+
+  /**
+   * Raw UTF-8 string primitives. These are the machine-level building blocks for the TS String class.
+   */
+  export namespace str {
+    /**
+     * Returns the byte length of a string.
+     */
+    export function len(s: str): u64;
+    /**
+     * Concatenates two strings.
+     */
+    export function concat(a: str, b: str): str;
+    /**
+     * Returns a substring from start (inclusive) to end (exclusive). Negative indices count from end.
+     */
+    export function slice(s: str, start: i64, end?: i64): str;
+    /**
+     * Returns the string converted to uppercase.
+     */
+    export function to_upper(s: str): str;
+    /**
+     * Returns the string converted to lowercase.
+     */
+    export function to_lower(s: str): str;
+    /**
+     * Removes leading and trailing whitespace.
+     */
+    export function trim(s: str): str;
+    /**
+     * Removes leading whitespace.
+     */
+    export function trim_start(s: str): str;
+    /**
+     * Removes trailing whitespace.
+     */
+    export function trim_end(s: str): str;
+    /**
+     * Replaces the first occurrence of `from` with `to`.
+     */
+    export function replace(s: str, from: str, to: str): str;
+    /**
+     * Replaces all occurrences of `from` with `to`.
+     */
+    export function replace_all(s: str, from: str, to: str): str;
+    /**
+     * Returns true if the string contains the given substring.
+     */
+    export function includes(s: str, needle: str): bool;
+    /**
+     * Returns true if the string starts with the given prefix.
+     */
+    export function starts_with(s: str, prefix: str): bool;
+    /**
+     * Returns true if the string ends with the given suffix.
+     */
+    export function ends_with(s: str, suffix: str): bool;
+    /**
+     * Returns the byte index of the first occurrence of needle, or -1 if not found.
+     */
+    export function index_of(s: str, needle: str): i64;
+    /**
+     * Returns the byte index of the last occurrence of needle, or -1 if not found.
+     */
+    export function last_index_of(s: str, needle: str): i64;
+    /**
+     * Returns the UTF-8 character at the given char index as a str.
+     */
+    export function char_at(s: str, index: u64): str;
+    /**
+     * Splits the string by separator and returns parts joined by newline (use str.split_nth to access each part).
+     */
+    export function split(s: str, sep: str): str;
+    /**
+     * Returns the Nth part after splitting s by sep.
+     */
+    export function split_nth(s: str, sep: str, n: u64): str;
+    /**
+     * Returns the string repeated n times.
+     */
+    export function repeat(s: str, n: u64): str;
+    /**
+     * Pads the string at the start to reach target length.
+     */
+    export function pad_start(s: str, target_len: u64, fill?: str): str;
+    /**
+     * Pads the string at the end to reach target length.
+     */
+    export function pad_end(s: str, target_len: u64, fill?: str): str;
+    /**
+     * Returns the number of Unicode scalar values (chars) in the string.
+     */
+    export function char_count(s: str): u64;
+    /**
+     * Returns true if the string has zero length.
+     */
+    export function is_empty(s: str): bool;
+    /**
+     * Converts a number to its string representation.
+     */
+    export function from_number(n: f64): str;
+    /**
+     * Parses the string as an integer. Returns NaN (as f64) on failure.
+     */
+    export function parse_int(s: str, radix?: u64): f64;
+    /**
+     * Parses the string as a floating-point number. Returns NaN on failure.
+     */
+    export function parse_float(s: str): f64;
   }
 
   /**

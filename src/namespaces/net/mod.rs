@@ -1,4 +1,5 @@
 pub mod common;
+mod http;
 mod ip;
 mod tcp;
 mod udp;
@@ -227,6 +228,49 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Executes an operation to leave a multicast group.",
         ts_signature: "udp_leave_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>",
     },
+    // HTTP/1.1 server primitives (sobre tcp_listen/tcp_accept)
+    NamespaceMember {
+        name: "http_read_request",
+        callee: "net.http_read_request",
+        doc: "Reads a complete HTTP/1.1 request from a TCP stream and returns a handle.",
+        ts_signature: "http_read_request(stream: u64): io.Result<u64>",
+    },
+    NamespaceMember {
+        name: "http_request_method",
+        callee: "net.http_request_method",
+        doc: "Returns the HTTP method (GET, POST, ...) of a parsed request.",
+        ts_signature: "http_request_method(request: u64): io.Result<str>",
+    },
+    NamespaceMember {
+        name: "http_request_path",
+        callee: "net.http_request_path",
+        doc: "Returns the request path (with query string) of a parsed request.",
+        ts_signature: "http_request_path(request: u64): io.Result<str>",
+    },
+    NamespaceMember {
+        name: "http_request_header",
+        callee: "net.http_request_header",
+        doc: "Returns the value of a header by case-insensitive name. Empty string if absent.",
+        ts_signature: "http_request_header(request: u64, name: str): io.Result<str>",
+    },
+    NamespaceMember {
+        name: "http_request_body",
+        callee: "net.http_request_body",
+        doc: "Returns the body of a parsed request as a UTF-8 string.",
+        ts_signature: "http_request_body(request: u64): io.Result<str>",
+    },
+    NamespaceMember {
+        name: "http_request_free",
+        callee: "net.http_request_free",
+        doc: "Releases the memory for a parsed request handle.",
+        ts_signature: "http_request_free(request: u64): io.Result<bool>",
+    },
+    NamespaceMember {
+        name: "http_response_write",
+        callee: "net.http_response_write",
+        doc: "Writes a simple HTTP/1.1 response to a stream with status, body and optional content-type.",
+        ts_signature: "http_response_write(stream: u64, status: u32, body: str, content_type?: str): io.Result<usize>",
+    },
     // IP Address utilities
     NamespaceMember {
         name: "parse_ip_addr",
@@ -349,6 +393,15 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
         "net.udp_ttl" => Some(udp::udp_ttl(args)),
         "net.udp_join_multicast_v4" => Some(udp::udp_join_multicast_v4(args)),
         "net.udp_leave_multicast_v4" => Some(udp::udp_leave_multicast_v4(args)),
+
+        // HTTP/1.1 server primitives
+        "net.http_read_request" => Some(http::http_read_request(args)),
+        "net.http_request_method" => Some(http::http_request_method(args)),
+        "net.http_request_path" => Some(http::http_request_path(args)),
+        "net.http_request_header" => Some(http::http_request_header(args)),
+        "net.http_request_body" => Some(http::http_request_body(args)),
+        "net.http_request_free" => Some(http::http_request_free(args)),
+        "net.http_response_write" => Some(http::http_response_write(args)),
 
         // IP Address utilities
         "net.parse_ip_addr" => Some(ip::parse_ip_addr(args)),

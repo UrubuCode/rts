@@ -15,6 +15,7 @@ use swc_ecma_ast::{
 use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
 
 use crate::compile_options::FrontendMode;
+use crate::diagnostics::source_store::{self, FileId};
 
 use ast::{
     ClassDecl, ClassMember, ConstructorDecl, FieldDecl, FunctionDecl, ImportDecl, InterfaceDecl,
@@ -26,7 +27,20 @@ pub fn parse_source(source: &str) -> Result<Program> {
     parse_source_with_mode(source, FrontendMode::Native)
 }
 
+/// Parse sem arquivo conhecido. Registra um fonte anonimo no `SourceStore`
+/// para que diagnosticos ainda consigam renderizar snippets.
 pub fn parse_source_with_mode(source: &str, mode: FrontendMode) -> Result<Program> {
+    let file = source_store::register_anonymous("eval", source);
+    parse_source_with_file(source, mode, file)
+}
+
+/// Parse com `FileId` conhecido — todos os spans do AST resultante
+/// carregam esse file id.
+pub fn parse_source_with_file(
+    source: &str,
+    mode: FrontendMode,
+    file: FileId,
+) -> Result<Program> {
     let syntax_order = match mode {
         FrontendMode::Native => [ts_syntax(), es_syntax()],
         FrontendMode::Compat => [es_syntax(), ts_syntax()],
@@ -35,7 +49,7 @@ pub fn parse_source_with_mode(source: &str, mode: FrontendMode) -> Result<Progra
     let mut first_error = None::<String>;
 
     for syntax in syntax_order {
-        match parse_with_syntax(source, syntax) {
+        match parse_with_syntax(source, syntax, file) {
             Ok(program) => return Ok(program),
             Err(error) => {
                 if first_error.is_none() {
@@ -52,7 +66,7 @@ pub fn parse_source_with_mode(source: &str, mode: FrontendMode) -> Result<Progra
     ))
 }
 
-fn parse_with_syntax(source: &str, syntax: Syntax) -> Result<Program> {
+fn parse_with_syntax(source: &str, syntax: Syntax, file: FileId) -> Result<Program> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(
         Lrc::new(FileName::Custom("rts-input.ts".into())),
@@ -70,7 +84,73 @@ fn parse_with_syntax(source: &str, syntax: Syntax) -> Result<Program> {
         return Err(anyhow!(format_parser_error(&cm, &error)));
     }
 
-    Ok(lower_program(&cm, &parsed))
+    let mut program = lower_program(&cm, &parsed);
+    assign_file_to_program(&mut program, file);
+    Ok(program)
+}
+
+/// Percorre o AST do parser e preenche `Span.file` com o `FileId` informado
+/// em todos os nodes. Chamado apos o lowering SWC -> AST interno.
+fn assign_file_to_program(program: &mut Program, file: FileId) {
+    for item in &mut program.items {
+        match item {
+            Item::Import(decl) => {
+                decl.span.file = Some(file);
+            }
+            Item::Interface(decl) => {
+                decl.span.file = Some(file);
+                for field in &mut decl.fields {
+                    field.span.file = Some(file);
+                }
+            }
+            Item::Class(decl) => {
+                decl.span.file = Some(file);
+                for member in &mut decl.members {
+                    match member {
+                        ClassMember::Constructor(ctor) => {
+                            ctor.span.file = Some(file);
+                            for param in &mut ctor.parameters {
+                                param.span.file = Some(file);
+                            }
+                            for stmt in &mut ctor.body {
+                                assign_file_to_statement(stmt, file);
+                            }
+                        }
+                        ClassMember::Method(method) => {
+                            method.span.file = Some(file);
+                            for param in &mut method.parameters {
+                                param.span.file = Some(file);
+                            }
+                            for stmt in &mut method.body {
+                                assign_file_to_statement(stmt, file);
+                            }
+                        }
+                        ClassMember::Property(prop) => {
+                            prop.span.file = Some(file);
+                        }
+                    }
+                }
+            }
+            Item::Function(decl) => {
+                decl.span.file = Some(file);
+                for param in &mut decl.parameters {
+                    param.span.file = Some(file);
+                }
+                for stmt in &mut decl.body {
+                    assign_file_to_statement(stmt, file);
+                }
+            }
+            Item::Statement(stmt) => assign_file_to_statement(stmt, file),
+        }
+    }
+}
+
+fn assign_file_to_statement(stmt: &mut Statement, file: FileId) {
+    match stmt {
+        Statement::Raw(spanned) => {
+            spanned.span.file = Some(file);
+        }
+    }
 }
 
 fn format_parser_error(cm: &Lrc<SourceMap>, error: &swc_ecma_parser::error::Error) -> String {
@@ -632,6 +712,7 @@ fn convert_span(cm: &Lrc<SourceMap>, span: SwcSpan) -> Span {
             line: end.line,
             column: end.col_display.saturating_add(1),
         },
+        file: None,
     }
 }
 
