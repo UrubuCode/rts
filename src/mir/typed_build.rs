@@ -1040,17 +1040,47 @@ fn lower_expr_with_pool(
             vreg
         }
         Expr::New(new_expr) => {
-            // Suporta `new ClassName()` sem argumentos. Args e chamada de
-            // constructor vêm junto com suporte a métodos de instância
-            // (comit seguinte). Aloca um Object vazio via FN_NEW_INSTANCE.
+            // `new ClassName(args)` aloca um Object vazio via FN_NEW_INSTANCE
+            // e, se a classe declarar um `ClassName::constructor`, invoca-o
+            // com `this = obj_handle` + args. O valor da expressão é o
+            // handle recém-alocado (não o retorno do constructor).
             let class_name = extract_expr_name(&new_expr.callee);
-            let vreg = alloc(next_vreg);
-            if let Some(name) = class_name {
-                instructions.push(MirInstruction::NewInstance(vreg, name));
-            } else {
-                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+            let Some(name) = class_name else {
+                let vreg = alloc(next_vreg);
+                instructions
+                    .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                return vreg;
+            };
+            let instance_vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::NewInstance(instance_vreg, name.clone()));
+
+            // Se a classe tem constructor, invoca-o com `this` + args.
+            let ctor_qualified = format!("{}::constructor", name);
+            let ctor_exists = METHOD_LOOKUP.with(|map| {
+                let map = map.borrow();
+                map.get("constructor")
+                    .map(|v| v.contains(&ctor_qualified))
+                    .unwrap_or(false)
+            });
+            if ctor_exists {
+                let mut arg_vregs = vec![instance_vreg];
+                if let Some(args) = &new_expr.args {
+                    for arg in args {
+                        let vreg = lower_expr_with_pool(
+                            &arg.expr,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
+                        arg_vregs.push(vreg);
+                    }
+                }
+                let ret = alloc(next_vreg);
+                instructions.push(MirInstruction::Call(ret, ctor_qualified, arg_vregs));
             }
-            vreg
+
+            instance_vreg
         }
         Expr::Member(member) => {
             // Lê o campo: `obj.field` → LoadField(dst, obj, "field")
@@ -1377,13 +1407,36 @@ fn lower_expr(
         }
         Expr::New(new_expr) => {
             let class_name = extract_expr_name(&new_expr.callee);
-            let vreg = alloc(next_vreg);
-            if let Some(name) = class_name {
-                instructions.push(MirInstruction::NewInstance(vreg, name));
-            } else {
-                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+            let Some(name) = class_name else {
+                let vreg = alloc(next_vreg);
+                instructions
+                    .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                return vreg;
+            };
+            let instance_vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::NewInstance(instance_vreg, name.clone()));
+
+            let ctor_qualified = format!("{}::constructor", name);
+            let ctor_exists = METHOD_LOOKUP.with(|map| {
+                let map = map.borrow();
+                map.get("constructor")
+                    .map(|v| v.contains(&ctor_qualified))
+                    .unwrap_or(false)
+            });
+            if ctor_exists {
+                let mut arg_vregs = vec![instance_vreg];
+                if let Some(args) = &new_expr.args {
+                    for arg in args {
+                        let vreg =
+                            lower_expr(&arg.expr, original_text, instructions, next_vreg);
+                        arg_vregs.push(vreg);
+                    }
+                }
+                let ret = alloc(next_vreg);
+                instructions.push(MirInstruction::Call(ret, ctor_qualified, arg_vregs));
             }
-            vreg
+
+            instance_vreg
         }
         Expr::Member(member) => {
             if let Some(field) = member_prop_name(&member.prop) {
@@ -2271,6 +2324,48 @@ mod tests {
             "static method mantém só o param declarado"
         );
         assert_eq!(method.parameters[0].name, "x");
+    }
+
+    #[test]
+    fn new_expression_with_constructor_invokes_it() {
+        // new Point(3, 4) deve emitir NewInstance + Call("Point::constructor", [instance, 3, 4]).
+        let source = r#"
+            class Point {
+                x: number;
+                y: number;
+                constructor(ix: number, iy: number) {
+                    this.x = ix;
+                    this.y = iy;
+                }
+            }
+            const p = new Point(3, 4);
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+        let mir = typed_build(&hir);
+        let main = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "main")
+            .expect("main");
+        let instructions = &main.blocks[0].instructions;
+
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::NewInstance(_, name) if name == "Point"
+            )),
+            "deve emitir NewInstance(_, \"Point\")"
+        );
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args)
+                    if callee == "Point::constructor" && args.len() == 3
+            )),
+            "deve emitir Call(_, \"Point::constructor\", [instance, 3, 4])"
+        );
     }
 
     #[test]
