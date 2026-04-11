@@ -359,6 +359,16 @@ pub fn define_typed_function<M: Module>(
                 if let MirInstruction::Label(name) = instruction {
                     if let Some(&target_block) = label_blocks.get(name.as_str()) {
                         builder.switch_to_block(target_block);
+                        // Reset default_return ao trocar de bloco: o valor
+                        // anterior pode ter sido produzido em um bloco que
+                        // nao domina o bloco atual (caso classico em
+                        // if/else), quebrando o SSA do Cranelift. Ao emitir
+                        // um novo iconst no bloco corrente, garantimos
+                        // dominancia do return implícito no final.
+                        default_return = builder
+                            .ins()
+                            .iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                        default_return_is_native = false;
                         terminated = false;
                     }
                 }
@@ -1125,6 +1135,14 @@ pub fn define_typed_function<M: Module>(
                         // Fall through from current block to label block
                         builder.ins().jump(target_block, &[]);
                         builder.switch_to_block(target_block);
+                        // Ver comentario na transicao similar em Label
+                        // apos terminated=true. O default_return precisa
+                        // ser re-emitido no bloco novo para preservar
+                        // dominancia do return implícito.
+                        default_return = builder
+                            .ins()
+                            .iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                        default_return_is_native = false;
                     }
                 }
 
