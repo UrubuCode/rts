@@ -30,11 +30,119 @@ struct RunExecutionReport {
 }
 
 pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()> {
+    command_with_watch(input_arg, options, false)
+}
+
+/// Entry-point de `rts run` com suporte opcional a `--watch`.
+/// Quando `watch = true`, executa uma vez e registra watchers em todos os
+/// arquivos do grafo. Re-executa ao detectar mudanca. Sai com Ctrl+C.
+pub fn command_with_watch(
+    input_arg: Option<String>,
+    options: CompileOptions,
+    watch: bool,
+) -> Result<()> {
     let input = input_arg
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("examples/console.ts"));
 
-    execute_file(&input, options)
+    if watch {
+        run_with_watcher(&input, options)
+    } else {
+        execute_file(&input, options)
+    }
+}
+
+/// Loop de watch: executa o arquivo, registra watchers em todos os paths
+/// do grafo de modulos, bloqueia ate receber evento de mudanca, re-executa.
+/// Erros de compilacao nao interrompem o loop — o usuario pode corrigir
+/// e salvar novamente.
+fn run_with_watcher(input: &Path, options: CompileOptions) -> Result<()> {
+    use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Duration;
+
+    eprintln!("rts watch: iniciando execucao inicial de {}", input.display());
+
+    // Primeira execucao — coletamos os paths do grafo mesmo se falhar.
+    let _ = execute_file(input, options);
+
+    let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+    let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |res| {
+        let _ = tx.send(res);
+    })
+    .with_context(|| "failed to create file watcher")?;
+
+    // Determina quais paths observar. Se a compilacao falhou, cai no entry file.
+    let paths_to_watch = match crate::module::ModuleGraph::load(input, options) {
+        Ok(graph) => graph.disk_paths(),
+        Err(_) => vec![input.to_path_buf()],
+    };
+
+    for path in &paths_to_watch {
+        if let Err(err) = watcher.watch(path, RecursiveMode::NonRecursive) {
+            eprintln!(
+                "rts watch: aviso — nao foi possivel observar {}: {err}",
+                path.display()
+            );
+        }
+    }
+    eprintln!(
+        "rts watch: observando {} arquivo(s). Ctrl+C para sair.",
+        paths_to_watch.len()
+    );
+
+    // Loop principal. Agrupamos eventos com um pequeno debounce (300ms) porque
+    // editores como VS Code disparam multiplos eventos (rename + create + write)
+    // ao salvar um arquivo.
+    loop {
+        match rx.recv() {
+            Ok(Ok(event)) => {
+                if !is_meaningful_event(&event) {
+                    continue;
+                }
+                // Drena eventos subsequentes durante a janela de debounce.
+                loop {
+                    match rx.recv_timeout(Duration::from_millis(300)) {
+                        Ok(_) => continue,
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => return Ok(()),
+                    }
+                }
+
+                eprintln!("\nrts watch: mudanca detectada, re-executando...");
+                let _ = execute_file(input, options);
+
+                // Re-registra watchers caso o grafo tenha mudado (novo import).
+                if let Ok(graph) = crate::module::ModuleGraph::load(input, options) {
+                    let new_paths = graph.disk_paths();
+                    // Remove watchers antigos que nao estao mais no grafo.
+                    for path in &paths_to_watch {
+                        if !new_paths.contains(path) {
+                            let _ = watcher.unwatch(path);
+                        }
+                    }
+                    // Adiciona novos.
+                    for path in &new_paths {
+                        if !paths_to_watch.contains(path) {
+                            let _ = watcher.watch(path, RecursiveMode::NonRecursive);
+                        }
+                    }
+                }
+            }
+            Ok(Err(err)) => {
+                eprintln!("rts watch: erro do watcher: {err}");
+            }
+            Err(_) => return Ok(()),
+        }
+    }
+}
+
+fn is_meaningful_event(event: &notify::Event) -> bool {
+    use notify::EventKind;
+    matches!(
+        event.kind,
+        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+    )
 }
 
 /// Executes a single file and returns Ok(()) or the first error.

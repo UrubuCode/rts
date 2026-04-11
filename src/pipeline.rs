@@ -136,11 +136,13 @@ pub(crate) fn compile_graph(
         let object_path = deps_dir.join(format!("{stem}.o"));
         let meta_path = deps_dir.join(format!("{stem}.m"));
         let source_hash = hash_source(&module.source);
+        let deps_hash = graph.transitive_deps_hash(&module.key);
 
         if is_cached_object_valid(
             &meta_path,
             &object_path,
             &source_hash,
+            &deps_hash,
             &options,
             is_entry_module,
         ) {
@@ -161,6 +163,7 @@ pub(crate) fn compile_graph(
             &ObjectCacheMeta {
                 cache_schema: OBJECT_CACHE_SCHEMA,
                 source_hash,
+                deps_hash,
                 profile: options.profile.to_string(),
                 debug: options.debug,
                 emit_entrypoint: is_entry_module,
