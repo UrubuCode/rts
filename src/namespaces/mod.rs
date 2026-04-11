@@ -14,6 +14,7 @@ pub mod gc;
 pub mod global;
 pub mod global_this;
 pub mod io;
+pub mod json;
 pub mod net;
 pub mod process;
 pub mod promise;
@@ -50,6 +51,7 @@ const SPECS: &[NamespaceSpec] = &[
     task::SPEC,
     gc::SPEC,
     test::SPEC,
+    json::SPEC,
     rust::SPEC,
     rust::NATIVES_SPEC,
     rust::HOTOPS_SPEC,
@@ -70,6 +72,7 @@ const SPLIT_SPECS: &[&NamespaceSpec] = &[
     &task::SPEC,
     &gc::SPEC,
     &test::SPEC,
+    &json::SPEC,
 ];
 
 #[derive(Debug, Clone)]
@@ -241,6 +244,7 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
         "task" => task::dispatch(callee, args),
         "gc" => gc::dispatch(callee, args),
         "test" => test::dispatch(callee, args),
+        "JSON" => json::dispatch(callee, args),
         "rust" => rust::dispatch(callee, args),
         _ => None,
     }
