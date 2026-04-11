@@ -37,7 +37,10 @@
       "Bash(target/release/rts.exe -e 'import { io } from \"rts\"; io.print\\(\"hello\"\\);')",
       "Bash(target/release/rts.exe compile:*)",
       "Bash(target/release/rts.exe build:*)",
-      "Bash(grep -v \"^[^:]*\\\\.rs:.*//.*\")"
+      "Bash(grep -v \"^[^:]*\\\\.rs:.*//.*\")",
+      "Bash(rustc:*)",
+      "Bash(target/release/rts.exe test:*)",
+      "Bash(../target/release/rts.exe test:*)"
     ]
   }
 }
