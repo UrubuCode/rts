@@ -482,6 +482,28 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
         runtime.dispatch_calls,
         runtime.dispatch_nanos,
     );
+
+    // Breakdown por fn_id do __rts_dispatch. Mostra cada ponto de dispatch
+    // separadamente, ordenado por tempo total decrescente, para facilitar
+    // identificar quais FN_* estao dominando o custo. So renderiza entradas
+    // com >= 1 call (evita poluir com linhas zeradas).
+    let mut per_fn: Vec<(usize, u64, u128)> = (0..crate::namespaces::abi::FN_ID_COUNT)
+        .map(|idx| {
+            (
+                idx,
+                runtime.per_fn_calls[idx],
+                runtime.per_fn_nanos[idx],
+            )
+        })
+        .filter(|(_, calls, _)| *calls > 0)
+        .collect();
+    per_fn.sort_by(|a, b| b.2.cmp(&a.2));
+    for (idx, calls, nanos) in per_fn {
+        let label = crate::namespaces::abi::fn_id_label(idx as i64);
+        let row_label = format!("  └ dispatch.{label}");
+        print_runtime_row(&row_label, calls, nanos);
+    }
+
     print_runtime_row(
         "runtime.fn_eval_expr",
         runtime.eval_expr_calls,

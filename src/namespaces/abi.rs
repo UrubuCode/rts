@@ -36,6 +36,45 @@ pub(crate) const FN_NEW_INSTANCE: i64 = 23; // (class_ptr, class_len) -> object_
 pub(crate) const FN_LOAD_FIELD: i64 = 24; // (obj_handle, field_ptr, field_len) -> value_handle
 pub(crate) const FN_STORE_FIELD: i64 = 25; // (obj_handle, field_ptr, field_len, value_handle) -> 1/0
 
+/// Numero total de FN_* distintos. Usado como tamanho dos arrays de metricas
+/// por-fn_id em `RuntimeMetrics`.
+pub(crate) const FN_ID_COUNT: usize = 26;
+
+/// Mapeia `fn_id` para nome legivel. Usado pela renderizacao de
+/// `--dump-statistics` para mostrar tempo gasto em cada ponto de dispatch
+/// separadamente. Indices fora do range retornam `"unknown"`.
+pub fn fn_id_label(fn_id: i64) -> &'static str {
+    match fn_id {
+        0 => "reset_thread_state",
+        1 => "bind_identifier",
+        2 => "box_string",
+        3 => "box_bool",
+        4 => "eval_expr",
+        5 => "eval_stmt",
+        6 => "read_identifier",
+        7 => "binop",
+        8 => "is_truthy",
+        9 => "unbox_number",
+        10 => "box_number",
+        11 => "io.print",
+        12 => "io.stdout_write",
+        13 => "io.stderr_write",
+        14 => "io.panic",
+        15 => "crypto.sha256",
+        16 => "process.exit",
+        17 => "global.set",
+        18 => "global.get",
+        19 => "global.has",
+        20 => "global.remove",
+        21 => "box_native_fn",
+        22 => "call_by_handle",
+        23 => "new_instance",
+        24 => "load_field",
+        25 => "store_field",
+        _ => "unknown",
+    }
+}
+
 #[derive(Debug, Clone)]
 struct BindingEntry {
     handle: i64,
@@ -200,7 +239,7 @@ impl ValueStore {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 struct RuntimeMetrics {
     dispatch_calls: u64,
     dispatch_nanos: u128,
@@ -210,9 +249,31 @@ struct RuntimeMetrics {
     eval_stmt_nanos: u128,
     call_dispatch_calls: u64,
     call_dispatch_nanos: u128,
+    /// Breakdown por `fn_id` do `__rts_dispatch`. Indexados pelas constantes
+    /// `FN_*`. Usado por `--dump-statistics` para mostrar tempo gasto em
+    /// cada ponto de dispatch separadamente.
+    per_fn_calls: [u64; FN_ID_COUNT],
+    per_fn_nanos: [u128; FN_ID_COUNT],
 }
 
-#[derive(Debug, Default, Clone)]
+impl Default for RuntimeMetrics {
+    fn default() -> Self {
+        Self {
+            dispatch_calls: 0,
+            dispatch_nanos: 0,
+            eval_expr_calls: 0,
+            eval_expr_nanos: 0,
+            eval_stmt_calls: 0,
+            eval_stmt_nanos: 0,
+            call_dispatch_calls: 0,
+            call_dispatch_nanos: 0,
+            per_fn_calls: [0; FN_ID_COUNT],
+            per_fn_nanos: [0; FN_ID_COUNT],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct RuntimeMetricsSnapshot {
     pub dispatch_calls: u64,
     pub dispatch_nanos: u128,
@@ -229,6 +290,35 @@ pub(crate) struct RuntimeMetricsSnapshot {
     pub eval_binding_cache_misses: u64,
     pub call_dispatch_calls: u64,
     pub call_dispatch_nanos: u128,
+    /// Tempo/chamadas por `fn_id`. Ordem igual aos indices das constantes
+    /// `FN_*`. Renderizado linha a linha em `--dump-statistics` com o nome
+    /// devolvido por `fn_id_label()`.
+    pub per_fn_calls: [u64; FN_ID_COUNT],
+    pub per_fn_nanos: [u128; FN_ID_COUNT],
+}
+
+impl Default for RuntimeMetricsSnapshot {
+    fn default() -> Self {
+        Self {
+            dispatch_calls: 0,
+            dispatch_nanos: 0,
+            eval_expr_calls: 0,
+            eval_expr_nanos: 0,
+            eval_stmt_calls: 0,
+            eval_stmt_nanos: 0,
+            eval_parse_calls: 0,
+            eval_parse_nanos: 0,
+            eval_identifier_reads: 0,
+            eval_identifier_writes: 0,
+            eval_call_dispatches: 0,
+            eval_binding_cache_hits: 0,
+            eval_binding_cache_misses: 0,
+            call_dispatch_calls: 0,
+            call_dispatch_nanos: 0,
+            per_fn_calls: [0; FN_ID_COUNT],
+            per_fn_nanos: [0; FN_ID_COUNT],
+        }
+    }
 }
 
 thread_local! {
@@ -359,6 +449,8 @@ pub(crate) fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
             eval_binding_cache_misses: eval.binding_cache_misses,
             call_dispatch_calls: metrics.call_dispatch_calls,
             call_dispatch_nanos: metrics.call_dispatch_nanos,
+            per_fn_calls: metrics.per_fn_calls,
+            per_fn_nanos: metrics.per_fn_nanos,
         }
     })
 }
@@ -651,6 +743,13 @@ pub extern "C" fn __rts_dispatch(
             if fn_id == FN_EVAL_STMT {
                 metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
                 metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
+            }
+            // Breakdown por fn_id: incrementa apenas se o id cai na faixa
+            // conhecida, senao o total agregado em `dispatch_*` ja cobre.
+            if fn_id >= 0 && (fn_id as usize) < FN_ID_COUNT {
+                let idx = fn_id as usize;
+                metrics.per_fn_calls[idx] = metrics.per_fn_calls[idx].saturating_add(1);
+                metrics.per_fn_nanos[idx] = metrics.per_fn_nanos[idx].saturating_add(elapsed);
             }
         });
     }
