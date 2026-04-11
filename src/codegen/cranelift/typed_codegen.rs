@@ -36,6 +36,7 @@ use crate::namespaces::abi::{
     FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NUMBER, FN_BOX_STRING, FN_CRYPTO_SHA256, FN_EVAL_STMT,
     FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT,
     FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_PROCESS_EXIT, FN_READ_IDENTIFIER,
+    FN_UNBOX_NUMBER,
 };
 
 const RTS_DISPATCH: &str = "__rts_dispatch";
@@ -148,6 +149,64 @@ fn rewrite_loop_control(instructions: &[MirInstruction]) -> Vec<MirInstruction> 
     rewritten
 }
 
+/// Resultado da análise de promoção de globais: nomes que a função lê/escreve
+/// fora de seus próprios `Bind`s (portanto são globais) e que são seguros
+/// para cachear num stack slot local durante toda a execução da função.
+///
+/// Segurança atual: promovemos apenas funções que **não** fazem nenhuma
+/// `Call` — callees poderiam ler/escrever as mesmas globais e ver valores
+/// obsoletos do namespace compartilhado. Esta análise conservadora resolve
+/// o caso comum (loops aritméticos "puros") sem precisar de análise
+/// interprocedural.
+#[derive(Debug, Default)]
+struct ShadowGlobalPlan {
+    /// Nomes promovidos, em ordem determinística para emissão estável.
+    names: Vec<String>,
+}
+
+fn analyze_shadow_globals(instructions: &[MirInstruction], function_name: &str) -> ShadowGlobalPlan {
+    // Main nunca promove: suas vars são top-level/globais visíveis a outras funções.
+    if function_name == "main" {
+        return ShadowGlobalPlan::default();
+    }
+
+    let mut locals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut referenced: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut has_call = false;
+
+    for instruction in instructions {
+        match instruction {
+            MirInstruction::Bind(name, _, _) => {
+                // Bind marca o nome como local; a partir daqui reads do mesmo
+                // nome dentro da função apontam para o binding local, não para
+                // o namespace.
+                locals.insert(name.clone());
+            }
+            MirInstruction::LoadBinding(_, name) | MirInstruction::WriteBind(name, _) => {
+                referenced.insert(name.clone());
+            }
+            MirInstruction::Call(_, _, _) => {
+                has_call = true;
+            }
+            _ => {}
+        }
+    }
+
+    if has_call {
+        // Não sabemos o que o callee faz com as globais — conservador.
+        return ShadowGlobalPlan::default();
+    }
+
+    // Globais são os referenced que não viraram locals antes de serem usados.
+    // BTreeSet garante ordem estável.
+    let names: Vec<String> = referenced
+        .into_iter()
+        .filter(|name| !locals.contains(name))
+        .collect();
+
+    ShadowGlobalPlan { names }
+}
+
 pub fn define_typed_function<M: Module>(
     module: &mut M,
     func_declarations: &mut BTreeMap<String, FuncId>,
@@ -196,6 +255,62 @@ pub fn define_typed_function<M: Module>(
 
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
+
+        // --- Pass 0: promoção de globais para shadow stack slots ---
+        //
+        // Antes de emitir o corpo, identificamos globais (nomes lidos/escritos
+        // sem um Bind anterior na mesma função) que podem ser cacheadas em
+        // stack slots locais pra eliminar dispatches FN_READ_IDENTIFIER /
+        // FN_BIND_IDENTIFIER dentro de hot loops. Só promovemos quando a função
+        // não faz nenhuma Call — callees poderiam observar valores obsoletos
+        // no namespace compartilhado. Ver analyze_shadow_globals.
+        //
+        // Cada global promovida:
+        //   1. no prólogo: READ_IDENTIFIER -> UNBOX_NUMBER -> stack slot (NativeF64)
+        //   2. no corpo: Load/Write via stack slot (caminho nativo, zero dispatch)
+        //   3. antes de cada return: BOX_NUMBER -> BIND_IDENTIFIER (write-back)
+        let shadow_plan = if use_local_bindings {
+            analyze_shadow_globals(&instructions, function.name.as_str())
+        } else {
+            ShadowGlobalPlan::default()
+        };
+        for name in &shadow_plan.names {
+            let data_id = declare_string_data(module, data_cache, name.as_str())?;
+            let data_ref = module.declare_data_in_func(data_id, builder.func);
+            let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+            let name_len = builder.ins().iconst(types::I64, name.len() as i64);
+            let handle = emit_dispatch(
+                module,
+                func_declarations,
+                &mut builder,
+                FN_READ_IDENTIFIER,
+                &[name_ptr, name_len],
+            )?;
+            // Unbox para F64 bits. Se a global não for número, FN_UNBOX_NUMBER
+            // retorna NaN via to_number() — comportamento compatível com JS
+            // semântico de `Number(valor)`.
+            let bits = emit_dispatch(
+                module,
+                func_declarations,
+                &mut builder,
+                FN_UNBOX_NUMBER,
+                &[handle],
+            )?;
+            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                8,
+                3,
+            ));
+            store_binding_slot(&mut builder, slot, bits);
+            local_bindings.insert(
+                name.clone(),
+                BindingState {
+                    slot,
+                    mutable: true,
+                    kind: VRegKind::NativeF64,
+                },
+            );
+        }
 
         let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
         let mut default_return_is_native = false;
@@ -769,12 +884,28 @@ pub fn define_typed_function<M: Module>(
                         }
                         _ => raw,
                     };
+                    emit_shadow_writeback(
+                        module,
+                        func_declarations,
+                        data_cache,
+                        &mut builder,
+                        &shadow_plan.names,
+                        &local_bindings,
+                    )?;
                     builder.ins().return_(&[value]);
                     terminated = true;
                 }
 
                 MirInstruction::Return(None) => {
                     let value = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                    emit_shadow_writeback(
+                        module,
+                        func_declarations,
+                        data_cache,
+                        &mut builder,
+                        &shadow_plan.names,
+                        &local_bindings,
+                    )?;
                     builder.ins().return_(&[value]);
                     terminated = true;
                 }
@@ -1035,12 +1166,28 @@ pub fn define_typed_function<M: Module>(
             } else {
                 default_return
             };
+            emit_shadow_writeback(
+                module,
+                func_declarations,
+                data_cache,
+                &mut builder,
+                &shadow_plan.names,
+                &local_bindings,
+            )?;
             builder.ins().return_(&[ret_val]);
         }
 
         // Seal and finalize the exit block (used by Break)
         builder.switch_to_block(exit_block);
         let exit_ret = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+        emit_shadow_writeback(
+            module,
+            func_declarations,
+            data_cache,
+            &mut builder,
+            &shadow_plan.names,
+            &local_bindings,
+        )?;
         builder.ins().return_(&[exit_ret]);
 
         // Let Cranelift resolve remaining block seals once CFG is complete.
@@ -1069,6 +1216,49 @@ fn resolve_vreg(
 fn store_binding_slot(builder: &mut FunctionBuilder, slot: StackSlot, value: Value) {
     let addr = builder.ins().stack_addr(types::I64, slot, 0);
     builder.ins().store(MemFlags::new(), value, addr, 0);
+}
+
+/// Emite o write-back dos shadow globals para o namespace compartilhado.
+/// Chamado antes de cada `return_` do caminho principal, garantindo que
+/// qualquer escrita local à global seja visível a callees subsequentes.
+/// Globais promovidas são sempre NativeF64; box + bind para Handle.
+fn emit_shadow_writeback<M: Module>(
+    module: &mut M,
+    func_declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    shadow_names: &[String],
+    local_bindings: &BTreeMap<String, BindingState>,
+) -> Result<()> {
+    for name in shadow_names {
+        let Some(state) = local_bindings.get(name) else {
+            continue;
+        };
+        // Lê o valor atual do slot (bits F64).
+        let bits = load_binding_slot(builder, state.slot);
+        // Box: f64 bits -> handle no namespace.
+        let handle = emit_dispatch(
+            module,
+            func_declarations,
+            builder,
+            FN_BOX_NUMBER,
+            &[bits],
+        )?;
+        // Bind para o namespace: reutiliza o nome já presente no data segment.
+        let data_id = declare_string_data(module, data_cache, name.as_str())?;
+        let data_ref = module.declare_data_in_func(data_id, builder.func);
+        let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+        let name_len = builder.ins().iconst(types::I64, name.len() as i64);
+        let mutable_flag = builder.ins().iconst(types::I64, 1);
+        emit_dispatch(
+            module,
+            func_declarations,
+            builder,
+            FN_BIND_IDENTIFIER,
+            &[name_ptr, name_len, handle, mutable_flag],
+        )?;
+    }
+    Ok(())
 }
 
 fn load_binding_slot(builder: &mut FunctionBuilder, slot: StackSlot) -> Value {
