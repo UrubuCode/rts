@@ -50,8 +50,17 @@ pub(crate) struct RuntimeBinding {
 
 #[derive(Debug, Default)]
 struct ValueStore {
-    values: Vec<RuntimeValue>,
+    /// Vec de slots opcionais. Slots marcados como `None` foram liberados
+    /// por compactacao mas ficam reservados no Vec para preservar os
+    /// indices (o handle e o `index + 1`, entao re-indexar quebraria
+    /// ponteiros em uso).
+    values: Vec<Option<RuntimeValue>>,
     bindings: FxHashMap<String, BindingEntry>,
+    /// Contador de compactacoes executadas. Reportado em `--dump-statistics`.
+    compactions: u64,
+    /// Total de slots liberados atraves de todas as compactacoes.
+    /// Monotonicamente crescente.
+    slots_freed: u64,
 }
 
 impl ValueStore {
@@ -64,7 +73,7 @@ impl ValueStore {
             return UNDEFINED_HANDLE;
         }
 
-        self.values.push(value);
+        self.values.push(Some(value));
         crate::namespaces::gc::notify_alloc();
         self.values.len() as i64
     }
@@ -76,8 +85,38 @@ impl ValueStore {
         let index = (handle - 1) as usize;
         self.values
             .get(index)
-            .cloned()
+            .and_then(|slot| slot.clone())
             .unwrap_or(RuntimeValue::Undefined)
+    }
+
+    /// Compactacao leve: percorre os slots, libera (`= None`) os que nao
+    /// sao referenciados por nenhum binding ativo. Nao re-indexa — os
+    /// handles permanecem validos, apenas os valores sao soltados.
+    ///
+    /// Critico: so pode ser chamado em um ponto de quiescencia top-level
+    /// (scope_depth == 0) porque handles vivos num registrador do JIT nao
+    /// sao visiveis aqui. No caminho atual, e disparado por `exit_scope()`
+    /// quando a ultima funcao TS volta ao top-level.
+    fn compact(&mut self) -> (usize, usize) {
+        use std::collections::HashSet;
+        let live: HashSet<i64> = self.bindings.values().map(|b| b.handle).collect();
+
+        let mut freed = 0usize;
+        for (idx, slot) in self.values.iter_mut().enumerate() {
+            let handle = (idx + 1) as i64;
+            if slot.is_some() && !live.contains(&handle) {
+                *slot = None;
+                freed += 1;
+            }
+        }
+
+        if freed > 0 {
+            self.compactions += 1;
+            self.slots_freed += freed as u64;
+        }
+
+        // Retorna tambem o tamanho atual para logging.
+        (freed, self.values.len())
     }
 
     fn bind_identifier(&mut self, name: &str, handle: i64, mutable: bool) -> i64 {
@@ -106,7 +145,7 @@ impl ValueStore {
             if mutable && existing.handle > UNDEFINED_HANDLE {
                 let index = (existing.handle - 1) as usize;
                 if let Some(slot) = self.values.get_mut(index) {
-                    *slot = value;
+                    *slot = Some(value);
                     return existing.handle;
                 }
             }
@@ -131,7 +170,7 @@ impl ValueStore {
             if existing.handle > UNDEFINED_HANDLE {
                 let index = (existing.handle - 1) as usize;
                 if let Some(slot) = self.values.get_mut(index) {
-                    *slot = value;
+                    *slot = Some(value);
                     return existing.handle;
                 }
             }
@@ -154,7 +193,7 @@ impl ValueStore {
         }
         let index = (handle - 1) as usize;
         if let Some(slot) = self.values.get_mut(index) {
-            *slot = value;
+            *slot = Some(value);
             return true;
         }
         false
@@ -253,20 +292,38 @@ fn with_store<R>(callback: impl FnOnce(&ValueStore) -> R) -> R {
 /// detalhes internos de layout.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ValueStoreStats {
-    /// Numero de slots no `Vec<RuntimeValue>` (handles alocados, incluindo
-    /// os ja invalidos/sobrescritos).
+    /// Numero de slots no Vec (handles alocados, incluindo os liberados
+    /// por compactacao — slots ficam reservados mesmo quando mortos para
+    /// preservar indices).
     pub values_len: usize,
+    /// Slots que tem valor efetivamente (nao `None`). `values_len - live_slots`
+    /// = slots liberados pela compactacao aguardando reuso/trunc.
+    pub live_slots: usize,
     /// Numero de bindings nomeados registrados (cada binding aponta para
     /// um handle).
     pub bindings_len: usize,
+    /// Quantas compactacoes foram executadas nesta thread.
+    pub compactions: u64,
+    /// Total de slots liberados atraves de todas as compactacoes.
+    pub slots_freed: u64,
 }
 
 /// Retorna as metricas atuais do ValueStore da thread corrente.
 pub fn value_store_stats() -> ValueStoreStats {
     with_store(|store| ValueStoreStats {
         values_len: store.values.len(),
+        live_slots: store.values.iter().filter(|s| s.is_some()).count(),
         bindings_len: store.bindings.len(),
+        compactions: store.compactions,
+        slots_freed: store.slots_freed,
     })
+}
+
+/// Dispara compactacao do ValueStore thread-local: libera slots nao
+/// referenciados por nenhum binding. Seguro apenas em quiescencia top-level
+/// (scope_depth == 0) — chamado automaticamente pelo `exit_scope` do GC.
+pub fn compact_value_store() -> (usize, usize) {
+    with_store_mut(ValueStore::compact)
 }
 
 pub fn reset_thread_state() {
@@ -570,7 +627,7 @@ pub extern "C" fn __rts_dispatch(
                 let Some(slot) = store.values.get_mut(index) else {
                     return 0i64;
                 };
-                if let RuntimeValue::Object(map) = slot {
+                if let Some(RuntimeValue::Object(map)) = slot {
                     map.insert(field, new_value);
                     1
                 } else {

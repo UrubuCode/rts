@@ -553,6 +553,10 @@ declare module "rts" {
      * Returns a JSON string with GC diagnostics: allocated_bytes, generation, live_slots.
      */
     export function stats(): str;
+    /**
+     * Compacta o ValueStore (abi), liberando slots nao referenciados por nenhum binding ativo. Chamar apenas em pontos de quiescencia, ex: entre requisicoes de um servidor HTTP. Retorna o numero de slots liberados.
+     */
+    export function compact(): i64;
   }
 
   /**

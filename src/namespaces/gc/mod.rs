@@ -56,6 +56,12 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns a JSON string with GC diagnostics: allocated_bytes, generation, live_slots.",
         ts_signature: "stats(): str",
     },
+    NamespaceMember {
+        name: "compact",
+        callee: "gc.compact",
+        doc: "Compacta o ValueStore (abi), liberando slots nao referenciados por nenhum binding ativo. Chamar apenas em pontos de quiescencia, ex: entre requisicoes de um servidor HTTP. Retorna o numero de slots liberados.",
+        ts_signature: "compact(): i64",
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
@@ -100,6 +106,11 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
                 s.allocated_bytes, s.generation, s.live_slots,
             );
             DispatchOutcome::Value(RuntimeValue::String(json))
+        }
+
+        "gc.compact" => {
+            let (freed, _total) = crate::namespaces::abi::compact_value_store();
+            DispatchOutcome::Value(RuntimeValue::Number(freed as f64))
         }
 
         _ => return None,

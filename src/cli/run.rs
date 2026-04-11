@@ -430,12 +430,24 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
 
     println!("=== ValueStore (abi) ===");
     println!(
-        "  values_len           {} (slots do Vec<RuntimeValue>)",
+        "  values_len           {} (slots reservados no Vec)",
         report.value_store_stats.values_len
+    );
+    println!(
+        "  live_slots           {} (slots com valor — apos compactacao)",
+        report.value_store_stats.live_slots
     );
     println!(
         "  bindings_len         {} (bindings nomeados registrados)",
         report.value_store_stats.bindings_len
+    );
+    println!(
+        "  compactions          {} (passes de compactacao executados)",
+        report.value_store_stats.compactions
+    );
+    println!(
+        "  slots_freed          {} (slots liberados por compactacao)",
+        report.value_store_stats.slots_freed
     );
     println!();
 

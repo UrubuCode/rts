@@ -85,6 +85,7 @@ const RTS_EXPORTS: &[&str] = &[
     "promise",
     "task",
     "test",
+    "gc",
 ];
 
 const COMPILER_DEPENDENCIES: &[&str] = &[
