@@ -48,7 +48,21 @@
       "Bash(target/release/rts.exe apis:*)",
       "Bash(target/release/rts.exe --help)",
       "Bash(target/release/rts.exe)",
-      "Bash(target/release/rts.exe emit-types:*)"
+      "Bash(target/release/rts.exe emit-types:*)",
+      "Bash(ps -W)",
+      "Bash(target/release/rts.exe -e 'import { io } from \"rts\"; let n = 0; while \\(n < 3\\) { io.print\\(n\\); n = n + 1; }')",
+      "Bash(rm:*)",
+      "Bash(target/release/rts.exe -d run examples/_test_ifelse.ts)",
+      "Bash(target/release/rts.exe -D run examples/_test_ifelse.ts)",
+      "Bash(RTS_DUMP_CLIF=main target/release/rts.exe run examples/_test_if2.ts)",
+      "Bash(curl -s http://127.0.0.1:3000/api/health)",
+      "Bash(curl -s http://127.0.0.1:3000/api/state)",
+      "Bash(curl -s -X POST http://127.0.0.1:3000/api/increment)",
+      "Bash(curl -s -X POST http://127.0.0.1:3000/api/decrement)",
+      "Bash(curl -s -X POST http://127.0.0.1:3000/api/reset)",
+      "Bash(curl -s http://127.0.0.1:3000/)",
+      "Bash(curl -sv http://127.0.0.1:3000/notfound)",
+      "Bash(read pid:*)"
     ]
   }
 }
