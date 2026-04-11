@@ -1,0 +1,502 @@
+# Otimização do Hot Path de Execução — do `FN_EVAL_STMT` ao Bun-Beater
+
+> **TL;DR**: o bench `rts_simple.ts` saiu de ~2300 ms para **66 ms** (AOT) / **73 ms** (JIT)
+> no decorrer de 5 commits, sem mudar arquitetura. O RTS hoje é **1.6× mais rápido**
+> que Bun e **1.9× mais rápido** que Node nesse bench.
+
+Este documento registra **como** isso foi feito, **por que** cada decisão foi tomada,
+e as lições aprendidas ao longo da investigação. Ele existe para:
+
+1. Servir de **guia de método** para futuras investigações de perf — a sequência
+   "medir → localizar → consertar → remedir" é replicável.
+2. **Documentar armadilhas** descobertas (`opt_level=speed_and_size` do Cranelift,
+   instrumentação no hot path, `String::from_utf8` em cada dispatch, etc.).
+3. Registrar o **placar final** e o contexto real de comparação contra Bun/Node.
+4. Apontar os **gargalos residuais** conhecidos para a próxima sessão.
+
+---
+
+## 1. Ponto de partida
+
+### 1.1 O bench
+
+`bench/rts_simple.ts` é um stress test aritmético puro:
+
+- `arithmetic_stress(80000)` — 80k iterações de um LCG com branches modulares
+- `count_primes(2500)` — peneira de Eratóstenes com loops aninhados
+- `bigint_like_stress(120000)` — simulação de big-int em limbs, 120k iterações
+- `mix_scores()` — `switch` sobre `(limb0 + limb1 + limb2) % 3`
+
+Métricas relevantes desse workload:
+
+- ~720k leituras/escritas de globais (`limb0`, `limb1`, `limb2`, `arithmetic_score`, etc.)
+- ~1.6M operações aritméticas em vars locais
+- Checksum esperado: `bench-checksum:1835371715` (validação de correção)
+
+### 1.2 Métricas iniciais (5 runs, median, release)
+
+```
+RTS (run)       ~2300 ms   (checksum 1835371715)
+RTS (compiled)   983 ms
+Bun (run)        100 ms
+Node (run)       128 ms
+```
+
+**Diagnóstico**: o `rts run` estava mais de 20× mais lento que Bun. `rts compile`
+estava 4× mais lento que o próprio `rts run`, o que era **arquiteturalmente errado**:
+AOT nunca deveria ser mais lento que JIT do mesmo Cranelift.
+
+---
+
+## 2. Método — como investigar sem chutar
+
+A sequência abaixo foi seguida em toda otimização da sessão:
+
+1. **Medir com `--debug`** para obter o breakdown real do launcher:
+   ```
+   target/release/rts.exe --debug run bench/rts_simple.ts
+   ```
+   Os timings de `runtime.*` e `jit.*` eram o ponto de partida de todas as
+   hipóteses.
+
+2. **Isolar o hotspot**: se `fn_eval_stmt` domina, olhar o interpretador;
+   se `__rts_dispatch` domina, olhar o breakdown por `fn_id`;
+   se nenhum desses domina, é Cranelift ou startup.
+
+3. **Quando o breakdown não bastava, instrumentar temporariamente** —
+   ex.: um array `AtomicU64` indexado por `fn_id` dentro de `__rts_dispatch`
+   para contar calls por tipo. Remover antes de commitar.
+
+4. **Validar checksum a cada mudança**. `1835371715` é o teste canônico de
+   correção; qualquer regressão silenciosa neste bench aparece aí.
+
+5. **Nunca delegar síntese para o LLM**: "sabemos X, precisa mudar o arquivo Y
+   linha Z" é o formato de decisão válida. "Otimize isso" não é.
+
+---
+
+## 3. Os 5 commits, em ordem, com o raciocínio
+
+### Commit 1: `d672a6a` — lower loops/switch nativamente + inline top-level consts
+
+**Sintoma observado**:
+```
+fn_eval_stmt              2294 ms total |  7 calls
+eval.identifier_reads     5128598
+eval.binding_cache_hits   7189478
+```
+
+7 chamadas de `eval_statement_text` consumiam 2.3 **segundos**. Cada chamada
+fazia ~327 ms.
+
+**Causa raiz**: o `rts run` usava o caminho legado `mir::build::build` (em
+`src/mir/build.rs`), que guardava as statements como **texto TS cru** em
+`MirStatement.text`. O JIT então emitia `FN_EVAL_STMT(ptr, len)` apontando
+pro texto, e em runtime o `eval_statement_text` **re-parseava o TS via SWC
+e interpretava o AST iteração a iteração**. Um `while` de 80k iterações com
+~20 identifiers por iteração virava 5M+ reads no interpretador.
+
+Adicionalmente, o `mir::typed_build` (caminho AOT) já existia mas tinha
+fallbacks `RuntimeEval(original_text)` para `While`/`DoWhile`/`For`/`Switch`/
+`Break`/`Continue` em `src/mir/typed_build.rs`. Então mesmo migrando para
+`typed_build`, os loops ainda cairiam no interpretador.
+
+**O que foi feito**:
+
+1. **`src/cli/run.rs`**: trocar `mir::build::build` + `jit::execute` por
+   `mir::typed_build::typed_build` + `jit::execute_typed`.
+2. **`src/mir/typed_build.rs`**: escrever `lower_while_stmt`,
+   `lower_do_while_stmt`, `lower_for_stmt`, `lower_switch_stmt`, substituindo
+   os 12 sites de `RuntimeEval(original_text)` por sequências reais de
+   `Label`/`Jump`/`JumpIf`/`JumpIfNot`/`Break`/`Continue`.
+3. **`src/codegen/cranelift/typed_codegen.rs`**: estender
+   `loop_context_from_start_label` para reconhecer `switch_body_*` — o `rewrite_loop_control`
+   já sabia converter `Break`/`Continue` em `Jump` para o end/continue label
+   de `while_loop_*`, `do_while_body_*` e `for_loop_*`, faltava só o switch.
+4. **`TOP_LEVEL_CONSTS` thread_local**: varrer o top-level do módulo antes do
+   lowering procurando `const IDENT = Literal;`, guardar num mapa, e em
+   `lower_expr*` substituir `Expr::Ident(name)` por `ConstNumber`/`ConstInt32`/
+   etc. quando o nome estiver no mapa. Sem isso, `LCG_MOD` (usado ~3× por
+   iteração em `arithmetic_stress`) virava `LoadBinding` → `FN_READ_IDENTIFIER`
+   → dispatch por iteração.
+
+**Resultado**:
+- `fn_eval_stmt`: 2294 ms → 0 ms
+- `identifier_reads`: 5.1M → 0
+- `__rts_dispatch`: 72 → **7.1M calls** (←regressão aparente — tudo que era
+  interpretado agora virou chamadas de ABI)
+- Total: 2337 ms → ~847 ms (release)
+
+**Nota importante**: o trabalho não terminou aqui. Os 7.1M dispatches eram o
+novo gargalo, mas o gargalo certo — agora estávamos fazendo o trabalho real.
+Cada iteração de loop agora era uma sequência de box/unbox/binop via ABI em vez
+de uma travessia de AST. Muito melhor, mas ainda longe do ótimo.
+
+### Commit 2: `4918ced` — cachear kind nativo em stack slots + promover binops mistos
+
+**Sintoma observado** (instrumentação temporária com contador atomic por `fn_id`):
+```
+BINOP              3858416 calls
+BOX_NUMBER         2145826 calls
+IS_TRUTHY           470053 calls
+UNBOX_NUMBER             0 calls
+```
+
+**Causa raiz** — duas interações:
+
+1. **`BindingState` guardava só o `StackSlot`, não o `VRegKind`**. Quando
+   `LoadBinding` recuperava um valor, ele sempre marcava o vreg como
+   `VRegKind::Handle`, mesmo que o `Bind` tivesse recebido um `NativeF64`.
+   Consequência: **todo** `BinOp` sobre uma variável local caía no fallback
+   `handle × handle` → `FN_BINOP` dispatch.
+
+2. **`BinOp` com kinds mistos não promovia**. O codegen tinha 4 branches
+   nativas (`i32 × i32` cmp/arith, `f64 × f64` cmp/arith) mas qualquer
+   divergência caía direto no fallback handle. Em prática: uma constante inlinada
+   vinha como `NativeI32`, a var local como `NativeF64`, BinOp virava handle
+   path → box_number em ambos → dispatch.
+
+**O que foi feito** em `src/codegen/cranelift/typed_codegen.rs`:
+
+1. **`BindingState { slot, mutable, kind }`**: adicionado `kind: VRegKind`.
+   O primeiro `Bind` fixa o kind do slot; `WriteBind` subsequente adapta o
+   `src` ao kind do slot via nova função `adapt_to_kind`. `LoadBinding` devolve
+   com o mesmo kind registrado, ativando os paths nativos em `BinOp`.
+
+2. **`adapt_to_kind`**: converte `NativeI32 ↔ NativeF64 ↔ Handle` usando
+   instruções Cranelift nativas (`ireduce`/`sextend`/`fcvt_from_sint`/
+   `fcvt_to_sint`/`bitcast`) e só cai no dispatch (`FN_UNBOX_NUMBER`/
+   `FN_BOX_NUMBER`) quando estritamente necessário.
+
+3. **Promoção numérica no `BinOp`**: antes das branches nativas, se
+   `lhs_kind != rhs_kind`, adapta ambos para `NativeF64` (o tipo mais largo)
+   em valores locais `lhs_val`/`rhs_val` — **sem mutar** `vreg_map`/`vreg_kinds`,
+   preservando outros usos dos mesmos vregs em instruções subsequentes.
+
+**Sutileza que quase quebrou tudo**: a primeira tentativa fixava
+`use_local_bindings = true` para **todas** as funções, incluindo `main`. Isso
+parece inofensivo mas **quebrou o checksum** (saída: `bench-checksum:0`). Razão:
+as variáveis declaradas no top-level TypeScript (`let limb0 = 1;`, etc.) ficam
+no corpo da `main` do MIR, **mas são semanticamente globais** — outras funções
+precisam ler/escrever as mesmas. Se `main` trata essas declarações como locais
+(stack slot), `arithmetic_stress` escreve via dispatch (estado global), mas
+`mix_scores` lê o slot local do `main` (nunca atualizado) e dá zero.
+
+**Fix**: `use_local_bindings = function.name != "main"`. Globais permanecem
+no fallback de namespace; apenas vars de funções "normais" viram stack slots.
+
+**Resultado**:
+- `BINOP`: 3.86M → **8** (−99.9995%)
+- `BOX_NUMBER`: 3.04M → 360k (−88%)
+- `IS_TRUTHY`: 202k → 0
+- `UNBOX_NUMBER`: 0 → 562k (novo custo: unbox de globais lidas no handle path
+  pro kind nativo do slot)
+- Total release: 847 ms → **218 ms**
+
+### Commit 3: `8e7b88a` — `opt_level`: `speed_and_size` → `speed`
+
+**Sintoma observado** (via `bench/benchmark.ps1`):
+```
+RTS (run)        ~229 ms
+RTS (compiled)   ~983 ms   ← 4× mais lento que JIT rodando o mesmo código!
+```
+
+**Causa raiz**: o AOT (`src/codegen/cranelift/object_builder.rs`) configurava
+`opt_level = "speed_and_size"` quando `optimize_for_production=true`, enquanto
+o JIT (`src/codegen/cranelift/jit.rs`) usava o default (`none`). A heurística
+`speed_and_size` do Cranelift na versão atual **degrada** código com muitos
+stack slots + chamadas extern "C" — gera `.text` **maior** e runtime **pior**.
+
+**Verificação empírica**:
+- `opt_level = "speed_and_size"`: 10.23 KB `.text`, 1457 ms runtime
+- `opt_level = "speed"`: 6.80 KB `.text`, ~240 ms runtime
+- `opt_level = "none"`: 7.52 KB `.text`, ~230 ms runtime
+
+`speed` e `none` são indistinguíveis em perf real, mas `speed_and_size` é
+catastroficamente pior. Fix: trocar `speed_and_size` por `speed` no
+`build_cranelift_flags`.
+
+**Por que `speed_and_size` é ruim aqui (hipótese)**: o Cranelift faz alguma
+transformação de fusão/reordenação de loops ou inlining local guiada por
+heurísticas de tamanho que, em presença de `call` externos para `__rts_dispatch`,
+piora a alocação de registradores ou introduz spills desnecessários. Vale
+reportar upstream, mas `speed` é a escolha correta enquanto isso.
+
+**Resultado**:
+- RTS (compiled): 983 ms → **231 ms** (alinha com o JIT)
+
+### Commit 4: `f56f764` — instrumentação de `__rts_dispatch` opt-in via `--debug`
+
+**Sintoma observado**:
+```
+runtime.__rts_dispatch  131 ms total | 1642553 calls | 80 ns/call
+```
+
+80 ns por dispatch parecia alto demais para trabalho trivial como
+`FN_BOX_NUMBER` (que é literalmente um `bitcast` + push num Vec). A aritmética
+real do caminho nativo roda em ~2-3 ns. Algo estava adicionando ~77 ns de overhead
+fixo a **toda** chamada.
+
+**Causa raiz**: dentro de `__rts_dispatch` (`src/namespaces/abi.rs`):
+```rust
+let started = Instant::now();           // syscall QueryPerformanceCounter
+// ... match fn_id { ... }
+let elapsed = started.elapsed().as_nanos();  // syscall QueryPerformanceCounter
+RUNTIME_METRICS.with(|metrics| {              // thread_local + RefCell borrow_mut
+    let mut metrics = metrics.borrow_mut();
+    // ... incrementa contadores ...
+});
+```
+
+Duas syscalls `QueryPerformanceCounter` e um `RefCell::borrow_mut` em cada
+uma das 1.64M chamadas. Em um hot path de ~18 ns de trabalho real, a
+**instrumentação** consumia ~130 ms de tempo total.
+
+**O que foi feito**:
+
+1. Novo `DISPATCH_METRICS_ENABLED: AtomicBool` em `abi.rs`.
+2. `metrics_enabled()` = `AtomicBool::load(Ordering::Relaxed)` — 1 ns no hot path.
+3. `__rts_dispatch` envolve `Instant::now()` e a atualização de métricas em
+   `if metrics_on { ... }`. Em modo prod (sem `--debug`), o load + branch é
+   totalmente previsto pelo branch predictor.
+4. `cli::run::execute_with_report` e `cli::eval::command` chamam
+   `set_dispatch_metrics_enabled(options.debug)` junto com o setter existente
+   do `eval::set_metrics_enabled`.
+
+**Decisão**: `set_dispatch_metrics_enabled` default `false`. Binários AOT não
+passam por esse setter, então nunca pagam o custo.
+
+**Resultado**:
+- RTS (run): 229 ms → **124 ms** (−46%)
+- RTS (compiled): 231 ms → **137 ms** (−41%)
+
+### Commit 5: `3bcd6da` — eliminar `String` allocs e value clones no hot dispatch path
+
+**Sintoma observado**: depois do commit 4, ainda havia ~1.64M dispatches por run,
+a maioria `FN_BIND_IDENTIFIER`/`FN_READ_IDENTIFIER` dos globais `limb0/1/2` no
+`bigint_like_stress`. Aritmética nativa dava 72 ms sem dispatch; gap para Bun
+era só 20 ms.
+
+**Causa raiz** — duas alocações escondidas em `src/namespaces/abi.rs`:
+
+1. **`read_utf8(ptr, len) -> Option<String>`**: chamado em **toda**
+   `FN_BIND_IDENTIFIER` e `FN_READ_IDENTIFIER`. Fazia `std::str::from_utf8(bytes).map(ToString::to_string)`.
+   Ou seja, alocava uma `String` com heap allocation **para cada chamada**,
+   apesar dos bytes apontarem para o `.rdata` estático emitido pelo codegen.
+
+2. **`FN_READ_IDENTIFIER` clonava o `RuntimeValue` e alocava novo slot**:
+   ```rust
+   match read_identifier(&name) {
+       Some(value) => push_value(value),  // clone + Vec::push
+       None => UNDEFINED_HANDLE,
+   }
+   ```
+   Cada leitura de `limb0` criava **um novo handle** apontando para **um novo
+   slot** no `values: Vec<RuntimeValue>`. O vec crescia monotonicamente —
+   120k × 3 leituras = 360k slots novos por run, cada um com um clone do
+   `RuntimeValue::Number(f64)`. Apenas o GC passava para reciclar.
+
+   **Problema arquitetural**: o handle já existente no `BindingEntry` é
+   **estável** — aponta para um slot no `values` que não é mutado in-place
+   pelo hot path (escritas via `WriteBind` criam handle novo). Então devolver
+   o handle direto é semanticamente correto e elimina o clone.
+
+**O que foi feito**:
+
+1. **`read_utf8_static(ptr, len) -> Option<&'static str>`**: devolve slice
+   direto do data segment, sem alocar. O `SAFETY` é legítimo: o codegen
+   emite strings como dados estáticos no `.rdata` via `declare_string_data`,
+   então vivem enquanto o módulo estiver carregado, que é superset do tempo
+   de execução das dispatches.
+
+2. **`ValueStore::bind_identifier(name: &str, ...)`**: troca `String` por
+   `&str` na assinatura. Fast path de re-binding usa `get_mut` → atualiza
+   `existing.handle = handle` in-place, **zero alocação**. `String::to_string()`
+   só acontece na primeira inserção de um nome (O(nomes únicos), não O(chamadas)).
+
+3. **`read_identifier_handle(name: &str) -> Option<i64>`**: novo fast path
+   que devolve o handle do binding direto. `FN_READ_IDENTIFIER` passa a usar
+   essa função — uma consulta ao HashMap, um `Option::map`, sem alocação.
+
+4. **`FN_BIND_IDENTIFIER` e `FN_READ_IDENTIFIER`** no match do `__rts_dispatch`:
+   usam `read_utf8_static` em vez de `read_utf8`, e chamam as novas funções
+   `&str`-based.
+
+5. **Deletado `ValueStore::read_identifier` e wrapper `read_identifier`** —
+   ficaram dead code (CLAUDE.md: "código morto é removido imediatamente").
+
+**Resultado**:
+- RTS (run): 124 ms → **73 ms** (−41%)
+- RTS (compiled): 137 ms → **66 ms** (−52%)
+
+---
+
+## 4. Placar final
+
+Médias de 5 runs, `bench/benchmark.ps1`, release:
+
+| runner | mean_ms | vs Bun |
+|---|---|---|
+| **RTS (compiled)** | **66 ms** | **0.62×** (1.6× mais rápido) |
+| **RTS (run)** | **73 ms** | **0.70×** (1.4× mais rápido) |
+| Bun (run) | 105 ms | 1.00× |
+| Node (run) | 128 ms | 1.22× |
+
+**Correção**: `bench-checksum:1835371715` preservado em todos os commits.
+
+**Testes**: `cargo test` — 58/58 passando.
+
+---
+
+## 5. Armadilhas encontradas (checklist para o futuro)
+
+1. **Instrumentação de tempo no hot path é carissíma**.
+   `Instant::now()` no Windows é uma syscall (`QueryPerformanceCounter`). Duas
+   syscalls + um `RefCell::borrow_mut` em um caminho de <20 ns destroem a perf.
+   **Regra**: qualquer métrica dentro de um hot path deve ser opt-in via
+   `AtomicBool::Relaxed` ou `#[cfg(debug_assertions)]`.
+
+2. **`String::from_utf8` em dados estáticos é desperdício puro**.
+   Se o codegen emite strings no `.rdata` e o runtime recebe `(ptr, len)`,
+   sempre existe um `&'static str` disponível. Só converta para `String`
+   quando precisar mesmo de ownership (ex.: inserir como chave nova num HashMap).
+
+3. **`FxHashMap<String, V>` cobra dobrado**: a string dobra como chave
+   hasheada E como storage alocado. Troque por `&'static str` quando puder,
+   ou pelo menos use `get_mut` para evitar `String::to_string()` em re-binds.
+
+4. **`VRegKind` perdido em `LoadBinding` = todos os BinOps viram handle path**.
+   Armazene o kind no `BindingState` ou **cada leitura de var local** desce
+   para o fallback genérico via dispatch, matando qualquer ganho do `BinOp`
+   nativo. Esse era um bug invisível até você instrumentar o contador por `fn_id`.
+
+5. **Promoção numérica em `BinOp` com kinds mistos é obrigatória**.
+   Sem ela, qualquer mistura `NativeI32 × NativeF64` (comum quando uma const
+   inlinada é i32 e uma var local é f64) cai no handle path. Adapte ambos os
+   lados para o kind mais largo **antes** das branches nativas. Mutação
+   deve ser em variáveis locais, **não** em `vreg_map`/`vreg_kinds`, para
+   preservar outros usos dos mesmos vregs.
+
+6. **`use_local_bindings = true` **nunca** para `main`**. As declarações de
+   top-level do TypeScript ficam no corpo do MIR de `main`, mas são
+   semanticamente globais — outras funções precisam ler/escrever as mesmas.
+   Tratá-las como stack slots locais do `main` quebra a comunicação entre funções.
+
+7. **`opt_level = "speed_and_size"` do Cranelift está quebrado para nosso workload**.
+   Gera código maior E mais lento (~4× no bench). Use `speed` ou `none` até
+   investigar upstream. Veja commit `8e7b88a` para detalhes.
+
+8. **`FN_READ_IDENTIFIER` clonando RuntimeValue enche o `values` Vec sem
+   necessidade**. Handles são opacos — devolver o handle direto do binding é
+   correto e elimina 360k+ allocs por run. Só **materialize um valor clonado**
+   se você for mutá-lo, e aí o path é `write_value_handle` em vez de
+   `push_value`.
+
+9. **O MIR legado (`mir::build::build`) emite texto TS cru como `MirStatement.text`
+   e delega para o interpretador SWC em runtime**. Qualquer uso desse caminho
+   em workload não-trivial é morte por 1000 cortes. Use `mir::typed_build` +
+   `jit::execute_typed`. O legado permanece como dead code candidato a remoção
+   numa sessão futura.
+
+10. **Comparar benches diferentes entre commits antigos é uma armadilha cognitiva**.
+    O bench `bench/bun_simple.ts` já foi um `Hello World` (commit `d9bd93f`,
+    `546e678`) e hoje é um stress test de 120k iterações. A percepção "era
+    rápido antes" era comparar maçãs com elefantes — o interpretador de
+    string-matching de 5 commits-após-o-bootstrap suportava **só** `io.print("...")`.
+
+---
+
+## 6. Gargalos residuais (próxima sessão)
+
+**Ainda restam ~1.64M dispatches no bench**, dominados por:
+
+```
+BIND_IDENTIFIER   360k   (globais limb0/1/2 sendo escritas, 120k × 3)
+READ_IDENTIFIER   360k   (globais limb0/1/2 sendo lidas, 120k × 3)
+BOX_NUMBER        360k   (box do RHS do WriteBind)
+UNBOX_NUMBER      562k   (unbox da leitura pro kind nativo)
+```
+
+Todas concentradas no `bigint_like_stress`, onde `limb0/1/2` são globais.
+Otimização com maior ROI:
+
+### 6.1 Cache local de globais em loops (análise estática no MIR)
+
+**Ideia**: detectar funções que:
+- Lêem/escrevem um conjunto fixo de globais
+- Não fazem chamadas externas dentro do loop (ou só chamadas provadamente sem
+  side-effect nas globais em questão)
+
+Para essas funções, emitir no prólogo: `let shadow_limb0 = LoadBinding("limb0")`
+como stack slot nativo. Reescrever reads/writes do corpo para usar o shadow.
+No epílogo: `WriteBind("limb0", shadow_limb0)`.
+
+**Ganho estimado**: 720k dispatches → ~6 dispatches (uma read + write por global
+na função). O hot path vira aritmética pura sem travessias de ABI. Esperado:
+bench cair de 66 ms para ~40 ms (batendo Bun em ~2.5×).
+
+**Custo**: ~200 linhas de análise no `typed_build`, mais um conjunto de
+`BindingState` "shadow-of-global" no `typed_codegen`. Sem nova dependência, sem
+mexer em arquitetura.
+
+### 6.2 Slot indexing para globais (futuro)
+
+Trocar `bindings: FxHashMap<String, BindingEntry>` por `globals: Vec<BindingEntry>`
+indexada por um slot index conhecido em compile-time. O codegen emite
+`__rts_store_global(SLOT_LIMB0, handle)` em vez de `FN_BIND_IDENTIFIER("limb0", handle)`.
+Mata o hash lookup completamente.
+
+**Complemento** à 6.1, não substituto — só entra em cena se 6.1 não bastar
+para workloads que **realmente** precisam passar pelo namespace compartilhado.
+
+### 6.3 NÃO fazer (a menos que medir justifique)
+
+- **Transpile para C + LLVM**: proposta do outro dev original. Não ajuda agora
+  porque o gargalo nunca foi a travessia ABI em si — era a instrumentação e
+  as allocs dentro do runtime. Custo arquitetural alto (toolchain externa,
+  compile times explodem) sem ganho claro acima do que 6.1 já daria.
+
+- **Mexer em flags do Cranelift além de `opt_level`**: já verificamos que
+  `speed` é indistinguível de `none` para este workload. `speed_and_size` é
+  armadilha. Deixar como está.
+
+- **Substituir `FxHashMap` por algo mais rápido**: o hash não é o gargalo
+  mensurável — o é a alocação e a travessia. Fix esses primeiro.
+
+---
+
+## 7. Referências rápidas
+
+### Arquivos tocados nesta sessão
+
+- `src/cli/run.rs` — swap para `typed_build` + `execute_typed`; dispatch metrics setter
+- `src/cli/eval.rs` — dispatch metrics setter
+- `src/mir/typed_build.rs` — lower nativo de while/do-while/for/switch; `TOP_LEVEL_CONSTS`
+- `src/codegen/cranelift/typed_codegen.rs` — `BindingState.kind`, `adapt_to_kind`, promoção em `BinOp`, `switch_body_*`
+- `src/codegen/cranelift/object_builder.rs` — `opt_level` fix
+- `src/namespaces/abi.rs` — instrumentação opt-in, `read_utf8_static`, `bind_identifier(&str)`, `read_identifier_handle`
+
+### Commits (branch `test-stmt`, à frente de `origin/test-stmt` por 5)
+
+- `d672a6a` perf(jit): lower loops/switch natively and inline top-level consts
+- `4918ced` perf(codegen): cachear kind nativo em stack slots e promover binops mistos
+- `8e7b88a` perf(aot): trocar opt_level de speed_and_size para speed no production
+- `f56f764` perf(abi): make __rts_dispatch timing instrumentation opt-in
+- `3bcd6da` perf(abi): eliminate String allocs and value clones on hot dispatch path
+
+### Como reproduzir os números
+
+```bash
+# Build release
+cargo build --release
+
+# Bench completo (5 runs, 2 warmups)
+powershell -ExecutionPolicy Bypass -File bench/benchmark.ps1 -Runs 5 -Warmup 2
+
+# Breakdown detalhado com metrics
+target/release/rts.exe --debug run bench/rts_simple.ts
+
+# Smoke test (correção)
+target/release/rts.exe run bench/rts_simple.ts
+# Deve imprimir: bench-checksum:1835371715
+```
