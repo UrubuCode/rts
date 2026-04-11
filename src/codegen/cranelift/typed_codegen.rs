@@ -95,6 +95,14 @@ fn loop_context_from_start_label(label: &str) -> Option<LoopControlContext> {
             continue_label: format!("for_update_{}", id),
         });
     }
+    if let Some(id) = label.strip_prefix("switch_body_") {
+        // Switch só usa break — reutilizamos end_label para ambos.
+        let end = format!("switch_end_{}", id);
+        return Some(LoopControlContext {
+            end_label: end.clone(),
+            continue_label: end,
+        });
+    }
     None
 }
 
@@ -156,7 +164,10 @@ pub fn define_typed_function<M: Module>(
         let mut vreg_map = BTreeMap::<VReg, Value>::new();
         let mut vreg_kinds = BTreeMap::<VReg, VRegKind>::new();
         let mut local_bindings = BTreeMap::<String, BindingState>::new();
-        let use_local_bindings = false;
+        // Bindings do `main` são semanticamente top-level/globais — precisam ir para o namespace
+        // compartilhado para serem visíveis a outras funções. Em funções "normais", os `let`s
+        // são locais e podem virar stack slots, eliminando os dispatches de Bind/Read/Write.
+        let use_local_bindings = function.name != "main";
 
         let raw_instructions: Vec<MirInstruction> = function
             .blocks

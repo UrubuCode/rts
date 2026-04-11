@@ -107,12 +107,12 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
     stage_timings.merge_hir_ms = elapsed_ms(started);
 
     let started = Instant::now();
-    let mir = crate::mir::build::build(&merged_hir);
+    let typed_mir = crate::mir::typed_build::typed_build(&merged_hir);
     stage_timings.build_mir_ms = elapsed_ms(started);
 
     let started = Instant::now();
-    let jit_report = crate::codegen::cranelift::jit::execute(&mir, "main")
-        .context("failed to execute MIR through Cranelift JIT")?;
+    let jit_report = crate::codegen::cranelift::jit::execute_typed(&typed_mir, "main")
+        .context("failed to execute typed MIR through Cranelift JIT")?;
     stage_timings.jit_execute_ms = elapsed_ms(started);
     stage_timings.total_ms = elapsed_ms(total_started);
 
