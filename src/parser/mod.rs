@@ -5,11 +5,12 @@ pub mod span;
 use anyhow::{Result, anyhow};
 use swc_common::{FileName, SourceMap, SourceMapper, Span as SwcSpan, Spanned, sync::Lrc};
 use swc_ecma_ast::{
-    Accessibility, Class as SwcClass, ClassDecl as SwcClassDecl, ClassMember as SwcClassMember,
-    Decl, DefaultDecl, Expr, FnDecl as SwcFnDecl, Function as SwcFunction,
-    ImportDecl as SwcImportDecl, ImportSpecifier, Lit, ModuleDecl, ModuleExportName, ModuleItem,
-    Param as SwcParam, ParamOrTsParamProp, Pat, Program as SwcProgram, PropName, Stmt,
-    TsInterfaceDecl as SwcTsInterfaceDecl, TsParamProp, TsParamPropParam, TsTypeAnn, TsTypeElement,
+    Accessibility, BlockStmt, Class as SwcClass, ClassDecl as SwcClassDecl,
+    ClassMember as SwcClassMember, Decl, DefaultDecl, Expr, FnDecl as SwcFnDecl,
+    Function as SwcFunction, ImportDecl as SwcImportDecl, ImportSpecifier, Lit, ModuleDecl,
+    ModuleExportName, ModuleItem, Param as SwcParam, ParamOrTsParamProp, Pat,
+    Program as SwcProgram, PropName, Stmt, TsInterfaceDecl as SwcTsInterfaceDecl, TsParamProp,
+    TsParamPropParam, TsTypeAnn, TsTypeElement,
 };
 use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
 
@@ -179,23 +180,29 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
 }
 
 fn lower_import_decl(cm: &Lrc<SourceMap>, import_decl: &SwcImportDecl) -> ImportDecl {
-    let names = import_decl
-        .specifiers
-        .iter()
-        .filter_map(|specifier| match specifier {
+    let mut names = Vec::new();
+    let mut default_name = None;
+
+    for specifier in &import_decl.specifiers {
+        match specifier {
             ImportSpecifier::Named(named) => {
-                if let Some(imported) = &named.imported {
-                    Some(module_export_name(imported))
+                let name = if let Some(imported) = &named.imported {
+                    module_export_name(imported)
                 } else {
-                    Some(named.local.sym.to_string())
-                }
+                    named.local.sym.to_string()
+                };
+                names.push(name);
             }
-            ImportSpecifier::Default(_) | ImportSpecifier::Namespace(_) => None,
-        })
-        .collect::<Vec<_>>();
+            ImportSpecifier::Default(def) => {
+                default_name = Some(def.local.sym.to_string());
+            }
+            ImportSpecifier::Namespace(_) => {}
+        }
+    }
 
     ImportDecl {
         names,
+        default_name,
         from: import_decl.src.value.to_string_lossy().to_string(),
         span: convert_span(cm, import_decl.span),
     }
@@ -249,8 +256,11 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                     .filter_map(|parameter| lower_constructor_param(cm, parameter))
                     .collect::<Vec<_>>();
 
+                let body = lower_block_body(cm, constructor.body.as_ref());
+
                 members.push(ClassMember::Constructor(ConstructorDecl {
                     parameters,
+                    body,
                     span: convert_span(cm, constructor.span),
                 }));
             }
@@ -267,6 +277,8 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                     .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
                     .collect::<Vec<_>>();
 
+                let body = lower_block_body(cm, method.function.body.as_ref());
+
                 members.push(ClassMember::Method(MethodDecl {
                     name,
                     modifiers: MemberModifiers {
@@ -280,6 +292,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         .return_type
                         .as_ref()
                         .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    body,
                     span: convert_span(cm, method.span),
                 }));
             }
@@ -290,6 +303,8 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                     .iter()
                     .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
                     .collect::<Vec<_>>();
+
+                let body = lower_block_body(cm, method.function.body.as_ref());
 
                 members.push(ClassMember::Method(MethodDecl {
                     name: format!("#{}", method.key.name),
@@ -304,6 +319,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         .return_type
                         .as_ref()
                         .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    body,
                     span: convert_span(cm, method.span),
                 }));
             }
@@ -394,16 +410,7 @@ fn lower_function(
         .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
         .collect::<Vec<_>>();
 
-    let body = function
-        .body
-        .as_ref()
-        .map(|body| {
-            body.stmts
-                .iter()
-                .filter_map(|stmt| raw_statement(cm, stmt.span()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let body = lower_block_body(cm, function.body.as_ref());
 
     FunctionDecl {
         name: name.to_string(),
@@ -588,6 +595,17 @@ fn raw_statement(cm: &Lrc<SourceMap>, span: SwcSpan) -> Option<Statement> {
         text.to_string(),
         convert_span(cm, span),
     )))
+}
+
+fn lower_block_body(cm: &Lrc<SourceMap>, body: Option<&BlockStmt>) -> Vec<Statement> {
+    body.map(|block| {
+        block
+            .stmts
+            .iter()
+            .filter_map(|stmt| raw_statement(cm, stmt.span()))
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default()
 }
 
 fn span_snippet(cm: &Lrc<SourceMap>, span: SwcSpan) -> Option<String> {

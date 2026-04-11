@@ -23,6 +23,12 @@ impl RuntimeValue {
     pub fn get_property(&self, name: &str) -> Option<RuntimeValue> {
         match self {
             Self::Object(map) => map.get(name).cloned(),
+            // Strings expoem `length` como contagem de code points Unicode.
+            // Semantica difere de JS (que retorna code units UTF-16), mas
+            // para strings ASCII — o caso dominante — e equivalente.
+            Self::String(s) if name == "length" => {
+                Some(Self::Number(s.chars().count() as f64))
+            }
             _ => None,
         }
     }

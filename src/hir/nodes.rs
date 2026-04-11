@@ -32,6 +32,7 @@ pub enum HirItem {
 #[derive(Debug, Clone, Default)]
 pub struct HirImport {
     pub names: Vec<String>,
+    pub default_name: Option<String>,
     pub from: String,
 }
 

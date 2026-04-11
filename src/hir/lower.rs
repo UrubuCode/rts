@@ -14,6 +14,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
             Item::Import(import_decl) => {
                 let import = HirImport {
                     names: import_decl.names.clone(),
+                    default_name: import_decl.default_name.clone(),
                     from: import_decl.from.clone(),
                 };
 
@@ -49,18 +50,20 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                 for member in &class_decl.members {
                     match member {
                         ClassMember::Constructor(ctor) => {
-                            let parameters = ctor
-                                .parameters
-                                .iter()
-                                .map(|param| HirParameter {
+                            // `this` como primeiro parâmetro implícito.
+                            // Constructor sempre é invocado com um receiver
+                            // (a instância recém-alocada por NewInstance).
+                            let mut parameters = vec![this_param()];
+                            parameters.extend(ctor.parameters.iter().map(|param| {
+                                HirParameter {
                                     name: param.name.clone(),
                                     type_annotation: param
                                         .type_annotation
                                         .as_ref()
                                         .map(|name| annotate(name, resolver)),
                                     variadic: param.variadic,
-                                })
-                                .collect::<Vec<_>>();
+                                }
+                            }));
 
                             for param in &ctor.parameters {
                                 if param.modifiers.visibility.is_some() {
@@ -79,7 +82,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                 name: format!("{}::constructor", class_decl.name),
                                 parameters,
                                 return_type: None,
-                                body: Vec::new(),
+                                body: statements_to_strings(&ctor.body),
                                 loc: None,
                             };
 
@@ -87,18 +90,25 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                             class.methods.push(ctor_fn);
                         }
                         ClassMember::Method(method) => {
-                            let parameters = method
-                                .parameters
-                                .iter()
-                                .map(|param| HirParameter {
+                            // Métodos de instância recebem `this` como
+                            // parâmetro 0 implícito. Métodos estáticos não
+                            // têm receiver — pulam o prepend.
+                            let is_static = method.modifiers.is_static;
+                            let mut parameters: Vec<HirParameter> = if is_static {
+                                Vec::new()
+                            } else {
+                                vec![this_param()]
+                            };
+                            parameters.extend(method.parameters.iter().map(|param| {
+                                HirParameter {
                                     name: param.name.clone(),
                                     type_annotation: param
                                         .type_annotation
                                         .as_ref()
                                         .map(|name| annotate(name, resolver)),
                                     variadic: param.variadic,
-                                })
-                                .collect::<Vec<_>>();
+                                }
+                            }));
 
                             let function = HirFunction {
                                 name: format!("{}::{}", class_decl.name, method.name),
@@ -107,7 +117,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                     .return_type
                                     .as_ref()
                                     .map(|name| annotate(name, resolver)),
-                                body: Vec::new(),
+                                body: statements_to_strings(&method.body),
                                 loc: None,
                             };
 
@@ -151,13 +161,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                         .return_type
                         .as_ref()
                         .map(|name| annotate(name, resolver)),
-                    body: function_decl
-                        .body
-                        .iter()
-                        .map(|statement| match statement {
-                            Statement::Raw(raw) => raw.value.clone(),
-                        })
-                        .collect(),
+                    body: statements_to_strings(&function_decl.body),
                     loc: None,
                 };
 
@@ -182,5 +186,25 @@ fn annotate(type_name: &str, resolver: &TypeResolver) -> TypeAnnotation {
         TypeAnnotation::resolved(type_name, id.0)
     } else {
         TypeAnnotation::unresolved(type_name)
+    }
+}
+
+fn statements_to_strings(statements: &[Statement]) -> Vec<String> {
+    statements
+        .iter()
+        .map(|statement| match statement {
+            Statement::Raw(raw) => raw.value.clone(),
+        })
+        .collect()
+}
+
+/// Parâmetro implícito `this` injetado no início de métodos de instância
+/// e constructors. O codegen trata como qualquer outro parâmetro — o nome
+/// `this` é especial apenas em `Expr::This`, que faz `LoadBinding("this")`.
+fn this_param() -> HirParameter {
+    HirParameter {
+        name: "this".to_string(),
+        type_annotation: None,
+        variadic: false,
     }
 }

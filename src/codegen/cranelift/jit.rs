@@ -652,6 +652,21 @@ pub fn execute_typed(
         .context("failed to finalize typed JIT definitions")?;
     timings.finalize_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    // Register the function pointer table so that callback dispatch (FN_CALL_BY_HANDLE) can
+    // call user-defined JIT functions by name (e.g. from test.describe / test.it callbacks).
+    // Only include user-defined functions (those in module.functions); imported helpers like
+    // __rts_dispatch were never compiled and get_finalized_function would panic on them.
+    {
+        let mut fn_table = rustc_hash::FxHashMap::default();
+        for function in &module.functions {
+            if let Some(&func_id) = declarations.get(&function.name) {
+                let ptr = jit.get_finalized_function(func_id);
+                fn_table.insert(function.name.clone(), ptr as usize);
+            }
+        }
+        crate::namespaces::abi::register_jit_fn_table(fn_table);
+    }
+
     let started = Instant::now();
     let selected_entry = if declarations.contains_key(entry_function) {
         Some(entry_function.to_string())

@@ -122,10 +122,87 @@ thread_local! {
     /// Constantes top-level conhecidas durante a construção do MIR tipado.
     /// Usado para inlinar referências a `const X = literal` em qualquer função.
     static TOP_LEVEL_CONSTS: RefCell<HashMap<String, ConstValue>> = RefCell::new(HashMap::new());
+
+    /// Lookup de métodos de classe: nome do método → lista de nomes
+    /// qualificados (`"Class::method"`). Usado pelo lowering de
+    /// `obj.method(args)` para resolver a função estaticamente quando há
+    /// exatamente uma classe no módulo com aquele método. Ambiguidade
+    /// (dois `Class::method`) cai em `RuntimeEval` — resolução dinâmica
+    /// por tipo fica para um passo futuro.
+    static METHOD_LOOKUP: RefCell<HashMap<String, Vec<String>>> = RefCell::new(HashMap::new());
 }
 
 fn lookup_top_level_const(name: &str) -> Option<ConstValue> {
     TOP_LEVEL_CONSTS.with(|map| map.borrow().get(name).cloned())
+}
+
+/// Retorna o nome qualificado (`"Class::method"`) se houver exatamente
+/// um método com esse nome no módulo. Caso contrário (zero ou ambíguo)
+/// retorna None — o caller deve cair em `RuntimeEval`.
+fn lookup_unique_method(method_name: &str) -> Option<String> {
+    METHOD_LOOKUP.with(|map| {
+        let map = map.borrow();
+        match map.get(method_name) {
+            Some(candidates) if candidates.len() == 1 => Some(candidates[0].clone()),
+            _ => None,
+        }
+    })
+}
+
+/// Aliases de métodos JS nativos de `String` para o namespace `str`.
+/// Quando `obj.method(args)` não resolve via `METHOD_LOOKUP` mas o nome
+/// está nesta tabela, o lowering emite `Call("str.<snake>", [obj, args])`.
+/// Essa reescrita é puramente sintática — o runtime `str.*` decide em
+/// tempo de execução via pattern match. Se `obj` não for uma String, o
+/// comportamento depende do handler específico (geralmente retorna
+/// undefined/empty).
+///
+/// A tabela lista explicitamente cada par (JS method, namespace callee)
+/// em vez de usar `camelToSnake`, porque alguns nomes do namespace foram
+/// abreviados (`toUpperCase` → `to_upper`, não `to_upper_case`).
+const STRING_METHOD_ALIASES: &[(&str, &str)] = &[
+    ("replaceAll", "str.replace_all"),
+    ("replace", "str.replace"),
+    ("indexOf", "str.index_of"),
+    ("lastIndexOf", "str.last_index_of"),
+    ("startsWith", "str.starts_with"),
+    ("endsWith", "str.ends_with"),
+    ("includes", "str.includes"),
+    ("toUpperCase", "str.to_upper"),
+    ("toLowerCase", "str.to_lower"),
+    ("padStart", "str.pad_start"),
+    ("padEnd", "str.pad_end"),
+    ("charAt", "str.char_at"),
+    ("trimStart", "str.trim_start"),
+    ("trimEnd", "str.trim_end"),
+    ("slice", "str.slice"),
+    ("trim", "str.trim"),
+    ("split", "str.split"),
+    ("repeat", "str.repeat"),
+];
+
+fn lookup_string_method_alias(method_name: &str) -> Option<&'static str> {
+    STRING_METHOD_ALIASES
+        .iter()
+        .find(|(js, _)| *js == method_name)
+        .map(|(_, ns)| *ns)
+}
+
+fn collect_method_lookup(hir: &HirModule) -> HashMap<String, Vec<String>> {
+    let mut lookup: HashMap<String, Vec<String>> = HashMap::new();
+    for class in &hir.classes {
+        for method in &class.methods {
+            // method.name vem como "Class::method" — extrair o sufixo.
+            if let Some(idx) = method.name.rfind("::") {
+                let short = &method.name[idx + 2..];
+                lookup
+                    .entry(short.to_string())
+                    .or_default()
+                    .push(method.name.clone());
+            }
+        }
+    }
+    lookup
 }
 
 fn collect_top_level_consts(hir: &HirModule) -> HashMap<String, ConstValue> {
@@ -219,6 +296,12 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
     // Varre top-level procurando `const X = literal` para propagar inlining em todas as funções.
     let consts = collect_top_level_consts(hir);
     TOP_LEVEL_CONSTS.with(|map| *map.borrow_mut() = consts);
+
+    // Indexa métodos de classe por nome curto → lista de nomes qualificados.
+    // Permite resolver `obj.method(args)` para `Class::method` quando houver
+    // exatamente uma classe no módulo com o método.
+    let methods = collect_method_lookup(hir);
+    METHOD_LOOKUP.with(|map| *map.borrow_mut() = methods);
 
     let mut module = TypedMirModule::default();
     let mut top_level_instructions: Vec<MirInstruction> = Vec::new();
@@ -708,6 +791,112 @@ fn lower_expr_with_pool(
             vreg
         }
         Expr::Call(call) => {
+            // Caso especial: obj.method(...args) onde `method` é resolvido
+            // estaticamente para uma função `Class::method`. O receiver
+            // vira o primeiro argumento (this).
+            if let Callee::Expr(callee_expr) = &call.callee {
+                if let Expr::Member(member) = callee_expr.as_ref() {
+                    if let Some(method_short) = member_prop_name(&member.prop) {
+                        // Se o receptor é um identificador que coincide com
+                        // o nome de uma classe, tratamos como chamada de
+                        // método estático (`Calc.add(...)` → `Calc::add(...)`).
+                        // Caso contrário, é chamada de método de instância.
+                        if let Expr::Ident(ident) = member.obj.as_ref() {
+                            let ident_name = ident.sym.to_string();
+                            let static_qualified = format!("{}::{}", ident_name, method_short);
+                            // Busca se existe `<ident>::<method>` no lookup.
+                            let has_static = METHOD_LOOKUP.with(|map| {
+                                let map = map.borrow();
+                                map.get(method_short.as_str())
+                                    .map(|v| v.contains(&static_qualified))
+                                    .unwrap_or(false)
+                            });
+                            if has_static {
+                                // Chamada estática: sem receiver.
+                                let mut arg_vregs = Vec::new();
+                                for arg in &call.args {
+                                    let vreg = lower_expr_with_pool(
+                                        &arg.expr,
+                                        original_text,
+                                        instructions,
+                                        next_vreg,
+                                        constant_pool,
+                                    );
+                                    arg_vregs.push(vreg);
+                                }
+                                let vreg = alloc(next_vreg);
+                                instructions.push(MirInstruction::Call(
+                                    vreg,
+                                    static_qualified,
+                                    arg_vregs,
+                                ));
+                                return vreg;
+                            }
+                        }
+
+                        // Método de instância: resolve por nome único.
+                        if let Some(qualified) = lookup_unique_method(&method_short) {
+                            let obj_vreg = lower_expr_with_pool(
+                                &member.obj,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                                constant_pool,
+                            );
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr_with_pool(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                    constant_pool,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions
+                                .push(MirInstruction::Call(vreg, qualified, arg_vregs));
+                            return vreg;
+                        }
+
+                        // Nenhum método de classe bateu. Se o nome for um
+                        // método JS nativo de String (replaceAll, indexOf,
+                        // startsWith, slice, etc.), reescreve como chamada
+                        // ao namespace `str.*` com o receiver como primeiro
+                        // argumento. O runtime do namespace cuida da checagem
+                        // de tipo (string vs outro).
+                        if let Some(ns_callee) = lookup_string_method_alias(&method_short) {
+                            let obj_vreg = lower_expr_with_pool(
+                                &member.obj,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                                constant_pool,
+                            );
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr_with_pool(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                    constant_pool,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions.push(MirInstruction::Call(
+                                vreg,
+                                ns_callee.to_string(),
+                                arg_vregs,
+                            ));
+                            return vreg;
+                        }
+                    }
+                }
+            }
+
             let callee_name = extract_callee_name(&call.callee);
             let callee_str = match callee_name {
                 Some(name) => name,
@@ -787,6 +976,74 @@ fn lower_expr_with_pool(
                         vreg
                     }
                 }
+            } else if let Some((obj_expr, field)) = extract_member_assign_target(&assign.left) {
+                // obj.field (op)= value → suporta Assign simples e compound via
+                // LoadField + BinOp + StoreField. Reaproveita obj_vreg nas duas
+                // leituras (lado esquerdo e armazenamento) em vez de avaliar o
+                // obj_expr duas vezes — side effects do obj_expr só rodam 1x.
+                let obj_vreg = lower_expr_with_pool(
+                    obj_expr,
+                    original_text,
+                    instructions,
+                    next_vreg,
+                    constant_pool,
+                );
+                match assign.op {
+                    AssignOp::Assign => {
+                        let value = lower_expr_with_pool(
+                            &assign.right,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
+                        instructions.push(MirInstruction::StoreField(
+                            obj_vreg,
+                            field,
+                            value,
+                        ));
+                        value
+                    }
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign
+                    | AssignOp::ModAssign => {
+                        let load = alloc(next_vreg);
+                        instructions.push(MirInstruction::LoadField(
+                            load,
+                            obj_vreg,
+                            field.clone(),
+                        ));
+                        let rhs = lower_expr_with_pool(
+                            &assign.right,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
+                        let op = match assign.op {
+                            AssignOp::AddAssign => MirBinOp::Add,
+                            AssignOp::SubAssign => MirBinOp::Sub,
+                            AssignOp::MulAssign => MirBinOp::Mul,
+                            AssignOp::DivAssign => MirBinOp::Div,
+                            AssignOp::ModAssign => MirBinOp::Mod,
+                            _ => unreachable!(),
+                        };
+                        let result = alloc(next_vreg);
+                        instructions.push(MirInstruction::BinOp(result, op, load, rhs));
+                        instructions.push(MirInstruction::StoreField(
+                            obj_vreg, field, result,
+                        ));
+                        result
+                    }
+                    _ => {
+                        let vreg = alloc(next_vreg);
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        vreg
+                    }
+                }
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -808,6 +1065,109 @@ fn lower_expr_with_pool(
                 instructions.push(MirInstruction::BinOp(result, op, load, one));
                 instructions.push(MirInstruction::WriteBind(name, result));
                 if update.prefix { result } else { load }
+            } else if let Expr::Member(member) = update.arg.as_ref() {
+                // Suporta `this.x++` / `obj.field--` via LoadField + BinOp + StoreField.
+                if let Some(field) = member_prop_name(&member.prop) {
+                    let obj_vreg = lower_expr_with_pool(
+                        &member.obj,
+                        original_text,
+                        instructions,
+                        next_vreg,
+                        constant_pool,
+                    );
+                    let load = alloc(next_vreg);
+                    instructions.push(MirInstruction::LoadField(
+                        load,
+                        obj_vreg,
+                        field.clone(),
+                    ));
+                    let one = constant_pool.get_or_create_number(1.0, next_vreg);
+                    let op = if update.op == UpdateOp::PlusPlus {
+                        MirBinOp::Add
+                    } else {
+                        MirBinOp::Sub
+                    };
+                    let result = alloc(next_vreg);
+                    instructions.push(MirInstruction::BinOp(result, op, load, one));
+                    instructions.push(MirInstruction::StoreField(obj_vreg, field, result));
+                    if update.prefix { result } else { load }
+                } else {
+                    let vreg = alloc(next_vreg);
+                    instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                    vreg
+                }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
+        Expr::This(_) => {
+            // `this` é um parâmetro implícito do método de instância.
+            // O lowering de método não-estático injeta `Bind("this", param0)`
+            // no entry block antes do corpo, então aqui só precisamos ler o
+            // binding. Fora de método de instância, o binding não existe e
+            // o runtime vai devolver undefined, que é semântica JS aceitável.
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::LoadBinding(vreg, "this".to_string()));
+            vreg
+        }
+        Expr::New(new_expr) => {
+            // `new ClassName(args)` aloca um Object vazio via FN_NEW_INSTANCE
+            // e, se a classe declarar um `ClassName::constructor`, invoca-o
+            // com `this = obj_handle` + args. O valor da expressão é o
+            // handle recém-alocado (não o retorno do constructor).
+            let class_name = extract_expr_name(&new_expr.callee);
+            let Some(name) = class_name else {
+                let vreg = alloc(next_vreg);
+                instructions
+                    .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                return vreg;
+            };
+            let instance_vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::NewInstance(instance_vreg, name.clone()));
+
+            // Se a classe tem constructor, invoca-o com `this` + args.
+            let ctor_qualified = format!("{}::constructor", name);
+            let ctor_exists = METHOD_LOOKUP.with(|map| {
+                let map = map.borrow();
+                map.get("constructor")
+                    .map(|v| v.contains(&ctor_qualified))
+                    .unwrap_or(false)
+            });
+            if ctor_exists {
+                let mut arg_vregs = vec![instance_vreg];
+                if let Some(args) = &new_expr.args {
+                    for arg in args {
+                        let vreg = lower_expr_with_pool(
+                            &arg.expr,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
+                        arg_vregs.push(vreg);
+                    }
+                }
+                let ret = alloc(next_vreg);
+                instructions.push(MirInstruction::Call(ret, ctor_qualified, arg_vregs));
+            }
+
+            instance_vreg
+        }
+        Expr::Member(member) => {
+            // Lê o campo: `obj.field` → LoadField(dst, obj, "field")
+            if let Some(field) = member_prop_name(&member.prop) {
+                let obj_vreg = lower_expr_with_pool(
+                    &member.obj,
+                    original_text,
+                    instructions,
+                    next_vreg,
+                    constant_pool,
+                );
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::LoadField(vreg, obj_vreg, field));
+                vreg
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -903,6 +1263,91 @@ fn lower_expr(
             vreg
         }
         Expr::Call(call) => {
+            // Caso especial: obj.method(...args) — ver versão pooled para
+            // a explicação completa. Mesma lógica aqui sem o constant_pool.
+            if let Callee::Expr(callee_expr) = &call.callee {
+                if let Expr::Member(member) = callee_expr.as_ref() {
+                    if let Some(method_short) = member_prop_name(&member.prop) {
+                        if let Expr::Ident(ident) = member.obj.as_ref() {
+                            let ident_name = ident.sym.to_string();
+                            let static_qualified = format!("{}::{}", ident_name, method_short);
+                            let has_static = METHOD_LOOKUP.with(|map| {
+                                let map = map.borrow();
+                                map.get(method_short.as_str())
+                                    .map(|v| v.contains(&static_qualified))
+                                    .unwrap_or(false)
+                            });
+                            if has_static {
+                                let mut arg_vregs = Vec::new();
+                                for arg in &call.args {
+                                    let vreg = lower_expr(
+                                        &arg.expr,
+                                        original_text,
+                                        instructions,
+                                        next_vreg,
+                                    );
+                                    arg_vregs.push(vreg);
+                                }
+                                let vreg = alloc(next_vreg);
+                                instructions.push(MirInstruction::Call(
+                                    vreg,
+                                    static_qualified,
+                                    arg_vregs,
+                                ));
+                                return vreg;
+                            }
+                        }
+
+                        if let Some(qualified) = lookup_unique_method(&method_short) {
+                            let obj_vreg =
+                                lower_expr(&member.obj, original_text, instructions, next_vreg);
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions
+                                .push(MirInstruction::Call(vreg, qualified, arg_vregs));
+                            return vreg;
+                        }
+
+                        // Alias para métodos JS nativos de String — ver
+                        // versão pooled para detalhes.
+                        if let Some(ns_callee) = lookup_string_method_alias(&method_short) {
+                            let obj_vreg = lower_expr(
+                                &member.obj,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                            );
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions.push(MirInstruction::Call(
+                                vreg,
+                                ns_callee.to_string(),
+                                arg_vregs,
+                            ));
+                            return vreg;
+                        }
+                    }
+                }
+            }
+
             let callee_name = extract_callee_name(&call.callee);
             let callee_str = match callee_name {
                 Some(name) => name,
@@ -959,6 +1404,50 @@ fn lower_expr(
                         vreg
                     }
                 }
+            } else if let Some((obj_expr, field)) = extract_member_assign_target(&assign.left) {
+                let obj_vreg = lower_expr(obj_expr, original_text, instructions, next_vreg);
+                match assign.op {
+                    AssignOp::Assign => {
+                        let value =
+                            lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        instructions.push(MirInstruction::StoreField(obj_vreg, field, value));
+                        value
+                    }
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign
+                    | AssignOp::ModAssign => {
+                        let load = alloc(next_vreg);
+                        instructions.push(MirInstruction::LoadField(
+                            load,
+                            obj_vreg,
+                            field.clone(),
+                        ));
+                        let rhs =
+                            lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        let op = match assign.op {
+                            AssignOp::AddAssign => MirBinOp::Add,
+                            AssignOp::SubAssign => MirBinOp::Sub,
+                            AssignOp::MulAssign => MirBinOp::Mul,
+                            AssignOp::DivAssign => MirBinOp::Div,
+                            AssignOp::ModAssign => MirBinOp::Mod,
+                            _ => unreachable!(),
+                        };
+                        let result = alloc(next_vreg);
+                        instructions.push(MirInstruction::BinOp(result, op, load, rhs));
+                        instructions.push(MirInstruction::StoreField(
+                            obj_vreg, field, result,
+                        ));
+                        result
+                    }
+                    _ => {
+                        let vreg = alloc(next_vreg);
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        vreg
+                    }
+                }
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -981,6 +1470,81 @@ fn lower_expr(
                 instructions.push(MirInstruction::BinOp(result, op, load, one));
                 instructions.push(MirInstruction::WriteBind(name, result));
                 if update.prefix { result } else { load }
+            } else if let Expr::Member(member) = update.arg.as_ref() {
+                if let Some(field) = member_prop_name(&member.prop) {
+                    let obj_vreg = lower_expr(&member.obj, original_text, instructions, next_vreg);
+                    let load = alloc(next_vreg);
+                    instructions.push(MirInstruction::LoadField(
+                        load,
+                        obj_vreg,
+                        field.clone(),
+                    ));
+                    let one = alloc(next_vreg);
+                    instructions.push(MirInstruction::ConstNumber(one, 1.0));
+                    let op = if update.op == UpdateOp::PlusPlus {
+                        MirBinOp::Add
+                    } else {
+                        MirBinOp::Sub
+                    };
+                    let result = alloc(next_vreg);
+                    instructions.push(MirInstruction::BinOp(result, op, load, one));
+                    instructions.push(MirInstruction::StoreField(obj_vreg, field, result));
+                    if update.prefix { result } else { load }
+                } else {
+                    let vreg = alloc(next_vreg);
+                    instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                    vreg
+                }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
+        Expr::This(_) => {
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::LoadBinding(vreg, "this".to_string()));
+            vreg
+        }
+        Expr::New(new_expr) => {
+            let class_name = extract_expr_name(&new_expr.callee);
+            let Some(name) = class_name else {
+                let vreg = alloc(next_vreg);
+                instructions
+                    .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                return vreg;
+            };
+            let instance_vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::NewInstance(instance_vreg, name.clone()));
+
+            let ctor_qualified = format!("{}::constructor", name);
+            let ctor_exists = METHOD_LOOKUP.with(|map| {
+                let map = map.borrow();
+                map.get("constructor")
+                    .map(|v| v.contains(&ctor_qualified))
+                    .unwrap_or(false)
+            });
+            if ctor_exists {
+                let mut arg_vregs = vec![instance_vreg];
+                if let Some(args) = &new_expr.args {
+                    for arg in args {
+                        let vreg =
+                            lower_expr(&arg.expr, original_text, instructions, next_vreg);
+                        arg_vregs.push(vreg);
+                    }
+                }
+                let ret = alloc(next_vreg);
+                instructions.push(MirInstruction::Call(ret, ctor_qualified, arg_vregs));
+            }
+
+            instance_vreg
+        }
+        Expr::Member(member) => {
+            if let Some(field) = member_prop_name(&member.prop) {
+                let obj_vreg = lower_expr(&member.obj, original_text, instructions, next_vreg);
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::LoadField(vreg, obj_vreg, field));
+                vreg
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -1023,6 +1587,29 @@ fn extract_simple_assign_target(target: &AssignTarget) -> Option<String> {
             SimpleAssignTarget::Ident(ident) => Some(ident.id.sym.to_string()),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// Extrai o nome de um campo acessado via `MemberProp`. Suporta apenas
+/// acesso por identificador literal (`obj.field`) — acesso computado
+/// (`obj[key]`) ainda cai em `RuntimeEval`.
+fn member_prop_name(prop: &MemberProp) -> Option<String> {
+    match prop {
+        MemberProp::Ident(ident) => Some(ident.sym.to_string()),
+        _ => None,
+    }
+}
+
+/// Se o target do assign for `obj.field`, retorna (obj_expr, field_name).
+fn extract_member_assign_target<'a>(
+    target: &'a AssignTarget,
+) -> Option<(&'a Expr, String)> {
+    match target {
+        AssignTarget::Simple(SimpleAssignTarget::Member(member)) => {
+            let field = member_prop_name(&member.prop)?;
+            Some((&member.obj, field))
+        }
         _ => None,
     }
 }
@@ -1649,6 +2236,369 @@ mod tests {
             instructions
                 .iter()
                 .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x"))
+        );
+    }
+
+    #[test]
+    fn lowers_class_method_via_parser() {
+        // Full pipeline: parser -> HIR -> typed MIR. O corpo do método
+        // (`return a + b;`) precisa chegar como instrução MIR real agora
+        // que o pedaço 0a foi implementado.
+        let source = r#"
+            class Calc {
+                static add(a: number, b: number): number {
+                    return a + b;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        // lower empurra métodos para module.functions com nome qualificado
+        let method = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Calc::add")
+            .expect("Calc::add deve aparecer em hir.functions");
+        assert_eq!(method.parameters.len(), 2);
+        assert!(!method.body.is_empty(), "body do método deve ter snippets");
+
+        let mir = typed_build(&hir);
+        let typed = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Calc::add")
+            .expect("Calc::add deve aparecer no MIR tipado");
+        assert_eq!(typed.param_count, 2);
+
+        let instructions = &typed.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _))),
+            "corpo do método deve emitir BinOp::Add"
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Return(Some(_)))),
+            "corpo do método deve emitir Return com valor"
+        );
+    }
+
+    #[test]
+    fn lowers_new_expression_to_new_instance() {
+        let hir = build_simple_module(vec!["const c = new Counter();"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::NewInstance(_, name) if name == "Counter")),
+            "new Counter() deve emitir NewInstance(_, \"Counter\")"
+        );
+    }
+
+    #[test]
+    fn lowers_member_read_to_load_field() {
+        let hir = build_simple_module(vec!["const c = new Box();", "const x = c.value;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadField(_, _, name) if name == "value")),
+            "c.value deve emitir LoadField(_, _, \"value\")"
+        );
+    }
+
+    #[test]
+    fn lowers_member_assign_to_store_field() {
+        let hir = build_simple_module(vec!["const c = new Box();", "c.value = 42;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::StoreField(_, name, _) if name == "value")),
+            "c.value = 42 deve emitir StoreField(_, \"value\", _)"
+        );
+    }
+
+    #[test]
+    fn lowers_member_compound_assign_to_load_binop_store() {
+        let hir = build_simple_module(vec!["const c = new Box();", "c.n += 5;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        // `c.n += 5` → LoadField + ConstNumber(5) + BinOp(Add) + StoreField
+        let has_load = instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::LoadField(_, _, name) if name == "n"));
+        let has_add = instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _)));
+        let has_store = instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::StoreField(_, name, _) if name == "n"));
+        assert!(
+            has_load && has_add && has_store,
+            "compound assign deve emitir LoadField + BinOp + StoreField"
+        );
+    }
+
+    #[test]
+    fn instance_method_has_implicit_this_param() {
+        // Método de instância deve ter `this` injetado como parâmetro 0.
+        // O corpo acessa `this.count`, que vira LoadBinding("this") +
+        // LoadField(_, _, "count").
+        let source = r#"
+            class Box {
+                value: number;
+                get(): number {
+                    return this.value;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        let method = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Box::get")
+            .expect("Box::get deve aparecer");
+        assert_eq!(method.parameters.len(), 1, "this é injetado como param 0");
+        assert_eq!(method.parameters[0].name, "this");
+
+        let mir = typed_build(&hir);
+        let typed = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Box::get")
+            .expect("Box::get deve aparecer no MIR tipado");
+        assert_eq!(typed.param_count, 1);
+
+        let instructions = &typed.blocks[0].instructions;
+        // Espera-se Bind("this", ...) do entry + LoadBinding("this") + LoadField(_, _, "value")
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Bind(name, _, _) if name == "this")),
+            "entry deve bindear `this`"
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadField(_, _, name) if name == "value")),
+            "corpo deve ler this.value via LoadField"
+        );
+    }
+
+    #[test]
+    fn static_method_has_no_implicit_this_param() {
+        // Método estático NÃO recebe `this`.
+        let source = r#"
+            class Util {
+                static double(x: number): number {
+                    return x + x;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        let method = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Util::double")
+            .expect("Util::double deve aparecer");
+        assert_eq!(
+            method.parameters.len(),
+            1,
+            "static method mantém só o param declarado"
+        );
+        assert_eq!(method.parameters[0].name, "x");
+    }
+
+    #[test]
+    fn new_expression_with_constructor_invokes_it() {
+        // new Point(3, 4) deve emitir NewInstance + Call("Point::constructor", [instance, 3, 4]).
+        let source = r#"
+            class Point {
+                x: number;
+                y: number;
+                constructor(ix: number, iy: number) {
+                    this.x = ix;
+                    this.y = iy;
+                }
+            }
+            const p = new Point(3, 4);
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+        let mir = typed_build(&hir);
+        let main = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "main")
+            .expect("main");
+        let instructions = &main.blocks[0].instructions;
+
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::NewInstance(_, name) if name == "Point"
+            )),
+            "deve emitir NewInstance(_, \"Point\")"
+        );
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args)
+                    if callee == "Point::constructor" && args.len() == 3
+            )),
+            "deve emitir Call(_, \"Point::constructor\", [instance, 3, 4])"
+        );
+    }
+
+    #[test]
+    fn lowers_string_method_alias_to_str_namespace() {
+        // `s.replaceAll("foo", "X")` deve virar Call(_, "str.replace_all", [s, "foo", "X"])
+        // sem que o usuario precise importar ou chamar o namespace explicitamente.
+        let hir = build_simple_module(vec![
+            r#"const s = "foo bar foo";"#,
+            r#"s.replaceAll("foo", "X");"#,
+        ]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args)
+                    if callee == "str.replace_all" && args.len() == 3
+            )),
+            "s.replaceAll deve ser reescrito para str.replace_all com 3 args (receiver + 2)"
+        );
+    }
+
+    #[test]
+    fn lowers_string_method_slice_alias() {
+        let hir = build_simple_module(vec![
+            r#"const s = "hello";"#,
+            r#"s.slice(0, 3);"#,
+        ]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args)
+                    if callee == "str.slice" && args.len() == 3
+            )),
+            "s.slice(a, b) deve virar str.slice(s, a, b)"
+        );
+    }
+
+    #[test]
+    fn lowers_instance_method_call_to_qualified_call() {
+        // c.inc() deve virar Call(_, "Counter::inc", [c_handle]).
+        let source = r#"
+            class Counter {
+                count: number;
+                inc(): number {
+                    this.count = this.count + 1;
+                    return this.count;
+                }
+            }
+            const c = new Counter();
+            c.inc();
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+        let mir = typed_build(&hir);
+        let main = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "main")
+            .expect("main sintetica para statements top-level");
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args) if callee == "Counter::inc" && args.len() == 1
+            )),
+            "c.inc() deve virar Call(_, \"Counter::inc\", [obj])"
+        );
+    }
+
+    #[test]
+    fn lowers_this_expression_to_load_binding_this() {
+        // `this` fora de método ainda produz LoadBinding — só vira UB
+        // em runtime (undefined). O lowering acima do HIR é quem injeta
+        // `this` como parâmetro 0 em métodos de instância.
+        let hir = build_simple_module(vec!["const x = this;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadBinding(_, name) if name == "this")),
+            "Expr::This deve emitir LoadBinding(_, \"this\")"
+        );
+    }
+
+    #[test]
+    fn lowers_class_constructor_body_via_parser() {
+        // Constructor body também precisa chegar ao MIR agora.
+        let source = r#"
+            class Counter {
+                constructor(initial: number) {
+                    let start = initial;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        let ctor = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Counter::constructor")
+            .expect("Counter::constructor deve aparecer em hir.functions");
+        assert!(
+            !ctor.body.is_empty(),
+            "body do constructor deve ter snippets"
+        );
+
+        let mir = typed_build(&hir);
+        let typed = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Counter::constructor")
+            .expect("Counter::constructor deve aparecer no MIR tipado");
+
+        let instructions = &typed.blocks[0].instructions;
+        // `let start = initial;` deve gerar ao menos um Bind("start", ...).
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Bind(name, _, _) if name == "start")),
+            "constructor deve emitir Bind para a variável local `start`"
         );
     }
 }

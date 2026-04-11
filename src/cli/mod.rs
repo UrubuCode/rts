@@ -4,6 +4,7 @@ pub mod eval;
 pub mod init;
 pub mod repl;
 pub mod run;
+pub mod test;
 
 use anyhow::{Result, anyhow};
 
@@ -65,9 +66,21 @@ where
             flags.as_compile_options(),
         ),
         "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
+        "test" => test::command(positional.get(1).cloned(), flags.as_compile_options()),
         "repl" => repl::command(),
         "init" => init::command(positional.get(1).cloned()),
         "apis" | "api" => apis::command(),
+        "emit-types" => {
+            let output_dir = positional.get(1).cloned()
+                .unwrap_or_else(|| "packages/rts-types".to_string());
+            let dir = std::path::Path::new(&output_dir);
+            crate::namespaces::emit_split_typescript_declarations(dir)?;
+            crate::namespaces::emit_typescript_declarations(
+                &dir.join("rts.d.ts"),
+            )?;
+            println!("types emitted to {output_dir}");
+            Ok(())
+        }
         "help" => {
             print_help(&bin_name);
             Ok(())
@@ -164,6 +177,7 @@ fn print_help(bin_name: &str) {
     println!(
         "  {bin_name} run [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)]"
     );
+    println!("  {bin_name} test [path]");
     println!("  {bin_name} init [project-name]");
     println!("  {bin_name} apis");
     println!("  {bin_name} repl");

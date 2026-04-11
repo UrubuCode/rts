@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use cranelift_codegen::ir::{
     AbiParam, InstBuilder, MemFlags, StackSlot, StackSlotData, StackSlotKind, Value, types,
 };
@@ -33,10 +33,11 @@ const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1;
 const ABI_UNDEFINED_HANDLE: i64 = 0;
 
 use crate::namespaces::abi::{
-    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NUMBER, FN_BOX_STRING, FN_CRYPTO_SHA256, FN_EVAL_STMT,
-    FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT,
-    FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_PROCESS_EXIT, FN_READ_IDENTIFIER,
-    FN_UNBOX_NUMBER,
+    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_BOOL, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
+    FN_CALL_BY_HANDLE, FN_CRYPTO_SHA256, FN_EVAL_STMT, FN_GLOBAL_DELETE, FN_GLOBAL_GET,
+    FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT, FN_IO_STDERR_WRITE,
+    FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE, FN_PROCESS_EXIT,
+    FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER,
 };
 
 const RTS_DISPATCH: &str = "__rts_dispatch";
@@ -256,6 +257,41 @@ pub fn define_typed_function<M: Module>(
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
+        // Prologue: bind every declared user function as a NativeFunction handle so that
+        // LoadBinding + FN_CALL_BY_HANDLE can call them when passed as callbacks.
+        // Only emitted in `main` to avoid redundant work in other functions.
+        if function.name == "main" {
+            // Collect names first to avoid holding the iterator borrow alongside emit_dispatch.
+            let user_fn_names: Vec<String> = func_declarations
+                .keys()
+                .filter(|n| !n.starts_with("__"))
+                .cloned()
+                .collect();
+            for fn_name in user_fn_names {
+                let name_data_id = declare_string_data(module, data_cache, fn_name.as_str())?;
+                let name_data_ref = module.declare_data_in_func(name_data_id, builder.func);
+                let name_ptr = builder.ins().symbol_value(types::I64, name_data_ref);
+                let name_len = builder.ins().iconst(types::I64, fn_name.len() as i64);
+                let not_mutable = builder.ins().iconst(types::I64, 0);
+                // Box the function name as a NativeFunction handle
+                let fn_handle = emit_dispatch(
+                    module,
+                    func_declarations,
+                    &mut builder,
+                    FN_BOX_NATIVE_FN,
+                    &[name_ptr, name_len],
+                )?;
+                // Bind it in the VALUE_STORE so LoadBinding can find it
+                emit_dispatch(
+                    module,
+                    func_declarations,
+                    &mut builder,
+                    FN_BIND_IDENTIFIER,
+                    &[name_ptr, name_len, fn_handle, not_mutable],
+                )?;
+            }
+        }
+
         // --- Pass 0: promoção de globais para shadow stack slots ---
         //
         // Antes de emitir o corpo, identificamos globais (nomes lidos/escritos
@@ -367,12 +403,30 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::ConstBool(dst, b) => {
-                    // Emit as NativeI32 (0/1); ensure_handle will box if a handle is needed.
-                    let result = builder.ins().iconst(types::I64, if *b { 1 } else { 0 });
+                    // Emit como handle de RuntimeValue::Bool via FN_BOX_BOOL.
+                    //
+                    // Antigamente esta variante emitia NativeI32 (0/1) direto e
+                    // confiava em ensure_handle para boxar quando preciso. O
+                    // problema: `ensure_handle` chama box_native_i32 que
+                    // converte para f64 e cria RuntimeValue::Number, perdendo
+                    // a informacao de bool. Resultado pratico: JSON.stringify
+                    // de um campo bool serializava "true" como 1 ("flag":1).
+                    //
+                    // Correcao: emit direto como handle. Perdemos o fast path
+                    // local (comparacoes e if/while usam outros caminhos que
+                    // nao dependem disto), mas ganhamos tipo correto em boxing.
+                    let flag = builder.ins().iconst(types::I64, if *b { 1 } else { 0 });
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_BOX_BOOL,
+                        &[flag],
+                    )?;
                     vreg_map.insert(*dst, result);
-                    vreg_kinds.insert(*dst, VRegKind::NativeI32);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
                     default_return = result;
-                    default_return_is_native = true;
+                    default_return_is_native = false;
                 }
 
                 MirInstruction::ConstNull(dst) => {
@@ -440,9 +494,23 @@ pub fn define_typed_function<M: Module>(
                     // Resolve os valores uma vez e aplica promoção numérica quando
                     // os kinds divergem. Unificamos no kind mais largo (Handle/F64 > I32)
                     // antes das branches nativas.
+                    //
+                    // Caso especial: `Add` com pelo menos um Handle é ambíguo —
+                    // pode ser concat de string ou soma numérica. O runtime
+                    // decide em FN_BINOP via `is_string_like`. Por isso a
+                    // promoção Handle↔Native é DESLIGADA para Add: ambos são
+                    // mantidos como Handle (boxando o native se necessário) e
+                    // o fallback dispatch cuida do resto.
                     let mut lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
                     let mut rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
-                    if (is_arith || is_cmp) && lhs_kind != rhs_kind {
+                    let has_handle_operand =
+                        lhs_kind == VRegKind::Handle || rhs_kind == VRegKind::Handle;
+                    let skip_numeric_promotion =
+                        matches!(op, MirBinOp::Add) && has_handle_operand;
+                    if (is_arith || is_cmp)
+                        && lhs_kind != rhs_kind
+                        && !skip_numeric_promotion
+                    {
                         let target = match (lhs_kind, rhs_kind) {
                             (VRegKind::NativeI32, VRegKind::NativeF64)
                             | (VRegKind::NativeF64, VRegKind::NativeI32)
@@ -737,11 +805,59 @@ pub fn define_typed_function<M: Module>(
                             fn_id_val,
                             &handle_args,
                         )?
+                    } else if crate::namespaces::is_catalog_callee(callee.as_str()) {
+                        // Dynamic fallback: namespace callee not in CALLEE_FN_IDS.
+                        // Route through __rts_call_dispatch so all registered namespaces work.
+                        let mut handle_args: Vec<Value> = Vec::with_capacity(args.len());
+                        for arg in args.iter().take(6) {
+                            let val = ensure_handle(
+                                &vreg_map,
+                                &vreg_kinds,
+                                arg,
+                                module,
+                                func_declarations,
+                                &mut builder,
+                            )?;
+                            handle_args.push(val);
+                        }
+                        emit_call_dispatch(
+                            module,
+                            func_declarations,
+                            data_cache,
+                            &mut builder,
+                            callee.as_str(),
+                            &handle_args,
+                        )?
                     } else {
-                        return Err(anyhow!(
-                            "typed codegen cannot lower unresolved callee '{}': add a direct typed runtime symbol or function",
-                            callee
-                        ));
+                        // Last resort: callee may be a local binding holding a NativeFunction handle.
+                        // Emit FN_CALL_BY_HANDLE(fn_handle, argc=0) so the runtime can look up
+                        // and call it (e.g., a named user function passed as a callback).
+                        let fn_handle = if use_local_bindings {
+                            if let Some(state) = local_bindings.get(callee.as_str()) {
+                                builder.ins().stack_load(types::I64, state.slot, 0)
+                            } else {
+                                // Try from global VALUE_STORE
+                                let data_id = declare_string_data(module, data_cache, callee.as_str())?;
+                                let data_ref = module.declare_data_in_func(data_id, builder.func);
+                                let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                                let name_len = builder.ins().iconst(types::I64, callee.len() as i64);
+                                emit_dispatch(module, func_declarations, &mut builder, FN_READ_IDENTIFIER, &[name_ptr, name_len])?
+                            }
+                        } else {
+                            let data_id = declare_string_data(module, data_cache, callee.as_str())?;
+                            let data_ref = module.declare_data_in_func(data_id, builder.func);
+                            let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                            let name_len = builder.ins().iconst(types::I64, callee.len() as i64);
+                            emit_dispatch(module, func_declarations, &mut builder, FN_READ_IDENTIFIER, &[name_ptr, name_len])?
+                        };
+                        let argc = builder.ins().iconst(types::I64, args.len() as i64);
+                        emit_dispatch(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            FN_CALL_BY_HANDLE,
+                            &[fn_handle, argc],
+                        )?
                     };
                     vreg_map.insert(*dst, result);
                     vreg_kinds.insert(*dst, VRegKind::Handle);
@@ -1177,6 +1293,102 @@ pub fn define_typed_function<M: Module>(
                     default_return = result;
                     default_return_is_native = false;
                 }
+                MirInstruction::NewInstance(dst, class_name) => {
+                    // Aloca RuntimeValue::Object vazio via FN_NEW_INSTANCE.
+                    // O class_name é passado por enquanto apenas como diagnóstico
+                    // — o runtime ainda ignora (ver abi.rs FN_NEW_INSTANCE).
+                    let data_id =
+                        declare_string_data(module, data_cache, class_name.as_str())?;
+                    let data_ref = module.declare_data_in_func(data_id, builder.func);
+                    let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                    let name_len =
+                        builder.ins().iconst(types::I64, class_name.len() as i64);
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_NEW_INSTANCE,
+                        &[name_ptr, name_len],
+                    )?;
+                    vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
+                    default_return = result;
+                    default_return_is_native = false;
+                }
+                MirInstruction::LoadField(dst, obj_vreg, field_name) => {
+                    // dst = obj.field
+                    let obj_value = resolve_vreg(&vreg_map, obj_vreg, &mut builder);
+                    let obj_handle = adapt_to_kind(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        obj_value,
+                        vreg_kinds
+                            .get(obj_vreg)
+                            .copied()
+                            .unwrap_or(VRegKind::Handle),
+                        VRegKind::Handle,
+                    )?;
+                    let data_id =
+                        declare_string_data(module, data_cache, field_name.as_str())?;
+                    let data_ref = module.declare_data_in_func(data_id, builder.func);
+                    let field_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                    let field_len =
+                        builder.ins().iconst(types::I64, field_name.len() as i64);
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_LOAD_FIELD,
+                        &[obj_handle, field_ptr, field_len],
+                    )?;
+                    vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
+                    default_return = result;
+                    default_return_is_native = false;
+                }
+                MirInstruction::StoreField(obj_vreg, field_name, value_vreg) => {
+                    // obj.field = value
+                    let obj_value = resolve_vreg(&vreg_map, obj_vreg, &mut builder);
+                    let obj_handle = adapt_to_kind(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        obj_value,
+                        vreg_kinds
+                            .get(obj_vreg)
+                            .copied()
+                            .unwrap_or(VRegKind::Handle),
+                        VRegKind::Handle,
+                    )?;
+                    let value_raw = resolve_vreg(&vreg_map, value_vreg, &mut builder);
+                    let value_handle = adapt_to_kind(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        value_raw,
+                        vreg_kinds
+                            .get(value_vreg)
+                            .copied()
+                            .unwrap_or(VRegKind::Handle),
+                        VRegKind::Handle,
+                    )?;
+                    let data_id =
+                        declare_string_data(module, data_cache, field_name.as_str())?;
+                    let data_ref = module.declare_data_in_func(data_id, builder.func);
+                    let field_ptr = builder.ins().symbol_value(types::I64, data_ref);
+                    let field_len =
+                        builder.ins().iconst(types::I64, field_name.len() as i64);
+                    let _ = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_STORE_FIELD,
+                        &[obj_handle, field_ptr, field_len, value_handle],
+                    )?;
+                    // StoreField não produz valor consumível — não muda
+                    // default_return.
+                }
             }
         }
 
@@ -1348,6 +1560,55 @@ fn emit_dispatch<M: Module>(
         call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
     }
     let local = module.declare_func_in_func(dispatch_fn, builder.func);
+    let call = builder.ins().call(local, &call_args);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
+/// Assinatura do __rts_call_dispatch: (callee_ptr, callee_len, argc, a0..a5) -> i64
+fn call_dispatch_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
+    let mut sig = module.make_signature();
+    for _ in 0..9 {
+        sig.params.push(AbiParam::new(types::I64));
+    }
+    sig.returns.push(AbiParam::new(types::I64));
+    sig
+}
+
+/// Emite uma chamada a __rts_call_dispatch com o callee como string estática e os args como handles.
+fn emit_call_dispatch<M: Module>(
+    module: &mut M,
+    declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    callee: &str,
+    args: &[Value],
+) -> Result<Value> {
+    use crate::codegen::cranelift::mir_parse::RTS_CALL_DISPATCH_SYMBOL;
+    let sig = call_dispatch_signature(module);
+    let fn_id = ensure_import(module, declarations, RTS_CALL_DISPATCH_SYMBOL, &sig)?;
+
+    let data_id = declare_string_data(module, data_cache, callee)?;
+    let data_ref = module.declare_data_in_func(data_id, builder.func);
+    let ptr = builder.ins().symbol_value(types::I64, data_ref);
+    let len = builder.ins().iconst(types::I64, callee.len() as i64);
+    let argc = builder.ins().iconst(types::I64, args.len() as i64);
+
+    let mut call_args: Vec<Value> = Vec::with_capacity(9);
+    call_args.push(ptr);
+    call_args.push(len);
+    call_args.push(argc);
+    for &arg in args.iter().take(6) {
+        call_args.push(arg);
+    }
+    while call_args.len() < 9 {
+        call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+    }
+
+    let local = module.declare_func_in_func(fn_id, builder.func);
     let call = builder.ins().call(local, &call_args);
     Ok(builder
         .inst_results(call)

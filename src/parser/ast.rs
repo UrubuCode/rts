@@ -16,7 +16,10 @@ pub enum Item {
 
 #[derive(Debug, Clone)]
 pub struct ImportDecl {
+    /// Named imports: `import { foo, bar } from "…"`
     pub names: Vec<String>,
+    /// Default import local name: `import io from "…"`
+    pub default_name: Option<String>,
     pub from: String,
     pub span: Span,
 }
@@ -52,6 +55,7 @@ pub enum ClassMember {
 #[derive(Debug, Clone)]
 pub struct ConstructorDecl {
     pub parameters: Vec<Parameter>,
+    pub body: Vec<Statement>,
     pub span: Span,
 }
 
@@ -61,6 +65,7 @@ pub struct MethodDecl {
     pub modifiers: MemberModifiers,
     pub parameters: Vec<Parameter>,
     pub return_type: Option<String>,
+    pub body: Vec<Statement>,
     pub span: Span,
 }
 

@@ -134,6 +134,10 @@ fn check_import(
         }
     }
 
+    if import_decl.default_name.is_some() && !exports.contains("default") {
+        bail!("module '{}' has no default export", import_decl.from);
+    }
+
     Ok(())
 }
 

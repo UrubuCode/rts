@@ -34,9 +34,15 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("examples/console.ts"));
 
-    let report = execute_with_report(&input, options)?;
+    execute_file(&input, options)
+}
+
+/// Executes a single file and returns Ok(()) or the first error.
+/// Used by `rts test` to run individual test files.
+pub fn execute_file(input: &Path, options: CompileOptions) -> Result<()> {
+    let report = execute_with_report(input, options)?;
     if options.debug {
-        print_debug_timeline(&input, options, &report);
+        print_debug_timeline(input, options, &report);
     }
 
     // Relatório do JIT só aparece em modo --debug (ver print_debug_timeline).
