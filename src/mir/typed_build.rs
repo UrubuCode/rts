@@ -122,10 +122,48 @@ thread_local! {
     /// Constantes top-level conhecidas durante a construção do MIR tipado.
     /// Usado para inlinar referências a `const X = literal` em qualquer função.
     static TOP_LEVEL_CONSTS: RefCell<HashMap<String, ConstValue>> = RefCell::new(HashMap::new());
+
+    /// Lookup de métodos de classe: nome do método → lista de nomes
+    /// qualificados (`"Class::method"`). Usado pelo lowering de
+    /// `obj.method(args)` para resolver a função estaticamente quando há
+    /// exatamente uma classe no módulo com aquele método. Ambiguidade
+    /// (dois `Class::method`) cai em `RuntimeEval` — resolução dinâmica
+    /// por tipo fica para um passo futuro.
+    static METHOD_LOOKUP: RefCell<HashMap<String, Vec<String>>> = RefCell::new(HashMap::new());
 }
 
 fn lookup_top_level_const(name: &str) -> Option<ConstValue> {
     TOP_LEVEL_CONSTS.with(|map| map.borrow().get(name).cloned())
+}
+
+/// Retorna o nome qualificado (`"Class::method"`) se houver exatamente
+/// um método com esse nome no módulo. Caso contrário (zero ou ambíguo)
+/// retorna None — o caller deve cair em `RuntimeEval`.
+fn lookup_unique_method(method_name: &str) -> Option<String> {
+    METHOD_LOOKUP.with(|map| {
+        let map = map.borrow();
+        match map.get(method_name) {
+            Some(candidates) if candidates.len() == 1 => Some(candidates[0].clone()),
+            _ => None,
+        }
+    })
+}
+
+fn collect_method_lookup(hir: &HirModule) -> HashMap<String, Vec<String>> {
+    let mut lookup: HashMap<String, Vec<String>> = HashMap::new();
+    for class in &hir.classes {
+        for method in &class.methods {
+            // method.name vem como "Class::method" — extrair o sufixo.
+            if let Some(idx) = method.name.rfind("::") {
+                let short = &method.name[idx + 2..];
+                lookup
+                    .entry(short.to_string())
+                    .or_default()
+                    .push(method.name.clone());
+            }
+        }
+    }
+    lookup
 }
 
 fn collect_top_level_consts(hir: &HirModule) -> HashMap<String, ConstValue> {
@@ -219,6 +257,12 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
     // Varre top-level procurando `const X = literal` para propagar inlining em todas as funções.
     let consts = collect_top_level_consts(hir);
     TOP_LEVEL_CONSTS.with(|map| *map.borrow_mut() = consts);
+
+    // Indexa métodos de classe por nome curto → lista de nomes qualificados.
+    // Permite resolver `obj.method(args)` para `Class::method` quando houver
+    // exatamente uma classe no módulo com o método.
+    let methods = collect_method_lookup(hir);
+    METHOD_LOOKUP.with(|map| *map.borrow_mut() = methods);
 
     let mut module = TypedMirModule::default();
     let mut top_level_instructions: Vec<MirInstruction> = Vec::new();
@@ -708,6 +752,78 @@ fn lower_expr_with_pool(
             vreg
         }
         Expr::Call(call) => {
+            // Caso especial: obj.method(...args) onde `method` é resolvido
+            // estaticamente para uma função `Class::method`. O receiver
+            // vira o primeiro argumento (this).
+            if let Callee::Expr(callee_expr) = &call.callee {
+                if let Expr::Member(member) = callee_expr.as_ref() {
+                    if let Some(method_short) = member_prop_name(&member.prop) {
+                        // Se o receptor é um identificador que coincide com
+                        // o nome de uma classe, tratamos como chamada de
+                        // método estático (`Calc.add(...)` → `Calc::add(...)`).
+                        // Caso contrário, é chamada de método de instância.
+                        if let Expr::Ident(ident) = member.obj.as_ref() {
+                            let ident_name = ident.sym.to_string();
+                            let static_qualified = format!("{}::{}", ident_name, method_short);
+                            // Busca se existe `<ident>::<method>` no lookup.
+                            let has_static = METHOD_LOOKUP.with(|map| {
+                                let map = map.borrow();
+                                map.get(method_short.as_str())
+                                    .map(|v| v.contains(&static_qualified))
+                                    .unwrap_or(false)
+                            });
+                            if has_static {
+                                // Chamada estática: sem receiver.
+                                let mut arg_vregs = Vec::new();
+                                for arg in &call.args {
+                                    let vreg = lower_expr_with_pool(
+                                        &arg.expr,
+                                        original_text,
+                                        instructions,
+                                        next_vreg,
+                                        constant_pool,
+                                    );
+                                    arg_vregs.push(vreg);
+                                }
+                                let vreg = alloc(next_vreg);
+                                instructions.push(MirInstruction::Call(
+                                    vreg,
+                                    static_qualified,
+                                    arg_vregs,
+                                ));
+                                return vreg;
+                            }
+                        }
+
+                        // Método de instância: resolve por nome único.
+                        if let Some(qualified) = lookup_unique_method(&method_short) {
+                            let obj_vreg = lower_expr_with_pool(
+                                &member.obj,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                                constant_pool,
+                            );
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr_with_pool(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                    constant_pool,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions
+                                .push(MirInstruction::Call(vreg, qualified, arg_vregs));
+                            return vreg;
+                        }
+                    }
+                }
+            }
+
             let callee_name = extract_callee_name(&call.callee);
             let callee_str = match callee_name {
                 Some(name) => name,
@@ -1044,6 +1160,63 @@ fn lower_expr(
             vreg
         }
         Expr::Call(call) => {
+            // Caso especial: obj.method(...args) — ver versão pooled para
+            // a explicação completa. Mesma lógica aqui sem o constant_pool.
+            if let Callee::Expr(callee_expr) = &call.callee {
+                if let Expr::Member(member) = callee_expr.as_ref() {
+                    if let Some(method_short) = member_prop_name(&member.prop) {
+                        if let Expr::Ident(ident) = member.obj.as_ref() {
+                            let ident_name = ident.sym.to_string();
+                            let static_qualified = format!("{}::{}", ident_name, method_short);
+                            let has_static = METHOD_LOOKUP.with(|map| {
+                                let map = map.borrow();
+                                map.get(method_short.as_str())
+                                    .map(|v| v.contains(&static_qualified))
+                                    .unwrap_or(false)
+                            });
+                            if has_static {
+                                let mut arg_vregs = Vec::new();
+                                for arg in &call.args {
+                                    let vreg = lower_expr(
+                                        &arg.expr,
+                                        original_text,
+                                        instructions,
+                                        next_vreg,
+                                    );
+                                    arg_vregs.push(vreg);
+                                }
+                                let vreg = alloc(next_vreg);
+                                instructions.push(MirInstruction::Call(
+                                    vreg,
+                                    static_qualified,
+                                    arg_vregs,
+                                ));
+                                return vreg;
+                            }
+                        }
+
+                        if let Some(qualified) = lookup_unique_method(&method_short) {
+                            let obj_vreg =
+                                lower_expr(&member.obj, original_text, instructions, next_vreg);
+                            let mut arg_vregs = vec![obj_vreg];
+                            for arg in &call.args {
+                                let vreg = lower_expr(
+                                    &arg.expr,
+                                    original_text,
+                                    instructions,
+                                    next_vreg,
+                                );
+                                arg_vregs.push(vreg);
+                            }
+                            let vreg = alloc(next_vreg);
+                            instructions
+                                .push(MirInstruction::Call(vreg, qualified, arg_vregs));
+                            return vreg;
+                        }
+                    }
+                }
+            }
+
             let callee_name = extract_callee_name(&call.callee);
             let callee_str = match callee_name {
                 Some(name) => name,
@@ -2021,6 +2194,115 @@ mod tests {
         assert!(
             has_load && has_add && has_store,
             "compound assign deve emitir LoadField + BinOp + StoreField"
+        );
+    }
+
+    #[test]
+    fn instance_method_has_implicit_this_param() {
+        // Método de instância deve ter `this` injetado como parâmetro 0.
+        // O corpo acessa `this.count`, que vira LoadBinding("this") +
+        // LoadField(_, _, "count").
+        let source = r#"
+            class Box {
+                value: number;
+                get(): number {
+                    return this.value;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        let method = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Box::get")
+            .expect("Box::get deve aparecer");
+        assert_eq!(method.parameters.len(), 1, "this é injetado como param 0");
+        assert_eq!(method.parameters[0].name, "this");
+
+        let mir = typed_build(&hir);
+        let typed = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Box::get")
+            .expect("Box::get deve aparecer no MIR tipado");
+        assert_eq!(typed.param_count, 1);
+
+        let instructions = &typed.blocks[0].instructions;
+        // Espera-se Bind("this", ...) do entry + LoadBinding("this") + LoadField(_, _, "value")
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Bind(name, _, _) if name == "this")),
+            "entry deve bindear `this`"
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadField(_, _, name) if name == "value")),
+            "corpo deve ler this.value via LoadField"
+        );
+    }
+
+    #[test]
+    fn static_method_has_no_implicit_this_param() {
+        // Método estático NÃO recebe `this`.
+        let source = r#"
+            class Util {
+                static double(x: number): number {
+                    return x + x;
+                }
+            }
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+
+        let method = hir
+            .functions
+            .iter()
+            .find(|f| f.name == "Util::double")
+            .expect("Util::double deve aparecer");
+        assert_eq!(
+            method.parameters.len(),
+            1,
+            "static method mantém só o param declarado"
+        );
+        assert_eq!(method.parameters[0].name, "x");
+    }
+
+    #[test]
+    fn lowers_instance_method_call_to_qualified_call() {
+        // c.inc() deve virar Call(_, "Counter::inc", [c_handle]).
+        let source = r#"
+            class Counter {
+                count: number;
+                inc(): number {
+                    this.count = this.count + 1;
+                    return this.count;
+                }
+            }
+            const c = new Counter();
+            c.inc();
+        "#;
+        let program = crate::parser::parse_source(source).expect("parse ok");
+        let resolver = crate::type_system::resolver::TypeResolver::default();
+        let hir = crate::hir::lower::lower(&program, &resolver);
+        let mir = typed_build(&hir);
+        let main = mir
+            .functions
+            .iter()
+            .find(|f| f.name == "main")
+            .expect("main sintetica para statements top-level");
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions.iter().any(|i| matches!(
+                i,
+                MirInstruction::Call(_, callee, args) if callee == "Counter::inc" && args.len() == 1
+            )),
+            "c.inc() deve virar Call(_, \"Counter::inc\", [obj])"
         );
     }
 
