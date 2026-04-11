@@ -1,8 +1,8 @@
 # Otimização do Hot Path de Execução — do `FN_EVAL_STMT` ao Bun-Beater
 
-> **TL;DR**: o bench `rts_simple.ts` saiu de ~2300 ms para **66 ms** (AOT) / **73 ms** (JIT)
-> no decorrer de 5 commits, sem mudar arquitetura. O RTS hoje é **1.6× mais rápido**
-> que Bun e **1.9× mais rápido** que Node nesse bench.
+> **TL;DR**: o bench `rts_simple.ts` saiu de ~2300 ms para **25 ms** (AOT) / **40 ms** (JIT)
+> no decorrer de 6 commits, sem mudar arquitetura. O RTS hoje é **4.3× mais rápido**
+> que Bun e **5.1× mais rápido** que Node nesse bench.
 
 Este documento registra **como** isso foi feito, **por que** cada decisão foi tomada,
 e as lições aprendidas ao longo da investigação. Ele existe para:
@@ -329,22 +329,118 @@ era só 20 ms.
 - RTS (run): 124 ms → **73 ms** (−41%)
 - RTS (compiled): 137 ms → **66 ms** (−52%)
 
+### Commit 6: `59a4fa1` — cache de globais como shadow F64 stack slots em funções puras
+
+**Sintoma observado**: depois do commit 5, ainda havia **1.64M dispatches** no
+bench, dominados por `bigint_like_stress`:
+
+```
+BIND_IDENTIFIER   360013  (globais limb0/1/2 re-bindadas, 120k × 3)
+READ_IDENTIFIER   360010  (globais limb0/1/2 lidas)
+BOX_NUMBER        360016  (RHS do re-bind sendo boxed pra virar handle)
+UNBOX_NUMBER      562504  (reads sendo unbox pro kind nativo do consumidor)
+```
+
+Cada iteração do `bigint_like_stress` gastava **~12 dispatches por iteração**
+só no handshaking com o namespace compartilhado para ler/escrever `limb0/1/2`,
+enquanto a aritmética em si rodava em ~2 ns por operação. O gap para Bun
+(~109 ms → RTS ~73 ms) era exatamente essa ponte.
+
+**Causa raiz arquitetural**: `bigint_like_stress` não é `main`, então seus
+`let locais` já eram stack slots. Mas `limb0/1/2` são declarados no top-level
+como `let limb0: i32 = 0;`, então vivem na `main` e são **globais** do ponto
+de vista de `bigint_like_stress`. O codegen caía no fallback `FN_READ_IDENTIFIER`
+/ `FN_BIND_IDENTIFIER` para cada acesso — exatamente o que foi desenhado para
+funcionar, só que em um hot loop de 120k iterações.
+
+**Insight**: em um loop que **não faz chamadas externas**, podemos cachear a
+global num stack slot local no prólogo, usar o cache dentro do loop, e
+fazer write-back no epílogo. O write-back precisa acontecer antes de cada
+`return_` porque callees subsequentes podem depender do valor atualizado.
+Se a função **faz** chamadas, o callee pode ler a global e veria um valor
+obsoleto — então a promoção é abortada (conservadora).
+
+**O que foi feito** em `src/codegen/cranelift/typed_codegen.rs`:
+
+1. **`analyze_shadow_globals`**: nova função de análise que itera as
+   `MirInstruction`s e computa, por função:
+   - `locals`: `HashSet` de nomes vistos em `Bind` (= declarados localmente)
+   - `referenced`: `BTreeSet` de nomes vistos em `LoadBinding`/`WriteBind`
+   - `has_call`: booleano — se qualquer `Call` aparece
+   - Retorna `referenced − locals` como `ShadowGlobalPlan.names` se
+     `has_call == false && function.name != "main"`, senão `empty`.
+
+2. **Prólogo shadow** (antes da Pass 2): para cada nome no plan, emitir:
+   ```
+   handle = FN_READ_IDENTIFIER(ptr, len)     // 1 dispatch
+   bits   = FN_UNBOX_NUMBER(handle)          // 1 dispatch
+   stack_slot[i] = bits                      // store
+   local_bindings[name] = { slot, NativeF64, mutable: true }
+   ```
+   A partir daqui, o código existente de `LoadBinding`/`WriteBind` do caminho
+   `use_local_bindings` cuida naturalmente do resto — o que era global agora
+   é stack slot F64 nativo. O loop do `bigint_like_stress` vira aritmética pura
+   sem nenhum dispatch.
+
+3. **`emit_shadow_writeback`**: helper que emite write-back para todas as
+   shadows antes de cada `return_`. Para cada shadow:
+   ```
+   bits   = load_stack_slot(slot)            // load
+   handle = FN_BOX_NUMBER(bits)              // 1 dispatch
+   FN_BIND_IDENTIFIER(ptr, len, handle, 1)   // 1 dispatch
+   ```
+   Chamado nos 4 sites de retorno: `Return(Some)`, `Return(None)`,
+   fall-through no fim da função, e `exit_block` do `Break` fora de loop.
+
+**Sutileza crítica — shadow como NativeF64**: a primeira versão considerada
+usava `shadow = Handle`, mas isso mantinha o `FN_UNBOX_NUMBER` em cada read
+dentro do loop. Promover direto para F64 no prólogo elimina isso — o custo é
+que se a global for não-numérica (`string`/`bool`/`object`), `FN_UNBOX_NUMBER`
+retorna `NaN` via `to_number()`. Isso **é** a semântica JS de `Number(valor)`,
+mas pode divergir de código que esperasse o valor original. Para o bench
+atual e qualquer código numérico com globais, é correto. Análise de tipo
+interprocedural fica para uma sessão futura.
+
+**Outra armadilha evitada**: write-back em **todos** os returns, não só no
+último. Um `return early` de uma função que tenha modificado uma shadow
+precisa fazer o write-back antes, senão o valor fica só no stack slot que
+é destruído. No bench isso é invisível (nenhuma função tem early return),
+mas testar com `count_primes` cedo (antes de passar por todas as iterações)
+exercitaria o caminho.
+
+**Resultado**:
+- Dispatches no bench: 1.64M → **202k** (−88%)
+- RTS (run): 73 ms → **40 ms** (−45%)
+- RTS (compiled): 66 ms → **25 ms** (−62%)
+
 ---
 
 ## 4. Placar final
 
-Médias de 5 runs, `bench/benchmark.ps1`, release:
+Médias de 10 runs steady-state, release, overhead de `*> $null` incluído:
 
 | runner | mean_ms | vs Bun |
 |---|---|---|
-| **RTS (compiled)** | **66 ms** | **0.62×** (1.6× mais rápido) |
-| **RTS (run)** | **73 ms** | **0.70×** (1.4× mais rápido) |
-| Bun (run) | 105 ms | 1.00× |
-| Node (run) | 128 ms | 1.22× |
+| **RTS (compiled)** | **25 ms** | **0.23×** (4.3× mais rápido) |
+| **RTS (run)** | **40 ms** | **0.37×** (2.7× mais rápido) |
+| Bun (run) | 109 ms | 1.00× |
+| Node (run) | 128 ms | 1.18× |
 
 **Correção**: `bench-checksum:1835371715` preservado em todos os commits.
 
 **Testes**: `cargo test` — 58/58 passando.
+
+**Evolução dos commits** (para enxergar o caminho):
+
+| commit | mudança | RTS (run) | RTS (compiled) |
+|---|---|---|---|
+| (antes) | baseline legado | 2294 ms | — |
+| `d672a6a` | lower loops nativos + inline consts | 847 ms | 983 ms |
+| `4918ced` | kind cacheado + promoção de binops | 218 ms | ~230 ms |
+| `8e7b88a` | `opt_level`: `speed_and_size` → `speed` | 229 ms | **231 ms** |
+| `f56f764` | métrica de dispatch opt-in | 124 ms | 137 ms |
+| `3bcd6da` | eliminar `String` + value clone | 73 ms | 66 ms |
+| `59a4fa1` | shadow globals F64 em funções puras | **40 ms** | **25 ms** |
 
 ---
 
@@ -404,64 +500,108 @@ Médias de 5 runs, `bench/benchmark.ps1`, release:
     rápido antes" era comparar maçãs com elefantes — o interpretador de
     string-matching de 5 commits-após-o-bootstrap suportava **só** `io.print("...")`.
 
+11. **Promoção de globais a stack slots precisa de write-back em TODOS os
+    returns, não só no último**. Se a função tem `return early`, a shadow
+    precisa ser flushed antes de cada `return_` emitido pelo codegen — se
+    escapar sem write-back, o valor local fica no stack slot destruído e o
+    namespace compartilhado fica com o valor antigo. Isso afeta `Return(Some)`,
+    `Return(None)`, fall-through no fim da função, e `exit_block` do `Break`
+    fora de loop. Fácil de esquecer um desses.
+
+12. **Shadow global como `Handle` ainda paga `FN_UNBOX_NUMBER` em toda read**.
+    Para eliminar **também** o unbox no hot loop, o shadow precisa ser
+    `NativeF64` (ou o kind correto do uso). Promover direto no prólogo:
+    `FN_READ_IDENTIFIER` seguido de `FN_UNBOX_NUMBER`, guarda F64 bits no slot,
+    registra `BindingState { kind: NativeF64 }`. A partir daí,
+    `LoadBinding`/`WriteBind` local opera em F64 puro sem nenhum dispatch.
+
+13. **Promoção de globais não-triviais requer detecção de `Call`**.
+    Qualquer `Call` para função de usuário (incluindo extern de runtime)
+    invalida o shadow, porque o callee pode observar o namespace compartilhado
+    e ver valores obsoletos. A análise atual (`analyze_shadow_globals`) é
+    conservadora: **qualquer** `Call` aborta a promoção por função inteira.
+    Análise interprocedural (marcar funções como "pure w.r.t. globais")
+    permitiria promover através de chamadas de helpers como `io.print`.
+
 ---
 
 ## 6. Gargalos residuais (próxima sessão)
 
-**Ainda restam ~1.64M dispatches no bench**, dominados por:
+A seção 6.1 (cache de globais em loops) foi **implementada** no commit
+`59a4fa1` e derrubou o bench para 25 ms (compiled) / 40 ms (run). Os
+dispatches caíram de 1.64M para 202k. Os gargalos abaixo são o que **ainda**
+sobra, em ordem de ROI.
 
-```
-BIND_IDENTIFIER   360k   (globais limb0/1/2 sendo escritas, 120k × 3)
-READ_IDENTIFIER   360k   (globais limb0/1/2 sendo lidas, 120k × 3)
-BOX_NUMBER        360k   (box do RHS do WriteBind)
-UNBOX_NUMBER      562k   (unbox da leitura pro kind nativo)
-```
+### 6.1 Análise interprocedural para promover através de Calls
 
-Todas concentradas no `bigint_like_stress`, onde `limb0/1/2` são globais.
-Otimização com maior ROI:
+**Estado atual**: `analyze_shadow_globals` aborta a promoção em qualquer
+função que contenha uma `Call`, porque não sabemos se o callee lê/escreve a
+mesma global. Isso é conservador — muitas chamadas são para helpers puros
+(ex.: `emit(msg)` chamando `io.print`).
 
-### 6.1 Cache local de globais em loops (análise estática no MIR)
+**Próximo passo**: marcar funções como "pure w.r.t. globais" se elas mesmas
+não tocam nenhuma global. Um helper `io.print(msg)` se qualifica. Propagar
+essa informação e permitir promoção em callers que só chamam funções assim.
 
-**Ideia**: detectar funções que:
-- Lêem/escrevem um conjunto fixo de globais
-- Não fazem chamadas externas dentro do loop (ou só chamadas provadamente sem
-  side-effect nas globais em questão)
+**Ganho estimado**: baixo para o bench atual (todas as funções pesadas já
+são promovidas), mas aumenta a cobertura para workloads reais.
 
-Para essas funções, emitir no prólogo: `let shadow_limb0 = LoadBinding("limb0")`
-como stack slot nativo. Reescrever reads/writes do corpo para usar o shadow.
-No epílogo: `WriteBind("limb0", shadow_limb0)`.
+### 6.2 Tipagem de globais além de `NativeF64`
 
-**Ganho estimado**: 720k dispatches → ~6 dispatches (uma read + write por global
-na função). O hot path vira aritmética pura sem travessias de ABI. Esperado:
-bench cair de 66 ms para ~40 ms (batendo Bun em ~2.5×).
+**Estado atual**: shadow é sempre `NativeF64`. Se o global for `bool`/`string`/
+`object`, `FN_UNBOX_NUMBER` retorna `NaN` (semântica JS `Number(valor)`, não
+JS strict). OK para o bench, mas limita o uso geral.
 
-**Custo**: ~200 linhas de análise no `typed_build`, mais um conjunto de
-`BindingState` "shadow-of-global" no `typed_codegen`. Sem nova dependência, sem
-mexer em arquitetura.
+**Próximo passo**: propagar tipos do HIR pro MIR/codegen, escolher kind do
+shadow baseado em anotação (`let x: string` → shadow Handle, `let x: i32` →
+shadow NativeI32, etc.). Requer um mapa `(function, name) → VRegKind` visível
+no codegen.
 
-### 6.2 Slot indexing para globais (futuro)
+### 6.3 Write-back mais inteligente (dirty tracking)
 
-Trocar `bindings: FxHashMap<String, BindingEntry>` por `globals: Vec<BindingEntry>`
-indexada por um slot index conhecido em compile-time. O codegen emite
-`__rts_store_global(SLOT_LIMB0, handle)` em vez de `FN_BIND_IDENTIFIER("limb0", handle)`.
-Mata o hash lookup completamente.
+**Estado atual**: `emit_shadow_writeback` escreve **todas** as shadows em todos
+os returns, mesmo que a função nunca tenha escrito nelas. Overhead imperceptível
+no bench porque cada função promove 1-3 globais e tem 1-3 returns, mas quebra
+a proporção em código mais denso.
 
-**Complemento** à 6.1, não substituto — só entra em cena se 6.1 não bastar
-para workloads que **realmente** precisam passar pelo namespace compartilhado.
+**Próximo passo**: rastrear dirty bit por shadow durante a Pass 2. Só
+`WriteBind` no nome da shadow marca dirty. Epílogo emite write-back só dos dirty.
 
-### 6.3 NÃO fazer (a menos que medir justifique)
+### 6.4 Slot indexing para globais (substituir HashMap)
 
-- **Transpile para C + LLVM**: proposta do outro dev original. Não ajuda agora
-  porque o gargalo nunca foi a travessia ABI em si — era a instrumentação e
-  as allocs dentro do runtime. Custo arquitetural alto (toolchain externa,
-  compile times explodem) sem ganho claro acima do que 6.1 já daria.
+**Estado atual**: `FxHashMap<String, BindingEntry>` no runtime. Hash string +
+lookup a cada `FN_READ_IDENTIFIER`/`FN_BIND_IDENTIFIER`. Com shadow globals em
+uso, só as ~200k dispatches residuais pagam esse custo — já é aceitável.
+
+**Próximo passo (se medido como gargalo)**: registrar índices em compile time,
+`globals: Vec<BindingEntry>` indexada por slot. Codegen emite
+`__rts_global_slot(SLOT_LIMB0, handle)` direto.
+
+### 6.5 Startup (registry, parser)
+
+**Estado atual**: `rust.registry.build` = ~10-15 ms, `rust.hir.lower` < 1 ms,
+`rust.mir.build` < 1 ms. No bench atual (run) `launcher.total − execute_entry`
+≈ 25 ms, dos quais ~15 ms são startup, ~10 ms são parse/type-check.
+
+Para comparação, `target/rts_app.exe` (compilado AOT) tem startup ~5 ms. A
+diferença de 15 ms entre `run` e `compiled` no bench é **só compile work**.
+
+**Próximo passo (opcional)**: cachear o registry por arquivo quando a entry
+não muda. Útil em workflow de dev rápido, não para o bench.
+
+### 6.6 NÃO fazer (a menos que medir justifique)
+
+- **Transpile para C + LLVM**: proposta original do outro dev. Não ajuda nada
+  agora — os dispatches residuais são dominados por `Call`s de IO, não por
+  aritmética em loop. Custo arquitetural alto (toolchain externa, compile
+  times explodem).
 
 - **Mexer em flags do Cranelift além de `opt_level`**: já verificamos que
   `speed` é indistinguível de `none` para este workload. `speed_and_size` é
   armadilha. Deixar como está.
 
-- **Substituir `FxHashMap` por algo mais rápido**: o hash não é o gargalo
-  mensurável — o é a alocação e a travessia. Fix esses primeiro.
+- **Substituir `FxHashMap` por algo mais rápido**: com shadow globals, só
+  200k calls por run passam pela HashMap. Não é o gargalo mensurável.
 
 ---
 
@@ -472,17 +612,18 @@ para workloads que **realmente** precisam passar pelo namespace compartilhado.
 - `src/cli/run.rs` — swap para `typed_build` + `execute_typed`; dispatch metrics setter
 - `src/cli/eval.rs` — dispatch metrics setter
 - `src/mir/typed_build.rs` — lower nativo de while/do-while/for/switch; `TOP_LEVEL_CONSTS`
-- `src/codegen/cranelift/typed_codegen.rs` — `BindingState.kind`, `adapt_to_kind`, promoção em `BinOp`, `switch_body_*`
+- `src/codegen/cranelift/typed_codegen.rs` — `BindingState.kind`, `adapt_to_kind`, promoção em `BinOp`, `switch_body_*`, **`analyze_shadow_globals` + `emit_shadow_writeback` (shadow globals F64)**
 - `src/codegen/cranelift/object_builder.rs` — `opt_level` fix
 - `src/namespaces/abi.rs` — instrumentação opt-in, `read_utf8_static`, `bind_identifier(&str)`, `read_identifier_handle`
 
-### Commits (branch `test-stmt`, à frente de `origin/test-stmt` por 5)
+### Commits (branch `test-stmt`, à frente de `origin/test-stmt` por 6)
 
 - `d672a6a` perf(jit): lower loops/switch natively and inline top-level consts
 - `4918ced` perf(codegen): cachear kind nativo em stack slots e promover binops mistos
 - `8e7b88a` perf(aot): trocar opt_level de speed_and_size para speed no production
 - `f56f764` perf(abi): make __rts_dispatch timing instrumentation opt-in
 - `3bcd6da` perf(abi): eliminate String allocs and value clones on hot dispatch path
+- `59a4fa1` perf(codegen): cache globais como shadow F64 stack slots em funções puras
 
 ### Como reproduzir os números
 
