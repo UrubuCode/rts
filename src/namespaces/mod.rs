@@ -305,10 +305,38 @@ pub fn emit_split_typescript_declarations(output_dir: &Path) -> Result<()> {
 }
 
 fn render_namespace_declaration(spec: &NamespaceSpec) -> String {
+    // Detecta quais OUTROS namespaces split este spec referencia nas suas
+    // signatures (ex: `fs` usa `io.Result<T>`). Para cada um, precisamos
+    // re-declarar o `Result<T>` localmente no module bloco, porque
+    // `declare module "rts:fs"` nao pode ver tipos de `declare module "rts:io"`
+    // a menos que importe. Optamos por inline para manter o .d.ts auto-contido
+    // (sem dependencia de ordem de carregamento de declaracoes).
+    let referenced_peers = collect_peer_namespace_refs(spec);
+
     let mut out = String::new();
     out.push_str(&format!("declare module \"rts:{}\" {{\n", spec.name));
     out.push_str(RTS_BASE_TYPES_FLAT);
     out.push('\n');
+
+    // Re-declara preludes dos peers referenciados dentro de um sub-namespace
+    // com o mesmo nome (ex: `namespace io { export type Result<T> = ... }`),
+    // de forma que `io.Result<T>` resolva localmente.
+    for peer_name in &referenced_peers {
+        if let Some(peer_spec) = SPLIT_SPECS.iter().find(|s| s.name == *peer_name) {
+            if !peer_spec.ts_prelude.is_empty() {
+                out.push_str(&format!("  export namespace {peer_name} {{\n"));
+                for block in peer_spec.ts_prelude {
+                    for line in block.lines() {
+                        out.push_str("    ");
+                        out.push_str(line);
+                        out.push('\n');
+                    }
+                    out.push('\n');
+                }
+                out.push_str("  }\n\n");
+            }
+        }
+    }
 
     for block in spec.ts_prelude {
         for line in block.lines() {
@@ -340,37 +368,99 @@ fn render_namespace_declaration(spec: &NamespaceSpec) -> String {
     out
 }
 
+/// Varre as signatures de um spec procurando por referencias `<peer>.<type>`
+/// onde `<peer>` e nome de outro namespace split. Usado pelo emissor de
+/// arquivos split para saber quais preludes re-declarar localmente.
+fn collect_peer_namespace_refs(spec: &NamespaceSpec) -> Vec<&'static str> {
+    let mut found: Vec<&'static str> = Vec::new();
+    for member in spec.members {
+        for peer in SPLIT_SPECS.iter() {
+            if peer.name == spec.name {
+                continue;
+            }
+            let needle = format!("{}.", peer.name);
+            if member.ts_signature.contains(&needle) && !found.contains(&peer.name) {
+                found.push(peer.name);
+            }
+        }
+    }
+    found
+}
+
 fn render_typescript_declarations() -> String {
     let mut out = String::new();
     out.push_str("declare module \"rts\" {\n");
     out.push_str(RTS_BASE_TYPES);
     out.push('\n');
 
+    // Namespaces de primeiro nivel (name sem ponto) sao renderizados
+    // diretamente. Namespaces com ponto (ex: `rts.natives`, `rts.hotops`)
+    // sao aninhados sob um unico `namespace rts { ... }` porque TypeScript
+    // nao aceita `namespace rts.natives { ... }` — o ponto no nome nao e
+    // sintaxe valida para namespace declaration.
+    let mut dotted: std::collections::BTreeMap<&str, Vec<&NamespaceSpec>> =
+        std::collections::BTreeMap::new();
+
     for spec in SPECS {
-        write_doc_block(&mut out, 2, spec.doc);
-        out.push_str(&format!("  export namespace {} {{\n", spec.name));
-
-        for block in spec.ts_prelude {
-            for line in block.lines() {
-                out.push_str("    ");
-                out.push_str(line);
-                out.push('\n');
-            }
-            out.push('\n');
+        if let Some((parent, _leaf)) = spec.name.split_once('.') {
+            dotted.entry(parent).or_default().push(spec);
+            continue;
         }
 
-        for member in spec.members {
-            write_doc_block(&mut out, 4, member.doc);
-            out.push_str("    export function ");
-            out.push_str(member.ts_signature);
-            out.push_str(";\n");
-        }
+        render_flat_namespace_body(&mut out, spec, 2);
+    }
 
+    for (parent, specs) in dotted {
+        out.push_str(&format!("  export namespace {parent} {{\n"));
+        for spec in specs {
+            let leaf = spec.name.split_once('.').map(|(_, l)| l).unwrap_or(spec.name);
+            // Criamos uma cópia leve com o nome trocado para o leaf, assim
+            // `render_flat_namespace_body` nao precisa saber do agrupamento.
+            let leaf_spec = NamespaceSpec {
+                name: leaf,
+                doc: spec.doc,
+                members: spec.members,
+                ts_prelude: spec.ts_prelude,
+            };
+            render_flat_namespace_body(&mut out, &leaf_spec, 4);
+        }
         out.push_str("  }\n\n");
     }
 
     out.push_str("}\n");
     out
+}
+
+/// Escreve um `export namespace <name> { ... }` no output com a indentacao
+/// informada (em espacos). Usado tanto para namespaces de primeiro nivel
+/// (indent = 2) quanto para sub-namespaces aninhados (indent = 4).
+fn render_flat_namespace_body(out: &mut String, spec: &NamespaceSpec, indent: usize) {
+    let padding = " ".repeat(indent);
+    let inner_padding = " ".repeat(indent + 2);
+
+    write_doc_block(out, indent, spec.doc);
+    out.push_str(&padding);
+    out.push_str(&format!("export namespace {} {{\n", spec.name));
+
+    for block in spec.ts_prelude {
+        for line in block.lines() {
+            out.push_str(&inner_padding);
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    for member in spec.members {
+        write_doc_block(out, indent + 2, member.doc);
+        out.push_str(&inner_padding);
+        out.push_str("export function ");
+        out.push_str(member.ts_signature);
+        out.push_str(";\n");
+    }
+
+    out.push_str(&padding);
+    out.push_str("}\n\n");
 }
 
 fn write_doc_block(out: &mut String, indent: usize, doc: &str) {

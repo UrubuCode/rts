@@ -54,7 +54,7 @@ const CALLEE_FN_IDS: &[(&str, i64)] = &[
     ("global.set", FN_GLOBAL_SET),
     ("global.get", FN_GLOBAL_GET),
     ("global.has", FN_GLOBAL_HAS),
-    ("global.delete", FN_GLOBAL_DELETE),
+    ("global.remove", FN_GLOBAL_DELETE),
 ];
 
 pub fn function_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {

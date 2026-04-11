@@ -10,7 +10,7 @@ const MEMBERS: &[NamespaceMember] = &[
         name: "args",
         callee: "process.args",
         doc: "Returns process CLI arguments.",
-        ts_signature: "args(): globalThis.Array<str> | str",
+        ts_signature: "args(): Array<str> | str",
     },
     NamespaceMember {
         name: "cwd",

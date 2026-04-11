@@ -13,6 +13,29 @@ declare module "rts:net" {
   export type f64 = number;
   export type bool = boolean;
   export type str = string;
+  export namespace io {
+    export interface Error {
+      message: str;
+    }
+
+    export interface Ok<T> {
+      ok: true;
+      tag: "ok";
+      value: T;
+      error: undefined;
+    }
+
+    export interface Err {
+      ok: false;
+      tag: "err";
+      value: undefined;
+      error: Error;
+    }
+
+    export type Result<T> = Ok<T> | Err;
+
+  }
+
   export interface TcpConnection {
         stream: u64;
         peer_addr: str;

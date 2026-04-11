@@ -350,7 +350,7 @@ declare module "rts" {
     /**
      * Returns process CLI arguments.
      */
-    export function args(): globalThis.Array<str> | str;
+    export function args(): Array<str> | str;
     /**
      * Returns current working directory.
      */
@@ -420,9 +420,9 @@ declare module "rts" {
      */
     export function has(key: str): bool;
     /**
-     * Deletes a key from global map.
+     * Removes a key from global map. Retorna `true` se a chave existia.
      */
-    export function delete(key: str): bool;
+    export function remove(key: str): bool;
     /**
      * Returns global keys joined by commas.
      */
@@ -779,114 +779,117 @@ declare module "rts" {
     export function str_new(ptr: u64, len: u64): u64;
   }
 
-  /**
-   * Extensões C nativas para coerção de tipos mistos. Injetadas pelo HIR quando operandos têm tipos incompatíveis.
-   */
-  export namespace rts.natives {
+  export namespace rts {
     /**
-     * Converte qualquer valor para string (semântica JS).
+     * Extensões C nativas para coerção de tipos mistos. Injetadas pelo HIR quando operandos têm tipos incompatíveis.
      */
-    export function to_string(value: u64): u64;
-    /**
-     * Converte qualquer valor para número (semântica JS).
-     */
-    export function to_number(value: u64): f64;
-    /**
-     * Converte qualquer valor para bool (truthy/falsy JS).
-     */
-    export function to_bool(value: u64): bool;
-    /**
-     * Merge genérico de dois valores com coerção (string ou número).
-     */
-    export function merge(a: u64, b: u64): u64;
-    /**
-     * Operador `+` com coerção: string+qualquer=concat, número+número=soma.
-     */
-    export function add_mixed(a: u64, b: u64): u64;
-    /**
-     * Igualdade fraca `==` com coerção de tipos JS.
-     */
-    export function eq_loose(a: u64, b: u64): bool;
-    /**
-     * Comparação com coerção JS, retorna -1, 0 ou 1.
-     */
-    export function compare(a: u64, b: u64): i64;
-  }
+    export namespace natives {
+      /**
+       * Converte qualquer valor para string (semântica JS).
+       */
+      export function to_string(value: u64): u64;
+      /**
+       * Converte qualquer valor para número (semântica JS).
+       */
+      export function to_number(value: u64): f64;
+      /**
+       * Converte qualquer valor para bool (truthy/falsy JS).
+       */
+      export function to_bool(value: u64): bool;
+      /**
+       * Merge genérico de dois valores com coerção (string ou número).
+       */
+      export function merge(a: u64, b: u64): u64;
+      /**
+       * Operador `+` com coerção: string+qualquer=concat, número+número=soma.
+       */
+      export function add_mixed(a: u64, b: u64): u64;
+      /**
+       * Igualdade fraca `==` com coerção de tipos JS.
+       */
+      export function eq_loose(a: u64, b: u64): bool;
+      /**
+       * Comparação com coerção JS, retorna -1, 0 ou 1.
+       */
+      export function compare(a: u64, b: u64): i64;
+    }
 
-  /**
-   * Operações inline com tipos já conhecidos pelo MIR. Sem overhead de coerção — tipos são garantidos pelo compilador.
-   */
-  export namespace rts.hotops {
     /**
-     * Subtração i64.
+     * Operações inline com tipos já conhecidos pelo MIR. Sem overhead de coerção — tipos são garantidos pelo compilador.
      */
-    export function i64_sub(a: i64, b: i64): i64;
-    /**
-     * Divisão i64.
-     */
-    export function i64_div(a: i64, b: i64): i64;
-    /**
-     * Módulo i64.
-     */
-    export function i64_mod(a: i64, b: i64): i64;
-    /**
-     * Igualdade i64.
-     */
-    export function i64_eq(a: i64, b: i64): bool;
-    /**
-     * Menor que i64.
-     */
-    export function i64_lt(a: i64, b: i64): bool;
-    /**
-     * Menor ou igual i64.
-     */
-    export function i64_le(a: i64, b: i64): bool;
-    /**
-     * Adição f64.
-     */
-    export function f64_add(a: f64, b: f64): f64;
-    /**
-     * Subtração f64.
-     */
-    export function f64_sub(a: f64, b: f64): f64;
-    /**
-     * Divisão f64.
-     */
-    export function f64_div(a: f64, b: f64): f64;
-    /**
-     * Igualdade f64.
-     */
-    export function f64_eq(a: f64, b: f64): bool;
-    /**
-     * Menor que f64.
-     */
-    export function f64_lt(a: f64, b: f64): bool;
-    /**
-     * i64 para string (tabela pré-computada para 0..=255).
-     */
-    export function i64_to_string(n: i64): u64;
-    /**
-     * f64 para string.
-     */
-    export function f64_to_string(n: f64): u64;
-  }
+    export namespace hotops {
+      /**
+       * Subtração i64.
+       */
+      export function i64_sub(a: i64, b: i64): i64;
+      /**
+       * Divisão i64.
+       */
+      export function i64_div(a: i64, b: i64): i64;
+      /**
+       * Módulo i64.
+       */
+      export function i64_mod(a: i64, b: i64): i64;
+      /**
+       * Igualdade i64.
+       */
+      export function i64_eq(a: i64, b: i64): bool;
+      /**
+       * Menor que i64.
+       */
+      export function i64_lt(a: i64, b: i64): bool;
+      /**
+       * Menor ou igual i64.
+       */
+      export function i64_le(a: i64, b: i64): bool;
+      /**
+       * Adição f64.
+       */
+      export function f64_add(a: f64, b: f64): f64;
+      /**
+       * Subtração f64.
+       */
+      export function f64_sub(a: f64, b: f64): f64;
+      /**
+       * Divisão f64.
+       */
+      export function f64_div(a: f64, b: f64): f64;
+      /**
+       * Igualdade f64.
+       */
+      export function f64_eq(a: f64, b: f64): bool;
+      /**
+       * Menor que f64.
+       */
+      export function f64_lt(a: f64, b: f64): bool;
+      /**
+       * i64 para string (tabela pré-computada para 0..=255).
+       */
+      export function i64_to_string(n: i64): u64;
+      /**
+       * f64 para string.
+       */
+      export function f64_to_string(n: f64): u64;
+    }
 
-  /**
-   * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
-   */
-  export namespace rts.debug {
     /**
-     * Carrega arquivo .ometa, retorna handle numérico.
+     * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
-    export function load_metadata(path_ptr: u64): u64;
-    /**
-     * Resolve offset de PC para localização no arquivo fonte.
-     */
-    export function resolve_location(handle: u64, pc_offset: u64): str;
-    /**
-     * Formata mensagem de erro com localização fonte (modo dev).
-     */
-    export function format_error(message_ptr: u64, pc_offset: u64): str;
+    export namespace debug {
+      /**
+       * Carrega arquivo .ometa, retorna handle numérico.
+       */
+      export function load_metadata(path_ptr: u64): u64;
+      /**
+       * Resolve offset de PC para localização no arquivo fonte.
+       */
+      export function resolve_location(handle: u64, pc_offset: u64): str;
+      /**
+       * Formata mensagem de erro com localização fonte (modo dev).
+       */
+      export function format_error(message_ptr: u64, pc_offset: u64): str;
+    }
+
   }
 
 }

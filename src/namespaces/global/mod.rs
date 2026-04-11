@@ -68,10 +68,10 @@ const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "has(key: str): bool",
     },
     NamespaceMember {
-        name: "delete",
-        callee: "global.delete",
-        doc: "Deletes a key from global map.",
-        ts_signature: "delete(key: str): bool",
+        name: "remove",
+        callee: "global.remove",
+        doc: "Removes a key from global map. Retorna `true` se a chave existia.",
+        ts_signature: "remove(key: str): bool",
     },
     NamespaceMember {
         name: "keys",
@@ -102,7 +102,7 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
         "global.has" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Bool(has(
             &arg_to_string(args, 0),
         )))),
-        "global.delete" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Bool(
+        "global.remove" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Bool(
             delete(&arg_to_string(args, 0)),
         ))),
         "global.keys" if args.is_empty() => {

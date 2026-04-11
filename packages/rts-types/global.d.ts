@@ -26,9 +26,9 @@ declare module "rts:global" {
    */
   export function has(key: str): bool;
   /**
-   * Deletes a key from global map.
+   * Removes a key from global map. Retorna `true` se a chave existia.
    */
-  export function delete(key: str): bool;
+  export function remove(key: str): bool;
   /**
    * Returns global keys joined by commas.
    */
@@ -38,7 +38,7 @@ declare module "rts:global" {
     set(key: str, value: str): void;
     get(key: str): str | undefined;
     has(key: str): bool;
-    delete(key: str): bool;
+    remove(key: str): bool;
     keys(): str;
   };
   export default _default;
