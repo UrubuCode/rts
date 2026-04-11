@@ -1625,7 +1625,15 @@ fn map_bin_op(op: BinaryOp) -> Option<MirBinOp> {
         BinaryOp::GtEq => Some(MirBinOp::Gte),
         BinaryOp::Lt => Some(MirBinOp::Lt),
         BinaryOp::LtEq => Some(MirBinOp::Lte),
+        // `==` (abstract) e `===` (strict) sao mapeados para a mesma
+        // operacao MirBinOp::Eq. O `binop_dispatch` runtime nao aplica
+        // coercion elaborada ainda (usa PartialEq direto em RuntimeValue),
+        // entao na pratica o comportamento e strict-like. Para TS onde
+        // type checker ja garante tipos compativeis, isso e suficiente.
+        // O mesmo vale para `!=` vs `!==`.
+        BinaryOp::EqEq => Some(MirBinOp::Eq),
         BinaryOp::EqEqEq => Some(MirBinOp::Eq),
+        BinaryOp::NotEq => Some(MirBinOp::Ne),
         BinaryOp::NotEqEq => Some(MirBinOp::Ne),
         BinaryOp::LogicalAnd => Some(MirBinOp::LogicAnd),
         BinaryOp::LogicalOr => Some(MirBinOp::LogicOr),
