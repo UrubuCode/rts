@@ -3,10 +3,10 @@ use super::parse_utils::split_top_level;
 pub(crate) const ABI_ARG_SLOTS: usize = 6;
 pub(crate) const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1; // argc + args
 pub(crate) const ABI_UNDEFINED_HANDLE: i64 = 0;
+/// Dispatch unificado: __rts_dispatch(fn_id, a0..a5) -> i64
+pub(crate) const RTS_DISPATCH_SYMBOL: &str = "__rts_dispatch";
+/// Dispatch dinâmico por string para callees não resolvidos: __rts_call_dispatch(ptr, len, argc, a0..a5) -> i64
 pub(crate) const RTS_CALL_DISPATCH_SYMBOL: &str = "__rts_call_dispatch";
-pub(crate) const RTS_EVAL_EXPR_SYMBOL: &str = "__rts_eval_expr";
-pub(crate) const RTS_EVAL_STMT_SYMBOL: &str = "__rts_eval_stmt";
-pub(crate) const RTS_BIND_IDENTIFIER_SYMBOL: &str = "__rts_bind_identifier";
 
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedCall {

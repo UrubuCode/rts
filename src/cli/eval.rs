@@ -20,8 +20,7 @@ pub fn command(source_arg: Option<String>, options: CompileOptions) -> Result<()
         .context("type check failed for inline source")?;
 
     let resolver = crate::type_system::resolver::TypeResolver::from_registry(&registry);
-    let mut lowered = crate::hir::lower::lower(&program, &resolver);
-    let _hir_opt = crate::hir::optimize::optimize_with_mode(&mut lowered, options.frontend_mode);
+    let lowered = crate::hir::lower::lower(&program, &resolver);
 
     let mir = crate::mir::build::build(&lowered);
 

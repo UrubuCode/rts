@@ -13,11 +13,14 @@ use target_lexicon::Triple;
 
 use crate::mir::{MirFunction, MirModule};
 
+use crate::namespaces::abi::{
+    FN_BIND_IDENTIFIER, FN_EVAL_EXPR, FN_EVAL_STMT, FN_RESET_THREAD_STATE,
+};
+
 use super::mir_parse::{
-    ABI_ARG_SLOTS, ABI_PARAM_COUNT, ABI_UNDEFINED_HANDLE, RTS_BIND_IDENTIFIER_SYMBOL,
-    RTS_CALL_DISPATCH_SYMBOL, RTS_EVAL_EXPR_SYMBOL, RTS_EVAL_STMT_SYMBOL, is_valid_binding_name,
-    parse_call_statement, parse_declaration_statement, parse_enter_parameters,
-    parse_return_expression, parse_return_literal,
+    ABI_ARG_SLOTS, ABI_PARAM_COUNT, ABI_UNDEFINED_HANDLE, RTS_CALL_DISPATCH_SYMBOL,
+    RTS_DISPATCH_SYMBOL, is_valid_binding_name, parse_call_statement, parse_declaration_statement,
+    parse_enter_parameters, parse_return_expression, parse_return_literal,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -94,12 +97,12 @@ pub fn build_namespace_dispatch_object(
     })?;
 
     let wrapper_signature = function_signature(&mut module);
-    let dispatch_signature = runtime_dispatch_signature(&mut module);
+    let call_dispatch_sig = call_dispatch_signature(&mut module);
     let dispatch_id = module
         .declare_function(
             RTS_CALL_DISPATCH_SYMBOL,
             Linkage::Import,
-            &dispatch_signature,
+            &call_dispatch_sig,
         )
         .context("failed to declare runtime dispatch import for namespace wrappers")?;
 
@@ -301,34 +304,27 @@ fn function_signature(module: &mut ObjectModule) -> Signature {
     signature
 }
 
-fn runtime_eval_signature(module: &mut ObjectModule) -> Signature {
-    let mut signature = module.make_signature();
-    signature.params.push(AbiParam::new(types::I64));
-    signature.params.push(AbiParam::new(types::I64));
-    signature.returns.push(AbiParam::new(types::I64));
-    signature
-}
-
-fn runtime_dispatch_signature(module: &mut ObjectModule) -> Signature {
-    let mut signature = module.make_signature();
-    signature.params.push(AbiParam::new(types::I64)); // callee ptr
-    signature.params.push(AbiParam::new(types::I64)); // callee len
-    signature.params.push(AbiParam::new(types::I64)); // argc
-    for _ in 0..ABI_ARG_SLOTS {
-        signature.params.push(AbiParam::new(types::I64));
+/// __rts_dispatch(fn_id, a0, a1, a2, a3, a4, a5) -> i64
+fn rts_dispatch_signature(module: &mut ObjectModule) -> Signature {
+    let mut sig = module.make_signature();
+    for _ in 0..7 {
+        sig.params.push(AbiParam::new(types::I64));
     }
-    signature.returns.push(AbiParam::new(types::I64));
-    signature
+    sig.returns.push(AbiParam::new(types::I64));
+    sig
 }
 
-fn runtime_bind_signature(module: &mut ObjectModule) -> Signature {
-    let mut signature = module.make_signature();
-    signature.params.push(AbiParam::new(types::I64)); // name ptr
-    signature.params.push(AbiParam::new(types::I64)); // name len
-    signature.params.push(AbiParam::new(types::I64)); // value handle
-    signature.params.push(AbiParam::new(types::I64)); // mutable flag
-    signature.returns.push(AbiParam::new(types::I64));
-    signature
+/// __rts_call_dispatch(ptr, len, argc, a0..a5) -> i64
+fn call_dispatch_signature(module: &mut ObjectModule) -> Signature {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64)); // callee ptr
+    sig.params.push(AbiParam::new(types::I64)); // callee len
+    sig.params.push(AbiParam::new(types::I64)); // argc
+    for _ in 0..ABI_ARG_SLOTS {
+        sig.params.push(AbiParam::new(types::I64));
+    }
+    sig.returns.push(AbiParam::new(types::I64));
+    sig
 }
 
 fn define_function(
@@ -513,6 +509,34 @@ fn define_function(
     Ok(())
 }
 
+fn emit_rts_dispatch_aot(
+    module: &mut ObjectModule,
+    declarations: &mut BTreeMap<String, FuncId>,
+    builder: &mut FunctionBuilder,
+    function: &MirFunction,
+    fn_id: i64,
+    args: &[cranelift_codegen::ir::Value],
+) -> Result<cranelift_codegen::ir::Value> {
+    let sig = rts_dispatch_signature(module);
+    let dispatch_id =
+        resolve_or_declare_import(module, declarations, RTS_DISPATCH_SYMBOL, &sig, function)?;
+    let mut call_args: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(7);
+    call_args.push(builder.ins().iconst(types::I64, fn_id));
+    for &arg in args.iter().take(6) {
+        call_args.push(arg);
+    }
+    while call_args.len() < 7 {
+        call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+    }
+    let local = module.declare_func_in_func(dispatch_id, builder.func);
+    let call = builder.ins().call(local, &call_args);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
 fn lower_runtime_expression(
     module: &mut ObjectModule,
     declarations: &mut BTreeMap<String, FuncId>,
@@ -521,15 +545,6 @@ fn lower_runtime_expression(
     function: &MirFunction,
     expression: &str,
 ) -> Result<cranelift_codegen::ir::Value> {
-    let eval_signature = runtime_eval_signature(module);
-    let eval_id = resolve_or_declare_import(
-        module,
-        declarations,
-        RTS_EVAL_EXPR_SYMBOL,
-        &eval_signature,
-        function,
-    )?;
-
     let expression = expression.trim();
     let data_id = declare_string_data(
         module,
@@ -539,18 +554,16 @@ fn lower_runtime_expression(
         expression.as_bytes(),
     )?;
     let data_ref = module.declare_data_in_func(data_id, builder.func);
-    let expression_ptr = builder.ins().symbol_value(types::I64, data_ref);
-    let expression_len = builder.ins().iconst(types::I64, expression.len() as i64);
-
-    let local_eval = module.declare_func_in_func(eval_id, builder.func);
-    let call = builder
-        .ins()
-        .call(local_eval, &[expression_ptr, expression_len]);
-    Ok(builder
-        .inst_results(call)
-        .first()
-        .copied()
-        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+    let ptr = builder.ins().symbol_value(types::I64, data_ref);
+    let len = builder.ins().iconst(types::I64, expression.len() as i64);
+    emit_rts_dispatch_aot(
+        module,
+        declarations,
+        builder,
+        function,
+        FN_EVAL_EXPR,
+        &[ptr, len],
+    )
 }
 
 fn lower_call_argument(
@@ -618,15 +631,6 @@ fn lower_runtime_binding(
     value_handle: cranelift_codegen::ir::Value,
     mutable: bool,
 ) -> Result<cranelift_codegen::ir::Value> {
-    let bind_signature = runtime_bind_signature(module);
-    let bind_id = resolve_or_declare_import(
-        module,
-        declarations,
-        RTS_BIND_IDENTIFIER_SYMBOL,
-        &bind_signature,
-        function,
-    )?;
-
     let data_id = declare_string_data(
         module,
         data_cache,
@@ -640,17 +644,14 @@ fn lower_runtime_binding(
     let mutable_flag = builder
         .ins()
         .iconst(types::I64, if mutable { 1 } else { 0 });
-
-    let local_bind = module.declare_func_in_func(bind_id, builder.func);
-    let call = builder.ins().call(
-        local_bind,
+    emit_rts_dispatch_aot(
+        module,
+        declarations,
+        builder,
+        function,
+        FN_BIND_IDENTIFIER,
         &[name_ptr, name_len, value_handle, mutable_flag],
-    );
-    Ok(builder
-        .inst_results(call)
-        .first()
-        .copied()
-        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+    )
 }
 
 fn lower_runtime_statement(
@@ -661,15 +662,6 @@ fn lower_runtime_statement(
     function: &MirFunction,
     statement: &str,
 ) -> Result<cranelift_codegen::ir::Value> {
-    let eval_signature = runtime_eval_signature(module);
-    let eval_id = resolve_or_declare_import(
-        module,
-        declarations,
-        RTS_EVAL_STMT_SYMBOL,
-        &eval_signature,
-        function,
-    )?;
-
     let statement = statement.trim();
     let data_id = declare_string_data(
         module,
@@ -679,18 +671,16 @@ fn lower_runtime_statement(
         statement.as_bytes(),
     )?;
     let data_ref = module.declare_data_in_func(data_id, builder.func);
-    let statement_ptr = builder.ins().symbol_value(types::I64, data_ref);
-    let statement_len = builder.ins().iconst(types::I64, statement.len() as i64);
-
-    let local_eval = module.declare_func_in_func(eval_id, builder.func);
-    let call = builder
-        .ins()
-        .call(local_eval, &[statement_ptr, statement_len]);
-    Ok(builder
-        .inst_results(call)
-        .first()
-        .copied()
-        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+    let ptr = builder.ins().symbol_value(types::I64, data_ref);
+    let len = builder.ins().iconst(types::I64, statement.len() as i64);
+    emit_rts_dispatch_aot(
+        module,
+        declarations,
+        builder,
+        function,
+        FN_EVAL_STMT,
+        &[ptr, len],
+    )
 }
 
 fn resolve_or_declare_import(
@@ -781,14 +771,18 @@ fn define_synthetic_start(
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        // Reset runtime state before executing main (like JIT does)
-        // This ensures consistent state between JIT and AOT execution
-        let reset_sig = module.make_signature(); // () -> ()
-        let reset_id = module
-            .declare_function("__rts_reset_thread_state", Linkage::Import, &reset_sig)
-            .context("failed to declare reset_thread_state for AOT")?;
-        let reset_local = module.declare_func_in_func(reset_id, builder.func);
-        builder.ins().call(reset_local, &[]);
+        // Reseta o estado de runtime antes de executar main (como o JIT faz).
+        let dispatch_sig = rts_dispatch_signature(module);
+        let dispatch_id = module
+            .declare_function(RTS_DISPATCH_SYMBOL, Linkage::Import, &dispatch_sig)
+            .context("failed to declare __rts_dispatch for AOT _start")?;
+        let dispatch_local = module.declare_func_in_func(dispatch_id, builder.func);
+        let fn_id_val = builder.ins().iconst(types::I64, FN_RESET_THREAD_STATE);
+        let zero = builder.ins().iconst(types::I64, 0);
+        builder.ins().call(
+            dispatch_local,
+            &[fn_id_val, zero, zero, zero, zero, zero, zero],
+        );
 
         let default_return = if let Some(main_id) = declarations.get("main").copied() {
             let local = module.declare_func_in_func(main_id, builder.func);

@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 use crate::compile_options::CompileOptions;
 
-pub(crate) const OBJECT_CACHE_SCHEMA: u32 = 7;
+pub(crate) const OBJECT_CACHE_SCHEMA: u32 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ObjectCacheMeta {

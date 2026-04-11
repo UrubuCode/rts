@@ -84,9 +84,7 @@ pub(crate) fn compile_graph(
                 &required_exports,
             );
 
-            let mut lowered = hir::lower::lower(&pruned_program, &resolver);
-            let _hir_opt = hir::optimize::optimize_with_mode(&mut lowered, options.frontend_mode);
-            lowered
+            hir::lower::lower(&pruned_program, &resolver)
         })
         .collect::<Vec<_>>();
 
@@ -121,23 +119,19 @@ pub(crate) fn compile_graph(
         }
 
         let is_entry_module = entry_key.is_some_and(|key| key == module.key);
-        let mir_module = mir::build::build(&lowered);
+        let mut typed_mir = mir::typed_build::typed_build(&lowered);
 
-        let filtered_mir = if !is_entry_module {
-            let mut module = mir_module;
-            module
+        if !is_entry_module {
+            typed_mir
                 .functions
                 .retain(|function| function.name != "main" && function.name != "_start");
-            module
-        } else {
-            mir_module
-        };
+        }
 
-        if filtered_mir.functions.is_empty() {
+        if typed_mir.functions.is_empty() {
             continue;
         }
 
-        lowered_functions += filtered_mir.functions.len();
+        lowered_functions += typed_mir.functions.len();
         let stem = module_object_stem(&app_name, module, input);
         let object_path = deps_dir.join(format!("{stem}.o"));
         let meta_path = deps_dir.join(format!("{stem}.m"));
@@ -158,13 +152,8 @@ pub(crate) fn compile_graph(
             continue;
         }
 
-        let artifact = codegen::generate_object_with_metadata_options(
-            &filtered_mir,
-            &metadata,
-            &object_path,
-            is_entry_module,
-            options.profile.as_str() == "production",
-        )?;
+        let artifact =
+            codegen::generate_typed_object(&typed_mir, &object_path, is_entry_module, &options)?;
 
         app_object_bytes += artifact.bytes_written;
         write_object_cache_meta(

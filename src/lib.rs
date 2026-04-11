@@ -75,8 +75,7 @@ pub fn compile_source_with_options(
     type_system::checker::check_program(&program, &mut registry, &empty_imports)?;
 
     let resolver = type_system::resolver::TypeResolver::from_registry(&registry);
-    let mut hir = hir::lower::lower(&program, &resolver);
-    let _hir_opt = hir::optimize::optimize_with_mode(&mut hir, options.frontend_mode);
+    let hir = hir::lower::lower(&program, &resolver);
 
     let mir_module = mir::build::build(&hir);
 

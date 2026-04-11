@@ -28,29 +28,27 @@ const ABI_ARG_SLOTS: usize = 6;
 const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1;
 const ABI_UNDEFINED_HANDLE: i64 = 0;
 
-const RTS_BIND: &str = "__rts_bind_identifier";
-const RTS_READ: &str = "__rts_read_identifier";
-const RTS_BINOP: &str = "__rts_binop";
-const RTS_BOX_NUMBER: &str = "__rts_box_number";
-const RTS_BOX_STRING: &str = "__rts_box_string";
-const RTS_IS_TRUTHY: &str = "__rts_is_truthy";
-const RTS_EVAL_STMT: &str = "__rts_eval_stmt";
+use crate::namespaces::abi::{
+    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NUMBER, FN_BOX_STRING, FN_CRYPTO_SHA256, FN_EVAL_STMT,
+    FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT,
+    FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_PROCESS_EXIT, FN_READ_IDENTIFIER,
+};
 
-/// Typed extern "C" symbols keyed by callee name.
-/// `(callee, symbol, n_handle_args)` — all args are i64 handles, return is i64.
-/// When a known callee is found here the codegen emits a direct call bypassing
-/// the generic __rts_call_dispatch string-lookup path.
-const TYPED_DISPATCH: &[(&str, &str, usize)] = &[
-    ("io.print", "__rts_io_print", 1),
-    ("io.stdout_write", "__rts_io_stdout_write", 1),
-    ("io.stderr_write", "__rts_io_stderr_write", 1),
-    ("io.panic", "__rts_io_panic", 1),
-    ("crypto.sha256", "__rts_crypto_sha256", 1),
-    ("process.exit", "__rts_process_exit", 1),
-    ("global.set", "__rts_global_set", 2),
-    ("global.get", "__rts_global_get", 1),
-    ("global.has", "__rts_global_has", 1),
-    ("global.delete", "__rts_global_delete", 1),
+const RTS_DISPATCH: &str = "__rts_dispatch";
+
+/// Mapeamento de callee conhecido para fn_id do __rts_dispatch.
+/// O codegen emite __rts_dispatch(fn_id, args...) diretamente, sem lookup por string.
+const CALLEE_FN_IDS: &[(&str, i64)] = &[
+    ("io.print", FN_IO_PRINT),
+    ("io.stdout_write", FN_IO_STDOUT_WRITE),
+    ("io.stderr_write", FN_IO_STDERR_WRITE),
+    ("io.panic", FN_IO_PANIC),
+    ("crypto.sha256", FN_CRYPTO_SHA256),
+    ("process.exit", FN_PROCESS_EXIT),
+    ("global.set", FN_GLOBAL_SET),
+    ("global.get", FN_GLOBAL_GET),
+    ("global.has", FN_GLOBAL_HAS),
+    ("global.delete", FN_GLOBAL_DELETE),
 ];
 
 pub fn function_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
@@ -62,60 +60,13 @@ pub fn function_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::S
     sig
 }
 
-fn bind_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
+/// Assinatura uniforme do __rts_dispatch: (fn_id, a0, a1, a2, a3, a4, a5) -> i64
+fn dispatch_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
     let mut sig = module.make_signature();
-    sig.params.push(AbiParam::new(types::I64)); // name ptr
-    sig.params.push(AbiParam::new(types::I64)); // name len
-    sig.params.push(AbiParam::new(types::I64)); // value handle
-    sig.params.push(AbiParam::new(types::I64)); // mutable flag
+    for _ in 0..7 {
+        sig.params.push(AbiParam::new(types::I64));
+    }
     sig.returns.push(AbiParam::new(types::I64));
-    sig
-}
-
-fn read_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
-    let mut sig = module.make_signature();
-    sig.params.push(AbiParam::new(types::I64)); // name ptr
-    sig.params.push(AbiParam::new(types::I64)); // name len
-    sig.returns.push(AbiParam::new(types::I64));
-    sig
-}
-
-fn binop_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
-    let mut sig = module.make_signature();
-    sig.params.push(AbiParam::new(types::I64)); // op tag
-    sig.params.push(AbiParam::new(types::I64)); // lhs handle
-    sig.params.push(AbiParam::new(types::I64)); // rhs handle
-    sig.returns.push(AbiParam::new(types::I64));
-    sig
-}
-
-fn box_number_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
-    let mut sig = module.make_signature();
-    sig.params.push(AbiParam::new(types::I64)); // f64 bits as i64
-    sig.returns.push(AbiParam::new(types::I64)); // handle
-    sig
-}
-
-fn box_string_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
-    let mut sig = module.make_signature();
-    sig.params.push(AbiParam::new(types::I64)); // ptr
-    sig.params.push(AbiParam::new(types::I64)); // len
-    sig.returns.push(AbiParam::new(types::I64)); // handle
-    sig
-}
-
-fn truthy_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
-    let mut sig = module.make_signature();
-    sig.params.push(AbiParam::new(types::I64)); // handle
-    sig.returns.push(AbiParam::new(types::I64)); // 0 or 1
-    sig
-}
-
-fn eval_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
-    let mut sig = module.make_signature();
-    sig.params.push(AbiParam::new(types::I64)); // ptr
-    sig.params.push(AbiParam::new(types::I64)); // len
-    sig.returns.push(AbiParam::new(types::I64)); // handle
     sig
 }
 
@@ -437,7 +388,7 @@ pub fn define_typed_function<M: Module>(
                         default_return = result;
                         default_return_is_native = true;
                     } else {
-                        // Fallback: box any native f64 operands, then call __rts_binop
+                        // Fallback: box any native operands, então chama __rts_dispatch(FN_BINOP, op, lhs, rhs, 0, 0, 0)
                         let lhs_val = ensure_handle(
                             &vreg_map,
                             &vreg_kinds,
@@ -456,11 +407,13 @@ pub fn define_typed_function<M: Module>(
                         )?;
                         let op_tag = binop_to_tag(op);
                         let op_val = builder.ins().iconst(types::I64, op_tag);
-                        let sig = binop_signature(module);
-                        let binop_fn = ensure_import(module, func_declarations, RTS_BINOP, &sig)?;
-                        let local = module.declare_func_in_func(binop_fn, builder.func);
-                        let call = builder.ins().call(local, &[op_val, lhs_val, rhs_val]);
-                        let result = builder.inst_results(call)[0];
+                        let result = emit_dispatch(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            FN_BINOP,
+                            &[op_val, lhs_val, rhs_val],
+                        )?;
                         vreg_map.insert(*dst, result);
                         vreg_kinds.insert(*dst, VRegKind::Handle);
                         default_return = result;
@@ -490,23 +443,25 @@ pub fn define_typed_function<M: Module>(
                         MirUnaryOp::Negate => {
                             // Fallback: -x == 0 - x via runtime
                             let zero_bits = i64::from_ne_bytes(0.0f64.to_ne_bytes());
-                            let zero_val = builder.ins().iconst(types::I64, zero_bits);
-                            let sig = box_number_signature(module);
-                            let box_fn =
-                                ensure_import(module, func_declarations, RTS_BOX_NUMBER, &sig)?;
-                            let local = module.declare_func_in_func(box_fn, builder.func);
-                            let call = builder.ins().call(local, &[zero_val]);
-                            let zero_handle = builder.inst_results(call)[0];
-
+                            let zero_raw = builder.ins().iconst(types::I64, zero_bits);
+                            let zero_handle = emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_BOX_NUMBER,
+                                &[zero_raw],
+                            )?;
                             let op_val = builder
                                 .ins()
                                 .iconst(types::I64, binop_to_tag(&MirBinOp::Sub));
-                            let sig = binop_signature(module);
-                            let binop_fn =
-                                ensure_import(module, func_declarations, RTS_BINOP, &sig)?;
-                            let local = module.declare_func_in_func(binop_fn, builder.func);
-                            let call = builder.ins().call(local, &[op_val, zero_handle, src_val]);
-                            (builder.inst_results(call)[0], VRegKind::Handle)
+                            let result = emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_BINOP,
+                                &[op_val, zero_handle, src_val],
+                            )?;
+                            (result, VRegKind::Handle)
                         }
                         MirUnaryOp::Not => {
                             // !x: box native numbers first if needed
@@ -531,14 +486,14 @@ pub fn define_typed_function<M: Module>(
                             let op_val = builder
                                 .ins()
                                 .iconst(types::I64, binop_to_tag(&MirBinOp::Eq));
-                            let sig = binop_signature(module);
-                            let binop_fn =
-                                ensure_import(module, func_declarations, RTS_BINOP, &sig)?;
-                            let local = module.declare_func_in_func(binop_fn, builder.func);
-                            let call = builder
-                                .ins()
-                                .call(local, &[op_val, handle_val, false_handle]);
-                            (builder.inst_results(call)[0], VRegKind::Handle)
+                            let result = emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_BINOP,
+                                &[op_val, handle_val, false_handle],
+                            )?;
+                            (result, VRegKind::Handle)
                         }
                         MirUnaryOp::Positive => {
                             // +x is identity for numbers
@@ -575,19 +530,13 @@ pub fn define_typed_function<M: Module>(
                         let local = module.declare_func_in_func(callee_id, builder.func);
                         let call = builder.ins().call(local, &call_args);
                         builder.inst_results(call)[0]
-                    } else if let Some(&(_, symbol, n_args)) = TYPED_DISPATCH
+                    } else if let Some(&(_, fn_id_val)) = CALLEE_FN_IDS
                         .iter()
-                        .find(|(name, _, _)| *name == callee.as_str())
+                        .find(|(name, _)| *name == callee.as_str())
                     {
-                        // Known namespace callee — emit direct typed call, no dispatch string.
-                        let mut typed_sig = module.make_signature();
-                        for _ in 0..n_args {
-                            typed_sig.params.push(AbiParam::new(types::I64));
-                        }
-                        typed_sig.returns.push(AbiParam::new(types::I64));
-                        let fn_id = ensure_import(module, func_declarations, symbol, &typed_sig)?;
-                        let mut call_args: Vec<Value> = Vec::with_capacity(n_args);
-                        for arg in args.iter().take(n_args) {
+                        // Known namespace callee — emite __rts_dispatch(fn_id, args...) diretamente.
+                        let mut handle_args: Vec<Value> = Vec::with_capacity(args.len());
+                        for arg in args.iter().take(6) {
                             let val = ensure_handle(
                                 &vreg_map,
                                 &vreg_kinds,
@@ -596,15 +545,15 @@ pub fn define_typed_function<M: Module>(
                                 func_declarations,
                                 &mut builder,
                             )?;
-                            call_args.push(val);
+                            handle_args.push(val);
                         }
-                        // Pad with UNDEFINED_HANDLE if fewer args were provided than expected
-                        while call_args.len() < n_args {
-                            call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
-                        }
-                        let local = module.declare_func_in_func(fn_id, builder.func);
-                        let call = builder.ins().call(local, &call_args);
-                        builder.inst_results(call)[0]
+                        emit_dispatch(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            fn_id_val,
+                            &handle_args,
+                        )?
                     } else {
                         return Err(anyhow!(
                             "typed codegen cannot lower unresolved callee '{}': add a direct typed runtime symbol or function",
@@ -661,9 +610,6 @@ pub fn define_typed_function<M: Module>(
                         func_declarations,
                         &mut builder,
                     )?;
-                    let sig = bind_signature(module);
-                    let bind_fn = ensure_import(module, func_declarations, RTS_BIND, &sig)?;
-
                     let data_id = declare_string_data(module, data_cache, name.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
                     let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
@@ -671,12 +617,13 @@ pub fn define_typed_function<M: Module>(
                     let mutable_flag = builder
                         .ins()
                         .iconst(types::I64, if *mutable { 1 } else { 0 });
-
-                    let local = module.declare_func_in_func(bind_fn, builder.func);
-                    let call = builder
-                        .ins()
-                        .call(local, &[name_ptr, name_len, value_handle, mutable_flag]);
-                    let result = builder.inst_results(call)[0];
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_BIND_IDENTIFIER,
+                        &[name_ptr, name_len, value_handle, mutable_flag],
+                    )?;
                     default_return = result;
                     default_return_is_native = false;
                 }
@@ -700,7 +647,7 @@ pub fn define_typed_function<M: Module>(
                         }
                     }
 
-                    // Fallback for unresolved/non-local bindings.
+                    // Fallback para bindings não locais.
                     let value_handle = ensure_handle(
                         &vreg_map,
                         &vreg_kinds,
@@ -709,20 +656,18 @@ pub fn define_typed_function<M: Module>(
                         func_declarations,
                         &mut builder,
                     )?;
-                    let sig = bind_signature(module);
-                    let bind_fn = ensure_import(module, func_declarations, RTS_BIND, &sig)?;
-
                     let data_id = declare_string_data(module, data_cache, name.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
                     let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
                     let name_len = builder.ins().iconst(types::I64, name.len() as i64);
                     let mutable_flag = builder.ins().iconst(types::I64, 1i64);
-
-                    let local = module.declare_func_in_func(bind_fn, builder.func);
-                    let call = builder
-                        .ins()
-                        .call(local, &[name_ptr, name_len, value_handle, mutable_flag]);
-                    let result = builder.inst_results(call)[0];
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_BIND_IDENTIFIER,
+                        &[name_ptr, name_len, value_handle, mutable_flag],
+                    )?;
                     default_return = result;
                     default_return_is_native = false;
                 }
@@ -739,17 +684,17 @@ pub fn define_typed_function<M: Module>(
                         }
                     }
 
-                    let sig = read_signature(module);
-                    let read_fn = ensure_import(module, func_declarations, RTS_READ, &sig)?;
-
                     let data_id = declare_string_data(module, data_cache, name.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
                     let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
                     let name_len = builder.ins().iconst(types::I64, name.len() as i64);
-
-                    let local = module.declare_func_in_func(read_fn, builder.func);
-                    let call = builder.ins().call(local, &[name_ptr, name_len]);
-                    let result = builder.inst_results(call)[0];
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_READ_IDENTIFIER,
+                        &[name_ptr, name_len],
+                    )?;
                     vreg_map.insert(*dst, result);
                     vreg_kinds.insert(*dst, VRegKind::Handle);
                     default_return = result;
@@ -795,14 +740,15 @@ pub fn define_typed_function<M: Module>(
                             .get(condition)
                             .copied()
                             .unwrap_or(VRegKind::Handle);
-                        // For handles, call __rts_is_truthy to get 0/1
+                        // Para handles, chama __rts_dispatch(FN_IS_TRUTHY, handle, ...) para obter 0/1
                         let bool_val = if cond_kind == VRegKind::Handle {
-                            let sig = truthy_signature(module);
-                            let truthy_fn =
-                                ensure_import(module, func_declarations, RTS_IS_TRUTHY, &sig)?;
-                            let local = module.declare_func_in_func(truthy_fn, builder.func);
-                            let call = builder.ins().call(local, &[cond_val]);
-                            builder.inst_results(call)[0]
+                            emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_IS_TRUTHY,
+                                &[cond_val],
+                            )?
                         } else {
                             cond_val
                         };
@@ -827,12 +773,13 @@ pub fn define_typed_function<M: Module>(
                             .copied()
                             .unwrap_or(VRegKind::Handle);
                         let bool_val = if cond_kind == VRegKind::Handle {
-                            let sig = truthy_signature(module);
-                            let truthy_fn =
-                                ensure_import(module, func_declarations, RTS_IS_TRUTHY, &sig)?;
-                            let local = module.declare_func_in_func(truthy_fn, builder.func);
-                            let call = builder.ins().call(local, &[cond_val]);
-                            builder.inst_results(call)[0]
+                            emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_IS_TRUTHY,
+                                &[cond_val],
+                            )?
                         } else {
                             cond_val
                         };
@@ -1006,16 +953,17 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::RuntimeEval(dst, text) => {
-                    let eval_sig = eval_signature(module);
-                    let eval_fn =
-                        ensure_import(module, func_declarations, RTS_EVAL_STMT, &eval_sig)?;
                     let data_id = declare_string_data(module, data_cache, text.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
                     let text_ptr = builder.ins().symbol_value(types::I64, data_ref);
                     let text_len = builder.ins().iconst(types::I64, text.len() as i64);
-                    let local = module.declare_func_in_func(eval_fn, builder.func);
-                    let call = builder.ins().call(local, &[text_ptr, text_len]);
-                    let result = builder.inst_results(call)[0];
+                    let result = emit_dispatch(
+                        module,
+                        func_declarations,
+                        &mut builder,
+                        FN_EVAL_STMT,
+                        &[text_ptr, text_len],
+                    )?;
                     vreg_map.insert(*dst, result);
                     vreg_kinds.insert(*dst, VRegKind::Handle);
                     default_return = result;
@@ -1114,8 +1062,33 @@ fn stable_hash(input: &str) -> u64 {
     hasher.finish()
 }
 
-/// Emits a static string constant as object data and boxes it into a ValueStore handle
-/// via `__rts_box_string(ptr, len)`.  Replaces the legacy `__rts_eval_expr("\"...\"")` path.
+/// Emite uma chamada a __rts_dispatch(fn_id, args...) preenchendo com UNDEFINED_HANDLE até 6 slots.
+fn emit_dispatch<M: Module>(
+    module: &mut M,
+    declarations: &mut BTreeMap<String, FuncId>,
+    builder: &mut FunctionBuilder,
+    fn_id: i64,
+    args: &[Value],
+) -> Result<Value> {
+    let sig = dispatch_signature(module);
+    let dispatch_fn = ensure_import(module, declarations, RTS_DISPATCH, &sig)?;
+    let mut call_args: Vec<Value> = Vec::with_capacity(7);
+    call_args.push(builder.ins().iconst(types::I64, fn_id));
+    for &arg in args.iter().take(6) {
+        call_args.push(arg);
+    }
+    while call_args.len() < 7 {
+        call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+    }
+    let local = module.declare_func_in_func(dispatch_fn, builder.func);
+    let call = builder.ins().call(local, &call_args);
+    Ok(builder
+        .inst_results(call)
+        .first()
+        .copied()
+        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+}
+
 fn emit_box_string<M: Module>(
     module: &mut M,
     declarations: &mut BTreeMap<String, FuncId>,
@@ -1123,15 +1096,11 @@ fn emit_box_string<M: Module>(
     builder: &mut FunctionBuilder,
     text: &str,
 ) -> Result<Value> {
-    let sig = box_string_signature(module);
-    let box_fn = ensure_import(module, declarations, RTS_BOX_STRING, &sig)?;
     let data_id = declare_string_data(module, data_cache, text)?;
     let data_ref = module.declare_data_in_func(data_id, builder.func);
     let ptr = builder.ins().symbol_value(types::I64, data_ref);
     let len = builder.ins().iconst(types::I64, text.len() as i64);
-    let local = module.declare_func_in_func(box_fn, builder.func);
-    let call = builder.ins().call(local, &[ptr, len]);
-    Ok(builder.inst_results(call)[0])
+    emit_dispatch(module, declarations, builder, FN_BOX_STRING, &[ptr, len])
 }
 
 fn ensure_handle<M: Module>(
@@ -1156,11 +1125,7 @@ fn box_native_f64<M: Module>(
     builder: &mut FunctionBuilder,
     bits: Value,
 ) -> Result<Value> {
-    let sig = box_number_signature(module);
-    let box_fn = ensure_import(module, func_declarations, RTS_BOX_NUMBER, &sig)?;
-    let local = module.declare_func_in_func(box_fn, builder.func);
-    let call = builder.ins().call(local, &[bits]);
-    Ok(builder.inst_results(call)[0])
+    emit_dispatch(module, func_declarations, builder, FN_BOX_NUMBER, &[bits])
 }
 
 fn box_native_i32<M: Module>(
@@ -1169,16 +1134,16 @@ fn box_native_i32<M: Module>(
     builder: &mut FunctionBuilder,
     i32_val: Value,
 ) -> Result<Value> {
-    // Convert i32 to f64, then to f64 bits
     let i32_reduced = builder.ins().ireduce(types::I32, i32_val);
     let f64_val = builder.ins().fcvt_from_sint(types::F64, i32_reduced);
     let f64_bits = builder.ins().bitcast(types::I64, MemFlags::new(), f64_val);
-
-    let sig = box_number_signature(module);
-    let box_fn = ensure_import(module, func_declarations, RTS_BOX_NUMBER, &sig)?;
-    let local = module.declare_func_in_func(box_fn, builder.func);
-    let call = builder.ins().call(local, &[f64_bits]);
-    Ok(builder.inst_results(call)[0])
+    emit_dispatch(
+        module,
+        func_declarations,
+        builder,
+        FN_BOX_NUMBER,
+        &[f64_bits],
+    )
 }
 
 fn simd_type(width: SimdWidth) -> cranelift_codegen::ir::Type {

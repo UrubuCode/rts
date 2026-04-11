@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
@@ -9,11 +10,12 @@ use cranelift_module::{DataId, FuncId, Linkage, Module, default_libcall_names};
 
 use crate::mir::{MirFunction, MirModule};
 
+use crate::namespaces::abi::{FN_BIND_IDENTIFIER, FN_EVAL_EXPR, FN_EVAL_STMT};
+
 use super::mir_parse::{
-    ABI_ARG_SLOTS, ABI_PARAM_COUNT, ABI_UNDEFINED_HANDLE, RTS_BIND_IDENTIFIER_SYMBOL,
-    RTS_CALL_DISPATCH_SYMBOL, RTS_EVAL_EXPR_SYMBOL, RTS_EVAL_STMT_SYMBOL, is_valid_binding_name,
-    parse_call_statement, parse_declaration_statement, parse_enter_parameters,
-    parse_return_expression, parse_return_literal,
+    ABI_ARG_SLOTS, ABI_PARAM_COUNT, ABI_UNDEFINED_HANDLE, RTS_CALL_DISPATCH_SYMBOL,
+    RTS_DISPATCH_SYMBOL, is_valid_binding_name, parse_call_statement, parse_declaration_statement,
+    parse_enter_parameters, parse_return_expression, parse_return_literal,
 };
 
 #[derive(Debug, Clone)]
@@ -22,14 +24,36 @@ pub struct JitReport {
     pub compiled_functions: usize,
     pub entry_return_value: i64,
     pub executed: bool,
+    pub timings: JitTimings,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct JitTimings {
+    pub initialize_jit_ms: f64,
+    pub declare_functions_ms: f64,
+    pub scan_synthetic_calls_ms: f64,
+    pub declare_helpers_ms: f64,
+    pub define_functions_ms: f64,
+    pub define_stubs_ms: f64,
+    pub finalize_ms: f64,
+    pub resolve_entry_ms: f64,
+    pub execute_entry_ms: f64,
+    pub total_ms: f64,
 }
 
 pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
+    let total_started = Instant::now();
     crate::namespaces::abi::reset_thread_state();
+    let mut timings = JitTimings::default();
+
+    let started = Instant::now();
     let mut jit = initialize_jit_module()?;
+    timings.initialize_jit_ms = started.elapsed().as_secs_f64() * 1000.0;
+
     let mut declarations = BTreeMap::<String, FuncId>::new();
     let mut synthetic_stubs = Vec::<String>::new();
 
+    let started = Instant::now();
     let signature = function_signature(&mut jit);
     for function in &module.functions {
         let id = jit
@@ -37,7 +61,9 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
             .with_context(|| format!("failed to declare function '{}'", function.name))?;
         declarations.insert(function.name.clone(), id);
     }
+    timings.declare_functions_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     for function in &module.functions {
         for block in &function.blocks {
             for statement in &block.statements {
@@ -61,28 +87,24 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
             }
         }
     }
+    timings.scan_synthetic_calls_ms = started.elapsed().as_secs_f64() * 1000.0;
 
-    let eval_id = declare_helper_import(&mut jit, &mut declarations, RTS_EVAL_EXPR_SYMBOL)?;
-    let eval_stmt_id = declare_helper_import(&mut jit, &mut declarations, RTS_EVAL_STMT_SYMBOL)?;
-    let bind_id = declare_bind_import(&mut jit, &mut declarations)?;
-    let dispatch_id = declare_dispatch_import(&mut jit, &mut declarations)?;
+    let started = Instant::now();
+    let rts_dispatch_id = declare_rts_dispatch_import(&mut jit, &mut declarations)?;
+    let call_dispatch_id = declare_call_dispatch_import(&mut jit, &mut declarations)?;
+    timings.declare_helpers_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     for function in &module.functions {
         let id = declarations
             .get(&function.name)
             .copied()
             .ok_or_else(|| anyhow!("missing declaration for function '{}'", function.name))?;
-        define_function(
-            &mut jit,
-            &declarations,
-            eval_id,
-            eval_stmt_id,
-            bind_id,
-            id,
-            function,
-        )?;
+        define_function(&mut jit, &declarations, rts_dispatch_id, id, function)?;
     }
+    timings.define_functions_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     for name in &synthetic_stubs {
         let id = declarations
             .get(name)
@@ -94,15 +116,19 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
             &mut jit,
             id,
             name,
-            dispatch_id,
+            call_dispatch_id,
             leaked_symbol.as_ptr() as i64,
             leaked_symbol.len() as i64,
         )?;
     }
+    timings.define_stubs_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     jit.finalize_definitions()
         .context("failed to finalize JIT definitions")?;
+    timings.finalize_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     let selected_entry = if declarations.contains_key(entry_function) {
         Some(entry_function.to_string())
     } else if entry_function != "main" && declarations.contains_key("main") {
@@ -110,7 +136,9 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
     } else {
         None
     };
+    timings.resolve_entry_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     let (entry_name, entry_return_value, executed) = if let Some(entry_name) = selected_entry {
         let entry_id = declarations
             .get(&entry_name)
@@ -128,12 +156,15 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
     } else {
         (entry_function.to_string(), ABI_UNDEFINED_HANDLE, false)
     };
+    timings.execute_entry_ms = started.elapsed().as_secs_f64() * 1000.0;
+    timings.total_ms = total_started.elapsed().as_secs_f64() * 1000.0;
 
     Ok(JitReport {
         entry_function: entry_name,
         compiled_functions: declarations.len(),
         entry_return_value,
         executed,
+        timings,
     })
 }
 
@@ -152,92 +183,12 @@ fn initialize_jit_module() -> Result<JITModule> {
 
     let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
     builder.symbol(
-        RTS_EVAL_EXPR_SYMBOL,
-        crate::namespaces::abi::__rts_eval_expr as *const u8,
+        RTS_DISPATCH_SYMBOL,
+        crate::namespaces::abi::__rts_dispatch as *const u8,
     );
     builder.symbol(
         RTS_CALL_DISPATCH_SYMBOL,
         crate::namespaces::abi::__rts_call_dispatch as *const u8,
-    );
-    builder.symbol(
-        RTS_EVAL_STMT_SYMBOL,
-        crate::namespaces::abi::__rts_eval_stmt as *const u8,
-    );
-    builder.symbol(
-        RTS_BIND_IDENTIFIER_SYMBOL,
-        crate::namespaces::abi::__rts_bind_identifier as *const u8,
-    );
-    builder.symbol(
-        "__rts_read_identifier",
-        crate::namespaces::abi::__rts_read_identifier as *const u8,
-    );
-    builder.symbol(
-        "__rts_binop",
-        crate::namespaces::abi::__rts_binop as *const u8,
-    );
-    builder.symbol(
-        "__rts_box_number",
-        crate::namespaces::abi::__rts_box_number as *const u8,
-    );
-    builder.symbol(
-        "__rts_unbox_number",
-        crate::namespaces::abi::__rts_unbox_number as *const u8,
-    );
-    builder.symbol(
-        "__rts_is_truthy",
-        crate::namespaces::abi::__rts_is_truthy as *const u8,
-    );
-    builder.symbol(
-        "__rts_box_string",
-        crate::namespaces::abi::__rts_box_string as *const u8,
-    );
-    builder.symbol(
-        "__rts_box_bool",
-        crate::namespaces::abi::__rts_box_bool as *const u8,
-    );
-    builder.symbol(
-        "__rts_reset_thread_state",
-        crate::namespaces::abi::__rts_reset_thread_state as *const u8,
-    );
-    builder.symbol(
-        "__rts_io_print",
-        crate::namespaces::rust::__rts_io_print as *const u8,
-    );
-    builder.symbol(
-        "__rts_io_stdout_write",
-        crate::namespaces::rust::__rts_io_stdout_write as *const u8,
-    );
-    builder.symbol(
-        "__rts_io_stderr_write",
-        crate::namespaces::rust::__rts_io_stderr_write as *const u8,
-    );
-    builder.symbol(
-        "__rts_io_panic",
-        crate::namespaces::rust::__rts_io_panic as *const u8,
-    );
-    builder.symbol(
-        "__rts_crypto_sha256",
-        crate::namespaces::rust::__rts_crypto_sha256 as *const u8,
-    );
-    builder.symbol(
-        "__rts_process_exit",
-        crate::namespaces::rust::__rts_process_exit as *const u8,
-    );
-    builder.symbol(
-        "__rts_global_set",
-        crate::namespaces::rust::__rts_global_set as *const u8,
-    );
-    builder.symbol(
-        "__rts_global_get",
-        crate::namespaces::rust::__rts_global_get as *const u8,
-    );
-    builder.symbol(
-        "__rts_global_has",
-        crate::namespaces::rust::__rts_global_has as *const u8,
-    );
-    builder.symbol(
-        "__rts_global_delete",
-        crate::namespaces::rust::__rts_global_delete as *const u8,
     );
 
     Ok(JITModule::new(builder))
@@ -252,81 +203,55 @@ fn function_signature(module: &mut JITModule) -> Signature {
     signature
 }
 
-fn eval_signature(module: &mut JITModule) -> Signature {
-    let mut signature = module.make_signature();
-    signature.params.push(AbiParam::new(types::I64));
-    signature.params.push(AbiParam::new(types::I64));
-    signature.returns.push(AbiParam::new(types::I64));
-    signature
+/// Assinatura do __rts_dispatch: (fn_id, a0, a1, a2, a3, a4, a5) -> i64
+fn rts_dispatch_signature(module: &mut JITModule) -> Signature {
+    let mut sig = module.make_signature();
+    for _ in 0..7 {
+        sig.params.push(AbiParam::new(types::I64));
+    }
+    sig.returns.push(AbiParam::new(types::I64));
+    sig
 }
 
-fn dispatch_signature(module: &mut JITModule) -> Signature {
-    let mut signature = module.make_signature();
-    signature.params.push(AbiParam::new(types::I64)); // callee ptr
-    signature.params.push(AbiParam::new(types::I64)); // callee len
-    signature.params.push(AbiParam::new(types::I64)); // argc
+/// Assinatura do __rts_call_dispatch: (callee_ptr, callee_len, argc, a0..a5) -> i64
+fn call_dispatch_signature(module: &mut JITModule) -> Signature {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64)); // callee ptr
+    sig.params.push(AbiParam::new(types::I64)); // callee len
+    sig.params.push(AbiParam::new(types::I64)); // argc
     for _ in 0..ABI_ARG_SLOTS {
-        signature.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
     }
-    signature.returns.push(AbiParam::new(types::I64));
-    signature
+    sig.returns.push(AbiParam::new(types::I64));
+    sig
 }
 
-fn bind_signature(module: &mut JITModule) -> Signature {
-    let mut signature = module.make_signature();
-    signature.params.push(AbiParam::new(types::I64)); // name ptr
-    signature.params.push(AbiParam::new(types::I64)); // name len
-    signature.params.push(AbiParam::new(types::I64)); // value handle
-    signature.params.push(AbiParam::new(types::I64)); // mutable flag
-    signature.returns.push(AbiParam::new(types::I64));
-    signature
-}
-
-fn declare_helper_import(
-    module: &mut JITModule,
-    declarations: &mut BTreeMap<String, FuncId>,
-    name: &str,
-) -> Result<FuncId> {
-    if let Some(existing) = declarations.get(name).copied() {
-        return Ok(existing);
-    }
-
-    let signature = eval_signature(module);
-    let id = module
-        .declare_function(name, Linkage::Import, &signature)
-        .with_context(|| format!("failed to declare JIT helper '{}'", name))?;
-    declarations.insert(name.to_string(), id);
-    Ok(id)
-}
-
-fn declare_bind_import(
+fn declare_rts_dispatch_import(
     module: &mut JITModule,
     declarations: &mut BTreeMap<String, FuncId>,
 ) -> Result<FuncId> {
-    if let Some(existing) = declarations.get(RTS_BIND_IDENTIFIER_SYMBOL).copied() {
+    if let Some(existing) = declarations.get(RTS_DISPATCH_SYMBOL).copied() {
         return Ok(existing);
     }
-
-    let signature = bind_signature(module);
+    let sig = rts_dispatch_signature(module);
     let id = module
-        .declare_function(RTS_BIND_IDENTIFIER_SYMBOL, Linkage::Import, &signature)
-        .context("failed to declare JIT bind helper")?;
-    declarations.insert(RTS_BIND_IDENTIFIER_SYMBOL.to_string(), id);
+        .declare_function(RTS_DISPATCH_SYMBOL, Linkage::Import, &sig)
+        .context("failed to declare JIT __rts_dispatch")?;
+    declarations.insert(RTS_DISPATCH_SYMBOL.to_string(), id);
     Ok(id)
 }
 
-fn declare_dispatch_import(
+fn declare_call_dispatch_import(
     module: &mut JITModule,
     declarations: &mut BTreeMap<String, FuncId>,
 ) -> Result<FuncId> {
     if let Some(existing) = declarations.get(RTS_CALL_DISPATCH_SYMBOL).copied() {
         return Ok(existing);
     }
-
-    let signature = dispatch_signature(module);
+    let sig = call_dispatch_signature(module);
     let id = module
-        .declare_function(RTS_CALL_DISPATCH_SYMBOL, Linkage::Import, &signature)
-        .context("failed to declare JIT dispatch helper")?;
+        .declare_function(RTS_CALL_DISPATCH_SYMBOL, Linkage::Import, &sig)
+        .context("failed to declare JIT __rts_call_dispatch")?;
     declarations.insert(RTS_CALL_DISPATCH_SYMBOL.to_string(), id);
     Ok(id)
 }
@@ -334,9 +259,7 @@ fn declare_dispatch_import(
 fn define_function(
     module: &mut JITModule,
     declarations: &BTreeMap<String, FuncId>,
-    eval_id: FuncId,
-    eval_stmt_id: FuncId,
-    bind_id: FuncId,
+    rts_dispatch_id: FuncId,
     function_id: FuncId,
     function: &MirFunction,
 ) -> Result<()> {
@@ -379,7 +302,7 @@ fn define_function(
                             let _ = lower_runtime_binding(
                                 module,
                                 &mut builder,
-                                bind_id,
+                                rts_dispatch_id,
                                 parameter_name.as_str(),
                                 value_handle,
                                 true,
@@ -400,7 +323,12 @@ fn define_function(
 
                 if let Some(return_expr) = parse_return_expression(text) {
                     let return_value = if let Some(expression) = return_expr {
-                        lower_runtime_expression(module, &mut builder, eval_id, &expression)?
+                        lower_runtime_expression(
+                            module,
+                            &mut builder,
+                            rts_dispatch_id,
+                            &expression,
+                        )?
                     } else {
                         builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
                     };
@@ -412,14 +340,19 @@ fn define_function(
                 if let Some(declaration) = parse_declaration_statement(text) {
                     let initializer_handle =
                         if let Some(initializer) = declaration.initializer.as_deref() {
-                            lower_runtime_expression(module, &mut builder, eval_id, initializer)?
+                            lower_runtime_expression(
+                                module,
+                                &mut builder,
+                                rts_dispatch_id,
+                                initializer,
+                            )?
                         } else {
                             builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
                         };
                     let _ = lower_runtime_binding(
                         module,
                         &mut builder,
-                        bind_id,
+                        rts_dispatch_id,
                         declaration.name.as_str(),
                         initializer_handle,
                         declaration.mutable,
@@ -454,7 +387,7 @@ fn define_function(
                             module,
                             declarations,
                             &mut builder,
-                            eval_id,
+                            rts_dispatch_id,
                             expression,
                         )?;
                         lowered_args.push(value);
@@ -472,7 +405,7 @@ fn define_function(
                     continue;
                 }
 
-                let value = lower_runtime_statement(module, &mut builder, eval_stmt_id, text)?;
+                let value = lower_runtime_statement(module, &mut builder, rts_dispatch_id, text)?;
                 default_return = value;
             }
         }
@@ -490,20 +423,24 @@ fn define_function(
     Ok(())
 }
 
-fn lower_runtime_expression(
+/// Emite __rts_dispatch(fn_id, a0..a5) preenchendo com UNDEFINED_HANDLE.
+fn emit_rts_dispatch(
     module: &mut JITModule,
     builder: &mut FunctionBuilder,
-    eval_id: FuncId,
-    expression: &str,
+    dispatch_id: FuncId,
+    fn_id: i64,
+    args: &[cranelift_codegen::ir::Value],
 ) -> Result<cranelift_codegen::ir::Value> {
-    let bytes = Box::leak(expression.as_bytes().to_vec().into_boxed_slice());
-    let expression_ptr = builder.ins().iconst(types::I64, bytes.as_ptr() as i64);
-    let expression_len = builder.ins().iconst(types::I64, bytes.len() as i64);
-
-    let local_eval = module.declare_func_in_func(eval_id, builder.func);
-    let call = builder
-        .ins()
-        .call(local_eval, &[expression_ptr, expression_len]);
+    let mut call_args: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(7);
+    call_args.push(builder.ins().iconst(types::I64, fn_id));
+    for &arg in args.iter().take(6) {
+        call_args.push(arg);
+    }
+    while call_args.len() < 7 {
+        call_args.push(builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
+    }
+    let local = module.declare_func_in_func(dispatch_id, builder.func);
+    let call = builder.ins().call(local, &call_args);
     Ok(builder
         .inst_results(call)
         .first()
@@ -511,11 +448,23 @@ fn lower_runtime_expression(
         .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
 }
 
+fn lower_runtime_expression(
+    module: &mut JITModule,
+    builder: &mut FunctionBuilder,
+    dispatch_id: FuncId,
+    expression: &str,
+) -> Result<cranelift_codegen::ir::Value> {
+    let bytes = Box::leak(expression.as_bytes().to_vec().into_boxed_slice());
+    let ptr = builder.ins().iconst(types::I64, bytes.as_ptr() as i64);
+    let len = builder.ins().iconst(types::I64, bytes.len() as i64);
+    emit_rts_dispatch(module, builder, dispatch_id, FN_EVAL_EXPR, &[ptr, len])
+}
+
 fn lower_call_argument(
     module: &mut JITModule,
     declarations: &BTreeMap<String, FuncId>,
     builder: &mut FunctionBuilder,
-    eval_id: FuncId,
+    dispatch_id: FuncId,
     expression: &str,
 ) -> Result<cranelift_codegen::ir::Value> {
     let text = expression.trim();
@@ -539,7 +488,7 @@ fn lower_call_argument(
 
             for nested_arg in nested_call.args.iter().take(ABI_ARG_SLOTS) {
                 let lowered_nested_arg =
-                    lower_call_argument(module, declarations, builder, eval_id, nested_arg)?;
+                    lower_call_argument(module, declarations, builder, dispatch_id, nested_arg)?;
                 lowered_args.push(lowered_nested_arg);
             }
 
@@ -557,13 +506,13 @@ fn lower_call_argument(
         }
     }
 
-    lower_runtime_expression(module, builder, eval_id, text)
+    lower_runtime_expression(module, builder, dispatch_id, text)
 }
 
 fn lower_runtime_binding(
     module: &mut JITModule,
     builder: &mut FunctionBuilder,
-    bind_id: FuncId,
+    dispatch_id: FuncId,
     name: &str,
     value_handle: cranelift_codegen::ir::Value,
     mutable: bool,
@@ -574,38 +523,25 @@ fn lower_runtime_binding(
     let mutable_flag = builder
         .ins()
         .iconst(types::I64, if mutable { 1 } else { 0 });
-
-    let local_bind = module.declare_func_in_func(bind_id, builder.func);
-    let call = builder.ins().call(
-        local_bind,
+    emit_rts_dispatch(
+        module,
+        builder,
+        dispatch_id,
+        FN_BIND_IDENTIFIER,
         &[name_ptr, name_len, value_handle, mutable_flag],
-    );
-    Ok(builder
-        .inst_results(call)
-        .first()
-        .copied()
-        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+    )
 }
 
 fn lower_runtime_statement(
     module: &mut JITModule,
     builder: &mut FunctionBuilder,
-    eval_stmt_id: FuncId,
+    dispatch_id: FuncId,
     statement: &str,
 ) -> Result<cranelift_codegen::ir::Value> {
     let bytes = Box::leak(statement.as_bytes().to_vec().into_boxed_slice());
-    let statement_ptr = builder.ins().iconst(types::I64, bytes.as_ptr() as i64);
-    let statement_len = builder.ins().iconst(types::I64, bytes.len() as i64);
-
-    let local_eval_stmt = module.declare_func_in_func(eval_stmt_id, builder.func);
-    let call = builder
-        .ins()
-        .call(local_eval_stmt, &[statement_ptr, statement_len]);
-    Ok(builder
-        .inst_results(call)
-        .first()
-        .copied()
-        .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
+    let ptr = builder.ins().iconst(types::I64, bytes.as_ptr() as i64);
+    let len = builder.ins().iconst(types::I64, bytes.len() as i64);
+    emit_rts_dispatch(module, builder, dispatch_id, FN_EVAL_STMT, &[ptr, len])
 }
 
 fn define_stub_function(
@@ -668,11 +604,18 @@ pub fn execute_typed(
     module: &crate::mir::TypedMirModule,
     entry_function: &str,
 ) -> Result<JitReport> {
+    let total_started = Instant::now();
     crate::namespaces::abi::reset_thread_state();
+    let mut timings = JitTimings::default();
+
+    let started = Instant::now();
     let mut jit = initialize_jit_module()?;
+    timings.initialize_jit_ms = started.elapsed().as_secs_f64() * 1000.0;
+
     let mut declarations = BTreeMap::<String, FuncId>::new();
     let mut data_cache = BTreeMap::<String, DataId>::new();
 
+    let started = Instant::now();
     let signature = super::typed_codegen::function_signature(&mut jit);
     for function in &module.functions {
         let id = jit
@@ -680,6 +623,10 @@ pub fn execute_typed(
             .with_context(|| format!("failed to declare typed JIT function '{}'", function.name))?;
         declarations.insert(function.name.clone(), id);
     }
+    timings.declare_functions_ms = started.elapsed().as_secs_f64() * 1000.0;
+    timings.scan_synthetic_calls_ms = 0.0;
+
+    let started = Instant::now();
 
     for function in &module.functions {
         let id = declarations.get(&function.name).copied().ok_or_else(|| {
@@ -696,10 +643,16 @@ pub fn execute_typed(
             function,
         )?;
     }
+    timings.define_functions_ms = started.elapsed().as_secs_f64() * 1000.0;
+    timings.declare_helpers_ms = 0.0;
+    timings.define_stubs_ms = 0.0;
 
+    let started = Instant::now();
     jit.finalize_definitions()
         .context("failed to finalize typed JIT definitions")?;
+    timings.finalize_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     let selected_entry = if declarations.contains_key(entry_function) {
         Some(entry_function.to_string())
     } else if entry_function != "main" && declarations.contains_key("main") {
@@ -707,7 +660,9 @@ pub fn execute_typed(
     } else {
         None
     };
+    timings.resolve_entry_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let started = Instant::now();
     let (entry_name, entry_return_value, executed) = if let Some(entry_name) = selected_entry {
         let entry_id = declarations
             .get(&entry_name)
@@ -727,12 +682,15 @@ pub fn execute_typed(
             false,
         )
     };
+    timings.execute_entry_ms = started.elapsed().as_secs_f64() * 1000.0;
+    timings.total_ms = total_started.elapsed().as_secs_f64() * 1000.0;
 
     Ok(JitReport {
         entry_function: entry_name,
         compiled_functions: declarations.len(),
         entry_return_value,
         executed,
+        timings,
     })
 }
 

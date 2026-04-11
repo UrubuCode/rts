@@ -295,29 +295,27 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
         .or_else(|| debug::dispatch(callee, args))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_print(handle: i64) -> i64 {
+// Implementações internas — chamadas via __rts_dispatch no launcher, sem exportação C.
+
+pub(crate) fn rts_io_print(handle: i64) -> i64 {
     let message = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
     println!("{message}");
     crate::namespaces::abi::undefined_handle()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_stdout_write(handle: i64) -> i64 {
+pub(crate) fn rts_io_stdout_write(handle: i64) -> i64 {
     let message = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
     print!("{message}");
     crate::namespaces::abi::undefined_handle()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_stderr_write(handle: i64) -> i64 {
+pub(crate) fn rts_io_stderr_write(handle: i64) -> i64 {
     let message = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
     eprint!("{message}");
     crate::namespaces::abi::undefined_handle()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_panic(handle: i64) -> i64 {
+pub(crate) fn rts_io_panic(handle: i64) -> i64 {
     let message = if handle == crate::namespaces::abi::undefined_handle() {
         "runtime panic".to_string()
     } else {
@@ -327,28 +325,24 @@ pub extern "C" fn __rts_io_panic(handle: i64) -> i64 {
     std::process::exit(1);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_crypto_sha256(handle: i64) -> i64 {
+pub(crate) fn rts_crypto_sha256(handle: i64) -> i64 {
     let input = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
     let digest = crate::namespaces::crypto::hash_sha256(&input);
     crate::namespaces::abi::push_runtime_value(RuntimeValue::String(digest))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_process_exit(code: i64) -> i64 {
+pub(crate) fn rts_process_exit(code: i64) -> i64 {
     std::process::exit(code as i32);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_set(key_handle: i64, value_handle: i64) -> i64 {
+pub(crate) fn rts_global_set(key_handle: i64, value_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
     let value = crate::namespaces::abi::read_runtime_value(value_handle).to_runtime_string();
     crate::namespaces::global::set(&key, &value);
     crate::namespaces::abi::undefined_handle()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_get(key_handle: i64) -> i64 {
+pub(crate) fn rts_global_get(key_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
     match crate::namespaces::global::get(&key) {
         Some(value) => crate::namespaces::abi::push_runtime_value(RuntimeValue::String(value)),
@@ -356,15 +350,13 @@ pub extern "C" fn __rts_global_get(key_handle: i64) -> i64 {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_has(key_handle: i64) -> i64 {
+pub(crate) fn rts_global_has(key_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
     let exists = crate::namespaces::global::has(&key);
     crate::namespaces::abi::push_runtime_value(RuntimeValue::Bool(exists))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_delete(key_handle: i64) -> i64 {
+pub(crate) fn rts_global_delete(key_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
     let removed = crate::namespaces::global::delete(&key);
     crate::namespaces::abi::push_runtime_value(RuntimeValue::Bool(removed))

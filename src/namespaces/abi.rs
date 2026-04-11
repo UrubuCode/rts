@@ -1,9 +1,34 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 use crate::namespaces::value::RuntimeValue;
 
 const UNDEFINED_HANDLE: i64 = 0;
+
+// --- fn_id constants para __rts_dispatch ---
+// Slot layout: __rts_dispatch(fn_id, a0, a1, a2, a3, a4, a5) -> i64
+pub(crate) const FN_RESET_THREAD_STATE: i64 = 0;
+pub(crate) const FN_BIND_IDENTIFIER: i64 = 1; // (ptr, len, handle, mutable)
+pub(crate) const FN_BOX_STRING: i64 = 2; // (ptr, len)
+pub(crate) const FN_BOX_BOOL: i64 = 3; // (flag)
+pub(crate) const FN_EVAL_EXPR: i64 = 4; // (ptr, len)
+pub(crate) const FN_EVAL_STMT: i64 = 5; // (ptr, len)
+pub(crate) const FN_READ_IDENTIFIER: i64 = 6; // (ptr, len)
+pub(crate) const FN_BINOP: i64 = 7; // (op, lhs, rhs)
+pub(crate) const FN_IS_TRUTHY: i64 = 8; // (handle)
+pub(crate) const FN_UNBOX_NUMBER: i64 = 9; // (handle)
+pub(crate) const FN_BOX_NUMBER: i64 = 10; // (bits as i64)
+pub(crate) const FN_IO_PRINT: i64 = 11;
+pub(crate) const FN_IO_STDOUT_WRITE: i64 = 12;
+pub(crate) const FN_IO_STDERR_WRITE: i64 = 13;
+pub(crate) const FN_IO_PANIC: i64 = 14;
+pub(crate) const FN_CRYPTO_SHA256: i64 = 15;
+pub(crate) const FN_PROCESS_EXIT: i64 = 16;
+pub(crate) const FN_GLOBAL_SET: i64 = 17; // (key, value)
+pub(crate) const FN_GLOBAL_GET: i64 = 18;
+pub(crate) const FN_GLOBAL_HAS: i64 = 19;
+pub(crate) const FN_GLOBAL_DELETE: i64 = 20;
 
 #[derive(Debug, Clone)]
 struct BindingEntry {
@@ -61,8 +86,33 @@ impl ValueStore {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+struct RuntimeMetrics {
+    dispatch_calls: u64,
+    dispatch_nanos: u128,
+    eval_expr_calls: u64,
+    eval_expr_nanos: u128,
+    eval_stmt_calls: u64,
+    eval_stmt_nanos: u128,
+    call_dispatch_calls: u64,
+    call_dispatch_nanos: u128,
+}
+
+#[derive(Debug, Default, Clone)]
+pub(crate) struct RuntimeMetricsSnapshot {
+    pub dispatch_calls: u64,
+    pub dispatch_nanos: u128,
+    pub eval_expr_calls: u64,
+    pub eval_expr_nanos: u128,
+    pub eval_stmt_calls: u64,
+    pub eval_stmt_nanos: u128,
+    pub call_dispatch_calls: u64,
+    pub call_dispatch_nanos: u128,
+}
+
 thread_local! {
     static VALUE_STORE: RefCell<ValueStore> = RefCell::new(ValueStore::default());
+    static RUNTIME_METRICS: RefCell<RuntimeMetrics> = RefCell::new(RuntimeMetrics::default());
 }
 
 fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
@@ -74,11 +124,29 @@ fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
 
 pub fn reset_thread_state() {
     with_store_mut(ValueStore::reset);
+    reset_runtime_metrics();
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_reset_thread_state() {
-    reset_thread_state();
+fn reset_runtime_metrics() {
+    RUNTIME_METRICS.with(|metrics| {
+        *metrics.borrow_mut() = RuntimeMetrics::default();
+    });
+}
+
+pub(crate) fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
+    RUNTIME_METRICS.with(|metrics| {
+        let metrics = metrics.borrow();
+        RuntimeMetricsSnapshot {
+            dispatch_calls: metrics.dispatch_calls,
+            dispatch_nanos: metrics.dispatch_nanos,
+            eval_expr_calls: metrics.eval_expr_calls,
+            eval_expr_nanos: metrics.eval_expr_nanos,
+            eval_stmt_calls: metrics.eval_stmt_calls,
+            eval_stmt_nanos: metrics.eval_stmt_nanos,
+            call_dispatch_calls: metrics.call_dispatch_calls,
+            call_dispatch_nanos: metrics.call_dispatch_nanos,
+        }
+    })
 }
 
 fn push_value(value: RuntimeValue) -> i64 {
@@ -131,118 +199,14 @@ fn read_utf8(ptr: i64, len: i64) -> Option<String> {
     let ptr = ptr as *const u8;
     let len = len as usize;
     let bytes = unsafe {
-        // SAFETY: `ptr` and `len` are emitted by RTS codegen as static data payload references.
+        // SAFETY: `ptr` and `len` são emitidos pelo codegen RTS como referências a dados estáticos.
         std::slice::from_raw_parts(ptr, len)
     };
 
     std::str::from_utf8(bytes).ok().map(ToString::to_string)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_call_dispatch(
-    callee_ptr: i64,
-    callee_len: i64,
-    argc: i64,
-    a0: i64,
-    a1: i64,
-    a2: i64,
-    a3: i64,
-    a4: i64,
-    a5: i64,
-) -> i64 {
-    let Some(callee) = read_utf8(callee_ptr, callee_len) else {
-        return UNDEFINED_HANDLE;
-    };
-
-    let slots = [a0, a1, a2, a3, a4, a5];
-    let count = argc.clamp(0, slots.len() as i64) as usize;
-    let mut args = Vec::with_capacity(count);
-    for handle in slots.into_iter().take(count) {
-        args.push(read_value(handle));
-    }
-
-    let Some(outcome) = crate::namespaces::dispatch(callee.as_str(), &args) else {
-        return UNDEFINED_HANDLE;
-    };
-
-    match outcome {
-        crate::namespaces::DispatchOutcome::Value(value) => push_value(value),
-        crate::namespaces::DispatchOutcome::Emit(message) => {
-            if callee == "io.stderr_write" {
-                eprint!("{message}");
-            } else if callee == "io.stdout_write" {
-                print!("{message}");
-            } else {
-                println!("{message}");
-            }
-            UNDEFINED_HANDLE
-        }
-        crate::namespaces::DispatchOutcome::Panic(message) => {
-            eprintln!("RTS runtime panic: {message}");
-            std::process::exit(1);
-        }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_bind_identifier(
-    name_ptr: i64,
-    name_len: i64,
-    value_handle: i64,
-    mutable_flag: i64,
-) -> i64 {
-    let Some(name) = read_utf8(name_ptr, name_len) else {
-        return UNDEFINED_HANDLE;
-    };
-
-    bind_identifier(name, value_handle, mutable_flag != 0)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_box_string(ptr: i64, len: i64) -> i64 {
-    match read_utf8(ptr, len) {
-        Some(s) => push_value(RuntimeValue::String(s)),
-        None => UNDEFINED_HANDLE,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_box_bool(flag: i64) -> i64 {
-    push_value(RuntimeValue::Bool(flag != 0))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_eval_expr(_expr_ptr: i64, _expr_len: i64) -> i64 {
-    let Some(expr) = read_utf8(_expr_ptr, _expr_len) else {
-        return UNDEFINED_HANDLE;
-    };
-    let value = crate::namespaces::rust::eval::eval_expression_text(&expr);
-    push_value(value)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_eval_stmt(_stmt_ptr: i64, _stmt_len: i64) -> i64 {
-    let Some(stmt) = read_utf8(_stmt_ptr, _stmt_len) else {
-        return UNDEFINED_HANDLE;
-    };
-    let value = crate::namespaces::rust::eval::eval_statement_text(&stmt);
-    push_value(value)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_read_identifier(name_ptr: i64, name_len: i64) -> i64 {
-    let Some(name) = read_utf8(name_ptr, name_len) else {
-        return UNDEFINED_HANDLE;
-    };
-
-    match read_identifier(&name) {
-        Some(value) => push_value(value),
-        None => UNDEFINED_HANDLE,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_binop(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 {
+fn binop_dispatch(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 {
     let lhs = read_value(lhs_handle);
     let rhs = read_value(rhs_handle);
 
@@ -288,23 +252,158 @@ pub extern "C" fn __rts_binop(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 
     push_value(result)
 }
 
+/// Ponto de entrada único do launcher para todas as chamadas de runtime de assinatura fixa.
+/// O código Cranelift compilado chama apenas este símbolo (e __rts_call_dispatch para dispatch dinâmico).
 #[unsafe(no_mangle)]
-pub extern "C" fn __rts_is_truthy(handle: i64) -> i64 {
-    if handle == UNDEFINED_HANDLE {
-        return 0;
+pub extern "C" fn __rts_dispatch(
+    fn_id: i64,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    _a4: i64,
+    _a5: i64,
+) -> i64 {
+    let started = Instant::now();
+    let result = match fn_id {
+        FN_RESET_THREAD_STATE => {
+            reset_thread_state();
+            UNDEFINED_HANDLE
+        }
+        FN_BIND_IDENTIFIER => {
+            let Some(name) = read_utf8(a0, a1) else {
+                return UNDEFINED_HANDLE;
+            };
+            bind_identifier(name, a2, a3 != 0)
+        }
+        FN_BOX_STRING => match read_utf8(a0, a1) {
+            Some(s) => push_value(RuntimeValue::String(s)),
+            None => UNDEFINED_HANDLE,
+        },
+        FN_BOX_BOOL => push_value(RuntimeValue::Bool(a0 != 0)),
+        FN_EVAL_EXPR => {
+            let Some(expr) = read_utf8(a0, a1) else {
+                return UNDEFINED_HANDLE;
+            };
+            let value = crate::namespaces::rust::eval::eval_expression_text(&expr);
+            push_value(value)
+        }
+        FN_EVAL_STMT => {
+            let Some(stmt) = read_utf8(a0, a1) else {
+                return UNDEFINED_HANDLE;
+            };
+            let value = crate::namespaces::rust::eval::eval_statement_text(&stmt);
+            push_value(value)
+        }
+        FN_READ_IDENTIFIER => {
+            let Some(name) = read_utf8(a0, a1) else {
+                return UNDEFINED_HANDLE;
+            };
+            match read_identifier(&name) {
+                Some(value) => push_value(value),
+                None => UNDEFINED_HANDLE,
+            }
+        }
+        FN_BINOP => binop_dispatch(a0, a1, a2),
+        FN_IS_TRUTHY => {
+            if a0 == UNDEFINED_HANDLE {
+                return 0;
+            }
+            if read_value(a0).truthy() { 1 } else { 0 }
+        }
+        FN_UNBOX_NUMBER => {
+            let n = read_value(a0).to_number();
+            i64::from_ne_bytes(n.to_ne_bytes())
+        }
+        FN_BOX_NUMBER => {
+            let n = f64::from_ne_bytes(a0.to_ne_bytes());
+            push_value(RuntimeValue::Number(n))
+        }
+        FN_IO_PRINT => crate::namespaces::rust::rts_io_print(a0),
+        FN_IO_STDOUT_WRITE => crate::namespaces::rust::rts_io_stdout_write(a0),
+        FN_IO_STDERR_WRITE => crate::namespaces::rust::rts_io_stderr_write(a0),
+        FN_IO_PANIC => crate::namespaces::rust::rts_io_panic(a0),
+        FN_CRYPTO_SHA256 => crate::namespaces::rust::rts_crypto_sha256(a0),
+        FN_PROCESS_EXIT => crate::namespaces::rust::rts_process_exit(a0),
+        FN_GLOBAL_SET => crate::namespaces::rust::rts_global_set(a0, a1),
+        FN_GLOBAL_GET => crate::namespaces::rust::rts_global_get(a0),
+        FN_GLOBAL_HAS => crate::namespaces::rust::rts_global_has(a0),
+        FN_GLOBAL_DELETE => crate::namespaces::rust::rts_global_delete(a0),
+        _ => UNDEFINED_HANDLE,
+    };
+
+    let elapsed = started.elapsed().as_nanos();
+    RUNTIME_METRICS.with(|metrics| {
+        let mut metrics = metrics.borrow_mut();
+        metrics.dispatch_calls = metrics.dispatch_calls.saturating_add(1);
+        metrics.dispatch_nanos = metrics.dispatch_nanos.saturating_add(elapsed);
+        if fn_id == FN_EVAL_EXPR {
+            metrics.eval_expr_calls = metrics.eval_expr_calls.saturating_add(1);
+            metrics.eval_expr_nanos = metrics.eval_expr_nanos.saturating_add(elapsed);
+        }
+        if fn_id == FN_EVAL_STMT {
+            metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
+            metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
+        }
+    });
+
+    result
+}
+
+/// Dispatch dinâmico por string para callees não resolvidos em tempo de compilação.
+/// Assinatura diferente de __rts_dispatch: recebe callee como (ptr, len) + argc + 6 slots.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_call_dispatch(
+    callee_ptr: i64,
+    callee_len: i64,
+    argc: i64,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    a4: i64,
+    a5: i64,
+) -> i64 {
+    let started = Instant::now();
+    let Some(callee) = read_utf8(callee_ptr, callee_len) else {
+        return UNDEFINED_HANDLE;
+    };
+
+    let slots = [a0, a1, a2, a3, a4, a5];
+    let count = argc.clamp(0, slots.len() as i64) as usize;
+    let mut args = Vec::with_capacity(count);
+    for handle in slots.into_iter().take(count) {
+        args.push(read_value(handle));
     }
-    if read_value(handle).truthy() { 1 } else { 0 }
-}
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_unbox_number(handle: i64) -> i64 {
-    let value = read_value(handle);
-    let n = value.to_number();
-    i64::from_ne_bytes(n.to_ne_bytes())
-}
+    let Some(outcome) = crate::namespaces::dispatch(callee.as_str(), &args) else {
+        return UNDEFINED_HANDLE;
+    };
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_box_number(bits: i64) -> i64 {
-    let n = f64::from_ne_bytes(bits.to_ne_bytes());
-    push_value(RuntimeValue::Number(n))
+    let result = match outcome {
+        crate::namespaces::DispatchOutcome::Value(value) => push_value(value),
+        crate::namespaces::DispatchOutcome::Emit(message) => {
+            if callee == "io.stderr_write" {
+                eprint!("{message}");
+            } else if callee == "io.stdout_write" {
+                print!("{message}");
+            } else {
+                println!("{message}");
+            }
+            UNDEFINED_HANDLE
+        }
+        crate::namespaces::DispatchOutcome::Panic(message) => {
+            eprintln!("RTS runtime panic: {message}");
+            std::process::exit(1);
+        }
+    };
+
+    let elapsed = started.elapsed().as_nanos();
+    RUNTIME_METRICS.with(|metrics| {
+        let mut metrics = metrics.borrow_mut();
+        metrics.call_dispatch_calls = metrics.call_dispatch_calls.saturating_add(1);
+        metrics.call_dispatch_nanos = metrics.call_dispatch_nanos.saturating_add(elapsed);
+    });
+
+    result
 }

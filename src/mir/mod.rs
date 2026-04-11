@@ -1,7 +1,6 @@
 pub mod build;
 pub mod cfg;
 pub mod monomorphize;
-pub mod optimize;
 pub mod typed_build;
 
 #[derive(Debug, Clone, Default)]

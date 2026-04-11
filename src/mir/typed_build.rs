@@ -2,8 +2,7 @@ use crate::hir::nodes::{HirFunction, HirItem, HirModule};
 
 use super::cfg::Terminator;
 use super::{
-    MirBinOp, MirInstruction, MirUnaryOp, SimdOp, TypedBasicBlock, TypedMirFunction,
-    TypedMirModule, VReg,
+    MirBinOp, MirInstruction, MirUnaryOp, TypedBasicBlock, TypedMirFunction, TypedMirModule, VReg,
 };
 
 use std::collections::HashMap;
