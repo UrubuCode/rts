@@ -787,6 +787,74 @@ fn lower_expr_with_pool(
                         vreg
                     }
                 }
+            } else if let Some((obj_expr, field)) = extract_member_assign_target(&assign.left) {
+                // obj.field (op)= value → suporta Assign simples e compound via
+                // LoadField + BinOp + StoreField. Reaproveita obj_vreg nas duas
+                // leituras (lado esquerdo e armazenamento) em vez de avaliar o
+                // obj_expr duas vezes — side effects do obj_expr só rodam 1x.
+                let obj_vreg = lower_expr_with_pool(
+                    obj_expr,
+                    original_text,
+                    instructions,
+                    next_vreg,
+                    constant_pool,
+                );
+                match assign.op {
+                    AssignOp::Assign => {
+                        let value = lower_expr_with_pool(
+                            &assign.right,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
+                        instructions.push(MirInstruction::StoreField(
+                            obj_vreg,
+                            field,
+                            value,
+                        ));
+                        value
+                    }
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign
+                    | AssignOp::ModAssign => {
+                        let load = alloc(next_vreg);
+                        instructions.push(MirInstruction::LoadField(
+                            load,
+                            obj_vreg,
+                            field.clone(),
+                        ));
+                        let rhs = lower_expr_with_pool(
+                            &assign.right,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
+                        let op = match assign.op {
+                            AssignOp::AddAssign => MirBinOp::Add,
+                            AssignOp::SubAssign => MirBinOp::Sub,
+                            AssignOp::MulAssign => MirBinOp::Mul,
+                            AssignOp::DivAssign => MirBinOp::Div,
+                            AssignOp::ModAssign => MirBinOp::Mod,
+                            _ => unreachable!(),
+                        };
+                        let result = alloc(next_vreg);
+                        instructions.push(MirInstruction::BinOp(result, op, load, rhs));
+                        instructions.push(MirInstruction::StoreField(
+                            obj_vreg, field, result,
+                        ));
+                        result
+                    }
+                    _ => {
+                        let vreg = alloc(next_vreg);
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        vreg
+                    }
+                }
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -808,6 +876,79 @@ fn lower_expr_with_pool(
                 instructions.push(MirInstruction::BinOp(result, op, load, one));
                 instructions.push(MirInstruction::WriteBind(name, result));
                 if update.prefix { result } else { load }
+            } else if let Expr::Member(member) = update.arg.as_ref() {
+                // Suporta `this.x++` / `obj.field--` via LoadField + BinOp + StoreField.
+                if let Some(field) = member_prop_name(&member.prop) {
+                    let obj_vreg = lower_expr_with_pool(
+                        &member.obj,
+                        original_text,
+                        instructions,
+                        next_vreg,
+                        constant_pool,
+                    );
+                    let load = alloc(next_vreg);
+                    instructions.push(MirInstruction::LoadField(
+                        load,
+                        obj_vreg,
+                        field.clone(),
+                    ));
+                    let one = constant_pool.get_or_create_number(1.0, next_vreg);
+                    let op = if update.op == UpdateOp::PlusPlus {
+                        MirBinOp::Add
+                    } else {
+                        MirBinOp::Sub
+                    };
+                    let result = alloc(next_vreg);
+                    instructions.push(MirInstruction::BinOp(result, op, load, one));
+                    instructions.push(MirInstruction::StoreField(obj_vreg, field, result));
+                    if update.prefix { result } else { load }
+                } else {
+                    let vreg = alloc(next_vreg);
+                    instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                    vreg
+                }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
+        Expr::This(_) => {
+            // `this` é um parâmetro implícito do método de instância.
+            // O lowering de método não-estático injeta `Bind("this", param0)`
+            // no entry block antes do corpo, então aqui só precisamos ler o
+            // binding. Fora de método de instância, o binding não existe e
+            // o runtime vai devolver undefined, que é semântica JS aceitável.
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::LoadBinding(vreg, "this".to_string()));
+            vreg
+        }
+        Expr::New(new_expr) => {
+            // Suporta `new ClassName()` sem argumentos. Args e chamada de
+            // constructor vêm junto com suporte a métodos de instância
+            // (comit seguinte). Aloca um Object vazio via FN_NEW_INSTANCE.
+            let class_name = extract_expr_name(&new_expr.callee);
+            let vreg = alloc(next_vreg);
+            if let Some(name) = class_name {
+                instructions.push(MirInstruction::NewInstance(vreg, name));
+            } else {
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+            }
+            vreg
+        }
+        Expr::Member(member) => {
+            // Lê o campo: `obj.field` → LoadField(dst, obj, "field")
+            if let Some(field) = member_prop_name(&member.prop) {
+                let obj_vreg = lower_expr_with_pool(
+                    &member.obj,
+                    original_text,
+                    instructions,
+                    next_vreg,
+                    constant_pool,
+                );
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::LoadField(vreg, obj_vreg, field));
+                vreg
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -959,6 +1100,50 @@ fn lower_expr(
                         vreg
                     }
                 }
+            } else if let Some((obj_expr, field)) = extract_member_assign_target(&assign.left) {
+                let obj_vreg = lower_expr(obj_expr, original_text, instructions, next_vreg);
+                match assign.op {
+                    AssignOp::Assign => {
+                        let value =
+                            lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        instructions.push(MirInstruction::StoreField(obj_vreg, field, value));
+                        value
+                    }
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign
+                    | AssignOp::ModAssign => {
+                        let load = alloc(next_vreg);
+                        instructions.push(MirInstruction::LoadField(
+                            load,
+                            obj_vreg,
+                            field.clone(),
+                        ));
+                        let rhs =
+                            lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        let op = match assign.op {
+                            AssignOp::AddAssign => MirBinOp::Add,
+                            AssignOp::SubAssign => MirBinOp::Sub,
+                            AssignOp::MulAssign => MirBinOp::Mul,
+                            AssignOp::DivAssign => MirBinOp::Div,
+                            AssignOp::ModAssign => MirBinOp::Mod,
+                            _ => unreachable!(),
+                        };
+                        let result = alloc(next_vreg);
+                        instructions.push(MirInstruction::BinOp(result, op, load, rhs));
+                        instructions.push(MirInstruction::StoreField(
+                            obj_vreg, field, result,
+                        ));
+                        result
+                    }
+                    _ => {
+                        let vreg = alloc(next_vreg);
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        vreg
+                    }
+                }
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -981,6 +1166,58 @@ fn lower_expr(
                 instructions.push(MirInstruction::BinOp(result, op, load, one));
                 instructions.push(MirInstruction::WriteBind(name, result));
                 if update.prefix { result } else { load }
+            } else if let Expr::Member(member) = update.arg.as_ref() {
+                if let Some(field) = member_prop_name(&member.prop) {
+                    let obj_vreg = lower_expr(&member.obj, original_text, instructions, next_vreg);
+                    let load = alloc(next_vreg);
+                    instructions.push(MirInstruction::LoadField(
+                        load,
+                        obj_vreg,
+                        field.clone(),
+                    ));
+                    let one = alloc(next_vreg);
+                    instructions.push(MirInstruction::ConstNumber(one, 1.0));
+                    let op = if update.op == UpdateOp::PlusPlus {
+                        MirBinOp::Add
+                    } else {
+                        MirBinOp::Sub
+                    };
+                    let result = alloc(next_vreg);
+                    instructions.push(MirInstruction::BinOp(result, op, load, one));
+                    instructions.push(MirInstruction::StoreField(obj_vreg, field, result));
+                    if update.prefix { result } else { load }
+                } else {
+                    let vreg = alloc(next_vreg);
+                    instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                    vreg
+                }
+            } else {
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                vreg
+            }
+        }
+        Expr::This(_) => {
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::LoadBinding(vreg, "this".to_string()));
+            vreg
+        }
+        Expr::New(new_expr) => {
+            let class_name = extract_expr_name(&new_expr.callee);
+            let vreg = alloc(next_vreg);
+            if let Some(name) = class_name {
+                instructions.push(MirInstruction::NewInstance(vreg, name));
+            } else {
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+            }
+            vreg
+        }
+        Expr::Member(member) => {
+            if let Some(field) = member_prop_name(&member.prop) {
+                let obj_vreg = lower_expr(&member.obj, original_text, instructions, next_vreg);
+                let vreg = alloc(next_vreg);
+                instructions.push(MirInstruction::LoadField(vreg, obj_vreg, field));
+                vreg
             } else {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -1023,6 +1260,29 @@ fn extract_simple_assign_target(target: &AssignTarget) -> Option<String> {
             SimpleAssignTarget::Ident(ident) => Some(ident.id.sym.to_string()),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// Extrai o nome de um campo acessado via `MemberProp`. Suporta apenas
+/// acesso por identificador literal (`obj.field`) — acesso computado
+/// (`obj[key]`) ainda cai em `RuntimeEval`.
+fn member_prop_name(prop: &MemberProp) -> Option<String> {
+    match prop {
+        MemberProp::Ident(ident) => Some(ident.sym.to_string()),
+        _ => None,
+    }
+}
+
+/// Se o target do assign for `obj.field`, retorna (obj_expr, field_name).
+fn extract_member_assign_target<'a>(
+    target: &'a AssignTarget,
+) -> Option<(&'a Expr, String)> {
+    match target {
+        AssignTarget::Simple(SimpleAssignTarget::Member(member)) => {
+            let field = member_prop_name(&member.prop)?;
+            Some((&member.obj, field))
+        }
         _ => None,
     }
 }
@@ -1697,6 +1957,87 @@ mod tests {
                 .iter()
                 .any(|i| matches!(i, MirInstruction::Return(Some(_)))),
             "corpo do método deve emitir Return com valor"
+        );
+    }
+
+    #[test]
+    fn lowers_new_expression_to_new_instance() {
+        let hir = build_simple_module(vec!["const c = new Counter();"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::NewInstance(_, name) if name == "Counter")),
+            "new Counter() deve emitir NewInstance(_, \"Counter\")"
+        );
+    }
+
+    #[test]
+    fn lowers_member_read_to_load_field() {
+        let hir = build_simple_module(vec!["const c = new Box();", "const x = c.value;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadField(_, _, name) if name == "value")),
+            "c.value deve emitir LoadField(_, _, \"value\")"
+        );
+    }
+
+    #[test]
+    fn lowers_member_assign_to_store_field() {
+        let hir = build_simple_module(vec!["const c = new Box();", "c.value = 42;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::StoreField(_, name, _) if name == "value")),
+            "c.value = 42 deve emitir StoreField(_, \"value\", _)"
+        );
+    }
+
+    #[test]
+    fn lowers_member_compound_assign_to_load_binop_store() {
+        let hir = build_simple_module(vec!["const c = new Box();", "c.n += 5;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        // `c.n += 5` → LoadField + ConstNumber(5) + BinOp(Add) + StoreField
+        let has_load = instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::LoadField(_, _, name) if name == "n"));
+        let has_add = instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _)));
+        let has_store = instructions
+            .iter()
+            .any(|i| matches!(i, MirInstruction::StoreField(_, name, _) if name == "n"));
+        assert!(
+            has_load && has_add && has_store,
+            "compound assign deve emitir LoadField + BinOp + StoreField"
+        );
+    }
+
+    #[test]
+    fn lowers_this_expression_to_load_binding_this() {
+        // `this` fora de método ainda produz LoadBinding — só vira UB
+        // em runtime (undefined). O lowering acima do HIR é quem injeta
+        // `this` como parâmetro 0 em métodos de instância.
+        let hir = build_simple_module(vec!["const x = this;"]);
+        let mir = typed_build(&hir);
+        let main = &mir.functions[0];
+        let instructions = &main.blocks[0].instructions;
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadBinding(_, name) if name == "this")),
+            "Expr::This deve emitir LoadBinding(_, \"this\")"
         );
     }
 
