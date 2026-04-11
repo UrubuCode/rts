@@ -75,14 +75,20 @@ impl ValueStore {
             .unwrap_or(RuntimeValue::Undefined)
     }
 
-    fn bind_identifier(&mut self, name: String, handle: i64, mutable: bool) -> i64 {
-        if let Some(existing) = self.bindings.get(&name) {
+    fn bind_identifier(&mut self, name: &str, handle: i64, mutable: bool) -> i64 {
+        // Fast path: re-binding de uma global já conhecida — atualiza o slot
+        // sem nenhuma alocação de String nem clone do valor.
+        if let Some(existing) = self.bindings.get_mut(name) {
             if !existing.mutable {
                 return existing.handle;
             }
+            existing.handle = handle;
+            existing.mutable = mutable;
+            return handle;
         }
 
-        self.bindings.insert(name, BindingEntry { handle, mutable });
+        self.bindings
+            .insert(name.to_string(), BindingEntry { handle, mutable });
         handle
     }
 
@@ -105,11 +111,6 @@ impl ValueStore {
         self.bindings
             .insert(name.to_string(), BindingEntry { handle, mutable });
         handle
-    }
-
-    fn read_identifier(&self, name: &str) -> Option<RuntimeValue> {
-        let handle = self.bindings.get(name).map(|entry| entry.handle)?;
-        Some(self.read_value(handle))
     }
 
     fn resolve_binding(&self, name: &str) -> Option<BindingEntry> {
@@ -262,12 +263,17 @@ fn read_value(handle: i64) -> RuntimeValue {
     with_store(|store| store.read_value(handle))
 }
 
-fn bind_identifier(name: String, handle: i64, mutable: bool) -> i64 {
+fn bind_identifier(name: &str, handle: i64, mutable: bool) -> i64 {
     with_store_mut(|store| store.bind_identifier(name, handle, mutable))
 }
 
-fn read_identifier(name: &str) -> Option<RuntimeValue> {
-    with_store(|store| store.read_identifier(name))
+/// Versão rápida de FN_READ_IDENTIFIER usada no hot path: devolve o
+/// handle existente diretamente, sem clonar o `RuntimeValue` nem alocar
+/// um novo slot no `values` vec. Handles são opacos para o chamador e o
+/// backing storage permanece estável enquanto o binding não for
+/// sobrescrito via WriteBind (que cria um handle novo, não muta in-place).
+fn read_identifier_handle(name: &str) -> Option<i64> {
+    with_store(|store| store.bindings.get(name).map(|entry| entry.handle))
 }
 
 pub(crate) fn push_runtime_value(value: RuntimeValue) -> i64 {
@@ -305,6 +311,14 @@ pub(crate) fn write_runtime_value_handle(handle: i64, value: RuntimeValue) -> bo
 }
 
 fn read_utf8(ptr: i64, len: i64) -> Option<String> {
+    read_utf8_static(ptr, len).map(ToString::to_string)
+}
+
+/// Devolve um `&'static str` apontando para o data segment do módulo
+/// emitido pelo codegen. Evita a alocação de `String` no hot path de
+/// bind/read de identificadores.
+#[inline]
+fn read_utf8_static(ptr: i64, len: i64) -> Option<&'static str> {
     if ptr <= 0 || len < 0 {
         return None;
     }
@@ -312,11 +326,13 @@ fn read_utf8(ptr: i64, len: i64) -> Option<String> {
     let ptr = ptr as *const u8;
     let len = len as usize;
     let bytes = unsafe {
-        // SAFETY: `ptr` and `len` são emitidos pelo codegen RTS como referências a dados estáticos.
+        // SAFETY: `ptr` e `len` são emitidos pelo codegen RTS como referências
+        // a dados estáticos no `.rdata`. Vivem enquanto o módulo estiver
+        // carregado, o que é superset do tempo de execução das dispatches.
         std::slice::from_raw_parts(ptr, len)
     };
 
-    std::str::from_utf8(bytes).ok().map(ToString::to_string)
+    std::str::from_utf8(bytes).ok()
 }
 
 fn binop_dispatch(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 {
@@ -392,7 +408,7 @@ pub extern "C" fn __rts_dispatch(
             UNDEFINED_HANDLE
         }
         FN_BIND_IDENTIFIER => {
-            let Some(name) = read_utf8(a0, a1) else {
+            let Some(name) = read_utf8_static(a0, a1) else {
                 return UNDEFINED_HANDLE;
             };
             bind_identifier(name, a2, a3 != 0)
@@ -421,13 +437,14 @@ pub extern "C" fn __rts_dispatch(
             push_value(value)
         }
         FN_READ_IDENTIFIER => {
-            let Some(name) = read_utf8(a0, a1) else {
+            let Some(name) = read_utf8_static(a0, a1) else {
                 return UNDEFINED_HANDLE;
             };
-            match read_identifier(&name) {
-                Some(value) => push_value(value),
-                None => UNDEFINED_HANDLE,
-            }
+            // Fast path: devolve o handle existente do binding diretamente,
+            // sem clonar o RuntimeValue nem alocar um slot novo no `values`
+            // vec. Handles são opacos para o chamador e o backing storage
+            // permanece estável enquanto o binding não for sobrescrito.
+            read_identifier_handle(name).unwrap_or(UNDEFINED_HANDLE)
         }
         FN_BINOP => binop_dispatch(a0, a1, a2),
         FN_IS_TRUTHY => {
