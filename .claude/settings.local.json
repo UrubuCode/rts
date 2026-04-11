@@ -40,7 +40,9 @@
       "Bash(grep -v \"^[^:]*\\\\.rs:.*//.*\")",
       "Bash(rustc:*)",
       "Bash(target/release/rts.exe test:*)",
-      "Bash(../target/release/rts.exe test:*)"
+      "Bash(../target/release/rts.exe test:*)",
+      "Bash(git fetch:*)",
+      "Bash(git branch:*)"
     ]
   }
 }
