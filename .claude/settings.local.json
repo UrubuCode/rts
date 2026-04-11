@@ -42,7 +42,13 @@
       "Bash(target/release/rts.exe test:*)",
       "Bash(../target/release/rts.exe test:*)",
       "Bash(git fetch:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(wc -l src/namespaces/net/*.rs)",
+      "Bash(curl -v http://127.0.0.1:3000/hello)",
+      "Bash(target/release/rts.exe apis:*)",
+      "Bash(target/release/rts.exe --help)",
+      "Bash(target/release/rts.exe)",
+      "Bash(target/release/rts.exe emit-types:*)"
     ]
   }
 }
