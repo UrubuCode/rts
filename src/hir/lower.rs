@@ -4,6 +4,7 @@ use crate::type_system::resolver::TypeResolver;
 use super::annotations::TypeAnnotation;
 use super::nodes::{
     HirClass, HirField, HirFunction, HirImport, HirInterface, HirItem, HirModule, HirParameter,
+    SourceLocation,
 };
 
 pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
@@ -16,6 +17,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                     names: import_decl.names.clone(),
                     default_name: import_decl.default_name.clone(),
                     from: import_decl.from.clone(),
+                    loc: Some(SourceLocation::from_span(import_decl.span)),
                 };
 
                 module.items.push(HirItem::Import(import.clone()));
@@ -44,7 +46,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                     name: class_decl.name.clone(),
                     fields: Vec::new(),
                     methods: Vec::new(),
-                    loc: None,
+                    loc: Some(SourceLocation::from_span(class_decl.span)),
                 };
 
                 for member in &class_decl.members {
@@ -83,7 +85,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                 parameters,
                                 return_type: None,
                                 body: statements_to_strings(&ctor.body),
-                                loc: None,
+                                loc: Some(SourceLocation::from_span(ctor.span)),
                             };
 
                             module.functions.push(ctor_fn.clone());
@@ -118,7 +120,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                                     .as_ref()
                                     .map(|name| annotate(name, resolver)),
                                 body: statements_to_strings(&method.body),
-                                loc: None,
+                                loc: Some(SourceLocation::from_span(method.span)),
                             };
 
                             module.functions.push(function.clone());
@@ -162,7 +164,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                         .as_ref()
                         .map(|name| annotate(name, resolver)),
                     body: statements_to_strings(&function_decl.body),
-                    loc: None,
+                    loc: Some(SourceLocation::from_span(function_decl.span)),
                 };
 
                 module.items.push(HirItem::Function(function.clone()));

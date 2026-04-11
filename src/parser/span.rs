@@ -1,4 +1,6 @@
-﻿#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+use crate::diagnostics::source_store::FileId;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Position {
     pub line: usize,
     pub column: usize,
@@ -8,6 +10,7 @@ pub struct Position {
 pub struct Span {
     pub start: Position,
     pub end: Position,
+    pub file: Option<FileId>,
 }
 
 impl Span {
@@ -21,7 +24,13 @@ impl Span {
                 line,
                 column: end_column,
             },
+            file: None,
         }
+    }
+
+    pub fn with_file(mut self, file: FileId) -> Self {
+        self.file = Some(file);
+        self
     }
 }
 

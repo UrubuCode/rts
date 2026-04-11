@@ -267,6 +267,12 @@ pub fn namespace_exports_for(name: &str) -> Option<Vec<&'static str>> {
         })
 }
 
+/// Retorna os nomes de todos os namespaces split disponiveis (sem prefixo `rts:`).
+/// Usado por diagnosticos para sugerir alternativas.
+pub fn namespace_names() -> Vec<&'static str> {
+    SPLIT_SPECS.iter().map(|spec| spec.name).collect()
+}
+
 pub fn default_typescript_output_path() -> PathBuf {
     PathBuf::from("packages").join("rts-types").join("rts.d.ts")
 }

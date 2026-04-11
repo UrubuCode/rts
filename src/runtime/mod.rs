@@ -33,6 +33,18 @@ pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
     None
 }
 
+/// Retorna os nomes de todos os modulos builtin conhecidos.
+/// Usado por diagnosticos para sugerir correcoes ("voce quis dizer 'rts:fs'?").
+pub fn builtin_module_keys() -> Vec<&'static str> {
+    let mut keys = vec!["rts"];
+    for ns in crate::namespaces::namespace_names() {
+        // Ambos com e sem prefixo sao aceitos para sugestao, ja que o autor
+        // pode errar em qualquer um dos dois formatos.
+        keys.push(ns);
+    }
+    keys
+}
+
 pub fn rts_exports() -> &'static [&'static str] {
     RTS_EXPORTS
 }

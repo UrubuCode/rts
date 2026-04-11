@@ -449,6 +449,11 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
     let mut hoisted = constant_pool.into_hoisted_instructions();
     hoisted.extend(instructions);
 
+    // Emit diagnostic warnings for any RuntimeEval fallbacks — o compilador
+    // caiu em avaliacao dinamica para essas construcoes. Isso sinaliza ao
+    // usuario que parte do codigo nao foi compilada nativamente.
+    emit_runtime_eval_warnings(function, &hoisted);
+
     func.blocks.push(TypedBasicBlock {
         label: "entry".to_string(),
         instructions: hoisted,
@@ -456,6 +461,105 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
     });
 
     func
+}
+
+/// Varre as instrucoes de uma funcao apos o lowering e emite um
+/// `RichDiagnostic::warning` para cada `RuntimeEval` encontrado.
+/// Usa o `loc` da funcao como span do warning — nao e perfeito, mas
+/// localiza pelo menos a funcao que contem o fallback.
+fn emit_runtime_eval_warnings(function: &HirFunction, instructions: &[MirInstruction]) {
+    let Some(loc) = function.loc.as_ref() else {
+        return;
+    };
+    let span = loc.to_span();
+
+    for inst in instructions {
+        if let MirInstruction::RuntimeEval(_, text) = inst {
+            let snippet = first_line_snippet(text);
+            let category = classify_runtime_eval(text);
+            crate::diagnostics::reporter::emit(
+                crate::diagnostics::reporter::RichDiagnostic::warning(
+                    category.code,
+                    format!("{} em '{}'", category.label, function.name),
+                )
+                .with_span(span)
+                .with_note(format!("trecho: {snippet}"))
+                .with_note(
+                    "este trecho cai em avaliacao dinamica (RuntimeEval) — \
+                     performance degradada, sem checagem de tipos",
+                ),
+            );
+        }
+    }
+}
+
+struct RuntimeEvalCategory {
+    code: &'static str,
+    label: &'static str,
+}
+
+fn classify_runtime_eval(text: &str) -> RuntimeEvalCategory {
+    let t = text.trim_start();
+    if t.starts_with("for") && t.contains(" in ") {
+        RuntimeEvalCategory {
+            code: "W003",
+            label: "for-in nao compilado nativamente",
+        }
+    } else if t.starts_with("for") && t.contains(" of ") {
+        RuntimeEvalCategory {
+            code: "W004",
+            label: "for-of nao compilado nativamente",
+        }
+    } else if t.starts_with("try") {
+        RuntimeEvalCategory {
+            code: "W005",
+            label: "try/catch nao compilado nativamente",
+        }
+    } else if t.starts_with("throw") {
+        RuntimeEvalCategory {
+            code: "W006",
+            label: "throw nao compilado nativamente",
+        }
+    } else if t.starts_with("async") || t.contains("await ") {
+        RuntimeEvalCategory {
+            code: "W007",
+            label: "async/await nao compilado nativamente",
+        }
+    } else if t.contains("=>") {
+        RuntimeEvalCategory {
+            code: "W008",
+            label: "arrow function nao compilada nativamente",
+        }
+    } else if t.starts_with('`') || t.contains("${") {
+        RuntimeEvalCategory {
+            code: "W009",
+            label: "template literal nao compilado nativamente",
+        }
+    } else if t.starts_with("switch") {
+        RuntimeEvalCategory {
+            code: "W010",
+            label: "switch nao compilado nativamente",
+        }
+    } else if t.starts_with("class") {
+        RuntimeEvalCategory {
+            code: "W011",
+            label: "class expression nao compilada nativamente",
+        }
+    } else {
+        RuntimeEvalCategory {
+            code: "W001",
+            label: "construcao nao compilada nativamente",
+        }
+    }
+}
+
+fn first_line_snippet(text: &str) -> String {
+    let line = text.lines().next().unwrap_or("").trim();
+    if line.len() > 80 {
+        format!("{}...", &line[..77])
+    } else {
+        line.to_string()
+    }
 }
 
 fn inject_into_typed_main(main: &mut TypedMirFunction, statements: &mut Vec<MirInstruction>) {
