@@ -1,8 +1,8 @@
 # Otimização do Hot Path de Execução — do `FN_EVAL_STMT` ao Bun-Beater
 
-> **TL;DR**: o bench `rts_simple.ts` saiu de ~2300 ms para **25 ms** (AOT) / **40 ms** (JIT)
-> no decorrer de 6 commits, sem mudar arquitetura. O RTS hoje é **4.3× mais rápido**
-> que Bun e **5.1× mais rápido** que Node nesse bench.
+> **TL;DR**: o bench `rts_simple.ts` saiu de ~2300 ms para **26 ms** (AOT) / **36 ms** (JIT)
+> no decorrer de 8 commits, sem mudar arquitetura. O RTS hoje é **3.8× mais rápido**
+> que Bun e **4.9× mais rápido** que Node nesse bench.
 
 Este documento registra **como** isso foi feito, **por que** cada decisão foi tomada,
 e as lições aprendidas ao longo da investigação. Ele existe para:
@@ -413,18 +413,102 @@ exercitaria o caminho.
 - RTS (run): 73 ms → **40 ms** (−45%)
 - RTS (compiled): 66 ms → **25 ms** (−62%)
 
+### Commit 7: `5b3a557` — unbox de parâmetros numéricos uma única vez no entry block
+
+**Sintoma observado**: depois do commit 6, um contador de dispatches por
+`fn_id` (instrumentação temporária, não committada) revelou que dos 202579
+dispatches residuais, **202515 (99.97%) eram `FN_UNBOX_NUMBER`**. Os outros
+fn_ids somavam ~60 calls totais. Distribuição brutal — o commit 6 tinha
+eliminado todo o dispatch de globais, mas algo ainda estava fazendo 1
+unbox por iteração.
+
+Contagem do UNBOX = 202 515 bate exatamente com a soma das iterações dos
+3 loops principais: 80000 + 2500 + 120000 = 202 500. Sobram ~15 calls de
+configuração. **Um único unbox por iteração de cada while loop.**
+
+**Causa raiz**: `LoadParam` no typed_codegen não definia `VRegKind` para
+o vreg criado — então ficava no default `Handle`. Parâmetros chegam como
+handles pela ABI extern "C" do RTS (é assim que funções se chamam), mas
+ficavam como handles **depois** do `LoadParam` também. Quando o código
+fazia `i < rounds` dentro de um while, o `i` era NativeF64 (do stack slot)
+e `rounds` era Handle (do parâmetro). BinOp via promoção →
+`adapt_to_kind(Handle, NativeF64)` → `FN_UNBOX_NUMBER` por iteração.
+
+**O que foi feito**:
+
+1. **`TypedMirFunction.param_is_numeric: Vec<bool>`**: novo campo populado
+   no `build_typed_function` a partir da anotação de tipo do HIR. Nova
+   helper `is_numeric_type_annotation` reconhece `number`/`i32`/`i64`/`f32`/
+   `f64`/`u32`/`u64`/`i16`/`u16`/`i8`/`u8`.
+
+2. **`LoadParam` no typed_codegen**: consulta
+   `function.param_is_numeric[index]`. Se `true`, emite `FN_UNBOX_NUMBER`
+   **uma única vez** no entry block e marca o vreg como `NativeF64`. Se
+   `false` (default, não-numérico), mantém como `Handle`.
+
+**Armadilha descoberta**: a primeira tentativa fazia unbox de **todos** os
+params. Resultado: checksum virou `"NaN"` em vez de `"bench-checksum:1835371715"`.
+Causa: `emit(message: str)` é uma função que recebe `string` e chama
+`io.print(msg)`. O `message` era unboxed pra NaN no entry, e `io.print`
+recebia NaN em vez do handle da string original. A correção certa
+depende de **distinguir** params numéricos de não-numéricos — daí a
+necessidade de propagar `type_annotation` do HIR.
+
+Parâmetros sem anotação (JavaScript puro) ficam como Handle — conservador,
+mesmo comportamento de antes.
+
+**Resultado**:
+- `FN_UNBOX_NUMBER`: 202515 → **16**
+- Dispatches totais: 202579 → **80**
+- RTS (run): 40 ms → **36 ms** (−10%)
+- RTS (compiled): 25 ms → **26 ms** (empate — já estava no teto do que
+  o bench permite)
+
+### Commit 8: `f41c1d9` — remover `println!` de diagnóstico do stdout do `rts run`
+
+**Sintoma observado**: ao medir em bash via `time target/release/rts.exe
+run bench/rts_simple.ts`, obtive **270 ms real** consistente. Mas
+`--debug` reportava `launcher.total = 21 ms` + `execute_entry = 7.5 ms`.
+**Gap de 250 ms fora do escopo medido pelo launcher** — tempo de shutdown
+do processo.
+
+Adicionando `eprintln!("[DEBUG PROBE]")` como última linha da função,
+o tempo **caía** para 53 ms. Isso é impossível em condições normais. Só
+se alguma coisa no drop path estivesse bloqueando, e o `eprintln!`
+forçasse o flush de alguma forma.
+
+**Causa raiz**: `src/cli/run.rs` tinha um `println!("JIT executou '{}':
+...")` diagnóstico remanescente de quando o JIT era novo. No caminho
+normal (`rts run` sem `--debug`), esse println ficava poluindo stdout
+junto com o output do programa do usuário. Pior: o Drop do stdout no
+shutdown bloqueava por 250ms no Windows em pipe redirecionado.
+
+**O que foi feito**: remover o `println!` completo (o diagnóstico
+equivalente já existe sob `--debug` via `print_debug_timeline`). Em
+produção, o binário do usuário é o único output do stdout — como deveria
+ser.
+
+**Resultado**:
+- Real time bash: 270 ms → **53 ms**
+- Bench oficial (`benchmark.ps1`, 10 runs): **36 ms** mean
+
+**Lição**: sempre verifique se o tempo que você está medindo inclui o
+shutdown do processo. O `launcher.total` era honesto (21 ms), mas o
+que o shell via era 270 ms. A diferença era **shutdown de artefatos
+de diagnóstico que não deveriam estar lá.**
+
 ---
 
 ## 4. Placar final
 
-Médias de 10 runs steady-state, release, overhead de `*> $null` incluído:
+Médias de 10 runs, `bench/benchmark.ps1`, release:
 
-| runner | mean_ms | vs Bun |
-|---|---|---|
-| **RTS (compiled)** | **25 ms** | **0.23×** (4.3× mais rápido) |
-| **RTS (run)** | **40 ms** | **0.37×** (2.7× mais rápido) |
-| Bun (run) | 109 ms | 1.00× |
-| Node (run) | 128 ms | 1.18× |
+| runner | mean_ms | median_ms | vs Bun |
+|---|---|---|---|
+| **RTS (compiled)** | **26 ms** | **26 ms** | **0.26×** (3.8× mais rápido) |
+| **RTS (run)** | **36 ms** | **36 ms** | **0.35×** (2.8× mais rápido) |
+| Bun (run) | 102 ms | 101 ms | 1.00× |
+| Node (run) | 128 ms | 128 ms | 1.26× |
 
 **Correção**: `bench-checksum:1835371715` preservado em todos os commits.
 
@@ -440,7 +524,9 @@ Médias de 10 runs steady-state, release, overhead de `*> $null` incluído:
 | `8e7b88a` | `opt_level`: `speed_and_size` → `speed` | 229 ms | **231 ms** |
 | `f56f764` | métrica de dispatch opt-in | 124 ms | 137 ms |
 | `3bcd6da` | eliminar `String` + value clone | 73 ms | 66 ms |
-| `59a4fa1` | shadow globals F64 em funções puras | **40 ms** | **25 ms** |
+| `59a4fa1` | shadow globals F64 em funções puras | 40 ms | 25 ms |
+| `5b3a557` | unbox de params numéricos uma vez | 36 ms | 26 ms |
+| `f41c1d9` | remover `println!` diagnóstico | **36 ms** | **26 ms** |
 
 ---
 
@@ -522,6 +608,29 @@ Médias de 10 runs steady-state, release, overhead de `*> $null` incluído:
     conservadora: **qualquer** `Call` aborta a promoção por função inteira.
     Análise interprocedural (marcar funções como "pure w.r.t. globais")
     permitiria promover através de chamadas de helpers como `io.print`.
+
+14. **`LoadParam` sem `VRegKind` = unbox por iteração em todo loop**.
+    Parâmetros chegam como handles via ABI. Se o `LoadParam` não marca
+    explicitamente o kind do vreg, ele fica `Handle`, e qualquer uso
+    subsequente num `BinOp` numérico dispara `adapt_to_kind(Handle, Native)`
+    → `FN_UNBOX_NUMBER`. Em um while loop de 120k iterações, são 120k
+    unboxes do mesmo handle. **Unbox UMA vez no entry block** se o tipo
+    anotado for numérico, registrar como `NativeF64`. Para parâmetros
+    não-numéricos (`string`/`bool`), **não** unbox — o handle é o que o
+    callee eventualmente vai repassar para outras funções como `io.print`,
+    e unboxá-lo cria `NaN`. A distinção requer propagar `type_annotation`
+    do HIR até o codegen.
+
+15. **`println!` remanescente em hot path de CLI mata perf do processo,
+    não do código**. O `rts run` tinha um `println!("JIT executou '{}': ...")`
+    diagnóstico no final que era inofensivo em `cargo run` mas causava
+    250ms de shutdown no binário release no Windows (provavelmente flush
+    bloqueado em pipe redirecionado). O `launcher.total` do `--debug`
+    reportava 21ms honestamente — o tempo extra ficava **depois** da
+    medição, no Drop do stdout. **Sempre meça via `time` do shell também,
+    não só via métricas internas**: se há uma diferença grande entre as
+    duas, o gargalo é em algo que você não está medindo (tipicamente
+    shutdown/startup/stdout).
 
 ---
 
@@ -609,14 +718,15 @@ não muda. Útil em workflow de dev rápido, não para o bench.
 
 ### Arquivos tocados nesta sessão
 
-- `src/cli/run.rs` — swap para `typed_build` + `execute_typed`; dispatch metrics setter
+- `src/cli/run.rs` — swap para `typed_build` + `execute_typed`; dispatch metrics setter; remoção do `println!` de diagnóstico
 - `src/cli/eval.rs` — dispatch metrics setter
-- `src/mir/typed_build.rs` — lower nativo de while/do-while/for/switch; `TOP_LEVEL_CONSTS`
-- `src/codegen/cranelift/typed_codegen.rs` — `BindingState.kind`, `adapt_to_kind`, promoção em `BinOp`, `switch_body_*`, **`analyze_shadow_globals` + `emit_shadow_writeback` (shadow globals F64)**
+- `src/mir/mod.rs` — `TypedMirFunction.param_is_numeric`
+- `src/mir/typed_build.rs` — lower nativo de while/do-while/for/switch; `TOP_LEVEL_CONSTS`; `is_numeric_type_annotation` + preenchimento de `param_is_numeric`
+- `src/codegen/cranelift/typed_codegen.rs` — `BindingState.kind`, `adapt_to_kind`, promoção em `BinOp`, `switch_body_*`, `analyze_shadow_globals` + `emit_shadow_writeback` (shadow globals F64), **`LoadParam` unbox de params numéricos**
 - `src/codegen/cranelift/object_builder.rs` — `opt_level` fix
 - `src/namespaces/abi.rs` — instrumentação opt-in, `read_utf8_static`, `bind_identifier(&str)`, `read_identifier_handle`
 
-### Commits (branch `test-stmt`, à frente de `origin/test-stmt` por 6)
+### Commits (branch `test-stmt`, à frente de `origin/test-stmt` por 9)
 
 - `d672a6a` perf(jit): lower loops/switch natively and inline top-level consts
 - `4918ced` perf(codegen): cachear kind nativo em stack slots e promover binops mistos
@@ -624,6 +734,8 @@ não muda. Útil em workflow de dev rápido, não para o bench.
 - `f56f764` perf(abi): make __rts_dispatch timing instrumentation opt-in
 - `3bcd6da` perf(abi): eliminate String allocs and value clones on hot dispatch path
 - `59a4fa1` perf(codegen): cache globais como shadow F64 stack slots em funções puras
+- `5b3a557` perf(codegen): unbox numeric params uma única vez no entry block
+- `f41c1d9` fix(cli): remove JIT stdout noise from run path
 
 ### Como reproduzir os números
 
