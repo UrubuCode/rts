@@ -12,13 +12,9 @@ pub fn command(
     output_arg: Option<String>,
     mut options: CompileOptions,
 ) -> Result<()> {
-    let input = input_arg
-        .map(PathBuf::from)
-        .unwrap();
+    let input = input_arg.map(PathBuf::from).unwrap();
 
-    let output = output_arg
-        .map(PathBuf::from)
-        .unwrap();
+    let output = output_arg.map(PathBuf::from).unwrap();
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)

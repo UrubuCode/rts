@@ -1,5 +1,5 @@
-use crate::namespaces::value::JsValue;
 use crate::namespaces::task::executor as runtime_state;
+use crate::namespaces::value::RuntimeValue;
 
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64};
 
@@ -46,27 +46,27 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ],
 };
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
-        "promise.resolve" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
-            runtime_state::promise_resolve(arg_to_string(args, 0)) as f64,
-        ))),
-        "promise.reject" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
+        "promise.resolve" if !args.is_empty() => Some(DispatchOutcome::Value(
+            RuntimeValue::Number(runtime_state::promise_resolve(arg_to_string(args, 0)) as f64),
+        )),
+        "promise.reject" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Number(
             runtime_state::promise_reject(arg_to_string(args, 0)) as f64,
         ))),
         "promise.status" if !args.is_empty() => Some(DispatchOutcome::Value(
             runtime_state::promise_status(arg_to_u64(args, 0))
-                .map(|status| JsValue::String(status.as_str().to_string()))
-                .unwrap_or(JsValue::Undefined),
+                .map(|status| RuntimeValue::String(status.as_str().to_string()))
+                .unwrap_or(RuntimeValue::Undefined),
         )),
-        "promise.is_settled" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            runtime_state::promise_is_settled(arg_to_u64(args, 0)),
-        ))),
+        "promise.is_settled" if !args.is_empty() => Some(DispatchOutcome::Value(
+            RuntimeValue::Bool(runtime_state::promise_is_settled(arg_to_u64(args, 0))),
+        )),
         "promise.await" if !args.is_empty() => Some(DispatchOutcome::Value(
             match runtime_state::promise_await(arg_to_u64(args, 0)) {
-                Some(Ok(value)) => JsValue::String(value),
-                Some(Err(reason)) => JsValue::String(format!("rejected:{reason}")),
-                None => JsValue::Undefined,
+                Some(Ok(value)) => RuntimeValue::String(value),
+                Some(Err(reason)) => RuntimeValue::String(format!("rejected:{reason}")),
+                None => RuntimeValue::Undefined,
             },
         )),
         _ => None,

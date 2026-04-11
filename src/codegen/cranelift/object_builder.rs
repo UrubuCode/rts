@@ -195,9 +195,7 @@ pub fn lower_typed_to_native_object(
     for function in &mir.functions {
         let id = object_module
             .declare_function(&function.name, Linkage::Export, &signature)
-            .with_context(|| {
-                format!("failed to declare typed AOT function '{}'", function.name)
-            })?;
+            .with_context(|| format!("failed to declare typed AOT function '{}'", function.name))?;
         declarations.insert(function.name.clone(), id);
     }
 
@@ -210,15 +208,12 @@ pub fn lower_typed_to_native_object(
     }
 
     for function in &mir.functions {
-        let id = declarations
-            .get(&function.name)
-            .copied()
-            .ok_or_else(|| {
-                anyhow!(
-                    "missing declaration for typed AOT function '{}'",
-                    function.name
-                )
-            })?;
+        let id = declarations.get(&function.name).copied().ok_or_else(|| {
+            anyhow!(
+                "missing declaration for typed AOT function '{}'",
+                function.name
+            )
+        })?;
         super::typed_codegen::define_typed_function(
             &mut object_module,
             &mut declarations,
@@ -374,10 +369,8 @@ fn define_function(
                                 continue;
                             }
 
-                            let value_handle = entry_params
-                                .get(index + 1)
-                                .copied()
-                                .unwrap_or_else(|| {
+                            let value_handle =
+                                entry_params.get(index + 1).copied().unwrap_or_else(|| {
                                     builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
                                 });
                             let _ = lower_runtime_binding(
@@ -581,7 +574,11 @@ fn lower_call_argument(
             }
 
             let mut args = Vec::with_capacity(ABI_PARAM_COUNT);
-            args.push(builder.ins().iconst(types::I64, nested_call.args.len() as i64));
+            args.push(
+                builder
+                    .ins()
+                    .iconst(types::I64, nested_call.args.len() as i64),
+            );
             for nested_arg in nested_call.args.iter().take(ABI_ARG_SLOTS) {
                 let lowered_nested = lower_call_argument(
                     module,
@@ -645,9 +642,10 @@ fn lower_runtime_binding(
         .iconst(types::I64, if mutable { 1 } else { 0 });
 
     let local_bind = module.declare_func_in_func(bind_id, builder.func);
-    let call = builder
-        .ins()
-        .call(local_bind, &[name_ptr, name_len, value_handle, mutable_flag]);
+    let call = builder.ins().call(
+        local_bind,
+        &[name_ptr, name_len, value_handle, mutable_flag],
+    );
     Ok(builder
         .inst_results(call)
         .first()

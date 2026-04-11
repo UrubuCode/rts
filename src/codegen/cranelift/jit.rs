@@ -63,8 +63,7 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
     }
 
     let eval_id = declare_helper_import(&mut jit, &mut declarations, RTS_EVAL_EXPR_SYMBOL)?;
-    let eval_stmt_id =
-        declare_helper_import(&mut jit, &mut declarations, RTS_EVAL_STMT_SYMBOL)?;
+    let eval_stmt_id = declare_helper_import(&mut jit, &mut declarations, RTS_EVAL_STMT_SYMBOL)?;
     let bind_id = declare_bind_import(&mut jit, &mut declarations)?;
     let dispatch_id = declare_dispatch_import(&mut jit, &mut declarations)?;
 
@@ -202,43 +201,43 @@ fn initialize_jit_module() -> Result<JITModule> {
     );
     builder.symbol(
         "__rts_io_print",
-        crate::namespaces::abi::__rts_io_print as *const u8,
+        crate::namespaces::rust::__rts_io_print as *const u8,
     );
     builder.symbol(
         "__rts_io_stdout_write",
-        crate::namespaces::abi::__rts_io_stdout_write as *const u8,
+        crate::namespaces::rust::__rts_io_stdout_write as *const u8,
     );
     builder.symbol(
         "__rts_io_stderr_write",
-        crate::namespaces::abi::__rts_io_stderr_write as *const u8,
+        crate::namespaces::rust::__rts_io_stderr_write as *const u8,
     );
     builder.symbol(
         "__rts_io_panic",
-        crate::namespaces::abi::__rts_io_panic as *const u8,
+        crate::namespaces::rust::__rts_io_panic as *const u8,
     );
     builder.symbol(
         "__rts_crypto_sha256",
-        crate::namespaces::abi::__rts_crypto_sha256 as *const u8,
+        crate::namespaces::rust::__rts_crypto_sha256 as *const u8,
     );
     builder.symbol(
         "__rts_process_exit",
-        crate::namespaces::abi::__rts_process_exit as *const u8,
+        crate::namespaces::rust::__rts_process_exit as *const u8,
     );
     builder.symbol(
         "__rts_global_set",
-        crate::namespaces::abi::__rts_global_set as *const u8,
+        crate::namespaces::rust::__rts_global_set as *const u8,
     );
     builder.symbol(
         "__rts_global_get",
-        crate::namespaces::abi::__rts_global_get as *const u8,
+        crate::namespaces::rust::__rts_global_get as *const u8,
     );
     builder.symbol(
         "__rts_global_has",
-        crate::namespaces::abi::__rts_global_has as *const u8,
+        crate::namespaces::rust::__rts_global_has as *const u8,
     );
     builder.symbol(
         "__rts_global_delete",
-        crate::namespaces::abi::__rts_global_delete as *const u8,
+        crate::namespaces::rust::__rts_global_delete as *const u8,
     );
 
     Ok(JITModule::new(builder))
@@ -373,10 +372,8 @@ fn define_function(
                                 continue;
                             }
 
-                            let value_handle = entry_params
-                                .get(index + 1)
-                                .copied()
-                                .unwrap_or_else(|| {
+                            let value_handle =
+                                entry_params.get(index + 1).copied().unwrap_or_else(|| {
                                     builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)
                                 });
                             let _ = lower_runtime_binding(
@@ -534,7 +531,11 @@ fn lower_call_argument(
             }
 
             let mut lowered_args = Vec::with_capacity(ABI_PARAM_COUNT);
-            lowered_args.push(builder.ins().iconst(types::I64, nested_call.args.len() as i64));
+            lowered_args.push(
+                builder
+                    .ins()
+                    .iconst(types::I64, nested_call.args.len() as i64),
+            );
 
             for nested_arg in nested_call.args.iter().take(ABI_ARG_SLOTS) {
                 let lowered_nested_arg =
@@ -575,9 +576,10 @@ fn lower_runtime_binding(
         .iconst(types::I64, if mutable { 1 } else { 0 });
 
     let local_bind = module.declare_func_in_func(bind_id, builder.func);
-    let call = builder
-        .ins()
-        .call(local_bind, &[name_ptr, name_len, value_handle, mutable_flag]);
+    let call = builder.ins().call(
+        local_bind,
+        &[name_ptr, name_len, value_handle, mutable_flag],
+    );
     Ok(builder
         .inst_results(call)
         .first()
@@ -675,22 +677,17 @@ pub fn execute_typed(
     for function in &module.functions {
         let id = jit
             .declare_function(&function.name, Linkage::Export, &signature)
-            .with_context(|| {
-                format!("failed to declare typed JIT function '{}'", function.name)
-            })?;
+            .with_context(|| format!("failed to declare typed JIT function '{}'", function.name))?;
         declarations.insert(function.name.clone(), id);
     }
 
     for function in &module.functions {
-        let id = declarations
-            .get(&function.name)
-            .copied()
-            .ok_or_else(|| {
-                anyhow!(
-                    "missing declaration for typed JIT function '{}'",
-                    function.name
-                )
-            })?;
+        let id = declarations.get(&function.name).copied().ok_or_else(|| {
+            anyhow!(
+                "missing declaration for typed JIT function '{}'",
+                function.name
+            )
+        })?;
         super::typed_codegen::define_typed_function(
             &mut jit,
             &mut declarations,
@@ -718,10 +715,9 @@ pub fn execute_typed(
             .ok_or_else(|| anyhow!("failed to resolve typed JIT entry '{}'", entry_name))?;
         let address = jit.get_finalized_function(entry_id);
         let entry = unsafe {
-            std::mem::transmute::<
-                *const u8,
-                extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64,
-            >(address)
+            std::mem::transmute::<*const u8, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(
+                address,
+            )
         };
         (entry_name, entry(0, 0, 0, 0, 0, 0, 0), true)
     } else {

@@ -24,7 +24,11 @@ impl ModuleCache {
         Ok(Self { base_dir })
     }
 
-    pub(crate) fn resolve_cached_npm_dependency(&self, module_name: &str, version: &str) -> Result<PathBuf> {
+    pub(crate) fn resolve_cached_npm_dependency(
+        &self,
+        module_name: &str,
+        version: &str,
+    ) -> Result<PathBuf> {
         let version = sanitize_segment(version);
         let module_name = sanitize_segment(module_name);
         let root = self.base_dir.join("npm").join(module_name).join(version);

@@ -1,22 +1,22 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use crate::namespaces::value::RuntimeValue;
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
-use crate::namespaces::value::JsValue;
 
 thread_local! {
     static SCOPE_STACK: RefCell<Vec<HashMap<u64, u64>>> = RefCell::new(vec![]);
 }
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
         "rts.scope_push" => {
             SCOPE_STACK.with(|stack| stack.borrow_mut().push(HashMap::new()));
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
         "rts.scope_pop" => {
             SCOPE_STACK.with(|stack| stack.borrow_mut().pop());
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
         "rts.set_var" => {
             let name_hash = arg_to_u64(args, 0);
@@ -27,7 +27,7 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                     frame.insert(name_hash, value);
                 }
             });
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
         "rts.get_var" => {
             let name_hash = arg_to_u64(args, 0);
@@ -40,7 +40,7 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                 }
                 0u64
             });
-            Some(DispatchOutcome::Value(JsValue::Number(result as f64)))
+            Some(DispatchOutcome::Value(RuntimeValue::Number(result as f64)))
         }
         _ => None,
     }

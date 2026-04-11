@@ -18,8 +18,10 @@ pub use arena::{
 };
 pub use collect::{enter_scope, exit_scope, notify_alloc, safe_collect, scope_depth};
 
-use crate::namespaces::value::JsValue;
-use crate::namespaces::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64, arg_to_u8};
+use crate::namespaces::value::RuntimeValue;
+use crate::namespaces::{
+    DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u8, arg_to_u64,
+};
 
 // ── Spec ────────────────────────────────────────────────────────────────────
 
@@ -65,7 +67,7 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
 
 // ── Dispatch ────────────────────────────────────────────────────────────────
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     let outcome = match callee {
         "gc.alloc" => {
             let kind = arg_to_u8(args, 0);
@@ -73,22 +75,22 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let blob = GcBlob::new(kind, payload.into_bytes());
             let handle = arena::alloc(blob);
             collect::notify_alloc();
-            DispatchOutcome::Value(JsValue::Number(handle as f64))
+            DispatchOutcome::Value(RuntimeValue::Number(handle as f64))
         }
 
         "gc.free" => {
             let handle = arg_to_u64(args, 0);
-            DispatchOutcome::Value(JsValue::Bool(arena::free(handle)))
+            DispatchOutcome::Value(RuntimeValue::Bool(arena::free(handle)))
         }
 
         "gc.collect" => {
             collect::safe_collect();
-            DispatchOutcome::Value(JsValue::Undefined)
+            DispatchOutcome::Value(RuntimeValue::Undefined)
         }
 
         "gc.collect_debt" => {
             arena::collect_debt();
-            DispatchOutcome::Value(JsValue::Undefined)
+            DispatchOutcome::Value(RuntimeValue::Undefined)
         }
 
         "gc.stats" => {
@@ -97,7 +99,7 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                 r#"{{"allocated_bytes":{},"generation":{},"live_slots":{}}}"#,
                 s.allocated_bytes, s.generation, s.live_slots,
             );
-            DispatchOutcome::Value(JsValue::String(json))
+            DispatchOutcome::Value(RuntimeValue::String(json))
         }
 
         _ => return None,

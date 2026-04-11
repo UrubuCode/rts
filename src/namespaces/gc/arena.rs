@@ -44,11 +44,21 @@ impl GcBlob {
         Self { kind, payload }
     }
 
-    pub fn null() -> Self { Self::new(KIND_NULL, vec![]) }
-    pub fn bool(v: bool) -> Self { Self::new(KIND_BOOL, vec![v as u8]) }
-    pub fn number(v: f64) -> Self { Self::new(KIND_NUMBER, v.to_le_bytes().to_vec()) }
-    pub fn string(v: &str) -> Self { Self::new(KIND_STRING, v.as_bytes().to_vec()) }
-    pub fn bytes(v: &[u8]) -> Self { Self::new(KIND_BYTES, v.to_vec()) }
+    pub fn null() -> Self {
+        Self::new(KIND_NULL, vec![])
+    }
+    pub fn bool(v: bool) -> Self {
+        Self::new(KIND_BOOL, vec![v as u8])
+    }
+    pub fn number(v: f64) -> Self {
+        Self::new(KIND_NUMBER, v.to_le_bytes().to_vec())
+    }
+    pub fn string(v: &str) -> Self {
+        Self::new(KIND_STRING, v.as_bytes().to_vec())
+    }
+    pub fn bytes(v: &[u8]) -> Self {
+        Self::new(KIND_BYTES, v.to_vec())
+    }
 }
 
 // ── Arena root ──────────────────────────────────────────────────────────────
@@ -65,7 +75,10 @@ struct GcPool<'gc> {
 
 impl<'gc> GcPool<'gc> {
     fn new() -> Self {
-        Self { slots: Vec::new(), free_list: Vec::new() }
+        Self {
+            slots: Vec::new(),
+            free_list: Vec::new(),
+        }
     }
 }
 
@@ -128,16 +141,15 @@ impl GcArena {
     /// Release `handle`: marks the blob unreachable for the next collection.
     /// Returns `false` if the handle was already free or out of range.
     pub fn free(&mut self, handle: u64) -> bool {
-        self.arena.mutate_root(|_mc, pool| {
-            match pool.slots.get_mut(handle as usize) {
+        self.arena
+            .mutate_root(|_mc, pool| match pool.slots.get_mut(handle as usize) {
                 Some(slot @ &mut Some(_)) => {
                     *slot = None;
                     pool.free_list.push(handle);
                     true
                 }
                 _ => false,
-            }
-        })
+            })
     }
 
     /// Amortised GC — collect proportional to allocation debt.
@@ -155,9 +167,9 @@ impl GcArena {
     }
 
     pub fn stats(&self) -> GcStats {
-        let live_slots = self.arena.mutate(|_mc, pool| {
-            pool.slots.iter().filter(|s| s.is_some()).count()
-        });
+        let live_slots = self
+            .arena
+            .mutate(|_mc, pool| pool.slots.iter().filter(|s| s.is_some()).count());
         GcStats {
             allocated_bytes: self.allocated_bytes,
             generation: self.generation,
@@ -167,7 +179,9 @@ impl GcArena {
 }
 
 impl Default for GcArena {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ── Thread-local arena ──────────────────────────────────────────────────────

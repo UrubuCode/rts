@@ -1,9 +1,11 @@
 pub(crate) mod executor;
-pub use executor::{AsyncTask, PromiseStatus, promise_resolve, promise_reject,
-                   promise_spawn, promise_status, promise_is_settled, promise_await};
+pub use executor::{
+    AsyncTask, PromiseStatus, promise_await, promise_is_settled, promise_reject, promise_resolve,
+    promise_spawn, promise_status,
+};
 
-use crate::namespaces::value::JsValue;
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64};
+use crate::namespaces::value::RuntimeValue;
 
 const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
@@ -45,7 +47,7 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
         "task.sleep" if !args.is_empty() => {
             let millis = arg_to_u64(args, 0);
@@ -55,28 +57,28 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                 format!("slept:{millis}")
             };
 
-            Some(DispatchOutcome::Value(JsValue::Number(
+            Some(DispatchOutcome::Value(RuntimeValue::Number(
                 promise_spawn(AsyncTask::Sleep { millis, value }) as f64,
             )))
         }
-        "task.hash_sha256" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
-            promise_spawn(AsyncTask::HashSha256 {
+        "task.hash_sha256" if !args.is_empty() => Some(DispatchOutcome::Value(
+            RuntimeValue::Number(promise_spawn(AsyncTask::HashSha256 {
                 data: arg_to_string(args, 0),
-            }) as f64,
-        ))),
-        "task.read_text_file" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
-            promise_spawn(AsyncTask::ReadTextFile {
+            }) as f64),
+        )),
+        "task.read_text_file" if !args.is_empty() => Some(DispatchOutcome::Value(
+            RuntimeValue::Number(promise_spawn(AsyncTask::ReadTextFile {
                 path: arg_to_string(args, 0),
-            }) as f64,
-        ))),
-        "task.write_text_file" if args.len() >= 2 => Some(DispatchOutcome::Value(JsValue::Number(
-            promise_spawn(AsyncTask::WriteTextFile {
+            }) as f64),
+        )),
+        "task.write_text_file" if args.len() >= 2 => Some(DispatchOutcome::Value(
+            RuntimeValue::Number(promise_spawn(AsyncTask::WriteTextFile {
                 path: arg_to_string(args, 0),
                 content: arg_to_string(args, 1),
-            }) as f64,
-        ))),
+            }) as f64),
+        )),
         "task.append_text_file" if args.len() >= 2 => Some(DispatchOutcome::Value(
-            JsValue::Number(promise_spawn(AsyncTask::AppendTextFile {
+            RuntimeValue::Number(promise_spawn(AsyncTask::AppendTextFile {
                 path: arg_to_string(args, 0),
                 content: arg_to_string(args, 1),
             }) as f64),

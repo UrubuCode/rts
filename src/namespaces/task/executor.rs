@@ -102,10 +102,12 @@ impl RuntimeExecutor {
             let rx = Arc::clone(&shared);
             let _ = thread::Builder::new()
                 .name(format!("rts-async-worker-{index}"))
-                .spawn(move || loop {
-                    match rx.lock().unwrap_or_else(|p| p.into_inner()).recv() {
-                        Ok(f) => f(),
-                        Err(_) => break,
+                .spawn(move || {
+                    loop {
+                        match rx.lock().unwrap_or_else(|p| p.into_inner()).recv() {
+                            Ok(f) => f(),
+                            Err(_) => break,
+                        }
                     }
                 });
         }

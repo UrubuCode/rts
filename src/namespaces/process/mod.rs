@@ -1,4 +1,4 @@
-use crate::namespaces::value::JsValue;
+use crate::namespaces::value::RuntimeValue;
 
 use super::{
     DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_u64,
@@ -81,18 +81,18 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
-        "process.arch" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
+        "process.arch" if args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::String(
             std::env::consts::ARCH.to_string(),
         ))),
-        "process.platform" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
-            std::env::consts::OS.to_string(),
-        ))),
-        "process.pid" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
+        "process.platform" if args.is_empty() => Some(DispatchOutcome::Value(
+            RuntimeValue::String(std::env::consts::OS.to_string()),
+        )),
+        "process.pid" if args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Number(
             std::process::id() as f64,
         ))),
-        "process.cwd" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
+        "process.cwd" if args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::String(
             std::env::current_dir()
                 .ok()
                 .map(|path| path.display().to_string())
@@ -101,29 +101,29 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
         "process.chdir" if !args.is_empty() => {
             let path = arg_to_string(args, 0);
             let _ = std::env::set_current_dir(path);
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
         "process.env_get" if !args.is_empty() => Some(DispatchOutcome::Value(
             std::env::var(arg_to_string(args, 0))
-                .map(JsValue::String)
-                .unwrap_or(JsValue::Undefined),
+                .map(RuntimeValue::String)
+                .unwrap_or(RuntimeValue::Undefined),
         )),
         "process.env_set" if args.len() >= 2 => {
             let key = arg_to_string(args, 0);
             let value = arg_to_string(args, 1);
             // SAFETY: runtime mutation of process environment is expected behavior for RTS.
             unsafe { std::env::set_var(key, value) };
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
-        "process.clock_now" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::Number(
-            current_time_millis() as f64,
-        ))),
-        "process.args" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
+        "process.clock_now" if args.is_empty() => Some(DispatchOutcome::Value(
+            RuntimeValue::Number(current_time_millis() as f64),
+        )),
+        "process.args" if args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::String(
             std::env::args().skip(1).collect::<Vec<_>>().join(","),
         ))),
         "process.sleep" if !args.is_empty() => {
             std::thread::sleep(std::time::Duration::from_millis(arg_to_u64(args, 0)));
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
         "process.exit" => Some(DispatchOutcome::Panic(format!(
             "process exited with code {}",

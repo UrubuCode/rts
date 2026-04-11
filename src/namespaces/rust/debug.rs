@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::namespaces::value::JsValue;
+use crate::namespaces::value::RuntimeValue;
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
 
 #[derive(Debug, Clone)]
@@ -49,12 +49,12 @@ fn parse_ometa(content: &str) -> Option<DebugMetadata> {
     })
 }
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
         "rts.debug.load_metadata" => {
             let path = match args.first() {
-                Some(JsValue::String(s)) => s.clone(),
-                _ => return Some(DispatchOutcome::Value(JsValue::Number(0.0))),
+                Some(RuntimeValue::String(s)) => s.clone(),
+                _ => return Some(DispatchOutcome::Value(RuntimeValue::Number(0.0))),
             };
             let handle = {
                 use std::hash::{Hash, Hasher};
@@ -65,7 +65,7 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             if let Some(meta) = load_ometa(&path) {
                 metadata_cache().lock().unwrap().insert(handle, meta);
             }
-            Some(DispatchOutcome::Value(JsValue::Number(handle as f64)))
+            Some(DispatchOutcome::Value(RuntimeValue::Number(handle as f64)))
         }
         "rts.debug.resolve_location" => {
             let handle = arg_to_u64(args, 0);
@@ -76,21 +76,23 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                 .get(&handle)
                 .and_then(|meta| meta.locations.get(&pc_offset))
                 .map(|loc| {
-                    JsValue::String(format!("{}:{}:{}", loc.source, loc.line, loc.column))
+                    RuntimeValue::String(format!("{}:{}:{}", loc.source, loc.line, loc.column))
                 })
-                .unwrap_or(JsValue::Undefined);
+                .unwrap_or(RuntimeValue::Undefined);
             Some(DispatchOutcome::Value(result))
         }
         "rts.debug.format_error" => {
             let message = match args.first() {
-                Some(JsValue::String(s)) => s.clone(),
+                Some(RuntimeValue::String(s)) => s.clone(),
                 _ => "runtime error".to_string(),
             };
             let pc_offset = arg_to_u64(args, 1);
             // Procura em todos os handles carregados
             let cache = metadata_cache();
             let guard = cache.lock().unwrap();
-            let location = guard.values().find_map(|meta| meta.locations.get(&pc_offset));
+            let location = guard
+                .values()
+                .find_map(|meta| meta.locations.get(&pc_offset));
             let formatted = match location {
                 Some(loc) => format!(
                     "\x1b[31mError\x1b[0m: {}\n    at \x1b[36m{}\x1b[0m:\x1b[33m{}\x1b[0m:\x1b[33m{}\x1b[0m",
@@ -98,7 +100,7 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                 ),
                 None => format!("Error: {} (at pc=0x{:x})", message, pc_offset),
             };
-            Some(DispatchOutcome::Value(JsValue::String(formatted)))
+            Some(DispatchOutcome::Value(RuntimeValue::String(formatted)))
         }
         _ => None,
     }

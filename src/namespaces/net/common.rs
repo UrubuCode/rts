@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::namespaces::value::JsValue;
+use crate::namespaces::value::RuntimeValue;
 
 // ── Net state ────────────────────────────────────────────────────────────────
 
@@ -56,7 +56,8 @@ impl NetState {
 static NET: OnceLock<Arc<Mutex<NetState>>> = OnceLock::new();
 
 pub fn lock_net_state() -> Arc<Mutex<NetState>> {
-    NET.get_or_init(|| Arc::new(Mutex::new(NetState::default()))).clone()
+    NET.get_or_init(|| Arc::new(Mutex::new(NetState::default())))
+        .clone()
 }
 
 /// Run a closure with mutable access to net state.
@@ -68,10 +69,10 @@ pub fn with_net_state_mut<R>(f: impl FnOnce(&mut NetState) -> R) -> R {
 
 // ── Result helpers ───────────────────────────────────────────────────────────
 
-pub fn result_ok(value: JsValue) -> JsValue {
-    JsValue::Object(
+pub fn result_ok(value: RuntimeValue) -> RuntimeValue {
+    RuntimeValue::Object(
         [
-            ("ok".to_string(), JsValue::Bool(true)),
+            ("ok".to_string(), RuntimeValue::Bool(true)),
             ("value".to_string(), value),
         ]
         .into_iter()
@@ -79,11 +80,11 @@ pub fn result_ok(value: JsValue) -> JsValue {
     )
 }
 
-pub fn result_err(error: String) -> JsValue {
-    JsValue::Object(
+pub fn result_err(error: String) -> RuntimeValue {
+    RuntimeValue::Object(
         [
-            ("ok".to_string(), JsValue::Bool(false)),
-            ("error".to_string(), JsValue::String(error)),
+            ("ok".to_string(), RuntimeValue::Bool(false)),
+            ("error".to_string(), RuntimeValue::String(error)),
         ]
         .into_iter()
         .collect(),

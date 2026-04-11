@@ -32,7 +32,11 @@
       "Bash(gh issue:*)",
       "Bash(grep -E \"^test|FAILED|ok$|error\\\\[\")",
       "Bash(sed -i 's|use crate::namespaces::lang::{JsValue, RuntimeContext, evaluate_expression, evaluate_statement};|use crate::namespaces::value::JsValue;\\\\nuse crate::namespaces::lang::{RuntimeContext, evaluate_expression, evaluate_statement};|' src/namespaces/abi.rs)",
-      "Bash(sed -i 's|    use crate::namespaces::lang::JsValue;|    use crate::namespaces::value::JsValue;|' src/namespaces/abi.rs)"
+      "Bash(sed -i 's|    use crate::namespaces::lang::JsValue;|    use crate::namespaces::value::JsValue;|' src/namespaces/abi.rs)",
+      "Bash(grep -v \"^warning: \\\\`rts\\\\`\")",
+      "Bash(target/release/rts.exe -e 'import { io } from \"rts\"; io.print\\(\"hello\"\\);')",
+      "Bash(target/release/rts.exe compile:*)",
+      "Bash(target/release/rts.exe build:*)"
     ]
   }
 }

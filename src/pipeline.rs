@@ -5,8 +5,9 @@ use anyhow::{Context, Result, anyhow};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::CompileSummary;
 use crate::cache::{
-    self, OBJECT_CACHE_SCHEMA, ObjectCacheMeta, RuntimeObjectArtifacts, hash_source,
+    OBJECT_CACHE_SCHEMA, ObjectCacheMeta, RuntimeObjectArtifacts, hash_source,
     is_cached_object_valid, write_object_cache_meta,
 };
 use crate::codegen;
@@ -21,7 +22,6 @@ use crate::parser::ast::{Item, Program};
 use crate::runtime_lib;
 use crate::type_system;
 use crate::type_system::metadata::MetadataTable;
-use crate::CompileSummary;
 
 pub(crate) const LAUNCHER_NAMESPACE_CATALOG_SCHEMA: u32 = 1;
 
@@ -121,15 +121,16 @@ pub(crate) fn compile_graph(
         }
 
         let is_entry_module = entry_key.is_some_and(|key| key == module.key);
-        let typed_mir = mir::typed_build::typed_build(&lowered);
+        let mir_module = mir::build::build(&lowered);
 
         let filtered_mir = if !is_entry_module {
-            let mut m = typed_mir;
-            m.functions
+            let mut module = mir_module;
+            module
+                .functions
                 .retain(|function| function.name != "main" && function.name != "_start");
-            m
+            module
         } else {
-            typed_mir
+            mir_module
         };
 
         if filtered_mir.functions.is_empty() {
@@ -157,11 +158,12 @@ pub(crate) fn compile_graph(
             continue;
         }
 
-        let artifact = codegen::generate_typed_object(
+        let artifact = codegen::generate_object_with_metadata_options(
             &filtered_mir,
+            &metadata,
             &object_path,
             is_entry_module,
-            &options,
+            options.profile.as_str() == "production",
         )?;
 
         app_object_bytes += artifact.bytes_written;
@@ -229,9 +231,7 @@ pub(crate) fn compile_graph(
     })
 }
 
-pub(crate) fn build_registry_for_graph(
-    graph: &ModuleGraph,
-) -> Result<type_system::TypeRegistry> {
+pub(crate) fn build_registry_for_graph(graph: &ModuleGraph) -> Result<type_system::TypeRegistry> {
     let modules = graph.modules().collect::<Vec<_>>();
 
     struct ModuleDeclarationBatch {
@@ -282,9 +282,7 @@ pub(crate) fn build_registry_for_graph(
     Ok(registry)
 }
 
-pub(crate) fn collect_required_exports(
-    graph: &ModuleGraph,
-) -> BTreeMap<String, BTreeSet<String>> {
+pub(crate) fn collect_required_exports(graph: &ModuleGraph) -> BTreeMap<String, BTreeSet<String>> {
     let mut required = BTreeMap::<String, BTreeSet<String>>::new();
 
     for module in graph.modules() {
@@ -408,45 +406,27 @@ pub(crate) fn resolve_launcher_cache_dir(output: &Path) -> Result<PathBuf> {
 fn emit_fallback_main_object(
     deps_dir: &Path,
     app_name: &str,
-    _metadata: &MetadataTable,
+    metadata: &MetadataTable,
     optimize_for_production: bool,
 ) -> Result<ObjectArtifact> {
     let object_path = deps_dir.join(format!("{app_name}_bootstrap_main.o"));
-    let typed_mir = mir::TypedMirModule {
-        functions: vec![mir::TypedMirFunction {
+    let mir_module = mir::MirModule {
+        functions: vec![mir::MirFunction {
             name: "main".to_string(),
-            param_count: 0,
-            blocks: vec![mir::TypedBasicBlock {
+            blocks: vec![mir::cfg::BasicBlock {
                 label: "entry".to_string(),
-                instructions: vec![mir::MirInstruction::Return(None)],
+                statements: vec![mir::MirStatement {
+                    text: "ret".to_string(),
+                }],
                 terminator: mir::cfg::Terminator::Return,
             }],
-            next_vreg: 0,
-            source_file: None,
-            source_line: 0,
         }],
     };
-    let opts = crate::compile_options::CompileOptions {
-        profile: if optimize_for_production {
-            crate::compile_options::CompilationProfile::Production
-        } else {
-            crate::compile_options::CompilationProfile::Development
-        },
-        ..Default::default()
-    };
-    codegen::generate_typed_object(&typed_mir, &object_path, true, &opts)
-}
-
-fn build_cranelift_namespace_stub_object(
-    functions: &[String],
-    optimize_for_production: bool,
-) -> Result<Vec<u8>> {
-    if functions.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    codegen::cranelift::object_builder::build_namespace_dispatch_object(
-        functions,
+    codegen::generate_object_with_metadata_options(
+        &mir_module,
+        metadata,
+        &object_path,
+        true,
         optimize_for_production,
     )
 }
@@ -477,12 +457,12 @@ pub(crate) fn write_launcher_namespace_catalog(launcher_dir: &Path) -> Result<()
 
 pub(crate) fn sync_namespace_artifacts(launcher_dir: &Path) -> Result<()> {
     write_launcher_namespace_catalog(launcher_dir)?;
-    let legacy_runtime_cache = launcher_dir.join("runtime");
-    if legacy_runtime_cache.is_dir() {
-        std::fs::remove_dir_all(&legacy_runtime_cache).with_context(|| {
+    let obsolete_runtime_cache = launcher_dir.join("runtime");
+    if obsolete_runtime_cache.is_dir() {
+        std::fs::remove_dir_all(&obsolete_runtime_cache).with_context(|| {
             format!(
-                "failed to remove legacy launcher runtime cache {}",
-                legacy_runtime_cache.display()
+                "failed to remove obsolete launcher runtime cache {}",
+                obsolete_runtime_cache.display()
             )
         })?;
     }
@@ -496,85 +476,31 @@ pub(crate) fn emit_selected_namespace_objects(
     usage: &namespaces::NamespaceUsage,
     options: &CompileOptions,
 ) -> Result<RuntimeObjectArtifacts> {
-    let mut artifacts = RuntimeObjectArtifacts::default();
-    let selected_callees = usage
-        .enabled_functions()
-        .filter(|callee| namespaces::is_catalog_callee(callee))
+    let callees = usage.enabled_functions().collect::<Vec<_>>();
+    if callees.is_empty() {
+        return Ok(RuntimeObjectArtifacts::default());
+    }
+
+    let mut ordered = callees
+        .into_iter()
         .map(str::to_string)
-        .collect::<BTreeSet<_>>();
-    let selected_stems = selected_callees
-        .iter()
-        .map(|callee| format!("builtin_rts_{}", sanitize_dep_name(callee)))
-        .collect::<BTreeSet<_>>();
-    purge_unused_runtime_cached_objects(deps_dir, &selected_stems)?;
+        .collect::<Vec<String>>();
+    ordered.sort();
+    ordered.dedup();
 
-    for callee in selected_callees {
-        let function_list = vec![callee.clone()];
+    let bytes = crate::codegen::cranelift::object_builder::build_namespace_dispatch_object(
+        &ordered,
+        options.profile.as_str() == "production",
+    )?;
+    let output_path = deps_dir.join("rts_namespace_dispatch.o");
+    let artifact = crate::codegen::object::write_object_file(&output_path, &bytes)?;
 
-        let fingerprint = format!("callee:{callee}");
-        let stem = format!("builtin_rts_{}", sanitize_dep_name(&callee));
-        let emitted = cache::emit_cached_object_bytes(
-            deps_dir,
-            &stem,
-            &hash_source(&fingerprint),
-            options,
-            false,
-            || {
-                build_cranelift_namespace_stub_object(
-                    &function_list,
-                    options.profile == crate::compile_options::CompilationProfile::Production,
-                )
-            },
-        )?;
-
-        artifacts.bytes_written += emitted.bytes_written;
-        artifacts.cache_hits += usize::from(emitted.cache_hit);
-        artifacts.cache_misses += usize::from(!emitted.cache_hit);
-        artifacts.object_paths.push(emitted.path);
-    }
-
-    Ok(artifacts)
-}
-
-fn purge_unused_runtime_cached_objects(
-    deps_dir: &Path,
-    selected_stems: &BTreeSet<String>,
-) -> Result<()> {
-    let entries = match std::fs::read_dir(deps_dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(anyhow!(
-                "failed to read runtime cache directory {}: {}",
-                deps_dir.display(),
-                error
-            ));
-        }
-    };
-
-    for entry in entries {
-        let entry =
-            entry.with_context(|| format!("failed to iterate directory {}", deps_dir.display()))?;
-        let path = entry.path();
-        let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        if ext != "o" && ext != "m" {
-            continue;
-        }
-
-        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        if !stem.starts_with("builtin_rts_") || selected_stems.contains(stem) {
-            continue;
-        }
-
-        std::fs::remove_file(&path)
-            .with_context(|| format!("failed to remove stale runtime object {}", path.display()))?;
-    }
-
-    Ok(())
+    Ok(RuntimeObjectArtifacts {
+        object_paths: vec![artifact.path],
+        bytes_written: artifact.bytes_written,
+        cache_hits: 0,
+        cache_misses: 1,
+    })
 }
 
 pub(crate) fn module_object_stem(app_name: &str, module: &SourceModule, input: &Path) -> String {

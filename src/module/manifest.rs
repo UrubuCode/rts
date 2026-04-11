@@ -72,7 +72,10 @@ pub(crate) fn find_owner_manifest(
     Ok(None)
 }
 
-pub(crate) fn load_package_manifest(path: &Path, cache: &mut ManifestCache) -> Result<PackageManifest> {
+pub(crate) fn load_package_manifest(
+    path: &Path,
+    cache: &mut ManifestCache,
+) -> Result<PackageManifest> {
     let package_dir = path
         .parent()
         .ok_or_else(|| {

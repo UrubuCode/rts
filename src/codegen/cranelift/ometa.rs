@@ -115,7 +115,9 @@ impl OmetaWriter {
         // sources array
         out.push_str("  \"sources\": [");
         for (i, src) in self.sources.iter().enumerate() {
-            if i > 0 { out.push_str(", "); }
+            if i > 0 {
+                out.push_str(", ");
+            }
             out.push_str(&format!("\"{}\"", escape_json(src)));
         }
         out.push_str("],\n");
@@ -128,7 +130,11 @@ impl OmetaWriter {
             let comma = if i + 1 < locs.len() { "," } else { "" };
             out.push_str(&format!(
                 "    \"0x{:x}\": {{ \"source\": \"{}\", \"line\": {}, \"column\": {} }}{}\n",
-                offset, escape_json(&loc.source), loc.line, loc.column, comma
+                offset,
+                escape_json(&loc.source),
+                loc.line,
+                loc.column,
+                comma
             ));
         }
         out.push_str("  },\n");

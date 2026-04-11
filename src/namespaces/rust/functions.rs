@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::namespaces::value::RuntimeValue;
 use crate::namespaces::{DispatchOutcome, arg_to_u64};
-use crate::namespaces::value::JsValue;
 
 #[derive(Debug, Clone)]
 struct FnEntry {
@@ -17,7 +17,7 @@ fn fn_registry() -> Arc<Mutex<HashMap<u64, FnEntry>>> {
         .clone()
 }
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
         "rts.declare_fn" => {
             let name_ptr = arg_to_u64(args, 0);
@@ -26,7 +26,7 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                 .lock()
                 .unwrap()
                 .insert(name_ptr, FnEntry { body_ptr });
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
         "rts.call_fn" => {
             let name_ptr = arg_to_u64(args, 0);
@@ -36,11 +36,13 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
                 .get(&name_ptr)
                 .map(|e| e.body_ptr)
                 .unwrap_or(0);
-            Some(DispatchOutcome::Value(JsValue::Number(body_ptr as f64)))
+            Some(DispatchOutcome::Value(RuntimeValue::Number(
+                body_ptr as f64,
+            )))
         }
         "rts.return_val" => {
             let value = arg_to_u64(args, 0);
-            Some(DispatchOutcome::Value(JsValue::Number(value as f64)))
+            Some(DispatchOutcome::Value(RuntimeValue::Number(value as f64)))
         }
         _ => None,
     }

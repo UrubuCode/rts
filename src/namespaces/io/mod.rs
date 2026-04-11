@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::namespaces::value::JsValue;
+use crate::namespaces::value::RuntimeValue;
 
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_value};
 
@@ -67,7 +67,7 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ],
 };
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
         "io.print" | "io.stdout_write" | "io.stderr_write" => {
             let value = args
@@ -81,64 +81,67 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
             let message = args
                 .first()
                 .cloned()
-                .unwrap_or(JsValue::String("runtime panic".to_string()))
+                .unwrap_or(RuntimeValue::String("runtime panic".to_string()))
                 .to_js_string();
             Some(DispatchOutcome::Panic(format!("runtime panic: {message}")))
         }
-        "io.stdin_read" => Some(DispatchOutcome::Value(JsValue::String(String::new()))),
-        "io.is_ok" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            result_is_ok(args.first().unwrap_or(&JsValue::Undefined)),
+        "io.stdin_read" => Some(DispatchOutcome::Value(RuntimeValue::String(String::new()))),
+        "io.is_ok" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Bool(
+            result_is_ok(args.first().unwrap_or(&RuntimeValue::Undefined)),
         ))),
-        "io.is_err" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            result_is_err(args.first().unwrap_or(&JsValue::Undefined)),
+        "io.is_err" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Bool(
+            result_is_err(args.first().unwrap_or(&RuntimeValue::Undefined)),
         ))),
         "io.unwrap_or" if !args.is_empty() => Some(DispatchOutcome::Value(result_unwrap_or(
-            args.first().unwrap_or(&JsValue::Undefined),
+            args.first().unwrap_or(&RuntimeValue::Undefined),
             arg_to_value(args, 1),
         ))),
         _ => None,
     }
 }
 
-pub fn result_ok(value: JsValue) -> JsValue {
+pub fn result_ok(value: RuntimeValue) -> RuntimeValue {
     let mut map = BTreeMap::new();
-    map.insert("ok".to_string(), JsValue::Bool(true));
-    map.insert("tag".to_string(), JsValue::String("ok".to_string()));
+    map.insert("ok".to_string(), RuntimeValue::Bool(true));
+    map.insert("tag".to_string(), RuntimeValue::String("ok".to_string()));
     map.insert("value".to_string(), value);
-    map.insert("error".to_string(), JsValue::Undefined);
-    JsValue::Object(map)
+    map.insert("error".to_string(), RuntimeValue::Undefined);
+    RuntimeValue::Object(map)
 }
 
-pub fn result_err(message: &str) -> JsValue {
+pub fn result_err(message: &str) -> RuntimeValue {
     let mut error = BTreeMap::new();
-    error.insert("message".to_string(), JsValue::String(message.to_string()));
+    error.insert(
+        "message".to_string(),
+        RuntimeValue::String(message.to_string()),
+    );
 
     let mut map = BTreeMap::new();
-    map.insert("ok".to_string(), JsValue::Bool(false));
-    map.insert("tag".to_string(), JsValue::String("err".to_string()));
-    map.insert("value".to_string(), JsValue::Undefined);
-    map.insert("error".to_string(), JsValue::Object(error));
-    JsValue::Object(map)
+    map.insert("ok".to_string(), RuntimeValue::Bool(false));
+    map.insert("tag".to_string(), RuntimeValue::String("err".to_string()));
+    map.insert("value".to_string(), RuntimeValue::Undefined);
+    map.insert("error".to_string(), RuntimeValue::Object(error));
+    RuntimeValue::Object(map)
 }
 
-fn result_is_ok(result: &JsValue) -> bool {
+fn result_is_ok(result: &RuntimeValue) -> bool {
     match result {
-        JsValue::Object(map) => matches!(map.get("ok"), Some(JsValue::Bool(true))),
+        RuntimeValue::Object(map) => matches!(map.get("ok"), Some(RuntimeValue::Bool(true))),
         _ => false,
     }
 }
 
-fn result_is_err(result: &JsValue) -> bool {
+fn result_is_err(result: &RuntimeValue) -> bool {
     match result {
-        JsValue::Object(map) => matches!(map.get("ok"), Some(JsValue::Bool(false))),
+        RuntimeValue::Object(map) => matches!(map.get("ok"), Some(RuntimeValue::Bool(false))),
         _ => false,
     }
 }
 
-fn result_unwrap_or(result: &JsValue, fallback: JsValue) -> JsValue {
+fn result_unwrap_or(result: &RuntimeValue, fallback: RuntimeValue) -> RuntimeValue {
     match result {
-        JsValue::Object(map) if matches!(map.get("ok"), Some(JsValue::Bool(true))) => {
-            map.get("value").cloned().unwrap_or(JsValue::Undefined)
+        RuntimeValue::Object(map) if matches!(map.get("ok"), Some(RuntimeValue::Bool(true))) => {
+            map.get("value").cloned().unwrap_or(RuntimeValue::Undefined)
         }
         _ => fallback,
     }

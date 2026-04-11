@@ -1,4 +1,4 @@
-﻿pub mod build;
+pub mod build;
 pub mod cfg;
 pub mod monomorphize;
 pub mod optimize;
@@ -103,7 +103,10 @@ pub enum MirInstruction {
     /// Write to an existing mutable binding: write "<name>" = %src
     WriteBind(String, VReg),
     Return(Option<VReg>),
-    Import { names: Vec<String>, from: String },
+    Import {
+        names: Vec<String>,
+        from: String,
+    },
     /// Jump to a labeled block unconditionally
     Jump(String),
     /// Conditional jump based on boolean register
@@ -119,8 +122,8 @@ pub enum MirInstruction {
     /// SIMD vector operations for parallel arithmetic
     SimdConst(VReg, SimdWidth, Vec<f64>), // Load vector constant
     SimdOp(VReg, SimdOp, SimdWidth, VReg, VReg), // SIMD binary operation
-    SimdLoad(VReg, SimdWidth, VReg, i32), // Load vector from memory[base + offset]
-    SimdStore(SimdWidth, VReg, VReg, i32), // Store vector to memory[base + offset]
+    SimdLoad(VReg, SimdWidth, VReg, i32),        // Load vector from memory[base + offset]
+    SimdStore(SimdWidth, VReg, VReg, i32),       // Store vector to memory[base + offset]
     /// Loop unrolling hint with factor
     UnrollHint(u32),
     /// Mark the beginning of a hot loop for optimization

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 pub mod value;
-pub use value::JsValue;
+pub use value::RuntimeValue;
 
 pub mod abi;
 pub mod buffer;
@@ -12,11 +12,13 @@ pub mod crypto;
 pub mod fs;
 pub mod gc;
 pub mod global;
+pub mod global_this;
 pub mod io;
 pub mod net;
 pub mod process;
 pub mod promise;
 pub mod rust;
+pub mod str;
 pub mod task;
 
 #[derive(Debug, Clone, Copy)]
@@ -124,7 +126,7 @@ pub fn is_catalog_callee(callee: &str) -> bool {
 
 #[derive(Debug, Clone)]
 pub enum DispatchOutcome {
-    Value(JsValue),
+    Value(RuntimeValue),
     Emit(String),
     Panic(String),
 }
@@ -184,7 +186,7 @@ impl NamespaceUsage {
     }
 }
 
-pub fn namespace_object(name: &str, usage: &NamespaceUsage) -> Option<JsValue> {
+pub fn namespace_object(name: &str, usage: &NamespaceUsage) -> Option<RuntimeValue> {
     let spec = SPECS.iter().find(|spec| spec.name == name)?;
     if !usage.is_namespace_enabled(name) {
         return None;
@@ -195,7 +197,7 @@ pub fn namespace_object(name: &str, usage: &NamespaceUsage) -> Option<JsValue> {
         if usage.is_function_enabled(member.callee) {
             map.insert(
                 member.name.to_string(),
-                JsValue::NativeFunction(member.callee.to_string()),
+                RuntimeValue::NativeFunction(member.callee.to_string()),
             );
         }
     }
@@ -204,21 +206,25 @@ pub fn namespace_object(name: &str, usage: &NamespaceUsage) -> Option<JsValue> {
         return None;
     }
 
-    Some(JsValue::Object(map))
+    Some(RuntimeValue::Object(map))
 }
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
-    io::dispatch(callee, args)
-        .or_else(|| fs::dispatch(callee, args))
-        .or_else(|| net::dispatch(callee, args))
-        .or_else(|| process::dispatch(callee, args))
-        .or_else(|| crypto::dispatch(callee, args))
-        .or_else(|| global::dispatch(callee, args))
-        .or_else(|| buffer::dispatch(callee, args))
-        .or_else(|| promise::dispatch(callee, args))
-        .or_else(|| task::dispatch(callee, args))
-        .or_else(|| gc::dispatch(callee, args))
-        .or_else(|| rust::dispatch(callee, args))
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
+    let root = callee.split('.').next()?;
+    match root {
+        "io" => io::dispatch(callee, args),
+        "fs" => fs::dispatch(callee, args),
+        "net" => net::dispatch(callee, args),
+        "process" => process::dispatch(callee, args),
+        "crypto" => crypto::dispatch(callee, args),
+        "global" => global::dispatch(callee, args),
+        "buffer" => buffer::dispatch(callee, args),
+        "promise" => promise::dispatch(callee, args),
+        "task" => task::dispatch(callee, args),
+        "gc" => gc::dispatch(callee, args),
+        "rust" => rust::dispatch(callee, args),
+        _ => None,
+    }
 }
 
 pub fn default_typescript_output_path() -> PathBuf {
@@ -310,26 +316,30 @@ const RTS_BASE_TYPES: &str = r#"  export type i8 = number;
     close(): void;
   }"#;
 
-pub(crate) fn arg_to_string(args: &[JsValue], index: usize) -> String {
+pub(crate) fn arg_to_string(args: &[RuntimeValue], index: usize) -> String {
     args.get(index)
         .cloned()
-        .unwrap_or(JsValue::Undefined)
+        .unwrap_or(RuntimeValue::Undefined)
         .to_js_string()
 }
 
-pub(crate) fn arg_to_value(args: &[JsValue], index: usize) -> JsValue {
-    args.get(index).cloned().unwrap_or(JsValue::Undefined)
+pub(crate) fn arg_to_value(args: &[RuntimeValue], index: usize) -> RuntimeValue {
+    args.get(index).cloned().unwrap_or(RuntimeValue::Undefined)
 }
 
-pub(crate) fn arg_to_usize(args: &[JsValue], index: usize) -> usize {
+pub(crate) fn arg_to_usize(args: &[RuntimeValue], index: usize) -> usize {
     arg_to_usize_or_default(args, index, 0)
 }
 
-pub(crate) fn arg_to_usize_or_default(args: &[JsValue], index: usize, default: usize) -> usize {
+pub(crate) fn arg_to_usize_or_default(
+    args: &[RuntimeValue],
+    index: usize,
+    default: usize,
+) -> usize {
     let value = args
         .get(index)
         .cloned()
-        .unwrap_or(JsValue::Number(default as f64))
+        .unwrap_or(RuntimeValue::Number(default as f64))
         .to_number();
 
     if value.is_nan() || value.is_sign_negative() {
@@ -339,11 +349,11 @@ pub(crate) fn arg_to_usize_or_default(args: &[JsValue], index: usize, default: u
     value as usize
 }
 
-pub(crate) fn arg_to_u64(args: &[JsValue], index: usize) -> u64 {
+pub(crate) fn arg_to_u64(args: &[RuntimeValue], index: usize) -> u64 {
     arg_to_usize(args, index) as u64
 }
 
-pub(crate) fn arg_to_u8(args: &[JsValue], index: usize) -> u8 {
+pub(crate) fn arg_to_u8(args: &[RuntimeValue], index: usize) -> u8 {
     let value = arg_to_usize(args, index).min(u8::MAX as usize);
     value as u8
 }

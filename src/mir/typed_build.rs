@@ -2,7 +2,8 @@ use crate::hir::nodes::{HirFunction, HirItem, HirModule};
 
 use super::cfg::Terminator;
 use super::{
-    MirBinOp, MirInstruction, MirUnaryOp, SimdOp, TypedBasicBlock, TypedMirFunction, TypedMirModule, VReg,
+    MirBinOp, MirInstruction, MirUnaryOp, SimdOp, TypedBasicBlock, TypedMirFunction,
+    TypedMirModule, VReg,
 };
 
 use std::collections::HashMap;
@@ -13,7 +14,6 @@ use swc_common::{FileName, SourceMap, sync::Lrc};
 #[derive(Debug, Default)]
 struct ConstantPool {
     numbers: HashMap<OrderedFloat, VReg>,
-    integers: HashMap<i32, VReg>,
     strings: HashMap<String, VReg>,
     booleans: HashMap<bool, VReg>,
     null_vreg: Option<VReg>,
@@ -43,30 +43,14 @@ impl ConstantPool {
     }
 
     fn get_or_create_number(&mut self, value: f64, next_vreg: &mut u32) -> VReg {
-        // Check if this is actually an integer that fits in i32
-        if value.fract() == 0.0 && value >= i32::MIN as f64 && value <= i32::MAX as f64 {
-            let int_val = value as i32;
-            return self.get_or_create_int32(int_val, next_vreg);
-        }
-
         let key = OrderedFloat::from(value);
         if let Some(&vreg) = self.numbers.get(&key) {
             vreg
         } else {
             let vreg = alloc(next_vreg);
             self.numbers.insert(key, vreg);
-            self.hoisted_instructions.push(MirInstruction::ConstNumber(vreg, value));
-            vreg
-        }
-    }
-
-    fn get_or_create_int32(&mut self, value: i32, next_vreg: &mut u32) -> VReg {
-        if let Some(&vreg) = self.integers.get(&value) {
-            vreg
-        } else {
-            let vreg = alloc(next_vreg);
-            self.integers.insert(value, vreg);
-            self.hoisted_instructions.push(MirInstruction::ConstInt32(vreg, value));
+            self.hoisted_instructions
+                .push(MirInstruction::ConstNumber(vreg, value));
             vreg
         }
     }
@@ -77,7 +61,8 @@ impl ConstantPool {
         } else {
             let vreg = alloc(next_vreg);
             self.strings.insert(value.clone(), vreg);
-            self.hoisted_instructions.push(MirInstruction::ConstString(vreg, value));
+            self.hoisted_instructions
+                .push(MirInstruction::ConstString(vreg, value));
             vreg
         }
     }
@@ -88,7 +73,8 @@ impl ConstantPool {
         } else {
             let vreg = alloc(next_vreg);
             self.booleans.insert(value, vreg);
-            self.hoisted_instructions.push(MirInstruction::ConstBool(vreg, value));
+            self.hoisted_instructions
+                .push(MirInstruction::ConstBool(vreg, value));
             vreg
         }
     }
@@ -99,7 +85,8 @@ impl ConstantPool {
         } else {
             let vreg = alloc(next_vreg);
             self.null_vreg = Some(vreg);
-            self.hoisted_instructions.push(MirInstruction::ConstNull(vreg));
+            self.hoisted_instructions
+                .push(MirInstruction::ConstNull(vreg));
             vreg
         }
     }
@@ -110,7 +97,8 @@ impl ConstantPool {
         } else {
             let vreg = alloc(next_vreg);
             self.undef_vreg = Some(vreg);
-            self.hoisted_instructions.push(MirInstruction::ConstUndef(vreg));
+            self.hoisted_instructions
+                .push(MirInstruction::ConstUndef(vreg));
             vreg
         }
     }
@@ -156,11 +144,7 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
 
     // Inject top-level statements into main if it exists
     if !top_level_instructions.is_empty() {
-        if let Some(main) = module
-            .functions
-            .iter_mut()
-            .find(|f| f.name == "main")
-        {
+        if let Some(main) = module.functions.iter_mut().find(|f| f.name == "main") {
             inject_into_typed_main(main, &mut top_level_instructions);
             top_level_instructions = Vec::new();
         }
@@ -226,12 +210,19 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
     for statement in &function.body {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
-            lower_statement_text_with_pool(trimmed, &mut instructions, &mut func.next_vreg, &mut constant_pool);
+            lower_statement_text_with_pool(
+                trimmed,
+                &mut instructions,
+                &mut func.next_vreg,
+                &mut constant_pool,
+            );
         }
     }
 
     // Ensure function ends with a return
-    let has_return = instructions.iter().any(|i| matches!(i, MirInstruction::Return(_)));
+    let has_return = instructions
+        .iter()
+        .any(|i| matches!(i, MirInstruction::Return(_)));
     if !has_return {
         instructions.push(MirInstruction::Return(None));
     }
@@ -240,25 +231,16 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
     let mut hoisted = constant_pool.into_hoisted_instructions();
     hoisted.extend(instructions);
 
-    // Apply SIMD vectorization optimization
-    let simd_optimized = try_vectorize_arithmetic(&hoisted);
-
-    // Apply loop optimizations
-    let loop_optimized = optimize_loops(&simd_optimized);
-
     func.blocks.push(TypedBasicBlock {
         label: "entry".to_string(),
-        instructions: loop_optimized,
+        instructions: hoisted,
         terminator: Terminator::Return,
     });
 
     func
 }
 
-fn inject_into_typed_main(
-    main: &mut TypedMirFunction,
-    statements: &mut Vec<MirInstruction>,
-) {
+fn inject_into_typed_main(main: &mut TypedMirFunction, statements: &mut Vec<MirInstruction>) {
     if let Some(block) = main.blocks.first_mut() {
         // Insert before the final Return if present
         let last_is_return = block
@@ -297,11 +279,7 @@ fn try_parse_statement(text: &str) -> Option<Vec<Stmt>> {
     parser.parse_script().ok().map(|script| script.body)
 }
 
-fn lower_statement_text(
-    text: &str,
-    instructions: &mut Vec<MirInstruction>,
-    next_vreg: &mut u32,
-) {
+fn lower_statement_text(text: &str, instructions: &mut Vec<MirInstruction>, next_vreg: &mut u32) {
     let stmts = match try_parse_statement(text) {
         Some(s) if !s.is_empty() => s,
         _ => {
@@ -359,12 +337,19 @@ fn lower_stmt_with_pool(
                     Pat::Ident(ident) => ident.id.sym.to_string(),
                     _ => {
                         let vreg = alloc(next_vreg);
-                        instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
                         continue;
                     }
                 };
                 if let Some(init) = &decl.init {
-                    let vreg = lower_expr_with_pool(init, original_text, instructions, next_vreg, constant_pool);
+                    let vreg = lower_expr_with_pool(
+                        init,
+                        original_text,
+                        instructions,
+                        next_vreg,
+                        constant_pool,
+                    );
                     instructions.push(MirInstruction::Bind(name, vreg, mutable));
                 } else {
                     let vreg = constant_pool.get_or_create_undef(next_vreg);
@@ -374,18 +359,36 @@ fn lower_stmt_with_pool(
         }
         Stmt::Return(ret_stmt) => {
             if let Some(arg) = &ret_stmt.arg {
-                let vreg = lower_expr_with_pool(arg, original_text, instructions, next_vreg, constant_pool);
+                let vreg = lower_expr_with_pool(
+                    arg,
+                    original_text,
+                    instructions,
+                    next_vreg,
+                    constant_pool,
+                );
                 instructions.push(MirInstruction::Return(Some(vreg)));
             } else {
                 instructions.push(MirInstruction::Return(None));
             }
         }
         Stmt::Expr(expr_stmt) => {
-            let _vreg = lower_expr_with_pool(&expr_stmt.expr, original_text, instructions, next_vreg, constant_pool);
+            let _vreg = lower_expr_with_pool(
+                &expr_stmt.expr,
+                original_text,
+                instructions,
+                next_vreg,
+                constant_pool,
+            );
         }
         Stmt::Block(block_stmt) => {
             for inner_stmt in &block_stmt.stmts {
-                lower_stmt_with_pool(inner_stmt, original_text, instructions, next_vreg, constant_pool);
+                lower_stmt_with_pool(
+                    inner_stmt,
+                    original_text,
+                    instructions,
+                    next_vreg,
+                    constant_pool,
+                );
             }
         }
         Stmt::If(if_stmt) => {
@@ -393,22 +396,32 @@ fn lower_stmt_with_pool(
             lower_if_stmt(if_stmt, original_text, instructions, next_vreg);
         }
         Stmt::While(while_stmt) => {
-            lower_while_stmt(while_stmt, original_text, instructions, next_vreg);
+            let _ = while_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::DoWhile(do_while_stmt) => {
-            lower_do_while_stmt(do_while_stmt, original_text, instructions, next_vreg);
+            let _ = do_while_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::For(for_stmt) => {
-            lower_for_stmt(for_stmt, original_text, instructions, next_vreg);
+            let _ = for_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::Switch(switch_stmt) => {
-            lower_switch_stmt(switch_stmt, original_text, instructions, next_vreg);
+            let _ = switch_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::Break(_) => {
-            instructions.push(MirInstruction::Break);
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::Continue(_) => {
-            instructions.push(MirInstruction::Continue);
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         _ => {
             let vreg = alloc(next_vreg);
@@ -431,7 +444,8 @@ fn lower_stmt(
                     Pat::Ident(ident) => ident.id.sym.to_string(),
                     _ => {
                         let vreg = alloc(next_vreg);
-                        instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
                         continue;
                     }
                 };
@@ -465,22 +479,32 @@ fn lower_stmt(
             lower_if_stmt(if_stmt, original_text, instructions, next_vreg);
         }
         Stmt::While(while_stmt) => {
-            lower_while_stmt(while_stmt, original_text, instructions, next_vreg);
+            let _ = while_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::DoWhile(do_while_stmt) => {
-            lower_do_while_stmt(do_while_stmt, original_text, instructions, next_vreg);
+            let _ = do_while_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::For(for_stmt) => {
-            lower_for_stmt(for_stmt, original_text, instructions, next_vreg);
+            let _ = for_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::Switch(switch_stmt) => {
-            lower_switch_stmt(switch_stmt, original_text, instructions, next_vreg);
+            let _ = switch_stmt;
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::Break(_) => {
-            instructions.push(MirInstruction::Break);
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         Stmt::Continue(_) => {
-            instructions.push(MirInstruction::Continue);
+            let vreg = alloc(next_vreg);
+            instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
         }
         _ => {
             let vreg = alloc(next_vreg);
@@ -498,18 +522,11 @@ fn lower_expr_with_pool(
 ) -> VReg {
     match expr {
         Expr::Lit(lit) => match lit {
-            Lit::Num(n) => {
-                constant_pool.get_or_create_number(n.value, next_vreg)
-            }
-            Lit::Str(s) => {
-                constant_pool.get_or_create_string(s.value.to_string_lossy().into_owned(), next_vreg)
-            }
-            Lit::Bool(b) => {
-                constant_pool.get_or_create_bool(b.value, next_vreg)
-            }
-            Lit::Null(_) => {
-                constant_pool.get_or_create_null(next_vreg)
-            }
+            Lit::Num(n) => constant_pool.get_or_create_number(n.value, next_vreg),
+            Lit::Str(s) => constant_pool
+                .get_or_create_string(s.value.to_string_lossy().into_owned(), next_vreg),
+            Lit::Bool(b) => constant_pool.get_or_create_bool(b.value, next_vreg),
+            Lit::Null(_) => constant_pool.get_or_create_null(next_vreg),
             _ => {
                 let vreg = alloc(next_vreg);
                 instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
@@ -535,8 +552,20 @@ fn lower_expr_with_pool(
                     return vreg;
                 }
             };
-            let lhs = lower_expr_with_pool(&bin.left, original_text, instructions, next_vreg, constant_pool);
-            let rhs = lower_expr_with_pool(&bin.right, original_text, instructions, next_vreg, constant_pool);
+            let lhs = lower_expr_with_pool(
+                &bin.left,
+                original_text,
+                instructions,
+                next_vreg,
+                constant_pool,
+            );
+            let rhs = lower_expr_with_pool(
+                &bin.right,
+                original_text,
+                instructions,
+                next_vreg,
+                constant_pool,
+            );
             let vreg = alloc(next_vreg);
             instructions.push(MirInstruction::BinOp(vreg, op, lhs, rhs));
             vreg
@@ -550,7 +579,13 @@ fn lower_expr_with_pool(
                     return vreg;
                 }
             };
-            let arg = lower_expr_with_pool(&unary.arg, original_text, instructions, next_vreg, constant_pool);
+            let arg = lower_expr_with_pool(
+                &unary.arg,
+                original_text,
+                instructions,
+                next_vreg,
+                constant_pool,
+            );
             let vreg = alloc(next_vreg);
             instructions.push(MirInstruction::UnaryOp(vreg, op, arg));
             vreg
@@ -567,27 +602,54 @@ fn lower_expr_with_pool(
             };
             let mut arg_vregs = Vec::new();
             for arg in &call.args {
-                let vreg = lower_expr_with_pool(&arg.expr, original_text, instructions, next_vreg, constant_pool);
+                let vreg = lower_expr_with_pool(
+                    &arg.expr,
+                    original_text,
+                    instructions,
+                    next_vreg,
+                    constant_pool,
+                );
                 arg_vregs.push(vreg);
             }
             let vreg = alloc(next_vreg);
             instructions.push(MirInstruction::Call(vreg, callee_str, arg_vregs));
             vreg
         }
-        Expr::Paren(paren) => lower_expr_with_pool(&paren.expr, original_text, instructions, next_vreg, constant_pool),
+        Expr::Paren(paren) => lower_expr_with_pool(
+            &paren.expr,
+            original_text,
+            instructions,
+            next_vreg,
+            constant_pool,
+        ),
         Expr::Assign(assign) => {
             if let Some(name) = extract_simple_assign_target(&assign.left) {
                 match assign.op {
                     AssignOp::Assign => {
-                        let vreg = lower_expr_with_pool(&assign.right, original_text, instructions, next_vreg, constant_pool);
+                        let vreg = lower_expr_with_pool(
+                            &assign.right,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
                         instructions.push(MirInstruction::WriteBind(name, vreg));
                         vreg
                     }
-                    AssignOp::AddAssign | AssignOp::SubAssign | AssignOp::MulAssign
-                    | AssignOp::DivAssign | AssignOp::ModAssign => {
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign
+                    | AssignOp::ModAssign => {
                         let load = alloc(next_vreg);
                         instructions.push(MirInstruction::LoadBinding(load, name.clone()));
-                        let rhs = lower_expr_with_pool(&assign.right, original_text, instructions, next_vreg, constant_pool);
+                        let rhs = lower_expr_with_pool(
+                            &assign.right,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        );
                         let op = match assign.op {
                             AssignOp::AddAssign => MirBinOp::Add,
                             AssignOp::SubAssign => MirBinOp::Sub,
@@ -603,7 +665,8 @@ fn lower_expr_with_pool(
                     }
                     _ => {
                         let vreg = alloc(next_vreg);
-                        instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
                         vreg
                     }
                 }
@@ -619,7 +682,11 @@ fn lower_expr_with_pool(
                 let load = alloc(next_vreg);
                 instructions.push(MirInstruction::LoadBinding(load, name.clone()));
                 let one = constant_pool.get_or_create_number(1.0, next_vreg);
-                let op = if update.op == UpdateOp::PlusPlus { MirBinOp::Add } else { MirBinOp::Sub };
+                let op = if update.op == UpdateOp::PlusPlus {
+                    MirBinOp::Add
+                } else {
+                    MirBinOp::Sub
+                };
                 let result = alloc(next_vreg);
                 instructions.push(MirInstruction::BinOp(result, op, load, one));
                 instructions.push(MirInstruction::WriteBind(name, result));
@@ -653,7 +720,10 @@ fn lower_expr(
             }
             Lit::Str(s) => {
                 let vreg = alloc(next_vreg);
-                instructions.push(MirInstruction::ConstString(vreg, s.value.to_string_lossy().into_owned()));
+                instructions.push(MirInstruction::ConstString(
+                    vreg,
+                    s.value.to_string_lossy().into_owned(),
+                ));
                 vreg
             }
             Lit::Bool(b) => {
@@ -737,12 +807,16 @@ fn lower_expr(
             if let Some(name) = extract_simple_assign_target(&assign.left) {
                 match assign.op {
                     AssignOp::Assign => {
-                        let vreg = lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        let vreg =
+                            lower_expr(&assign.right, original_text, instructions, next_vreg);
                         instructions.push(MirInstruction::WriteBind(name, vreg));
                         vreg
                     }
-                    AssignOp::AddAssign | AssignOp::SubAssign | AssignOp::MulAssign
-                    | AssignOp::DivAssign | AssignOp::ModAssign => {
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign
+                    | AssignOp::ModAssign => {
                         let load = alloc(next_vreg);
                         instructions.push(MirInstruction::LoadBinding(load, name.clone()));
                         let rhs = lower_expr(&assign.right, original_text, instructions, next_vreg);
@@ -761,7 +835,8 @@ fn lower_expr(
                     }
                     _ => {
                         let vreg = alloc(next_vreg);
-                        instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                        instructions
+                            .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
                         vreg
                     }
                 }
@@ -778,7 +853,11 @@ fn lower_expr(
                 instructions.push(MirInstruction::LoadBinding(load, name.clone()));
                 let one = alloc(next_vreg);
                 instructions.push(MirInstruction::ConstNumber(one, 1.0));
-                let op = if update.op == UpdateOp::PlusPlus { MirBinOp::Add } else { MirBinOp::Sub };
+                let op = if update.op == UpdateOp::PlusPlus {
+                    MirBinOp::Add
+                } else {
+                    MirBinOp::Sub
+                };
                 let result = alloc(next_vreg);
                 instructions.push(MirInstruction::BinOp(result, op, load, one));
                 instructions.push(MirInstruction::WriteBind(name, result));
@@ -891,385 +970,6 @@ fn lower_if_stmt(
     instructions.push(MirInstruction::Label(end_label));
 }
 
-fn lower_while_stmt(
-    while_stmt: &WhileStmt,
-    original_text: &str,
-    instructions: &mut Vec<MirInstruction>,
-    next_vreg: &mut u32,
-) {
-    let loop_label = format!("while_loop_{}", *next_vreg);
-    let body_label = format!("while_body_{}", *next_vreg);
-    let end_label = format!("while_end_{}", *next_vreg);
-
-    // Loop condition check
-    instructions.push(MirInstruction::Label(loop_label.clone()));
-    let condition = lower_expr(&while_stmt.test, original_text, instructions, next_vreg);
-    instructions.push(MirInstruction::JumpIf(condition, body_label.clone()));
-    instructions.push(MirInstruction::Jump(end_label.clone()));
-
-    // Loop body
-    instructions.push(MirInstruction::Label(body_label));
-    lower_stmt(&while_stmt.body, original_text, instructions, next_vreg);
-    instructions.push(MirInstruction::Jump(loop_label));
-
-    // End label
-    instructions.push(MirInstruction::Label(end_label));
-}
-
-fn lower_do_while_stmt(
-    do_while_stmt: &DoWhileStmt,
-    original_text: &str,
-    instructions: &mut Vec<MirInstruction>,
-    next_vreg: &mut u32,
-) {
-    let body_label = format!("do_while_body_{}", *next_vreg);
-    let condition_label = format!("do_while_condition_{}", *next_vreg);
-    let end_label = format!("do_while_end_{}", *next_vreg);
-
-    // Execute body first
-    instructions.push(MirInstruction::Label(body_label.clone()));
-    lower_stmt(&do_while_stmt.body, original_text, instructions, next_vreg);
-
-    // Check condition
-    instructions.push(MirInstruction::Label(condition_label));
-    let condition = lower_expr(&do_while_stmt.test, original_text, instructions, next_vreg);
-    instructions.push(MirInstruction::JumpIf(condition, body_label));
-
-    // End label
-    instructions.push(MirInstruction::Label(end_label));
-}
-
-fn lower_for_stmt(
-    for_stmt: &ForStmt,
-    original_text: &str,
-    instructions: &mut Vec<MirInstruction>,
-    next_vreg: &mut u32,
-) {
-    let loop_label = format!("for_loop_{}", *next_vreg);
-    let body_label = format!("for_body_{}", *next_vreg);
-    let update_label = format!("for_update_{}", *next_vreg);
-    let end_label = format!("for_end_{}", *next_vreg);
-
-    // Initialization
-    if let Some(init) = &for_stmt.init {
-        match init {
-            VarDeclOrExpr::VarDecl(var_decl) => {
-                lower_stmt(&Stmt::Decl(Decl::Var(var_decl.clone())), original_text, instructions, next_vreg);
-            }
-            VarDeclOrExpr::Expr(expr) => {
-                lower_expr(expr, original_text, instructions, next_vreg);
-            }
-        }
-    }
-
-    // Loop condition check
-    instructions.push(MirInstruction::Label(loop_label.clone()));
-    if let Some(test) = &for_stmt.test {
-        let condition = lower_expr(test, original_text, instructions, next_vreg);
-        instructions.push(MirInstruction::JumpIf(condition, body_label.clone()));
-        instructions.push(MirInstruction::Jump(end_label.clone()));
-    }
-
-    // Loop body
-    instructions.push(MirInstruction::Label(body_label));
-    lower_stmt(&for_stmt.body, original_text, instructions, next_vreg);
-
-    // Update expression
-    instructions.push(MirInstruction::Label(update_label));
-    if let Some(update) = &for_stmt.update {
-        lower_expr(update, original_text, instructions, next_vreg);
-    }
-    instructions.push(MirInstruction::Jump(loop_label));
-
-    // End label
-    instructions.push(MirInstruction::Label(end_label));
-}
-
-fn lower_switch_stmt(
-    switch_stmt: &SwitchStmt,
-    original_text: &str,
-    instructions: &mut Vec<MirInstruction>,
-    next_vreg: &mut u32,
-) {
-    let value = lower_expr(&switch_stmt.discriminant, original_text, instructions, next_vreg);
-
-    // For now, implement as a series of if-else checks
-    // TODO: Optimize for switch tables later
-    let end_label = format!("switch_end_{}", *next_vreg);
-
-    for (i, case) in switch_stmt.cases.iter().enumerate() {
-        if let Some(test) = &case.test {
-            let case_label = format!("switch_case_{}_{}", i, *next_vreg);
-            let case_test = lower_expr(test, original_text, instructions, next_vreg);
-
-            // Compare switch value with case value
-            let cmp_result = alloc(next_vreg);
-            instructions.push(MirInstruction::BinOp(cmp_result, MirBinOp::Eq, value, case_test));
-            instructions.push(MirInstruction::JumpIf(cmp_result, case_label.clone()));
-
-            // Store case label for later
-            let next_case_label = if i + 1 < switch_stmt.cases.len() {
-                format!("switch_case_{}_{}", i + 1, *next_vreg)
-            } else {
-                end_label.clone()
-            };
-            instructions.push(MirInstruction::Jump(next_case_label));
-
-            // Case body
-            instructions.push(MirInstruction::Label(case_label));
-            for stmt in &case.cons {
-                lower_stmt(stmt, original_text, instructions, next_vreg);
-            }
-        } else {
-            // Default case
-            let default_label = format!("switch_default_{}", *next_vreg);
-            instructions.push(MirInstruction::Label(default_label));
-            for stmt in &case.cons {
-                lower_stmt(stmt, original_text, instructions, next_vreg);
-            }
-        }
-    }
-
-    instructions.push(MirInstruction::Label(end_label));
-}
-
-/// Analyzes arithmetic patterns and applies SIMD vectorization where beneficial
-fn try_vectorize_arithmetic(instructions: &[MirInstruction]) -> Vec<MirInstruction> {
-    let mut optimized = Vec::with_capacity(instructions.len());
-    let mut i = 0;
-
-    while i < instructions.len() {
-        // Look for vectorizable patterns: sequences of similar arithmetic operations
-        if let Some(vectorized_count) = try_vectorize_sequence(&instructions[i..], &mut optimized) {
-            i += vectorized_count;
-        } else {
-            optimized.push(instructions[i].clone());
-            i += 1;
-        }
-    }
-
-    optimized
-}
-
-/// Attempts to vectorize a sequence of arithmetic operations starting at the given slice
-/// Returns the number of instructions consumed if successful
-fn try_vectorize_sequence(
-    instructions: &[MirInstruction],
-    output: &mut Vec<MirInstruction>
-) -> Option<usize> {
-    if instructions.len() < 4 {
-        return None; // Need at least 4 operations to justify vectorization
-    }
-
-    // Pattern: Look for repeated arithmetic on different variables
-    // Example: a = a + 1; b = b + 1; c = c + 1; d = d + 1;
-    let mut arithmetic_ops = Vec::new();
-    let mut idx = 0;
-
-    while idx < instructions.len() {
-        if let MirInstruction::BinOp(dst, op, lhs, rhs) = &instructions[idx] {
-            // Check if this is a vectorizable operation (add, sub, mul)
-            if matches!(op, MirBinOp::Add | MirBinOp::Sub | MirBinOp::Mul) {
-                arithmetic_ops.push((dst, op, lhs, rhs));
-                idx += 1;
-
-                // Stop collecting if we have enough for a SIMD operation
-                if arithmetic_ops.len() >= 2 {
-                    break;
-                }
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-
-    // If we have 2+ similar operations, vectorize them
-    if arithmetic_ops.len() >= 2 {
-        // Check if operations are similar (same operation type)
-        let first_op = arithmetic_ops[0].1;
-        let all_same_op = arithmetic_ops.iter().all(|(_, op, _, _)| op == &first_op);
-
-        if all_same_op {
-            // Create vectorized version
-            let simd_op = match first_op {
-                MirBinOp::Add => SimdOp::Add,
-                MirBinOp::Sub => SimdOp::Sub,
-                MirBinOp::Mul => SimdOp::Mul,
-                _ => return None,
-            };
-
-            // For simplicity, just add a comment about vectorization potential
-            output.push(MirInstruction::RuntimeEval(
-                *arithmetic_ops[0].0,
-                format!("// SIMD candidate: {} operations of {:?}", arithmetic_ops.len(), simd_op)
-            ));
-
-            // Add the original operations for now (actual vectorization would be more complex)
-            for (dst, op, lhs, rhs) in arithmetic_ops {
-                output.push(MirInstruction::BinOp(*dst, *op, *lhs, *rhs));
-            }
-
-            return Some(idx);
-        }
-    }
-
-    None
-}
-
-/// Applies loop optimizations: unrolling, strength reduction, invariant hoisting
-fn optimize_loops(instructions: &[MirInstruction]) -> Vec<MirInstruction> {
-    let mut optimized = Vec::with_capacity(instructions.len() * 2); // Reserve space for potential unrolling
-    let mut i = 0;
-
-    while i < instructions.len() {
-        match &instructions[i] {
-            // Detect while loops and apply optimizations
-            MirInstruction::Label(label) if label.starts_with("while_loop_") => {
-                let loop_id = label.clone();
-                optimized.push(MirInstruction::LoopBegin(loop_id.clone()));
-
-                // Look ahead to find the loop body and analyze it
-                let loop_instructions = extract_loop_body(&instructions[i..]);
-
-                if should_unroll_loop(&loop_instructions) {
-                    apply_loop_unrolling(&loop_instructions, &mut optimized, 2); // Unroll 2x
-                } else {
-                    // Apply strength reduction and invariant hoisting
-                    let strength_reduced = apply_strength_reduction(&loop_instructions);
-                    let hoist_optimized = apply_invariant_hoisting(&strength_reduced, &loop_id);
-                    optimized.extend(hoist_optimized);
-                }
-
-                optimized.push(MirInstruction::LoopEnd(loop_id));
-
-                // Skip the original loop instructions
-                i += loop_instructions.len();
-                continue;
-            }
-            _ => {
-                optimized.push(instructions[i].clone());
-            }
-        }
-        i += 1;
-    }
-
-    optimized
-}
-
-/// Extracts loop body instructions for analysis
-fn extract_loop_body(instructions: &[MirInstruction]) -> Vec<MirInstruction> {
-    let mut body = Vec::new();
-    let mut depth = 0;
-
-    for (idx, instr) in instructions.iter().enumerate() {
-        match instr {
-            MirInstruction::Label(label) if label.contains("loop") => {
-                if idx == 0 {
-                    depth += 1;
-                } else if depth > 0 {
-                    depth += 1;
-                }
-                body.push(instr.clone());
-            }
-            MirInstruction::Label(label) if label.contains("end") => {
-                body.push(instr.clone());
-                depth -= 1;
-                if depth == 0 {
-                    break;
-                }
-            }
-            _ => {
-                if depth > 0 {
-                    body.push(instr.clone());
-                }
-            }
-        }
-    }
-
-    body
-}
-
-/// Determines if a loop should be unrolled based on size and complexity
-fn should_unroll_loop(loop_body: &[MirInstruction]) -> bool {
-    // Simple heuristic: unroll small loops with simple arithmetic
-    if loop_body.len() > 20 {
-        return false; // Too large to unroll
-    }
-
-    let arithmetic_ops = loop_body.iter().filter(|instr| {
-        matches!(instr, MirInstruction::BinOp(_, op, _, _)
-            if matches!(op, MirBinOp::Add | MirBinOp::Sub | MirBinOp::Mul))
-    }).count();
-
-    arithmetic_ops >= 2 && arithmetic_ops <= 8 // Sweet spot for unrolling
-}
-
-/// Applies loop unrolling by duplicating loop body
-fn apply_loop_unrolling(
-    loop_body: &[MirInstruction],
-    output: &mut Vec<MirInstruction>,
-    factor: u32
-) {
-    output.push(MirInstruction::UnrollHint(factor));
-
-    // For simplicity, just duplicate the body (real implementation would be more sophisticated)
-    for _ in 0..factor {
-        for instr in loop_body {
-            output.push(instr.clone());
-        }
-    }
-}
-
-/// Applies strength reduction: replace expensive ops with cheaper alternatives
-fn apply_strength_reduction(instructions: &[MirInstruction]) -> Vec<MirInstruction> {
-    let mut optimized = Vec::new();
-
-    for instr in instructions {
-        match instr {
-            // Replace multiplication by power of 2 with left shift
-            MirInstruction::BinOp(dst, MirBinOp::Mul, lhs, rhs) => {
-                // In a real implementation, we'd check if rhs is a power of 2 constant
-                // For now, just add a hint
-                optimized.push(MirInstruction::StrengthReduce(*dst, MirBinOp::Mul, *lhs, *rhs));
-                optimized.push(instr.clone());
-            }
-            // Replace division by power of 2 with right shift
-            MirInstruction::BinOp(dst, MirBinOp::Div, lhs, rhs) => {
-                optimized.push(MirInstruction::StrengthReduce(*dst, MirBinOp::Div, *lhs, *rhs));
-                optimized.push(instr.clone());
-            }
-            _ => optimized.push(instr.clone())
-        }
-    }
-
-    optimized
-}
-
-/// Applies loop invariant code motion
-fn apply_invariant_hoisting(instructions: &[MirInstruction], loop_id: &str) -> Vec<MirInstruction> {
-    let mut optimized = Vec::new();
-    let mut invariants = Vec::new();
-
-    // Simple heuristic: constants and loads from immutable sources are invariant
-    for instr in instructions {
-        match instr {
-            MirInstruction::ConstNumber(vreg, _) |
-            MirInstruction::ConstString(vreg, _) |
-            MirInstruction::ConstBool(vreg, _) => {
-                invariants.push(MirInstruction::HoistInvariant(*vreg, loop_id.to_string()));
-                optimized.push(instr.clone());
-            }
-            _ => optimized.push(instr.clone())
-        }
-    }
-
-    // Place hoisted invariants at the beginning
-    invariants.extend(optimized);
-    invariants
-}
-
 /// Applies function inlining optimizations across the entire module
 fn apply_function_inlining(module: &mut TypedMirModule) {
     // Identify inline candidates - small functions called frequently
@@ -1280,14 +980,22 @@ fn apply_function_inlining(module: &mut TypedMirModule) {
 
     // Apply inlining to each function
     for function in &mut module.functions {
-        let optimized_blocks = function.blocks.iter().map(|block| {
-            let optimized_instructions = inline_function_calls(&block.instructions, &inline_candidates, &functions_for_reference);
-            TypedBasicBlock {
-                label: block.label.clone(),
-                instructions: optimized_instructions,
-                terminator: block.terminator.clone(),
-            }
-        }).collect();
+        let optimized_blocks = function
+            .blocks
+            .iter()
+            .map(|block| {
+                let optimized_instructions = inline_function_calls(
+                    &block.instructions,
+                    &inline_candidates,
+                    &functions_for_reference,
+                );
+                TypedBasicBlock {
+                    label: block.label.clone(),
+                    instructions: optimized_instructions,
+                    terminator: block.terminator.clone(),
+                }
+            })
+            .collect();
 
         function.blocks = optimized_blocks;
     }
@@ -1308,7 +1016,9 @@ fn identify_inline_candidates(functions: &[TypedMirFunction]) -> std::collection
 
 /// Determines if a function should be inlined based on size and complexity
 fn should_inline_function(function: &TypedMirFunction) -> bool {
-    let total_instructions: usize = function.blocks.iter()
+    let total_instructions: usize = function
+        .blocks
+        .iter()
         .map(|block| block.instructions.len())
         .sum();
 
@@ -1324,14 +1034,19 @@ fn should_inline_function(function: &TypedMirFunction) -> bool {
 
     if total_instructions <= 15 {
         // Medium functions - inline if they're mostly arithmetic
-        let arithmetic_count = function.blocks.iter()
+        let arithmetic_count = function
+            .blocks
+            .iter()
             .flat_map(|block| &block.instructions)
-            .filter(|instr| matches!(instr,
-                MirInstruction::BinOp(_, _, _, _) |
-                MirInstruction::UnaryOp(_, _, _) |
-                MirInstruction::ConstNumber(_, _) |
-                MirInstruction::ConstInt32(_, _)
-            ))
+            .filter(|instr| {
+                matches!(
+                    instr,
+                    MirInstruction::BinOp(_, _, _, _)
+                        | MirInstruction::UnaryOp(_, _, _)
+                        | MirInstruction::ConstNumber(_, _)
+                        | MirInstruction::ConstInt32(_, _)
+                )
+            })
             .count();
 
         return arithmetic_count as f32 / total_instructions as f32 > 0.7;
@@ -1344,17 +1059,19 @@ fn should_inline_function(function: &TypedMirFunction) -> bool {
 fn inline_function_calls(
     instructions: &[MirInstruction],
     inline_candidates: &std::collections::HashSet<String>,
-    all_functions: &[TypedMirFunction]
+    all_functions: &[TypedMirFunction],
 ) -> Vec<MirInstruction> {
     let mut result = Vec::new();
 
     for instruction in instructions {
         match instruction {
             MirInstruction::Call(dst, function_name, args)
-                if inline_candidates.contains(function_name) => {
-
+                if inline_candidates.contains(function_name) =>
+            {
                 // Find the function to inline
-                if let Some(_target_function) = all_functions.iter().find(|f| &f.name == function_name) {
+                if let Some(_target_function) =
+                    all_functions.iter().find(|f| &f.name == function_name)
+                {
                     // Mark as inlined
                     result.push(MirInstruction::InlineCandidate(function_name.clone()));
 
@@ -1362,7 +1079,7 @@ fn inline_function_calls(
                     // For simplicity, we'll just add a comment about inlining
                     result.push(MirInstruction::RuntimeEval(
                         *dst,
-                        format!("// Inlined function: {}", function_name)
+                        format!("// Inlined function: {}", function_name),
                     ));
 
                     // In a real implementation, we would:
@@ -1377,7 +1094,7 @@ fn inline_function_calls(
                     result.push(instruction.clone());
                 }
             }
-            _ => result.push(instruction.clone())
+            _ => result.push(instruction.clone()),
         }
     }
 
@@ -1410,12 +1127,16 @@ mod tests {
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
         // Should have ConstNumber + Bind (+ Return at end)
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 42.0)));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::Bind(name, _, false) if name == "x")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 42.0))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Bind(name, _, false) if name == "x"))
+        );
     }
 
     #[test]
@@ -1424,9 +1145,11 @@ mod tests {
         let mir = typed_build(&hir);
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::ConstString(_, s) if s == "hello")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::ConstString(_, s) if s == "hello"))
+        );
     }
 
     #[test]
@@ -1435,9 +1158,11 @@ mod tests {
         let mir = typed_build(&hir);
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _))));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _)))
+        );
     }
 
     #[test]
@@ -1446,9 +1171,11 @@ mod tests {
         let mir = typed_build(&hir);
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::Call(_, name, _) if name == "io.print")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Call(_, name, _) if name == "io.print"))
+        );
     }
 
     #[test]
@@ -1458,9 +1185,11 @@ mod tests {
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
         // If statements are now lowered natively with JumpIf/Label
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::JumpIf(_, _))));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::JumpIf(_, _)))
+        );
     }
 
     #[test]
@@ -1515,16 +1244,22 @@ mod tests {
         assert_eq!(add_fn.param_count, 2);
         let instructions = &add_fn.blocks[0].instructions;
         // Should have LoadParam + Bind for each parameter
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::LoadParam(_, 0))));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::LoadParam(_, 1))));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadParam(_, 0)))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadParam(_, 1)))
+        );
         // Should have Return
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::Return(Some(_)))));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::Return(Some(_))))
+        );
     }
 
     #[test]
@@ -1534,13 +1269,17 @@ mod tests {
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
         // Should have WriteBind for the assignment
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x"))
+        );
         // The value 2 should be a ConstNumber
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 2.0)));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 2.0))
+        );
     }
 
     #[test]
@@ -1550,15 +1289,21 @@ mod tests {
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
         // Should have LoadBinding + BinOp(Add) + WriteBind
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::LoadBinding(_, name) if name == "x")));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _))));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::LoadBinding(_, name) if name == "x"))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _)))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x"))
+        );
     }
 
     #[test]
@@ -1568,15 +1313,21 @@ mod tests {
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
         // Should have LoadBinding + ConstNumber(1) + BinOp(Add) + WriteBind
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 1.0)));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _))));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "i")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::ConstNumber(_, v) if *v == 1.0))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Add, _, _)))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "i"))
+        );
     }
 
     #[test]
@@ -1585,12 +1336,16 @@ mod tests {
         let mir = typed_build(&hir);
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Sub, _, _))));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "i")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Sub, _, _)))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "i"))
+        );
     }
 
     #[test]
@@ -1599,11 +1354,15 @@ mod tests {
         let mir = typed_build(&hir);
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Mul, _, _))));
-        assert!(instructions
-            .iter()
-            .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x")));
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::BinOp(_, MirBinOp::Mul, _, _)))
+        );
+        assert!(
+            instructions
+                .iter()
+                .any(|i| matches!(i, MirInstruction::WriteBind(name, _) if name == "x"))
+        );
     }
 }

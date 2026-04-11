@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::namespaces::value::JsValue;
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string};
+use crate::namespaces::value::RuntimeValue;
 
 // ── Estado de globals ──────────────────────────────────────────────────────────
 
@@ -88,26 +88,26 @@ pub const SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
         "global.set" if args.len() >= 2 => {
             set(arg_to_string(args, 0), arg_to_string(args, 1));
-            Some(DispatchOutcome::Value(JsValue::Undefined))
+            Some(DispatchOutcome::Value(RuntimeValue::Undefined))
         }
         "global.get" if !args.is_empty() => Some(DispatchOutcome::Value(
             get(&arg_to_string(args, 0))
-                .map(JsValue::String)
-                .unwrap_or(JsValue::Undefined),
+                .map(RuntimeValue::String)
+                .unwrap_or(RuntimeValue::Undefined),
         )),
-        "global.has" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
-            has(&arg_to_string(args, 0)),
-        ))),
-        "global.delete" if !args.is_empty() => Some(DispatchOutcome::Value(JsValue::Bool(
+        "global.has" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Bool(has(
+            &arg_to_string(args, 0),
+        )))),
+        "global.delete" if !args.is_empty() => Some(DispatchOutcome::Value(RuntimeValue::Bool(
             delete(&arg_to_string(args, 0)),
         ))),
-        "global.keys" if args.is_empty() => Some(DispatchOutcome::Value(JsValue::String(
-            keys_csv(),
-        ))),
+        "global.keys" if args.is_empty() => {
+            Some(DispatchOutcome::Value(RuntimeValue::String(keys_csv())))
+        }
         _ => None,
     }
 }

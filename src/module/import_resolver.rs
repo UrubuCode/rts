@@ -5,8 +5,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::compile_options::CompileOptions;
 
 use super::manifest::{
-    DependencySpec, ManifestCache, PackageManifest, RawPackageManifest,
-    load_package_manifest, strip_json_comments,
+    DependencySpec, ManifestCache, PackageManifest, RawPackageManifest, load_package_manifest,
+    strip_json_comments,
 };
 use super::module_cache::ModuleCache;
 use super::{ImportTarget, ModuleKind, attach_trace};

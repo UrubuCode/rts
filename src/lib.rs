@@ -78,7 +78,7 @@ pub fn compile_source_with_options(
     let mut hir = hir::lower::lower(&program, &resolver);
     let _hir_opt = hir::optimize::optimize_with_mode(&mut hir, options.frontend_mode);
 
-    let typed_mir = mir::typed_build::typed_build(&hir);
+    let mir_module = mir::build::build(&hir);
 
     let _metadata = MetadataTable::from_registry(&registry);
     let deps_dir = pipeline::resolve_deps_dir(output)?;
@@ -101,14 +101,14 @@ pub fn compile_source_with_options(
     let ObjectArtifact {
         path: object_file,
         bytes_written: app_object_bytes,
-    } = codegen::generate_typed_object(
-        &typed_mir,
+    } = codegen::generate_object_with_metadata_options(
+        &mir_module,
+        &_metadata,
         &object_path,
         true,
-        &options,
+        options.profile.as_str() == "production",
     )?;
-    let runtime_objects =
-        pipeline::emit_selected_namespace_objects(&deps_dir, &usage, &options)?;
+    let runtime_objects = pipeline::emit_selected_namespace_objects(&deps_dir, &usage, &options)?;
     let runtime_support_library = runtime_lib::resolve_runtime_support_library(&deps_dir)?;
     let runtime_object_bytes = runtime_objects.bytes_written;
     let dependency_objects = 2usize + runtime_objects.object_paths.len();
@@ -140,7 +140,7 @@ pub fn compile_source_with_options(
         link_backend: linked.backend,
         link_format: linked.format,
         discovered_types: registry.len(),
-        lowered_functions: typed_mir.functions.len(),
+        lowered_functions: mir_module.functions.len(),
         compiled_modules: 1,
         runtime_namespaces,
         runtime_functions,

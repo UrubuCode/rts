@@ -319,7 +319,11 @@ fn discover_workspace_root(entry_path: &Path) -> Result<PathBuf> {
     std::env::current_dir().context("failed to resolve current directory for workspace root")
 }
 
-pub(crate) fn attach_trace(prefix: String, trace_route: &[String], options: CompileOptions) -> String {
+pub(crate) fn attach_trace(
+    prefix: String,
+    trace_route: &[String],
+    options: CompileOptions,
+) -> String {
     if !options.include_trace_data() || trace_route.is_empty() {
         return prefix;
     }

@@ -12,13 +12,13 @@ $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
 # Verifica se o executável do RTS existe
-cargo run --release
+cargo build --release
 
 # -------------------------------------------------------------------
 # Prepara o binário compilado (uma única vez antes dos benchmarks)
 # -------------------------------------------------------------------
 Write-Host "=== Building standalone executable with RTS ==="
-& $RtsExe build -p $SourceFile $BuildOutput --production
+& $RtsExe compile -p $SourceFile $BuildOutput --production
 $CompiledExe = "$BuildOutput.exe"
 if (!(Test-Path $CompiledExe)) {
   throw "Compiled executable not found at $CompiledExe"
@@ -90,7 +90,7 @@ $rtsCompiledAction = { & $CompiledExe *> $null }
 $bunAction = { bun run "bench\bun_simple.ts" *> $null }
 
 # 4. Node runtime
-$NodeAction = { bun run "bench\bun_simple.ts" *> $null }
+$NodeAction = { node "bench\bun_simple.ts" *> $null }
 
 # -------------------------------------------------------------------
 # Execução dos benchmarks

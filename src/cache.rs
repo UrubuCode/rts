@@ -4,10 +4,9 @@ use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::codegen;
 use crate::compile_options::CompileOptions;
 
-pub(crate) const OBJECT_CACHE_SCHEMA: u32 = 4;
+pub(crate) const OBJECT_CACHE_SCHEMA: u32 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ObjectCacheMeta {
@@ -26,13 +25,6 @@ pub(crate) struct RuntimeObjectArtifacts {
     pub(crate) bytes_written: usize,
     pub(crate) cache_hits: usize,
     pub(crate) cache_misses: usize,
-}
-
-#[derive(Debug)]
-pub(crate) struct CachedObjectEmission {
-    pub(crate) path: PathBuf,
-    pub(crate) bytes_written: usize,
-    pub(crate) cache_hit: bool,
 }
 
 pub(crate) fn hash_source(source: &str) -> String {
@@ -71,57 +63,4 @@ pub(crate) fn write_object_cache_meta(path: &Path, meta: &ObjectCacheMeta) -> Re
         .map_err(|error| anyhow!("failed to encode object cache metadata: {error}"))?;
     std::fs::write(path, encoded)
         .with_context(|| format!("failed to write object cache metadata {}", path.display()))
-}
-
-pub(crate) fn emit_cached_object_bytes<F>(
-    deps_dir: &Path,
-    stem: &str,
-    source_hash: &str,
-    options: &CompileOptions,
-    emit_entrypoint: bool,
-    build: F,
-) -> Result<CachedObjectEmission>
-where
-    F: FnOnce() -> Result<Vec<u8>>,
-{
-    let object_path = deps_dir.join(format!("{stem}.o"));
-    let meta_path = deps_dir.join(format!("{stem}.m"));
-
-    if is_cached_object_valid(
-        &meta_path,
-        &object_path,
-        source_hash,
-        options,
-        emit_entrypoint,
-    ) {
-        let bytes_written = std::fs::metadata(&object_path)
-            .map(|metadata| metadata.len() as usize)
-            .unwrap_or(0);
-        return Ok(CachedObjectEmission {
-            path: object_path,
-            bytes_written,
-            cache_hit: true,
-        });
-    }
-
-    let bytes = build()?;
-    let artifact = codegen::object::write_object_file(&object_path, &bytes)?;
-    write_object_cache_meta(
-        &meta_path,
-        &ObjectCacheMeta {
-            cache_schema: OBJECT_CACHE_SCHEMA,
-            source_hash: source_hash.to_string(),
-            profile: options.profile.to_string(),
-            debug: options.debug,
-            emit_entrypoint,
-            object_bytes: artifact.bytes_written as u64,
-            rts_version: env!("CARGO_PKG_VERSION").to_string(),
-        },
-    )?;
-
-    Ok(CachedObjectEmission {
-        path: artifact.path,
-        bytes_written: artifact.bytes_written,
-        cache_hit: false,
-    })
 }

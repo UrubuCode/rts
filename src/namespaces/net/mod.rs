@@ -1,10 +1,10 @@
 pub mod common;
+mod ip;
 mod tcp;
 mod udp;
-mod ip;
 
-use crate::namespaces::value::JsValue;
-use crate::namespaces::{arg_to_u64, DispatchOutcome, NamespaceMember, NamespaceSpec};
+use crate::namespaces::value::RuntimeValue;
+use crate::namespaces::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_u64};
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "net",
@@ -33,7 +33,6 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the local socket address of this listener.",
         ts_signature: "tcp_local_addr(listener: u64): io.Result<str>",
     },
-
     // TcpStream
     NamespaceMember {
         name: "tcp_connect",
@@ -107,7 +106,6 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Gets the value of the IP_TTL option for this socket.",
         ts_signature: "tcp_ttl(stream: u64): io.Result<u32>",
     },
-
     // UdpSocket
     NamespaceMember {
         name: "udp_bind",
@@ -229,7 +227,6 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Executes an operation to leave a multicast group.",
         ts_signature: "udp_leave_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>",
     },
-
     // IP Address utilities
     NamespaceMember {
         name: "parse_ip_addr",
@@ -261,7 +258,6 @@ const MEMBERS: &[NamespaceMember] = &[
         doc: "Resolves a string to socket addresses.",
         ts_signature: "to_socket_addrs(addr: str): io.Result<str>",
     },
-
     // Utilities
     NamespaceMember {
         name: "close",
@@ -311,7 +307,7 @@ const TS_PRELUDE: &[&str] = &[
     r#"export type ShutdownHow = "Read" | "Write" | "Both";"#,
 ];
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     match callee {
         // TcpListener
         "net.tcp_listen" => Some(tcp::tcp_listen(args)),
@@ -369,7 +365,7 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
 }
 
 // Utilities
-fn close(args: &[JsValue]) -> DispatchOutcome {
+fn close(args: &[RuntimeValue]) -> DispatchOutcome {
     let handle = arg_to_u64(args, 0);
     let net_state = common::lock_net_state();
     let mut state = net_state.lock().unwrap();
@@ -378,5 +374,5 @@ fn close(args: &[JsValue]) -> DispatchOutcome {
         || state.remove_tcp_stream(handle)
         || state.remove_udp_socket(handle);
 
-    DispatchOutcome::Value(JsValue::Bool(closed))
+    DispatchOutcome::Value(RuntimeValue::Bool(closed))
 }

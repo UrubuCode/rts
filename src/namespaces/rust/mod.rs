@@ -1,12 +1,13 @@
 mod constants;
 pub mod debug;
+pub(crate) mod eval;
 mod functions;
 pub mod hotops;
 mod memory;
 pub mod natives;
 mod scope;
 
-use crate::namespaces::value::JsValue;
+use crate::namespaces::value::RuntimeValue;
 use crate::namespaces::{DispatchOutcome, NamespaceMember, NamespaceSpec};
 
 const MEMBERS: &[NamespaceMember] = &[
@@ -188,19 +189,84 @@ pub const DEBUG_SPEC: NamespaceSpec = NamespaceSpec {
 };
 
 pub const HOTOPS_MEMBERS: &[NamespaceMember] = &[
-    NamespaceMember { name: "i64_sub", callee: "rts.hotops.i64_sub", doc: "Subtração i64.", ts_signature: "i64_sub(a: i64, b: i64): i64" },
-    NamespaceMember { name: "i64_div", callee: "rts.hotops.i64_div", doc: "Divisão i64.", ts_signature: "i64_div(a: i64, b: i64): i64" },
-    NamespaceMember { name: "i64_mod", callee: "rts.hotops.i64_mod", doc: "Módulo i64.", ts_signature: "i64_mod(a: i64, b: i64): i64" },
-    NamespaceMember { name: "i64_eq", callee: "rts.hotops.i64_eq", doc: "Igualdade i64.", ts_signature: "i64_eq(a: i64, b: i64): bool" },
-    NamespaceMember { name: "i64_lt", callee: "rts.hotops.i64_lt", doc: "Menor que i64.", ts_signature: "i64_lt(a: i64, b: i64): bool" },
-    NamespaceMember { name: "i64_le", callee: "rts.hotops.i64_le", doc: "Menor ou igual i64.", ts_signature: "i64_le(a: i64, b: i64): bool" },
-    NamespaceMember { name: "f64_add", callee: "rts.hotops.f64_add", doc: "Adição f64.", ts_signature: "f64_add(a: f64, b: f64): f64" },
-    NamespaceMember { name: "f64_sub", callee: "rts.hotops.f64_sub", doc: "Subtração f64.", ts_signature: "f64_sub(a: f64, b: f64): f64" },
-    NamespaceMember { name: "f64_div", callee: "rts.hotops.f64_div", doc: "Divisão f64.", ts_signature: "f64_div(a: f64, b: f64): f64" },
-    NamespaceMember { name: "f64_eq", callee: "rts.hotops.f64_eq", doc: "Igualdade f64.", ts_signature: "f64_eq(a: f64, b: f64): bool" },
-    NamespaceMember { name: "f64_lt", callee: "rts.hotops.f64_lt", doc: "Menor que f64.", ts_signature: "f64_lt(a: f64, b: f64): bool" },
-    NamespaceMember { name: "i64_to_string", callee: "rts.hotops.i64_to_string", doc: "i64 para string (tabela pré-computada para 0..=255).", ts_signature: "i64_to_string(n: i64): u64" },
-    NamespaceMember { name: "f64_to_string", callee: "rts.hotops.f64_to_string", doc: "f64 para string.", ts_signature: "f64_to_string(n: f64): u64" },
+    NamespaceMember {
+        name: "i64_sub",
+        callee: "rts.hotops.i64_sub",
+        doc: "Subtração i64.",
+        ts_signature: "i64_sub(a: i64, b: i64): i64",
+    },
+    NamespaceMember {
+        name: "i64_div",
+        callee: "rts.hotops.i64_div",
+        doc: "Divisão i64.",
+        ts_signature: "i64_div(a: i64, b: i64): i64",
+    },
+    NamespaceMember {
+        name: "i64_mod",
+        callee: "rts.hotops.i64_mod",
+        doc: "Módulo i64.",
+        ts_signature: "i64_mod(a: i64, b: i64): i64",
+    },
+    NamespaceMember {
+        name: "i64_eq",
+        callee: "rts.hotops.i64_eq",
+        doc: "Igualdade i64.",
+        ts_signature: "i64_eq(a: i64, b: i64): bool",
+    },
+    NamespaceMember {
+        name: "i64_lt",
+        callee: "rts.hotops.i64_lt",
+        doc: "Menor que i64.",
+        ts_signature: "i64_lt(a: i64, b: i64): bool",
+    },
+    NamespaceMember {
+        name: "i64_le",
+        callee: "rts.hotops.i64_le",
+        doc: "Menor ou igual i64.",
+        ts_signature: "i64_le(a: i64, b: i64): bool",
+    },
+    NamespaceMember {
+        name: "f64_add",
+        callee: "rts.hotops.f64_add",
+        doc: "Adição f64.",
+        ts_signature: "f64_add(a: f64, b: f64): f64",
+    },
+    NamespaceMember {
+        name: "f64_sub",
+        callee: "rts.hotops.f64_sub",
+        doc: "Subtração f64.",
+        ts_signature: "f64_sub(a: f64, b: f64): f64",
+    },
+    NamespaceMember {
+        name: "f64_div",
+        callee: "rts.hotops.f64_div",
+        doc: "Divisão f64.",
+        ts_signature: "f64_div(a: f64, b: f64): f64",
+    },
+    NamespaceMember {
+        name: "f64_eq",
+        callee: "rts.hotops.f64_eq",
+        doc: "Igualdade f64.",
+        ts_signature: "f64_eq(a: f64, b: f64): bool",
+    },
+    NamespaceMember {
+        name: "f64_lt",
+        callee: "rts.hotops.f64_lt",
+        doc: "Menor que f64.",
+        ts_signature: "f64_lt(a: f64, b: f64): bool",
+    },
+    NamespaceMember {
+        name: "i64_to_string",
+        callee: "rts.hotops.i64_to_string",
+        doc: "i64 para string (tabela pré-computada para 0..=255).",
+        ts_signature: "i64_to_string(n: i64): u64",
+    },
+    NamespaceMember {
+        name: "f64_to_string",
+        callee: "rts.hotops.f64_to_string",
+        doc: "f64 para string.",
+        ts_signature: "f64_to_string(n: f64): u64",
+    },
 ];
 
 pub const HOTOPS_SPEC: NamespaceSpec = NamespaceSpec {
@@ -219,7 +285,7 @@ pub const NATIVES_SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
-pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
+pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     functions::dispatch(callee, args)
         .or_else(|| scope::dispatch(callee, args))
         .or_else(|| constants::dispatch(callee, args))
@@ -227,4 +293,79 @@ pub fn dispatch(callee: &str, args: &[JsValue]) -> Option<DispatchOutcome> {
         .or_else(|| natives::dispatch(callee, args))
         .or_else(|| hotops::dispatch(callee, args))
         .or_else(|| debug::dispatch(callee, args))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_print(handle: i64) -> i64 {
+    let message = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
+    println!("{message}");
+    crate::namespaces::abi::undefined_handle()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_stdout_write(handle: i64) -> i64 {
+    let message = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
+    print!("{message}");
+    crate::namespaces::abi::undefined_handle()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_stderr_write(handle: i64) -> i64 {
+    let message = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
+    eprint!("{message}");
+    crate::namespaces::abi::undefined_handle()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_io_panic(handle: i64) -> i64 {
+    let message = if handle == crate::namespaces::abi::undefined_handle() {
+        "runtime panic".to_string()
+    } else {
+        crate::namespaces::abi::read_runtime_value(handle).to_runtime_string()
+    };
+    eprintln!("RTS runtime panic: {message}");
+    std::process::exit(1);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_crypto_sha256(handle: i64) -> i64 {
+    let input = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
+    let digest = crate::namespaces::crypto::hash_sha256(&input);
+    crate::namespaces::abi::push_runtime_value(RuntimeValue::String(digest))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_process_exit(code: i64) -> i64 {
+    std::process::exit(code as i32);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_set(key_handle: i64, value_handle: i64) -> i64 {
+    let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
+    let value = crate::namespaces::abi::read_runtime_value(value_handle).to_runtime_string();
+    crate::namespaces::global::set(&key, &value);
+    crate::namespaces::abi::undefined_handle()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_get(key_handle: i64) -> i64 {
+    let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
+    match crate::namespaces::global::get(&key) {
+        Some(value) => crate::namespaces::abi::push_runtime_value(RuntimeValue::String(value)),
+        None => crate::namespaces::abi::undefined_handle(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_has(key_handle: i64) -> i64 {
+    let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
+    let exists = crate::namespaces::global::has(&key);
+    crate::namespaces::abi::push_runtime_value(RuntimeValue::Bool(exists))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rts_global_delete(key_handle: i64) -> i64 {
+    let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
+    let removed = crate::namespaces::global::delete(&key);
+    crate::namespaces::abi::push_runtime_value(RuntimeValue::Bool(removed))
 }

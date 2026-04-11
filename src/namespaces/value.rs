@@ -1,17 +1,17 @@
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum JsValue {
+pub enum RuntimeValue {
     Number(f64),
     String(String),
     Bool(bool),
-    Object(BTreeMap<String, JsValue>),
+    Object(BTreeMap<String, RuntimeValue>),
     NativeFunction(String),
     Null,
     Undefined,
 }
 
-impl JsValue {
+impl RuntimeValue {
     pub fn is_nullish(&self) -> bool {
         matches!(self, Self::Null | Self::Undefined)
     }
@@ -20,7 +20,7 @@ impl JsValue {
         matches!(self, Self::String(_))
     }
 
-    pub fn get_property(&self, name: &str) -> Option<JsValue> {
+    pub fn get_property(&self, name: &str) -> Option<RuntimeValue> {
         match self {
             Self::Object(map) => map.get(name).cloned(),
             _ => None,
@@ -56,7 +56,7 @@ impl JsValue {
         }
     }
 
-    pub fn to_js_string(&self) -> String {
+    pub fn to_runtime_string(&self) -> String {
         match self {
             Self::String(value) => value.clone(),
             Self::Number(value) => format_number(*value),
@@ -68,6 +68,10 @@ impl JsValue {
             Self::Null => "null".to_string(),
             Self::Undefined => "undefined".to_string(),
         }
+    }
+
+    pub fn to_js_string(&self) -> String {
+        self.to_runtime_string()
     }
 }
 

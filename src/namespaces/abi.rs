@@ -1,17 +1,9 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
-use crate::namespaces::value::JsValue;
+use crate::namespaces::value::RuntimeValue;
 
-use super::DispatchOutcome;
-
-const MAX_ARGS: usize = 6;
 const UNDEFINED_HANDLE: i64 = 0;
-const HANDLE_SLOT_MASK: u64 = u32::MAX as u64;
-const MAX_HANDLE_GENERATION: u32 = i32::MAX as u32;
-const MAX_OVERLAY_HANDLES: usize = 8_192;  // 4x larger for better performance
-const TARGET_OVERLAY_BYTES: usize = 16 * 1024 * 1024;  // 16MB for intensive workloads
-const MIN_RECLAIM_AGE: u64 = 5;  // Wait longer before reclaiming for better temporal locality
 
 #[derive(Debug, Clone)]
 struct BindingEntry {
@@ -19,26 +11,11 @@ struct BindingEntry {
     mutable: bool,
 }
 
-#[derive(Debug, Clone)]
-struct ValueSlot {
-    value: JsValue,
-    generation: u32,
-    pin_count: usize,
-    last_touch_epoch: u64,
-    approx_bytes: usize,
-}
-
 #[derive(Debug, Default)]
 struct ValueStore {
-    slots: Vec<Option<ValueSlot>>,
-    slot_generations: Vec<u32>,
-    free_indices: Vec<usize>,
-    overlay: VecDeque<i64>,
+    next_handle: i64,
+    values: BTreeMap<i64, RuntimeValue>,
     bindings: BTreeMap<String, BindingEntry>,
-    epoch: u64,
-    live_bytes: usize,
-    intensive_mode: bool,  // Skip GC during intensive computation
-    last_allocation_time: u64,  // Track allocation frequency
 }
 
 impl ValueStore {
@@ -46,233 +23,44 @@ impl ValueStore {
         *self = Self::default();
     }
 
-    fn bump_epoch(&mut self) -> u64 {
-        self.epoch = self.epoch.saturating_add(1);
-        self.epoch
-    }
-
-    fn allocate_value(&mut self, value: JsValue) -> i64 {
-        if matches!(value, JsValue::Undefined) {
+    fn allocate_value(&mut self, value: RuntimeValue) -> i64 {
+        if matches!(value, RuntimeValue::Undefined) {
             return UNDEFINED_HANDLE;
         }
 
-        let epoch = self.bump_epoch();
-
-        // Detect intensive computation mode based on allocation frequency
-        let allocation_gap = epoch.saturating_sub(self.last_allocation_time);
-        if allocation_gap <= 100 && self.overlay.len() > 50 {
-            // Rapid allocations with significant pressure -> enter intensive mode
-            self.intensive_mode = true;
-        } else if allocation_gap > 1000 {
-            // Long gap between allocations -> exit intensive mode
-            self.intensive_mode = false;
-        }
-
-        let slot_index = if let Some(index) = self.free_indices.pop() {
-            index
-        } else {
-            self.slots.push(None);
-            self.slot_generations.push(0);
-            self.slots.len().saturating_sub(1)
-        };
-
-        let generation = self.bump_generation(slot_index);
-        let approx_bytes = estimate_value_size(&value);
-        let handle = encode_handle(slot_index, generation);
-
-        self.live_bytes = self.live_bytes.saturating_add(approx_bytes);
-        self.slots[slot_index] = Some(ValueSlot {
-            value,
-            generation,
-            pin_count: 0,
-            last_touch_epoch: epoch,
-            approx_bytes,
-        });
-        self.overlay.push_back(handle);
-        self.reclaim_if_needed();
+        self.next_handle = self.next_handle.saturating_add(1);
+        let handle = self.next_handle.max(1);
+        self.values.insert(handle, value);
         handle
     }
 
-    fn read_value(&mut self, handle: i64) -> JsValue {
-        let Some((slot_index, generation)) = decode_handle(handle) else {
-            return JsValue::Undefined;
-        };
-
-        let epoch = self.bump_epoch();
-        let Some(slot) = self.slots.get_mut(slot_index).and_then(Option::as_mut) else {
-            return JsValue::Undefined;
-        };
-
-        if slot.generation != generation {
-            return JsValue::Undefined;
+    fn read_value(&self, handle: i64) -> RuntimeValue {
+        if handle <= UNDEFINED_HANDLE {
+            return RuntimeValue::Undefined;
         }
-
-        slot.last_touch_epoch = epoch;
-        slot.value.clone()
+        self.values
+            .get(&handle)
+            .cloned()
+            .unwrap_or(RuntimeValue::Undefined)
     }
 
     fn bind_identifier(&mut self, name: String, handle: i64, mutable: bool) -> i64 {
-        let epoch = self.bump_epoch();
-        let bound_handle = self.normalize_live_handle(handle, epoch);
-
         if let Some(existing) = self.bindings.get(&name) {
             if !existing.mutable {
                 return existing.handle;
             }
         }
 
-        if let Some(previous) = self.bindings.remove(&name) {
-            self.unpin(previous.handle, epoch);
-        }
-
-        if bound_handle > UNDEFINED_HANDLE {
-            self.pin(bound_handle, epoch);
-        }
-
-        self.bindings.insert(
-            name,
-            BindingEntry {
-                handle: bound_handle,
-                mutable,
-            },
-        );
-        self.reclaim_if_needed();
-        bound_handle
-    }
-
-    fn read_identifier(&mut self, name: &str) -> Option<JsValue> {
-        let handle = self.bindings.get(name).map(|entry| entry.handle)?;
-        Some(self.read_value(handle))
-    }
-
-    fn bump_generation(&mut self, slot_index: usize) -> u32 {
-        let current = self.slot_generations.get(slot_index).copied().unwrap_or(0);
-        let next = if current >= MAX_HANDLE_GENERATION {
-            1
-        } else {
-            current.saturating_add(1)
-        };
-        if let Some(generation) = self.slot_generations.get_mut(slot_index) {
-            *generation = next;
-        }
-        next
-    }
-
-    fn normalize_live_handle(&mut self, handle: i64, epoch: u64) -> i64 {
-        if handle <= UNDEFINED_HANDLE {
-            return UNDEFINED_HANDLE;
-        }
-
-        let Some((slot_index, generation)) = decode_handle(handle) else {
-            return UNDEFINED_HANDLE;
-        };
-        let Some(slot) = self.slots.get_mut(slot_index).and_then(Option::as_mut) else {
-            return UNDEFINED_HANDLE;
-        };
-        if slot.generation != generation {
-            return UNDEFINED_HANDLE;
-        }
-
-        slot.last_touch_epoch = epoch;
+        self.bindings.insert(name, BindingEntry { handle, mutable });
         handle
     }
 
-    fn pin(&mut self, handle: i64, epoch: u64) {
-        if let Some((slot_index, generation)) = decode_handle(handle) {
-            if let Some(slot) = self.slots.get_mut(slot_index).and_then(Option::as_mut) {
-                if slot.generation == generation {
-                    slot.pin_count = slot.pin_count.saturating_add(1);
-                    slot.last_touch_epoch = epoch;
-                }
-            }
-        }
-    }
-
-    fn unpin(&mut self, handle: i64, epoch: u64) {
-        if let Some((slot_index, generation)) = decode_handle(handle) {
-            if let Some(slot) = self.slots.get_mut(slot_index).and_then(Option::as_mut) {
-                if slot.generation == generation {
-                    slot.pin_count = slot.pin_count.saturating_sub(1);
-                    slot.last_touch_epoch = epoch;
-                }
-            }
-        }
-    }
-
-    fn reclaim_if_needed(&mut self) {
-        // Update allocation tracking for intensive mode detection
-        self.last_allocation_time = self.epoch;
-
-        // In intensive mode, be much more conservative about GC
-        let effective_max_handles = if self.intensive_mode {
-            MAX_OVERLAY_HANDLES * 2
-        } else {
-            MAX_OVERLAY_HANDLES
-        };
-
-        let effective_max_bytes = if self.intensive_mode {
-            TARGET_OVERLAY_BYTES * 2
-        } else {
-            TARGET_OVERLAY_BYTES
-        };
-
-        if self.overlay.len() <= effective_max_handles && self.live_bytes <= effective_max_bytes {
-            return;
-        }
-
-        // In intensive mode, reclaim more conservatively
-        let reclaim_age = if self.intensive_mode {
-            MIN_RECLAIM_AGE * 2
-        } else {
-            MIN_RECLAIM_AGE
-        };
-
-        let mut budget = self.overlay.len();
-        while budget > 0
-            && (self.overlay.len() > effective_max_handles || self.live_bytes > effective_max_bytes)
-        {
-            budget = budget.saturating_sub(1);
-
-            let Some(candidate) = self.overlay.pop_front() else {
-                break;
-            };
-            let Some((slot_index, generation)) = decode_handle(candidate) else {
-                continue;
-            };
-            let Some(slot) = self.slots.get(slot_index).and_then(Option::as_ref) else {
-                continue;
-            };
-            if slot.generation != generation {
-                continue;
-            }
-
-            let age = self.epoch.saturating_sub(slot.last_touch_epoch);
-            let reclaimable = slot.pin_count == 0 && age >= reclaim_age;
-            if reclaimable {
-                self.release_slot(slot_index);
-            } else {
-                self.overlay.push_back(candidate);
-            }
-        }
-    }
-
-    fn release_slot(&mut self, slot_index: usize) {
-        let Some(slot_entry) = self.slots.get_mut(slot_index) else {
-            return;
-        };
-        if let Some(slot) = slot_entry.take() {
-            self.live_bytes = self.live_bytes.saturating_sub(slot.approx_bytes);
-            self.free_indices.push(slot_index);
-        }
-    }
-
-    #[cfg(test)]
-    fn live_slots(&self) -> usize {
-        self.slots.iter().filter(|slot| slot.is_some()).count()
+    fn read_identifier(&self, name: &str) -> Option<RuntimeValue> {
+        let handle = self.bindings.get(name).map(|entry| entry.handle)?;
+        Some(self.read_value(handle))
     }
 }
 
-// Optimized: back to thread_local for better performance
 thread_local! {
     static VALUE_STORE: RefCell<ValueStore> = RefCell::new(ValueStore::default());
 }
@@ -288,17 +76,16 @@ pub fn reset_thread_state() {
     with_store_mut(ValueStore::reset);
 }
 
-/// C-compatible wrapper for reset_thread_state for AOT linking
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_reset_thread_state() {
     reset_thread_state();
 }
 
-fn push_value(value: JsValue) -> i64 {
+fn push_value(value: RuntimeValue) -> i64 {
     with_store_mut(|store| store.allocate_value(value))
 }
 
-fn read_value(handle: i64) -> JsValue {
+fn read_value(handle: i64) -> RuntimeValue {
     with_store_mut(|store| store.read_value(handle))
 }
 
@@ -306,51 +93,34 @@ fn bind_identifier(name: String, handle: i64, mutable: bool) -> i64 {
     with_store_mut(|store| store.bind_identifier(name, handle, mutable))
 }
 
-fn read_identifier(name: &str) -> Option<JsValue> {
+fn read_identifier(name: &str) -> Option<RuntimeValue> {
     with_store_mut(|store| store.read_identifier(name))
 }
 
-fn encode_handle(slot_index: usize, generation: u32) -> i64 {
-    let slot = (slot_index as u64).saturating_add(1);
-    let generation = generation as u64;
-    let raw = (generation << 32) | slot;
-    raw as i64
+pub(crate) fn push_runtime_value(value: RuntimeValue) -> i64 {
+    push_value(value)
 }
 
-fn decode_handle(handle: i64) -> Option<(usize, u32)> {
-    if handle <= UNDEFINED_HANDLE {
-        return None;
-    }
-
-    let raw = handle as u64;
-    let slot = raw & HANDLE_SLOT_MASK;
-    if slot == 0 {
-        return None;
-    }
-
-    let generation = (raw >> 32) as u32;
-    if generation == 0 {
-        return None;
-    }
-
-    Some((slot.saturating_sub(1) as usize, generation))
+pub(crate) fn read_runtime_value(handle: i64) -> RuntimeValue {
+    read_value(handle)
 }
 
-fn estimate_value_size(value: &JsValue) -> usize {
-    match value {
-        JsValue::Number(_) => 16,
-        JsValue::String(text) => 24 + text.len(),
-        JsValue::Bool(_) => 8,
-        JsValue::Object(map) => {
-            32 + map
-                .iter()
-                .map(|(key, inner)| key.len() + estimate_value_size(inner))
-                .sum::<usize>()
-        }
-        JsValue::NativeFunction(name) => 24 + name.len(),
-        JsValue::Null => 8,
-        JsValue::Undefined => 0,
-    }
+pub(crate) const fn undefined_handle() -> i64 {
+    UNDEFINED_HANDLE
+}
+
+pub(crate) fn read_runtime_identifier_value(name: &str) -> RuntimeValue {
+    read_identifier(name).unwrap_or(RuntimeValue::Undefined)
+}
+
+pub(crate) fn bind_runtime_identifier_value(name: &str, value: RuntimeValue, mutable: bool) {
+    let handle = push_value(value);
+    let _ = bind_identifier(name.to_string(), handle, mutable);
+}
+
+pub(crate) fn write_runtime_identifier_value(name: &str, value: RuntimeValue) {
+    let handle = push_value(value);
+    let _ = bind_identifier(name.to_string(), handle, true);
 }
 
 fn read_utf8(ptr: i64, len: i64) -> Option<String> {
@@ -368,43 +138,6 @@ fn read_utf8(ptr: i64, len: i64) -> Option<String> {
     std::str::from_utf8(bytes).ok().map(ToString::to_string)
 }
 
-fn decode_args(argc: i64, raw: [i64; MAX_ARGS]) -> Vec<JsValue> {
-    let count = argc.clamp(0, MAX_ARGS as i64) as usize;
-    (0..count).map(|index| read_value(raw[index])).collect()
-}
-
-fn dispatch_builtin(callee: &str, args: Vec<JsValue>) -> Result<JsValue, String> {
-    if let Some(outcome) = super::dispatch(callee, &args) {
-        return match outcome {
-            DispatchOutcome::Value(value) => Ok(value),
-            DispatchOutcome::Emit(message) => {
-                println!("{message}");
-                Ok(JsValue::Undefined)
-            }
-            DispatchOutcome::Panic(message) => Err(message),
-        };
-    }
-
-    match callee {
-        "Number" => Ok(JsValue::Number(
-            args.first()
-                .cloned()
-                .unwrap_or(JsValue::Undefined)
-                .to_number(),
-        )),
-        "String" => Ok(JsValue::String(
-            args.first()
-                .cloned()
-                .unwrap_or(JsValue::Undefined)
-                .to_js_string(),
-        )),
-        "Boolean" => Ok(JsValue::Bool(
-            args.first().cloned().unwrap_or(JsValue::Undefined).truthy(),
-        )),
-        _ => Ok(JsValue::Undefined),
-    }
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_call_dispatch(
     callee_ptr: i64,
@@ -418,15 +151,35 @@ pub extern "C" fn __rts_call_dispatch(
     a5: i64,
 ) -> i64 {
     let Some(callee) = read_utf8(callee_ptr, callee_len) else {
-        return 0;
+        return UNDEFINED_HANDLE;
     };
 
-    let args = decode_args(argc, [a0, a1, a2, a3, a4, a5]);
-    match dispatch_builtin(&callee, args) {
-        Ok(value) => push_value(value),
-        Err(message) => {
+    let slots = [a0, a1, a2, a3, a4, a5];
+    let count = argc.clamp(0, slots.len() as i64) as usize;
+    let mut args = Vec::with_capacity(count);
+    for handle in slots.into_iter().take(count) {
+        args.push(read_value(handle));
+    }
+
+    let Some(outcome) = crate::namespaces::dispatch(callee.as_str(), &args) else {
+        return UNDEFINED_HANDLE;
+    };
+
+    match outcome {
+        crate::namespaces::DispatchOutcome::Value(value) => push_value(value),
+        crate::namespaces::DispatchOutcome::Emit(message) => {
+            if callee == "io.stderr_write" {
+                eprint!("{message}");
+            } else if callee == "io.stdout_write" {
+                print!("{message}");
+            } else {
+                println!("{message}");
+            }
+            UNDEFINED_HANDLE
+        }
+        crate::namespaces::DispatchOutcome::Panic(message) => {
             eprintln!("RTS runtime panic: {message}");
-            0
+            std::process::exit(1);
         }
     }
 }
@@ -445,104 +198,35 @@ pub extern "C" fn __rts_bind_identifier(
     bind_identifier(name, value_handle, mutable_flag != 0)
 }
 
-/// Boxes a UTF-8 string (ptr+len from static data) into a ValueStore handle.
-/// This is the typed replacement for the legacy __rts_eval_expr("\"...\"") path.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_box_string(ptr: i64, len: i64) -> i64 {
     match read_utf8(ptr, len) {
-        Some(s) => push_value(JsValue::String(s)),
+        Some(s) => push_value(RuntimeValue::String(s)),
         None => UNDEFINED_HANDLE,
     }
 }
 
-/// Boxes a boolean (0 = false, 1 = true) into a ValueStore handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_box_bool(flag: i64) -> i64 {
-    push_value(JsValue::Bool(flag != 0))
+    push_value(RuntimeValue::Bool(flag != 0))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_eval_expr(_expr_ptr: i64, _expr_len: i64) -> i64 {
-    eprintln!("RTS: __rts_eval_expr is legacy — use typed codegen");
-    UNDEFINED_HANDLE
+    let Some(expr) = read_utf8(_expr_ptr, _expr_len) else {
+        return UNDEFINED_HANDLE;
+    };
+    let value = crate::namespaces::rust::eval::eval_expression_text(&expr);
+    push_value(value)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_eval_stmt(_stmt_ptr: i64, _stmt_len: i64) -> i64 {
-    eprintln!("RTS: __rts_eval_stmt is legacy — use typed codegen");
-    UNDEFINED_HANDLE
-}
-
-// ── Typed namespace symbols — no dispatch table, no JsValue at the boundary ──
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_print(handle: i64) -> i64 {
-    println!("{}", read_value(handle).to_js_string());
-    UNDEFINED_HANDLE
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_stdout_write(handle: i64) -> i64 {
-    print!("{}", read_value(handle).to_js_string());
-    UNDEFINED_HANDLE
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_stderr_write(handle: i64) -> i64 {
-    eprint!("{}", read_value(handle).to_js_string());
-    UNDEFINED_HANDLE
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_io_panic(handle: i64) -> i64 {
-    let message = if handle == UNDEFINED_HANDLE {
-        "runtime panic".to_string()
-    } else {
-        read_value(handle).to_js_string()
+    let Some(stmt) = read_utf8(_stmt_ptr, _stmt_len) else {
+        return UNDEFINED_HANDLE;
     };
-    eprintln!("RTS runtime panic: {message}");
-    std::process::exit(1);
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_crypto_sha256(handle: i64) -> i64 {
-    let input = read_value(handle).to_js_string();
-    let digest = crate::namespaces::crypto::hash_sha256(&input);
-    push_value(JsValue::String(digest))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_process_exit(code: i64) -> i64 {
-    std::process::exit(code as i32);
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_set(key_handle: i64, val_handle: i64) -> i64 {
-    let key = read_value(key_handle).to_js_string();
-    let value = read_value(val_handle).to_js_string();
-    crate::namespaces::global::set(key, value);
-    UNDEFINED_HANDLE
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_get(key_handle: i64) -> i64 {
-    let key = read_value(key_handle).to_js_string();
-    match crate::namespaces::global::get(&key) {
-        Some(v) => push_value(JsValue::String(v)),
-        None => UNDEFINED_HANDLE,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_has(key_handle: i64) -> i64 {
-    let key = read_value(key_handle).to_js_string();
-    push_value(JsValue::Bool(crate::namespaces::global::has(&key)))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_global_delete(key_handle: i64) -> i64 {
-    let key = read_value(key_handle).to_js_string();
-    push_value(JsValue::Bool(crate::namespaces::global::delete(&key)))
+    let value = crate::namespaces::rust::eval::eval_statement_text(&stmt);
+    push_value(value)
 }
 
 #[unsafe(no_mangle)]
@@ -564,32 +248,41 @@ pub extern "C" fn __rts_binop(op: i64, lhs_handle: i64, rhs_handle: i64) -> i64 
 
     let result = match op {
         0 => {
-            // Add
             if lhs.is_string_like() || rhs.is_string_like() {
-                JsValue::String(format!("{}{}", lhs.to_js_string(), rhs.to_js_string()))
+                RuntimeValue::String(format!(
+                    "{}{}",
+                    lhs.to_runtime_string(),
+                    rhs.to_runtime_string()
+                ))
             } else {
-                JsValue::Number(lhs.to_number() + rhs.to_number())
+                RuntimeValue::Number(lhs.to_number() + rhs.to_number())
             }
         }
-        1 => JsValue::Number(lhs.to_number() - rhs.to_number()),       // Sub
-        2 => JsValue::Number(lhs.to_number() * rhs.to_number()),       // Mul
-        3 => JsValue::Number(lhs.to_number() / rhs.to_number()),       // Div
-        4 => JsValue::Number(lhs.to_number() % rhs.to_number()),       // Mod
-        5 => JsValue::Bool(lhs.to_number() > rhs.to_number()),         // Gt
-        6 => JsValue::Bool(lhs.to_number() >= rhs.to_number()),        // Gte
-        7 => JsValue::Bool(lhs.to_number() < rhs.to_number()),         // Lt
-        8 => JsValue::Bool(lhs.to_number() <= rhs.to_number()),        // Lte
-        9 => JsValue::Bool(lhs == rhs),                                 // Eq (===)
-        10 => JsValue::Bool(lhs != rhs),                                // Ne (!==)
+        1 => RuntimeValue::Number(lhs.to_number() - rhs.to_number()),
+        2 => RuntimeValue::Number(lhs.to_number() * rhs.to_number()),
+        3 => RuntimeValue::Number(lhs.to_number() / rhs.to_number()),
+        4 => RuntimeValue::Number(lhs.to_number() % rhs.to_number()),
+        5 => RuntimeValue::Bool(lhs.to_number() > rhs.to_number()),
+        6 => RuntimeValue::Bool(lhs.to_number() >= rhs.to_number()),
+        7 => RuntimeValue::Bool(lhs.to_number() < rhs.to_number()),
+        8 => RuntimeValue::Bool(lhs.to_number() <= rhs.to_number()),
+        9 => RuntimeValue::Bool(lhs == rhs),
+        10 => RuntimeValue::Bool(lhs != rhs),
         11 => {
-            // LogicAnd
-            if !lhs.truthy() { lhs } else { rhs }
+            if !lhs.truthy() {
+                lhs
+            } else {
+                rhs
+            }
         }
         12 => {
-            // LogicOr
-            if lhs.truthy() { lhs } else { rhs }
+            if lhs.truthy() {
+                lhs
+            } else {
+                rhs
+            }
         }
-        _ => JsValue::Undefined,
+        _ => RuntimeValue::Undefined,
     };
 
     push_value(result)
@@ -600,8 +293,7 @@ pub extern "C" fn __rts_is_truthy(handle: i64) -> i64 {
     if handle == UNDEFINED_HANDLE {
         return 0;
     }
-    let value = read_value(handle);
-    if value.truthy() { 1 } else { 0 }
+    if read_value(handle).truthy() { 1 } else { 0 }
 }
 
 #[unsafe(no_mangle)]
@@ -614,48 +306,5 @@ pub extern "C" fn __rts_unbox_number(handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rts_box_number(bits: i64) -> i64 {
     let n = f64::from_ne_bytes(bits.to_ne_bytes());
-    push_value(JsValue::Number(n))
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::namespaces::value::JsValue;
-
-    use super::{
-        MAX_OVERLAY_HANDLES, TARGET_OVERLAY_BYTES, bind_identifier, push_value, read_value,
-        reset_thread_state, with_store_mut,
-    };
-
-    #[test]
-    fn eval_context_can_read_bound_identifier() {
-        reset_thread_state();
-        let value_handle = push_value(JsValue::Number(42.0));
-        let _ = bind_identifier("valor".to_string(), value_handle, false);
-        let resolved = super::read_identifier("valor").expect("binding should exist");
-        assert_eq!(resolved, JsValue::Number(42.0));
-    }
-
-    #[test]
-    fn overlay_reclaims_old_unpinned_values() {
-        reset_thread_state();
-        // Allocate enough to exceed even intensive_mode limits (2x MAX)
-        let allocated = MAX_OVERLAY_HANDLES * 2 + 512;
-        let mut first_handle = 0i64;
-
-        for index in 0..allocated {
-            let handle = push_value(JsValue::Number(index as f64));
-            if index == 0 {
-                first_handle = handle;
-            }
-        }
-
-        let live_after_sweep = with_store_mut(|store| store.live_slots());
-        // In intensive mode the effective limit is MAX_OVERLAY_HANDLES * 2
-        assert!(live_after_sweep <= MAX_OVERLAY_HANDLES * 2);
-        assert_eq!(read_value(first_handle), JsValue::Undefined);
-
-        let bytes_live = with_store_mut(|store| store.live_bytes);
-        assert!(bytes_live <= TARGET_OVERLAY_BYTES || live_after_sweep == MAX_OVERLAY_HANDLES);
-    }
-
+    push_value(RuntimeValue::Number(n))
 }

@@ -38,9 +38,9 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         merged_hir.interfaces.extend(lowered.interfaces);
     }
 
-    let typed_mir = crate::mir::typed_build::typed_build(&merged_hir);
+    let mir = crate::mir::build::build(&merged_hir);
 
-    let jit_report = crate::codegen::cranelift::jit::execute_typed(&typed_mir, "main")
+    let jit_report = crate::codegen::cranelift::jit::execute(&mir, "main")
         .context("failed to execute MIR through Cranelift JIT")?;
 
     if jit_report.executed {
