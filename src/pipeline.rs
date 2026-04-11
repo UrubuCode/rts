@@ -473,26 +473,58 @@ pub(crate) fn emit_selected_namespace_objects(
         return Ok(RuntimeObjectArtifacts::default());
     }
 
-    let mut ordered = callees
-        .into_iter()
-        .map(str::to_string)
-        .collect::<Vec<String>>();
-    ordered.sort();
-    ordered.dedup();
+    // Agrupa callees por namespace (prefixo antes do primeiro '.'). Ex:
+    // ["io.print", "io.panic", "fs.read"] -> {"io": [...], "fs": [...]}.
+    // Cada grupo vira um .o separado — sem custo em runtime (wrappers
+    // identicos), mas da visibilidade por namespace no profiler/linker e
+    // habilita futuramente `.rtslib` (namespaces externos em objects
+    // pre-compilados).
+    let mut grouped: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for callee in callees {
+        let ns = callee
+            .split_once('.')
+            .map(|(prefix, _)| prefix.to_string())
+            .unwrap_or_else(|| callee.to_string());
+        grouped.entry(ns).or_default().push(callee.to_string());
+    }
+    for callees in grouped.values_mut() {
+        callees.sort();
+        callees.dedup();
+    }
 
-    let bytes = crate::codegen::cranelift::object_builder::build_namespace_dispatch_object(
-        &ordered,
-        options.profile.as_str() == "production",
-    )?;
-    let output_path = deps_dir.join("rts_namespace_dispatch.o");
-    let artifact = crate::codegen::object::write_object_file(&output_path, &bytes)?;
+    let mut artifacts = RuntimeObjectArtifacts::default();
+    let production = options.profile.as_str() == "production";
 
-    Ok(RuntimeObjectArtifacts {
-        object_paths: vec![artifact.path],
-        bytes_written: artifact.bytes_written,
-        cache_hits: 0,
-        cache_misses: 1,
-    })
+    for (namespace, ns_callees) in grouped {
+        let bytes = crate::codegen::cranelift::object_builder::build_namespace_dispatch_object(
+            &ns_callees,
+            production,
+        )?;
+        // Nome do arquivo: `runtime.namespace_<name>.o`. Mantemos o mesmo
+        // diretorio (`target/.deps/`) por enquanto; Etapa 5 migra para
+        // `node_modules/.rts/objs/`.
+        let file_name = format!("runtime.namespace_{}.o", sanitize_namespace_for_filename(&namespace));
+        let output_path = deps_dir.join(&file_name);
+        let artifact = crate::codegen::object::write_object_file(&output_path, &bytes)?;
+
+        artifacts.bytes_written += artifact.bytes_written;
+        artifacts.object_paths.push(artifact.path);
+        artifacts.cache_misses += 1;
+    }
+
+    Ok(artifacts)
+}
+
+/// Sanitiza o nome de um namespace para ser seguro como componente de
+/// filename. Converte pontos em underscores (caso sub-namespaces como
+/// `rts.natives` virem callees no futuro) e remove qualquer caractere
+/// fora do conjunto `[a-zA-Z0-9_]`.
+fn sanitize_namespace_for_filename(namespace: &str) -> String {
+    namespace
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
 }
 
 pub(crate) fn module_object_stem(app_name: &str, module: &SourceModule, input: &Path) -> String {
