@@ -26,7 +26,7 @@ struct BindingState {
     kind: VRegKind,
 }
 
-use crate::mir::{MirBinOp, MirInstruction, MirUnaryOp, SimdOp, SimdWidth, TypedMirFunction, VReg};
+use crate::mir::{MirBinOp, MirInstruction, MirUnaryOp, TypedMirFunction, VReg};
 
 const ABI_ARG_SLOTS: usize = 6;
 const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1;
@@ -1156,144 +1156,6 @@ pub fn define_typed_function<M: Module>(
                     // For now, treat as no-op (requires loop tracking)
                 }
 
-                MirInstruction::SimdConst(dst, width, values) => {
-                    let vec_type = simd_type(*width);
-                    let lane_count = simd_lane_count(*width);
-                    // Build the vector by splatting first value, then inserting others
-                    let first = values.first().copied().unwrap_or(0.0);
-                    let first_f64 = builder.ins().f64const(first);
-                    let mut vec_val = builder.ins().splat(vec_type, first_f64);
-                    for (i, &v) in values.iter().enumerate().skip(1).take(lane_count - 1) {
-                        let lane_val = builder.ins().f64const(v);
-                        vec_val = builder.ins().insertlane(vec_val, lane_val, i as u8);
-                    }
-                    // Store as i64 handle (pointer-width placeholder for the vector SSA value)
-                    vreg_map.insert(*dst, vec_val);
-                    vreg_kinds.insert(*dst, VRegKind::NativeF64);
-                }
-
-                MirInstruction::SimdOp(dst, op, _width, lhs, rhs) => {
-                    let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                    let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
-
-                    let result = match op {
-                        SimdOp::Add => builder.ins().fadd(lhs_val, rhs_val),
-                        SimdOp::Sub => builder.ins().fsub(lhs_val, rhs_val),
-                        SimdOp::Mul => builder.ins().fmul(lhs_val, rhs_val),
-                        SimdOp::Div => builder.ins().fdiv(lhs_val, rhs_val),
-                        SimdOp::Max => builder.ins().fmax(lhs_val, rhs_val),
-                        SimdOp::Min => builder.ins().fmin(lhs_val, rhs_val),
-                        SimdOp::Sqrt => builder.ins().sqrt(lhs_val),
-                        SimdOp::FMA => {
-                            let mul = builder.ins().fmul(lhs_val, rhs_val);
-                            builder.ins().fadd(mul, lhs_val)
-                        }
-                    };
-
-                    vreg_map.insert(*dst, result);
-                    vreg_kinds.insert(*dst, VRegKind::NativeF64);
-                }
-
-                MirInstruction::SimdLoad(dst, width, base, offset) => {
-                    let vec_type = simd_type(*width);
-                    let base_val = resolve_vreg(&vreg_map, base, &mut builder);
-                    let addr = builder.ins().iadd_imm(base_val, *offset as i64);
-                    let loaded = builder.ins().load(vec_type, MemFlags::new(), addr, 0);
-                    vreg_map.insert(*dst, loaded);
-                    vreg_kinds.insert(*dst, VRegKind::NativeF64);
-                }
-
-                MirInstruction::SimdStore(_width, vec, base, offset) => {
-                    let vec_val = resolve_vreg(&vreg_map, vec, &mut builder);
-                    let base_val = resolve_vreg(&vreg_map, base, &mut builder);
-                    let addr = builder.ins().iadd_imm(base_val, *offset as i64);
-                    builder.ins().store(MemFlags::new(), vec_val, addr, 0);
-                }
-
-                MirInstruction::UnrollHint(_factor) => {
-                    // Add comment about unrolling for debugging
-                    // In a full implementation, this would guide the instruction scheduler
-                    // For now, we just acknowledge the hint
-                }
-
-                MirInstruction::LoopBegin(_loop_id) => {
-                    // Mark beginning of optimized loop region
-                    // Could be used for register allocation hints or branch prediction
-                }
-
-                MirInstruction::LoopEnd(_loop_id) => {
-                    // Mark end of optimized loop region
-                }
-
-                MirInstruction::StrengthReduce(dst, op, lhs, rhs) => {
-                    let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                    let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
-
-                    let result = match op {
-                        MirBinOp::Mul => {
-                            // Try to detect power-of-2 constant for shift optimization
-                            if let Some(MirInstruction::ConstInt32(_, val)) =
-                                instructions.iter().find(
-                                    |i| matches!(i, MirInstruction::ConstInt32(r, _) if *r == *rhs),
-                                )
-                            {
-                                let v = *val as u64;
-                                if v.is_power_of_two() && v > 0 {
-                                    let shift = v.trailing_zeros() as i64;
-                                    let shift_val = builder.ins().iconst(types::I64, shift);
-                                    builder.ins().ishl(lhs_val, shift_val)
-                                } else {
-                                    builder.ins().imul(lhs_val, rhs_val)
-                                }
-                            } else {
-                                builder.ins().imul(lhs_val, rhs_val)
-                            }
-                        }
-                        MirBinOp::Div => {
-                            if let Some(MirInstruction::ConstInt32(_, val)) =
-                                instructions.iter().find(
-                                    |i| matches!(i, MirInstruction::ConstInt32(r, _) if *r == *rhs),
-                                )
-                            {
-                                let v = *val as u64;
-                                if v.is_power_of_two() && v > 0 {
-                                    let shift = v.trailing_zeros() as i64;
-                                    let shift_val = builder.ins().iconst(types::I64, shift);
-                                    builder.ins().sshr(lhs_val, shift_val)
-                                } else {
-                                    builder.ins().sdiv(lhs_val, rhs_val)
-                                }
-                            } else {
-                                builder.ins().sdiv(lhs_val, rhs_val)
-                            }
-                        }
-                        MirBinOp::Add => builder.ins().iadd(lhs_val, rhs_val),
-                        MirBinOp::Sub => builder.ins().isub(lhs_val, rhs_val),
-                        _ => builder.ins().imul(lhs_val, rhs_val), // Fallback
-                    };
-
-                    vreg_map.insert(*dst, result);
-                    vreg_kinds.insert(*dst, VRegKind::NativeI32);
-                }
-
-                MirInstruction::HoistInvariant(_vreg, _loop_id) => {
-                    // Invariant hoisting hint - in a real implementation, this would
-                    // inform the register allocator to keep this value in a register
-                    // across loop iterations
-                }
-
-                MirInstruction::InlineCandidate(_function_name) => {
-                    // Mark that the following code was inlined from function_name
-                    // This could be used for debugging or profiling information
-                }
-
-                MirInstruction::InlineCall(dst, _function_name, _args) => {
-                    // This would contain the actual inlined function body
-                    // For now, just emit a placeholder
-                    let result = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
-                    vreg_map.insert(*dst, result);
-                }
-
                 MirInstruction::RuntimeEval(dst, text) => {
                     let data_id = declare_string_data(module, data_cache, text.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
@@ -1755,20 +1617,6 @@ fn box_native_i32<M: Module>(
         FN_BOX_NUMBER,
         &[f64_bits],
     )
-}
-
-fn simd_type(width: SimdWidth) -> cranelift_codegen::ir::Type {
-    match width {
-        SimdWidth::V128 => types::F64X2, // 128-bit = 2x f64
-        SimdWidth::V256 => types::F64X2, // Cranelift doesn't support 256-bit natively, fallback to 128
-    }
-}
-
-fn simd_lane_count(width: SimdWidth) -> usize {
-    match width {
-        SimdWidth::V128 => 2, // 2x f64
-        SimdWidth::V256 => 2, // Fallback to 128-bit
-    }
 }
 
 fn binop_to_tag(op: &MirBinOp) -> i64 {
