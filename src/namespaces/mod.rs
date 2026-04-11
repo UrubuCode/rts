@@ -52,6 +52,7 @@ const SPECS: &[NamespaceSpec] = &[
     gc::SPEC,
     test::SPEC,
     json::SPEC,
+    str::SPEC,
     rust::SPEC,
     rust::NATIVES_SPEC,
     rust::HOTOPS_SPEC,
@@ -73,6 +74,7 @@ const SPLIT_SPECS: &[&NamespaceSpec] = &[
     &gc::SPEC,
     &test::SPEC,
     &json::SPEC,
+    &str::SPEC,
 ];
 
 #[derive(Debug, Clone)]
@@ -245,6 +247,7 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
         "gc" => gc::dispatch(callee, args),
         "test" => test::dispatch(callee, args),
         "JSON" => json::dispatch(callee, args),
+        "str" => str::dispatch(callee, args),
         "rust" => rust::dispatch(callee, args),
         _ => None,
     }
