@@ -248,6 +248,27 @@ fn with_store<R>(callback: impl FnOnce(&ValueStore) -> R) -> R {
     })
 }
 
+/// Snapshot leve das metricas do ValueStore thread-local.
+/// Usado por `--dump-statistics` para reportar uso do store sem vazar
+/// detalhes internos de layout.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ValueStoreStats {
+    /// Numero de slots no `Vec<RuntimeValue>` (handles alocados, incluindo
+    /// os ja invalidos/sobrescritos).
+    pub values_len: usize,
+    /// Numero de bindings nomeados registrados (cada binding aponta para
+    /// um handle).
+    pub bindings_len: usize,
+}
+
+/// Retorna as metricas atuais do ValueStore da thread corrente.
+pub fn value_store_stats() -> ValueStoreStats {
+    with_store(|store| ValueStoreStats {
+        values_len: store.values.len(),
+        bindings_len: store.bindings.len(),
+    })
+}
+
 pub fn reset_thread_state() {
     with_store_mut(ValueStore::reset);
     crate::namespaces::gc::safe_collect();

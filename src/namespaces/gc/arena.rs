@@ -86,6 +86,7 @@ type RtsArena = Arena<Rootable![GcPool<'_>]>;
 
 // ── Arena wrapper ───────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct GcStats {
     /// Running total of bytes passed to `alloc` (monotonically increasing).
     pub allocated_bytes: usize,
