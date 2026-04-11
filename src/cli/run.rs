@@ -310,10 +310,11 @@ mod tests {
         let report = run_fixture_report();
         let runtime = report.runtime_metrics;
 
+        // O pipeline tipado compila o bench para código nativo via Cranelift,
+        // portanto ainda há chamadas de __rts_dispatch (bind/read de globais,
+        // box/unbox de números, etc.) mas eval_stmt/eval_expr/call_dispatch
+        // ficam zerados — esses só sobem quando o fallback interpretativo
+        // é acionado, o que este benchmark não exercita.
         assert!(runtime.dispatch_calls > 0);
-
-        let runtime_specific_calls =
-            runtime.call_dispatch_calls + runtime.eval_expr_calls + runtime.eval_stmt_calls;
-        assert!(runtime_specific_calls > 0);
     }
 }
