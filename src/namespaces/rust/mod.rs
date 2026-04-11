@@ -285,6 +285,20 @@ pub const NATIVES_SPEC: NamespaceSpec = NamespaceSpec {
     ts_prelude: &[],
 };
 
+pub(crate) fn eval_runtime_expression(expression: &str) -> RuntimeValue {
+    eval::eval_expression_text(expression)
+}
+
+pub(crate) fn dispatch_runtime_call(
+    callee: &str,
+    args: &[RuntimeValue],
+) -> Option<DispatchOutcome> {
+    if callee.starts_with("rts.") {
+        return dispatch(callee, args);
+    }
+    crate::namespaces::dispatch(callee, args)
+}
+
 pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> {
     functions::dispatch(callee, args)
         .or_else(|| scope::dispatch(callee, args))
@@ -360,4 +374,31 @@ pub(crate) fn rts_global_delete(key_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
     let removed = crate::namespaces::global::delete(&key);
     crate::namespaces::abi::push_runtime_value(RuntimeValue::Bool(removed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dispatch_runtime_call;
+    use crate::namespaces::DispatchOutcome;
+    use crate::namespaces::value::RuntimeValue;
+
+    #[test]
+    fn dispatch_runtime_call_prefers_rust_machine_namespace() {
+        let args = vec![RuntimeValue::Number(2.0), RuntimeValue::Number(3.0)];
+        let outcome = dispatch_runtime_call("rts.i64_add", &args).expect("must dispatch rts call");
+        match outcome {
+            DispatchOutcome::Value(RuntimeValue::Number(value)) => assert_eq!(value, 5.0),
+            other => panic!("unexpected dispatch outcome: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatch_runtime_call_keeps_non_rts_namespaces() {
+        let args = vec![RuntimeValue::String("ok".to_string())];
+        let outcome = dispatch_runtime_call("io.print", &args).expect("must dispatch io call");
+        match outcome {
+            DispatchOutcome::Emit(message) => assert_eq!(message, "ok"),
+            other => panic!("unexpected dispatch outcome: {other:?}"),
+        }
+    }
 }

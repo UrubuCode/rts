@@ -225,7 +225,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "log",
  "regalloc2",
- "rustc-hash",
+ "rustc-hash 2.1.2",
  "serde",
  "smallvec",
  "target-lexicon",
@@ -603,7 +603,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "new_debug_unreachable",
  "once_cell",
- "rustc-hash",
+ "rustc-hash 2.1.2",
  "serde",
  "triomphe",
 ]
@@ -1028,7 +1028,7 @@ dependencies = [
  "bumpalo",
  "hashbrown 0.15.5",
  "log",
- "rustc-hash",
+ "rustc-hash 2.1.2",
  "smallvec",
 ]
 
@@ -1075,6 +1075,7 @@ dependencies = [
  "gc-arena",
  "object 0.39.0",
  "rayon",
+ "rustc-hash 1.1.0",
  "serde",
  "serde_json",
  "sha2",
@@ -1085,6 +1086,12 @@ dependencies = [
  "target-lexicon",
  "ureq",
 ]
+
+[[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hash"
@@ -1320,7 +1327,7 @@ dependencies = [
  "from_variant",
  "num-bigint",
  "once_cell",
- "rustc-hash",
+ "rustc-hash 2.1.2",
  "serde",
  "siphasher 0.3.11",
  "swc_atoms",
@@ -1342,7 +1349,7 @@ dependencies = [
  "num-bigint",
  "once_cell",
  "phf",
- "rustc-hash",
+ "rustc-hash 2.1.2",
  "string_enum",
  "swc_atoms",
  "swc_common",
@@ -1360,7 +1367,7 @@ dependencies = [
  "either",
  "num-bigint",
  "phf",
- "rustc-hash",
+ "rustc-hash 2.1.2",
  "seq-macro",
  "serde",
  "smartstring",

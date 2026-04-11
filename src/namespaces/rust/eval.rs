@@ -1,9 +1,165 @@
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+
+use rustc_hash::FxHashMap;
+
 use crate::namespaces::DispatchOutcome;
 use crate::namespaces::abi;
 use crate::namespaces::value::RuntimeValue;
 use swc_common::{FileName, SourceMap, sync::Lrc};
 use swc_ecma_ast::*;
 use swc_ecma_parser::{Parser, StringInput, Syntax, TsSyntax};
+
+#[derive(Debug, Default, Clone)]
+struct EvalMetrics {
+    parse_calls: u64,
+    parse_nanos: u128,
+    eval_expr_calls: u64,
+    eval_expr_nanos: u128,
+    eval_stmt_calls: u64,
+    eval_stmt_nanos: u128,
+    identifier_reads: u64,
+    identifier_writes: u64,
+    call_dispatches: u64,
+    binding_cache_hits: u64,
+    binding_cache_misses: u64,
+}
+
+#[derive(Debug, Default, Clone)]
+pub(crate) struct EvalMetricsSnapshot {
+    pub parse_calls: u64,
+    pub parse_nanos: u128,
+    pub identifier_reads: u64,
+    pub identifier_writes: u64,
+    pub call_dispatches: u64,
+    pub binding_cache_hits: u64,
+    pub binding_cache_misses: u64,
+}
+
+thread_local! {
+    static EVAL_METRICS: RefCell<EvalMetrics> = RefCell::new(EvalMetrics::default());
+    static BINDING_CACHE: RefCell<FxHashMap<String, abi::RuntimeBinding>> = RefCell::new(FxHashMap::default());
+}
+
+static METRICS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[inline(always)]
+fn metrics_enabled() -> bool {
+    METRICS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[inline(always)]
+fn with_metrics(update: impl FnOnce(&mut EvalMetrics)) {
+    if !metrics_enabled() {
+        return;
+    }
+    EVAL_METRICS.with(|metrics| {
+        let mut metrics = metrics.borrow_mut();
+        update(&mut metrics);
+    });
+}
+
+pub(crate) fn set_metrics_enabled(enabled: bool) {
+    METRICS_ENABLED.store(enabled, Ordering::Relaxed);
+    if !enabled {
+        reset_metrics();
+    }
+}
+
+pub(crate) fn reset_metrics() {
+    EVAL_METRICS.with(|metrics| {
+        *metrics.borrow_mut() = EvalMetrics::default();
+    });
+}
+
+pub(crate) fn metrics_snapshot() -> EvalMetricsSnapshot {
+    EVAL_METRICS.with(|metrics| {
+        let metrics = metrics.borrow();
+        EvalMetricsSnapshot {
+            parse_calls: metrics.parse_calls,
+            parse_nanos: metrics.parse_nanos,
+            identifier_reads: metrics.identifier_reads,
+            identifier_writes: metrics.identifier_writes,
+            call_dispatches: metrics.call_dispatches,
+            binding_cache_hits: metrics.binding_cache_hits,
+            binding_cache_misses: metrics.binding_cache_misses,
+        }
+    })
+}
+
+fn reset_binding_cache() {
+    BINDING_CACHE.with(|cache| cache.borrow_mut().clear());
+}
+
+fn resolve_cached_binding(name: &str) -> Option<abi::RuntimeBinding> {
+    if let Some(binding) = BINDING_CACHE.with(|cache| cache.borrow().get(name).copied()) {
+        with_metrics(|metrics| {
+            metrics.binding_cache_hits = metrics.binding_cache_hits.saturating_add(1);
+        });
+        return Some(binding);
+    }
+
+    let resolved = abi::resolve_runtime_identifier_binding(name);
+    with_metrics(|metrics| {
+        metrics.binding_cache_misses = metrics.binding_cache_misses.saturating_add(1);
+    });
+
+    if let Some(binding) = resolved {
+        BINDING_CACHE.with(|cache| {
+            cache.borrow_mut().insert(name.to_string(), binding);
+        });
+        Some(binding)
+    } else {
+        None
+    }
+}
+
+fn bind_symbol(name: &str, value: RuntimeValue, mutable: bool) {
+    let handle = abi::bind_runtime_identifier_value(name, value, mutable);
+    BINDING_CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .insert(name.to_string(), abi::RuntimeBinding { handle, mutable });
+    });
+}
+
+fn read_symbol_value(name: &str) -> RuntimeValue {
+    if name == "undefined" {
+        return RuntimeValue::Undefined;
+    }
+
+    with_metrics(|metrics| {
+        metrics.identifier_reads = metrics.identifier_reads.saturating_add(1);
+    });
+
+    let Some(binding) = resolve_cached_binding(name) else {
+        return RuntimeValue::Undefined;
+    };
+    abi::read_runtime_value(binding.handle)
+}
+
+fn write_symbol_value(name: &str, value: RuntimeValue) {
+    with_metrics(|metrics| {
+        metrics.identifier_writes = metrics.identifier_writes.saturating_add(1);
+    });
+
+    if let Some(binding) = resolve_cached_binding(name) {
+        if !binding.mutable {
+            return;
+        }
+        if abi::write_runtime_value_handle(binding.handle, value.clone()) {
+            return;
+        }
+    }
+
+    abi::write_runtime_identifier_value(name, value);
+    if let Some(refreshed) = abi::resolve_runtime_identifier_binding(name) {
+        BINDING_CACHE.with(|cache| {
+            cache.borrow_mut().insert(name.to_string(), refreshed);
+        });
+    }
+}
 
 #[derive(Debug, Clone)]
 enum Flow {
@@ -14,27 +170,59 @@ enum Flow {
 }
 
 pub(crate) fn eval_expression_text(expr: &str) -> RuntimeValue {
+    let started = Instant::now();
+    reset_binding_cache();
     let wrapped = format!("{expr};");
     let Some(statements) = parse_statements(&wrapped) else {
+        let elapsed = started.elapsed().as_nanos();
+        with_metrics(|metrics| {
+            metrics.eval_expr_calls = metrics.eval_expr_calls.saturating_add(1);
+            metrics.eval_expr_nanos = metrics.eval_expr_nanos.saturating_add(elapsed);
+        });
         return RuntimeValue::Undefined;
     };
     let Some(Stmt::Expr(expr_stmt)) = statements.first() else {
+        let elapsed = started.elapsed().as_nanos();
+        with_metrics(|metrics| {
+            metrics.eval_expr_calls = metrics.eval_expr_calls.saturating_add(1);
+            metrics.eval_expr_nanos = metrics.eval_expr_nanos.saturating_add(elapsed);
+        });
         return RuntimeValue::Undefined;
     };
-    eval_expr(&expr_stmt.expr)
+    let value = eval_expr(&expr_stmt.expr);
+    let elapsed = started.elapsed().as_nanos();
+    with_metrics(|metrics| {
+        metrics.eval_expr_calls = metrics.eval_expr_calls.saturating_add(1);
+        metrics.eval_expr_nanos = metrics.eval_expr_nanos.saturating_add(elapsed);
+    });
+    value
 }
 
 pub(crate) fn eval_statement_text(stmt: &str) -> RuntimeValue {
+    let started = Instant::now();
+    reset_binding_cache();
     let Some(statements) = parse_statements(stmt) else {
+        let elapsed = started.elapsed().as_nanos();
+        with_metrics(|metrics| {
+            metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
+            metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
+        });
         return RuntimeValue::Undefined;
     };
-    match eval_statements(&statements) {
+    let result = match eval_statements(&statements) {
         Flow::Normal(value) | Flow::Return(value) => value,
         Flow::Break | Flow::Continue => RuntimeValue::Undefined,
-    }
+    };
+    let elapsed = started.elapsed().as_nanos();
+    with_metrics(|metrics| {
+        metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
+        metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
+    });
+    result
 }
 
 fn parse_statements(source_text: &str) -> Option<Vec<Stmt>> {
+    let started = Instant::now();
     let cm: Lrc<SourceMap> = Default::default();
     let source = cm.new_source_file(FileName::Anon.into(), source_text.to_string());
     let mut parser = Parser::new(
@@ -42,7 +230,13 @@ fn parse_statements(source_text: &str) -> Option<Vec<Stmt>> {
         StringInput::from(&*source),
         None,
     );
-    parser.parse_script().ok().map(|script| script.body)
+    let parsed = parser.parse_script().ok().map(|script| script.body);
+    let elapsed = started.elapsed().as_nanos();
+    with_metrics(|metrics| {
+        metrics.parse_calls = metrics.parse_calls.saturating_add(1);
+        metrics.parse_nanos = metrics.parse_nanos.saturating_add(elapsed);
+    });
+    parsed
 }
 
 fn eval_statements(statements: &[Stmt]) -> Flow {
@@ -71,7 +265,7 @@ fn eval_stmt(statement: &Stmt) -> Flow {
                     .map(eval_expr)
                     .unwrap_or(RuntimeValue::Undefined);
                 let mutable = var_decl.kind != VarDeclKind::Const;
-                abi::bind_runtime_identifier_value(name.as_str(), value, mutable);
+                bind_symbol(name.as_str(), value, mutable);
             }
             Flow::Normal(RuntimeValue::Undefined)
         }
@@ -215,14 +409,7 @@ fn eval_expr(expr: &Expr) -> RuntimeValue {
             Lit::Null(_) => RuntimeValue::Null,
             _ => RuntimeValue::Undefined,
         },
-        Expr::Ident(ident) => {
-            let name = ident.sym.to_string();
-            if name == "undefined" {
-                RuntimeValue::Undefined
-            } else {
-                abi::read_runtime_identifier_value(name.as_str())
-            }
-        }
+        Expr::Ident(ident) => read_symbol_value(ident.sym.as_ref()),
         Expr::Paren(paren) => eval_expr(&paren.expr),
         Expr::Seq(sequence) => {
             let mut last = RuntimeValue::Undefined;
@@ -305,7 +492,7 @@ fn eval_assign_expr(assign: &AssignExpr) -> RuntimeValue {
     let next = match assign.op {
         AssignOp::Assign => rhs,
         AssignOp::AddAssign => {
-            let lhs = abi::read_runtime_identifier_value(name.as_str());
+            let lhs = read_symbol_value(name);
             if lhs.is_string_like() || rhs.is_string_like() {
                 RuntimeValue::String(format!(
                     "{}{}",
@@ -317,25 +504,25 @@ fn eval_assign_expr(assign: &AssignExpr) -> RuntimeValue {
             }
         }
         AssignOp::SubAssign => {
-            let lhs = abi::read_runtime_identifier_value(name.as_str());
+            let lhs = read_symbol_value(name);
             RuntimeValue::Number(lhs.to_number() - rhs.to_number())
         }
         AssignOp::MulAssign => {
-            let lhs = abi::read_runtime_identifier_value(name.as_str());
+            let lhs = read_symbol_value(name);
             RuntimeValue::Number(lhs.to_number() * rhs.to_number())
         }
         AssignOp::DivAssign => {
-            let lhs = abi::read_runtime_identifier_value(name.as_str());
+            let lhs = read_symbol_value(name);
             RuntimeValue::Number(lhs.to_number() / rhs.to_number())
         }
         AssignOp::ModAssign => {
-            let lhs = abi::read_runtime_identifier_value(name.as_str());
+            let lhs = read_symbol_value(name);
             RuntimeValue::Number(lhs.to_number() % rhs.to_number())
         }
         _ => RuntimeValue::Undefined,
     };
 
-    abi::write_runtime_identifier_value(name.as_str(), next.clone());
+    write_symbol_value(name, next.clone());
     next
 }
 
@@ -344,13 +531,13 @@ fn eval_update_expr(update: &UpdateExpr) -> RuntimeValue {
         return RuntimeValue::Undefined;
     };
 
-    let name = ident.sym.to_string();
-    let current = abi::read_runtime_identifier_value(name.as_str()).to_number();
+    let name = ident.sym.as_ref();
+    let current = read_symbol_value(name).to_number();
     let next = match update.op {
         UpdateOp::PlusPlus => current + 1.0,
         UpdateOp::MinusMinus => current - 1.0,
     };
-    abi::write_runtime_identifier_value(name.as_str(), RuntimeValue::Number(next));
+    write_symbol_value(name, RuntimeValue::Number(next));
 
     if update.prefix {
         RuntimeValue::Number(next)
@@ -368,8 +555,11 @@ fn eval_call_expr(call: &CallExpr) -> RuntimeValue {
     for arg in &call.args {
         args.push(eval_expr(&arg.expr));
     }
+    with_metrics(|metrics| {
+        metrics.call_dispatches = metrics.call_dispatches.saturating_add(1);
+    });
 
-    let Some(outcome) = crate::namespaces::dispatch(callee.as_str(), &args) else {
+    let Some(outcome) = super::dispatch_runtime_call(callee.as_str(), &args) else {
         return RuntimeValue::Undefined;
     };
 
@@ -403,10 +593,10 @@ fn pat_ident_name(pattern: &Pat) -> Option<String> {
     }
 }
 
-fn assign_target_name(target: &AssignTarget) -> Option<String> {
+fn assign_target_name(target: &AssignTarget) -> Option<&str> {
     match target {
         AssignTarget::Simple(simple) => match simple {
-            SimpleAssignTarget::Ident(ident) => Some(ident.id.sym.to_string()),
+            SimpleAssignTarget::Ident(ident) => Some(ident.id.sym.as_ref()),
             _ => None,
         },
         _ => None,

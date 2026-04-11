@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::time::Instant;
+
+use rustc_hash::FxHashMap;
 
 use crate::namespaces::value::RuntimeValue;
 
@@ -36,11 +37,16 @@ struct BindingEntry {
     mutable: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RuntimeBinding {
+    pub handle: i64,
+    pub mutable: bool,
+}
+
 #[derive(Debug, Default)]
 struct ValueStore {
-    next_handle: i64,
-    values: BTreeMap<i64, RuntimeValue>,
-    bindings: BTreeMap<String, BindingEntry>,
+    values: Vec<RuntimeValue>,
+    bindings: FxHashMap<String, BindingEntry>,
 }
 
 impl ValueStore {
@@ -53,18 +59,18 @@ impl ValueStore {
             return UNDEFINED_HANDLE;
         }
 
-        self.next_handle = self.next_handle.saturating_add(1);
-        let handle = self.next_handle.max(1);
-        self.values.insert(handle, value);
-        handle
+        self.values.push(value);
+        crate::namespaces::gc::notify_alloc();
+        self.values.len() as i64
     }
 
     fn read_value(&self, handle: i64) -> RuntimeValue {
         if handle <= UNDEFINED_HANDLE {
             return RuntimeValue::Undefined;
         }
+        let index = (handle - 1) as usize;
         self.values
-            .get(&handle)
+            .get(index)
             .cloned()
             .unwrap_or(RuntimeValue::Undefined)
     }
@@ -80,9 +86,72 @@ impl ValueStore {
         handle
     }
 
+    fn bind_identifier_value(&mut self, name: &str, value: RuntimeValue, mutable: bool) -> i64 {
+        if let Some(existing) = self.bindings.get(name).cloned() {
+            if !existing.mutable {
+                return existing.handle;
+            }
+
+            if mutable && existing.handle > UNDEFINED_HANDLE {
+                let index = (existing.handle - 1) as usize;
+                if let Some(slot) = self.values.get_mut(index) {
+                    *slot = value;
+                    return existing.handle;
+                }
+            }
+        }
+
+        let handle = self.allocate_value(value);
+        self.bindings
+            .insert(name.to_string(), BindingEntry { handle, mutable });
+        handle
+    }
+
     fn read_identifier(&self, name: &str) -> Option<RuntimeValue> {
         let handle = self.bindings.get(name).map(|entry| entry.handle)?;
         Some(self.read_value(handle))
+    }
+
+    fn resolve_binding(&self, name: &str) -> Option<BindingEntry> {
+        self.bindings.get(name).cloned()
+    }
+
+    fn write_identifier_value(&mut self, name: &str, value: RuntimeValue) -> i64 {
+        if let Some(existing) = self.bindings.get(name).cloned() {
+            if !existing.mutable {
+                return existing.handle;
+            }
+
+            if existing.handle > UNDEFINED_HANDLE {
+                let index = (existing.handle - 1) as usize;
+                if let Some(slot) = self.values.get_mut(index) {
+                    *slot = value;
+                    return existing.handle;
+                }
+            }
+        }
+
+        let handle = self.allocate_value(value);
+        self.bindings.insert(
+            name.to_string(),
+            BindingEntry {
+                handle,
+                mutable: true,
+            },
+        );
+        handle
+    }
+
+    fn write_value_handle(&mut self, handle: i64, value: RuntimeValue) -> bool {
+        if handle <= UNDEFINED_HANDLE {
+            return false;
+        }
+        let index = (handle - 1) as usize;
+        if let Some(slot) = self.values.get_mut(index) {
+            *slot = value;
+            return true;
+        }
+        false
     }
 }
 
@@ -106,6 +175,13 @@ pub(crate) struct RuntimeMetricsSnapshot {
     pub eval_expr_nanos: u128,
     pub eval_stmt_calls: u64,
     pub eval_stmt_nanos: u128,
+    pub eval_parse_calls: u64,
+    pub eval_parse_nanos: u128,
+    pub eval_identifier_reads: u64,
+    pub eval_identifier_writes: u64,
+    pub eval_call_dispatches: u64,
+    pub eval_binding_cache_hits: u64,
+    pub eval_binding_cache_misses: u64,
     pub call_dispatch_calls: u64,
     pub call_dispatch_nanos: u128,
 }
@@ -122,8 +198,17 @@ fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
     })
 }
 
+fn with_store<R>(callback: impl FnOnce(&ValueStore) -> R) -> R {
+    VALUE_STORE.with(|store| {
+        let borrowed = store.borrow();
+        callback(&borrowed)
+    })
+}
+
 pub fn reset_thread_state() {
     with_store_mut(ValueStore::reset);
+    crate::namespaces::gc::safe_collect();
+    crate::namespaces::rust::eval::reset_metrics();
     reset_runtime_metrics();
 }
 
@@ -134,6 +219,7 @@ fn reset_runtime_metrics() {
 }
 
 pub(crate) fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
+    let eval = crate::namespaces::rust::eval::metrics_snapshot();
     RUNTIME_METRICS.with(|metrics| {
         let metrics = metrics.borrow();
         RuntimeMetricsSnapshot {
@@ -143,6 +229,13 @@ pub(crate) fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
             eval_expr_nanos: metrics.eval_expr_nanos,
             eval_stmt_calls: metrics.eval_stmt_calls,
             eval_stmt_nanos: metrics.eval_stmt_nanos,
+            eval_parse_calls: eval.parse_calls,
+            eval_parse_nanos: eval.parse_nanos,
+            eval_identifier_reads: eval.identifier_reads,
+            eval_identifier_writes: eval.identifier_writes,
+            eval_call_dispatches: eval.call_dispatches,
+            eval_binding_cache_hits: eval.binding_cache_hits,
+            eval_binding_cache_misses: eval.binding_cache_misses,
             call_dispatch_calls: metrics.call_dispatch_calls,
             call_dispatch_nanos: metrics.call_dispatch_nanos,
         }
@@ -154,7 +247,7 @@ fn push_value(value: RuntimeValue) -> i64 {
 }
 
 fn read_value(handle: i64) -> RuntimeValue {
-    with_store_mut(|store| store.read_value(handle))
+    with_store(|store| store.read_value(handle))
 }
 
 fn bind_identifier(name: String, handle: i64, mutable: bool) -> i64 {
@@ -162,7 +255,7 @@ fn bind_identifier(name: String, handle: i64, mutable: bool) -> i64 {
 }
 
 fn read_identifier(name: &str) -> Option<RuntimeValue> {
-    with_store_mut(|store| store.read_identifier(name))
+    with_store(|store| store.read_identifier(name))
 }
 
 pub(crate) fn push_runtime_value(value: RuntimeValue) -> i64 {
@@ -177,18 +270,26 @@ pub(crate) const fn undefined_handle() -> i64 {
     UNDEFINED_HANDLE
 }
 
-pub(crate) fn read_runtime_identifier_value(name: &str) -> RuntimeValue {
-    read_identifier(name).unwrap_or(RuntimeValue::Undefined)
+pub(crate) fn resolve_runtime_identifier_binding(name: &str) -> Option<RuntimeBinding> {
+    with_store(|store| {
+        let binding = store.resolve_binding(name)?;
+        Some(RuntimeBinding {
+            handle: binding.handle,
+            mutable: binding.mutable,
+        })
+    })
 }
 
-pub(crate) fn bind_runtime_identifier_value(name: &str, value: RuntimeValue, mutable: bool) {
-    let handle = push_value(value);
-    let _ = bind_identifier(name.to_string(), handle, mutable);
+pub(crate) fn bind_runtime_identifier_value(name: &str, value: RuntimeValue, mutable: bool) -> i64 {
+    with_store_mut(|store| store.bind_identifier_value(name, value, mutable))
 }
 
 pub(crate) fn write_runtime_identifier_value(name: &str, value: RuntimeValue) {
-    let handle = push_value(value);
-    let _ = bind_identifier(name.to_string(), handle, true);
+    let _ = with_store_mut(|store| store.write_identifier_value(name, value));
+}
+
+pub(crate) fn write_runtime_value_handle(handle: i64, value: RuntimeValue) -> bool {
+    with_store_mut(|store| store.write_value_handle(handle, value))
 }
 
 fn read_utf8(ptr: i64, len: i64) -> Option<String> {
@@ -285,14 +386,18 @@ pub extern "C" fn __rts_dispatch(
             let Some(expr) = read_utf8(a0, a1) else {
                 return UNDEFINED_HANDLE;
             };
-            let value = crate::namespaces::rust::eval::eval_expression_text(&expr);
+            crate::namespaces::gc::enter_scope();
+            let value = crate::namespaces::rust::eval_runtime_expression(&expr);
+            crate::namespaces::gc::exit_scope();
             push_value(value)
         }
         FN_EVAL_STMT => {
             let Some(stmt) = read_utf8(a0, a1) else {
                 return UNDEFINED_HANDLE;
             };
+            crate::namespaces::gc::enter_scope();
             let value = crate::namespaces::rust::eval::eval_statement_text(&stmt);
+            crate::namespaces::gc::exit_scope();
             push_value(value)
         }
         FN_READ_IDENTIFIER => {
@@ -376,7 +481,10 @@ pub extern "C" fn __rts_call_dispatch(
         args.push(read_value(handle));
     }
 
-    let Some(outcome) = crate::namespaces::dispatch(callee.as_str(), &args) else {
+    crate::namespaces::gc::enter_scope();
+    let Some(outcome) = crate::namespaces::rust::dispatch_runtime_call(callee.as_str(), &args)
+    else {
+        crate::namespaces::gc::exit_scope();
         return UNDEFINED_HANDLE;
     };
 
@@ -404,6 +512,44 @@ pub extern "C" fn __rts_call_dispatch(
         metrics.call_dispatch_calls = metrics.call_dispatch_calls.saturating_add(1);
         metrics.call_dispatch_nanos = metrics.call_dispatch_nanos.saturating_add(elapsed);
     });
+    crate::namespaces::gc::exit_scope();
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        RuntimeValue, bind_runtime_identifier_value, read_runtime_value, reset_thread_state,
+        resolve_runtime_identifier_binding, with_store, write_runtime_identifier_value,
+    };
+
+    #[test]
+    fn mutable_write_updates_existing_slot() {
+        reset_thread_state();
+        bind_runtime_identifier_value("counter", RuntimeValue::Number(1.0), true);
+
+        let before = with_store(|store| store.values.len());
+        write_runtime_identifier_value("counter", RuntimeValue::Number(2.0));
+        let after = with_store(|store| store.values.len());
+        let handle = resolve_runtime_identifier_binding("counter")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+
+        assert_eq!(before, after);
+        assert_eq!(read_runtime_value(handle), RuntimeValue::Number(2.0));
+    }
+
+    #[test]
+    fn const_write_keeps_original_value() {
+        reset_thread_state();
+        bind_runtime_identifier_value("base", RuntimeValue::Number(7.0), false);
+
+        write_runtime_identifier_value("base", RuntimeValue::Number(99.0));
+        let handle = resolve_runtime_identifier_binding("base")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+
+        assert_eq!(read_runtime_value(handle), RuntimeValue::Number(7.0));
+    }
 }

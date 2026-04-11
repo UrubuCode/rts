@@ -64,6 +64,8 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
 }
 
 fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecutionReport> {
+    crate::namespaces::rust::eval::set_metrics_enabled(options.debug);
+
     let total_started = Instant::now();
     let mut stage_timings = RunStageTimings::default();
 
@@ -153,6 +155,10 @@ fn print_runtime_row(label: &str, calls: u64, nanos: u128) {
     );
 }
 
+fn print_runtime_counter_row(label: &str, value: u64) {
+    println!("  {:<32} {:>10}", label, value);
+}
+
 fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecutionReport) {
     println!("launcher --debug timeline (ms)");
     println!(
@@ -201,6 +207,28 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
         "runtime.fn_eval_stmt",
         runtime.eval_stmt_calls,
         runtime.eval_stmt_nanos,
+    );
+    print_runtime_row(
+        "runtime.eval.parse",
+        runtime.eval_parse_calls,
+        runtime.eval_parse_nanos,
+    );
+    print_runtime_counter_row(
+        "runtime.eval.identifier_reads",
+        runtime.eval_identifier_reads,
+    );
+    print_runtime_counter_row(
+        "runtime.eval.identifier_writes",
+        runtime.eval_identifier_writes,
+    );
+    print_runtime_counter_row("runtime.eval.call_dispatches", runtime.eval_call_dispatches);
+    print_runtime_counter_row(
+        "runtime.eval.binding_cache_hits",
+        runtime.eval_binding_cache_hits,
+    );
+    print_runtime_counter_row(
+        "runtime.eval.binding_cache_misses",
+        runtime.eval_binding_cache_misses,
     );
     print_runtime_row(
         "runtime.__rts_call_dispatch",

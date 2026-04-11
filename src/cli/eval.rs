@@ -3,6 +3,8 @@ use anyhow::{Context, Result, anyhow};
 use crate::compile_options::CompileOptions;
 
 pub fn command(source_arg: Option<String>, options: CompileOptions) -> Result<()> {
+    crate::namespaces::rust::eval::set_metrics_enabled(options.debug);
+
     let source = source_arg
         .ok_or_else(|| anyhow!("missing source for '-e/--eval'"))?
         .trim()
