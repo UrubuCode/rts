@@ -29,6 +29,7 @@ swc_common = "21.0.0"
 swc_ecma_ast = "23.0.0"
 swc_ecma_parser = "38.0.0"
 gc-arena = "0.5"
+rustc-hash = "1.1"
 
 [profile.release]
 opt-level = "z"

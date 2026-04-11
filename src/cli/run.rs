@@ -39,31 +39,18 @@ pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()>
         print_debug_timeline(&input, options, &report);
     }
 
-    let jit_report = &report.jit_report;
-
-    if jit_report.executed {
-        println!(
-            "JIT executou '{}': {} funcoes lowerizadas, retorno={} (profile={}, modulos={}).",
-            jit_report.entry_function,
-            jit_report.compiled_functions,
-            jit_report.entry_return_value,
-            options.profile,
-            report.module_count
-        );
-    } else {
-        println!(
-            "JIT compilou {} funcoes, mas a entry '{}' nao foi encontrada (profile={}, modulos={}).",
-            jit_report.compiled_functions,
-            jit_report.entry_function,
-            options.profile,
-            report.module_count
-        );
-    }
+    // Relatório do JIT só aparece em modo --debug (ver print_debug_timeline).
+    // Sem --debug, não poluímos stdout: o programa do usuário é o único output.
+    let _ = &report.jit_report;
+    let _ = options;
 
     Ok(())
 }
 
 fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecutionReport> {
+    crate::namespaces::rust::eval::set_metrics_enabled(options.debug);
+    crate::namespaces::abi::set_dispatch_metrics_enabled(options.debug);
+
     let total_started = Instant::now();
     let mut stage_timings = RunStageTimings::default();
 
@@ -105,12 +92,12 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
     stage_timings.merge_hir_ms = elapsed_ms(started);
 
     let started = Instant::now();
-    let mir = crate::mir::build::build(&merged_hir);
+    let typed_mir = crate::mir::typed_build::typed_build(&merged_hir);
     stage_timings.build_mir_ms = elapsed_ms(started);
 
     let started = Instant::now();
-    let jit_report = crate::codegen::cranelift::jit::execute(&mir, "main")
-        .context("failed to execute MIR through Cranelift JIT")?;
+    let jit_report = crate::codegen::cranelift::jit::execute_typed(&typed_mir, "main")
+        .context("failed to execute typed MIR through Cranelift JIT")?;
     stage_timings.jit_execute_ms = elapsed_ms(started);
     stage_timings.total_ms = elapsed_ms(total_started);
 
@@ -151,6 +138,10 @@ fn print_runtime_row(label: &str, calls: u64, nanos: u128) {
         calls,
         avg_ms(nanos, calls)
     );
+}
+
+fn print_runtime_counter_row(label: &str, value: u64) {
+    println!("  {:<32} {:>10}", label, value);
 }
 
 fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecutionReport) {
@@ -201,6 +192,28 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
         "runtime.fn_eval_stmt",
         runtime.eval_stmt_calls,
         runtime.eval_stmt_nanos,
+    );
+    print_runtime_row(
+        "runtime.eval.parse",
+        runtime.eval_parse_calls,
+        runtime.eval_parse_nanos,
+    );
+    print_runtime_counter_row(
+        "runtime.eval.identifier_reads",
+        runtime.eval_identifier_reads,
+    );
+    print_runtime_counter_row(
+        "runtime.eval.identifier_writes",
+        runtime.eval_identifier_writes,
+    );
+    print_runtime_counter_row("runtime.eval.call_dispatches", runtime.eval_call_dispatches);
+    print_runtime_counter_row(
+        "runtime.eval.binding_cache_hits",
+        runtime.eval_binding_cache_hits,
+    );
+    print_runtime_counter_row(
+        "runtime.eval.binding_cache_misses",
+        runtime.eval_binding_cache_misses,
     );
     print_runtime_row(
         "runtime.__rts_call_dispatch",
@@ -282,10 +295,11 @@ mod tests {
         let report = run_fixture_report();
         let runtime = report.runtime_metrics;
 
+        // O pipeline tipado compila o bench para código nativo via Cranelift,
+        // portanto ainda há chamadas de __rts_dispatch (bind/read de globais,
+        // box/unbox de números, etc.) mas eval_stmt/eval_expr/call_dispatch
+        // ficam zerados — esses só sobem quando o fallback interpretativo
+        // é acionado, o que este benchmark não exercita.
         assert!(runtime.dispatch_calls > 0);
-
-        let runtime_specific_calls =
-            runtime.call_dispatch_calls + runtime.eval_expr_calls + runtime.eval_stmt_calls;
-        assert!(runtime_specific_calls > 0);
     }
 }

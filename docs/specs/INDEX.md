@@ -12,7 +12,7 @@ Indice de documentos de design, especificacoes de features e decisoes arquitetur
 
 ## Pipeline
 
-(em breve)
+- [Otimização do hot path de execução](perf-hot-path-optimization.md) — Como o bench `rts_simple.ts` saiu de ~2300 ms para 66 ms (AOT) / 73 ms (JIT), batendo Bun em 1.6×. Análise, decisões e armadilhas encontradas.
 
 ## Pendencias
 

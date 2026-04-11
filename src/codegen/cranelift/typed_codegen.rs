@@ -20,6 +20,10 @@ enum VRegKind {
 struct BindingState {
     slot: StackSlot,
     mutable: bool,
+    /// Kind do valor guardado no slot. Para NativeF64/NativeI32, o slot
+    /// armazena os bits crus; LoadBinding re-emite com o mesmo VRegKind
+    /// para manter o caminho nativo em BinOps subsequentes.
+    kind: VRegKind,
 }
 
 use crate::mir::{MirBinOp, MirInstruction, MirUnaryOp, SimdOp, SimdWidth, TypedMirFunction, VReg};
@@ -32,6 +36,7 @@ use crate::namespaces::abi::{
     FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_NUMBER, FN_BOX_STRING, FN_CRYPTO_SHA256, FN_EVAL_STMT,
     FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT,
     FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_PROCESS_EXIT, FN_READ_IDENTIFIER,
+    FN_UNBOX_NUMBER,
 };
 
 const RTS_DISPATCH: &str = "__rts_dispatch";
@@ -95,6 +100,14 @@ fn loop_context_from_start_label(label: &str) -> Option<LoopControlContext> {
             continue_label: format!("for_update_{}", id),
         });
     }
+    if let Some(id) = label.strip_prefix("switch_body_") {
+        // Switch só usa break — reutilizamos end_label para ambos.
+        let end = format!("switch_end_{}", id);
+        return Some(LoopControlContext {
+            end_label: end.clone(),
+            continue_label: end,
+        });
+    }
     None
 }
 
@@ -136,6 +149,64 @@ fn rewrite_loop_control(instructions: &[MirInstruction]) -> Vec<MirInstruction> 
     rewritten
 }
 
+/// Resultado da análise de promoção de globais: nomes que a função lê/escreve
+/// fora de seus próprios `Bind`s (portanto são globais) e que são seguros
+/// para cachear num stack slot local durante toda a execução da função.
+///
+/// Segurança atual: promovemos apenas funções que **não** fazem nenhuma
+/// `Call` — callees poderiam ler/escrever as mesmas globais e ver valores
+/// obsoletos do namespace compartilhado. Esta análise conservadora resolve
+/// o caso comum (loops aritméticos "puros") sem precisar de análise
+/// interprocedural.
+#[derive(Debug, Default)]
+struct ShadowGlobalPlan {
+    /// Nomes promovidos, em ordem determinística para emissão estável.
+    names: Vec<String>,
+}
+
+fn analyze_shadow_globals(instructions: &[MirInstruction], function_name: &str) -> ShadowGlobalPlan {
+    // Main nunca promove: suas vars são top-level/globais visíveis a outras funções.
+    if function_name == "main" {
+        return ShadowGlobalPlan::default();
+    }
+
+    let mut locals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut referenced: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut has_call = false;
+
+    for instruction in instructions {
+        match instruction {
+            MirInstruction::Bind(name, _, _) => {
+                // Bind marca o nome como local; a partir daqui reads do mesmo
+                // nome dentro da função apontam para o binding local, não para
+                // o namespace.
+                locals.insert(name.clone());
+            }
+            MirInstruction::LoadBinding(_, name) | MirInstruction::WriteBind(name, _) => {
+                referenced.insert(name.clone());
+            }
+            MirInstruction::Call(_, _, _) => {
+                has_call = true;
+            }
+            _ => {}
+        }
+    }
+
+    if has_call {
+        // Não sabemos o que o callee faz com as globais — conservador.
+        return ShadowGlobalPlan::default();
+    }
+
+    // Globais são os referenced que não viraram locals antes de serem usados.
+    // BTreeSet garante ordem estável.
+    let names: Vec<String> = referenced
+        .into_iter()
+        .filter(|name| !locals.contains(name))
+        .collect();
+
+    ShadowGlobalPlan { names }
+}
+
 pub fn define_typed_function<M: Module>(
     module: &mut M,
     func_declarations: &mut BTreeMap<String, FuncId>,
@@ -156,7 +227,10 @@ pub fn define_typed_function<M: Module>(
         let mut vreg_map = BTreeMap::<VReg, Value>::new();
         let mut vreg_kinds = BTreeMap::<VReg, VRegKind>::new();
         let mut local_bindings = BTreeMap::<String, BindingState>::new();
-        let use_local_bindings = false;
+        // Bindings do `main` são semanticamente top-level/globais — precisam ir para o namespace
+        // compartilhado para serem visíveis a outras funções. Em funções "normais", os `let`s
+        // são locais e podem virar stack slots, eliminando os dispatches de Bind/Read/Write.
+        let use_local_bindings = function.name != "main";
 
         let raw_instructions: Vec<MirInstruction> = function
             .blocks
@@ -181,6 +255,62 @@ pub fn define_typed_function<M: Module>(
 
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
+
+        // --- Pass 0: promoção de globais para shadow stack slots ---
+        //
+        // Antes de emitir o corpo, identificamos globais (nomes lidos/escritos
+        // sem um Bind anterior na mesma função) que podem ser cacheadas em
+        // stack slots locais pra eliminar dispatches FN_READ_IDENTIFIER /
+        // FN_BIND_IDENTIFIER dentro de hot loops. Só promovemos quando a função
+        // não faz nenhuma Call — callees poderiam observar valores obsoletos
+        // no namespace compartilhado. Ver analyze_shadow_globals.
+        //
+        // Cada global promovida:
+        //   1. no prólogo: READ_IDENTIFIER -> UNBOX_NUMBER -> stack slot (NativeF64)
+        //   2. no corpo: Load/Write via stack slot (caminho nativo, zero dispatch)
+        //   3. antes de cada return: BOX_NUMBER -> BIND_IDENTIFIER (write-back)
+        let shadow_plan = if use_local_bindings {
+            analyze_shadow_globals(&instructions, function.name.as_str())
+        } else {
+            ShadowGlobalPlan::default()
+        };
+        for name in &shadow_plan.names {
+            let data_id = declare_string_data(module, data_cache, name.as_str())?;
+            let data_ref = module.declare_data_in_func(data_id, builder.func);
+            let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+            let name_len = builder.ins().iconst(types::I64, name.len() as i64);
+            let handle = emit_dispatch(
+                module,
+                func_declarations,
+                &mut builder,
+                FN_READ_IDENTIFIER,
+                &[name_ptr, name_len],
+            )?;
+            // Unbox para F64 bits. Se a global não for número, FN_UNBOX_NUMBER
+            // retorna NaN via to_number() — comportamento compatível com JS
+            // semântico de `Number(valor)`.
+            let bits = emit_dispatch(
+                module,
+                func_declarations,
+                &mut builder,
+                FN_UNBOX_NUMBER,
+                &[handle],
+            )?;
+            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                8,
+                3,
+            ));
+            store_binding_slot(&mut builder, slot, bits);
+            local_bindings.insert(
+                name.clone(),
+                BindingState {
+                    slot,
+                    mutable: true,
+                    kind: VRegKind::NativeF64,
+                },
+            );
+        }
 
         let mut default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
         let mut default_return_is_native = false;
@@ -259,16 +389,36 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::LoadParam(dst, index) => {
-                    let value = entry_params
+                    let handle = entry_params
                         .get(index + 1)
                         .copied()
                         .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
-                    vreg_map.insert(*dst, value);
+                    // Parâmetros numéricos (anotação `number`/`i32`/etc. no HIR)
+                    // são unboxed UMA VEZ aqui no entry block para evitar
+                    // FN_UNBOX_NUMBER em cada uso dentro de loops. Parâmetros
+                    // sem anotação ou com tipo não-numérico permanecem como
+                    // handles — o `adapt_to_kind` genérico do BinOp faz a
+                    // conversão caso-a-caso quando necessário, e callees como
+                    // `io.print(msg: str)` recebem o handle direto.
+                    if function.param_is_numeric.get(*index).copied().unwrap_or(false) {
+                        let bits = emit_dispatch(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            FN_UNBOX_NUMBER,
+                            &[handle],
+                        )?;
+                        vreg_map.insert(*dst, bits);
+                        vreg_kinds.insert(*dst, VRegKind::NativeF64);
+                    } else {
+                        vreg_map.insert(*dst, handle);
+                        // VRegKind default é Handle.
+                    }
                 }
 
                 MirInstruction::BinOp(dst, op, lhs, rhs) => {
-                    let lhs_kind = vreg_kinds.get(lhs).copied().unwrap_or(VRegKind::Handle);
-                    let rhs_kind = vreg_kinds.get(rhs).copied().unwrap_or(VRegKind::Handle);
+                    let mut lhs_kind = vreg_kinds.get(lhs).copied().unwrap_or(VRegKind::Handle);
+                    let mut rhs_kind = vreg_kinds.get(rhs).copied().unwrap_or(VRegKind::Handle);
                     let is_arith = matches!(
                         op,
                         MirBinOp::Add
@@ -287,11 +437,50 @@ pub fn define_typed_function<M: Module>(
                             | MirBinOp::Ne
                     );
 
+                    // Resolve os valores uma vez e aplica promoção numérica quando
+                    // os kinds divergem. Unificamos no kind mais largo (Handle/F64 > I32)
+                    // antes das branches nativas.
+                    let mut lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
+                    let mut rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
+                    if (is_arith || is_cmp) && lhs_kind != rhs_kind {
+                        let target = match (lhs_kind, rhs_kind) {
+                            (VRegKind::NativeI32, VRegKind::NativeF64)
+                            | (VRegKind::NativeF64, VRegKind::NativeI32)
+                            | (VRegKind::Handle, VRegKind::NativeF64)
+                            | (VRegKind::NativeF64, VRegKind::Handle)
+                            | (VRegKind::Handle, VRegKind::NativeI32)
+                            | (VRegKind::NativeI32, VRegKind::Handle) => VRegKind::NativeF64,
+                            _ => VRegKind::Handle,
+                        };
+                        if target != VRegKind::Handle {
+                            if lhs_kind != target {
+                                lhs_val = adapt_to_kind(
+                                    module,
+                                    func_declarations,
+                                    &mut builder,
+                                    lhs_val,
+                                    lhs_kind,
+                                    target,
+                                )?;
+                                lhs_kind = target;
+                            }
+                            if rhs_kind != target {
+                                rhs_val = adapt_to_kind(
+                                    module,
+                                    func_declarations,
+                                    &mut builder,
+                                    rhs_val,
+                                    rhs_kind,
+                                    target,
+                                )?;
+                                rhs_kind = target;
+                            }
+                        }
+                    }
+
                     if lhs_kind == VRegKind::NativeI32 && rhs_kind == VRegKind::NativeI32 && is_cmp
                     {
                         // Native i32 comparison — returns 0 or 1 as i64
-                        let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                        let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
                         let lhs_i32 = builder.ins().ireduce(types::I32, lhs_val);
                         let rhs_i32 = builder.ins().ireduce(types::I32, rhs_val);
                         use cranelift_codegen::ir::condcodes::IntCC;
@@ -315,8 +504,6 @@ pub fn define_typed_function<M: Module>(
                         && is_cmp
                     {
                         // Native f64 comparison — returns 0 or 1 as i64
-                        let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                        let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
                         let lhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), lhs_val);
                         let rhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), rhs_val);
                         use cranelift_codegen::ir::condcodes::FloatCC;
@@ -340,8 +527,6 @@ pub fn define_typed_function<M: Module>(
                         && is_arith
                     {
                         // Native i32 arithmetic path
-                        let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                        let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
                         let lhs_i32 = builder.ins().ireduce(types::I32, lhs_val);
                         let rhs_i32 = builder.ins().ireduce(types::I32, rhs_val);
                         let result_i32 = match op {
@@ -362,8 +547,6 @@ pub fn define_typed_function<M: Module>(
                         && is_arith
                     {
                         // Native f64 arithmetic path
-                        let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                        let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
                         let lhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), lhs_val);
                         let rhs_f64 = builder.ins().bitcast(types::F64, MemFlags::new(), rhs_val);
                         let result_f64 = match op {
@@ -568,20 +751,21 @@ pub fn define_typed_function<M: Module>(
 
                 MirInstruction::Bind(name, src, mutable) => {
                     if use_local_bindings {
-                        // Fast path for function-local bindings: keep mutable state in stack slots
-                        // and avoid namespace map lookups on every variable access.
-                        // Keep values in handle form to preserve runtime numeric semantics.
-                        let value_handle = ensure_handle(
-                            &vreg_map,
-                            &vreg_kinds,
-                            src,
-                            module,
-                            func_declarations,
-                            &mut builder,
-                        )?;
+                        let src_kind = vreg_kinds.get(src).copied().unwrap_or(VRegKind::Handle);
+                        let src_val = resolve_vreg(&vreg_map, src, &mut builder);
 
                         if let Some(state) = local_bindings.get_mut(name) {
-                            store_binding_slot(&mut builder, state.slot, value_handle);
+                            // Re-binding de uma variável já existente: adapta o novo valor ao
+                            // kind fixo do slot.
+                            let adapted = adapt_to_kind(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                src_val,
+                                src_kind,
+                                state.kind,
+                            )?;
+                            store_binding_slot(&mut builder, state.slot, adapted);
                             state.mutable = *mutable;
                             continue;
                         }
@@ -591,12 +775,15 @@ pub fn define_typed_function<M: Module>(
                             8,
                             3,
                         ));
-                        store_binding_slot(&mut builder, slot, value_handle);
+                        // O primeiro Bind fixa o kind do slot — escolhemos o kind do src
+                        // para manter o caminho nativo quando possível.
+                        store_binding_slot(&mut builder, slot, src_val);
                         local_bindings.insert(
                             name.clone(),
                             BindingState {
                                 slot,
                                 mutable: *mutable,
+                                kind: src_kind,
                             },
                         );
                         continue;
@@ -630,18 +817,20 @@ pub fn define_typed_function<M: Module>(
 
                 MirInstruction::WriteBind(name, src) => {
                     if use_local_bindings {
-                        let value_handle = ensure_handle(
-                            &vreg_map,
-                            &vreg_kinds,
-                            src,
-                            module,
-                            func_declarations,
-                            &mut builder,
-                        )?;
-
-                        if let Some(state) = local_bindings.get_mut(name) {
+                        if let Some(state) = local_bindings.get(name).copied() {
                             if state.mutable {
-                                store_binding_slot(&mut builder, state.slot, value_handle);
+                                let src_kind =
+                                    vreg_kinds.get(src).copied().unwrap_or(VRegKind::Handle);
+                                let src_val = resolve_vreg(&vreg_map, src, &mut builder);
+                                let adapted = adapt_to_kind(
+                                    module,
+                                    func_declarations,
+                                    &mut builder,
+                                    src_val,
+                                    src_kind,
+                                    state.kind,
+                                )?;
+                                store_binding_slot(&mut builder, state.slot, adapted);
                                 continue;
                             }
                         }
@@ -677,9 +866,12 @@ pub fn define_typed_function<M: Module>(
                         if let Some(state) = local_bindings.get(name) {
                             let result = load_binding_slot(&mut builder, state.slot);
                             vreg_map.insert(*dst, result);
-                            vreg_kinds.insert(*dst, VRegKind::Handle);
+                            vreg_kinds.insert(*dst, state.kind);
                             default_return = result;
-                            default_return_is_native = false;
+                            default_return_is_native = matches!(
+                                state.kind,
+                                VRegKind::NativeF64 | VRegKind::NativeI32
+                            );
                             continue;
                         }
                     }
@@ -712,12 +904,28 @@ pub fn define_typed_function<M: Module>(
                         }
                         _ => raw,
                     };
+                    emit_shadow_writeback(
+                        module,
+                        func_declarations,
+                        data_cache,
+                        &mut builder,
+                        &shadow_plan.names,
+                        &local_bindings,
+                    )?;
                     builder.ins().return_(&[value]);
                     terminated = true;
                 }
 
                 MirInstruction::Return(None) => {
                     let value = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                    emit_shadow_writeback(
+                        module,
+                        func_declarations,
+                        data_cache,
+                        &mut builder,
+                        &shadow_plan.names,
+                        &local_bindings,
+                    )?;
                     builder.ins().return_(&[value]);
                     terminated = true;
                 }
@@ -978,12 +1186,28 @@ pub fn define_typed_function<M: Module>(
             } else {
                 default_return
             };
+            emit_shadow_writeback(
+                module,
+                func_declarations,
+                data_cache,
+                &mut builder,
+                &shadow_plan.names,
+                &local_bindings,
+            )?;
             builder.ins().return_(&[ret_val]);
         }
 
         // Seal and finalize the exit block (used by Break)
         builder.switch_to_block(exit_block);
         let exit_ret = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+        emit_shadow_writeback(
+            module,
+            func_declarations,
+            data_cache,
+            &mut builder,
+            &shadow_plan.names,
+            &local_bindings,
+        )?;
         builder.ins().return_(&[exit_ret]);
 
         // Let Cranelift resolve remaining block seals once CFG is complete.
@@ -1012,6 +1236,49 @@ fn resolve_vreg(
 fn store_binding_slot(builder: &mut FunctionBuilder, slot: StackSlot, value: Value) {
     let addr = builder.ins().stack_addr(types::I64, slot, 0);
     builder.ins().store(MemFlags::new(), value, addr, 0);
+}
+
+/// Emite o write-back dos shadow globals para o namespace compartilhado.
+/// Chamado antes de cada `return_` do caminho principal, garantindo que
+/// qualquer escrita local à global seja visível a callees subsequentes.
+/// Globais promovidas são sempre NativeF64; box + bind para Handle.
+fn emit_shadow_writeback<M: Module>(
+    module: &mut M,
+    func_declarations: &mut BTreeMap<String, FuncId>,
+    data_cache: &mut BTreeMap<String, DataId>,
+    builder: &mut FunctionBuilder,
+    shadow_names: &[String],
+    local_bindings: &BTreeMap<String, BindingState>,
+) -> Result<()> {
+    for name in shadow_names {
+        let Some(state) = local_bindings.get(name) else {
+            continue;
+        };
+        // Lê o valor atual do slot (bits F64).
+        let bits = load_binding_slot(builder, state.slot);
+        // Box: f64 bits -> handle no namespace.
+        let handle = emit_dispatch(
+            module,
+            func_declarations,
+            builder,
+            FN_BOX_NUMBER,
+            &[bits],
+        )?;
+        // Bind para o namespace: reutiliza o nome já presente no data segment.
+        let data_id = declare_string_data(module, data_cache, name.as_str())?;
+        let data_ref = module.declare_data_in_func(data_id, builder.func);
+        let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
+        let name_len = builder.ins().iconst(types::I64, name.len() as i64);
+        let mutable_flag = builder.ins().iconst(types::I64, 1);
+        emit_dispatch(
+            module,
+            func_declarations,
+            builder,
+            FN_BIND_IDENTIFIER,
+            &[name_ptr, name_len, handle, mutable_flag],
+        )?;
+    }
+    Ok(())
 }
 
 fn load_binding_slot(builder: &mut FunctionBuilder, slot: StackSlot) -> Value {
@@ -1101,6 +1368,71 @@ fn emit_box_string<M: Module>(
     let ptr = builder.ins().symbol_value(types::I64, data_ref);
     let len = builder.ins().iconst(types::I64, text.len() as i64);
     emit_dispatch(module, declarations, builder, FN_BOX_STRING, &[ptr, len])
+}
+
+/// Converte `value` do kind `from` para o kind `to`, emitindo conversões nativas
+/// onde possível e caindo em dispatch apenas como último recurso.
+fn adapt_to_kind<M: Module>(
+    module: &mut M,
+    func_declarations: &mut BTreeMap<String, FuncId>,
+    builder: &mut FunctionBuilder,
+    value: Value,
+    from: VRegKind,
+    to: VRegKind,
+) -> Result<Value> {
+    if from == to {
+        return Ok(value);
+    }
+    match (from, to) {
+        // NativeI32 -> NativeF64: sextend + convert
+        (VRegKind::NativeI32, VRegKind::NativeF64) => {
+            let i32_val = builder.ins().ireduce(types::I32, value);
+            let f64_val = builder.ins().fcvt_from_sint(types::F64, i32_val);
+            Ok(builder.ins().bitcast(types::I64, MemFlags::new(), f64_val))
+        }
+        // NativeF64 -> NativeI32: truncate
+        (VRegKind::NativeF64, VRegKind::NativeI32) => {
+            let f64_val = builder.ins().bitcast(types::F64, MemFlags::new(), value);
+            let i32_val = builder.ins().fcvt_to_sint(types::I32, f64_val);
+            Ok(builder.ins().sextend(types::I64, i32_val))
+        }
+        // Handle -> NativeF64: unbox via dispatch
+        (VRegKind::Handle, VRegKind::NativeF64) => {
+            let bits = emit_dispatch(
+                module,
+                func_declarations,
+                builder,
+                crate::namespaces::abi::FN_UNBOX_NUMBER,
+                &[value],
+            )?;
+            Ok(bits)
+        }
+        // Handle -> NativeI32: unbox via dispatch + truncate
+        (VRegKind::Handle, VRegKind::NativeI32) => {
+            let bits = emit_dispatch(
+                module,
+                func_declarations,
+                builder,
+                crate::namespaces::abi::FN_UNBOX_NUMBER,
+                &[value],
+            )?;
+            let f64_val = builder.ins().bitcast(types::F64, MemFlags::new(), bits);
+            let i32_val = builder.ins().fcvt_to_sint(types::I32, f64_val);
+            Ok(builder.ins().sextend(types::I64, i32_val))
+        }
+        // NativeF64 -> Handle: box
+        (VRegKind::NativeF64, VRegKind::Handle) => {
+            box_native_f64(module, func_declarations, builder, value)
+        }
+        // NativeI32 -> Handle: box
+        (VRegKind::NativeI32, VRegKind::Handle) => {
+            box_native_i32(module, func_declarations, builder, value)
+        }
+        // Mesmos kinds são tratados no early-return acima; esta arm é só para exaustividade.
+        (VRegKind::Handle, VRegKind::Handle)
+        | (VRegKind::NativeF64, VRegKind::NativeF64)
+        | (VRegKind::NativeI32, VRegKind::NativeI32) => Ok(value),
+    }
 }
 
 fn ensure_handle<M: Module>(

@@ -153,6 +153,12 @@ pub struct TypedBasicBlock {
 pub struct TypedMirFunction {
     pub name: String,
     pub param_count: usize,
+    /// Para cada parâmetro, `true` se o tipo anotado no HIR é numérico
+    /// (`number` / `i32` / `f64` / etc.). Parâmetros numéricos são
+    /// unboxed uma única vez no entry block do codegen, eliminando
+    /// FN_UNBOX_NUMBER em cada uso dentro de loops. Parâmetros não-numéricos
+    /// (strings, bools, objetos) permanecem como handles.
+    pub param_is_numeric: Vec<bool>,
     pub blocks: Vec<TypedBasicBlock>,
     pub next_vreg: u32,
     /// Arquivo TypeScript de origem (propagado do HIR via SourceLocation).

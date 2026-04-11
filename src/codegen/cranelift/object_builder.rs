@@ -286,7 +286,7 @@ fn build_cranelift_flags(options: &ObjectBuildOptions) -> Result<settings::Flags
         .set(
             "opt_level",
             if options.optimize_for_production {
-                "speed_and_size"
+                "speed"
             } else {
                 "none"
             },
