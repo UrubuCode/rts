@@ -3,6 +3,28 @@ use crate::parser::span::Span;
 
 use super::annotations::TypeAnnotation;
 
+/// Statement no HIR. Carrega o texto original (util para diagnosticos e
+/// para o fallback `RuntimeEval`) e o `swc_ecma_ast::Stmt` ja parseado
+/// quando disponivel. O MIR prefere o Stmt estruturado; so cai no texto
+/// quando o parser interno nao tem o Stmt (casos raros de lowering
+/// sintetico).
+///
+/// Antes desta etapa, o HIR armazenava apenas `Vec<String>` como body e
+/// o MIR re-parseava cada string com um parser SWC local (ciclo
+/// parse -> string -> reparse). Com `HirStmt` estruturado a cadeia vira:
+/// SWC parse -> HIR (Stmt clonado) -> MIR lower, sem nenhum re-parse.
+#[derive(Debug, Clone)]
+pub struct HirStmt {
+    pub text: String,
+    pub stmt: Option<swc_ecma_ast::Stmt>,
+}
+
+impl HirStmt {
+    pub fn new(text: String, stmt: Option<swc_ecma_ast::Stmt>) -> Self {
+        Self { text, stmt }
+    }
+}
+
 /// Localização no arquivo TypeScript original.
 /// Propagada do AST do SWC pelo lower e preservada até o codegen.
 #[derive(Debug, Clone, Default)]
@@ -65,7 +87,9 @@ pub enum HirItem {
     Function(HirFunction),
     Interface(HirInterface),
     Class(HirClass),
-    Statement(String),
+    /// Top-level statement representado como AST do SWC ja parseado.
+    /// O MIR consome direto, sem re-parse.
+    Statement(HirStmt),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -103,7 +127,10 @@ pub struct HirFunction {
     pub name: String,
     pub parameters: Vec<HirParameter>,
     pub return_type: Option<TypeAnnotation>,
-    pub body: Vec<String>,
+    /// Corpo da funcao como stmts SWC ja parseados. Antes era
+    /// `Vec<String>` e o MIR re-parseava cada string com um SourceMap
+    /// local — ciclo eliminado na Etapa 6.
+    pub body: Vec<HirStmt>,
     /// Localização da declaração no arquivo TypeScript original.
     pub loc: Option<SourceLocation>,
 }

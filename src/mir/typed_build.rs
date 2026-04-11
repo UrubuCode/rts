@@ -209,11 +209,17 @@ fn collect_top_level_consts(hir: &HirModule) -> HashMap<String, ConstValue> {
     let mut consts: HashMap<String, ConstValue> = HashMap::new();
 
     for item in &hir.items {
-        let HirItem::Statement(text) = item else {
+        let HirItem::Statement(hir_stmt) = item else {
             continue;
         };
-        let Some(stmts) = try_parse_statement(text.trim()) else {
-            continue;
+        // Consome o Stmt estruturado se presente; senao faz re-parse do texto.
+        let stmts: Vec<Stmt> = if let Some(stmt) = &hir_stmt.stmt {
+            vec![stmt.clone()]
+        } else {
+            match try_parse_statement(hir_stmt.text.trim()) {
+                Some(s) => s,
+                None => continue,
+            }
         };
         for stmt in stmts {
             let Stmt::Decl(Decl::Var(var_decl)) = stmt else {
@@ -316,10 +322,23 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
                     from: import.from.clone(),
                 });
             }
-            HirItem::Statement(text) => {
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    lower_statement_text(trimmed, &mut top_level_instructions, &mut top_level_vreg);
+            HirItem::Statement(stmt) => {
+                if let Some(parsed) = &stmt.stmt {
+                    lower_stmt(
+                        parsed,
+                        &stmt.text,
+                        &mut top_level_instructions,
+                        &mut top_level_vreg,
+                    );
+                } else {
+                    let trimmed = stmt.text.trim();
+                    if !trimmed.is_empty() {
+                        lower_statement_text(
+                            trimmed,
+                            &mut top_level_instructions,
+                            &mut top_level_vreg,
+                        );
+                    }
                 }
             }
             HirItem::Function(_) | HirItem::Interface(_) | HirItem::Class(_) => {}
@@ -421,16 +440,29 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
         instructions.push(MirInstruction::Bind(param.name.clone(), vreg, true));
     }
 
-    // Lower each body statement with constant pooling
+    // Lower each body statement. Se o HIR ja carrega o Stmt SWC pre-parseado
+    // (vindo do lowering do parser), consumimos direto — sem re-parse. Se
+    // nao (casos raros de lowering sintetico), caimos no caminho de texto
+    // que usa `try_parse_statement` como fallback.
     for statement in &function.body {
-        let trimmed = statement.trim();
-        if !trimmed.is_empty() {
-            lower_statement_text_with_pool(
-                trimmed,
+        if let Some(stmt) = &statement.stmt {
+            lower_stmt_with_pool(
+                stmt,
+                &statement.text,
                 &mut instructions,
                 &mut func.next_vreg,
                 &mut constant_pool,
             );
+        } else {
+            let trimmed = statement.text.trim();
+            if !trimmed.is_empty() {
+                lower_statement_text_with_pool(
+                    trimmed,
+                    &mut instructions,
+                    &mut func.next_vreg,
+                    &mut constant_pool,
+                );
+            }
         }
     }
 
@@ -588,6 +620,10 @@ fn inject_into_typed_main(main: &mut TypedMirFunction, statements: &mut Vec<MirI
 }
 
 fn try_parse_statement(text: &str) -> Option<Vec<Stmt>> {
+    // Fallback usado apenas em casos raros onde o parser interno nao
+    // propagou o `Stmt` estruturado (ex: testes que constroem HIR
+    // manualmente). No caminho feliz de `rts run` / `rts compile`,
+    // esta funcao nao e chamada — o Stmt ja vem pronto no `HirStmt`.
     let cm: Lrc<SourceMap> = Default::default();
     let source = cm.new_source_file(FileName::Anon.into(), text.to_string());
     let mut parser = Parser::new(
@@ -1959,10 +1995,11 @@ mod tests {
     use super::*;
 
     fn build_simple_module(statements: Vec<&str>) -> HirModule {
+        use crate::hir::nodes::HirStmt;
         HirModule {
             items: statements
                 .into_iter()
-                .map(|s| HirItem::Statement(s.to_string()))
+                .map(|s| HirItem::Statement(HirStmt::new(s.to_string(), None)))
                 .collect(),
             functions: Vec::new(),
             imports: Vec::new(),
@@ -2061,7 +2098,10 @@ mod tests {
                     },
                 ],
                 return_type: None,
-                body: vec!["return a + b;".to_string()],
+                body: vec![crate::hir::nodes::HirStmt::new(
+                    "return a + b;".to_string(),
+                    None,
+                )],
                 loc: None,
             })],
             functions: vec![HirFunction {
@@ -2079,7 +2119,10 @@ mod tests {
                     },
                 ],
                 return_type: None,
-                body: vec!["return a + b;".to_string()],
+                body: vec![crate::hir::nodes::HirStmt::new(
+                    "return a + b;".to_string(),
+                    None,
+                )],
                 loc: None,
             }],
             imports: Vec::new(),

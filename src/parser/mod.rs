@@ -19,9 +19,10 @@ use crate::diagnostics::source_store::{self, FileId};
 
 use ast::{
     ClassDecl, ClassMember, ConstructorDecl, FieldDecl, FunctionDecl, ImportDecl, InterfaceDecl,
-    Item, MemberModifiers, MethodDecl, Parameter, Program, PropertyDecl, Statement, Visibility,
+    Item, MemberModifiers, MethodDecl, Parameter, Program, PropertyDecl, RawStmt, Statement,
+    Visibility,
 };
-use span::{Position, Span, Spanned as LocalSpanned};
+use span::{Position, Span};
 
 pub fn parse_source(source: &str) -> Result<Program> {
     parse_source_with_mode(source, FrontendMode::Native)
@@ -147,8 +148,8 @@ fn assign_file_to_program(program: &mut Program, file: FileId) {
 
 fn assign_file_to_statement(stmt: &mut Statement, file: FileId) {
     match stmt {
-        Statement::Raw(spanned) => {
-            spanned.span.file = Some(file);
+        Statement::Raw(raw) => {
+            raw.span.file = Some(file);
         }
     }
 }
@@ -240,7 +241,7 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
 fn lower_stmt(cm: &Lrc<SourceMap>, stmt: &Stmt, out: &mut Vec<Item>) {
     match stmt {
         Stmt::Decl(decl) => lower_decl(cm, decl, out),
-        _ => push_raw_statement(cm, stmt.span(), out),
+        _ => push_raw_statement_with_stmt(cm, stmt.span(), Some(stmt), out),
     }
 }
 
@@ -659,22 +660,39 @@ fn map_accessibility(accessibility: Option<Accessibility>) -> Option<Visibility>
 }
 
 fn push_raw_statement(cm: &Lrc<SourceMap>, span: SwcSpan, out: &mut Vec<Item>) {
-    if let Some(statement) = raw_statement(cm, span) {
+    push_raw_statement_with_stmt(cm, span, None, out);
+}
+
+fn push_raw_statement_with_stmt(
+    cm: &Lrc<SourceMap>,
+    span: SwcSpan,
+    stmt: Option<&Stmt>,
+    out: &mut Vec<Item>,
+) {
+    if let Some(statement) = raw_statement(cm, span, stmt) {
         out.push(Item::Statement(statement));
     }
 }
 
-fn raw_statement(cm: &Lrc<SourceMap>, span: SwcSpan) -> Option<Statement> {
+/// Constroi um `Statement::Raw` a partir do texto do snippet SWC,
+/// opcionalmente carregando o `Stmt` parseado para consumo direto
+/// pelo MIR. Quando `stmt` e `None`, o MIR caira em `RuntimeEval`.
+fn raw_statement(
+    cm: &Lrc<SourceMap>,
+    span: SwcSpan,
+    stmt: Option<&Stmt>,
+) -> Option<Statement> {
     let snippet = span_snippet(cm, span)?;
     let text = snippet.trim();
     if text.is_empty() {
         return None;
     }
 
-    Some(Statement::Raw(LocalSpanned::new(
-        text.to_string(),
-        convert_span(cm, span),
-    )))
+    let mut raw = RawStmt::new(text.to_string(), convert_span(cm, span));
+    if let Some(stmt) = stmt {
+        raw = raw.with_stmt(stmt.clone());
+    }
+    Some(Statement::Raw(raw))
 }
 
 fn lower_block_body(cm: &Lrc<SourceMap>, body: Option<&BlockStmt>) -> Vec<Statement> {
@@ -682,7 +700,7 @@ fn lower_block_body(cm: &Lrc<SourceMap>, body: Option<&BlockStmt>) -> Vec<Statem
         block
             .stmts
             .iter()
-            .filter_map(|stmt| raw_statement(cm, stmt.span()))
+            .filter_map(|stmt| raw_statement(cm, stmt.span(), Some(stmt)))
             .collect::<Vec<_>>()
     })
     .unwrap_or_default()

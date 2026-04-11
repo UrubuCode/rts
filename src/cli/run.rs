@@ -302,12 +302,12 @@ fn collect_namespace_usage(hir: &crate::hir::nodes::HirModule) -> Vec<NamespaceU
 
     for function in &hir.functions {
         for stmt in &function.body {
-            collect_namespace_calls_from_text(stmt, &mut counts);
+            collect_namespace_calls_from_text(&stmt.text, &mut counts);
         }
     }
     for item in &hir.items {
-        if let crate::hir::nodes::HirItem::Statement(text) = item {
-            collect_namespace_calls_from_text(text, &mut counts);
+        if let crate::hir::nodes::HirItem::Statement(stmt) = item {
+            collect_namespace_calls_from_text(&stmt.text, &mut counts);
         }
     }
 
