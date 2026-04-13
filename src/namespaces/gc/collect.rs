@@ -43,14 +43,10 @@ pub fn enter_scope() {
 /// - if allocation pressure is above threshold → `collect_all()`
 /// - otherwise → `collect_debt()` (amortised, cheaper)
 ///
-/// NOTA: a compactacao do `ValueStore` NAO e disparada aqui
-/// automaticamente. Testes empiricos mostraram que `exit_scope` e chamado
-/// em pontos onde handles transientes do runtime ainda estao em uso
-/// (ex: concat de string com resultado de `process.arch()` antes de
-/// `io.print`), e compactar nesses pontos libera slots vivos, retornando
-/// `undefined` para reads subsequentes. O usuario pode invocar
-/// compactacao explicitamente via `rts:gc.compact()` em pontos de
-/// quiescencia conhecidos (ex: entre requisicoes de um servidor HTTP).
+/// A compactacao do `ValueStore` e disparada por `__rts_call_dispatch`
+/// (em `abi.rs`) ao voltar para quiescencia top-level. O codegen protege
+/// handles vivos com pin/unpin ao redor de chamadas dinamicas para evitar
+/// liberar slots ainda em uso pelo chamador.
 #[inline]
 pub fn exit_scope() {
     SCOPE_DEPTH.with(|depth| {

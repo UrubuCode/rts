@@ -132,7 +132,7 @@ fn parse_flags(raw_args: Vec<String>) -> Result<(CliFlags, Vec<String>, Option<S
         match arg.as_str() {
             "--development" | "-d" => flags.profile = CompilationProfile::Development,
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
-            "--dump-statistics" | "-ds" => flags.debug = true,
+            "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--debug" | "-D" => {
                 // Aceito por compatibilidade. Sera removido em versao futura.
                 eprintln!(
@@ -290,6 +290,14 @@ mod tests {
     fn parse_dump_statistics_short_flag_enables_debug() {
         let (flags, _positional, _eval) =
             parse_flags(vec!["-ds".to_string(), "file.ts".to_string()])
+                .expect("flags should parse");
+        assert!(flags.debug);
+    }
+
+    #[test]
+    fn parse_dump_statistics_sd_alias_enables_debug() {
+        let (flags, _positional, _eval) =
+            parse_flags(vec!["-sd".to_string(), "file.ts".to_string()])
                 .expect("flags should parse");
         assert!(flags.debug);
     }

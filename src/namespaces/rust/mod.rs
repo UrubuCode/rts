@@ -312,6 +312,9 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
 // Implementações internas — chamadas via __rts_dispatch no launcher, sem exportação C.
 
 pub(crate) fn rts_io_print(handle: i64) -> i64 {
+    if crate::namespaces::abi::dispatch_debug_enabled() {
+        eprintln!("[dbg io.print] handle={handle}");
+    }
     let message = crate::namespaces::abi::read_runtime_value(handle).to_runtime_string();
     println!("{message}");
     crate::namespaces::abi::undefined_handle()
