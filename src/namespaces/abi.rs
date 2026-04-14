@@ -100,6 +100,9 @@ struct ValueStore {
     /// ponteiros em uso).
     values: Vec<Option<RuntimeValue>>,
     bindings: FxHashMap<String, BindingEntry>,
+    /// Free list of indices into `values` where slot is None.
+    /// Allows O(1) reuse of compacted slots instead of growing the Vec.
+    free_slots: Vec<usize>,
     /// Contador de compactacoes executadas. Reportado em `--dump-statistics`.
     compactions: u64,
     /// Total de slots liberados atraves de todas as compactacoes.
@@ -118,6 +121,13 @@ impl ValueStore {
     fn allocate_value(&mut self, value: RuntimeValue) -> i64 {
         if matches!(value, RuntimeValue::Undefined) {
             return UNDEFINED_HANDLE;
+        }
+
+        // O(1) reuse of compacted slots via free list.
+        if let Some(idx) = self.free_slots.pop() {
+            self.values[idx] = Some(value);
+            crate::namespaces::gc::notify_alloc();
+            return (idx + 1) as i64;
         }
 
         self.values.push(Some(value));
@@ -154,6 +164,7 @@ impl ValueStore {
             let is_pinned = self.pinned_handles.get(&handle).copied().unwrap_or(0) > 0;
             if slot.is_some() && handle != exclude && !is_pinned && !live.contains(&handle) {
                 *slot = None;
+                self.free_slots.push(idx);
                 freed += 1;
             }
         }

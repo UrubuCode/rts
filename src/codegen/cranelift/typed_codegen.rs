@@ -1368,6 +1368,14 @@ pub fn define_typed_function<M: Module>(
                 &shadow_plan.names,
                 &local_bindings,
             )?;
+            // Compact before return — free temporaries created during function.
+            let _ = emit_dispatch(
+                module,
+                func_declarations,
+                &mut builder,
+                FN_COMPACT_EXCLUDING,
+                &[ret_val],
+            )?;
             builder.ins().return_(&[ret_val]);
         }
 
@@ -1381,6 +1389,13 @@ pub fn define_typed_function<M: Module>(
             &mut builder,
             &shadow_plan.names,
             &local_bindings,
+        )?;
+        let _ = emit_dispatch(
+            module,
+            func_declarations,
+            &mut builder,
+            FN_COMPACT_EXCLUDING,
+            &[exit_ret],
         )?;
         builder.ins().return_(&[exit_ret]);
 

@@ -70,13 +70,26 @@ function renderIndex(c: Counter): string {
     "<button onclick=\"act('decrement')\">-1</button>" +
     "<button onclick=\"act('reset')\">reset</button>" +
     "</div>" +
+    "<div style=\"text-align:center;margin:1em 0;\">" +
+    "<button id=\"autobtn\" onclick=\"toggleAuto()\" style=\"font-size:1em;padding:0.5em 1.5em;cursor:pointer;\">Start stress test</button>" +
+    "<div id=\"autostats\" style=\"color:#666;margin-top:0.5em;\"></div>" +
+    "</div>" +
     "<pre id=\"log\" style=\"background:#f4f4f4;padding:1em;font-size:0.85em;overflow:auto;\"></pre>" +
     "<script>" +
+    "let autoId=null;let autoCount=0;" +
     "async function refresh(){const r=await fetch('/api/state');const j=await r.json();" +
     "document.getElementById('count').textContent=j.count;" +
     "document.querySelector('.meta').innerHTML='last action: <b>'+j.lastAction+'</b> &middot; requests: '+j.requestCount;" +
     "document.getElementById('log').textContent=JSON.stringify(j,null,2);}" +
     "async function act(op){await fetch('/api/'+op,{method:'POST'});refresh();}" +
+    "function toggleAuto(){const btn=document.getElementById('autobtn');" +
+    "if(autoId){clearInterval(autoId);autoId=null;btn.textContent='Start stress test';btn.style.background='';}" +
+    "else{autoCount=0;let startT=Date.now();autoId=setInterval(()=>{const ops=['increment','decrement','increment'];" +
+    "for(let b=0;b<10;b++){fetch('/api/'+ops[(autoCount+b)%3],{method:'POST'}).then(()=>{" +
+    "autoCount++;const elapsed=(Date.now()-startT)/1000;const rps=Math.round(autoCount/elapsed);" +
+    "document.getElementById('autostats').textContent='stress: '+autoCount+' reqs | '+rps+' req/s';" +
+    "if(autoCount%50===0)refresh();});}" +
+    "},1);btn.textContent='Stop stress test';btn.style.background='#ff4444';}}" +
     "refresh();" +
     "</script>" +
     "</body></html>";
