@@ -37,10 +37,11 @@ pub(crate) const FN_LOAD_FIELD: i64 = 24; // (obj_handle, field_ptr, field_len) 
 pub(crate) const FN_STORE_FIELD: i64 = 25; // (obj_handle, field_ptr, field_len, value_handle) -> 1/0
 pub(crate) const FN_PIN_HANDLE: i64 = 26; // (handle) -> handle
 pub(crate) const FN_UNPIN_HANDLE: i64 = 27; // (handle) -> handle
+pub(crate) const FN_COMPACT_EXCLUDING: i64 = 28; // (handle) -> freed count
 
 /// Numero total de FN_* distintos. Usado como tamanho dos arrays de metricas
 /// por-fn_id em `RuntimeMetrics`.
-pub(crate) const FN_ID_COUNT: usize = 28;
+pub(crate) const FN_ID_COUNT: usize = 29;
 
 /// Mapeia `fn_id` para nome legivel. Usado pela renderizacao de
 /// `--dump-statistics` para mostrar tempo gasto em cada ponto de dispatch
@@ -99,6 +100,9 @@ struct ValueStore {
     /// ponteiros em uso).
     values: Vec<Option<RuntimeValue>>,
     bindings: FxHashMap<String, BindingEntry>,
+    /// Free list of indices into `values` where slot is None.
+    /// Allows O(1) reuse of compacted slots instead of growing the Vec.
+    free_slots: Vec<usize>,
     /// Contador de compactacoes executadas. Reportado em `--dump-statistics`.
     compactions: u64,
     /// Total de slots liberados atraves de todas as compactacoes.
@@ -117,6 +121,13 @@ impl ValueStore {
     fn allocate_value(&mut self, value: RuntimeValue) -> i64 {
         if matches!(value, RuntimeValue::Undefined) {
             return UNDEFINED_HANDLE;
+        }
+
+        // O(1) reuse of compacted slots via free list.
+        if let Some(idx) = self.free_slots.pop() {
+            self.values[idx] = Some(value);
+            crate::namespaces::gc::notify_alloc();
+            return (idx + 1) as i64;
         }
 
         self.values.push(Some(value));
@@ -153,6 +164,7 @@ impl ValueStore {
             let is_pinned = self.pinned_handles.get(&handle).copied().unwrap_or(0) > 0;
             if slot.is_some() && handle != exclude && !is_pinned && !live.contains(&handle) {
                 *slot = None;
+                self.free_slots.push(idx);
                 freed += 1;
             }
         }
@@ -780,6 +792,10 @@ pub extern "C" fn __rts_dispatch(
         }
         FN_PIN_HANDLE => pin_value_handle(a0),
         FN_UNPIN_HANDLE => unpin_value_handle(a0),
+        FN_COMPACT_EXCLUDING => {
+            let (freed, _) = compact_value_store_excluding(a0);
+            freed as i64
+        }
         _ => UNDEFINED_HANDLE,
     };
 
@@ -840,9 +856,6 @@ pub extern "C" fn __rts_call_dispatch(
     let Some(outcome) = crate::namespaces::rust::dispatch_runtime_call(callee.as_str(), &args)
     else {
         crate::namespaces::gc::exit_scope();
-        if crate::namespaces::gc::scope_depth() == 0 {
-            let _ = compact_value_store_excluding(UNDEFINED_HANDLE);
-        }
         return UNDEFINED_HANDLE;
     };
 
@@ -872,17 +885,13 @@ pub extern "C" fn __rts_call_dispatch(
     });
     crate::namespaces::gc::exit_scope();
 
-    if crate::namespaces::gc::scope_depth() == 0 {
-        let _ = compact_value_store_excluding(result);
-    }
-
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        RuntimeValue, FN_BOX_NUMBER, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
+        RuntimeValue, FN_BOX_NUMBER, FN_BOX_STRING, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
         compact_value_store, read_runtime_value, read_utf8_static, reset_thread_state,
         resolve_runtime_identifier_binding, with_store, write_runtime_identifier_value,
     };
@@ -967,6 +976,50 @@ mod tests {
         super::__rts_dispatch(FN_UNPIN_HANDLE, handle, 0, 0, 0, 0, 0);
         let _ = compact_value_store();
         assert_eq!(read_runtime_value(handle), RuntimeValue::Undefined);
+    }
+
+    #[test]
+    fn unpinned_transient_survives_call_dispatch_when_excluded() {
+        // Regression test for issue #5: an unpinned transient handle (simulating
+        // a temporary from a prior dynamic call in a multi-call expression)
+        // must survive a subsequent __rts_call_dispatch if it is pinned before
+        // the call. This test verifies the pin/unpin mechanism works for
+        // temporaries that the codegen now pins via vreg_map scanning.
+        reset_thread_state();
+
+        // Simulate first dynamic call result (e.g., process.arch())
+        let first_result = super::__rts_dispatch(
+            FN_BOX_STRING,
+            b"x86_64".as_ptr() as i64,
+            6,
+            0,
+            0,
+            0,
+            0,
+        );
+        // Pin it (as the codegen now does for vreg_map temporaries)
+        super::__rts_dispatch(FN_PIN_HANDLE, first_result, 0, 0, 0, 0, 0);
+
+        // Simulate second dynamic call (e.g., another process.arch())
+        let callee = b"process.arch";
+        let _second_result = super::__rts_call_dispatch(
+            callee.as_ptr() as i64,
+            callee.len() as i64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
+
+        // First result must still be alive
+        assert_eq!(
+            read_runtime_value(first_result),
+            RuntimeValue::String("x86_64".to_string())
+        );
+        super::__rts_dispatch(FN_UNPIN_HANDLE, first_result, 0, 0, 0, 0, 0);
     }
 
     #[test]

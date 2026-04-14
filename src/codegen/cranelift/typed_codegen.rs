@@ -36,8 +36,9 @@ use crate::namespaces::abi::{
     FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_BOOL, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
     FN_CALL_BY_HANDLE, FN_CRYPTO_SHA256, FN_EVAL_STMT, FN_GLOBAL_DELETE, FN_GLOBAL_GET,
     FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT, FN_IO_STDERR_WRITE,
-    FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE, FN_PIN_HANDLE,
-    FN_PROCESS_EXIT, FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER, FN_UNPIN_HANDLE,
+    FN_COMPACT_EXCLUDING, FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE,
+    FN_PIN_HANDLE, FN_PROCESS_EXIT, FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER,
+    FN_UNPIN_HANDLE,
 };
 
 const RTS_DISPATCH: &str = "__rts_dispatch";
@@ -225,14 +226,15 @@ pub fn define_typed_function<M: Module>(
         builder.append_block_params_for_function_params(entry_block);
 
         let entry_params = builder.block_params(entry_block).to_vec();
-        let mut handle_param_values: Vec<Value> = Vec::new();
+        // Collect param handle info for slot creation after switch_to_block.
+        let mut param_handle_entries: Vec<(usize, Value)> = Vec::new();
         for index in 0..function.param_count {
             let is_numeric = function.param_is_numeric.get(index).copied().unwrap_or(false);
             if is_numeric {
                 continue;
             }
             if let Some(value) = entry_params.get(index + 1).copied() {
-                handle_param_values.push(value);
+                param_handle_entries.push((index, value));
             }
         }
         let mut vreg_map = BTreeMap::<VReg, Value>::new();
@@ -267,6 +269,18 @@ pub fn define_typed_function<M: Module>(
 
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
+
+        // Store handle-typed params in stack slots for safe reload in any block.
+        let mut handle_param_slots: Vec<StackSlot> = Vec::new();
+        for (_index, value) in &param_handle_entries {
+            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                8,
+                3,
+            ));
+            store_binding_slot(&mut builder, slot, *value);
+            handle_param_slots.push(slot);
+        }
 
         // Prologue: bind every declared user function as a NativeFunction handle so that
         // LoadBinding + FN_CALL_BY_HANDLE can call them when passed as callbacks.
@@ -782,6 +796,28 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::Call(dst, callee, args) => {
+                    // Refresh const string vregs to ensure dominance in the
+                    // current block. Without this, a ConstString boxed in a
+                    // prior block (e.g. loop body) would produce a Value that
+                    // doesn't dominate the current insertion point.
+                    for (vreg, text) in const_string_vregs
+                        .iter()
+                        .map(|(v, s)| (*v, s.clone()))
+                        .collect::<Vec<_>>()
+                    {
+                        if !vreg_map.contains_key(&vreg) {
+                            continue;
+                        }
+                        let refreshed = emit_box_string(
+                            module,
+                            func_declarations,
+                            data_cache,
+                            &mut builder,
+                            text.as_str(),
+                        )?;
+                        vreg_map.insert(vreg, refreshed);
+                    }
+
                     let result = if func_declarations.contains_key(callee.as_str()) {
                         // Direct call to a known user function
                         let callee_id = func_declarations[callee.as_str()];
@@ -844,37 +880,14 @@ pub fn define_typed_function<M: Module>(
                             handle_args.push(val);
                         }
 
-                        // ConstString pode ser hoistada antes da call dinamica
-                        // pelo MIR. Reboxamos no ponto da call para garantir
-                        // handle vivo/dominante e atualizamos o vreg.
-                        let mut refreshed_const_handles = Vec::new();
-                        let const_entries: Vec<(VReg, String)> = const_string_vregs
-                            .iter()
-                            .map(|(v, s)| (*v, s.clone()))
-                            .collect();
-                        for (vreg, text) in const_entries {
-                            if !vreg_map.contains_key(&vreg) {
-                                continue;
-                            }
-                            let refreshed = emit_box_string(
-                                module,
-                                func_declarations,
-                                data_cache,
-                                &mut builder,
-                                text.as_str(),
-                            )?;
-                            vreg_map.insert(vreg, refreshed);
-                            refreshed_const_handles.push(refreshed);
-                        }
-
                         let pinned_values = pin_live_handles_for_dynamic_call(
                             module,
                             func_declarations,
                             &mut builder,
                             &local_bindings,
                             &handle_args,
-                            &refreshed_const_handles,
-                            &handle_param_values,
+                            &[],
+                            &handle_param_slots,
                         )?;
                         let result = emit_call_dispatch(
                             module,
@@ -1114,9 +1127,25 @@ pub fn define_typed_function<M: Module>(
                 }
 
                 MirInstruction::Jump(label) => {
-                    if let Some(&target_block) = label_blocks.get(label.as_str()) {
-                        builder.ins().jump(target_block, &[]);
-                        terminated = true;
+                    if !terminated {
+                        if let Some(&target_block) = label_blocks.get(label.as_str()) {
+                            // At loop back-edges (jump to while_loop_*), emit a
+                            // compact pass. At this point all temporaries from the
+                            // iteration are dead — only bindings and pinned handles
+                            // survive. This keeps the ValueStore bounded in loops.
+                            if label.starts_with("while_loop_") || label.starts_with("do_while_") {
+                                let undefined = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                                let _ = emit_dispatch(
+                                    module,
+                                    func_declarations,
+                                    &mut builder,
+                                    FN_COMPACT_EXCLUDING,
+                                    &[undefined],
+                                )?;
+                            }
+                            builder.ins().jump(target_block, &[]);
+                            terminated = true;
+                        }
                     }
                 }
 
@@ -1339,6 +1368,14 @@ pub fn define_typed_function<M: Module>(
                 &shadow_plan.names,
                 &local_bindings,
             )?;
+            // Compact before return — free temporaries created during function.
+            let _ = emit_dispatch(
+                module,
+                func_declarations,
+                &mut builder,
+                FN_COMPACT_EXCLUDING,
+                &[ret_val],
+            )?;
             builder.ins().return_(&[ret_val]);
         }
 
@@ -1352,6 +1389,13 @@ pub fn define_typed_function<M: Module>(
             &mut builder,
             &shadow_plan.names,
             &local_bindings,
+        )?;
+        let _ = emit_dispatch(
+            module,
+            func_declarations,
+            &mut builder,
+            FN_COMPACT_EXCLUDING,
+            &[exit_ret],
         )?;
         builder.ins().return_(&[exit_ret]);
 
@@ -1438,7 +1482,7 @@ fn pin_live_handles_for_dynamic_call<M: Module>(
     local_bindings: &BTreeMap<String, BindingState>,
     call_args: &[Value],
     extra_handles: &[Value],
-    param_handles: &[Value],
+    param_handle_slots: &[StackSlot],
 ) -> Result<Vec<Value>> {
     let mut pinned_values = Vec::new();
 
@@ -1460,7 +1504,10 @@ fn pin_live_handles_for_dynamic_call<M: Module>(
         pinned_values.push(handle);
     }
 
-    for &handle in param_handles {
+    // Reload param handles from stack slots — safe in any block since
+    // stack_load always dominates the current insertion point.
+    for &slot in param_handle_slots {
+        let handle = load_binding_slot(builder, slot);
         let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
         pinned_values.push(handle);
     }
