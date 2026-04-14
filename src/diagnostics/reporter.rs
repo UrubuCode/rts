@@ -88,7 +88,7 @@ impl RichDiagnostic {
 /// Engine que acumula diagnosticos durante a compilacao e os renderiza no final.
 ///
 /// Compartilhado via `Arc<Mutex<>>` para permitir emissao de multiplos sitios
-/// (parser, type checker, typed_build) sem passar `&mut` por toda parte.
+/// (parser, type checker, typed) sem passar `&mut` por toda parte.
 #[derive(Debug, Default, Clone)]
 pub struct DiagnosticEngine {
     inner: Arc<Mutex<EngineInner>>,

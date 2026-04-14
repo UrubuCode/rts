@@ -1,4 +1,4 @@
-﻿#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TypeLayout {
     pub size: usize,
     pub align: usize,

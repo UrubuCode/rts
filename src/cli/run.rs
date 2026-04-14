@@ -4,7 +4,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
-use crate::codegen::cranelift::jit::JitReport;
+use crate::codegen::jit::JitReport;
 use crate::compile_options::CompileOptions;
 use crate::namespaces::abi::RuntimeMetricsSnapshot;
 
@@ -234,7 +234,7 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
     let namespace_usage = collect_namespace_usage(&merged_hir);
 
     let started = Instant::now();
-    let typed_mir = crate::mir::typed_build::typed_build(&merged_hir);
+    let typed_mir = crate::mir::typed::typed(&merged_hir);
     stage_timings.build_mir_ms = elapsed_ms(started);
 
     // Apos o build, coleta contagem de warnings RuntimeEval emitidos.
@@ -244,7 +244,7 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
         .warnings_count();
 
     let started = Instant::now();
-    let jit_report = crate::codegen::cranelift::jit::execute_typed(&typed_mir, "main")
+    let jit_report = crate::codegen::jit::execute_typed(&typed_mir, "main")
         .context("failed to execute typed MIR through Cranelift JIT")?;
     stage_timings.jit_execute_ms = elapsed_ms(started);
     stage_timings.total_ms = elapsed_ms(total_started);
@@ -268,7 +268,7 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
 
 /// Agrega estatisticas do HIR merged: numero de items por tipo.
 /// Conta RuntimeEval nao e feito aqui porque esse evento so e gerado
-/// durante `typed_build`; usa-se `runtime_eval_warnings` do engine global.
+/// durante `typed`; usa-se `runtime_eval_warnings` do engine global.
 fn collect_source_stats(hir: &crate::hir::nodes::HirModule) -> SourceStats {
     use crate::hir::nodes::HirItem;
     let mut stats = SourceStats::default();

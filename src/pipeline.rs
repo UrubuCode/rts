@@ -119,7 +119,7 @@ pub(crate) fn compile_graph(
         }
 
         let is_entry_module = entry_key.is_some_and(|key| key == module.key);
-        let mut typed_mir = mir::typed_build::typed_build(&lowered);
+        let mut typed_mir = mir::typed::typed(&lowered);
 
         if !is_entry_module {
             typed_mir
@@ -511,7 +511,7 @@ pub(crate) fn emit_selected_namespace_objects(
     let production = options.profile.as_str() == "production";
 
     for (namespace, ns_callees) in grouped {
-        let bytes = crate::codegen::cranelift::object_builder::build_namespace_dispatch_object(
+        let bytes = crate::codegen::object_builder::build_namespace_dispatch_object(
             &ns_callees,
             production,
         )?;

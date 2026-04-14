@@ -147,7 +147,6 @@ pub fn execute(module: &MirModule, entry_function: &str) -> Result<JitReport> {
 
         let address = jit.get_finalized_function(entry_id);
         let entry = unsafe {
-            // SAFETY: RTS JIT emits every lowered function with ABI `(argc, a0..a5) -> i64`.
             std::mem::transmute::<*const u8, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(
                 address,
             )
@@ -203,7 +202,6 @@ fn function_signature(module: &mut JITModule) -> Signature {
     signature
 }
 
-/// Assinatura do __rts_dispatch: (fn_id, a0, a1, a2, a3, a4, a5) -> i64
 fn rts_dispatch_signature(module: &mut JITModule) -> Signature {
     let mut sig = module.make_signature();
     for _ in 0..7 {
@@ -213,7 +211,6 @@ fn rts_dispatch_signature(module: &mut JITModule) -> Signature {
     sig
 }
 
-/// Assinatura do __rts_call_dispatch: (callee_ptr, callee_len, argc, a0..a5) -> i64
 fn call_dispatch_signature(module: &mut JITModule) -> Signature {
     let mut sig = module.make_signature();
     sig.params.push(AbiParam::new(types::I64)); // callee ptr
@@ -423,7 +420,6 @@ fn define_function(
     Ok(())
 }
 
-/// Emite __rts_dispatch(fn_id, a0..a5) preenchendo com UNDEFINED_HANDLE.
 fn emit_rts_dispatch(
     module: &mut JITModule,
     builder: &mut FunctionBuilder,
@@ -616,7 +612,7 @@ pub fn execute_typed(
     let mut data_cache = BTreeMap::<String, DataId>::new();
 
     let started = Instant::now();
-    let signature = super::typed_codegen::function_signature(&mut jit);
+    let signature = super::typed::function_signature(&mut jit);
     for function in &module.functions {
         let id = jit
             .declare_function(&function.name, Linkage::Export, &signature)
@@ -635,7 +631,7 @@ pub fn execute_typed(
                 function.name
             )
         })?;
-        super::typed_codegen::define_typed_function(
+        super::typed::define_typed_function(
             &mut jit,
             &mut declarations,
             &mut data_cache,
@@ -652,10 +648,6 @@ pub fn execute_typed(
         .context("failed to finalize typed JIT definitions")?;
     timings.finalize_ms = started.elapsed().as_secs_f64() * 1000.0;
 
-    // Register the function pointer table so that callback dispatch (FN_CALL_BY_HANDLE) can
-    // call user-defined JIT functions by name (e.g. from test.describe / test.it callbacks).
-    // Only include user-defined functions (those in module.functions); imported helpers like
-    // __rts_dispatch were never compiled and get_finalized_function would panic on them.
     {
         let mut fn_table = rustc_hash::FxHashMap::default();
         for function in &module.functions {
@@ -709,192 +701,3 @@ pub fn execute_typed(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::mir::cfg::{BasicBlock, Terminator};
-    use crate::mir::{MirFunction, MirModule, MirStatement};
-
-    use super::execute;
-
-    #[test]
-    fn jit_executes_main_and_returns_literal() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: "ret 7".to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let report = execute(&module, "main").expect("jit should compile");
-        assert_eq!(report.entry_function, "main");
-        assert!(report.compiled_functions >= 1);
-        assert_eq!(report.entry_return_value, 7);
-        assert!(report.executed);
-    }
-
-    #[test]
-    fn jit_entry_can_call_another_function() {
-        let module = MirModule {
-            functions: vec![
-                MirFunction {
-                    name: "helper".to_string(),
-                    blocks: vec![BasicBlock {
-                        label: "entry".to_string(),
-                        statements: vec![MirStatement {
-                            text: "ret 42".to_string(),
-                        }],
-                        terminator: Terminator::Return,
-                    }],
-                },
-                MirFunction {
-                    name: "main".to_string(),
-                    blocks: vec![BasicBlock {
-                        label: "entry".to_string(),
-                        statements: vec![MirStatement {
-                            text: "call helper".to_string(),
-                        }],
-                        terminator: Terminator::Return,
-                    }],
-                },
-            ],
-        };
-
-        let report = execute(&module, "main").expect("jit should compile");
-        assert_eq!(report.entry_return_value, 42);
-        assert!(report.executed);
-    }
-
-    #[test]
-    fn jit_skips_execution_when_entry_is_missing() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "helper".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: "ret 42".to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let report = execute(&module, "main").expect("jit should compile");
-        assert_eq!(report.entry_function, "main");
-        assert_eq!(report.entry_return_value, 0);
-        assert!(!report.executed);
-    }
-
-    #[test]
-    fn jit_unknown_namespace_call_falls_back_to_runtime_dispatch() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: r#"io.print("hello from jit")"#.to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let report = execute(&module, "main").expect("jit should compile");
-        assert_eq!(report.entry_return_value, 0);
-        assert!(report.executed);
-    }
-
-    #[test]
-    fn jit_accepts_typed_variable_declaration_statement() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: "const valor: i32 = 2 * 60 * 60 * 1000;".to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let report = execute(&module, "main").expect("jit should compile declarations");
-        assert_eq!(report.entry_return_value, 0);
-        assert!(report.executed);
-    }
-
-    #[test]
-    fn jit_executes_if_else_statement_via_runtime_evaluator() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: "if (true) { io.print(1); } else { io.print(2); }".to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let report = execute(&module, "main").expect("jit should evaluate if/else statement");
-        assert_eq!(report.entry_return_value, 0);
-        assert!(report.executed);
-    }
-
-    #[test]
-    fn jit_supports_nested_user_function_call_arguments() {
-        let module = MirModule {
-            functions: vec![
-                MirFunction {
-                    name: "helper".to_string(),
-                    blocks: vec![BasicBlock {
-                        label: "entry".to_string(),
-                        statements: vec![MirStatement {
-                            text: "return 4;".to_string(),
-                        }],
-                        terminator: Terminator::Return,
-                    }],
-                },
-                MirFunction {
-                    name: "id".to_string(),
-                    blocks: vec![BasicBlock {
-                        label: "entry".to_string(),
-                        statements: vec![
-                            MirStatement {
-                                text: "enter id(n)".to_string(),
-                            },
-                            MirStatement {
-                                text: "return n;".to_string(),
-                            },
-                        ],
-                        terminator: Terminator::Return,
-                    }],
-                },
-                MirFunction {
-                    name: "main".to_string(),
-                    blocks: vec![BasicBlock {
-                        label: "entry".to_string(),
-                        statements: vec![MirStatement {
-                            text: "id(helper())".to_string(),
-                        }],
-                        terminator: Terminator::Return,
-                    }],
-                },
-            ],
-        };
-
-        let report = execute(&module, "main").expect("jit should support nested call arguments");
-        assert_ne!(report.entry_return_value, 0);
-        assert!(report.executed);
-    }
-}

@@ -1,7 +1,7 @@
 pub mod build;
 pub mod cfg;
 pub mod monomorphize;
-pub mod typed_build;
+pub mod typed;
 
 #[derive(Debug, Clone, Default)]
 pub struct MirModule {

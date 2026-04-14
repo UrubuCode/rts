@@ -1,24 +1,3 @@
-/// Writer para o formato `.ometa` — Object Metadata.
-///
-/// `.ometa` é um JSON gerado pelo codegen que mapeia offsets de PC para
-/// localizações no arquivo fonte TypeScript. Lido pelo runtime C em modo
-/// desenvolvimento para exibir erros com localização precisa.
-///
-/// Formato:
-/// ```json
-/// {
-///   "version": 1,
-///   "mode": "development",
-///   "sourceRoot": "/project/src",
-///   "sources": ["index.ts"],
-///   "locations": {
-///     "0x12a3f": { "source": "index.ts", "line": 42, "column": 10 }
-///   },
-///   "functions": {
-///     "_rts_foo": { "offset": 74751, "size": 256, "source": "index.ts", "line": 40 }
-///   }
-/// }
-/// ```
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -94,7 +73,6 @@ impl OmetaWriter {
         self.locations.is_empty() && self.functions.is_empty()
     }
 
-    /// Serializa para JSON e grava no caminho fornecido (mesmo nome do `.o`, extensão `.ometa`).
     pub fn write_to(&self, obj_path: &Path) -> Result<()> {
         let ometa_path = obj_path.with_extension("ometa");
         let json = self.to_json();
@@ -112,7 +90,6 @@ impl OmetaWriter {
             escape_json(&self.source_root)
         ));
 
-        // sources array
         out.push_str("  \"sources\": [");
         for (i, src) in self.sources.iter().enumerate() {
             if i > 0 {
@@ -122,7 +99,6 @@ impl OmetaWriter {
         }
         out.push_str("],\n");
 
-        // locations object
         out.push_str("  \"locations\": {\n");
         let mut locs: Vec<_> = self.locations.iter().collect();
         locs.sort_by_key(|(k, _)| *k);
@@ -139,7 +115,6 @@ impl OmetaWriter {
         }
         out.push_str("  },\n");
 
-        // functions object
         out.push_str("  \"functions\": {\n");
         let mut fns: Vec<_> = self.functions.iter().collect();
         fns.sort_by_key(|(k, _)| k.as_str());
@@ -163,23 +138,4 @@ fn escape_json(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ometa_writer_serializes_correctly() {
-        let mut writer = OmetaWriter::new("development", "/project/src");
-        writer.add_location(0x12a3f, "index.ts", 42, 10);
-        writer.add_function("_rts_foo", 0x12a00, 256, "index.ts", 40);
-
-        let json = writer.to_json();
-        assert!(json.contains("\"version\": 1"));
-        assert!(json.contains("\"mode\": \"development\""));
-        assert!(json.contains("\"0x12a3f\""));
-        assert!(json.contains("\"line\": 42"));
-        assert!(json.contains("\"_rts_foo\""));
-    }
 }

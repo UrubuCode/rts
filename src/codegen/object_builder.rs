@@ -193,7 +193,7 @@ pub fn lower_typed_to_native_object(
     let mut declarations = BTreeMap::<String, FuncId>::new();
     let mut data_cache = BTreeMap::<String, DataId>::new();
 
-    let signature = super::typed_codegen::function_signature(&mut object_module);
+    let signature = super::typed::function_signature(&mut object_module);
 
     for function in &mir.functions {
         let id = object_module
@@ -217,7 +217,7 @@ pub fn lower_typed_to_native_object(
                 function.name
             )
         })?;
-        super::typed_codegen::define_typed_function(
+        super::typed::define_typed_function(
             &mut object_module,
             &mut declarations,
             &mut data_cache,
@@ -304,7 +304,6 @@ fn function_signature(module: &mut ObjectModule) -> Signature {
     signature
 }
 
-/// __rts_dispatch(fn_id, a0, a1, a2, a3, a4, a5) -> i64
 fn rts_dispatch_signature(module: &mut ObjectModule) -> Signature {
     let mut sig = module.make_signature();
     for _ in 0..7 {
@@ -314,7 +313,6 @@ fn rts_dispatch_signature(module: &mut ObjectModule) -> Signature {
     sig
 }
 
-/// __rts_call_dispatch(ptr, len, argc, a0..a5) -> i64
 fn call_dispatch_signature(module: &mut ObjectModule) -> Signature {
     let mut sig = module.make_signature();
     sig.params.push(AbiParam::new(types::I64)); // callee ptr
@@ -771,7 +769,6 @@ fn define_synthetic_start(
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        // Reseta o estado de runtime antes de executar main (como o JIT faz).
         let dispatch_sig = rts_dispatch_signature(module);
         let dispatch_id = module
             .declare_function(RTS_DISPATCH_SYMBOL, Linkage::Import, &dispatch_sig)
@@ -812,103 +809,3 @@ fn define_synthetic_start(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::mir::cfg::{BasicBlock, Terminator};
-    use crate::mir::{MirFunction, MirModule, MirStatement};
-
-    use super::{build_namespace_dispatch_object, lower_to_native_object, parse_call_statement};
-
-    #[test]
-    fn emits_non_empty_native_object() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: "ret 3".to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let bytes = lower_to_native_object(&module).expect("AOT object must compile");
-        assert!(!bytes.is_empty());
-    }
-
-    #[test]
-    fn parses_direct_call_with_arguments() {
-        let parsed = parse_call_statement(r#"io.print("hello", 123)"#).expect("call parse");
-        assert_eq!(parsed.callee, "io.print");
-        assert_eq!(parsed.args, vec![r#""hello""#, "123"]);
-    }
-
-    #[test]
-    fn lowers_imported_namespace_call_without_panicking() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: r#"io.print("hello")"#.to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let bytes = lower_to_native_object(&module).expect("AOT object should compile");
-        assert!(!bytes.is_empty());
-    }
-
-    #[test]
-    fn builds_namespace_wrapper_object() {
-        let bytes = build_namespace_dispatch_object(
-            &[String::from("io.print"), String::from("process.arch")],
-            false,
-        )
-        .expect("namespace wrapper object should compile");
-        assert!(!bytes.is_empty());
-    }
-
-    #[test]
-    fn lowers_typed_variable_declaration_without_panicking() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: "const valor: i32 = 2 * 60 * 60 * 1000;".to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let bytes = lower_to_native_object(&module).expect("declaration should lower to AOT");
-        assert!(!bytes.is_empty());
-    }
-
-    #[test]
-    fn lowers_if_else_statement_via_runtime_evaluator() {
-        let module = MirModule {
-            functions: vec![MirFunction {
-                name: "main".to_string(),
-                blocks: vec![BasicBlock {
-                    label: "entry".to_string(),
-                    statements: vec![MirStatement {
-                        text: "if (true) { io.print(1); } else { io.print(2); }".to_string(),
-                    }],
-                    terminator: Terminator::Return,
-                }],
-            }],
-        };
-
-        let bytes = lower_to_native_object(&module).expect("if/else should lower to AOT");
-        assert!(!bytes.is_empty());
-    }
-}

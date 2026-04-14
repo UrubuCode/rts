@@ -14,6 +14,8 @@ pub mod type_system;
 mod cache;
 mod pipeline;
 mod runtime_lib;
+#[cfg(test)]
+mod tests;
 
 use std::path::{Path, PathBuf};
 
