@@ -35,7 +35,7 @@ impl ModuleCache {
 
         if !root.exists() {
             bail!(
-                "cached npm module not found at {} (expected RTS_MODULES_PATH layout ~/.rts/modules/npm/<name>/<version>/...)",
+                "cached npm module not found at {} (expected RTS_MODULES_PATH layout node_modules/.rts/modules/npm/<name>/<version>/...)",
                 root.display()
             );
         }
@@ -110,7 +110,7 @@ fn resolve_modules_base_dir() -> Result<PathBuf> {
 }
 
 fn default_modules_base_dir() -> Result<PathBuf> {
-    Ok(home_dir()?.join(".rts").join("modules"))
+    Ok(PathBuf::from("node_modules").join(".rts").join("modules"))
 }
 
 fn home_dir() -> Result<PathBuf> {
@@ -131,7 +131,7 @@ fn home_dir() -> Result<PathBuf> {
 
 fn expand_tilde_path(raw: &str) -> Result<PathBuf> {
     if raw == "~" {
-        return home_dir().map(|home| home.join(".rts").join("modules"));
+        return default_modules_base_dir();
     }
 
     if let Some(rest) = raw.strip_prefix("~/") {
