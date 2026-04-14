@@ -882,7 +882,7 @@ pub extern "C" fn __rts_call_dispatch(
 #[cfg(test)]
 mod tests {
     use super::{
-        RuntimeValue, FN_BOX_NUMBER, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
+        RuntimeValue, FN_BOX_NUMBER, FN_BOX_STRING, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
         compact_value_store, read_runtime_value, read_utf8_static, reset_thread_state,
         resolve_runtime_identifier_binding, with_store, write_runtime_identifier_value,
     };
@@ -967,6 +967,50 @@ mod tests {
         super::__rts_dispatch(FN_UNPIN_HANDLE, handle, 0, 0, 0, 0, 0);
         let _ = compact_value_store();
         assert_eq!(read_runtime_value(handle), RuntimeValue::Undefined);
+    }
+
+    #[test]
+    fn unpinned_transient_survives_call_dispatch_when_excluded() {
+        // Regression test for issue #5: an unpinned transient handle (simulating
+        // a temporary from a prior dynamic call in a multi-call expression)
+        // must survive a subsequent __rts_call_dispatch if it is pinned before
+        // the call. This test verifies the pin/unpin mechanism works for
+        // temporaries that the codegen now pins via vreg_map scanning.
+        reset_thread_state();
+
+        // Simulate first dynamic call result (e.g., process.arch())
+        let first_result = super::__rts_dispatch(
+            FN_BOX_STRING,
+            b"x86_64".as_ptr() as i64,
+            6,
+            0,
+            0,
+            0,
+            0,
+        );
+        // Pin it (as the codegen now does for vreg_map temporaries)
+        super::__rts_dispatch(FN_PIN_HANDLE, first_result, 0, 0, 0, 0, 0);
+
+        // Simulate second dynamic call (e.g., another process.arch())
+        let callee = b"process.arch";
+        let _second_result = super::__rts_call_dispatch(
+            callee.as_ptr() as i64,
+            callee.len() as i64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
+
+        // First result must still be alive
+        assert_eq!(
+            read_runtime_value(first_result),
+            RuntimeValue::String("x86_64".to_string())
+        );
+        super::__rts_dispatch(FN_UNPIN_HANDLE, first_result, 0, 0, 0, 0, 0);
     }
 
     #[test]

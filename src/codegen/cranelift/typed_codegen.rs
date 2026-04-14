@@ -875,6 +875,8 @@ pub fn define_typed_function<M: Module>(
                             &handle_args,
                             &refreshed_const_handles,
                             &handle_param_values,
+                            &vreg_map,
+                            &vreg_kinds,
                         )?;
                         let result = emit_call_dispatch(
                             module,
@@ -1439,30 +1441,52 @@ fn pin_live_handles_for_dynamic_call<M: Module>(
     call_args: &[Value],
     extra_handles: &[Value],
     param_handles: &[Value],
+    vreg_map: &BTreeMap<VReg, Value>,
+    vreg_kinds: &BTreeMap<VReg, VRegKind>,
 ) -> Result<Vec<Value>> {
     let mut pinned_values = Vec::new();
+    let mut already_pinned = std::collections::HashSet::new();
 
     for state in local_bindings.values() {
         if state.kind == VRegKind::Handle {
             let handle = load_binding_slot(builder, state.slot);
             let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
             pinned_values.push(handle);
+            already_pinned.insert(handle);
         }
     }
 
     for &arg in call_args {
-        let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[arg])?;
-        pinned_values.push(arg);
+        if already_pinned.insert(arg) {
+            let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[arg])?;
+            pinned_values.push(arg);
+        }
     }
 
     for &handle in extra_handles {
-        let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
-        pinned_values.push(handle);
+        if already_pinned.insert(handle) {
+            let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
+            pinned_values.push(handle);
+        }
     }
 
     for &handle in param_handles {
-        let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
-        pinned_values.push(handle);
+        if already_pinned.insert(handle) {
+            let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
+            pinned_values.push(handle);
+        }
+    }
+
+    // Pin all live handle-typed temporaries in vreg_map that aren't already
+    // covered by bindings/args/extras/params. This prevents the GC compact
+    // from freeing intermediate results (e.g., first call result in a
+    // multi-call expression like `f() + ":" + g()`).
+    for (vreg, &value) in vreg_map {
+        let kind = vreg_kinds.get(vreg).copied().unwrap_or(VRegKind::Handle);
+        if kind == VRegKind::Handle && already_pinned.insert(value) {
+            let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[value])?;
+            pinned_values.push(value);
+        }
     }
 
     Ok(pinned_values)
