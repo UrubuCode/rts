@@ -478,8 +478,37 @@ fn eval_expr(expr: &Expr, context: &mut EvalContext) -> RuntimeValue {
         Expr::Assign(assign) => eval_assign_expr(assign, context),
         Expr::Update(update) => eval_update_expr(update, context),
         Expr::Call(call) => eval_call_expr(call, context),
+        Expr::Member(member) => eval_member_expr(member, context),
+        Expr::Array(array) => {
+            let items: Vec<RuntimeValue> = array
+                .elems
+                .iter()
+                .map(|elem| match elem {
+                    Some(spread) => eval_expr(&spread.expr, context),
+                    None => RuntimeValue::Undefined,
+                })
+                .collect();
+            RuntimeValue::Array(items)
+        }
         _ => RuntimeValue::Undefined,
     }
+}
+
+fn eval_member_expr(member: &MemberExpr, context: &mut EvalContext) -> RuntimeValue {
+    let obj = eval_expr(&member.obj, context);
+    let key = match &member.prop {
+        MemberProp::Ident(ident) => ident.sym.to_string(),
+        MemberProp::Computed(computed) => {
+            let val = eval_expr(&computed.expr, context);
+            match val {
+                RuntimeValue::Number(n) if n.fract() == 0.0 => format!("{}", n as i64),
+                RuntimeValue::String(s) => s,
+                other => other.to_runtime_string(),
+            }
+        }
+        _ => return RuntimeValue::Undefined,
+    };
+    obj.get_property(&key).unwrap_or(RuntimeValue::Undefined)
 }
 
 fn eval_unary_expr(unary: &UnaryExpr, context: &mut EvalContext) -> RuntimeValue {
