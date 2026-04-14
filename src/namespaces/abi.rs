@@ -37,10 +37,11 @@ pub(crate) const FN_LOAD_FIELD: i64 = 24; // (obj_handle, field_ptr, field_len) 
 pub(crate) const FN_STORE_FIELD: i64 = 25; // (obj_handle, field_ptr, field_len, value_handle) -> 1/0
 pub(crate) const FN_PIN_HANDLE: i64 = 26; // (handle) -> handle
 pub(crate) const FN_UNPIN_HANDLE: i64 = 27; // (handle) -> handle
+pub(crate) const FN_COMPACT_EXCLUDING: i64 = 28; // (handle) -> freed count
 
 /// Numero total de FN_* distintos. Usado como tamanho dos arrays de metricas
 /// por-fn_id em `RuntimeMetrics`.
-pub(crate) const FN_ID_COUNT: usize = 28;
+pub(crate) const FN_ID_COUNT: usize = 29;
 
 /// Mapeia `fn_id` para nome legivel. Usado pela renderizacao de
 /// `--dump-statistics` para mostrar tempo gasto em cada ponto de dispatch
@@ -780,6 +781,10 @@ pub extern "C" fn __rts_dispatch(
         }
         FN_PIN_HANDLE => pin_value_handle(a0),
         FN_UNPIN_HANDLE => unpin_value_handle(a0),
+        FN_COMPACT_EXCLUDING => {
+            let (freed, _) = compact_value_store_excluding(a0);
+            freed as i64
+        }
         _ => UNDEFINED_HANDLE,
     };
 
@@ -840,9 +845,6 @@ pub extern "C" fn __rts_call_dispatch(
     let Some(outcome) = crate::namespaces::rust::dispatch_runtime_call(callee.as_str(), &args)
     else {
         crate::namespaces::gc::exit_scope();
-        if crate::namespaces::gc::scope_depth() == 0 {
-            let _ = compact_value_store_excluding(UNDEFINED_HANDLE);
-        }
         return UNDEFINED_HANDLE;
     };
 
@@ -871,10 +873,6 @@ pub extern "C" fn __rts_call_dispatch(
         metrics.call_dispatch_nanos = metrics.call_dispatch_nanos.saturating_add(elapsed);
     });
     crate::namespaces::gc::exit_scope();
-
-    if crate::namespaces::gc::scope_depth() == 0 {
-        let _ = compact_value_store_excluding(result);
-    }
 
     result
 }
