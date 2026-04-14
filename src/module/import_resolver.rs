@@ -40,18 +40,15 @@ pub(crate) fn resolve_import_target(
             }
             Err(err) => {
                 reporter::emit(
-                    RichDiagnostic::error(
-                        "E001",
-                        format!("modulo nao encontrado: '{specifier}'"),
-                    )
-                    .with_span(import_span)
-                    .with_note(format!(
-                        "caminho base resolvido a partir de {}",
-                        current_module.display()
-                    ))
-                    .with_suggestion(
-                        "verifique o caminho relativo e se o arquivo existe em disco",
-                    ),
+                    RichDiagnostic::error("E001", format!("modulo nao encontrado: '{specifier}'"))
+                        .with_span(import_span)
+                        .with_note(format!(
+                            "caminho base resolvido a partir de {}",
+                            current_module.display()
+                        ))
+                        .with_suggestion(
+                            "verifique o caminho relativo e se o arquivo existe em disco",
+                        ),
                 );
                 return Err(err);
             }
@@ -135,15 +132,12 @@ pub(crate) fn resolve_import_target(
     // declaradas no manifest.
     let suggestion = suggest_similar_module(specifier, owner_manifest);
 
-    let mut diag = RichDiagnostic::error(
-        "E004",
-        format!("modulo nao encontrado: '{specifier}'"),
-    )
-    .with_span(import_span)
-    .with_note(
-        "use imports relativos (.), modulos builtin (rts, fs, path, ...), \
+    let mut diag = RichDiagnostic::error("E004", format!("modulo nao encontrado: '{specifier}'"))
+        .with_span(import_span)
+        .with_note(
+            "use imports relativos (.), modulos builtin (rts, fs, path, ...), \
          dependencias do package.json, pacotes do workspace ou URLs http(s)",
-    );
+        );
 
     if let Some(suggestion) = suggestion {
         diag = diag.with_suggestion(format!("voce quis dizer '{suggestion}'?"));

@@ -51,9 +51,8 @@ pub fn command(project_name_arg: Option<String>) -> Result<()> {
         .join(".rts")
         .join("builtin")
         .join("rts-types");
-    std::fs::create_dir_all(&types_dir).with_context(|| {
-        format!("failed to create {}", types_dir.display())
-    })?;
+    std::fs::create_dir_all(&types_dir)
+        .with_context(|| format!("failed to create {}", types_dir.display()))?;
     crate::namespaces::emit_split_typescript_declarations(&types_dir)?;
     crate::namespaces::emit_typescript_declarations(&types_dir.join("rts.d.ts"))?;
 

@@ -65,10 +65,10 @@ pub fn fn_id_label(fn_id: i64) -> &'static str {
         14 => "io.panic",
         15 => "crypto.sha256",
         16 => "process.exit",
-        17 => "global.set",
-        18 => "global.get",
-        19 => "global.has",
-        20 => "global.remove",
+        17 => "globals.set",
+        18 => "globals.get",
+        19 => "globals.has",
+        20 => "globals.remove",
         21 => "box_native_fn",
         22 => "call_by_handle",
         23 => "new_instance",
@@ -111,11 +111,81 @@ struct ValueStore {
     /// Handles temporariamente protegidos contra compactacao.
     /// Refcount permite pinagem repetida no mesmo handle.
     pinned_handles: FxHashMap<i64, u32>,
+    /// Handle do objeto global compartilhado (`globalThis`/`global`).
+    global_object_handle: i64,
 }
 
 impl ValueStore {
     fn reset(&mut self) {
         *self = Self::default();
+        let _ = self.ensure_global_object();
+    }
+
+    fn ensure_global_object(&mut self) -> i64 {
+        if self.global_object_handle > UNDEFINED_HANDLE {
+            return self.global_object_handle;
+        }
+
+        let handle = self.allocate_value(RuntimeValue::Object(std::collections::BTreeMap::new()));
+        self.bindings.insert(
+            "globalThis".to_string(),
+            BindingEntry {
+                handle,
+                mutable: false,
+            },
+        );
+        self.bindings.insert(
+            "global".to_string(),
+            BindingEntry {
+                handle,
+                mutable: false,
+            },
+        );
+        self.global_object_handle = handle;
+        handle
+    }
+
+    fn global_get_property(&self, name: &str) -> Option<RuntimeValue> {
+        if self.global_object_handle <= UNDEFINED_HANDLE {
+            return None;
+        }
+        let index = (self.global_object_handle - 1) as usize;
+        let Some(Some(RuntimeValue::Object(map))) = self.values.get(index) else {
+            return None;
+        };
+        map.get(name).cloned()
+    }
+
+    fn global_set_property(&mut self, name: String, value: RuntimeValue) {
+        let handle = self.ensure_global_object();
+        let index = (handle - 1) as usize;
+        if let Some(Some(RuntimeValue::Object(map))) = self.values.get_mut(index) {
+            map.insert(name, value);
+        }
+    }
+
+    fn global_delete_property(&mut self, name: &str) -> bool {
+        let handle = self.ensure_global_object();
+        let index = (handle - 1) as usize;
+        if let Some(Some(RuntimeValue::Object(map))) = self.values.get_mut(index) {
+            return map.remove(name).is_some();
+        }
+        false
+    }
+
+    fn global_has_property(&self, name: &str) -> bool {
+        self.global_get_property(name).is_some()
+    }
+
+    fn global_keys_csv(&self) -> String {
+        if self.global_object_handle <= UNDEFINED_HANDLE {
+            return String::new();
+        }
+        let index = (self.global_object_handle - 1) as usize;
+        let Some(Some(RuntimeValue::Object(map))) = self.values.get(index) else {
+            return String::new();
+        };
+        map.keys().cloned().collect::<Vec<_>>().join(",")
     }
 
     fn allocate_value(&mut self, value: RuntimeValue) -> i64 {
@@ -536,7 +606,15 @@ fn unpin_value_handle(handle: i64) -> i64 {
 /// backing storage permanece estável enquanto o binding não for
 /// sobrescrito via WriteBind (que cria um handle novo, não muta in-place).
 fn read_identifier_handle(name: &str) -> Option<i64> {
-    with_store(|store| store.bindings.get(name).map(|entry| entry.handle))
+    with_store_mut(|store| {
+        let _ = store.ensure_global_object();
+        if let Some(entry) = store.bindings.get(name) {
+            return Some(entry.handle);
+        }
+        store
+            .global_get_property(name)
+            .map(|value| store.allocate_value(value))
+    })
 }
 
 pub(crate) fn push_runtime_value(value: RuntimeValue) -> i64 {
@@ -571,6 +649,26 @@ pub(crate) fn write_runtime_identifier_value(name: &str, value: RuntimeValue) {
 
 pub(crate) fn write_runtime_value_handle(handle: i64, value: RuntimeValue) -> bool {
     with_store_mut(|store| store.write_value_handle(handle, value))
+}
+
+pub(crate) fn set_runtime_global_property(name: &str, value: RuntimeValue) {
+    with_store_mut(|store| store.global_set_property(name.to_string(), value));
+}
+
+pub(crate) fn get_runtime_global_property(name: &str) -> Option<RuntimeValue> {
+    with_store(|store| store.global_get_property(name))
+}
+
+pub(crate) fn has_runtime_global_property(name: &str) -> bool {
+    with_store(|store| store.global_has_property(name))
+}
+
+pub(crate) fn delete_runtime_global_property(name: &str) -> bool {
+    with_store_mut(|store| store.global_delete_property(name))
+}
+
+pub(crate) fn runtime_global_keys_csv() -> String {
+    with_store(|store| store.global_keys_csv())
 }
 
 fn read_utf8(ptr: i64, len: i64) -> Option<String> {
@@ -742,9 +840,7 @@ pub extern "C" fn __rts_dispatch(
             // a0 = fn_handle, a1 = argc, a2..a7 = arg handles
             let fn_value = read_value(a0);
             match fn_value {
-                RuntimeValue::NativeFunction(fn_name) => {
-                    call_jit_fn_by_name(&fn_name)
-                }
+                RuntimeValue::NativeFunction(fn_name) => call_jit_fn_by_name(&fn_name),
                 _ => UNDEFINED_HANDLE,
             }
         }
@@ -891,8 +987,9 @@ pub extern "C" fn __rts_call_dispatch(
 #[cfg(test)]
 mod tests {
     use super::{
-        RuntimeValue, FN_BOX_NUMBER, FN_BOX_STRING, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
-        compact_value_store, read_runtime_value, read_utf8_static, reset_thread_state,
+        FN_BOX_NUMBER, FN_BOX_STRING, FN_PIN_HANDLE, FN_READ_IDENTIFIER, FN_STORE_FIELD,
+        FN_UNPIN_HANDLE, RuntimeValue, bind_runtime_identifier_value, compact_value_store,
+        read_runtime_value, read_utf8_static, reset_thread_state,
         resolve_runtime_identifier_binding, with_store, write_runtime_identifier_value,
     };
 
@@ -988,15 +1085,8 @@ mod tests {
         reset_thread_state();
 
         // Simulate first dynamic call result (e.g., process.arch())
-        let first_result = super::__rts_dispatch(
-            FN_BOX_STRING,
-            b"x86_64".as_ptr() as i64,
-            6,
-            0,
-            0,
-            0,
-            0,
-        );
+        let first_result =
+            super::__rts_dispatch(FN_BOX_STRING, b"x86_64".as_ptr() as i64, 6, 0, 0, 0, 0);
         // Pin it (as the codegen now does for vreg_map temporaries)
         super::__rts_dispatch(FN_PIN_HANDLE, first_result, 0, 0, 0, 0, 0);
 
@@ -1020,6 +1110,53 @@ mod tests {
             RuntimeValue::String("x86_64".to_string())
         );
         super::__rts_dispatch(FN_UNPIN_HANDLE, first_result, 0, 0, 0, 0, 0);
+    }
+
+    #[test]
+    fn global_and_global_this_share_same_handle() {
+        reset_thread_state();
+        let global = resolve_runtime_identifier_binding("global")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+        let global_this = resolve_runtime_identifier_binding("globalThis")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+        assert!(global > 0);
+        assert_eq!(global, global_this);
+    }
+
+    #[test]
+    fn identifier_read_falls_back_to_global_object_property() {
+        reset_thread_state();
+        let global_this = resolve_runtime_identifier_binding("globalThis")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+        assert!(global_this > 0);
+
+        let value = super::__rts_dispatch(FN_BOX_STRING, b"ok".as_ptr() as i64, 2, 0, 0, 0, 0);
+        let _ = super::__rts_dispatch(
+            FN_STORE_FIELD,
+            global_this,
+            b"console".as_ptr() as i64,
+            7,
+            value,
+            0,
+            0,
+        );
+
+        let resolved = super::__rts_dispatch(
+            FN_READ_IDENTIFIER,
+            b"console".as_ptr() as i64,
+            7,
+            0,
+            0,
+            0,
+            0,
+        );
+        assert_eq!(
+            read_runtime_value(resolved),
+            RuntimeValue::String("ok".to_string())
+        );
     }
 
     #[test]

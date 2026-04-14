@@ -144,8 +144,7 @@ pub(super) fn lower_expr_with_pool(
                                 arg_vregs.push(vreg);
                             }
                             let vreg = alloc(next_vreg);
-                            instructions
-                                .push(MirInstruction::Call(vreg, qualified, arg_vregs));
+                            instructions.push(MirInstruction::Call(vreg, qualified, arg_vregs));
                             return vreg;
                         }
 
@@ -286,11 +285,7 @@ pub(super) fn lower_expr_with_pool(
                             next_vreg,
                             constant_pool,
                         );
-                        instructions.push(MirInstruction::StoreField(
-                            obj_vreg,
-                            field,
-                            value,
-                        ));
+                        instructions.push(MirInstruction::StoreField(obj_vreg, field, value));
                         value
                     }
                     AssignOp::AddAssign
@@ -299,11 +294,7 @@ pub(super) fn lower_expr_with_pool(
                     | AssignOp::DivAssign
                     | AssignOp::ModAssign => {
                         let load = alloc(next_vreg);
-                        instructions.push(MirInstruction::LoadField(
-                            load,
-                            obj_vreg,
-                            field.clone(),
-                        ));
+                        instructions.push(MirInstruction::LoadField(load, obj_vreg, field.clone()));
                         let rhs = lower_expr_with_pool(
                             &assign.right,
                             original_text,
@@ -321,9 +312,7 @@ pub(super) fn lower_expr_with_pool(
                         };
                         let result = alloc(next_vreg);
                         instructions.push(MirInstruction::BinOp(result, op, load, rhs));
-                        instructions.push(MirInstruction::StoreField(
-                            obj_vreg, field, result,
-                        ));
+                        instructions.push(MirInstruction::StoreField(obj_vreg, field, result));
                         result
                     }
                     _ => {
@@ -365,11 +354,7 @@ pub(super) fn lower_expr_with_pool(
                         constant_pool,
                     );
                     let load = alloc(next_vreg);
-                    instructions.push(MirInstruction::LoadField(
-                        load,
-                        obj_vreg,
-                        field.clone(),
-                    ));
+                    instructions.push(MirInstruction::LoadField(load, obj_vreg, field.clone()));
                     let one = constant_pool.get_or_create_number(1.0, next_vreg);
                     let op = if update.op == UpdateOp::PlusPlus {
                         MirBinOp::Add
@@ -409,8 +394,7 @@ pub(super) fn lower_expr_with_pool(
             let class_name = extract_expr_name(&new_expr.callee);
             let Some(name) = class_name else {
                 let vreg = alloc(next_vreg);
-                instructions
-                    .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
                 return vreg;
             };
             let instance_vreg = alloc(next_vreg);
@@ -592,37 +576,24 @@ pub(super) fn lower_expr(
                                 lower_expr(&member.obj, original_text, instructions, next_vreg);
                             let mut arg_vregs = vec![obj_vreg];
                             for arg in &call.args {
-                                let vreg = lower_expr(
-                                    &arg.expr,
-                                    original_text,
-                                    instructions,
-                                    next_vreg,
-                                );
+                                let vreg =
+                                    lower_expr(&arg.expr, original_text, instructions, next_vreg);
                                 arg_vregs.push(vreg);
                             }
                             let vreg = alloc(next_vreg);
-                            instructions
-                                .push(MirInstruction::Call(vreg, qualified, arg_vregs));
+                            instructions.push(MirInstruction::Call(vreg, qualified, arg_vregs));
                             return vreg;
                         }
 
                         // Alias para métodos JS nativos de String — ver
                         // versão pooled para detalhes.
                         if let Some(ns_callee) = lookup_string_method_alias(&method_short) {
-                            let obj_vreg = lower_expr(
-                                &member.obj,
-                                original_text,
-                                instructions,
-                                next_vreg,
-                            );
+                            let obj_vreg =
+                                lower_expr(&member.obj, original_text, instructions, next_vreg);
                             let mut arg_vregs = vec![obj_vreg];
                             for arg in &call.args {
-                                let vreg = lower_expr(
-                                    &arg.expr,
-                                    original_text,
-                                    instructions,
-                                    next_vreg,
-                                );
+                                let vreg =
+                                    lower_expr(&arg.expr, original_text, instructions, next_vreg);
                                 arg_vregs.push(vreg);
                             }
                             let vreg = alloc(next_vreg);
@@ -708,13 +679,8 @@ pub(super) fn lower_expr(
                     | AssignOp::DivAssign
                     | AssignOp::ModAssign => {
                         let load = alloc(next_vreg);
-                        instructions.push(MirInstruction::LoadField(
-                            load,
-                            obj_vreg,
-                            field.clone(),
-                        ));
-                        let rhs =
-                            lower_expr(&assign.right, original_text, instructions, next_vreg);
+                        instructions.push(MirInstruction::LoadField(load, obj_vreg, field.clone()));
+                        let rhs = lower_expr(&assign.right, original_text, instructions, next_vreg);
                         let op = match assign.op {
                             AssignOp::AddAssign => MirBinOp::Add,
                             AssignOp::SubAssign => MirBinOp::Sub,
@@ -725,9 +691,7 @@ pub(super) fn lower_expr(
                         };
                         let result = alloc(next_vreg);
                         instructions.push(MirInstruction::BinOp(result, op, load, rhs));
-                        instructions.push(MirInstruction::StoreField(
-                            obj_vreg, field, result,
-                        ));
+                        instructions.push(MirInstruction::StoreField(obj_vreg, field, result));
                         result
                     }
                     _ => {
@@ -763,11 +727,7 @@ pub(super) fn lower_expr(
                 if let Some(field) = member_prop_name(&member.prop) {
                     let obj_vreg = lower_expr(&member.obj, original_text, instructions, next_vreg);
                     let load = alloc(next_vreg);
-                    instructions.push(MirInstruction::LoadField(
-                        load,
-                        obj_vreg,
-                        field.clone(),
-                    ));
+                    instructions.push(MirInstruction::LoadField(load, obj_vreg, field.clone()));
                     let one = alloc(next_vreg);
                     instructions.push(MirInstruction::ConstNumber(one, 1.0));
                     let op = if update.op == UpdateOp::PlusPlus {
@@ -799,8 +759,7 @@ pub(super) fn lower_expr(
             let class_name = extract_expr_name(&new_expr.callee);
             let Some(name) = class_name else {
                 let vreg = alloc(next_vreg);
-                instructions
-                    .push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
+                instructions.push(MirInstruction::RuntimeEval(vreg, original_text.to_string()));
                 return vreg;
             };
             let instance_vreg = alloc(next_vreg);
@@ -817,8 +776,7 @@ pub(super) fn lower_expr(
                 let mut arg_vregs = vec![instance_vreg];
                 if let Some(args) = &new_expr.args {
                     for arg in args {
-                        let vreg =
-                            lower_expr(&arg.expr, original_text, instructions, next_vreg);
+                        let vreg = lower_expr(&arg.expr, original_text, instructions, next_vreg);
                         arg_vregs.push(vreg);
                     }
                 }

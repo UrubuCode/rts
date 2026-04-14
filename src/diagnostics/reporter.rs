@@ -159,7 +159,11 @@ fn render_one(diag: &RichDiagnostic, use_color: bool) -> String {
     let reset = if use_color { "\x1b[0m" } else { "" };
     let bold = if use_color { "\x1b[1m" } else { "" };
     let dim = if use_color { "\x1b[2m" } else { "" };
-    let color = if use_color { diag.severity.ansi_color() } else { "" };
+    let color = if use_color {
+        diag.severity.ansi_color()
+    } else {
+        ""
+    };
 
     let mut out = String::new();
 
@@ -254,7 +258,13 @@ fn render_snippet(out: &mut String, file_id: FileId, span: Span, use_color: bool
     let padding = " ".repeat(num_width);
 
     // Linha em branco para respiro:  "   |"
-    let _ = write!(out, "{dim}{padding} | {reset}\n", dim = dim, padding = padding, reset = reset);
+    let _ = write!(
+        out,
+        "{dim}{padding} | {reset}\n",
+        dim = dim,
+        padding = padding,
+        reset = reset
+    );
 
     // Linha com numero:  " 12 | texto"
     let _ = write!(

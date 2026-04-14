@@ -9,9 +9,9 @@ use cranelift_module::{DataId, FuncId, Module};
 
 use crate::mir::{MirBinOp, MirInstruction, MirUnaryOp, TypedMirFunction, VReg};
 use crate::namespaces::abi::{
-    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_BOOL, FN_BOX_NATIVE_FN, FN_BOX_NUMBER,
-    FN_CALL_BY_HANDLE, FN_COMPACT_EXCLUDING, FN_EVAL_STMT, FN_IS_TRUTHY, FN_LOAD_FIELD,
-    FN_NEW_INSTANCE, FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER,
+    FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_BOOL, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_CALL_BY_HANDLE,
+    FN_COMPACT_EXCLUDING, FN_EVAL_STMT, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE,
+    FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER,
 };
 
 use super::control_flow::rewrite_loop_control;
@@ -21,11 +21,11 @@ use super::helpers::{
     load_binding_slot, pin_live_handles_for_dynamic_call, resolve_vreg, store_binding_slot,
     unpin_live_handles_after_dynamic_call,
 };
-use super::shadow::analyze_shadow_globals;
 use super::shadow::ShadowGlobalPlan;
+use super::shadow::analyze_shadow_globals;
 use super::signatures::function_signature;
 use super::types::{
-    BindingState, VRegKind, ABI_ARG_SLOTS, ABI_PARAM_COUNT, ABI_UNDEFINED_HANDLE, CALLEE_FN_IDS,
+    ABI_ARG_SLOTS, ABI_PARAM_COUNT, ABI_UNDEFINED_HANDLE, BindingState, CALLEE_FN_IDS, VRegKind,
 };
 pub fn define_typed_function<M: Module>(
     module: &mut M,
@@ -46,7 +46,11 @@ pub fn define_typed_function<M: Module>(
         let entry_params = builder.block_params(entry_block).to_vec();
         let mut param_handle_entries: Vec<(usize, Value)> = Vec::new();
         for index in 0..function.param_count {
-            let is_numeric = function.param_is_numeric.get(index).copied().unwrap_or(false);
+            let is_numeric = function
+                .param_is_numeric
+                .get(index)
+                .copied()
+                .unwrap_or(false);
             if is_numeric {
                 continue;
             }
@@ -171,9 +175,7 @@ pub fn define_typed_function<M: Module>(
                 if let MirInstruction::Label(name) = instruction {
                     if let Some(&target_block) = label_blocks.get(name.as_str()) {
                         builder.switch_to_block(target_block);
-                        default_return = builder
-                            .ins()
-                            .iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                        default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
                         default_return_is_native = false;
                         terminated = false;
                     }
@@ -251,7 +253,12 @@ pub fn define_typed_function<M: Module>(
                         .get(index + 1)
                         .copied()
                         .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
-                    if function.param_is_numeric.get(*index).copied().unwrap_or(false) {
+                    if function
+                        .param_is_numeric
+                        .get(*index)
+                        .copied()
+                        .unwrap_or(false)
+                    {
                         let bits = emit_dispatch(
                             module,
                             func_declarations,
@@ -291,12 +298,8 @@ pub fn define_typed_function<M: Module>(
                     let mut rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
                     let has_handle_operand =
                         lhs_kind == VRegKind::Handle || rhs_kind == VRegKind::Handle;
-                    let skip_numeric_promotion =
-                        matches!(op, MirBinOp::Add) && has_handle_operand;
-                    if (is_arith || is_cmp)
-                        && lhs_kind != rhs_kind
-                        && !skip_numeric_promotion
-                    {
+                    let skip_numeric_promotion = matches!(op, MirBinOp::Add) && has_handle_operand;
+                    if (is_arith || is_cmp) && lhs_kind != rhs_kind && !skip_numeric_promotion {
                         let target = match (lhs_kind, rhs_kind) {
                             (VRegKind::NativeI32, VRegKind::NativeF64)
                             | (VRegKind::NativeF64, VRegKind::NativeI32)
@@ -522,9 +525,7 @@ pub fn define_typed_function<M: Module>(
                             )?;
                             (result, VRegKind::Handle)
                         }
-                        MirUnaryOp::Positive => {
-                            (src_val, src_kind)
-                        }
+                        MirUnaryOp::Positive => (src_val, src_kind),
                     };
                     vreg_map.insert(*dst, result);
                     vreg_kinds.insert(*dst, result_kind);
@@ -639,18 +640,32 @@ pub fn define_typed_function<M: Module>(
                             if let Some(state) = local_bindings.get(callee.as_str()) {
                                 builder.ins().stack_load(types::I64, state.slot, 0)
                             } else {
-                                let data_id = declare_string_data(module, data_cache, callee.as_str())?;
+                                let data_id =
+                                    declare_string_data(module, data_cache, callee.as_str())?;
                                 let data_ref = module.declare_data_in_func(data_id, builder.func);
                                 let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
-                                let name_len = builder.ins().iconst(types::I64, callee.len() as i64);
-                                emit_dispatch(module, func_declarations, &mut builder, FN_READ_IDENTIFIER, &[name_ptr, name_len])?
+                                let name_len =
+                                    builder.ins().iconst(types::I64, callee.len() as i64);
+                                emit_dispatch(
+                                    module,
+                                    func_declarations,
+                                    &mut builder,
+                                    FN_READ_IDENTIFIER,
+                                    &[name_ptr, name_len],
+                                )?
                             }
                         } else {
                             let data_id = declare_string_data(module, data_cache, callee.as_str())?;
                             let data_ref = module.declare_data_in_func(data_id, builder.func);
                             let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
                             let name_len = builder.ins().iconst(types::I64, callee.len() as i64);
-                            emit_dispatch(module, func_declarations, &mut builder, FN_READ_IDENTIFIER, &[name_ptr, name_len])?
+                            emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_READ_IDENTIFIER,
+                                &[name_ptr, name_len],
+                            )?
                         };
                         let argc = builder.ins().iconst(types::I64, args.len() as i64);
                         emit_dispatch(
@@ -781,10 +796,8 @@ pub fn define_typed_function<M: Module>(
                             vreg_map.insert(*dst, result);
                             vreg_kinds.insert(*dst, state.kind);
                             default_return = result;
-                            default_return_is_native = matches!(
-                                state.kind,
-                                VRegKind::NativeF64 | VRegKind::NativeI32
-                            );
+                            default_return_is_native =
+                                matches!(state.kind, VRegKind::NativeF64 | VRegKind::NativeI32);
                             continue;
                         }
                     }
@@ -843,14 +856,14 @@ pub fn define_typed_function<M: Module>(
                     terminated = true;
                 }
 
-                MirInstruction::Import { .. } => {
-                }
+                MirInstruction::Import { .. } => {}
 
                 MirInstruction::Jump(label) => {
                     if !terminated {
                         if let Some(&target_block) = label_blocks.get(label.as_str()) {
                             if label.starts_with("while_loop_") || label.starts_with("do_while_") {
-                                let undefined = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                                let undefined =
+                                    builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
                                 let _ = emit_dispatch(
                                     module,
                                     func_declarations,
@@ -931,9 +944,7 @@ pub fn define_typed_function<M: Module>(
                     if let Some(&target_block) = label_blocks.get(label.as_str()) {
                         builder.ins().jump(target_block, &[]);
                         builder.switch_to_block(target_block);
-                        default_return = builder
-                            .ins()
-                            .iconst(types::I64, ABI_UNDEFINED_HANDLE);
+                        default_return = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
                         default_return_is_native = false;
                     }
                 }
@@ -943,8 +954,7 @@ pub fn define_typed_function<M: Module>(
                     terminated = true;
                 }
 
-                MirInstruction::Continue => {
-                }
+                MirInstruction::Continue => {}
 
                 MirInstruction::RuntimeEval(dst, text) => {
                     let data_id = declare_string_data(module, data_cache, text.as_str())?;
@@ -964,12 +974,10 @@ pub fn define_typed_function<M: Module>(
                     default_return_is_native = false;
                 }
                 MirInstruction::NewInstance(dst, class_name) => {
-                    let data_id =
-                        declare_string_data(module, data_cache, class_name.as_str())?;
+                    let data_id = declare_string_data(module, data_cache, class_name.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
                     let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
-                    let name_len =
-                        builder.ins().iconst(types::I64, class_name.len() as i64);
+                    let name_len = builder.ins().iconst(types::I64, class_name.len() as i64);
                     let result = emit_dispatch(
                         module,
                         func_declarations,
@@ -995,12 +1003,10 @@ pub fn define_typed_function<M: Module>(
                             .unwrap_or(VRegKind::Handle),
                         VRegKind::Handle,
                     )?;
-                    let data_id =
-                        declare_string_data(module, data_cache, field_name.as_str())?;
+                    let data_id = declare_string_data(module, data_cache, field_name.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
                     let field_ptr = builder.ins().symbol_value(types::I64, data_ref);
-                    let field_len =
-                        builder.ins().iconst(types::I64, field_name.len() as i64);
+                    let field_len = builder.ins().iconst(types::I64, field_name.len() as i64);
                     let result = emit_dispatch(
                         module,
                         func_declarations,
@@ -1038,12 +1044,10 @@ pub fn define_typed_function<M: Module>(
                             .unwrap_or(VRegKind::Handle),
                         VRegKind::Handle,
                     )?;
-                    let data_id =
-                        declare_string_data(module, data_cache, field_name.as_str())?;
+                    let data_id = declare_string_data(module, data_cache, field_name.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
                     let field_ptr = builder.ins().symbol_value(types::I64, data_ref);
-                    let field_len =
-                        builder.ins().iconst(types::I64, field_name.len() as i64);
+                    let field_len = builder.ins().iconst(types::I64, field_name.len() as i64);
                     let _ = emit_dispatch(
                         module,
                         func_declarations,
@@ -1108,5 +1112,3 @@ pub fn define_typed_function<M: Module>(
     module.clear_context(&mut context);
     Ok(())
 }
-
-

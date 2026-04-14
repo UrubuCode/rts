@@ -525,10 +525,7 @@ mod tests {
 
     #[test]
     fn lowers_string_method_slice_alias() {
-        let hir = build_simple_module(vec![
-            r#"const s = "hello";"#,
-            r#"s.slice(0, 3);"#,
-        ]);
+        let hir = build_simple_module(vec![r#"const s = "hello";"#, r#"s.slice(0, 3);"#]);
         let mir = typed(&hir);
         let main = &mir.functions[0];
         let instructions = &main.blocks[0].instructions;

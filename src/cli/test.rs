@@ -32,7 +32,12 @@ impl Theme {
             }
         } else {
             Self {
-                green: "", red: "", cyan: "", dim: "", bold: "", reset: "",
+                green: "",
+                red: "",
+                cyan: "",
+                dim: "",
+                bold: "",
+                reset: "",
             }
         }
     }
@@ -97,42 +102,40 @@ pub fn command(path_arg: Option<String>, options: CompileOptions) -> Result<()> 
     Ok(())
 }
 
-fn run_file_tests(
-    file: &Path,
-    suite: &mut TestSuite,
-    options: &CompileOptions,
-    theme: &Theme,
-) {
+fn run_file_tests(file: &Path, suite: &mut TestSuite, options: &CompileOptions, theme: &Theme) {
     let label = relative_display(file);
-    
+
     // Print file header
     eprintln!("\n{}{}:{}", theme.bold, label, theme.reset);
-    
+
     let file_start = Instant::now();
     let outcome = super::run::execute_file(file, *options);
     let duration_ms = file_start.elapsed().as_secs_f64() * 1000.0;
-    
+
     // Parse test results from output
     // This assumes your test runner outputs test names in a parseable format
     let test_name = extract_test_name(file);
-    
+
     let passed = outcome.is_ok();
     let error = outcome.err().map(|e| format!("{:#}", e));
-    
+
     let result = TestResult {
         name: test_name,
         passed,
         duration_ms,
         error,
     };
-    
+
     // Print test result
     if passed {
         eprintln!(
             "{}{}✓{} {} {}{}[{:.2}ms]{}",
-            theme.dim, theme.green, theme.reset,
+            theme.dim,
+            theme.green,
+            theme.reset,
             result.name,
-            theme.dim, theme.cyan,
+            theme.dim,
+            theme.cyan,
             result.duration_ms,
             theme.reset
         );
@@ -140,24 +143,31 @@ fn run_file_tests(
     } else {
         eprintln!(
             "{}{}✗{} {} {}{}[{:.2}ms]{}",
-            theme.dim, theme.red, theme.reset,
+            theme.dim,
+            theme.red,
+            theme.reset,
             result.name,
-            theme.dim, theme.cyan,
+            theme.dim,
+            theme.cyan,
             result.duration_ms,
             theme.reset
         );
-        
+
         // Print error with indentation
         if let Some(ref err) = result.error {
             for line in err.lines().take(10) {
                 eprintln!("  {}  {}{}", theme.dim, theme.red, line);
             }
         }
-        
+
         suite.failed += 1;
     }
-    
-    suite.files.entry(file.to_path_buf()).or_default().push(result);
+
+    suite
+        .files
+        .entry(file.to_path_buf())
+        .or_default()
+        .push(result);
     suite.total += 1;
 }
 
@@ -179,42 +189,42 @@ fn print_header(theme: &Theme) {
 
 fn print_summary(suite: &TestSuite, theme: &Theme) {
     let total_duration = suite.start_time.elapsed().as_secs_f64();
-    
+
     eprintln!();
-    
+
     if suite.failed == 0 {
         eprintln!(
             "{}{}  {} pass{}",
-            theme.bold, theme.green,
-            suite.passed,
-            theme.reset
+            theme.bold, theme.green, suite.passed, theme.reset
         );
     } else {
         eprintln!(
             "{}{}  {} pass{}  {}{} fail{}",
-            theme.bold, theme.green,
+            theme.bold,
+            theme.green,
             suite.passed,
             theme.reset,
             theme.red,
             suite.failed,
             theme.reset
         );
-        
+
         // List failed tests summary
         eprintln!();
         for (file, results) in &suite.files {
-            let failed_tests: Vec<_> = results.iter()
-                .filter(|r| !r.passed)
-                .collect();
-            
+            let failed_tests: Vec<_> = results.iter().filter(|r| !r.passed).collect();
+
             if !failed_tests.is_empty() {
                 eprintln!("{}{}:{}", theme.bold, relative_display(file), theme.reset);
                 for test in failed_tests {
                     eprintln!(
                         "{}{}✗{} {} {}{}[{:.2}ms]{}",
-                        theme.dim, theme.red, theme.reset,
+                        theme.dim,
+                        theme.red,
+                        theme.reset,
                         test.name,
-                        theme.dim, theme.cyan,
+                        theme.dim,
+                        theme.cyan,
                         test.duration_ms,
                         theme.reset
                     );
@@ -228,7 +238,7 @@ fn print_summary(suite: &TestSuite, theme: &Theme) {
             }
         }
     }
-    
+
     eprintln!(
         "{}Ran {} tests across {} files. {}{}[{:.2}s]{}",
         theme.dim,

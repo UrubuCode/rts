@@ -1,8 +1,8 @@
 use cranelift_codegen::ir::StackSlot;
 
 use crate::namespaces::abi::{
-    FN_CRYPTO_SHA256, FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET,
-    FN_IO_PANIC, FN_IO_PRINT, FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_PROCESS_EXIT,
+    FN_CRYPTO_SHA256, FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC,
+    FN_IO_PRINT, FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_PROCESS_EXIT,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,8 +32,8 @@ pub(super) const CALLEE_FN_IDS: &[(&str, i64)] = &[
     ("io.panic", FN_IO_PANIC),
     ("crypto.sha256", FN_CRYPTO_SHA256),
     ("process.exit", FN_PROCESS_EXIT),
-    ("global.set", FN_GLOBAL_SET),
-    ("global.get", FN_GLOBAL_GET),
-    ("global.has", FN_GLOBAL_HAS),
-    ("global.remove", FN_GLOBAL_DELETE),
+    ("globals.set", FN_GLOBAL_SET),
+    ("globals.get", FN_GLOBAL_GET),
+    ("globals.has", FN_GLOBAL_HAS),
+    ("globals.remove", FN_GLOBAL_DELETE),
 ];

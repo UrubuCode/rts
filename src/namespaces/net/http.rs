@@ -108,9 +108,7 @@ impl HttpResponse {
 
         let mut out = Vec::with_capacity(128 + self.body.len());
         let reason = status_reason(self.status);
-        out.extend_from_slice(
-            format!("HTTP/1.1 {} {}\r\n", self.status, reason).as_bytes(),
-        );
+        out.extend_from_slice(format!("HTTP/1.1 {} {}\r\n", self.status, reason).as_bytes());
         for (name, value) in &self.headers {
             out.extend_from_slice(format!("{}: {}\r\n", name, value).as_bytes());
         }
@@ -175,8 +173,7 @@ pub fn parse_request(data: &[u8]) -> Result<HttpRequest, HttpParseError> {
     let header_bytes = &data[..header_end];
     let body_start = header_end + 4;
 
-    let header_text =
-        std::str::from_utf8(header_bytes).map_err(|_| HttpParseError::InvalidUtf8)?;
+    let header_text = std::str::from_utf8(header_bytes).map_err(|_| HttpParseError::InvalidUtf8)?;
 
     let mut lines = header_text.split("\r\n");
 
@@ -191,9 +188,7 @@ pub fn parse_request(data: &[u8]) -> Result<HttpRequest, HttpParseError> {
         .next()
         .ok_or(HttpParseError::MalformedRequestLine)?
         .to_string();
-    let version = parts
-        .next()
-        .ok_or(HttpParseError::MalformedRequestLine)?;
+    let version = parts.next().ok_or(HttpParseError::MalformedRequestLine)?;
 
     if method.is_empty() || path.is_empty() || !version.starts_with("HTTP/") {
         return Err(HttpParseError::MalformedRequestLine);
@@ -221,7 +216,9 @@ pub fn parse_request(data: &[u8]) -> Result<HttpRequest, HttpParseError> {
     // Body por Content-Length. Se declarar mais do que temos no buffer,
     // pega apenas o que existe — o caller é quem decide se continua lendo
     // mais bytes do socket. Parser é stateless.
-    let len = req.content_length().min(data.len().saturating_sub(body_start));
+    let len = req
+        .content_length()
+        .min(data.len().saturating_sub(body_start));
     if len > 0 {
         let body_bytes = &data[body_start..body_start + len];
         req.body = String::from_utf8_lossy(body_bytes).to_string();
@@ -306,9 +303,7 @@ pub fn http_read_request(args: &[RuntimeValue]) -> DispatchOutcome {
                 // Guarda contra requests enormes sem headers — 64KB é
                 // um limite generoso para headers HTTP normais.
                 if buffer.len() > 64 * 1024 {
-                    return DispatchOutcome::Value(result_err(
-                        "headers too large".to_string(),
-                    ));
+                    return DispatchOutcome::Value(result_err("headers too large".to_string()));
                 }
             }
             Err(e) => {
@@ -369,9 +364,7 @@ pub fn http_read_request(args: &[RuntimeValue]) -> DispatchOutcome {
 pub fn http_request_method(args: &[RuntimeValue]) -> DispatchOutcome {
     let h = arg_to_u64(args, 0);
     with_http_state_mut(|state| match state.requests.get(&h) {
-        Some(req) => DispatchOutcome::Value(result_ok(RuntimeValue::String(
-            req.method.clone(),
-        ))),
+        Some(req) => DispatchOutcome::Value(result_ok(RuntimeValue::String(req.method.clone()))),
         None => DispatchOutcome::Value(result_err("Invalid request handle".to_string())),
     })
 }

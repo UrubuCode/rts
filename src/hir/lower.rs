@@ -1,4 +1,4 @@
-﻿use crate::parser::ast::{ClassMember, Item, Program, Statement};
+use crate::parser::ast::{ClassMember, Item, Program, Statement};
 use crate::type_system::resolver::TypeResolver;
 
 use super::annotations::TypeAnnotation;
@@ -171,7 +171,9 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                 module.functions.push(function);
             }
             Item::Statement(statement) => {
-                module.items.push(HirItem::Statement(statement_to_hir(statement)));
+                module
+                    .items
+                    .push(HirItem::Statement(statement_to_hir(statement)));
             }
         }
     }

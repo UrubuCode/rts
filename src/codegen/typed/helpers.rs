@@ -41,13 +41,7 @@ pub(super) fn emit_shadow_writeback<M: Module>(
             continue;
         };
         let bits = load_binding_slot(builder, state.slot);
-        let handle = emit_dispatch(
-            module,
-            func_declarations,
-            builder,
-            FN_BOX_NUMBER,
-            &[bits],
-        )?;
+        let handle = emit_dispatch(module, func_declarations, builder, FN_BOX_NUMBER, &[bits])?;
         let data_id = declare_string_data(module, data_cache, name.as_str())?;
         let data_ref = module.declare_data_in_func(data_id, builder.func);
         let name_ptr = builder.ins().symbol_value(types::I64, data_ref);
@@ -114,7 +108,13 @@ pub(super) fn unpin_live_handles_after_dynamic_call<M: Module>(
     pinned_values: &[Value],
 ) -> Result<()> {
     for &handle in pinned_values {
-        let _ = emit_dispatch(module, func_declarations, builder, FN_UNPIN_HANDLE, &[handle])?;
+        let _ = emit_dispatch(
+            module,
+            func_declarations,
+            builder,
+            FN_UNPIN_HANDLE,
+            &[handle],
+        )?;
     }
     Ok(())
 }
@@ -197,7 +197,9 @@ pub(super) fn emit_dispatch<M: Module>(
         .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE)))
 }
 
-pub(super) fn call_dispatch_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
+pub(super) fn call_dispatch_signature<M: Module>(
+    module: &mut M,
+) -> cranelift_codegen::ir::Signature {
     let mut sig = module.make_signature();
     for _ in 0..9 {
         sig.params.push(AbiParam::new(types::I64));
@@ -374,5 +376,3 @@ pub(super) fn binop_to_tag(op: &MirBinOp) -> i64 {
         MirBinOp::LogicOr => 12,
     }
 }
-
-

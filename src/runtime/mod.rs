@@ -80,7 +80,7 @@ const RTS_EXPORTS: &[&str] = &[
     "net",
     "process",
     "crypto",
-    "global",
+    "globals",
     "buffer",
     "promise",
     "task",

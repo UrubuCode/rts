@@ -10,7 +10,7 @@
     "./net": "./net.d.ts",
     "./process": "./process.d.ts",
     "./crypto": "./crypto.d.ts",
-    "./global": "./global.d.ts",
+    "./globals": "./globals.d.ts",
     "./buffer": "./buffer.d.ts",
     "./promise": "./promise.d.ts",
     "./task": "./task.d.ts",

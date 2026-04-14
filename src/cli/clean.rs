@@ -61,8 +61,8 @@ fn count_files_and_bytes(dir: &Path) -> Result<(usize, u64)> {
     let mut files = 0usize;
     let mut bytes = 0u64;
 
-    for entry in std::fs::read_dir(dir)
-        .with_context(|| format!("failed to list {}", dir.display()))?
+    for entry in
+        std::fs::read_dir(dir).with_context(|| format!("failed to list {}", dir.display()))?
     {
         let entry = entry?;
         let path = entry.path();

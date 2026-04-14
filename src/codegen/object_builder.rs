@@ -808,4 +808,3 @@ fn define_synthetic_start(
     module.clear_context(&mut context);
     Ok(())
 }
-

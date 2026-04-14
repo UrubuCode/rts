@@ -103,16 +103,10 @@ impl ModuleGraph {
                 )
             })?;
 
-            let file_id = crate::diagnostics::source_store::register(
-                current.path.clone(),
-                source.clone(),
-            );
-            let program = parser::parse_source_with_file(
-                &source,
-                options.frontend_mode,
-                file_id,
-            )
-            .with_context(|| {
+            let file_id =
+                crate::diagnostics::source_store::register(current.path.clone(), source.clone());
+            let program = parser::parse_source_with_file(&source, options.frontend_mode, file_id)
+                .with_context(|| {
                 attach_trace(
                     format!("failed to parse module {}", current.path.display()),
                     &current.trace_route,

@@ -372,4 +372,3 @@ fn lower_statement_text_with_pool(
         lower_stmt_with_pool(&stmt, text, instructions, next_vreg, constant_pool);
     }
 }
-

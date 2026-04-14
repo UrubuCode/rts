@@ -1,9 +1,9 @@
 include!("shared.rs");
 
 mod builder;
-mod stmt_lowering;
-mod expr_lowering;
 mod control_flow;
+mod expr_lowering;
+mod stmt_lowering;
 
 use builder::*;
 use control_flow::*;

@@ -84,7 +84,10 @@ fn run_with_watcher(input: &Path, options: CompileOptions) -> Result<()> {
     use std::sync::mpsc::{self, RecvTimeoutError};
     use std::time::Duration;
 
-    eprintln!("rts watch: iniciando execucao inicial de {}", input.display());
+    eprintln!(
+        "rts watch: iniciando execucao inicial de {}",
+        input.display()
+    );
 
     // Primeira execucao — coletamos os paths do grafo mesmo se falhar.
     let _ = execute_file(input, options);
@@ -240,8 +243,7 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
     // Apos o build, coleta contagem de warnings RuntimeEval emitidos.
     // O build ja emitiu warnings W001-W011 ao encontrar instrucoes
     // RuntimeEval — basta contar quantos warnings ha no engine global.
-    let runtime_eval_warnings = crate::diagnostics::reporter::global_engine()
-        .warnings_count();
+    let runtime_eval_warnings = crate::diagnostics::reporter::global_engine().warnings_count();
 
     let started = Instant::now();
     let jit_report = crate::codegen::jit::execute_typed(&typed_mir, "main")
@@ -335,8 +337,7 @@ fn collect_namespace_calls_from_text(
             let abs = idx + pos;
             // Check char before: must not be ident char (evitar `foo_io.print`)
             let prev_ok = abs == 0
-                || !text.as_bytes()[abs - 1]
-                    .is_ascii_alphanumeric()
+                || !text.as_bytes()[abs - 1].is_ascii_alphanumeric()
                     && text.as_bytes()[abs - 1] != b'_';
             if prev_ok {
                 *counts.entry(ns.to_string()).or_insert(0) += 1;
@@ -385,15 +386,9 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
     println!("  profile              {}", options.profile);
     println!("  frontend             {}", options.frontend_mode);
     println!("  modules              {}", report.module_count);
-    println!(
-        "  functions            {}",
-        report.source_stats.functions
-    );
+    println!("  functions            {}", report.source_stats.functions);
     println!("  classes              {}", report.source_stats.classes);
-    println!(
-        "  interfaces           {}",
-        report.source_stats.interfaces
-    );
+    println!("  interfaces           {}", report.source_stats.interfaces);
     println!("  imports              {}", report.source_stats.imports);
     if report.runtime_eval_warnings > 0 {
         println!(
@@ -408,19 +403,13 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
         println!("  (nenhum)");
     } else {
         for entry in &report.namespace_usage {
-            println!(
-                "  {:<20} {} callee(s)",
-                entry.namespace, entry.callee_count
-            );
+            println!("  {:<20} {} callee(s)", entry.namespace, entry.callee_count);
         }
     }
     println!();
 
     println!("=== GC Arena ===");
-    println!(
-        "  allocated_bytes      {}",
-        report.gc_stats.allocated_bytes
-    );
+    println!("  allocated_bytes      {}", report.gc_stats.allocated_bytes);
     println!(
         "  generation           {} (collect_all count)",
         report.gc_stats.generation
@@ -488,13 +477,7 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
     // identificar quais FN_* estao dominando o custo. So renderiza entradas
     // com >= 1 call (evita poluir com linhas zeradas).
     let mut per_fn: Vec<(usize, u64, u128)> = (0..crate::namespaces::abi::FN_ID_COUNT)
-        .map(|idx| {
-            (
-                idx,
-                runtime.per_fn_calls[idx],
-                runtime.per_fn_nanos[idx],
-            )
-        })
+        .map(|idx| (idx, runtime.per_fn_calls[idx], runtime.per_fn_nanos[idx]))
         .filter(|(_, calls, _)| *calls > 0)
         .collect();
     per_fn.sort_by(|a, b| b.2.cmp(&a.2));

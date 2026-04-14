@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use console::style;
 use object::{Object, ObjectSection};
+use serde_json::Value;
 
 use crate::compile_options::CompileOptions;
 
@@ -12,9 +13,14 @@ pub fn command(
     output_arg: Option<String>,
     mut options: CompileOptions,
 ) -> Result<()> {
-    let input = input_arg.map(PathBuf::from).unwrap();
+    let input = input_arg
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow!("missing input for 'compile'"))?;
 
-    let output = output_arg.map(PathBuf::from).unwrap();
+    let output = match output_arg {
+        Some(value) => PathBuf::from(value),
+        None => resolve_default_output_path(&input)?,
+    };
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)
@@ -216,4 +222,102 @@ fn generate_usage_bar(value: u64, max: u64) -> String {
         "█".repeat(filled).green(),
         "░".repeat(empty).dimmed()
     )
+}
+
+fn resolve_default_output_path(input: &Path) -> Result<PathBuf> {
+    let cwd = std::env::current_dir().context("failed to read current directory")?;
+    let base_name = detect_project_name_from_package_json(&cwd)?
+        .or_else(|| {
+            input
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(ToString::to_string)
+        })
+        .unwrap_or_else(|| "app".to_string());
+
+    Ok(cwd.join(sanitize_output_name(&base_name)))
+}
+
+fn detect_project_name_from_package_json(cwd: &Path) -> Result<Option<String>> {
+    let package_json = cwd.join("package.json");
+    if !package_json.exists() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(&package_json)
+        .with_context(|| format!("failed to read {}", package_json.display()))?;
+    let parsed = serde_json::from_str::<Value>(&strip_json_comments(&content))
+        .with_context(|| format!("failed to parse {}", package_json.display()))?;
+
+    let name = parsed
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    Ok(name)
+}
+
+fn sanitize_output_name(raw: &str) -> String {
+    let candidate = raw
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string();
+
+    if candidate.is_empty() {
+        "app".to_string()
+    } else {
+        candidate
+    }
+}
+
+fn strip_json_comments(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if in_string {
+            output.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if ch == '"' {
+            in_string = true;
+            output.push(ch);
+            continue;
+        }
+
+        if ch == '/' && matches!(chars.peek(), Some('/')) {
+            let _ = chars.next();
+            for next in chars.by_ref() {
+                if next == '\n' {
+                    output.push('\n');
+                    break;
+                }
+            }
+            continue;
+        }
+
+        output.push(ch);
+    }
+
+    output
 }

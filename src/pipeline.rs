@@ -134,7 +134,7 @@ pub(crate) fn compile_graph(
         lowered_functions += typed_mir.functions.len();
         let stem = module_object_stem(&app_name, module, input);
         let object_path = deps_dir.join(format!("{stem}.o"));
-        let meta_path = deps_dir.join(format!("{stem}.m"));
+        let meta_path = deps_dir.join(format!("{stem}.ometa"));
         let source_hash = hash_source(&module.source);
         let deps_hash = graph.transitive_deps_hash(&module.key);
 
@@ -512,7 +512,7 @@ fn collect_builtin_path_entries(modules_dir: &Path) -> Result<Vec<(String, Strin
                 "failed to list builtin modules directory {} ({})",
                 modules_dir.display(),
                 error
-            ))
+            ));
         }
     };
 
@@ -548,7 +548,10 @@ fn collect_builtin_path_entries(modules_dir: &Path) -> Result<Vec<(String, Strin
                 let Some(relative) = path.strip_prefix(&src_dir).ok() else {
                     continue;
                 };
-                let mut alias_tail = relative.with_extension("").to_string_lossy().replace('\\', "/");
+                let mut alias_tail = relative
+                    .with_extension("")
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 if alias_tail == "main" {
                     alias_tail.clear();
                 } else if let Some(prefix) = alias_tail.strip_suffix("/main") {
@@ -614,7 +617,10 @@ pub(crate) fn emit_selected_namespace_objects(
         // Nome do arquivo: `runtime.namespace_<name>.o`. Mantemos o mesmo
         // diretorio (`target/.deps/`) por enquanto; Etapa 5 migra para
         // `node_modules/.rts/objs/`.
-        let file_name = format!("runtime.namespace_{}.o", sanitize_namespace_for_filename(&namespace));
+        let file_name = format!(
+            "runtime.namespace_{}.o",
+            sanitize_namespace_for_filename(&namespace)
+        );
         let output_path = deps_dir.join(&file_name);
         let artifact = crate::codegen::object::write_object_file(&output_path, &bytes)?;
 
@@ -633,7 +639,13 @@ pub(crate) fn emit_selected_namespace_objects(
 fn sanitize_namespace_for_filename(namespace: &str) -> String {
     namespace
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 

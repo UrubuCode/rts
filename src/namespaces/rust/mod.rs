@@ -354,28 +354,28 @@ pub(crate) fn rts_process_exit(code: i64) -> i64 {
 
 pub(crate) fn rts_global_set(key_handle: i64, value_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
-    let value = crate::namespaces::abi::read_runtime_value(value_handle).to_runtime_string();
-    crate::namespaces::global::set(&key, &value);
+    let value = crate::namespaces::abi::read_runtime_value(value_handle);
+    crate::namespaces::globals::set(&key, value);
     crate::namespaces::abi::undefined_handle()
 }
 
 pub(crate) fn rts_global_get(key_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
-    match crate::namespaces::global::get(&key) {
-        Some(value) => crate::namespaces::abi::push_runtime_value(RuntimeValue::String(value)),
+    match crate::namespaces::globals::get(&key) {
+        Some(value) => crate::namespaces::abi::push_runtime_value(value),
         None => crate::namespaces::abi::undefined_handle(),
     }
 }
 
 pub(crate) fn rts_global_has(key_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
-    let exists = crate::namespaces::global::has(&key);
+    let exists = crate::namespaces::globals::has(&key);
     crate::namespaces::abi::push_runtime_value(RuntimeValue::Bool(exists))
 }
 
 pub(crate) fn rts_global_delete(key_handle: i64) -> i64 {
     let key = crate::namespaces::abi::read_runtime_value(key_handle).to_runtime_string();
-    let removed = crate::namespaces::global::delete(&key);
+    let removed = crate::namespaces::globals::delete(&key);
     crate::namespaces::abi::push_runtime_value(RuntimeValue::Bool(removed))
 }
 

@@ -50,9 +50,11 @@ fn lowers_imported_namespace_call_without_panicking() {
 
 #[test]
 fn builds_namespace_wrapper_object() {
-    let bytes =
-        build_namespace_dispatch_object(&[String::from("io.print"), String::from("process.arch")], false)
-            .expect("namespace wrapper object should compile");
+    let bytes = build_namespace_dispatch_object(
+        &[String::from("io.print"), String::from("process.arch")],
+        false,
+    )
+    .expect("namespace wrapper object should compile");
     assert!(!bytes.is_empty());
 }
 
