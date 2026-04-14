@@ -69,7 +69,7 @@ fn build_function(function: &HirFunction) -> MirFunction {
     });
 
     for statement in &function.body {
-        let trimmed = statement.trim();
+        let trimmed = statement.text.trim();
         if !trimmed.is_empty() {
             statements.push(MirStatement {
                 text: trimmed.to_string(),
@@ -95,8 +95,8 @@ fn collect_top_level_statements(hir: &HirModule) -> Vec<MirStatement> {
             HirItem::Import(import) => statements.push(MirStatement {
                 text: render_import_statement(import),
             }),
-            HirItem::Statement(text) => {
-                let trimmed = text.trim();
+            HirItem::Statement(stmt) => {
+                let trimmed = stmt.text.trim();
                 if !trimmed.is_empty() {
                     statements.push(MirStatement {
                         text: trimmed.to_string(),

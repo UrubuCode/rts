@@ -13,6 +13,13 @@ declare module "rts:task" {
   export type f64 = number;
   export type bool = boolean;
   export type str = string;
+  export namespace promise {
+    export type Handle = usize;
+
+    export type State = "pending" | "fulfilled" | "rejected";
+
+  }
+
   /**
    * Spawns an async sleep task resolved as a promise handle.
    */

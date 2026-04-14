@@ -4,7 +4,7 @@ use crate::type_system::resolver::TypeResolver;
 use super::annotations::TypeAnnotation;
 use super::nodes::{
     HirClass, HirField, HirFunction, HirImport, HirInterface, HirItem, HirModule, HirParameter,
-    SourceLocation,
+    HirStmt, SourceLocation,
 };
 
 pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
@@ -171,11 +171,7 @@ pub fn lower(program: &Program, resolver: &TypeResolver) -> HirModule {
                 module.functions.push(function);
             }
             Item::Statement(statement) => {
-                let text = match statement {
-                    Statement::Raw(raw) => raw.value.clone(),
-                };
-
-                module.items.push(HirItem::Statement(text));
+                module.items.push(HirItem::Statement(statement_to_hir(statement)));
             }
         }
     }
@@ -191,13 +187,18 @@ fn annotate(type_name: &str, resolver: &TypeResolver) -> TypeAnnotation {
     }
 }
 
-fn statements_to_strings(statements: &[Statement]) -> Vec<String> {
-    statements
-        .iter()
-        .map(|statement| match statement {
-            Statement::Raw(raw) => raw.value.clone(),
-        })
-        .collect()
+fn statements_to_strings(statements: &[Statement]) -> Vec<HirStmt> {
+    statements.iter().map(statement_to_hir).collect()
+}
+
+/// Converte um `Statement` do AST do parser em `HirStmt`, carregando
+/// o texto e o `swc_ecma_ast::Stmt` ja parseado quando disponivel.
+/// O MIR prefere o `Stmt` estruturado; so cai no texto (`RuntimeEval`)
+/// quando o parser nao propagou o Stmt.
+fn statement_to_hir(statement: &Statement) -> HirStmt {
+    match statement {
+        Statement::Raw(raw) => HirStmt::new(raw.text.clone(), raw.stmt.clone()),
+    }
 }
 
 /// Parâmetro implícito `this` injetado no início de métodos de instância

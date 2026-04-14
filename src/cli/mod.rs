@@ -1,4 +1,5 @@
 pub mod apis;
+pub mod clean;
 pub mod compile;
 pub mod eval;
 pub mod init;
@@ -16,6 +17,7 @@ struct CliFlags {
     profile: CompilationProfile,
     debug: bool,
     frontend_mode: FrontendMode,
+    watch: bool,
 }
 
 impl Default for CliFlags {
@@ -24,6 +26,7 @@ impl Default for CliFlags {
             profile: CompilationProfile::Development,
             debug: false,
             frontend_mode: FrontendMode::Native,
+            watch: false,
         }
     }
 }
@@ -71,10 +74,15 @@ where
             positional.get(2).cloned(),
             flags.as_compile_options(),
         ),
-        "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
+        "run" => run::command_with_watch(
+            positional.get(1).cloned(),
+            flags.as_compile_options(),
+            flags.watch,
+        ),
         "test" => test::command(positional.get(1).cloned(), flags.as_compile_options()),
         "repl" => repl::command(),
         "init" => init::command(positional.get(1).cloned()),
+        "clean" => clean::command(),
         "apis" | "api" => apis::command(),
         "emit-types" => {
             let output_dir = positional.get(1).cloned()
@@ -91,7 +99,11 @@ where
             print_help(&bin_name);
             Ok(())
         }
-        entry => run::command(Some(entry.to_string()), flags.as_compile_options()),
+        entry => run::command_with_watch(
+            Some(entry.to_string()),
+            flags.as_compile_options(),
+            flags.watch,
+        ),
     };
 
     let rendered = result.map_err(|error| render_compiler_error(error, flags));
@@ -120,7 +132,15 @@ fn parse_flags(raw_args: Vec<String>) -> Result<(CliFlags, Vec<String>, Option<S
         match arg.as_str() {
             "--development" | "-d" => flags.profile = CompilationProfile::Development,
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
-            "--debug" | "-D" => flags.debug = true,
+            "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
+            "--debug" | "-D" => {
+                // Aceito por compatibilidade. Sera removido em versao futura.
+                eprintln!(
+                    "warning: --debug/-D esta depreciado, use --dump-statistics/-ds"
+                );
+                flags.debug = true;
+            }
+            "--watch" | "-w" => flags.watch = true,
             "--native" => flags.frontend_mode = FrontendMode::Native,
             "--compat" => flags.frontend_mode = FrontendMode::Compat,
             "--eval" | "-e" => {
@@ -172,7 +192,7 @@ fn render_compiler_error(error: anyhow::Error, flags: CliFlags) -> anyhow::Error
     if matches!(flags.profile, CompilationProfile::Production) && !flags.debug {
         let fingerprint = fnv1a32(format!("{error:#}").as_bytes());
         return anyhow!(
-            "compiler error [RTS{:08X}] (use --development or --debug for trace route)",
+            "compiler error [RTS{:08X}] (use --development or --dump-statistics for trace route)",
             fingerprint
         );
     }
@@ -205,19 +225,20 @@ fn print_help(bin_name: &str) {
     println!("RTS compiler bootstrap CLI");
     println!("Usage:");
     println!(
-        "  {bin_name} -e|--eval <code> [--development|-d] [--production|-p] [--debug|-D] [--native|--compat]"
+        "  {bin_name} -e|--eval <code> [--development|-d] [--production|-p] [--dump-statistics|-ds] [--native|--compat]"
     );
     println!(
-        "  {bin_name} [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] <input.(rts|ts|js)>"
+        "  {bin_name} [--development|-d] [--production|-p] [--dump-statistics|-ds] [--native|--compat] <input.(rts|ts|js)>"
     );
     println!(
-        "  {bin_name} compile [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)] [output]"
+        "  {bin_name} compile [--development|-d] [--production|-p] [--dump-statistics|-ds] [--native|--compat] [input.(rts|ts|js)] [output]"
     );
     println!(
-        "  {bin_name} run [--development|-d] [--production|-p] [--debug|-D] [--native|--compat] [input.(rts|ts|js)]"
+        "  {bin_name} run [--development|-d] [--production|-p] [--dump-statistics|-ds] [--watch|-w] [--native|--compat] [input.(rts|ts|js)]"
     );
     println!("  {bin_name} test [path]");
     println!("  {bin_name} init [project-name]");
+    println!("  {bin_name} clean");
     println!("  {bin_name} apis");
     println!("  {bin_name} repl");
 }
@@ -255,5 +276,38 @@ mod tests {
             parse_flags(vec!["run".to_string()]).expect("flags should parse");
         assert_eq!(positional, vec!["run".to_string()]);
         assert!(eval_source.is_none());
+    }
+
+    #[test]
+    fn parse_dump_statistics_long_flag_enables_debug() {
+        let (flags, _positional, _eval) =
+            parse_flags(vec!["--dump-statistics".to_string(), "file.ts".to_string()])
+                .expect("flags should parse");
+        assert!(flags.debug);
+    }
+
+    #[test]
+    fn parse_dump_statistics_short_flag_enables_debug() {
+        let (flags, _positional, _eval) =
+            parse_flags(vec!["-ds".to_string(), "file.ts".to_string()])
+                .expect("flags should parse");
+        assert!(flags.debug);
+    }
+
+    #[test]
+    fn parse_dump_statistics_sd_alias_enables_debug() {
+        let (flags, _positional, _eval) =
+            parse_flags(vec!["-sd".to_string(), "file.ts".to_string()])
+                .expect("flags should parse");
+        assert!(flags.debug);
+    }
+
+    #[test]
+    fn parse_debug_flag_still_accepted_as_deprecated() {
+        // --debug ainda funciona, mas emite warning no stderr.
+        let (flags, _positional, _eval) =
+            parse_flags(vec!["--debug".to_string(), "file.ts".to_string()])
+                .expect("flags should parse");
+        assert!(flags.debug);
     }
 }

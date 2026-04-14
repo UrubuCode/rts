@@ -136,11 +136,13 @@ pub(crate) fn compile_graph(
         let object_path = deps_dir.join(format!("{stem}.o"));
         let meta_path = deps_dir.join(format!("{stem}.m"));
         let source_hash = hash_source(&module.source);
+        let deps_hash = graph.transitive_deps_hash(&module.key);
 
         if is_cached_object_valid(
             &meta_path,
             &object_path,
             &source_hash,
+            &deps_hash,
             &options,
             is_entry_module,
         ) {
@@ -161,6 +163,7 @@ pub(crate) fn compile_graph(
             &ObjectCacheMeta {
                 cache_schema: OBJECT_CACHE_SCHEMA,
                 source_hash,
+                deps_hash,
                 profile: options.profile.to_string(),
                 debug: options.debug,
                 emit_entrypoint: is_entry_module,
@@ -346,50 +349,64 @@ fn should_keep_named_item(required_names: Option<&BTreeSet<String>>, name: &str)
 }
 
 pub(crate) fn resolve_deps_dir(output: &Path) -> Result<PathBuf> {
-    let base = if let Ok(configured) = std::env::var("RTS_DEPS_DIR") {
-        let configured = configured.trim();
-        if configured.is_empty() {
-            PathBuf::from("target").join(".deps")
-        } else {
-            PathBuf::from(configured)
-        }
-    } else {
-        let _ = output;
-        PathBuf::from("target").join(".deps")
-    };
+    // Prioridade:
+    // 1. Variavel de ambiente `RTS_DEPS_DIR` — usuario avancado pode
+    //    apontar para qualquer diretorio (testes, CI, etc)
+    // 2. `node_modules/.rts/objs/` — padrao a partir da Etapa 5, alinha
+    //    com o ecossistema JS/TS (ignorado por ferramentas como tsc,
+    //    vscode, eslint, prettier automaticamente)
+    // 3. `target/.deps/` — fallback legado, mantido apenas se o usuario
+    //    ja tem um `target/.deps/` existente (nao quebra builds atuais)
+    let _ = output;
 
-    let deps = if base.ends_with(".deps") {
-        base
-    } else {
-        base.join(".deps")
-    };
-    std::fs::create_dir_all(&deps)
-        .with_context(|| format!("failed to create {}", deps.display()))?;
-    Ok(deps)
+    if let Ok(configured) = std::env::var("RTS_DEPS_DIR") {
+        let configured = configured.trim();
+        if !configured.is_empty() {
+            let custom = PathBuf::from(configured);
+            std::fs::create_dir_all(&custom)
+                .with_context(|| format!("failed to create {}", custom.display()))?;
+            return Ok(custom);
+        }
+    }
+
+    let new_default = PathBuf::from("node_modules").join(".rts").join("objs");
+    let legacy = PathBuf::from("target").join(".deps");
+
+    // Se existe um cache legado e nao existe o novo, migramos o path
+    // mas continuamos usando o legado — evita quebrar builds em progresso.
+    // O usuario move manualmente rodando `rts clean` seguido de novo build.
+    if legacy.exists() && !new_default.exists() {
+        return Ok(legacy);
+    }
+
+    std::fs::create_dir_all(&new_default)
+        .with_context(|| format!("failed to create {}", new_default.display()))?;
+    Ok(new_default)
 }
 
 pub(crate) fn resolve_launcher_cache_dir(output: &Path) -> Result<PathBuf> {
-    let base = if let Ok(configured) = std::env::var("RTS_LAUNCHER_CACHE_DIR") {
+    let _ = output;
+
+    if let Ok(configured) = std::env::var("RTS_LAUNCHER_CACHE_DIR") {
         let configured = configured.trim();
-        if configured.is_empty() {
-            PathBuf::from("target").join(".launcher")
-        } else {
-            PathBuf::from(configured)
+        if !configured.is_empty() {
+            let custom = PathBuf::from(configured);
+            std::fs::create_dir_all(&custom)
+                .with_context(|| format!("failed to create {}", custom.display()))?;
+            return Ok(custom);
         }
-    } else {
-        let _ = output;
-        PathBuf::from("target").join(".launcher")
-    };
+    }
 
-    let launcher = if base.ends_with(".launcher") {
-        base
-    } else {
-        base.join(".launcher")
-    };
+    let new_default = PathBuf::from("node_modules").join(".rts").join("launcher");
+    let legacy = PathBuf::from("target").join(".launcher");
 
-    std::fs::create_dir_all(&launcher)
-        .with_context(|| format!("failed to create {}", launcher.display()))?;
-    Ok(launcher)
+    if legacy.exists() && !new_default.exists() {
+        return Ok(legacy);
+    }
+
+    std::fs::create_dir_all(&new_default)
+        .with_context(|| format!("failed to create {}", new_default.display()))?;
+    Ok(new_default)
 }
 
 fn emit_fallback_main_object(
@@ -470,26 +487,58 @@ pub(crate) fn emit_selected_namespace_objects(
         return Ok(RuntimeObjectArtifacts::default());
     }
 
-    let mut ordered = callees
-        .into_iter()
-        .map(str::to_string)
-        .collect::<Vec<String>>();
-    ordered.sort();
-    ordered.dedup();
+    // Agrupa callees por namespace (prefixo antes do primeiro '.'). Ex:
+    // ["io.print", "io.panic", "fs.read"] -> {"io": [...], "fs": [...]}.
+    // Cada grupo vira um .o separado — sem custo em runtime (wrappers
+    // identicos), mas da visibilidade por namespace no profiler/linker e
+    // habilita futuramente `.rtslib` (namespaces externos em objects
+    // pre-compilados).
+    let mut grouped: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for callee in callees {
+        let ns = callee
+            .split_once('.')
+            .map(|(prefix, _)| prefix.to_string())
+            .unwrap_or_else(|| callee.to_string());
+        grouped.entry(ns).or_default().push(callee.to_string());
+    }
+    for callees in grouped.values_mut() {
+        callees.sort();
+        callees.dedup();
+    }
 
-    let bytes = crate::codegen::cranelift::object_builder::build_namespace_dispatch_object(
-        &ordered,
-        options.profile.as_str() == "production",
-    )?;
-    let output_path = deps_dir.join("rts_namespace_dispatch.o");
-    let artifact = crate::codegen::object::write_object_file(&output_path, &bytes)?;
+    let mut artifacts = RuntimeObjectArtifacts::default();
+    let production = options.profile.as_str() == "production";
 
-    Ok(RuntimeObjectArtifacts {
-        object_paths: vec![artifact.path],
-        bytes_written: artifact.bytes_written,
-        cache_hits: 0,
-        cache_misses: 1,
-    })
+    for (namespace, ns_callees) in grouped {
+        let bytes = crate::codegen::cranelift::object_builder::build_namespace_dispatch_object(
+            &ns_callees,
+            production,
+        )?;
+        // Nome do arquivo: `runtime.namespace_<name>.o`. Mantemos o mesmo
+        // diretorio (`target/.deps/`) por enquanto; Etapa 5 migra para
+        // `node_modules/.rts/objs/`.
+        let file_name = format!("runtime.namespace_{}.o", sanitize_namespace_for_filename(&namespace));
+        let output_path = deps_dir.join(&file_name);
+        let artifact = crate::codegen::object::write_object_file(&output_path, &bytes)?;
+
+        artifacts.bytes_written += artifact.bytes_written;
+        artifacts.object_paths.push(artifact.path);
+        artifacts.cache_misses += 1;
+    }
+
+    Ok(artifacts)
+}
+
+/// Sanitiza o nome de um namespace para ser seguro como componente de
+/// filename. Converte pontos em underscores (caso sub-namespaces como
+/// `rts.natives` virem callees no futuro) e remove qualquer caractere
+/// fora do conjunto `[a-zA-Z0-9_]`.
+fn sanitize_namespace_for_filename(namespace: &str) -> String {
+    namespace
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
 }
 
 pub(crate) fn module_object_stem(app_name: &str, module: &SourceModule, input: &Path) -> String {

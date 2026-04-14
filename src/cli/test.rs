@@ -9,7 +9,6 @@ use crate::compile_options::CompileOptions;
 struct Theme {
     green: &'static str,
     red: &'static str,
-    yellow: &'static str,
     cyan: &'static str,
     dim: &'static str,
     bold: &'static str,
@@ -26,7 +25,6 @@ impl Theme {
             Self {
                 green: "\x1b[32m",
                 red: "\x1b[31m",
-                yellow: "\x1b[33m",
                 cyan: "\x1b[36m",
                 dim: "\x1b[2m",
                 bold: "\x1b[1m",
@@ -34,7 +32,7 @@ impl Theme {
             }
         } else {
             Self {
-                green: "", red: "", yellow: "", cyan: "", dim: "", bold: "", reset: "",
+                green: "", red: "", cyan: "", dim: "", bold: "", reset: "",
             }
         }
     }

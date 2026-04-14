@@ -1,4 +1,4 @@
-﻿use super::span::{Span, Spanned};
+﻿use super::span::Span;
 
 #[derive(Debug, Clone, Default)]
 pub struct Program {
@@ -109,7 +109,37 @@ pub struct Parameter {
     pub span: Span,
 }
 
+/// Statement no AST interno do parser. Cada statement carrega o texto
+/// original (ainda util para diagnosticos e para o fallback `RuntimeEval`)
+/// e o `swc_ecma_ast::Stmt` ja parseado, que o MIR consome direto sem
+/// re-parse — eliminando o ciclo parse -> string -> reparse.
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Raw(Spanned<String>),
+    Raw(RawStmt),
+}
+
+#[derive(Debug, Clone)]
+pub struct RawStmt {
+    pub text: String,
+    pub span: Span,
+    /// AST SWC ja parseado deste statement. Clonado diretamente do
+    /// parser SWC — sem re-parse posterior. Pode ser `None` apenas em
+    /// casos limite onde o lowerer do parser interno nao tem acesso
+    /// ao Stmt original (ex: construcoes sinteticas).
+    pub stmt: Option<swc_ecma_ast::Stmt>,
+}
+
+impl RawStmt {
+    pub fn new(text: String, span: Span) -> Self {
+        Self {
+            text,
+            span,
+            stmt: None,
+        }
+    }
+
+    pub fn with_stmt(mut self, stmt: swc_ecma_ast::Stmt) -> Self {
+        self.stmt = Some(stmt);
+        self
+    }
 }

@@ -27,14 +27,145 @@ struct RunExecutionReport {
     jit_report: JitReport,
     stage_timings: RunStageTimings,
     runtime_metrics: RuntimeMetricsSnapshot,
+    source_stats: SourceStats,
+    namespace_usage: Vec<NamespaceUsageEntry>,
+    gc_stats: crate::namespaces::gc::arena::GcStats,
+    value_store_stats: crate::namespaces::abi::ValueStoreStats,
+    runtime_eval_warnings: usize,
+}
+
+/// Analise agregada do fonte apos lowering para HIR.
+/// Usado pelo `--dump-statistics` para mostrar a "forma" do programa.
+#[derive(Debug, Clone, Default)]
+struct SourceStats {
+    functions: usize,
+    classes: usize,
+    interfaces: usize,
+    imports: usize,
+}
+
+/// Contabiliza quantos call sites usam cada namespace.
+/// Derivado do merged HIR apos lowering.
+#[derive(Debug, Clone)]
+struct NamespaceUsageEntry {
+    namespace: String,
+    callee_count: usize,
 }
 
 pub fn command(input_arg: Option<String>, options: CompileOptions) -> Result<()> {
+    command_with_watch(input_arg, options, false)
+}
+
+/// Entry-point de `rts run` com suporte opcional a `--watch`.
+/// Quando `watch = true`, executa uma vez e registra watchers em todos os
+/// arquivos do grafo. Re-executa ao detectar mudanca. Sai com Ctrl+C.
+pub fn command_with_watch(
+    input_arg: Option<String>,
+    options: CompileOptions,
+    watch: bool,
+) -> Result<()> {
     let input = input_arg
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("examples/console.ts"));
 
-    execute_file(&input, options)
+    if watch {
+        run_with_watcher(&input, options)
+    } else {
+        execute_file(&input, options)
+    }
+}
+
+/// Loop de watch: executa o arquivo, registra watchers em todos os paths
+/// do grafo de modulos, bloqueia ate receber evento de mudanca, re-executa.
+/// Erros de compilacao nao interrompem o loop — o usuario pode corrigir
+/// e salvar novamente.
+fn run_with_watcher(input: &Path, options: CompileOptions) -> Result<()> {
+    use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Duration;
+
+    eprintln!("rts watch: iniciando execucao inicial de {}", input.display());
+
+    // Primeira execucao — coletamos os paths do grafo mesmo se falhar.
+    let _ = execute_file(input, options);
+
+    let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+    let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |res| {
+        let _ = tx.send(res);
+    })
+    .with_context(|| "failed to create file watcher")?;
+
+    // Determina quais paths observar. Se a compilacao falhou, cai no entry file.
+    let paths_to_watch = match crate::module::ModuleGraph::load(input, options) {
+        Ok(graph) => graph.disk_paths(),
+        Err(_) => vec![input.to_path_buf()],
+    };
+
+    for path in &paths_to_watch {
+        if let Err(err) = watcher.watch(path, RecursiveMode::NonRecursive) {
+            eprintln!(
+                "rts watch: aviso — nao foi possivel observar {}: {err}",
+                path.display()
+            );
+        }
+    }
+    eprintln!(
+        "rts watch: observando {} arquivo(s). Ctrl+C para sair.",
+        paths_to_watch.len()
+    );
+
+    // Loop principal. Agrupamos eventos com um pequeno debounce (300ms) porque
+    // editores como VS Code disparam multiplos eventos (rename + create + write)
+    // ao salvar um arquivo.
+    loop {
+        match rx.recv() {
+            Ok(Ok(event)) => {
+                if !is_meaningful_event(&event) {
+                    continue;
+                }
+                // Drena eventos subsequentes durante a janela de debounce.
+                loop {
+                    match rx.recv_timeout(Duration::from_millis(300)) {
+                        Ok(_) => continue,
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => return Ok(()),
+                    }
+                }
+
+                eprintln!("\nrts watch: mudanca detectada, re-executando...");
+                let _ = execute_file(input, options);
+
+                // Re-registra watchers caso o grafo tenha mudado (novo import).
+                if let Ok(graph) = crate::module::ModuleGraph::load(input, options) {
+                    let new_paths = graph.disk_paths();
+                    // Remove watchers antigos que nao estao mais no grafo.
+                    for path in &paths_to_watch {
+                        if !new_paths.contains(path) {
+                            let _ = watcher.unwatch(path);
+                        }
+                    }
+                    // Adiciona novos.
+                    for path in &new_paths {
+                        if !paths_to_watch.contains(path) {
+                            let _ = watcher.watch(path, RecursiveMode::NonRecursive);
+                        }
+                    }
+                }
+            }
+            Ok(Err(err)) => {
+                eprintln!("rts watch: erro do watcher: {err}");
+            }
+            Err(_) => return Ok(()),
+        }
+    }
+}
+
+fn is_meaningful_event(event: &notify::Event) -> bool {
+    use notify::EventKind;
+    matches!(
+        event.kind,
+        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+    )
 }
 
 /// Executes a single file and returns Ok(()) or the first error.
@@ -97,9 +228,20 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
     }
     stage_timings.merge_hir_ms = elapsed_ms(started);
 
+    // Coleta metricas do source antes do build (para nao contar functions
+    // sinteticas adicionadas pelo build_typed).
+    let source_stats = collect_source_stats(&merged_hir);
+    let namespace_usage = collect_namespace_usage(&merged_hir);
+
     let started = Instant::now();
     let typed_mir = crate::mir::typed_build::typed_build(&merged_hir);
     stage_timings.build_mir_ms = elapsed_ms(started);
+
+    // Apos o build, coleta contagem de warnings RuntimeEval emitidos.
+    // O build ja emitiu warnings W001-W011 ao encontrar instrucoes
+    // RuntimeEval — basta contar quantos warnings ha no engine global.
+    let runtime_eval_warnings = crate::diagnostics::reporter::global_engine()
+        .warnings_count();
 
     let started = Instant::now();
     let jit_report = crate::codegen::cranelift::jit::execute_typed(&typed_mir, "main")
@@ -108,13 +250,100 @@ fn execute_with_report(input: &Path, options: CompileOptions) -> Result<RunExecu
     stage_timings.total_ms = elapsed_ms(total_started);
 
     let runtime_metrics = crate::namespaces::abi::runtime_metrics_snapshot();
+    let gc_stats = crate::namespaces::gc::arena::stats();
+    let value_store_stats = crate::namespaces::abi::value_store_stats();
 
     Ok(RunExecutionReport {
         module_count,
         jit_report,
         stage_timings,
         runtime_metrics,
+        source_stats,
+        namespace_usage,
+        gc_stats,
+        value_store_stats,
+        runtime_eval_warnings,
     })
+}
+
+/// Agrega estatisticas do HIR merged: numero de items por tipo.
+/// Conta RuntimeEval nao e feito aqui porque esse evento so e gerado
+/// durante `typed_build`; usa-se `runtime_eval_warnings` do engine global.
+fn collect_source_stats(hir: &crate::hir::nodes::HirModule) -> SourceStats {
+    use crate::hir::nodes::HirItem;
+    let mut stats = SourceStats::default();
+
+    for item in &hir.items {
+        match item {
+            HirItem::Function(_) => stats.functions += 1,
+            HirItem::Class(_) => stats.classes += 1,
+            HirItem::Interface(_) => stats.interfaces += 1,
+            HirItem::Import(_) => stats.imports += 1,
+            HirItem::Statement(_) => {}
+        }
+    }
+
+    // `functions` tambem inclui metodos de classe no merged_hir, mas como
+    // cada metodo vira uma `HirFunction` separada durante o lower, contamos
+    // apenas os items top-level. Para um numero mais preciso de "funcoes
+    // totais no codegen" use `hir.functions.len()` — exposto separadamente.
+    stats.functions = hir.functions.len();
+    stats
+}
+
+/// Coleta callees por namespace varrendo o body das funcoes do HIR.
+/// Como o HIR body ainda e `Vec<String>`, usamos um regex simples
+/// procurando por `<ident>.<ident>(` no texto. Depois que a Etapa 6
+/// quebrar o ciclo parse→string→reparse, isto pode ser feito em cima
+/// do AST estruturado.
+fn collect_namespace_usage(hir: &crate::hir::nodes::HirModule) -> Vec<NamespaceUsageEntry> {
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+
+    for function in &hir.functions {
+        for stmt in &function.body {
+            collect_namespace_calls_from_text(&stmt.text, &mut counts);
+        }
+    }
+    for item in &hir.items {
+        if let crate::hir::nodes::HirItem::Statement(stmt) = item {
+            collect_namespace_calls_from_text(&stmt.text, &mut counts);
+        }
+    }
+
+    counts
+        .into_iter()
+        .map(|(namespace, callee_count)| NamespaceUsageEntry {
+            namespace,
+            callee_count,
+        })
+        .collect()
+}
+
+/// Varre um trecho de texto procurando por `<ns>.<fn>(` — heuristica
+/// leve que nao precisa de parser. Filtra por prefixos conhecidos de
+/// namespace para reduzir falsos positivos (ex: `this.method()` nao conta).
+fn collect_namespace_calls_from_text(
+    text: &str,
+    counts: &mut std::collections::BTreeMap<String, usize>,
+) {
+    let known_namespaces = crate::namespaces::namespace_names();
+    for ns in known_namespaces {
+        let needle = format!("{}.", ns);
+        let mut idx = 0;
+        while let Some(pos) = text[idx..].find(&needle) {
+            let abs = idx + pos;
+            // Check char before: must not be ident char (evitar `foo_io.print`)
+            let prev_ok = abs == 0
+                || !text.as_bytes()[abs - 1]
+                    .is_ascii_alphanumeric()
+                    && text.as_bytes()[abs - 1] != b'_';
+            if prev_ok {
+                *counts.entry(ns.to_string()).or_insert(0) += 1;
+            }
+            idx = abs + needle.len();
+        }
+    }
 }
 
 fn elapsed_ms(started: Instant) -> f64 {
@@ -151,14 +380,78 @@ fn print_runtime_counter_row(label: &str, value: u64) {
 }
 
 fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecutionReport) {
-    println!("launcher --debug timeline (ms)");
+    println!("=== Analise de Fonte ===");
+    println!("  input                {}", input.display());
+    println!("  profile              {}", options.profile);
+    println!("  frontend             {}", options.frontend_mode);
+    println!("  modules              {}", report.module_count);
     println!(
-        "  input={} | profile={} | frontend={} | modules={}",
-        input.display(),
-        options.profile,
-        options.frontend_mode,
-        report.module_count
+        "  functions            {}",
+        report.source_stats.functions
     );
+    println!("  classes              {}", report.source_stats.classes);
+    println!(
+        "  interfaces           {}",
+        report.source_stats.interfaces
+    );
+    println!("  imports              {}", report.source_stats.imports);
+    if report.runtime_eval_warnings > 0 {
+        println!(
+            "  runtime_eval         {} (construcoes caindo em avaliacao dinamica)",
+            report.runtime_eval_warnings
+        );
+    }
+    println!();
+
+    println!("=== Namespaces usados ===");
+    if report.namespace_usage.is_empty() {
+        println!("  (nenhum)");
+    } else {
+        for entry in &report.namespace_usage {
+            println!(
+                "  {:<20} {} callee(s)",
+                entry.namespace, entry.callee_count
+            );
+        }
+    }
+    println!();
+
+    println!("=== GC Arena ===");
+    println!(
+        "  allocated_bytes      {}",
+        report.gc_stats.allocated_bytes
+    );
+    println!(
+        "  generation           {} (collect_all count)",
+        report.gc_stats.generation
+    );
+    println!("  live_slots           {}", report.gc_stats.live_slots);
+    println!();
+
+    println!("=== ValueStore (abi) ===");
+    println!(
+        "  values_len           {} (slots reservados no Vec)",
+        report.value_store_stats.values_len
+    );
+    println!(
+        "  live_slots           {} (slots com valor — apos compactacao)",
+        report.value_store_stats.live_slots
+    );
+    println!(
+        "  bindings_len         {} (bindings nomeados registrados)",
+        report.value_store_stats.bindings_len
+    );
+    println!(
+        "  compactions          {} (passes de compactacao executados)",
+        report.value_store_stats.compactions
+    );
+    println!(
+        "  slots_freed          {} (slots liberados por compactacao)",
+        report.value_store_stats.slots_freed
+    );
+    println!();
+
+    println!("=== Timeline (ms) ===");
 
     let stages = &report.stage_timings;
     print_stage_row("rust.graph.load", stages.graph_load_ms);
@@ -189,6 +482,28 @@ fn print_debug_timeline(input: &Path, options: CompileOptions, report: &RunExecu
         runtime.dispatch_calls,
         runtime.dispatch_nanos,
     );
+
+    // Breakdown por fn_id do __rts_dispatch. Mostra cada ponto de dispatch
+    // separadamente, ordenado por tempo total decrescente, para facilitar
+    // identificar quais FN_* estao dominando o custo. So renderiza entradas
+    // com >= 1 call (evita poluir com linhas zeradas).
+    let mut per_fn: Vec<(usize, u64, u128)> = (0..crate::namespaces::abi::FN_ID_COUNT)
+        .map(|idx| {
+            (
+                idx,
+                runtime.per_fn_calls[idx],
+                runtime.per_fn_nanos[idx],
+            )
+        })
+        .filter(|(_, calls, _)| *calls > 0)
+        .collect();
+    per_fn.sort_by(|a, b| b.2.cmp(&a.2));
+    for (idx, calls, nanos) in per_fn {
+        let label = crate::namespaces::abi::fn_id_label(idx as i64);
+        let row_label = format!("  └ dispatch.{label}");
+        print_runtime_row(&row_label, calls, nanos);
+    }
+
     print_runtime_row(
         "runtime.fn_eval_expr",
         runtime.eval_expr_calls,

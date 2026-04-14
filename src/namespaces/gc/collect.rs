@@ -42,6 +42,11 @@ pub fn enter_scope() {
 /// When the depth returns to zero (top-level quiescence):
 /// - if allocation pressure is above threshold → `collect_all()`
 /// - otherwise → `collect_debt()` (amortised, cheaper)
+///
+/// A compactacao do `ValueStore` e disparada por `__rts_call_dispatch`
+/// (em `abi.rs`) ao voltar para quiescencia top-level. O codegen protege
+/// handles vivos com pin/unpin ao redor de chamadas dinamicas para evitar
+/// liberar slots ainda em uso pelo chamador.
 #[inline]
 pub fn exit_scope() {
     SCOPE_DEPTH.with(|depth| {

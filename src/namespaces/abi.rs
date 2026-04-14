@@ -35,6 +35,49 @@ pub(crate) const FN_CALL_BY_HANDLE: i64 = 22; // (fn_handle, argc, a0..a5) -> i6
 pub(crate) const FN_NEW_INSTANCE: i64 = 23; // (class_ptr, class_len) -> object_handle (fields vazios)
 pub(crate) const FN_LOAD_FIELD: i64 = 24; // (obj_handle, field_ptr, field_len) -> value_handle
 pub(crate) const FN_STORE_FIELD: i64 = 25; // (obj_handle, field_ptr, field_len, value_handle) -> 1/0
+pub(crate) const FN_PIN_HANDLE: i64 = 26; // (handle) -> handle
+pub(crate) const FN_UNPIN_HANDLE: i64 = 27; // (handle) -> handle
+
+/// Numero total de FN_* distintos. Usado como tamanho dos arrays de metricas
+/// por-fn_id em `RuntimeMetrics`.
+pub(crate) const FN_ID_COUNT: usize = 28;
+
+/// Mapeia `fn_id` para nome legivel. Usado pela renderizacao de
+/// `--dump-statistics` para mostrar tempo gasto em cada ponto de dispatch
+/// separadamente. Indices fora do range retornam `"unknown"`.
+pub fn fn_id_label(fn_id: i64) -> &'static str {
+    match fn_id {
+        0 => "reset_thread_state",
+        1 => "bind_identifier",
+        2 => "box_string",
+        3 => "box_bool",
+        4 => "eval_expr",
+        5 => "eval_stmt",
+        6 => "read_identifier",
+        7 => "binop",
+        8 => "is_truthy",
+        9 => "unbox_number",
+        10 => "box_number",
+        11 => "io.print",
+        12 => "io.stdout_write",
+        13 => "io.stderr_write",
+        14 => "io.panic",
+        15 => "crypto.sha256",
+        16 => "process.exit",
+        17 => "global.set",
+        18 => "global.get",
+        19 => "global.has",
+        20 => "global.remove",
+        21 => "box_native_fn",
+        22 => "call_by_handle",
+        23 => "new_instance",
+        24 => "load_field",
+        25 => "store_field",
+        26 => "pin_handle",
+        27 => "unpin_handle",
+        _ => "unknown",
+    }
+}
 
 #[derive(Debug, Clone)]
 struct BindingEntry {
@@ -50,8 +93,20 @@ pub(crate) struct RuntimeBinding {
 
 #[derive(Debug, Default)]
 struct ValueStore {
-    values: Vec<RuntimeValue>,
+    /// Vec de slots opcionais. Slots marcados como `None` foram liberados
+    /// por compactacao mas ficam reservados no Vec para preservar os
+    /// indices (o handle e o `index + 1`, entao re-indexar quebraria
+    /// ponteiros em uso).
+    values: Vec<Option<RuntimeValue>>,
     bindings: FxHashMap<String, BindingEntry>,
+    /// Contador de compactacoes executadas. Reportado em `--dump-statistics`.
+    compactions: u64,
+    /// Total de slots liberados atraves de todas as compactacoes.
+    /// Monotonicamente crescente.
+    slots_freed: u64,
+    /// Handles temporariamente protegidos contra compactacao.
+    /// Refcount permite pinagem repetida no mesmo handle.
+    pinned_handles: FxHashMap<i64, u32>,
 }
 
 impl ValueStore {
@@ -64,7 +119,7 @@ impl ValueStore {
             return UNDEFINED_HANDLE;
         }
 
-        self.values.push(value);
+        self.values.push(Some(value));
         crate::namespaces::gc::notify_alloc();
         self.values.len() as i64
     }
@@ -76,8 +131,66 @@ impl ValueStore {
         let index = (handle - 1) as usize;
         self.values
             .get(index)
-            .cloned()
+            .and_then(|slot| slot.clone())
             .unwrap_or(RuntimeValue::Undefined)
+    }
+
+    /// Compactacao leve: percorre os slots, libera (`= None`) os que nao
+    /// sao referenciados por nenhum binding ativo. Nao re-indexa — os
+    /// handles permanecem validos, apenas os valores sao soltados.
+    ///
+    /// Critico: so pode ser chamado em um ponto de quiescencia top-level
+    /// (scope_depth == 0) porque handles vivos num registrador do JIT nao
+    /// sao visiveis aqui. No caminho atual, e disparado por `exit_scope()`
+    /// quando a ultima funcao TS volta ao top-level.
+    fn compact_excluding(&mut self, exclude: i64) -> (usize, usize) {
+        use std::collections::HashSet;
+        let live: HashSet<i64> = self.bindings.values().map(|b| b.handle).collect();
+
+        let mut freed = 0usize;
+        for (idx, slot) in self.values.iter_mut().enumerate() {
+            let handle = (idx + 1) as i64;
+            let is_pinned = self.pinned_handles.get(&handle).copied().unwrap_or(0) > 0;
+            if slot.is_some() && handle != exclude && !is_pinned && !live.contains(&handle) {
+                *slot = None;
+                freed += 1;
+            }
+        }
+
+        if freed > 0 {
+            self.compactions += 1;
+            self.slots_freed += freed as u64;
+        }
+
+        // Retorna tambem o tamanho atual para logging.
+        (freed, self.values.len())
+    }
+
+    fn compact(&mut self) -> (usize, usize) {
+        self.compact_excluding(UNDEFINED_HANDLE)
+    }
+
+    fn pin_handle(&mut self, handle: i64) -> i64 {
+        if handle <= UNDEFINED_HANDLE {
+            return handle;
+        }
+        let entry = self.pinned_handles.entry(handle).or_insert(0);
+        *entry = entry.saturating_add(1);
+        handle
+    }
+
+    fn unpin_handle(&mut self, handle: i64) -> i64 {
+        if handle <= UNDEFINED_HANDLE {
+            return handle;
+        }
+        if let Some(entry) = self.pinned_handles.get_mut(&handle) {
+            if *entry > 1 {
+                *entry -= 1;
+            } else {
+                self.pinned_handles.remove(&handle);
+            }
+        }
+        handle
     }
 
     fn bind_identifier(&mut self, name: &str, handle: i64, mutable: bool) -> i64 {
@@ -106,7 +219,7 @@ impl ValueStore {
             if mutable && existing.handle > UNDEFINED_HANDLE {
                 let index = (existing.handle - 1) as usize;
                 if let Some(slot) = self.values.get_mut(index) {
-                    *slot = value;
+                    *slot = Some(value);
                     return existing.handle;
                 }
             }
@@ -131,7 +244,7 @@ impl ValueStore {
             if existing.handle > UNDEFINED_HANDLE {
                 let index = (existing.handle - 1) as usize;
                 if let Some(slot) = self.values.get_mut(index) {
-                    *slot = value;
+                    *slot = Some(value);
                     return existing.handle;
                 }
             }
@@ -154,14 +267,14 @@ impl ValueStore {
         }
         let index = (handle - 1) as usize;
         if let Some(slot) = self.values.get_mut(index) {
-            *slot = value;
+            *slot = Some(value);
             return true;
         }
         false
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 struct RuntimeMetrics {
     dispatch_calls: u64,
     dispatch_nanos: u128,
@@ -171,9 +284,31 @@ struct RuntimeMetrics {
     eval_stmt_nanos: u128,
     call_dispatch_calls: u64,
     call_dispatch_nanos: u128,
+    /// Breakdown por `fn_id` do `__rts_dispatch`. Indexados pelas constantes
+    /// `FN_*`. Usado por `--dump-statistics` para mostrar tempo gasto em
+    /// cada ponto de dispatch separadamente.
+    per_fn_calls: [u64; FN_ID_COUNT],
+    per_fn_nanos: [u128; FN_ID_COUNT],
 }
 
-#[derive(Debug, Default, Clone)]
+impl Default for RuntimeMetrics {
+    fn default() -> Self {
+        Self {
+            dispatch_calls: 0,
+            dispatch_nanos: 0,
+            eval_expr_calls: 0,
+            eval_expr_nanos: 0,
+            eval_stmt_calls: 0,
+            eval_stmt_nanos: 0,
+            call_dispatch_calls: 0,
+            call_dispatch_nanos: 0,
+            per_fn_calls: [0; FN_ID_COUNT],
+            per_fn_nanos: [0; FN_ID_COUNT],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct RuntimeMetricsSnapshot {
     pub dispatch_calls: u64,
     pub dispatch_nanos: u128,
@@ -190,6 +325,35 @@ pub(crate) struct RuntimeMetricsSnapshot {
     pub eval_binding_cache_misses: u64,
     pub call_dispatch_calls: u64,
     pub call_dispatch_nanos: u128,
+    /// Tempo/chamadas por `fn_id`. Ordem igual aos indices das constantes
+    /// `FN_*`. Renderizado linha a linha em `--dump-statistics` com o nome
+    /// devolvido por `fn_id_label()`.
+    pub per_fn_calls: [u64; FN_ID_COUNT],
+    pub per_fn_nanos: [u128; FN_ID_COUNT],
+}
+
+impl Default for RuntimeMetricsSnapshot {
+    fn default() -> Self {
+        Self {
+            dispatch_calls: 0,
+            dispatch_nanos: 0,
+            eval_expr_calls: 0,
+            eval_expr_nanos: 0,
+            eval_stmt_calls: 0,
+            eval_stmt_nanos: 0,
+            eval_parse_calls: 0,
+            eval_parse_nanos: 0,
+            eval_identifier_reads: 0,
+            eval_identifier_writes: 0,
+            eval_call_dispatches: 0,
+            eval_binding_cache_hits: 0,
+            eval_binding_cache_misses: 0,
+            call_dispatch_calls: 0,
+            call_dispatch_nanos: 0,
+            per_fn_calls: [0; FN_ID_COUNT],
+            per_fn_nanos: [0; FN_ID_COUNT],
+        }
+    }
 }
 
 thread_local! {
@@ -230,6 +394,10 @@ fn metrics_enabled() -> bool {
     DISPATCH_METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+pub(crate) fn dispatch_debug_enabled() -> bool {
+    metrics_enabled()
+}
+
 pub(crate) fn set_dispatch_metrics_enabled(enabled: bool) {
     DISPATCH_METRICS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
@@ -246,6 +414,49 @@ fn with_store<R>(callback: impl FnOnce(&ValueStore) -> R) -> R {
         let borrowed = store.borrow();
         callback(&borrowed)
     })
+}
+
+/// Snapshot leve das metricas do ValueStore thread-local.
+/// Usado por `--dump-statistics` para reportar uso do store sem vazar
+/// detalhes internos de layout.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ValueStoreStats {
+    /// Numero de slots no Vec (handles alocados, incluindo os liberados
+    /// por compactacao — slots ficam reservados mesmo quando mortos para
+    /// preservar indices).
+    pub values_len: usize,
+    /// Slots que tem valor efetivamente (nao `None`). `values_len - live_slots`
+    /// = slots liberados pela compactacao aguardando reuso/trunc.
+    pub live_slots: usize,
+    /// Numero de bindings nomeados registrados (cada binding aponta para
+    /// um handle).
+    pub bindings_len: usize,
+    /// Quantas compactacoes foram executadas nesta thread.
+    pub compactions: u64,
+    /// Total de slots liberados atraves de todas as compactacoes.
+    pub slots_freed: u64,
+}
+
+/// Retorna as metricas atuais do ValueStore da thread corrente.
+pub fn value_store_stats() -> ValueStoreStats {
+    with_store(|store| ValueStoreStats {
+        values_len: store.values.len(),
+        live_slots: store.values.iter().filter(|s| s.is_some()).count(),
+        bindings_len: store.bindings.len(),
+        compactions: store.compactions,
+        slots_freed: store.slots_freed,
+    })
+}
+
+/// Dispara compactacao do ValueStore thread-local: libera slots nao
+/// referenciados por nenhum binding. Seguro apenas em quiescencia top-level
+/// (scope_depth == 0) — chamado automaticamente pelo `exit_scope` do GC.
+pub fn compact_value_store() -> (usize, usize) {
+    with_store_mut(ValueStore::compact)
+}
+
+pub fn compact_value_store_excluding(exclude: i64) -> (usize, usize) {
+    with_store_mut(|store| store.compact_excluding(exclude))
 }
 
 pub fn reset_thread_state() {
@@ -281,6 +492,8 @@ pub(crate) fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
             eval_binding_cache_misses: eval.binding_cache_misses,
             call_dispatch_calls: metrics.call_dispatch_calls,
             call_dispatch_nanos: metrics.call_dispatch_nanos,
+            per_fn_calls: metrics.per_fn_calls,
+            per_fn_nanos: metrics.per_fn_nanos,
         }
     })
 }
@@ -295,6 +508,14 @@ fn read_value(handle: i64) -> RuntimeValue {
 
 fn bind_identifier(name: &str, handle: i64, mutable: bool) -> i64 {
     with_store_mut(|store| store.bind_identifier(name, handle, mutable))
+}
+
+fn pin_value_handle(handle: i64) -> i64 {
+    with_store_mut(|store| store.pin_handle(handle))
+}
+
+fn unpin_value_handle(handle: i64) -> i64 {
+    with_store_mut(|store| store.unpin_handle(handle))
 }
 
 /// Versão rápida de FN_READ_IDENTIFIER usada no hot path: devolve o
@@ -349,7 +570,7 @@ fn read_utf8(ptr: i64, len: i64) -> Option<String> {
 /// bind/read de identificadores.
 #[inline]
 fn read_utf8_static(ptr: i64, len: i64) -> Option<&'static str> {
-    if ptr <= 0 || len < 0 {
+    if ptr == 0 || len < 0 {
         return None;
     }
 
@@ -549,7 +770,7 @@ pub extern "C" fn __rts_dispatch(
                 let Some(slot) = store.values.get_mut(index) else {
                     return 0i64;
                 };
-                if let RuntimeValue::Object(map) = slot {
+                if let Some(RuntimeValue::Object(map)) = slot {
                     map.insert(field, new_value);
                     1
                 } else {
@@ -557,6 +778,8 @@ pub extern "C" fn __rts_dispatch(
                 }
             })
         }
+        FN_PIN_HANDLE => pin_value_handle(a0),
+        FN_UNPIN_HANDLE => unpin_value_handle(a0),
         _ => UNDEFINED_HANDLE,
     };
 
@@ -573,6 +796,13 @@ pub extern "C" fn __rts_dispatch(
             if fn_id == FN_EVAL_STMT {
                 metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
                 metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
+            }
+            // Breakdown por fn_id: incrementa apenas se o id cai na faixa
+            // conhecida, senao o total agregado em `dispatch_*` ja cobre.
+            if fn_id >= 0 && (fn_id as usize) < FN_ID_COUNT {
+                let idx = fn_id as usize;
+                metrics.per_fn_calls[idx] = metrics.per_fn_calls[idx].saturating_add(1);
+                metrics.per_fn_nanos[idx] = metrics.per_fn_nanos[idx].saturating_add(elapsed);
             }
         });
     }
@@ -610,6 +840,9 @@ pub extern "C" fn __rts_call_dispatch(
     let Some(outcome) = crate::namespaces::rust::dispatch_runtime_call(callee.as_str(), &args)
     else {
         crate::namespaces::gc::exit_scope();
+        if crate::namespaces::gc::scope_depth() == 0 {
+            let _ = compact_value_store_excluding(UNDEFINED_HANDLE);
+        }
         return UNDEFINED_HANDLE;
     };
 
@@ -639,13 +872,18 @@ pub extern "C" fn __rts_call_dispatch(
     });
     crate::namespaces::gc::exit_scope();
 
+    if crate::namespaces::gc::scope_depth() == 0 {
+        let _ = compact_value_store_excluding(result);
+    }
+
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        RuntimeValue, bind_runtime_identifier_value, read_runtime_value, reset_thread_state,
+        RuntimeValue, FN_BOX_NUMBER, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
+        compact_value_store, read_runtime_value, reset_thread_state,
         resolve_runtime_identifier_binding, with_store, write_runtime_identifier_value,
     };
 
@@ -676,5 +914,58 @@ mod tests {
             .unwrap_or(0);
 
         assert_eq!(read_runtime_value(handle), RuntimeValue::Number(7.0));
+    }
+
+    #[test]
+    fn call_dispatch_keeps_pinned_transient_handles() {
+        reset_thread_state();
+
+        let transient = super::__rts_dispatch(
+            FN_BOX_NUMBER,
+            i64::from_ne_bytes(42.0f64.to_ne_bytes()),
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
+        super::__rts_dispatch(FN_PIN_HANDLE, transient, 0, 0, 0, 0, 0);
+
+        let callee = b"process.arch";
+        let _ = super::__rts_call_dispatch(
+            callee.as_ptr() as i64,
+            callee.len() as i64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
+
+        assert_eq!(read_runtime_value(transient), RuntimeValue::Number(42.0));
+        super::__rts_dispatch(FN_UNPIN_HANDLE, transient, 0, 0, 0, 0, 0);
+    }
+
+    #[test]
+    fn compact_respects_pinned_handles_until_unpinned() {
+        reset_thread_state();
+        let handle = super::__rts_dispatch(
+            FN_BOX_NUMBER,
+            i64::from_ne_bytes(7.0f64.to_ne_bytes()),
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
+        super::__rts_dispatch(FN_PIN_HANDLE, handle, 0, 0, 0, 0, 0);
+        let _ = compact_value_store();
+        assert_eq!(read_runtime_value(handle), RuntimeValue::Number(7.0));
+
+        super::__rts_dispatch(FN_UNPIN_HANDLE, handle, 0, 0, 0, 0, 0);
+        let _ = compact_value_store();
+        assert_eq!(read_runtime_value(handle), RuntimeValue::Undefined);
     }
 }

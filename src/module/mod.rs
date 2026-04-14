@@ -215,6 +215,74 @@ impl ModuleGraph {
 
         map
     }
+
+    /// Retorna as chaves canonicas de todos os modulos que `module` importa
+    /// direta ou transitivamente, em ordem determinstica (lexicografica).
+    /// Nao inclui o proprio modulo.
+    ///
+    /// Usado para calcular `deps_hash` — SHA256 concatenado do conteudo
+    /// de todos os transitivos, garantindo que alterar `c.ts` invalide
+    /// o cache de `a.ts` quando `a -> b -> c`.
+    pub fn transitive_deps(&self, module_key: &str) -> Vec<String> {
+        let mut visited: BTreeSet<String> = BTreeSet::new();
+        let mut stack: Vec<String> = Vec::new();
+
+        if let Some(module) = self.modules.get(module_key) {
+            for import in &module.imports {
+                stack.push(import.resolved_key.clone());
+            }
+        }
+
+        while let Some(key) = stack.pop() {
+            if !visited.insert(key.clone()) {
+                continue;
+            }
+            if let Some(dep) = self.modules.get(&key) {
+                for import in &dep.imports {
+                    if !visited.contains(&import.resolved_key) {
+                        stack.push(import.resolved_key.clone());
+                    }
+                }
+            }
+        }
+
+        visited.into_iter().collect()
+    }
+
+    /// Calcula SHA256 combinando o hash do source de cada dependencia
+    /// transitiva (ordem lexicografica das chaves). Usado no cache para
+    /// invalidar `.o` quando qualquer modulo importado mudou.
+    ///
+    /// Modulos builtin sao pulados: sua versao e controlada por `rts_version`
+    /// ja presente no `ObjectCacheMeta`.
+    pub fn transitive_deps_hash(&self, module_key: &str) -> String {
+        use sha2::{Digest, Sha256};
+
+        let deps = self.transitive_deps(module_key);
+        let mut hasher = Sha256::new();
+        for dep_key in &deps {
+            if let Some(dep) = self.modules.get(dep_key) {
+                if matches!(dep.kind, ModuleKind::Builtin) {
+                    continue;
+                }
+                hasher.update(dep_key.as_bytes());
+                hasher.update(b":");
+                hasher.update(dep.source.as_bytes());
+                hasher.update(b"\n");
+            }
+        }
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Retorna todos os paths (absolutos) dos modulos do grafo que sao
+    /// arquivos em disco — util para registrar watchers e para `rts clean`.
+    pub fn disk_paths(&self) -> Vec<PathBuf> {
+        self.modules
+            .values()
+            .filter(|m| !matches!(m.kind, ModuleKind::Builtin))
+            .map(|m| m.path.clone())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]

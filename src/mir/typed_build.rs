@@ -209,11 +209,17 @@ fn collect_top_level_consts(hir: &HirModule) -> HashMap<String, ConstValue> {
     let mut consts: HashMap<String, ConstValue> = HashMap::new();
 
     for item in &hir.items {
-        let HirItem::Statement(text) = item else {
+        let HirItem::Statement(hir_stmt) = item else {
             continue;
         };
-        let Some(stmts) = try_parse_statement(text.trim()) else {
-            continue;
+        // Consome o Stmt estruturado se presente; senao faz re-parse do texto.
+        let stmts: Vec<Stmt> = if let Some(stmt) = &hir_stmt.stmt {
+            vec![stmt.clone()]
+        } else {
+            match try_parse_statement(hir_stmt.text.trim()) {
+                Some(s) => s,
+                None => continue,
+            }
         };
         for stmt in stmts {
             let Stmt::Decl(Decl::Var(var_decl)) = stmt else {
@@ -316,10 +322,23 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
                     from: import.from.clone(),
                 });
             }
-            HirItem::Statement(text) => {
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    lower_statement_text(trimmed, &mut top_level_instructions, &mut top_level_vreg);
+            HirItem::Statement(stmt) => {
+                if let Some(parsed) = &stmt.stmt {
+                    lower_stmt(
+                        parsed,
+                        &stmt.text,
+                        &mut top_level_instructions,
+                        &mut top_level_vreg,
+                    );
+                } else {
+                    let trimmed = stmt.text.trim();
+                    if !trimmed.is_empty() {
+                        lower_statement_text(
+                            trimmed,
+                            &mut top_level_instructions,
+                            &mut top_level_vreg,
+                        );
+                    }
                 }
             }
             HirItem::Function(_) | HirItem::Interface(_) | HirItem::Class(_) => {}
@@ -330,9 +349,6 @@ pub fn typed_build(hir: &HirModule) -> TypedMirModule {
     for function in &hir.functions {
         module.functions.push(build_typed_function(function));
     }
-
-    // Apply function inlining optimizations across the module
-    apply_function_inlining(&mut module);
 
     // Inject top-level statements into main if it exists
     if !top_level_instructions.is_empty() {
@@ -424,16 +440,29 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
         instructions.push(MirInstruction::Bind(param.name.clone(), vreg, true));
     }
 
-    // Lower each body statement with constant pooling
+    // Lower each body statement. Se o HIR ja carrega o Stmt SWC pre-parseado
+    // (vindo do lowering do parser), consumimos direto — sem re-parse. Se
+    // nao (casos raros de lowering sintetico), caimos no caminho de texto
+    // que usa `try_parse_statement` como fallback.
     for statement in &function.body {
-        let trimmed = statement.trim();
-        if !trimmed.is_empty() {
-            lower_statement_text_with_pool(
-                trimmed,
+        if let Some(stmt) = &statement.stmt {
+            lower_stmt_with_pool(
+                stmt,
+                &statement.text,
                 &mut instructions,
                 &mut func.next_vreg,
                 &mut constant_pool,
             );
+        } else {
+            let trimmed = statement.text.trim();
+            if !trimmed.is_empty() {
+                lower_statement_text_with_pool(
+                    trimmed,
+                    &mut instructions,
+                    &mut func.next_vreg,
+                    &mut constant_pool,
+                );
+            }
         }
     }
 
@@ -591,6 +620,10 @@ fn inject_into_typed_main(main: &mut TypedMirFunction, statements: &mut Vec<MirI
 }
 
 fn try_parse_statement(text: &str) -> Option<Vec<Stmt>> {
+    // Fallback usado apenas em casos raros onde o parser interno nao
+    // propagou o `Stmt` estruturado (ex: testes que constroem HIR
+    // manualmente). No caminho feliz de `rts run` / `rts compile`,
+    // esta funcao nao e chamada — o Stmt ja vem pronto no `HirStmt`.
     let cm: Lrc<SourceMap> = Default::default();
     let source = cm.new_source_file(FileName::Anon.into(), text.to_string());
     let mut parser = Parser::new(
@@ -1955,137 +1988,6 @@ fn lower_switch_stmt(
     instructions.push(MirInstruction::Label(end_label));
 }
 
-/// Applies function inlining optimizations across the entire module
-fn apply_function_inlining(module: &mut TypedMirModule) {
-    // Identify inline candidates - small functions called frequently
-    let inline_candidates = identify_inline_candidates(&module.functions);
-
-    // Clone the functions for reference during inlining
-    let functions_for_reference = module.functions.clone();
-
-    // Apply inlining to each function
-    for function in &mut module.functions {
-        let optimized_blocks = function
-            .blocks
-            .iter()
-            .map(|block| {
-                let optimized_instructions = inline_function_calls(
-                    &block.instructions,
-                    &inline_candidates,
-                    &functions_for_reference,
-                );
-                TypedBasicBlock {
-                    label: block.label.clone(),
-                    instructions: optimized_instructions,
-                    terminator: block.terminator.clone(),
-                }
-            })
-            .collect();
-
-        function.blocks = optimized_blocks;
-    }
-}
-
-/// Identifies functions that are good candidates for inlining
-fn identify_inline_candidates(functions: &[TypedMirFunction]) -> std::collections::HashSet<String> {
-    let mut candidates = std::collections::HashSet::new();
-
-    for function in functions {
-        if should_inline_function(function) {
-            candidates.insert(function.name.clone());
-        }
-    }
-
-    candidates
-}
-
-/// Determines if a function should be inlined based on size and complexity
-fn should_inline_function(function: &TypedMirFunction) -> bool {
-    let total_instructions: usize = function
-        .blocks
-        .iter()
-        .map(|block| block.instructions.len())
-        .sum();
-
-    // Heuristics for inlining
-    if function.name == "main" || function.name.starts_with("_") {
-        return false; // Don't inline main or special functions
-    }
-
-    if total_instructions <= 5 {
-        // Very small functions - always inline
-        return true;
-    }
-
-    if total_instructions <= 15 {
-        // Medium functions - inline if they're mostly arithmetic
-        let arithmetic_count = function
-            .blocks
-            .iter()
-            .flat_map(|block| &block.instructions)
-            .filter(|instr| {
-                matches!(
-                    instr,
-                    MirInstruction::BinOp(_, _, _, _)
-                        | MirInstruction::UnaryOp(_, _, _)
-                        | MirInstruction::ConstNumber(_, _)
-                        | MirInstruction::ConstInt32(_, _)
-                )
-            })
-            .count();
-
-        return arithmetic_count as f32 / total_instructions as f32 > 0.7;
-    }
-
-    false // Too large to inline
-}
-
-/// Inlines function calls in the instruction sequence
-fn inline_function_calls(
-    instructions: &[MirInstruction],
-    inline_candidates: &std::collections::HashSet<String>,
-    all_functions: &[TypedMirFunction],
-) -> Vec<MirInstruction> {
-    let mut result = Vec::new();
-
-    for instruction in instructions {
-        match instruction {
-            MirInstruction::Call(dst, function_name, args)
-                if inline_candidates.contains(function_name) =>
-            {
-                // Find the function to inline
-                if let Some(_target_function) =
-                    all_functions.iter().find(|f| &f.name == function_name)
-                {
-                    // Mark as inlined
-                    result.push(MirInstruction::InlineCandidate(function_name.clone()));
-
-                    // Copy function body with parameter substitution
-                    // For simplicity, we'll just add a comment about inlining
-                    result.push(MirInstruction::RuntimeEval(
-                        *dst,
-                        format!("// Inlined function: {}", function_name),
-                    ));
-
-                    // In a real implementation, we would:
-                    // 1. Map parameters to arguments
-                    // 2. Copy all instructions from target_function
-                    // 3. Replace parameter loads with argument values
-                    // 4. Replace return with assignment to dst
-
-                    // For now, just keep the original call
-                    result.push(instruction.clone());
-                } else {
-                    result.push(instruction.clone());
-                }
-            }
-            _ => result.push(instruction.clone()),
-        }
-    }
-
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use crate::hir::nodes::{HirFunction, HirItem, HirModule, HirParameter};
@@ -2093,10 +1995,11 @@ mod tests {
     use super::*;
 
     fn build_simple_module(statements: Vec<&str>) -> HirModule {
+        use crate::hir::nodes::HirStmt;
         HirModule {
             items: statements
                 .into_iter()
-                .map(|s| HirItem::Statement(s.to_string()))
+                .map(|s| HirItem::Statement(HirStmt::new(s.to_string(), None)))
                 .collect(),
             functions: Vec::new(),
             imports: Vec::new(),
@@ -2195,7 +2098,10 @@ mod tests {
                     },
                 ],
                 return_type: None,
-                body: vec!["return a + b;".to_string()],
+                body: vec![crate::hir::nodes::HirStmt::new(
+                    "return a + b;".to_string(),
+                    None,
+                )],
                 loc: None,
             })],
             functions: vec![HirFunction {
@@ -2213,7 +2119,10 @@ mod tests {
                     },
                 ],
                 return_type: None,
-                body: vec!["return a + b;".to_string()],
+                body: vec![crate::hir::nodes::HirStmt::new(
+                    "return a + b;".to_string(),
+                    None,
+                )],
                 loc: None,
             }],
             imports: Vec::new(),

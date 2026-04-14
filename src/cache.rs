@@ -6,12 +6,17 @@ use sha2::{Digest, Sha256};
 
 use crate::compile_options::CompileOptions;
 
-pub(crate) const OBJECT_CACHE_SCHEMA: u32 = 8;
+pub(crate) const OBJECT_CACHE_SCHEMA: u32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ObjectCacheMeta {
     pub(crate) cache_schema: u32,
     pub(crate) source_hash: String,
+    /// Hash combinado (SHA256) de todas as dependencias transitivas do modulo.
+    /// Invalida o cache quando qualquer modulo importado direta ou indiretamente
+    /// mudou — crucial para evitar linkar objects staled contra headers novos.
+    #[serde(default)]
+    pub(crate) deps_hash: String,
     pub(crate) profile: String,
     pub(crate) debug: bool,
     pub(crate) emit_entrypoint: bool,
@@ -36,6 +41,7 @@ pub(crate) fn is_cached_object_valid(
     meta_path: &Path,
     object_path: &Path,
     source_hash: &str,
+    deps_hash: &str,
     options: &CompileOptions,
     emit_entrypoint: bool,
 ) -> bool {
@@ -51,6 +57,7 @@ pub(crate) fn is_cached_object_valid(
     };
 
     meta.source_hash == source_hash
+        && meta.deps_hash == deps_hash
         && meta.cache_schema == OBJECT_CACHE_SCHEMA
         && meta.profile == options.profile.to_string()
         && meta.debug == options.debug

@@ -16,7 +16,7 @@ declare module "rts:process" {
   /**
    * Returns process CLI arguments.
    */
-  export function args(): globalThis.Array<str> | str;
+  export function args(): Array<str> | str;
   /**
    * Returns current working directory.
    */
@@ -59,7 +59,7 @@ declare module "rts:process" {
   export function clock_now(): f64;
 
   const _default: {
-    args(): globalThis.Array<str> | str;
+    args(): Array<str> | str;
     cwd(): str;
     chdir(path: str): void;
     env_get(name: str): str | undefined;

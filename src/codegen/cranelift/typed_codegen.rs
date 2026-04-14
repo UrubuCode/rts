@@ -26,7 +26,7 @@ struct BindingState {
     kind: VRegKind,
 }
 
-use crate::mir::{MirBinOp, MirInstruction, MirUnaryOp, SimdOp, SimdWidth, TypedMirFunction, VReg};
+use crate::mir::{MirBinOp, MirInstruction, MirUnaryOp, TypedMirFunction, VReg};
 
 const ABI_ARG_SLOTS: usize = 6;
 const ABI_PARAM_COUNT: usize = ABI_ARG_SLOTS + 1;
@@ -36,8 +36,8 @@ use crate::namespaces::abi::{
     FN_BIND_IDENTIFIER, FN_BINOP, FN_BOX_BOOL, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
     FN_CALL_BY_HANDLE, FN_CRYPTO_SHA256, FN_EVAL_STMT, FN_GLOBAL_DELETE, FN_GLOBAL_GET,
     FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_IO_PANIC, FN_IO_PRINT, FN_IO_STDERR_WRITE,
-    FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE, FN_PROCESS_EXIT,
-    FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER,
+    FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD, FN_NEW_INSTANCE, FN_PIN_HANDLE,
+    FN_PROCESS_EXIT, FN_READ_IDENTIFIER, FN_STORE_FIELD, FN_UNBOX_NUMBER, FN_UNPIN_HANDLE,
 };
 
 const RTS_DISPATCH: &str = "__rts_dispatch";
@@ -54,7 +54,7 @@ const CALLEE_FN_IDS: &[(&str, i64)] = &[
     ("global.set", FN_GLOBAL_SET),
     ("global.get", FN_GLOBAL_GET),
     ("global.has", FN_GLOBAL_HAS),
-    ("global.delete", FN_GLOBAL_DELETE),
+    ("global.remove", FN_GLOBAL_DELETE),
 ];
 
 pub fn function_signature<M: Module>(module: &mut M) -> cranelift_codegen::ir::Signature {
@@ -225,8 +225,19 @@ pub fn define_typed_function<M: Module>(
         builder.append_block_params_for_function_params(entry_block);
 
         let entry_params = builder.block_params(entry_block).to_vec();
+        let mut handle_param_values: Vec<Value> = Vec::new();
+        for index in 0..function.param_count {
+            let is_numeric = function.param_is_numeric.get(index).copied().unwrap_or(false);
+            if is_numeric {
+                continue;
+            }
+            if let Some(value) = entry_params.get(index + 1).copied() {
+                handle_param_values.push(value);
+            }
+        }
         let mut vreg_map = BTreeMap::<VReg, Value>::new();
         let mut vreg_kinds = BTreeMap::<VReg, VRegKind>::new();
+        let mut const_string_vregs = BTreeMap::<VReg, String>::new();
         let mut local_bindings = BTreeMap::<String, BindingState>::new();
         // Bindings do `main` são semanticamente top-level/globais — precisam ir para o namespace
         // compartilhado para serem visíveis a outras funções. Em funções "normais", os `let`s
@@ -408,6 +419,8 @@ pub fn define_typed_function<M: Module>(
                         s.as_str(),
                     )?;
                     vreg_map.insert(*dst, result);
+                    vreg_kinds.insert(*dst, VRegKind::Handle);
+                    const_string_vregs.insert(*dst, s.clone());
                     default_return = result;
                     default_return_is_native = false;
                 }
@@ -830,14 +843,54 @@ pub fn define_typed_function<M: Module>(
                             )?;
                             handle_args.push(val);
                         }
-                        emit_call_dispatch(
+
+                        // ConstString pode ser hoistada antes da call dinamica
+                        // pelo MIR. Reboxamos no ponto da call para garantir
+                        // handle vivo/dominante e atualizamos o vreg.
+                        let mut refreshed_const_handles = Vec::new();
+                        let const_entries: Vec<(VReg, String)> = const_string_vregs
+                            .iter()
+                            .map(|(v, s)| (*v, s.clone()))
+                            .collect();
+                        for (vreg, text) in const_entries {
+                            if !vreg_map.contains_key(&vreg) {
+                                continue;
+                            }
+                            let refreshed = emit_box_string(
+                                module,
+                                func_declarations,
+                                data_cache,
+                                &mut builder,
+                                text.as_str(),
+                            )?;
+                            vreg_map.insert(vreg, refreshed);
+                            refreshed_const_handles.push(refreshed);
+                        }
+
+                        let pinned_values = pin_live_handles_for_dynamic_call(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            &local_bindings,
+                            &handle_args,
+                            &refreshed_const_handles,
+                            &handle_param_values,
+                        )?;
+                        let result = emit_call_dispatch(
                             module,
                             func_declarations,
                             data_cache,
                             &mut builder,
                             callee.as_str(),
                             &handle_args,
-                        )?
+                        )?;
+                        unpin_live_handles_after_dynamic_call(
+                            module,
+                            func_declarations,
+                            &mut builder,
+                            &pinned_values,
+                        )?;
+                        result
                     } else {
                         // Last resort: callee may be a local binding holding a NativeFunction handle.
                         // Emit FN_CALL_BY_HANDLE(fn_handle, argc=0) so the runtime can look up
@@ -1156,144 +1209,6 @@ pub fn define_typed_function<M: Module>(
                     // For now, treat as no-op (requires loop tracking)
                 }
 
-                MirInstruction::SimdConst(dst, width, values) => {
-                    let vec_type = simd_type(*width);
-                    let lane_count = simd_lane_count(*width);
-                    // Build the vector by splatting first value, then inserting others
-                    let first = values.first().copied().unwrap_or(0.0);
-                    let first_f64 = builder.ins().f64const(first);
-                    let mut vec_val = builder.ins().splat(vec_type, first_f64);
-                    for (i, &v) in values.iter().enumerate().skip(1).take(lane_count - 1) {
-                        let lane_val = builder.ins().f64const(v);
-                        vec_val = builder.ins().insertlane(vec_val, lane_val, i as u8);
-                    }
-                    // Store as i64 handle (pointer-width placeholder for the vector SSA value)
-                    vreg_map.insert(*dst, vec_val);
-                    vreg_kinds.insert(*dst, VRegKind::NativeF64);
-                }
-
-                MirInstruction::SimdOp(dst, op, _width, lhs, rhs) => {
-                    let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                    let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
-
-                    let result = match op {
-                        SimdOp::Add => builder.ins().fadd(lhs_val, rhs_val),
-                        SimdOp::Sub => builder.ins().fsub(lhs_val, rhs_val),
-                        SimdOp::Mul => builder.ins().fmul(lhs_val, rhs_val),
-                        SimdOp::Div => builder.ins().fdiv(lhs_val, rhs_val),
-                        SimdOp::Max => builder.ins().fmax(lhs_val, rhs_val),
-                        SimdOp::Min => builder.ins().fmin(lhs_val, rhs_val),
-                        SimdOp::Sqrt => builder.ins().sqrt(lhs_val),
-                        SimdOp::FMA => {
-                            let mul = builder.ins().fmul(lhs_val, rhs_val);
-                            builder.ins().fadd(mul, lhs_val)
-                        }
-                    };
-
-                    vreg_map.insert(*dst, result);
-                    vreg_kinds.insert(*dst, VRegKind::NativeF64);
-                }
-
-                MirInstruction::SimdLoad(dst, width, base, offset) => {
-                    let vec_type = simd_type(*width);
-                    let base_val = resolve_vreg(&vreg_map, base, &mut builder);
-                    let addr = builder.ins().iadd_imm(base_val, *offset as i64);
-                    let loaded = builder.ins().load(vec_type, MemFlags::new(), addr, 0);
-                    vreg_map.insert(*dst, loaded);
-                    vreg_kinds.insert(*dst, VRegKind::NativeF64);
-                }
-
-                MirInstruction::SimdStore(_width, vec, base, offset) => {
-                    let vec_val = resolve_vreg(&vreg_map, vec, &mut builder);
-                    let base_val = resolve_vreg(&vreg_map, base, &mut builder);
-                    let addr = builder.ins().iadd_imm(base_val, *offset as i64);
-                    builder.ins().store(MemFlags::new(), vec_val, addr, 0);
-                }
-
-                MirInstruction::UnrollHint(_factor) => {
-                    // Add comment about unrolling for debugging
-                    // In a full implementation, this would guide the instruction scheduler
-                    // For now, we just acknowledge the hint
-                }
-
-                MirInstruction::LoopBegin(_loop_id) => {
-                    // Mark beginning of optimized loop region
-                    // Could be used for register allocation hints or branch prediction
-                }
-
-                MirInstruction::LoopEnd(_loop_id) => {
-                    // Mark end of optimized loop region
-                }
-
-                MirInstruction::StrengthReduce(dst, op, lhs, rhs) => {
-                    let lhs_val = resolve_vreg(&vreg_map, lhs, &mut builder);
-                    let rhs_val = resolve_vreg(&vreg_map, rhs, &mut builder);
-
-                    let result = match op {
-                        MirBinOp::Mul => {
-                            // Try to detect power-of-2 constant for shift optimization
-                            if let Some(MirInstruction::ConstInt32(_, val)) =
-                                instructions.iter().find(
-                                    |i| matches!(i, MirInstruction::ConstInt32(r, _) if *r == *rhs),
-                                )
-                            {
-                                let v = *val as u64;
-                                if v.is_power_of_two() && v > 0 {
-                                    let shift = v.trailing_zeros() as i64;
-                                    let shift_val = builder.ins().iconst(types::I64, shift);
-                                    builder.ins().ishl(lhs_val, shift_val)
-                                } else {
-                                    builder.ins().imul(lhs_val, rhs_val)
-                                }
-                            } else {
-                                builder.ins().imul(lhs_val, rhs_val)
-                            }
-                        }
-                        MirBinOp::Div => {
-                            if let Some(MirInstruction::ConstInt32(_, val)) =
-                                instructions.iter().find(
-                                    |i| matches!(i, MirInstruction::ConstInt32(r, _) if *r == *rhs),
-                                )
-                            {
-                                let v = *val as u64;
-                                if v.is_power_of_two() && v > 0 {
-                                    let shift = v.trailing_zeros() as i64;
-                                    let shift_val = builder.ins().iconst(types::I64, shift);
-                                    builder.ins().sshr(lhs_val, shift_val)
-                                } else {
-                                    builder.ins().sdiv(lhs_val, rhs_val)
-                                }
-                            } else {
-                                builder.ins().sdiv(lhs_val, rhs_val)
-                            }
-                        }
-                        MirBinOp::Add => builder.ins().iadd(lhs_val, rhs_val),
-                        MirBinOp::Sub => builder.ins().isub(lhs_val, rhs_val),
-                        _ => builder.ins().imul(lhs_val, rhs_val), // Fallback
-                    };
-
-                    vreg_map.insert(*dst, result);
-                    vreg_kinds.insert(*dst, VRegKind::NativeI32);
-                }
-
-                MirInstruction::HoistInvariant(_vreg, _loop_id) => {
-                    // Invariant hoisting hint - in a real implementation, this would
-                    // inform the register allocator to keep this value in a register
-                    // across loop iterations
-                }
-
-                MirInstruction::InlineCandidate(_function_name) => {
-                    // Mark that the following code was inlined from function_name
-                    // This could be used for debugging or profiling information
-                }
-
-                MirInstruction::InlineCall(dst, _function_name, _args) => {
-                    // This would contain the actual inlined function body
-                    // For now, just emit a placeholder
-                    let result = builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
-                    vreg_map.insert(*dst, result);
-                }
-
                 MirInstruction::RuntimeEval(dst, text) => {
                     let data_id = declare_string_data(module, data_cache, text.as_str())?;
                     let data_ref = module.declare_data_in_func(data_id, builder.func);
@@ -1514,6 +1429,55 @@ fn emit_shadow_writeback<M: Module>(
 fn load_binding_slot(builder: &mut FunctionBuilder, slot: StackSlot) -> Value {
     let addr = builder.ins().stack_addr(types::I64, slot, 0);
     builder.ins().load(types::I64, MemFlags::new(), addr, 0)
+}
+
+fn pin_live_handles_for_dynamic_call<M: Module>(
+    module: &mut M,
+    func_declarations: &mut BTreeMap<String, FuncId>,
+    builder: &mut FunctionBuilder,
+    local_bindings: &BTreeMap<String, BindingState>,
+    call_args: &[Value],
+    extra_handles: &[Value],
+    param_handles: &[Value],
+) -> Result<Vec<Value>> {
+    let mut pinned_values = Vec::new();
+
+    for state in local_bindings.values() {
+        if state.kind == VRegKind::Handle {
+            let handle = load_binding_slot(builder, state.slot);
+            let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
+            pinned_values.push(handle);
+        }
+    }
+
+    for &arg in call_args {
+        let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[arg])?;
+        pinned_values.push(arg);
+    }
+
+    for &handle in extra_handles {
+        let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
+        pinned_values.push(handle);
+    }
+
+    for &handle in param_handles {
+        let _ = emit_dispatch(module, func_declarations, builder, FN_PIN_HANDLE, &[handle])?;
+        pinned_values.push(handle);
+    }
+
+    Ok(pinned_values)
+}
+
+fn unpin_live_handles_after_dynamic_call<M: Module>(
+    module: &mut M,
+    func_declarations: &mut BTreeMap<String, FuncId>,
+    builder: &mut FunctionBuilder,
+    pinned_values: &[Value],
+) -> Result<()> {
+    for &handle in pinned_values {
+        let _ = emit_dispatch(module, func_declarations, builder, FN_UNPIN_HANDLE, &[handle])?;
+    }
+    Ok(())
 }
 
 fn ensure_import<M: Module>(
@@ -1755,20 +1719,6 @@ fn box_native_i32<M: Module>(
         FN_BOX_NUMBER,
         &[f64_bits],
     )
-}
-
-fn simd_type(width: SimdWidth) -> cranelift_codegen::ir::Type {
-    match width {
-        SimdWidth::V128 => types::F64X2, // 128-bit = 2x f64
-        SimdWidth::V256 => types::F64X2, // Cranelift doesn't support 256-bit natively, fallback to 128
-    }
-}
-
-fn simd_lane_count(width: SimdWidth) -> usize {
-    match width {
-        SimdWidth::V128 => 2, // 2x f64
-        SimdWidth::V256 => 2, // Fallback to 128-bit
-    }
 }
 
 fn binop_to_tag(op: &MirBinOp) -> i64 {
