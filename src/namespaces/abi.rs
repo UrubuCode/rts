@@ -570,7 +570,7 @@ fn read_utf8(ptr: i64, len: i64) -> Option<String> {
 /// bind/read de identificadores.
 #[inline]
 fn read_utf8_static(ptr: i64, len: i64) -> Option<&'static str> {
-    if ptr == 0 || len < 0 {
+    if ptr <= 0 || len < 0 {
         return None;
     }
 
@@ -883,7 +883,7 @@ pub extern "C" fn __rts_call_dispatch(
 mod tests {
     use super::{
         RuntimeValue, FN_BOX_NUMBER, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
-        compact_value_store, read_runtime_value, reset_thread_state,
+        compact_value_store, read_runtime_value, read_utf8_static, reset_thread_state,
         resolve_runtime_identifier_binding, with_store, write_runtime_identifier_value,
     };
 
@@ -967,5 +967,25 @@ mod tests {
         super::__rts_dispatch(FN_UNPIN_HANDLE, handle, 0, 0, 0, 0, 0);
         let _ = compact_value_store();
         assert_eq!(read_runtime_value(handle), RuntimeValue::Undefined);
+    }
+
+    #[test]
+    fn read_utf8_static_rejects_negative_ptr() {
+        assert!(read_utf8_static(-1, 5).is_none());
+        assert!(read_utf8_static(-100, 0).is_none());
+        assert!(read_utf8_static(i64::MIN, 10).is_none());
+    }
+
+    #[test]
+    fn read_utf8_static_rejects_zero_ptr() {
+        assert!(read_utf8_static(0, 5).is_none());
+    }
+
+    #[test]
+    fn read_utf8_static_rejects_negative_len() {
+        let data = b"hello";
+        let ptr = data.as_ptr() as i64;
+        assert!(read_utf8_static(ptr, -1).is_none());
+        assert!(read_utf8_static(ptr, i64::MIN).is_none());
     }
 }
