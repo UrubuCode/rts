@@ -394,6 +394,10 @@ fn metrics_enabled() -> bool {
     DISPATCH_METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+pub(crate) fn dispatch_debug_enabled() -> bool {
+    metrics_enabled()
+}
+
 pub(crate) fn set_dispatch_metrics_enabled(enabled: bool) {
     DISPATCH_METRICS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
