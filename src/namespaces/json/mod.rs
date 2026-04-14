@@ -93,6 +93,9 @@ pub fn runtime_to_json(value: &RuntimeValue) -> JsonValue {
             }
             JsonValue::Object(out)
         }
+        RuntimeValue::Array(items) => {
+            JsonValue::Array(items.iter().map(runtime_to_json).collect())
+        }
         RuntimeValue::NativeFunction(_) => JsonValue::Null,
     }
 }
@@ -111,15 +114,7 @@ pub fn json_to_runtime(value: &JsonValue) -> RuntimeValue {
         }
         JsonValue::String(s) => RuntimeValue::String(s.clone()),
         JsonValue::Array(items) => {
-            let mut map: BTreeMap<String, RuntimeValue> = BTreeMap::new();
-            for (idx, item) in items.iter().enumerate() {
-                map.insert(idx.to_string(), json_to_runtime(item));
-            }
-            map.insert(
-                "length".to_string(),
-                RuntimeValue::Number(items.len() as f64),
-            );
-            RuntimeValue::Object(map)
+            RuntimeValue::Array(items.iter().map(json_to_runtime).collect())
         }
         JsonValue::Object(obj) => {
             let mut map: BTreeMap<String, RuntimeValue> = BTreeMap::new();
@@ -189,17 +184,51 @@ mod tests {
     }
 
     #[test]
-    fn parse_array_becomes_object_with_length() {
+    fn parse_array_returns_array_variant() {
         let text = r#"[10, 20, 30]"#;
         let json: JsonValue = serde_json::from_str(text).unwrap();
         let value = json_to_runtime(&json);
-        if let RuntimeValue::Object(map) = value {
-            assert!(matches!(map.get("0"), Some(RuntimeValue::Number(n)) if *n == 10.0));
-            assert!(matches!(map.get("1"), Some(RuntimeValue::Number(n)) if *n == 20.0));
-            assert!(matches!(map.get("2"), Some(RuntimeValue::Number(n)) if *n == 30.0));
-            assert!(matches!(map.get("length"), Some(RuntimeValue::Number(n)) if *n == 3.0));
+        if let RuntimeValue::Array(items) = &value {
+            assert_eq!(items.len(), 3);
+            assert_eq!(items[0], RuntimeValue::Number(10.0));
+            assert_eq!(items[1], RuntimeValue::Number(20.0));
+            assert_eq!(items[2], RuntimeValue::Number(30.0));
         } else {
-            panic!("expected Object (array converted)");
+            panic!("expected Array, got {:?}", value);
+        }
+        // length via get_property
+        assert_eq!(value.get_property("length"), Some(RuntimeValue::Number(3.0)));
+    }
+
+    #[test]
+    fn parse_array_roundtrip_stringify() {
+        let text = "[1,2]";
+        let parsed = json_to_runtime(&serde_json::from_str::<JsonValue>(text).unwrap());
+        let json = runtime_to_json(&parsed);
+        assert_eq!(serde_json::to_string(&json).unwrap(), "[1,2]");
+    }
+
+    #[test]
+    fn parse_empty_array() {
+        let text = "[]";
+        let parsed = json_to_runtime(&serde_json::from_str::<JsonValue>(text).unwrap());
+        if let RuntimeValue::Array(items) = &parsed {
+            assert!(items.is_empty());
+        } else {
+            panic!("expected Array");
+        }
+        assert_eq!(parsed.get_property("length"), Some(RuntimeValue::Number(0.0)));
+    }
+
+    #[test]
+    fn parse_nested_array_in_object() {
+        let text = r#"{"items":[1,2]}"#;
+        let parsed = json_to_runtime(&serde_json::from_str::<JsonValue>(text).unwrap());
+        if let RuntimeValue::Object(map) = &parsed {
+            let items = map.get("items").unwrap();
+            assert!(matches!(items, RuntimeValue::Array(v) if v.len() == 2));
+        } else {
+            panic!("expected Object");
         }
     }
 

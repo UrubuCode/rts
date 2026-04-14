@@ -6,6 +6,7 @@ pub enum RuntimeValue {
     String(String),
     Bool(bool),
     Object(BTreeMap<String, RuntimeValue>),
+    Array(Vec<RuntimeValue>),
     NativeFunction(String),
     Null,
     Undefined,
@@ -23,6 +24,15 @@ impl RuntimeValue {
     pub fn get_property(&self, name: &str) -> Option<RuntimeValue> {
         match self {
             Self::Object(map) => map.get(name).cloned(),
+            Self::Array(items) => {
+                if name == "length" {
+                    Some(Self::Number(items.len() as f64))
+                } else if let Ok(idx) = name.parse::<usize>() {
+                    items.get(idx).cloned()
+                } else {
+                    None
+                }
+            }
             // Strings expoem `length` como contagem de code points Unicode.
             // Semantica difere de JS (que retorna code units UTF-16), mas
             // para strings ASCII — o caso dominante — e equivalente.
@@ -38,7 +48,7 @@ impl RuntimeValue {
             Self::Bool(value) => *value,
             Self::Number(value) => !value.is_nan() && *value != 0.0,
             Self::String(value) => !value.is_empty(),
-            Self::Object(_) | Self::NativeFunction(_) => true,
+            Self::Object(_) | Self::Array(_) | Self::NativeFunction(_) => true,
             Self::Null | Self::Undefined => false,
         }
     }
@@ -56,7 +66,7 @@ impl RuntimeValue {
                     trimmed.parse::<f64>().unwrap_or(f64::NAN)
                 }
             }
-            Self::Object(_) | Self::NativeFunction(_) => f64::NAN,
+            Self::Object(_) | Self::Array(_) | Self::NativeFunction(_) => f64::NAN,
             Self::Null => 0.0,
             Self::Undefined => f64::NAN,
         }
@@ -68,6 +78,11 @@ impl RuntimeValue {
             Self::Number(value) => format_number(*value),
             Self::Bool(value) => value.to_string(),
             Self::Object(_) => "[object Object]".to_string(),
+            Self::Array(items) => items
+                .iter()
+                .map(|v| v.to_runtime_string())
+                .collect::<Vec<_>>()
+                .join(","),
             Self::NativeFunction(name) => {
                 format!("function {}() {{ [native code] }}", name)
             }
