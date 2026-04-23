@@ -46,12 +46,12 @@ pub fn define_typed_function<M: Module>(
         let entry_params = builder.block_params(entry_block).to_vec();
         let mut param_handle_entries: Vec<(usize, Value)> = Vec::new();
         for index in 0..function.param_count {
-            let is_numeric = function
-                .param_is_numeric
+            let kind = function
+                .param_kinds
                 .get(index)
                 .copied()
-                .unwrap_or(false);
-            if is_numeric {
+                .unwrap_or(crate::mir::NumericKind::Any);
+            if kind != crate::mir::NumericKind::Any {
                 continue;
             }
             if let Some(value) = entry_params.get(index + 1).copied() {
@@ -253,23 +253,48 @@ pub fn define_typed_function<M: Module>(
                         .get(index + 1)
                         .copied()
                         .unwrap_or_else(|| builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE));
-                    if function
-                        .param_is_numeric
+                    let kind = function
+                        .param_kinds
                         .get(*index)
                         .copied()
-                        .unwrap_or(false)
-                    {
-                        let bits = emit_dispatch(
-                            module,
-                            func_declarations,
-                            &mut builder,
-                            FN_UNBOX_NUMBER,
-                            &[handle],
-                        )?;
-                        vreg_map.insert(*dst, bits);
-                        vreg_kinds.insert(*dst, VRegKind::NativeF64);
-                    } else {
-                        vreg_map.insert(*dst, handle);
+                        .unwrap_or(crate::mir::NumericKind::Any);
+                    match kind {
+                        crate::mir::NumericKind::Float64 => {
+                            let bits = emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_UNBOX_NUMBER,
+                                &[handle],
+                            )?;
+                            vreg_map.insert(*dst, bits);
+                            vreg_kinds.insert(*dst, VRegKind::NativeF64);
+                        }
+                        crate::mir::NumericKind::Int32 => {
+                            // Unbox como f64 bits, converte para i32 nativo
+                            // (fcvt_to_sint clampa/arredonda out-of-range).
+                            // Resultado fica em vreg como i64 com sign-extend
+                            // de i32, casando com VRegKind::NativeI32.
+                            let bits = emit_dispatch(
+                                module,
+                                func_declarations,
+                                &mut builder,
+                                FN_UNBOX_NUMBER,
+                                &[handle],
+                            )?;
+                            let f64_val = builder.ins().bitcast(
+                                types::F64,
+                                cranelift_codegen::ir::MemFlags::new(),
+                                bits,
+                            );
+                            let i32_val = builder.ins().fcvt_to_sint(types::I32, f64_val);
+                            let sext = builder.ins().sextend(types::I64, i32_val);
+                            vreg_map.insert(*dst, sext);
+                            vreg_kinds.insert(*dst, VRegKind::NativeI32);
+                        }
+                        crate::mir::NumericKind::Any => {
+                            vreg_map.insert(*dst, handle);
+                        }
                     }
                 }
 
@@ -861,17 +886,11 @@ pub fn define_typed_function<M: Module>(
                 MirInstruction::Jump(label) => {
                     if !terminated {
                         if let Some(&target_block) = label_blocks.get(label.as_str()) {
-                            if label.starts_with("while_loop_") || label.starts_with("do_while_") {
-                                let undefined =
-                                    builder.ins().iconst(types::I64, ABI_UNDEFINED_HANDLE);
-                                let _ = emit_dispatch(
-                                    module,
-                                    func_declarations,
-                                    &mut builder,
-                                    FN_COMPACT_EXCLUDING,
-                                    &[undefined],
-                                )?;
-                            }
+                            // Antes disparava FN_COMPACT_EXCLUDING em cada back-edge de
+                            // while/do-while. Em loops aritmeticos apertados isto domina
+                            // o tempo de execucao (medido: 98k compactions / 85ms em
+                            // bench_simple de 200k iter). GC compaction deve rodar em
+                            // pontos de quiescencia (return/scope-exit), nao por iter.
                             builder.ins().jump(target_block, &[]);
                             terminated = true;
                         }

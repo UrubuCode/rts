@@ -9,7 +9,9 @@ pub(super) fn lower_expr_with_pool(
 ) -> VReg {
     match expr {
         Expr::Lit(lit) => match lit {
-            Lit::Num(n) => constant_pool.get_or_create_number(n.value, next_vreg),
+            Lit::Num(n) => {
+                constant_pool.get_or_create_number_hinted(n.value, current_hint(), next_vreg)
+            }
             Lit::Str(s) => constant_pool
                 .get_or_create_string(s.value.to_string_lossy().into_owned(), next_vreg),
             Lit::Bool(b) => constant_pool.get_or_create_bool(b.value, next_vreg),
@@ -220,13 +222,16 @@ pub(super) fn lower_expr_with_pool(
             if let Some(name) = extract_simple_assign_target(&assign.left) {
                 match assign.op {
                     AssignOp::Assign => {
-                        let vreg = lower_expr_with_pool(
-                            &assign.right,
-                            original_text,
-                            instructions,
-                            next_vreg,
-                            constant_pool,
-                        );
+                        let target_hint = lookup_binding_hint(&name);
+                        let vreg = with_hint(target_hint, || {
+                            lower_expr_with_pool(
+                                &assign.right,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                                constant_pool,
+                            )
+                        });
                         instructions.push(MirInstruction::WriteBind(name, vreg));
                         vreg
                     }
@@ -235,15 +240,18 @@ pub(super) fn lower_expr_with_pool(
                     | AssignOp::MulAssign
                     | AssignOp::DivAssign
                     | AssignOp::ModAssign => {
+                        let target_hint = lookup_binding_hint(&name);
                         let load = alloc(next_vreg);
                         instructions.push(MirInstruction::LoadBinding(load, name.clone()));
-                        let rhs = lower_expr_with_pool(
-                            &assign.right,
-                            original_text,
-                            instructions,
-                            next_vreg,
-                            constant_pool,
-                        );
+                        let rhs = with_hint(target_hint, || {
+                            lower_expr_with_pool(
+                                &assign.right,
+                                original_text,
+                                instructions,
+                                next_vreg,
+                                constant_pool,
+                            )
+                        });
                         let op = match assign.op {
                             AssignOp::AddAssign => MirBinOp::Add,
                             AssignOp::SubAssign => MirBinOp::Sub,
@@ -333,7 +341,8 @@ pub(super) fn lower_expr_with_pool(
                 let name = ident.sym.to_string();
                 let load = alloc(next_vreg);
                 instructions.push(MirInstruction::LoadBinding(load, name.clone()));
-                let one = constant_pool.get_or_create_number(1.0, next_vreg);
+                let one =
+                    constant_pool.get_or_create_number_hinted(1.0, lookup_binding_hint(&name), next_vreg);
                 let op = if update.op == UpdateOp::PlusPlus {
                     MirBinOp::Add
                 } else {

@@ -25,6 +25,20 @@ pub struct MirStatement {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct VReg(pub u32);
 
+/// Classificacao do tipo numerico de um parametro ou binding, derivada da
+/// anotacao TS. Usada pelo codegen para escolher unboxing especializado
+/// (Int32 permite aritmetica nativa i32, evitando f64 em loops apertados).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NumericKind {
+    /// Sem anotacao ou tipo nao-numerico. Parametro permanece como handle.
+    #[default]
+    Any,
+    /// Inteiro 32-bit assinado (`i32`/`u32`/`i16`/`u16`/`i8`/`u8`).
+    Int32,
+    /// Ponto flutuante 64-bit (`number`/`f64`/`f32`).
+    Float64,
+}
+
 /// Binary operations that can be compiled natively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MirBinOp {
@@ -126,12 +140,14 @@ pub struct TypedBasicBlock {
 pub struct TypedMirFunction {
     pub name: String,
     pub param_count: usize,
-    /// Para cada parâmetro, `true` se o tipo anotado no HIR é numérico
-    /// (`number` / `i32` / `f64` / etc.). Parâmetros numéricos são
-    /// unboxed uma única vez no entry block do codegen, eliminando
-    /// FN_UNBOX_NUMBER em cada uso dentro de loops. Parâmetros não-numéricos
-    /// (strings, bools, objetos) permanecem como handles.
-    pub param_is_numeric: Vec<bool>,
+    /// Para cada parâmetro, o tipo numerico inferido pela anotacao TS. O
+    /// codegen usa isso para decidir o unboxing no entry block:
+    ///   - `Int32` — unbox f64 + truncate para i32 (aritmetica nativa em loops)
+    ///   - `Float64` — unbox como f64
+    ///   - `Any` — mantem como handle (strings, bools, objetos, sem anotacao)
+    /// Unbox acontece uma vez por parametro no entry; evita `FN_UNBOX_NUMBER`
+    /// em cada uso dentro de loops.
+    pub param_kinds: Vec<NumericKind>,
     pub blocks: Vec<TypedBasicBlock>,
     pub next_vreg: u32,
     /// Arquivo TypeScript de origem (propagado do HIR via SourceLocation).

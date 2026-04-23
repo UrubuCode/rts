@@ -14,6 +14,7 @@ use swc_common::{FileName, SourceMap, sync::Lrc};
 #[derive(Debug, Default)]
 struct ConstantPool {
     numbers: HashMap<OrderedFloat, VReg>,
+    ints32: HashMap<i32, VReg>,
     strings: HashMap<String, VReg>,
     booleans: HashMap<bool, VReg>,
     null_vreg: Option<VReg>,
@@ -43,6 +44,33 @@ impl ConstantPool {
     }
 
     fn get_or_create_number(&mut self, value: f64, next_vreg: &mut u32) -> VReg {
+        // Default consulta HINT_STACK para que qualquer path que nao recebe
+        // hint explicito herde o contexto corrente (ex: Expr::Ident resolvendo
+        // `const X = literal` dentro de `let acc: i32 = X` pega Int).
+        self.get_or_create_number_hinted(value, current_hint(), next_vreg)
+    }
+
+    fn get_or_create_number_hinted(
+        &mut self,
+        value: f64,
+        hint: NumericHint,
+        next_vreg: &mut u32,
+    ) -> VReg {
+        if hint == NumericHint::Int
+            && value.fract() == 0.0
+            && value >= i32::MIN as f64
+            && value <= i32::MAX as f64
+        {
+            let int_key = value as i32;
+            if let Some(&vreg) = self.ints32.get(&int_key) {
+                return vreg;
+            }
+            let vreg = alloc(next_vreg);
+            self.ints32.insert(int_key, vreg);
+            self.hoisted_instructions
+                .push(MirInstruction::ConstInt32(vreg, int_key));
+            return vreg;
+        }
         let key = OrderedFloat::from(value);
         if let Some(&vreg) = self.numbers.get(&key) {
             vreg
@@ -118,6 +146,53 @@ enum ConstValue {
     Null,
 }
 
+/// Hint de tipo numerico propagado durante lowering de expressoes.
+/// Permite que literais inteiros decidam entre `ConstInt32` (i32 nativo) e
+/// `ConstNumber` (f64), baseado no contexto estatico do TS. Essencial para
+/// performance: sem hint, `let x: i32 = 3` vira f64 e loops aritmeticos
+/// pagam fadd/fmul/fmod ao inves de iadd/imul/srem.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum NumericHint {
+    #[default]
+    None,
+    Int,
+    Float,
+}
+
+/// Resolve nome de anotacao TS em hint numerico.
+pub(super) fn numeric_hint_from_type_name(name: &str) -> NumericHint {
+    match name {
+        "i32" | "u32" | "i16" | "u16" | "i8" | "u8" => NumericHint::Int,
+        "number" | "f64" | "f32" => NumericHint::Float,
+        // i64/u64 nao cabem em ConstInt32; mantemos None para preservar f64
+        // ate haver suporte nativo i64.
+        _ => NumericHint::None,
+    }
+}
+
+pub(super) fn numeric_hint_from_ts_type_ann(ann: Option<&TsTypeAnn>) -> NumericHint {
+    let Some(ann) = ann else {
+        return NumericHint::None;
+    };
+    match &*ann.type_ann {
+        TsType::TsKeywordType(k) => {
+            if matches!(k.kind, TsKeywordTypeKind::TsNumberKeyword) {
+                NumericHint::Float
+            } else {
+                NumericHint::None
+            }
+        }
+        TsType::TsTypeRef(r) => {
+            if let TsEntityName::Ident(i) = &r.type_name {
+                numeric_hint_from_type_name(i.sym.as_ref())
+            } else {
+                NumericHint::None
+            }
+        }
+        _ => NumericHint::None,
+    }
+}
+
 thread_local! {
     /// Constantes top-level conhecidas durante a construção do MIR tipado.
     /// Usado para inlinar referências a `const X = literal` em qualquer função.
@@ -130,6 +205,50 @@ thread_local! {
     /// (dois `Class::method`) cai em `RuntimeEval` — resolução dinâmica
     /// por tipo fica para um passo futuro.
     static METHOD_LOOKUP: RefCell<HashMap<String, Vec<String>>> = RefCell::new(HashMap::new());
+
+    /// Hints de tipo por nome de binding, populado em VarDecl. AssignExpr
+    /// consulta este mapa para propagar hint para o lowering do rhs.
+    /// Resetado no inicio de cada funcao via `reset_binding_hints()`.
+    static BINDING_HINTS: RefCell<HashMap<String, NumericHint>> = RefCell::new(HashMap::new());
+
+    /// Stack de hints ativos durante lowering recursivo. `lower_expr_*` empilha
+    /// o hint do contexto (VarDecl type ann / AssignExpr target binding) antes
+    /// de descer; literais `Lit::Num` no leaf consultam o topo.
+    static HINT_STACK: RefCell<Vec<NumericHint>> = RefCell::new(Vec::new());
+}
+
+pub(super) fn reset_binding_hints() {
+    BINDING_HINTS.with(|map| map.borrow_mut().clear());
+    HINT_STACK.with(|s| s.borrow_mut().clear());
+}
+
+pub(super) fn set_binding_hint(name: &str, hint: NumericHint) {
+    if hint == NumericHint::None {
+        return;
+    }
+    BINDING_HINTS.with(|map| {
+        map.borrow_mut().insert(name.to_string(), hint);
+    });
+}
+
+pub(super) fn lookup_binding_hint(name: &str) -> NumericHint {
+    BINDING_HINTS.with(|map| map.borrow().get(name).copied().unwrap_or_default())
+}
+
+pub(super) fn with_hint<F, R>(hint: NumericHint, f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    HINT_STACK.with(|s| s.borrow_mut().push(hint));
+    let r = f();
+    HINT_STACK.with(|s| {
+        let _ = s.borrow_mut().pop();
+    });
+    r
+}
+
+pub(super) fn current_hint() -> NumericHint {
+    HINT_STACK.with(|s| s.borrow().last().copied().unwrap_or_default())
 }
 
 fn lookup_top_level_const(name: &str) -> Option<ConstValue> {

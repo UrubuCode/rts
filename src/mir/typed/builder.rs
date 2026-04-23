@@ -66,7 +66,7 @@ pub fn typed(hir: &HirModule) -> TypedMirModule {
         module.functions.push(TypedMirFunction {
             name: "main".to_string(),
             param_count: 0,
-            param_is_numeric: Vec::new(),
+            param_kinds: Vec::new(),
             blocks: vec![TypedBasicBlock {
                 label: "entry".to_string(),
                 instructions: top_level_instructions,
@@ -83,7 +83,7 @@ pub fn typed(hir: &HirModule) -> TypedMirModule {
         module.functions.push(TypedMirFunction {
             name: "main".to_string(),
             param_count: 0,
-            param_is_numeric: Vec::new(),
+            param_kinds: Vec::new(),
             blocks: vec![TypedBasicBlock {
                 label: "entry".to_string(),
                 instructions: vec![MirInstruction::Return(None)],
@@ -98,34 +98,34 @@ pub fn typed(hir: &HirModule) -> TypedMirModule {
     module
 }
 
-/// Retorna true se o tipo anotado é garantidamente numérico (number/i32/f64/etc.).
-/// Usado pra decidir se um parâmetro pode ser unboxed para NativeF64 uma única
-/// vez no entry block, eliminando FN_UNBOX_NUMBER em cada uso dentro de loops.
-///
-/// Conservador: sem anotação ou com tipo desconhecido, devolve false — o
-/// parâmetro permanece Handle e o adapt_to_kind genérico do BinOp cuida de
-/// qualquer conversão necessária.
-fn is_numeric_type_annotation(ann: Option<&crate::hir::annotations::TypeAnnotation>) -> bool {
+/// Classifica a anotacao TS em `NumericKind`. Usado para escolher o
+/// unboxing especializado do parametro no entry do codegen.
+fn param_kind_from_annotation(
+    ann: Option<&crate::hir::annotations::TypeAnnotation>,
+) -> crate::mir::NumericKind {
+    use crate::mir::NumericKind;
     let Some(ann) = ann else {
-        return false;
+        return NumericKind::Any;
     };
-    matches!(
-        ann.name.as_str(),
-        "number" | "i32" | "i64" | "f32" | "f64" | "u32" | "u64" | "i16" | "u16" | "i8" | "u8"
-    )
+    match ann.name.as_str() {
+        "i32" | "u32" | "i16" | "u16" | "i8" | "u8" => NumericKind::Int32,
+        // i64/u64 nao cabem em i32 nativo — mantemos Float64 ate haver path i64.
+        "number" | "f64" | "f32" | "i64" | "u64" => NumericKind::Float64,
+        _ => NumericKind::Any,
+    }
 }
 
 fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
-    let param_is_numeric = function
+    let param_kinds = function
         .parameters
         .iter()
-        .map(|p| is_numeric_type_annotation(p.type_annotation.as_ref()))
+        .map(|p| param_kind_from_annotation(p.type_annotation.as_ref()))
         .collect::<Vec<_>>();
 
     let mut func = TypedMirFunction {
         name: function.name.clone(),
         param_count: function.parameters.len(),
-        param_is_numeric,
+        param_kinds,
         blocks: Vec::new(),
         next_vreg: 0,
         source_file: function.loc.as_ref().map(|loc| loc.file.clone()),
@@ -135,11 +135,23 @@ fn build_typed_function(function: &HirFunction) -> TypedMirFunction {
     let mut instructions: Vec<MirInstruction> = Vec::new();
     let mut constant_pool = ConstantPool::new();
 
+    // Reset hint state — cada funcao comeca com tabela de bindings limpa.
+    reset_binding_hints();
+
     // Emit LoadParam + Bind for each parameter
     for (index, param) in function.parameters.iter().enumerate() {
         let vreg = func.alloc_vreg();
         instructions.push(MirInstruction::LoadParam(vreg, index));
         instructions.push(MirInstruction::Bind(param.name.clone(), vreg, true));
+
+        // Registra hint do parametro para que AssignExpr/Update que escrevam
+        // no binding usem o tipo correto no rhs.
+        let hint = param
+            .type_annotation
+            .as_ref()
+            .map(|ann| numeric_hint_from_type_name(ann.name.as_str()))
+            .unwrap_or_default();
+        set_binding_hint(&param.name, hint);
     }
 
     // Lower each body statement. Se o HIR ja carrega o Stmt SWC pre-parseado

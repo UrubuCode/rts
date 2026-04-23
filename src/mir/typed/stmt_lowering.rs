@@ -17,8 +17,11 @@ pub(super) fn lower_stmt_with_pool(
         Stmt::Decl(Decl::Var(var_decl)) => {
             let mutable = var_decl.kind != VarDeclKind::Const;
             for decl in &var_decl.decls {
-                let name = match &decl.name {
-                    Pat::Ident(ident) => ident.id.sym.to_string(),
+                let (name, hint) = match &decl.name {
+                    Pat::Ident(ident) => (
+                        ident.id.sym.to_string(),
+                        numeric_hint_from_ts_type_ann(ident.type_ann.as_deref()),
+                    ),
                     _ => {
                         let vreg = alloc(next_vreg);
                         instructions
@@ -26,14 +29,17 @@ pub(super) fn lower_stmt_with_pool(
                         continue;
                     }
                 };
+                set_binding_hint(&name, hint);
                 if let Some(init) = &decl.init {
-                    let vreg = lower_expr_with_pool(
-                        init,
-                        original_text,
-                        instructions,
-                        next_vreg,
-                        constant_pool,
-                    );
+                    let vreg = with_hint(hint, || {
+                        lower_expr_with_pool(
+                            init,
+                            original_text,
+                            instructions,
+                            next_vreg,
+                            constant_pool,
+                        )
+                    });
                     instructions.push(MirInstruction::Bind(name, vreg, mutable));
                 } else {
                     let vreg = constant_pool.get_or_create_undef(next_vreg);
@@ -114,8 +120,11 @@ pub(super) fn lower_stmt(
         Stmt::Decl(Decl::Var(var_decl)) => {
             let mutable = var_decl.kind != VarDeclKind::Const;
             for decl in &var_decl.decls {
-                let name = match &decl.name {
-                    Pat::Ident(ident) => ident.id.sym.to_string(),
+                let (name, hint) = match &decl.name {
+                    Pat::Ident(ident) => (
+                        ident.id.sym.to_string(),
+                        numeric_hint_from_ts_type_ann(ident.type_ann.as_deref()),
+                    ),
                     _ => {
                         let vreg = alloc(next_vreg);
                         instructions
@@ -123,8 +132,11 @@ pub(super) fn lower_stmt(
                         continue;
                     }
                 };
+                set_binding_hint(&name, hint);
                 if let Some(init) = &decl.init {
-                    let vreg = lower_expr(init, original_text, instructions, next_vreg);
+                    let vreg = with_hint(hint, || {
+                        lower_expr(init, original_text, instructions, next_vreg)
+                    });
                     instructions.push(MirInstruction::Bind(name, vreg, mutable));
                 } else {
                     let vreg = alloc(next_vreg);
