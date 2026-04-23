@@ -1,0 +1,598 @@
+//! Expression lowering to Cranelift IR.
+//!
+//! Entry point: `lower_expr` — recursively compiles a SWC expression into a
+//! `TypedVal`. Handles literals, identifiers, binary ops, unary ops, and
+//! namespace calls. String concatenation (`+` with a string operand) is
+//! lowered to `__RTS_FN_NS_GC_STRING_CONCAT`.
+
+use anyhow::{Result, anyhow};
+use cranelift_codegen::ir::{InstBuilder, condcodes::IntCC, types as cl};
+use swc_ecma_ast::{
+    BinExpr, BinaryOp, CallExpr, Callee, Expr, Lit, MemberProp, UnaryOp, UpdateOp,
+};
+
+use cranelift_module::Module;
+
+use crate::abi::lookup;
+use crate::abi::signature::lower_member;
+use crate::abi::types::AbiType;
+
+use super::ctx::{FnCtx, TypedVal, ValTy};
+
+/// Compiles a SWC expression and returns a typed Cranelift value.
+pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
+    match expr {
+        // ── Literals ──────────────────────────────────────────────────────
+        Expr::Lit(lit) => lower_lit(ctx, lit),
+
+        // ── Identifiers ───────────────────────────────────────────────────
+        Expr::Ident(id) => {
+            let name = id.sym.as_str();
+            ctx.read_local(name)
+                .ok_or_else(|| anyhow!("undefined variable `{name}`"))
+        }
+
+        // ── Parenthesised ─────────────────────────────────────────────────
+        Expr::Paren(p) => lower_expr(ctx, &p.expr),
+
+        // ── Unary ─────────────────────────────────────────────────────────
+        Expr::Unary(u) => lower_unary(ctx, u),
+
+        // ── Update (++, --) ───────────────────────────────────────────────
+        Expr::Update(u) => {
+            let name = ident_name(&u.arg)
+                .ok_or_else(|| anyhow!("update target must be a simple identifier"))?;
+            let cur = ctx
+                .read_local(name)
+                .ok_or_else(|| anyhow!("undefined variable `{name}`"))?;
+            let one = match cur.ty {
+                ValTy::I32 => TypedVal::new(ctx.builder.ins().iconst(cl::I32, 1), ValTy::I32),
+                _ => TypedVal::new(ctx.builder.ins().iconst(cl::I64, 1), ValTy::I64),
+            };
+            let new_val = match u.op {
+                UpdateOp::PlusPlus => lower_add(ctx, cur, one)?,
+                UpdateOp::MinusMinus => lower_sub(ctx, cur, one)?,
+            };
+            ctx.write_local(name, new_val.val)?;
+            // Prefix: return new value; postfix: return old value.
+            if u.prefix { Ok(new_val) } else { Ok(cur) }
+        }
+
+        // ── Binary ────────────────────────────────────────────────────────
+        Expr::Bin(bin) => lower_bin(ctx, bin),
+
+        // ── Assignment ────────────────────────────────────────────────────
+        Expr::Assign(a) => {
+            use swc_ecma_ast::AssignTarget;
+            let name = match &a.left {
+                AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) => {
+                    id.sym.as_str().to_string()
+                }
+                _ => return Err(anyhow!("only simple identifier assignment is supported")),
+            };
+            let rhs = lower_expr(ctx, &a.right)?;
+            // Coerce rhs to match the declared type of the local.
+            let coerced = match ctx.locals.get(&name).map(|l| l.ty) {
+                Some(ValTy::I32) => ctx.coerce_to_i32(rhs),
+                Some(ValTy::I64) => ctx.coerce_to_i64(rhs),
+                Some(ValTy::Handle) => ctx.coerce_to_handle(rhs)?,
+                _ => rhs,
+            };
+            ctx.write_local(&name, coerced.val)?;
+            Ok(coerced)
+        }
+
+        // ── Call ──────────────────────────────────────────────────────────
+        Expr::Call(call) => lower_call(ctx, call),
+
+        // ── Member (e.g. `io.print` used as expression) ───────────────────
+        Expr::Member(_) => Err(anyhow!("bare member expression not supported as value")),
+
+        other => Err(anyhow!(
+            "unsupported expression kind: {}",
+            expr_kind_name(other)
+        )),
+    }
+}
+
+// ── Literals ──────────────────────────────────────────────────────────────
+
+fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
+    match lit {
+        Lit::Num(n) => {
+            let v = n.value;
+            if v.fract() == 0.0 && v.is_finite() && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
+                // Default to I32 for integer literals that fit; codegen
+                // coerces when the context demands I64.
+                Ok(TypedVal::new(
+                    ctx.builder.ins().iconst(cl::I32, v as i64),
+                    ValTy::I32,
+                ))
+            } else if v.fract() == 0.0 && v.is_finite() {
+                Ok(TypedVal::new(
+                    ctx.builder.ins().iconst(cl::I64, v as i64),
+                    ValTy::I64,
+                ))
+            } else {
+                Ok(TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64))
+            }
+        }
+        Lit::Bool(b) => Ok(TypedVal::new(
+            ctx.builder.ins().iconst(cl::I64, if b.value { 1 } else { 0 }),
+            ValTy::Bool,
+        )),
+        Lit::Str(s) => {
+            let tv = ctx.emit_str_handle(s.value.as_bytes())?;
+            Ok(tv)
+        }
+        Lit::Null(_) => Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64)),
+        other => Err(anyhow!("unsupported literal: {other:?}")),
+    }
+}
+
+// ── Unary ─────────────────────────────────────────────────────────────────
+
+fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Result<TypedVal> {
+    let operand = lower_expr(ctx, &u.arg)?;
+    match u.op {
+        UnaryOp::Minus => match operand.ty {
+            ValTy::F64 => Ok(TypedVal::new(ctx.builder.ins().fneg(operand.val), ValTy::F64)),
+            ValTy::I32 => Ok(TypedVal::new(ctx.builder.ins().ineg(operand.val), ValTy::I32)),
+            _ => {
+                let as_i64 = ctx.coerce_to_i64(operand);
+                Ok(TypedVal::new(ctx.builder.ins().ineg(as_i64.val), ValTy::I64))
+            }
+        },
+        UnaryOp::Bang => {
+            let as_i64 = ctx.coerce_to_i64(operand);
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let cmp = ctx.builder.ins().icmp(IntCC::Equal, as_i64.val, zero);
+            let ext = ctx.builder.ins().uextend(cl::I64, cmp);
+            Ok(TypedVal::new(ext, ValTy::Bool))
+        }
+        UnaryOp::Plus => {
+            // Numeric identity — coerce to i64 if needed
+            Ok(ctx.coerce_to_i64(operand))
+        }
+        op => Err(anyhow!("unsupported unary op: {op:?}")),
+    }
+}
+
+// ── Binary ────────────────────────────────────────────────────────────────
+
+fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
+    // Short-circuit logical ops
+    if matches!(bin.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr) {
+        return lower_logical(ctx, bin);
+    }
+
+    let lhs = lower_expr(ctx, &bin.left)?;
+    let rhs = lower_expr(ctx, &bin.right)?;
+
+    // String concat: if either side is a Handle, use string concat
+    if matches!(bin.op, BinaryOp::Add)
+        && (lhs.ty == ValTy::Handle || rhs.ty == ValTy::Handle)
+    {
+        let lh = ctx.coerce_to_handle(lhs)?;
+        let rh = ctx.coerce_to_handle(rhs)?;
+        let fref = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_CONCAT",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[lh.val, rh.val]);
+        let val = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(val, ValTy::Handle));
+    }
+
+    // Numeric: promote to common type
+    let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs);
+
+    match bin.op {
+        BinaryOp::Add => lower_add(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
+        BinaryOp::Sub => lower_sub(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
+        BinaryOp::Mul => lower_mul(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
+        BinaryOp::Div => lower_div(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
+        BinaryOp::Mod => lower_mod(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
+
+        BinaryOp::EqEq | BinaryOp::EqEqEq => {
+            Ok(lower_icmp(ctx, IntCC::Equal, TypedVal::new(lv, ty), TypedVal::new(rv, ty)))
+        }
+        BinaryOp::NotEq | BinaryOp::NotEqEq => {
+            Ok(lower_icmp(ctx, IntCC::NotEqual, TypedVal::new(lv, ty), TypedVal::new(rv, ty)))
+        }
+        BinaryOp::Lt => Ok(lower_icmp(
+            ctx,
+            if ty == ValTy::F64 { IntCC::SignedLessThan } else { IntCC::SignedLessThan },
+            TypedVal::new(lv, ty),
+            TypedVal::new(rv, ty),
+        )),
+        BinaryOp::LtEq => Ok(lower_icmp(
+            ctx,
+            IntCC::SignedLessThanOrEqual,
+            TypedVal::new(lv, ty),
+            TypedVal::new(rv, ty),
+        )),
+        BinaryOp::Gt => Ok(lower_icmp(
+            ctx,
+            IntCC::SignedGreaterThan,
+            TypedVal::new(lv, ty),
+            TypedVal::new(rv, ty),
+        )),
+        BinaryOp::GtEq => Ok(lower_icmp(
+            ctx,
+            IntCC::SignedGreaterThanOrEqual,
+            TypedVal::new(lv, ty),
+            TypedVal::new(rv, ty),
+        )),
+
+        op => Err(anyhow!("unsupported binary op: {op:?}")),
+    }
+}
+
+fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
+    // &&: evaluate lhs; if falsy, result = lhs (0); else result = rhs
+    // ||: evaluate lhs; if truthy, result = lhs; else result = rhs
+    let result_var = ctx.builder.declare_var(cl::I64);
+
+    let lhs = lower_expr(ctx, &bin.left)?;
+    let lhs_i64 = ctx.coerce_to_i64(lhs);
+
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let is_truthy = ctx
+        .builder
+        .ins()
+        .icmp(IntCC::NotEqual, lhs_i64.val, zero);
+
+    let true_block = ctx.builder.create_block();
+    let false_block = ctx.builder.create_block();
+    let merge_block = ctx.builder.create_block();
+
+    ctx.builder.ins().brif(is_truthy, true_block, &[], false_block, &[]);
+
+    match bin.op {
+        BinaryOp::LogicalAnd => {
+            // true branch: evaluate rhs
+            ctx.builder.switch_to_block(true_block);
+            ctx.builder.seal_block(true_block);
+            let rhs = lower_expr(ctx, &bin.right)?;
+            let rhs_i64 = ctx.coerce_to_i64(rhs);
+            ctx.builder.def_var(result_var, rhs_i64.val);
+            ctx.builder.ins().jump(merge_block, &[]);
+
+            // false branch: short-circuit with 0
+            ctx.builder.switch_to_block(false_block);
+            ctx.builder.seal_block(false_block);
+            ctx.builder.def_var(result_var, zero);
+            ctx.builder.ins().jump(merge_block, &[]);
+        }
+        BinaryOp::LogicalOr => {
+            // true branch: short-circuit with lhs value
+            ctx.builder.switch_to_block(true_block);
+            ctx.builder.seal_block(true_block);
+            ctx.builder.def_var(result_var, lhs_i64.val);
+            ctx.builder.ins().jump(merge_block, &[]);
+
+            // false branch: evaluate rhs
+            ctx.builder.switch_to_block(false_block);
+            ctx.builder.seal_block(false_block);
+            let rhs = lower_expr(ctx, &bin.right)?;
+            let rhs_i64 = ctx.coerce_to_i64(rhs);
+            ctx.builder.def_var(result_var, rhs_i64.val);
+            ctx.builder.ins().jump(merge_block, &[]);
+        }
+        _ => unreachable!(),
+    }
+
+    ctx.builder.switch_to_block(merge_block);
+    ctx.builder.seal_block(merge_block);
+    let val = ctx.builder.use_var(result_var);
+    Ok(TypedVal::new(val, ValTy::Bool))
+}
+
+fn promote_numeric(
+    ctx: &mut FnCtx,
+    lhs: TypedVal,
+    rhs: TypedVal,
+) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, ValTy) {
+    // If either side is f64, promote both
+    if lhs.ty == ValTy::F64 || rhs.ty == ValTy::F64 {
+        let lv = to_f64(ctx, lhs);
+        let rv = to_f64(ctx, rhs);
+        return (lv, rv, ValTy::F64);
+    }
+
+    // If either side is I64/Handle/Bool, widen both
+    if lhs.ty == ValTy::I64 || lhs.ty == ValTy::Handle || lhs.ty == ValTy::Bool
+        || rhs.ty == ValTy::I64 || rhs.ty == ValTy::Handle || rhs.ty == ValTy::Bool
+    {
+        let lv = ctx.coerce_to_i64(lhs).val;
+        let rv = ctx.coerce_to_i64(rhs).val;
+        return (lv, rv, ValTy::I64);
+    }
+
+    // Both I32
+    (lhs.val, rhs.val, ValTy::I32)
+}
+
+fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Value {
+    match tv.ty {
+        ValTy::F64 => tv.val,
+        ValTy::I32 => ctx.builder.ins().fcvt_from_sint(cl::F64, tv.val),
+        _ => {
+            let as_i64 = ctx.coerce_to_i64(tv);
+            ctx.builder.ins().fcvt_from_sint(cl::F64, as_i64.val)
+        }
+    }
+}
+
+fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
+    let val = match lhs.ty {
+        ValTy::F64 => ctx.builder.ins().fadd(lhs.val, rhs.val),
+        ValTy::I32 => ctx.builder.ins().iadd(lhs.val, rhs.val),
+        _ => ctx.builder.ins().iadd(lhs.val, rhs.val),
+    };
+    Ok(TypedVal::new(val, lhs.ty))
+}
+
+fn lower_sub(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
+    let val = match lhs.ty {
+        ValTy::F64 => ctx.builder.ins().fsub(lhs.val, rhs.val),
+        ValTy::I32 => ctx.builder.ins().isub(lhs.val, rhs.val),
+        _ => ctx.builder.ins().isub(lhs.val, rhs.val),
+    };
+    Ok(TypedVal::new(val, lhs.ty))
+}
+
+fn lower_mul(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
+    let val = match lhs.ty {
+        ValTy::F64 => ctx.builder.ins().fmul(lhs.val, rhs.val),
+        ValTy::I32 => ctx.builder.ins().imul(lhs.val, rhs.val),
+        _ => ctx.builder.ins().imul(lhs.val, rhs.val),
+    };
+    Ok(TypedVal::new(val, lhs.ty))
+}
+
+fn lower_div(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
+    let val = match lhs.ty {
+        ValTy::F64 => ctx.builder.ins().fdiv(lhs.val, rhs.val),
+        ValTy::I32 => ctx.builder.ins().sdiv(lhs.val, rhs.val),
+        _ => ctx.builder.ins().sdiv(lhs.val, rhs.val),
+    };
+    Ok(TypedVal::new(val, lhs.ty))
+}
+
+fn lower_mod(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
+    let val = match lhs.ty {
+        ValTy::F64 => {
+            // f64 remainder not directly in Cranelift; use libcall or manual
+            // For now emit integer truncation path
+            let li = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, lhs.val);
+            let ri = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, rhs.val);
+            let rem = ctx.builder.ins().srem(li, ri);
+            return Ok(TypedVal::new(
+                ctx.builder.ins().fcvt_from_sint(cl::F64, rem),
+                ValTy::F64,
+            ));
+        }
+        ValTy::I32 => ctx.builder.ins().srem(lhs.val, rhs.val),
+        _ => ctx.builder.ins().srem(lhs.val, rhs.val),
+    };
+    Ok(TypedVal::new(val, lhs.ty))
+}
+
+fn lower_icmp(ctx: &mut FnCtx, cc: IntCC, lhs: TypedVal, rhs: TypedVal) -> TypedVal {
+    let cmp = if lhs.ty == ValTy::F64 {
+        use cranelift_codegen::ir::condcodes::FloatCC;
+        let fcc = match cc {
+            IntCC::Equal => FloatCC::Equal,
+            IntCC::NotEqual => FloatCC::NotEqual,
+            IntCC::SignedLessThan => FloatCC::LessThan,
+            IntCC::SignedLessThanOrEqual => FloatCC::LessThanOrEqual,
+            IntCC::SignedGreaterThan => FloatCC::GreaterThan,
+            IntCC::SignedGreaterThanOrEqual => FloatCC::GreaterThanOrEqual,
+            _ => FloatCC::Equal,
+        };
+        ctx.builder.ins().fcmp(fcc, lhs.val, rhs.val)
+    } else {
+        ctx.builder.ins().icmp(cc, lhs.val, rhs.val)
+    };
+    let ext = ctx.builder.ins().uextend(cl::I64, cmp);
+    TypedVal::new(ext, ValTy::Bool)
+}
+
+// ── Calls ─────────────────────────────────────────────────────────────────
+
+fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
+    // Namespace call: `ns.fn(...)`
+    if let Callee::Expr(callee) = &call.callee {
+        if let Some(qualified) = qualified_member_name(callee) {
+            return lower_ns_call(ctx, &qualified, call);
+        }
+        // User-defined function call: `fn_name(...)`
+        if let Expr::Ident(id) = callee.as_ref() {
+            return lower_user_call(ctx, id.sym.as_str(), call);
+        }
+    }
+    Err(anyhow!("unsupported call expression form"))
+}
+
+fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {
+    let (_spec, member) =
+        lookup(qualified).ok_or_else(|| anyhow!("unknown namespace member `{qualified}`"))?;
+
+    let lowered = lower_member(member);
+
+    // Declare the extern (idempotent via cache)
+    let func_id = {
+        if !ctx.extern_cache.contains_key(member.symbol) {
+            use cranelift_codegen::ir::{AbiParam, Signature};
+            use cranelift_module::Linkage;
+            let mut sig = Signature::new(ctx.module.isa().default_call_conv());
+            for &p in &lowered.params {
+                sig.params.push(AbiParam::new(p));
+            }
+            if let Some(r) = lowered.ret {
+                sig.returns.push(AbiParam::new(r));
+            }
+            let id = ctx
+                .module
+                .declare_function(member.symbol, Linkage::Import, &sig)
+                .map_err(|e| anyhow!("failed to declare {}: {e}", member.symbol))?;
+            ctx.extern_cache.insert(member.symbol, id);
+        }
+        *ctx.extern_cache.get(member.symbol).unwrap()
+    };
+    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+
+    // Build argument values
+    let mut values = Vec::new();
+    let mut arg_iter = call.args.iter();
+    for &abi_ty in member.args {
+        let arg = arg_iter
+            .next()
+            .ok_or_else(|| anyhow!("too few arguments for `{qualified}`"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in namespace calls"));
+        }
+        match abi_ty {
+            AbiType::StrPtr => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                match tv.ty {
+                    ValTy::Handle => {
+                        // Extract ptr+len from the handle
+                        let ptr_fref = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_PTR",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let len_fref = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_LEN",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let pi = ctx.builder.ins().call(ptr_fref, &[tv.val]);
+                        let ptr = ctx.builder.inst_results(pi)[0];
+                        let li = ctx.builder.ins().call(len_fref, &[tv.val]);
+                        let len = ctx.builder.inst_results(li)[0];
+                        values.push(ptr);
+                        values.push(len);
+                    }
+                    _ => {
+                        // Literal string: get (ptr, len) from rodata
+                        return Err(anyhow!("StrPtr argument must be a string value"));
+                    }
+                }
+            }
+            AbiType::I32 => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(ctx.coerce_to_i32(tv).val);
+            }
+            AbiType::I64 | AbiType::U64 | AbiType::Handle => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(ctx.coerce_to_i64(tv).val);
+            }
+            AbiType::F64 => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let fv = to_f64(ctx, tv);
+                values.push(fv);
+            }
+            AbiType::Bool => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(ctx.coerce_to_i64(tv).val);
+            }
+            AbiType::Void => {}
+        }
+    }
+
+    let inst = ctx.builder.ins().call(fref, &values);
+    let ret_val = if let Some(_ret_cl) = lowered.ret {
+        let v = ctx.builder.inst_results(inst)[0];
+        let ret_ty = ValTy::from_abi(member.returns);
+        TypedVal::new(v, ret_ty)
+    } else {
+        TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64)
+    };
+    Ok(ret_val)
+}
+
+fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<TypedVal> {
+    // User functions are declared in the module under their plain name.
+    // We look them up via the extern cache (keyed by a static string isn't
+    // possible for user functions, but we use the same HashMap with a
+    // Box::leak trick is heavy). Instead, we keep a separate path in emit.rs
+    // where user function IDs are pre-declared. Here we just emit an error
+    // for now if the function isn't in the extern cache with a mangled key.
+    // The real wiring happens in func.rs which pre-declares user functions
+    // before compiling any body.
+    let mangled: &'static str = Box::leak(format!("__user_{name}").into_boxed_str());
+    if !ctx.extern_cache.contains_key(mangled) {
+        return Err(anyhow!("call to undeclared user function `{name}`"));
+    }
+    let func_id = *ctx.extern_cache.get(mangled).unwrap();
+    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+
+    let mut values = Vec::new();
+    for arg in &call.args {
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        values.push(ctx.coerce_to_i64(tv).val);
+    }
+    let inst = ctx.builder.ins().call(fref, &values);
+    let results = ctx.builder.inst_results(inst);
+    if results.is_empty() {
+        Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
+    } else {
+        Ok(TypedVal::new(results[0], ValTy::I64))
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+fn qualified_member_name(expr: &Expr) -> Option<String> {
+    let Expr::Member(m) = expr else { return None };
+    let Expr::Ident(ns) = m.obj.as_ref() else { return None };
+    let fn_name = match &m.prop {
+        MemberProp::Ident(id) => id.sym.as_str().to_string(),
+        _ => return None,
+    };
+    Some(format!("{}.{}", ns.sym.as_str(), fn_name))
+}
+
+fn ident_name(expr: &Expr) -> Option<&str> {
+    if let Expr::Ident(id) = expr {
+        Some(id.sym.as_str())
+    } else {
+        None
+    }
+}
+
+fn expr_kind_name(expr: &Expr) -> &'static str {
+    match expr {
+        Expr::Array(_) => "array",
+        Expr::Arrow(_) => "arrow",
+        Expr::Await(_) => "await",
+        Expr::Bin(_) => "binary",
+        Expr::Call(_) => "call",
+        Expr::Class(_) => "class",
+        Expr::Cond(_) => "ternary",
+        Expr::Fn(_) => "function-expr",
+        Expr::Ident(_) => "ident",
+        Expr::Lit(_) => "literal",
+        Expr::Member(_) => "member",
+        Expr::MetaProp(_) => "meta-prop",
+        Expr::New(_) => "new",
+        Expr::Object(_) => "object",
+        Expr::Paren(_) => "paren",
+        Expr::Seq(_) => "sequence",
+        Expr::TaggedTpl(_) => "tagged-template",
+        Expr::This(_) => "this",
+        Expr::Tpl(_) => "template",
+        Expr::Unary(_) => "unary",
+        Expr::Update(_) => "update",
+        Expr::Yield(_) => "yield",
+        _ => "unknown",
+    }
+}

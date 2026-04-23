@@ -84,7 +84,9 @@ fn build_linker_args(
             }
 
             args.push("/nologo".to_string());
-            args.push("/entry:_start".to_string());
+            // Bootstrap codegen emits a `main` symbol; the MSVC CRT entry
+            // `mainCRTStartup` initialises the runtime and calls into it.
+            args.push("/entry:mainCRTStartup".to_string());
             args.push("/subsystem:console".to_string());
             if !requires_runtime {
                 args.push("/nodefaultlib".to_string());
@@ -153,7 +155,10 @@ fn windows_runtime_default_libs() -> &'static [&'static str] {
         "shell32.lib",
         "ole32.lib",
         "synchronization.lib",
-        "libucrt.lib",
+        // Rust staticlib on MSVC uses the dynamic CRT by default; keep only
+        // the matching dynamic import libraries to avoid duplicate symbols
+        // like `__report_gsfailure` that appear in both static and dynamic
+        // variants.
         "ucrt.lib",
         "vcruntime.lib",
         "msvcrt.lib",
@@ -214,9 +219,78 @@ fn windows_runtime_lib_paths() -> Vec<PathBuf> {
         }
     }
 
+    // MSVC toolchain libs (libcmt.lib, msvcrt.lib, vcruntime.lib) live under
+    // the MSVC install, separate from the Windows SDK. Auto-discover the
+    // latest installed VC Tools directory so `rts compile` works without
+    // requiring the Developer Command Prompt environment.
+    for msvc_path in msvc_tool_lib_paths() {
+        paths.push(msvc_path);
+    }
+
     paths.sort();
     paths.dedup();
     paths
+}
+
+/// Walks common Visual Studio install roots looking for the MSVC `lib`
+/// directory corresponding to the current architecture.
+fn msvc_tool_lib_paths() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for env in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(base) = std::env::var(env) {
+            roots.push(PathBuf::from(base).join("Microsoft Visual Studio"));
+        }
+    }
+    roots.push(PathBuf::from(r"C:\Program Files\Microsoft Visual Studio"));
+    roots.push(PathBuf::from(r"C:\Program Files (x86)\Microsoft Visual Studio"));
+
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "x86") {
+        "x86"
+    } else if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+
+    let mut out = Vec::new();
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        // Layout: <root>/<year>/<edition>/VC/Tools/MSVC/<version>/lib/<arch>
+        let Ok(years) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for year in years.flatten() {
+            let Ok(editions) = std::fs::read_dir(year.path()) else {
+                continue;
+            };
+            for edition in editions.flatten() {
+                let msvc = edition.path().join("VC").join("Tools").join("MSVC");
+                if !msvc.is_dir() {
+                    continue;
+                }
+                let Ok(versions) = std::fs::read_dir(&msvc) else {
+                    continue;
+                };
+                let mut version_dirs: Vec<PathBuf> = versions
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|p| p.is_dir())
+                    .collect();
+                version_dirs.sort();
+                if let Some(latest) = version_dirs.last() {
+                    let lib = latest.join("lib").join(arch);
+                    if lib.is_dir() {
+                        out.push(lib);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 fn normalize_output_path(path: &Path, flavor: TargetFlavor) -> PathBuf {

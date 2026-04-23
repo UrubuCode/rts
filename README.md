@@ -52,7 +52,7 @@ Gera projeto base perguntando o nome (ou recebe por argumento):
 Estrutura suportada:
 
 ```txt
-packages/
+builtin/
   console/
     main.ts
     package.json

@@ -12,7 +12,7 @@ Objetivo:
 
 Diretriz:
 - manter API por namespaces (`io`, `fs`, `process`, `crypto`, `net`, `time`, `task`, etc), evitando API plana.
-- garantir contratos estaveis de tipos em `packages/rts-types/rts.d.ts`.
+- garantir contratos estaveis de tipos em `builtin/rts-types/rts.d.ts`.
 - tratar `std::*` como superficie oficial do RTS para userland.
 - compilar/linkar apenas namespaces e funcoes realmente usados no projeto (runtime slicing), evitando incluir todo o `"rts"`.
 

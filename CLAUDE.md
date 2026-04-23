@@ -83,7 +83,7 @@ Compara RTS (run), RTS (compiled), Bun e Node.
 ## Regras
 
 - Nao implementar APIs de alto nivel em Rust — Rust so expoe primitivas raw via `"rts"`
-- Packages TS em `packages/*` constroem APIs ergonomicas sobre o `"rts"`
+- Packages TS em `builtin/*` constroem APIs ergonomicas sobre o `"rts"`
 - `rts.d.ts` so contem `declare module "rts"` — nao adicionar outros modulos
 - Handles numericos (u64) para recursos runtime (buffers, sockets, promises)
 

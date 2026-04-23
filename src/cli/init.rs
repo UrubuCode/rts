@@ -53,8 +53,7 @@ pub fn command(project_name_arg: Option<String>) -> Result<()> {
         .join("rts-types");
     std::fs::create_dir_all(&types_dir)
         .with_context(|| format!("failed to create {}", types_dir.display()))?;
-    crate::namespaces::emit_split_typescript_declarations(&types_dir)?;
-    crate::namespaces::emit_typescript_declarations(&types_dir.join("rts.d.ts"))?;
+    emit_rts_dts(&types_dir.join("rts.d.ts"))?;
 
     println!(
         "Project '{}' generated at {}",
@@ -65,6 +64,43 @@ pub fn command(project_name_arg: Option<String>) -> Result<()> {
     println!("  cd {}", project_name);
     println!("  rts src/main.ts");
 
+    Ok(())
+}
+
+/// Emits a minimal `rts.d.ts` from the registered ABI SPECS.
+///
+/// Replaces the legacy split/flat generator while codegen is being rebuilt.
+/// The file is a single `declare module "rts"` with one nested namespace per
+/// registered SPEC plus the primitive type aliases expected by user code.
+fn emit_rts_dts(path: &Path) -> Result<()> {
+    use crate::abi::SPECS;
+    use crate::abi::member::MemberKind;
+
+    let mut out = String::from("declare module \"rts\" {\n");
+    out.push_str(
+        "  export type i8 = number;\n  export type u8 = number;\n  export type i16 = number;\n  export type u16 = number;\n  export type i32 = number;\n  export type u32 = number;\n  export type i64 = number;\n  export type u64 = number;\n  export type isize = number;\n  export type usize = number;\n  export type f32 = number;\n  export type f64 = number;\n  export type bool = boolean;\n  export type str = string;\n\n",
+    );
+
+    for spec in SPECS {
+        out.push_str(&format!("  /** {} */\n", spec.doc));
+        out.push_str(&format!("  export namespace {} {{\n", spec.name));
+        for member in spec.members {
+            out.push_str(&format!("    /** {} */\n", member.doc));
+            match member.kind {
+                MemberKind::Function => {
+                    out.push_str(&format!("    export function {};\n", member.ts_signature));
+                }
+                MemberKind::Constant => {
+                    out.push_str(&format!("    export const {};\n", member.ts_signature));
+                }
+            }
+        }
+        out.push_str("  }\n\n");
+    }
+
+    out.push_str("}\n");
+    std::fs::write(path, out)
+        .with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }
 
