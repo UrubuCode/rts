@@ -1,3 +1,8 @@
+//! `process` namespace — argv, env, exit, spawn de processos filhos.
+//!
+//! Wrappers sobre `std::process` e `std::env`. Spawns retornam handle `u64`
+//! do processo filho.
+
 use crate::namespaces::value::RuntimeValue;
 
 use super::{

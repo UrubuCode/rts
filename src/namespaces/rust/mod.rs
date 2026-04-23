@@ -1,3 +1,8 @@
+//! `rust` namespace — hooks internos do runtime expostos ao codegen.
+//!
+//! Contem eval de expressoes dinamicas, hotops (fast-path aritmetico), debug
+//! helpers e constants. Nao e API publica do usuario TS.
+
 mod constants;
 pub mod debug;
 pub(crate) mod eval;

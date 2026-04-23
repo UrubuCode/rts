@@ -1,3 +1,8 @@
+//! `globals` namespace — builtins globais (parseInt/parseFloat/isNaN/etc).
+//!
+//! Coisas que em JS vivem no escopo global mas aqui sao acessadas via `rts`
+//! para manter boundary explicito.
+
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_value};
 use crate::namespaces::value::RuntimeValue;
 

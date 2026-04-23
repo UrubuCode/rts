@@ -1,3 +1,8 @@
+//! `str` namespace — operacoes de string expostas ao runtime.
+//!
+//! slice/concat/indexOf/split etc. Strings dinamicas retornam como handle `u64`
+//! gerenciado pelo ValueStore.
+
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string, arg_to_usize};
 use crate::namespaces::value::RuntimeValue;
 
