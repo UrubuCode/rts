@@ -10,10 +10,6 @@ crate-type = ["rlib", "staticlib"]
 name = "rts"
 path = "src/main.rs"
 
-[[bin]]
-name = "xtask"
-path = "src/bin/xtask.rs"
-
 [dependencies]
 anyhow = "1.0"
 object = { version = "0.39", default-features = false, features = ["write", "read", "std", "coff", "elf", "macho", "pe"] }
