@@ -404,27 +404,27 @@ declare module "rts" {
   }
 
   /**
-   * Small runtime key-value storage for bootstrap state.
+   * Global key-value registry shared by all modules in the runtime.
    */
-  export namespace global {
+  export namespace globals {
     /**
-     * Stores a string value in runtime global map.
+     * Defines a global variable accessible from anywhere in the program.
      */
-    export function set(key: str, value: str): void;
+    export function set(name: str, value: any): void;
     /**
-     * Reads a string value from runtime global map.
+     * Reads a global variable by name.
      */
-    export function get(key: str): str | undefined;
+    export function get(name: str): any;
     /**
-     * Checks whether a key exists in global map.
+     * Returns true when a global variable is defined.
      */
-    export function has(key: str): bool;
+    export function has(name: str): bool;
     /**
-     * Removes a key from global map. Retorna `true` se a chave existia.
+     * Removes a global variable by name.
      */
-    export function remove(key: str): bool;
+    export function remove(name: str): bool;
     /**
-     * Returns global keys joined by commas.
+     * Returns a comma-separated list with every global key.
      */
     export function keys(): str;
   }

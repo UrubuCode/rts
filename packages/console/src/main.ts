@@ -162,4 +162,3 @@ export const console = {
 };
 
 globalThis.console = console;
-global.console = console;
