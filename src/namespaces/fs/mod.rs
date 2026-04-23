@@ -1,3 +1,8 @@
+//! `fs` namespace — filesystem sync I/O (read/write/stat/mkdir).
+//!
+//! Strings dinamicas retornam via handle `u64` (ver CLAUDE.md "ABI"). Erros
+//! viram `DispatchOutcome::Error` em vez de panic.
+
 use crate::namespaces::value::RuntimeValue;
 
 use super::io;

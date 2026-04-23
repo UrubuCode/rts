@@ -1,3 +1,15 @@
+//! ABI boundary entre Cranelift codegen e runtime Rust.
+//!
+//! Submodulos:
+//!   - [`fn_ids`]   — constantes `FN_*` e labels para `__rts_dispatch`
+//!   - [`metrics`]  — coletor de telemetria do dispatch (opt-in via flag)
+//!   - este modulo — `ValueStore` (heap de `RuntimeValue` indexado por handle),
+//!     `__rts_dispatch`, `__rts_call_dispatch`, JIT function table
+//!
+//! Politica: nenhum `RuntimeValue` cruza o limite `extern "C"`. Handles
+//! opacos (`i64`) viajam no registrador; a deboxing acontece dentro do
+//! dispatch via `read_value`/`write_value` sobre o `ValueStore`.
+
 use std::cell::RefCell;
 use std::time::Instant;
 
@@ -5,80 +17,25 @@ use rustc_hash::FxHashMap;
 
 use crate::namespaces::value::RuntimeValue;
 
+pub mod fn_ids;
+pub mod metrics;
+
+pub(crate) use fn_ids::{
+    FN_BINOP, FN_BIND_IDENTIFIER, FN_BOX_BOOL, FN_BOX_NATIVE_FN, FN_BOX_NUMBER, FN_BOX_STRING,
+    FN_CALL_BY_HANDLE, FN_COMPACT_EXCLUDING, FN_CRYPTO_SHA256, FN_EVAL_EXPR, FN_EVAL_STMT,
+    FN_GLOBAL_DELETE, FN_GLOBAL_GET, FN_GLOBAL_HAS, FN_GLOBAL_SET, FN_ID_COUNT, FN_IO_PANIC,
+    FN_IO_PRINT, FN_IO_STDERR_WRITE, FN_IO_STDOUT_WRITE, FN_IS_TRUTHY, FN_LOAD_FIELD,
+    FN_NEW_INSTANCE, FN_PIN_HANDLE, FN_PROCESS_EXIT, FN_READ_IDENTIFIER, FN_RESET_THREAD_STATE,
+    FN_STORE_FIELD, FN_UNBOX_NUMBER, FN_UNPIN_HANDLE,
+};
+pub use fn_ids::fn_id_label;
+pub(crate) use metrics::{
+    RuntimeMetricsSnapshot, dispatch_debug_enabled, runtime_metrics_snapshot,
+    set_dispatch_metrics_enabled,
+};
+use metrics::{RUNTIME_METRICS, metrics_enabled, reset_runtime_metrics};
+
 const UNDEFINED_HANDLE: i64 = 0;
-
-// --- fn_id constants para __rts_dispatch ---
-// Slot layout: __rts_dispatch(fn_id, a0, a1, a2, a3, a4, a5) -> i64
-pub(crate) const FN_RESET_THREAD_STATE: i64 = 0;
-pub(crate) const FN_BIND_IDENTIFIER: i64 = 1; // (ptr, len, handle, mutable)
-pub(crate) const FN_BOX_STRING: i64 = 2; // (ptr, len)
-pub(crate) const FN_BOX_BOOL: i64 = 3; // (flag)
-pub(crate) const FN_EVAL_EXPR: i64 = 4; // (ptr, len)
-pub(crate) const FN_EVAL_STMT: i64 = 5; // (ptr, len)
-pub(crate) const FN_READ_IDENTIFIER: i64 = 6; // (ptr, len)
-pub(crate) const FN_BINOP: i64 = 7; // (op, lhs, rhs)
-pub(crate) const FN_IS_TRUTHY: i64 = 8; // (handle)
-pub(crate) const FN_UNBOX_NUMBER: i64 = 9; // (handle)
-pub(crate) const FN_BOX_NUMBER: i64 = 10; // (bits as i64)
-pub(crate) const FN_IO_PRINT: i64 = 11;
-pub(crate) const FN_IO_STDOUT_WRITE: i64 = 12;
-pub(crate) const FN_IO_STDERR_WRITE: i64 = 13;
-pub(crate) const FN_IO_PANIC: i64 = 14;
-pub(crate) const FN_CRYPTO_SHA256: i64 = 15;
-pub(crate) const FN_PROCESS_EXIT: i64 = 16;
-pub(crate) const FN_GLOBAL_SET: i64 = 17; // (key, value)
-pub(crate) const FN_GLOBAL_GET: i64 = 18;
-pub(crate) const FN_GLOBAL_HAS: i64 = 19;
-pub(crate) const FN_GLOBAL_DELETE: i64 = 20;
-pub(crate) const FN_BOX_NATIVE_FN: i64 = 21; // (ptr, len) -> handle to NativeFunction
-pub(crate) const FN_CALL_BY_HANDLE: i64 = 22; // (fn_handle, argc, a0..a5) -> i64
-pub(crate) const FN_NEW_INSTANCE: i64 = 23; // (class_ptr, class_len) -> object_handle (fields vazios)
-pub(crate) const FN_LOAD_FIELD: i64 = 24; // (obj_handle, field_ptr, field_len) -> value_handle
-pub(crate) const FN_STORE_FIELD: i64 = 25; // (obj_handle, field_ptr, field_len, value_handle) -> 1/0
-pub(crate) const FN_PIN_HANDLE: i64 = 26; // (handle) -> handle
-pub(crate) const FN_UNPIN_HANDLE: i64 = 27; // (handle) -> handle
-pub(crate) const FN_COMPACT_EXCLUDING: i64 = 28; // (handle) -> freed count
-
-/// Numero total de FN_* distintos. Usado como tamanho dos arrays de metricas
-/// por-fn_id em `RuntimeMetrics`.
-pub(crate) const FN_ID_COUNT: usize = 29;
-
-/// Mapeia `fn_id` para nome legivel. Usado pela renderizacao de
-/// `--dump-statistics` para mostrar tempo gasto em cada ponto de dispatch
-/// separadamente. Indices fora do range retornam `"unknown"`.
-pub fn fn_id_label(fn_id: i64) -> &'static str {
-    match fn_id {
-        0 => "reset_thread_state",
-        1 => "bind_identifier",
-        2 => "box_string",
-        3 => "box_bool",
-        4 => "eval_expr",
-        5 => "eval_stmt",
-        6 => "read_identifier",
-        7 => "binop",
-        8 => "is_truthy",
-        9 => "unbox_number",
-        10 => "box_number",
-        11 => "io.print",
-        12 => "io.stdout_write",
-        13 => "io.stderr_write",
-        14 => "io.panic",
-        15 => "crypto.sha256",
-        16 => "process.exit",
-        17 => "global.set",
-        18 => "global.get",
-        19 => "global.has",
-        20 => "global.remove",
-        21 => "box_native_fn",
-        22 => "call_by_handle",
-        23 => "new_instance",
-        24 => "load_field",
-        25 => "store_field",
-        26 => "pin_handle",
-        27 => "unpin_handle",
-        _ => "unknown",
-    }
-}
 
 #[derive(Debug, Clone)]
 struct BindingEntry {
@@ -111,11 +68,81 @@ struct ValueStore {
     /// Handles temporariamente protegidos contra compactacao.
     /// Refcount permite pinagem repetida no mesmo handle.
     pinned_handles: FxHashMap<i64, u32>,
+    /// Handle do objeto global compartilhado (`globalThis`/`global`).
+    global_object_handle: i64,
 }
 
 impl ValueStore {
     fn reset(&mut self) {
         *self = Self::default();
+        let _ = self.ensure_global_object();
+    }
+
+    fn ensure_global_object(&mut self) -> i64 {
+        if self.global_object_handle > UNDEFINED_HANDLE {
+            return self.global_object_handle;
+        }
+
+        let handle = self.allocate_value(RuntimeValue::Object(std::collections::BTreeMap::new()));
+        self.bindings.insert(
+            "globalThis".to_string(),
+            BindingEntry {
+                handle,
+                mutable: false,
+            },
+        );
+        self.bindings.insert(
+            "global".to_string(),
+            BindingEntry {
+                handle,
+                mutable: false,
+            },
+        );
+        self.global_object_handle = handle;
+        handle
+    }
+
+    fn global_get_property(&self, name: &str) -> Option<RuntimeValue> {
+        if self.global_object_handle <= UNDEFINED_HANDLE {
+            return None;
+        }
+        let index = (self.global_object_handle - 1) as usize;
+        let Some(Some(RuntimeValue::Object(map))) = self.values.get(index) else {
+            return None;
+        };
+        map.get(name).cloned()
+    }
+
+    fn global_set_property(&mut self, name: String, value: RuntimeValue) {
+        let handle = self.ensure_global_object();
+        let index = (handle - 1) as usize;
+        if let Some(Some(RuntimeValue::Object(map))) = self.values.get_mut(index) {
+            map.insert(name, value);
+        }
+    }
+
+    fn global_delete_property(&mut self, name: &str) -> bool {
+        let handle = self.ensure_global_object();
+        let index = (handle - 1) as usize;
+        if let Some(Some(RuntimeValue::Object(map))) = self.values.get_mut(index) {
+            return map.remove(name).is_some();
+        }
+        false
+    }
+
+    fn global_has_property(&self, name: &str) -> bool {
+        self.global_get_property(name).is_some()
+    }
+
+    fn global_keys_csv(&self) -> String {
+        if self.global_object_handle <= UNDEFINED_HANDLE {
+            return String::new();
+        }
+        let index = (self.global_object_handle - 1) as usize;
+        let Some(Some(RuntimeValue::Object(map))) = self.values.get(index) else {
+            return String::new();
+        };
+        map.keys().cloned().collect::<Vec<_>>().join(",")
     }
 
     fn allocate_value(&mut self, value: RuntimeValue) -> i64 {
@@ -286,91 +313,8 @@ impl ValueStore {
     }
 }
 
-#[derive(Debug, Clone)]
-struct RuntimeMetrics {
-    dispatch_calls: u64,
-    dispatch_nanos: u128,
-    eval_expr_calls: u64,
-    eval_expr_nanos: u128,
-    eval_stmt_calls: u64,
-    eval_stmt_nanos: u128,
-    call_dispatch_calls: u64,
-    call_dispatch_nanos: u128,
-    /// Breakdown por `fn_id` do `__rts_dispatch`. Indexados pelas constantes
-    /// `FN_*`. Usado por `--dump-statistics` para mostrar tempo gasto em
-    /// cada ponto de dispatch separadamente.
-    per_fn_calls: [u64; FN_ID_COUNT],
-    per_fn_nanos: [u128; FN_ID_COUNT],
-}
-
-impl Default for RuntimeMetrics {
-    fn default() -> Self {
-        Self {
-            dispatch_calls: 0,
-            dispatch_nanos: 0,
-            eval_expr_calls: 0,
-            eval_expr_nanos: 0,
-            eval_stmt_calls: 0,
-            eval_stmt_nanos: 0,
-            call_dispatch_calls: 0,
-            call_dispatch_nanos: 0,
-            per_fn_calls: [0; FN_ID_COUNT],
-            per_fn_nanos: [0; FN_ID_COUNT],
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct RuntimeMetricsSnapshot {
-    pub dispatch_calls: u64,
-    pub dispatch_nanos: u128,
-    pub eval_expr_calls: u64,
-    pub eval_expr_nanos: u128,
-    pub eval_stmt_calls: u64,
-    pub eval_stmt_nanos: u128,
-    pub eval_parse_calls: u64,
-    pub eval_parse_nanos: u128,
-    pub eval_identifier_reads: u64,
-    pub eval_identifier_writes: u64,
-    pub eval_call_dispatches: u64,
-    pub eval_binding_cache_hits: u64,
-    pub eval_binding_cache_misses: u64,
-    pub call_dispatch_calls: u64,
-    pub call_dispatch_nanos: u128,
-    /// Tempo/chamadas por `fn_id`. Ordem igual aos indices das constantes
-    /// `FN_*`. Renderizado linha a linha em `--dump-statistics` com o nome
-    /// devolvido por `fn_id_label()`.
-    pub per_fn_calls: [u64; FN_ID_COUNT],
-    pub per_fn_nanos: [u128; FN_ID_COUNT],
-}
-
-impl Default for RuntimeMetricsSnapshot {
-    fn default() -> Self {
-        Self {
-            dispatch_calls: 0,
-            dispatch_nanos: 0,
-            eval_expr_calls: 0,
-            eval_expr_nanos: 0,
-            eval_stmt_calls: 0,
-            eval_stmt_nanos: 0,
-            eval_parse_calls: 0,
-            eval_parse_nanos: 0,
-            eval_identifier_reads: 0,
-            eval_identifier_writes: 0,
-            eval_call_dispatches: 0,
-            eval_binding_cache_hits: 0,
-            eval_binding_cache_misses: 0,
-            call_dispatch_calls: 0,
-            call_dispatch_nanos: 0,
-            per_fn_calls: [0; FN_ID_COUNT],
-            per_fn_nanos: [0; FN_ID_COUNT],
-        }
-    }
-}
-
 thread_local! {
     static VALUE_STORE: RefCell<ValueStore> = RefCell::new(ValueStore::default());
-    static RUNTIME_METRICS: RefCell<RuntimeMetrics> = RefCell::new(RuntimeMetrics::default());
     static JIT_FN_TABLE: RefCell<rustc_hash::FxHashMap<String, usize>> =
         RefCell::new(rustc_hash::FxHashMap::default());
 }
@@ -396,22 +340,6 @@ pub(crate) fn call_jit_fn_by_name(name: &str) -> i64 {
             UNDEFINED_HANDLE
         }
     })
-}
-
-static DISPATCH_METRICS_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-#[inline(always)]
-fn metrics_enabled() -> bool {
-    DISPATCH_METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-pub(crate) fn dispatch_debug_enabled() -> bool {
-    metrics_enabled()
-}
-
-pub(crate) fn set_dispatch_metrics_enabled(enabled: bool) {
-    DISPATCH_METRICS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
 fn with_store_mut<R>(callback: impl FnOnce(&mut ValueStore) -> R) -> R {
@@ -476,38 +404,7 @@ pub fn reset_thread_state() {
     crate::namespaces::gc::safe_collect();
     crate::namespaces::rust::eval::reset_metrics();
     reset_runtime_metrics();
-}
-
-fn reset_runtime_metrics() {
-    RUNTIME_METRICS.with(|metrics| {
-        *metrics.borrow_mut() = RuntimeMetrics::default();
-    });
-}
-
-pub(crate) fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
-    let eval = crate::namespaces::rust::eval::metrics_snapshot();
-    RUNTIME_METRICS.with(|metrics| {
-        let metrics = metrics.borrow();
-        RuntimeMetricsSnapshot {
-            dispatch_calls: metrics.dispatch_calls,
-            dispatch_nanos: metrics.dispatch_nanos,
-            eval_expr_calls: metrics.eval_expr_calls,
-            eval_expr_nanos: metrics.eval_expr_nanos,
-            eval_stmt_calls: metrics.eval_stmt_calls,
-            eval_stmt_nanos: metrics.eval_stmt_nanos,
-            eval_parse_calls: eval.parse_calls,
-            eval_parse_nanos: eval.parse_nanos,
-            eval_identifier_reads: eval.identifier_reads,
-            eval_identifier_writes: eval.identifier_writes,
-            eval_call_dispatches: eval.call_dispatches,
-            eval_binding_cache_hits: eval.binding_cache_hits,
-            eval_binding_cache_misses: eval.binding_cache_misses,
-            call_dispatch_calls: metrics.call_dispatch_calls,
-            call_dispatch_nanos: metrics.call_dispatch_nanos,
-            per_fn_calls: metrics.per_fn_calls,
-            per_fn_nanos: metrics.per_fn_nanos,
-        }
-    })
+    JIT_FN_TABLE.with(|t| t.borrow_mut().clear());
 }
 
 fn push_value(value: RuntimeValue) -> i64 {
@@ -536,7 +433,15 @@ fn unpin_value_handle(handle: i64) -> i64 {
 /// backing storage permanece estável enquanto o binding não for
 /// sobrescrito via WriteBind (que cria um handle novo, não muta in-place).
 fn read_identifier_handle(name: &str) -> Option<i64> {
-    with_store(|store| store.bindings.get(name).map(|entry| entry.handle))
+    with_store_mut(|store| {
+        let _ = store.ensure_global_object();
+        if let Some(entry) = store.bindings.get(name) {
+            return Some(entry.handle);
+        }
+        store
+            .global_get_property(name)
+            .map(|value| store.allocate_value(value))
+    })
 }
 
 pub(crate) fn push_runtime_value(value: RuntimeValue) -> i64 {
@@ -571,6 +476,26 @@ pub(crate) fn write_runtime_identifier_value(name: &str, value: RuntimeValue) {
 
 pub(crate) fn write_runtime_value_handle(handle: i64, value: RuntimeValue) -> bool {
     with_store_mut(|store| store.write_value_handle(handle, value))
+}
+
+pub(crate) fn set_runtime_global_property(name: &str, value: RuntimeValue) {
+    with_store_mut(|store| store.global_set_property(name.to_string(), value));
+}
+
+pub(crate) fn get_runtime_global_property(name: &str) -> Option<RuntimeValue> {
+    with_store(|store| store.global_get_property(name))
+}
+
+pub(crate) fn has_runtime_global_property(name: &str) -> bool {
+    with_store(|store| store.global_has_property(name))
+}
+
+pub(crate) fn delete_runtime_global_property(name: &str) -> bool {
+    with_store_mut(|store| store.global_delete_property(name))
+}
+
+pub(crate) fn runtime_global_keys_csv() -> String {
+    with_store(|store| store.global_keys_csv())
 }
 
 fn read_utf8(ptr: i64, len: i64) -> Option<String> {
@@ -703,10 +628,6 @@ pub extern "C" fn __rts_dispatch(
             let Some(name) = read_utf8_static(a0, a1) else {
                 return UNDEFINED_HANDLE;
             };
-            // Fast path: devolve o handle existente do binding diretamente,
-            // sem clonar o RuntimeValue nem alocar um slot novo no `values`
-            // vec. Handles são opacos para o chamador e o backing storage
-            // permanece estável enquanto o binding não for sobrescrito.
             read_identifier_handle(name).unwrap_or(UNDEFINED_HANDLE)
         }
         FN_BINOP => binop_dispatch(a0, a1, a2),
@@ -739,26 +660,17 @@ pub extern "C" fn __rts_dispatch(
             None => UNDEFINED_HANDLE,
         },
         FN_CALL_BY_HANDLE => {
-            // a0 = fn_handle, a1 = argc, a2..a7 = arg handles
             let fn_value = read_value(a0);
             match fn_value {
-                RuntimeValue::NativeFunction(fn_name) => {
-                    call_jit_fn_by_name(&fn_name)
-                }
+                RuntimeValue::NativeFunction(fn_name) => call_jit_fn_by_name(&fn_name),
                 _ => UNDEFINED_HANDLE,
             }
         }
         FN_NEW_INSTANCE => {
-            // a0 = class_name_ptr, a1 = class_name_len
-            // Por enquanto ignoramos o class_name — criamos um Object vazio
-            // e deixamos o constructor (chamado separadamente pelo codegen)
-            // popular os campos. O nome da classe servirá no futuro para
-            // lookup de metadata / checagem de tipo em runtime.
             let _ = read_utf8(a0, a1);
             push_value(RuntimeValue::Object(std::collections::BTreeMap::new()))
         }
         FN_LOAD_FIELD => {
-            // a0 = obj_handle, a1 = field_ptr, a2 = field_len
             let Some(field) = read_utf8(a1, a2) else {
                 return UNDEFINED_HANDLE;
             };
@@ -768,13 +680,11 @@ pub extern "C" fn __rts_dispatch(
             push_value(value)
         }
         FN_STORE_FIELD => {
-            // a0 = obj_handle, a1 = field_ptr, a2 = field_len, a3 = value_handle
             let Some(field) = read_utf8(a1, a2) else {
                 return 0;
             };
             let new_value = read_value(a3);
             with_store_mut(|store| {
-                // Handle = index+1; handle 0 reservado para Undefined.
                 if a0 <= 0 {
                     return 0i64;
                 }
@@ -813,8 +723,6 @@ pub extern "C" fn __rts_dispatch(
                 metrics.eval_stmt_calls = metrics.eval_stmt_calls.saturating_add(1);
                 metrics.eval_stmt_nanos = metrics.eval_stmt_nanos.saturating_add(elapsed);
             }
-            // Breakdown por fn_id: incrementa apenas se o id cai na faixa
-            // conhecida, senao o total agregado em `dispatch_*` ja cobre.
             if fn_id >= 0 && (fn_id as usize) < FN_ID_COUNT {
                 let idx = fn_id as usize;
                 metrics.per_fn_calls[idx] = metrics.per_fn_calls[idx].saturating_add(1);
@@ -891,8 +799,9 @@ pub extern "C" fn __rts_call_dispatch(
 #[cfg(test)]
 mod tests {
     use super::{
-        RuntimeValue, FN_BOX_NUMBER, FN_BOX_STRING, FN_PIN_HANDLE, FN_UNPIN_HANDLE, bind_runtime_identifier_value,
-        compact_value_store, read_runtime_value, read_utf8_static, reset_thread_state,
+        FN_BOX_NUMBER, FN_BOX_STRING, FN_PIN_HANDLE, FN_READ_IDENTIFIER, FN_STORE_FIELD,
+        FN_UNPIN_HANDLE, RuntimeValue, bind_runtime_identifier_value, compact_value_store,
+        read_runtime_value, read_utf8_static, reset_thread_state,
         resolve_runtime_identifier_binding, with_store, write_runtime_identifier_value,
     };
 
@@ -980,27 +889,12 @@ mod tests {
 
     #[test]
     fn unpinned_transient_survives_call_dispatch_when_excluded() {
-        // Regression test for issue #5: an unpinned transient handle (simulating
-        // a temporary from a prior dynamic call in a multi-call expression)
-        // must survive a subsequent __rts_call_dispatch if it is pinned before
-        // the call. This test verifies the pin/unpin mechanism works for
-        // temporaries that the codegen now pins via vreg_map scanning.
         reset_thread_state();
 
-        // Simulate first dynamic call result (e.g., process.arch())
-        let first_result = super::__rts_dispatch(
-            FN_BOX_STRING,
-            b"x86_64".as_ptr() as i64,
-            6,
-            0,
-            0,
-            0,
-            0,
-        );
-        // Pin it (as the codegen now does for vreg_map temporaries)
+        let first_result =
+            super::__rts_dispatch(FN_BOX_STRING, b"x86_64".as_ptr() as i64, 6, 0, 0, 0, 0);
         super::__rts_dispatch(FN_PIN_HANDLE, first_result, 0, 0, 0, 0, 0);
 
-        // Simulate second dynamic call (e.g., another process.arch())
         let callee = b"process.arch";
         let _second_result = super::__rts_call_dispatch(
             callee.as_ptr() as i64,
@@ -1014,12 +908,58 @@ mod tests {
             0,
         );
 
-        // First result must still be alive
         assert_eq!(
             read_runtime_value(first_result),
             RuntimeValue::String("x86_64".to_string())
         );
         super::__rts_dispatch(FN_UNPIN_HANDLE, first_result, 0, 0, 0, 0, 0);
+    }
+
+    #[test]
+    fn global_and_global_this_share_same_handle() {
+        reset_thread_state();
+        let global = resolve_runtime_identifier_binding("global")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+        let global_this = resolve_runtime_identifier_binding("globalThis")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+        assert!(global > 0);
+        assert_eq!(global, global_this);
+    }
+
+    #[test]
+    fn identifier_read_falls_back_to_global_object_property() {
+        reset_thread_state();
+        let global_this = resolve_runtime_identifier_binding("globalThis")
+            .map(|binding| binding.handle)
+            .unwrap_or(0);
+        assert!(global_this > 0);
+
+        let value = super::__rts_dispatch(FN_BOX_STRING, b"ok".as_ptr() as i64, 2, 0, 0, 0, 0);
+        let _ = super::__rts_dispatch(
+            FN_STORE_FIELD,
+            global_this,
+            b"console".as_ptr() as i64,
+            7,
+            value,
+            0,
+            0,
+        );
+
+        let resolved = super::__rts_dispatch(
+            FN_READ_IDENTIFIER,
+            b"console".as_ptr() as i64,
+            7,
+            0,
+            0,
+            0,
+            0,
+        );
+        assert_eq!(
+            read_runtime_value(resolved),
+            RuntimeValue::String("ok".to_string())
+        );
     }
 
     #[test]

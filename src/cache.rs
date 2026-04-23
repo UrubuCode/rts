@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::compile_options::CompileOptions;
@@ -49,9 +50,7 @@ pub(crate) fn is_cached_object_valid(
         return false;
     }
 
-    let meta = std::fs::read_to_string(meta_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<ObjectCacheMeta>(&raw).ok());
+    let meta = read_object_cache_meta(meta_path).ok().flatten();
     let Some(meta) = meta else {
         return false;
     };
@@ -66,8 +65,50 @@ pub(crate) fn is_cached_object_valid(
 }
 
 pub(crate) fn write_object_cache_meta(path: &Path, meta: &ObjectCacheMeta) -> Result<()> {
-    let encoded = serde_json::to_string_pretty(meta)
+    let cache_value = serde_json::to_value(meta)
+        .map_err(|error| anyhow!("failed to encode object cache metadata: {error}"))?;
+
+    let mut root = read_json_object(path)?.unwrap_or_default();
+    root.insert("cache".to_string(), cache_value);
+
+    let encoded = serde_json::to_string_pretty(&Value::Object(root))
         .map_err(|error| anyhow!("failed to encode object cache metadata: {error}"))?;
     std::fs::write(path, encoded)
         .with_context(|| format!("failed to write object cache metadata {}", path.display()))
+}
+
+fn read_object_cache_meta(path: &Path) -> Result<Option<ObjectCacheMeta>> {
+    let Some(root) = read_json_object(path)? else {
+        return Ok(None);
+    };
+
+    if let Some(cache) = root.get("cache") {
+        let parsed = serde_json::from_value::<ObjectCacheMeta>(cache.clone()).map_err(|error| {
+            anyhow!(
+                "failed to decode cache metadata from {}: {error}",
+                path.display()
+            )
+        })?;
+        return Ok(Some(parsed));
+    }
+
+    // Backward compatibility for older metadata-only files.
+    let parsed = serde_json::from_value::<ObjectCacheMeta>(Value::Object(root)).ok();
+    Ok(parsed)
+}
+
+fn read_json_object(path: &Path) -> Result<Option<Map<String, Value>>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read object cache metadata {}", path.display()))?;
+    let value = serde_json::from_str::<Value>(&raw)
+        .map_err(|error| anyhow!("failed to parse {} as JSON: {error}", path.display()))?;
+
+    match value {
+        Value::Object(map) => Ok(Some(map)),
+        _ => Ok(None),
+    }
 }

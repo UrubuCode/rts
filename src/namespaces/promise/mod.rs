@@ -1,3 +1,8 @@
+//! `promise` namespace — promises armazenadas como handle `u64`.
+//!
+//! State real vive em `task::executor` (PromiseStatus); este mod expoe apenas
+//! ops de resolve/reject/await para o codegen.
+
 use crate::namespaces::task::executor as runtime_state;
 use crate::namespaces::value::RuntimeValue;
 

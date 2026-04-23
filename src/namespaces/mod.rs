@@ -11,8 +11,7 @@ pub mod buffer;
 pub mod crypto;
 pub mod fs;
 pub mod gc;
-pub mod global;
-pub mod global_this;
+pub mod globals;
 pub mod io;
 pub mod json;
 pub mod net;
@@ -45,7 +44,7 @@ const SPECS: &[NamespaceSpec] = &[
     net::SPEC,
     process::SPEC,
     crypto::SPEC,
-    global::SPEC,
+    globals::SPEC,
     buffer::SPEC,
     promise::SPEC,
     task::SPEC,
@@ -67,7 +66,7 @@ const SPLIT_SPECS: &[&NamespaceSpec] = &[
     &net::SPEC,
     &process::SPEC,
     &crypto::SPEC,
-    &global::SPEC,
+    &globals::SPEC,
     &buffer::SPEC,
     &promise::SPEC,
     &task::SPEC,
@@ -240,7 +239,7 @@ pub fn dispatch(callee: &str, args: &[RuntimeValue]) -> Option<DispatchOutcome> 
         "net" => net::dispatch(callee, args),
         "process" => process::dispatch(callee, args),
         "crypto" => crypto::dispatch(callee, args),
-        "global" => global::dispatch(callee, args),
+        "globals" => globals::dispatch(callee, args),
         "buffer" => buffer::dispatch(callee, args),
         "promise" => promise::dispatch(callee, args),
         "task" => task::dispatch(callee, args),
@@ -260,8 +259,7 @@ pub fn namespace_exports_for(name: &str) -> Option<Vec<&'static str>> {
         .iter()
         .find(|spec| spec.name == name)
         .map(|spec| {
-            let mut exports: Vec<&'static str> =
-                spec.members.iter().map(|m| m.name).collect();
+            let mut exports: Vec<&'static str> = spec.members.iter().map(|m| m.name).collect();
             exports.push("default");
             exports
         })
@@ -413,7 +411,11 @@ fn render_typescript_declarations() -> String {
     for (parent, specs) in dotted {
         out.push_str(&format!("  export namespace {parent} {{\n"));
         for spec in specs {
-            let leaf = spec.name.split_once('.').map(|(_, l)| l).unwrap_or(spec.name);
+            let leaf = spec
+                .name
+                .split_once('.')
+                .map(|(_, l)| l)
+                .unwrap_or(spec.name);
             // Criamos uma cópia leve com o nome trocado para o leaf, assim
             // `render_flat_namespace_body` nao precisa saber do agrupamento.
             let leaf_spec = NamespaceSpec {

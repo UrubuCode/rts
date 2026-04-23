@@ -80,7 +80,7 @@ const RTS_EXPORTS: &[&str] = &[
     "net",
     "process",
     "crypto",
-    "global",
+    "globals",
     "buffer",
     "promise",
     "task",
@@ -108,5 +108,5 @@ const RTS_PENDING_APIS: &[&str] = &[
     "Cross-platform path API package (normalize/join/resolve)",
     "Networking primitives (TCP, UDP, DNS, HTTP client/server)",
     "Structured diagnostics protocol and source maps for AOT binaries",
-    "Package publish/install workflow for ~/.rts/modules registry layout",
+    "Package publish/install workflow for node_modules/.rts/modules layout",
 ];

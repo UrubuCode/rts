@@ -1,3 +1,8 @@
+//! `io` namespace — stdio/stdout/stderr primitivas.
+//!
+//! Write/read raw sem formatacao. Formatacao (console.log) e feita por
+//! packages TS sobre estas primitivas.
+
 use std::collections::BTreeMap;
 
 use crate::namespaces::value::RuntimeValue;

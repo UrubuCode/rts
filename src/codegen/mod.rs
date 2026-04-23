@@ -1,5 +1,13 @@
-﻿pub mod cranelift;
+pub mod clif_builder;
+pub mod jit;
+pub mod metadata;
+pub(crate) mod mir_parse;
 pub mod object;
+pub mod object_builder;
+pub mod ometa;
+pub(crate) mod parse_utils;
+pub mod type_layout;
+pub mod typed;
 
 use std::path::Path;
 
@@ -25,9 +33,9 @@ pub fn generate_typed_object(
     emit_entrypoint: bool,
     options: &CompileOptions,
 ) -> Result<ObjectArtifact> {
-    let bytes = cranelift::object_builder::lower_typed_to_native_object(
+    let bytes = object_builder::lower_typed_to_native_object(
         mir,
-        &cranelift::object_builder::ObjectBuildOptions {
+        &object_builder::ObjectBuildOptions {
             emit_entrypoint,
             optimize_for_production: options.profile.as_str() == "production",
         },
@@ -36,7 +44,6 @@ pub fn generate_typed_object(
 
     let artifact = object::write_object_file(output, &bytes)?;
 
-    // Em modo desenvolvimento, emite .ometa com localização das funções.
     if options.profile.is_development() {
         emit_ometa(mir, output);
     }
@@ -45,7 +52,7 @@ pub fn generate_typed_object(
 }
 
 fn emit_ometa(mir: &crate::mir::TypedMirModule, obj_path: &Path) {
-    use cranelift::ometa::OmetaWriter;
+    use crate::codegen::ometa::OmetaWriter;
 
     let mut writer = OmetaWriter::new("development", "");
     for func in &mir.functions {
@@ -66,9 +73,9 @@ pub fn generate_object_with_metadata_options(
     optimize_for_production: bool,
 ) -> Result<ObjectArtifact> {
     let _ = metadata;
-    let bytes = cranelift::object_builder::lower_to_native_object_with_options(
+    let bytes = object_builder::lower_to_native_object_with_options(
         mir,
-        &cranelift::object_builder::ObjectBuildOptions {
+        &object_builder::ObjectBuildOptions {
             emit_entrypoint,
             optimize_for_production,
         },

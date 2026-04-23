@@ -30,3 +30,10 @@ target
 /target
 debug_*
 .claude/settings.local.json
+
+# Stray binaries / temp scratch at repo root
+/*.exe
+/*.dll
+/*.so
+/tmp_*
+/.tmp-types-check

@@ -1,3 +1,8 @@
+//! `task` namespace — async task executor e storage de PromiseStatus.
+//!
+//! `executor` e o core (spawn/await/status). `promise` namespace re-exporta
+//! ops para a boundary de codegen.
+
 pub(crate) mod executor;
 pub use executor::{
     AsyncTask, PromiseStatus, promise_await, promise_is_settled, promise_reject, promise_resolve,

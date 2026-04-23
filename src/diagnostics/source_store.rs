@@ -51,7 +51,12 @@ impl SourceFile {
             .copied()
             .unwrap_or(self.text.len());
         let slice = &self.text[start..end];
-        Some(slice.strip_suffix('\n').unwrap_or(slice).trim_end_matches('\r'))
+        Some(
+            slice
+                .strip_suffix('\n')
+                .unwrap_or(slice)
+                .trim_end_matches('\r'),
+        )
     }
 }
 

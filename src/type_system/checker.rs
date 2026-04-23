@@ -186,10 +186,7 @@ fn check_import(
         reporter::emit(
             RichDiagnostic::error(
                 "E012",
-                format!(
-                    "modulo '{}' nao possui export default",
-                    import_decl.from
-                ),
+                format!("modulo '{}' nao possui export default", import_decl.from),
             )
             .with_span(import_decl.span)
             .with_note("use imports nomeados ({ foo, bar }) em vez de default"),

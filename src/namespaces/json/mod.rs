@@ -93,9 +93,7 @@ pub fn runtime_to_json(value: &RuntimeValue) -> JsonValue {
             }
             JsonValue::Object(out)
         }
-        RuntimeValue::Array(items) => {
-            JsonValue::Array(items.iter().map(runtime_to_json).collect())
-        }
+        RuntimeValue::Array(items) => JsonValue::Array(items.iter().map(runtime_to_json).collect()),
         RuntimeValue::NativeFunction(_) => JsonValue::Null,
     }
 }
@@ -113,9 +111,7 @@ pub fn json_to_runtime(value: &JsonValue) -> RuntimeValue {
             RuntimeValue::Number(n.as_f64().unwrap_or(f64::NAN))
         }
         JsonValue::String(s) => RuntimeValue::String(s.clone()),
-        JsonValue::Array(items) => {
-            RuntimeValue::Array(items.iter().map(json_to_runtime).collect())
-        }
+        JsonValue::Array(items) => RuntimeValue::Array(items.iter().map(json_to_runtime).collect()),
         JsonValue::Object(obj) => {
             let mut map: BTreeMap<String, RuntimeValue> = BTreeMap::new();
             for (k, v) in obj {
@@ -175,9 +171,7 @@ mod tests {
         let value = json_to_runtime(&json);
         if let RuntimeValue::Object(map) = value {
             assert!(matches!(map.get("count"), Some(RuntimeValue::Number(n)) if *n == 5.0));
-            assert!(
-                matches!(map.get("name"), Some(RuntimeValue::String(s)) if s == "bob")
-            );
+            assert!(matches!(map.get("name"), Some(RuntimeValue::String(s)) if s == "bob"));
         } else {
             panic!("expected Object");
         }
@@ -197,7 +191,10 @@ mod tests {
             panic!("expected Array, got {:?}", value);
         }
         // length via get_property
-        assert_eq!(value.get_property("length"), Some(RuntimeValue::Number(3.0)));
+        assert_eq!(
+            value.get_property("length"),
+            Some(RuntimeValue::Number(3.0))
+        );
     }
 
     #[test]
@@ -217,7 +214,10 @@ mod tests {
         } else {
             panic!("expected Array");
         }
-        assert_eq!(parsed.get_property("length"), Some(RuntimeValue::Number(0.0)));
+        assert_eq!(
+            parsed.get_property("length"),
+            Some(RuntimeValue::Number(0.0))
+        );
     }
 
     #[test]
@@ -239,8 +239,7 @@ mod tests {
             "null"
         );
         assert_eq!(
-            serde_json::to_string(&runtime_to_json(&RuntimeValue::Number(f64::INFINITY)))
-                .unwrap(),
+            serde_json::to_string(&runtime_to_json(&RuntimeValue::Number(f64::INFINITY))).unwrap(),
             "null"
         );
     }

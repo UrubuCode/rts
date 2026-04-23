@@ -1,3 +1,8 @@
+//! `buffer` namespace — heap-owned byte buffers acessados por handle `u64`.
+//!
+//! Expoe alloc/free/read/write e conversoes UTF-8. Estado compartilhado via
+//! `OnceLock<Arc<Mutex<BufferState>>>`.
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 

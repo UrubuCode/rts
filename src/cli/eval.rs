@@ -27,7 +27,7 @@ pub fn command(source_arg: Option<String>, options: CompileOptions) -> Result<()
 
     let mir = crate::mir::build::build(&lowered);
 
-    let jit_report = crate::codegen::cranelift::jit::execute(&mir, "main")
+    let jit_report = crate::codegen::jit::execute(&mir, "main")
         .context("failed to execute inline eval through Cranelift JIT")?;
 
     if jit_report.executed {

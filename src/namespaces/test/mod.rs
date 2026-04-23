@@ -1,3 +1,8 @@
+//! `test` namespace — asserts e hooks de teste expostos ao runtime TS.
+//!
+//! Usado por packages de testing (ex: `packages/test`) para escrever assertions
+//! nativas sem depender de framework externo.
+
 use super::{DispatchOutcome, NamespaceMember, NamespaceSpec, arg_to_string};
 use crate::namespaces::value::RuntimeValue;
 

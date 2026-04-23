@@ -1,4 +1,4 @@
-﻿use crate::mir::MirModule;
+use crate::mir::MirModule;
 
 #[derive(Debug, Clone, Default)]
 pub struct ClifModule {

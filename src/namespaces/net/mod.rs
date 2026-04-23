@@ -1,3 +1,8 @@
+//! `net` namespace — sockets TCP/UDP, HTTP client, helpers IP.
+//!
+//! Cada protocolo em arquivo proprio (`tcp.rs`, `udp.rs`, `http.rs`, `ip.rs`);
+//! `common.rs` agrupa helpers compartilhados. Sockets retornam handle `u64`.
+
 pub mod common;
 mod http;
 mod ip;

@@ -85,13 +85,13 @@ where
         "clean" => clean::command(),
         "apis" | "api" => apis::command(),
         "emit-types" => {
-            let output_dir = positional.get(1).cloned()
+            let output_dir = positional
+                .get(1)
+                .cloned()
                 .unwrap_or_else(|| "packages/rts-types".to_string());
             let dir = std::path::Path::new(&output_dir);
             crate::namespaces::emit_split_typescript_declarations(dir)?;
-            crate::namespaces::emit_typescript_declarations(
-                &dir.join("rts.d.ts"),
-            )?;
+            crate::namespaces::emit_typescript_declarations(&dir.join("rts.d.ts"))?;
             println!("types emitted to {output_dir}");
             Ok(())
         }
@@ -114,7 +114,10 @@ where
         if engine.warnings_count() > 0 {
             let use_color = reporter::stderr_supports_color();
             eprint!("{}", engine.render_all(use_color));
-            eprintln!("compilacao concluida com {} aviso(s)", engine.warnings_count());
+            eprintln!(
+                "compilacao concluida com {} aviso(s)",
+                engine.warnings_count()
+            );
         }
     }
 
@@ -135,9 +138,7 @@ fn parse_flags(raw_args: Vec<String>) -> Result<(CliFlags, Vec<String>, Option<S
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--debug" | "-D" => {
                 // Aceito por compatibilidade. Sera removido em versao futura.
-                eprintln!(
-                    "warning: --debug/-D esta depreciado, use --dump-statistics/-ds"
-                );
+                eprintln!("warning: --debug/-D esta depreciado, use --dump-statistics/-ds");
                 flags.debug = true;
             }
             "--watch" | "-w" => flags.watch = true,

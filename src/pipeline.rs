@@ -119,7 +119,7 @@ pub(crate) fn compile_graph(
         }
 
         let is_entry_module = entry_key.is_some_and(|key| key == module.key);
-        let mut typed_mir = mir::typed_build::typed_build(&lowered);
+        let mut typed_mir = mir::typed::typed(&lowered);
 
         if !is_entry_module {
             typed_mir
@@ -134,7 +134,7 @@ pub(crate) fn compile_graph(
         lowered_functions += typed_mir.functions.len();
         let stem = module_object_stem(&app_name, module, input);
         let object_path = deps_dir.join(format!("{stem}.o"));
-        let meta_path = deps_dir.join(format!("{stem}.m"));
+        let meta_path = deps_dir.join(format!("{stem}.ometa"));
         let source_hash = hash_source(&module.source);
         let deps_hash = graph.transitive_deps_hash(&module.key);
 
@@ -349,14 +349,6 @@ fn should_keep_named_item(required_names: Option<&BTreeSet<String>>, name: &str)
 }
 
 pub(crate) fn resolve_deps_dir(output: &Path) -> Result<PathBuf> {
-    // Prioridade:
-    // 1. Variavel de ambiente `RTS_DEPS_DIR` — usuario avancado pode
-    //    apontar para qualquer diretorio (testes, CI, etc)
-    // 2. `node_modules/.rts/objs/` — padrao a partir da Etapa 5, alinha
-    //    com o ecossistema JS/TS (ignorado por ferramentas como tsc,
-    //    vscode, eslint, prettier automaticamente)
-    // 3. `target/.deps/` — fallback legado, mantido apenas se o usuario
-    //    ja tem um `target/.deps/` existente (nao quebra builds atuais)
     let _ = output;
 
     if let Ok(configured) = std::env::var("RTS_DEPS_DIR") {
@@ -369,19 +361,11 @@ pub(crate) fn resolve_deps_dir(output: &Path) -> Result<PathBuf> {
         }
     }
 
-    let new_default = PathBuf::from("node_modules").join(".rts").join("objs");
-    let legacy = PathBuf::from("target").join(".deps");
-
-    // Se existe um cache legado e nao existe o novo, migramos o path
-    // mas continuamos usando o legado — evita quebrar builds em progresso.
-    // O usuario move manualmente rodando `rts clean` seguido de novo build.
-    if legacy.exists() && !new_default.exists() {
-        return Ok(legacy);
-    }
-
-    std::fs::create_dir_all(&new_default)
-        .with_context(|| format!("failed to create {}", new_default.display()))?;
-    Ok(new_default)
+    let root = resolve_rts_root_dir()?;
+    let deps = root.join("objs");
+    std::fs::create_dir_all(&deps)
+        .with_context(|| format!("failed to create {}", deps.display()))?;
+    Ok(deps)
 }
 
 pub(crate) fn resolve_launcher_cache_dir(output: &Path) -> Result<PathBuf> {
@@ -397,16 +381,7 @@ pub(crate) fn resolve_launcher_cache_dir(output: &Path) -> Result<PathBuf> {
         }
     }
 
-    let new_default = PathBuf::from("node_modules").join(".rts").join("launcher");
-    let legacy = PathBuf::from("target").join(".launcher");
-
-    if legacy.exists() && !new_default.exists() {
-        return Ok(legacy);
-    }
-
-    std::fs::create_dir_all(&new_default)
-        .with_context(|| format!("failed to create {}", new_default.display()))?;
-    Ok(new_default)
+    resolve_rts_root_dir()
 }
 
 fn emit_fallback_main_object(
@@ -462,6 +437,7 @@ pub(crate) fn write_launcher_namespace_catalog(launcher_dir: &Path) -> Result<()
 }
 
 pub(crate) fn sync_namespace_artifacts(launcher_dir: &Path) -> Result<()> {
+    ensure_rts_workspace_layout(launcher_dir)?;
     write_launcher_namespace_catalog(launcher_dir)?;
     let obsolete_runtime_cache = launcher_dir.join("runtime");
     if obsolete_runtime_cache.is_dir() {
@@ -475,6 +451,129 @@ pub(crate) fn sync_namespace_artifacts(launcher_dir: &Path) -> Result<()> {
     let dts_path = namespaces::default_typescript_output_path();
     namespaces::emit_typescript_declarations(&dts_path)
         .with_context(|| format!("failed to emit {}", dts_path.display()))
+}
+
+fn resolve_rts_root_dir() -> Result<PathBuf> {
+    let root = PathBuf::from("node_modules").join(".rts");
+    std::fs::create_dir_all(&root)
+        .with_context(|| format!("failed to create {}", root.display()))?;
+    Ok(root)
+}
+
+fn ensure_rts_workspace_layout(root: &Path) -> Result<()> {
+    std::fs::create_dir_all(root.join("objs"))
+        .with_context(|| format!("failed to create {}", root.join("objs").display()))?;
+    let modules_dir = root.join("modules");
+    std::fs::create_dir_all(&modules_dir)
+        .with_context(|| format!("failed to create {}", modules_dir.display()))?;
+    write_rts_tsconfig(root, &modules_dir)
+}
+
+fn write_rts_tsconfig(root: &Path, modules_dir: &Path) -> Result<()> {
+    let mut entries = collect_builtin_path_entries(modules_dir)?;
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut paths = String::new();
+    for (index, (alias, target)) in entries.iter().enumerate() {
+        let comma = if index + 1 < entries.len() { "," } else { "" };
+        paths.push_str(&format!("      \"{}\": [\"{}\"]{}\n", alias, target, comma));
+    }
+
+    let tsconfig = format!(
+        concat!(
+            "{{\n",
+            "  \"compilerOptions\": {{\n",
+            "    \"module\": \"es2022\",\n",
+            "    \"baseUrl\": \"../..\",\n",
+            "    \"paths\": {{\n",
+            "{}",
+            "    }},\n",
+            "    \"types\": [\"packages/rts-types/*.d.ts\"],\n",
+            "    \"emitDecoratorMetadata\": true,\n",
+            "    \"experimentalDecorators\": true\n",
+            "  }}\n",
+            "}}\n"
+        ),
+        paths
+    );
+
+    let tsconfig_path = root.join("tsconfig.json");
+    std::fs::write(&tsconfig_path, tsconfig)
+        .with_context(|| format!("failed to write {}", tsconfig_path.display()))
+}
+
+fn collect_builtin_path_entries(modules_dir: &Path) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::<(String, String)>::new();
+    let entries = match std::fs::read_dir(modules_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+        Err(error) => {
+            return Err(anyhow!(
+                "failed to list builtin modules directory {} ({})",
+                modules_dir.display(),
+                error
+            ));
+        }
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let module_dir = entry.path();
+        if !module_dir.is_dir() {
+            continue;
+        }
+
+        let Some(module_name) = module_dir.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
+        let src_dir = module_dir.join("src");
+        if !src_dir.is_dir() {
+            continue;
+        }
+
+        let mut stack = vec![src_dir.clone()];
+        while let Some(dir) = stack.pop() {
+            for child in std::fs::read_dir(&dir)? {
+                let child = child?;
+                let path = child.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("ts") {
+                    continue;
+                }
+
+                let Some(relative) = path.strip_prefix(&src_dir).ok() else {
+                    continue;
+                };
+                let mut alias_tail = relative
+                    .with_extension("")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if alias_tail == "main" {
+                    alias_tail.clear();
+                } else if let Some(prefix) = alias_tail.strip_suffix("/main") {
+                    alias_tail = prefix.to_string();
+                }
+
+                let module_alias = if alias_tail.is_empty() {
+                    module_name.to_string()
+                } else {
+                    format!("{module_name}/{alias_tail}")
+                };
+
+                let path_str = path.to_string_lossy().replace('\\', "/");
+                out.push((module_alias.clone(), path_str.clone()));
+                out.push((format!("node:{module_alias}"), path_str));
+            }
+        }
+    }
+
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.dedup_by(|a, b| a.0 == b.0);
+    Ok(out)
 }
 
 pub(crate) fn emit_selected_namespace_objects(
@@ -511,14 +610,17 @@ pub(crate) fn emit_selected_namespace_objects(
     let production = options.profile.as_str() == "production";
 
     for (namespace, ns_callees) in grouped {
-        let bytes = crate::codegen::cranelift::object_builder::build_namespace_dispatch_object(
+        let bytes = crate::codegen::object_builder::build_namespace_dispatch_object(
             &ns_callees,
             production,
         )?;
         // Nome do arquivo: `runtime.namespace_<name>.o`. Mantemos o mesmo
         // diretorio (`target/.deps/`) por enquanto; Etapa 5 migra para
         // `node_modules/.rts/objs/`.
-        let file_name = format!("runtime.namespace_{}.o", sanitize_namespace_for_filename(&namespace));
+        let file_name = format!(
+            "runtime.namespace_{}.o",
+            sanitize_namespace_for_filename(&namespace)
+        );
         let output_path = deps_dir.join(&file_name);
         let artifact = crate::codegen::object::write_object_file(&output_path, &bytes)?;
 
@@ -537,7 +639,13 @@ pub(crate) fn emit_selected_namespace_objects(
 fn sanitize_namespace_for_filename(namespace: &str) -> String {
     namespace
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
