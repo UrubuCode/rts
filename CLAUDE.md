@@ -92,8 +92,9 @@ atual a medida que o pipeline estabiliza. Ver issues #12-#39 para o backlog.
 - `fs/` — read, read_all, write, append, exists, is_file, is_dir, size, modified_ms,
   create_dir(_all), remove_dir(_all), remove_file, rename, copy
 - `gc/` — handles e string pool: string_from_{i64,f64,static}, string_{new,concat,len,ptr,free},
-  `HandleTable` slab-based com 16-bit geracao + 48-bit slot (`u64` handle); `Entry` enumera
-  tipos armazenados (`String`, `BigFixed`, `Free`)
+  `HandleTable` slab-based com 16-bit geracao + 48-bit slot (`u64` handle);
+  `Entry` enumera tipos armazenados (`String`, `BigFixed`, `Buffer`, `ProcessChild`,
+  `Map`, `Vec`, `Free`)
 - `math/` — basic (floor/ceil/round/trunc/sqrt/cbrt/pow/exp/ln/log2/log10/abs_f64/abs_i64),
   trig (sin/cos/tan/asin/acos/atan/atan2), minmax (min/max/clamp_f64/i64), consts
   (PI/E/INFINITY/NAN como `MemberKind::Constant`), random (xorshift64 com estado em
@@ -102,6 +103,24 @@ atual a medida que o pipeline estabiliza. Ver issues #12-#39 para o backlog.
 - `bigfloat/` — decimal fixed-point via i128 (scale decimal ate 36). Operacoes:
   zero/from_f64/from_i64/from_str/to_f64/to_string/add/sub/mul/div/neg/sqrt/free.
   Usado para pi com 29+ digitos via Machin + atan de Maclaurin
+- `time/` — now_ms/now_ns (Instant monotonico), unix_ms/unix_ns (SystemTime),
+  sleep_ms/sleep_ns
+- `env/` — get_var, set_var, remove_var, args_count, arg_at, cwd, set_cwd
+- `path/` — join, parent, file_name, stem, ext, is_absolute, normalize, with_ext
+  (operacoes puras, sem I/O)
+- `buffer/` — Vec<u8> via HandleTable: alloc/alloc_zeroed/free/len/ptr,
+  read/write u8/i32/i64/f64 little-endian, copy/fill, to_string (UTF-8)
+- `string/` — search (contains/starts_with/ends_with/find), transform
+  (to_upper/to_lower/trim/trim_start/trim_end/repeat), replace/replacen,
+  char_count/byte_len/char_at/char_code_at (Unicode-aware)
+- `process/` — exit/abort, pid, args_count/arg_at (alias de env), spawn
+  (args separados por \\n), wait (consume handle), kill. Child handle via
+  `Entry::ProcessChild`
+- `os/` — platform/arch/family/eol (std::env::consts + cfg!), home_dir,
+  temp_dir, config_dir, cache_dir (XDG no Unix, APPDATA/LOCALAPPDATA no
+  Windows)
+- `collections/` — HashMap<string, i64> (`map_*`) e Vec<i64> (`vec_*`) via
+  HandleTable. Valor sempre i64 — caller interpreta como int/handle/bool
 
 ## Convencoes
 

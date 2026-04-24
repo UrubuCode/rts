@@ -3,33 +3,59 @@
 ## Status atual
 
 Etapa 1 (reancorar) e Etapa 2 (plugar API nova) estao **concluidas** — pipeline por grafo,
-cache incremental, runtime support embutido, `abi::SPECS` como fonte unica, `io`/`fs`/`gc`
-estaveis e `math`/`bigfloat` adicionados.
+cache incremental, runtime support embutido, `abi::SPECS` como fonte unica, namespaces core
+(`io`/`fs`/`gc`) estaveis e novos namespaces adicionados.
 
-Etapa 3 (migracao incremental de melhorias de codegen) em andamento — ver **Progresso recente**
-abaixo.
+Etapa 3 (migracao incremental de melhorias de codegen + expansao de namespaces) em andamento —
+ver **Progresso recente** abaixo.
 
-## Progresso recente (codegen + capacidades)
+## Progresso recente
 
+### Codegen + capacidades TS
 - **JIT mode** (#95): `RTS_JIT=1 rts run` compila para memoria executavel, ~14x mais rapido
-  que AOT no startup
+  que AOT no startup. Ambos paths via `&mut dyn Module`
 - **Tail call optimization** (#93): recursao profunda sem stack overflow via `return_call`
 - **First-class function pointers** (#97 fase 1): funcoes como valores, `call_indirect` no use
 - **Intrinsics inline** (#87): `math.sqrt`, `math.random_f64`, etc. emitidos como IR direto
 - **f64 modulo correto** (#89): via `fmod` libc
 - **Jump table switch** (#91), **imm forms** (#94), **MemFlags::trusted** (#98),
   **stack_slot helper** (#99)
-- **Namespaces novos**: `math` (27 membros + 4 constantes) e `bigfloat` (decimal 30 digitos
-  via i128)
 - **Capacidades TS**: template literals, ternario, bitwise ops, arrow/fn expressions,
-  let/const scoping correto
+  let/const scoping correto, compound assign (#48), `typeof`/`void`/`delete` (#51),
+  `??` e optional call (#50), exponentiation (#52)
+
+### Namespaces novos (13 total)
+- **math** (#20) — 27 membros + 4 constantes (`MemberKind::Constant`)
+- **bigfloat** — decimal fixed-point i128, pi com 29 digitos via Machin
+- **time** (#14) — monotonic clock, wall clock, sleep
+- **env** (#12) — vars, argv, cwd
+- **path** (#13) — join/parent/normalize sem I/O
+- **buffer** (#22) — Vec<u8> via HandleTable
+- **string** (#25) — search/transform/replace/char ops
+- **process** (#15) — exit/abort/pid/spawn/wait/kill
+- **os** (#19) — platform/arch/home_dir/config_dir/cache_dir
+- **collections** (#26) — HashMap<string, i64>, Vec<i64>
 
 ## Backlog priorizado
 
+### Codegen
 - **#97 fases 2/3** — arrow em qualquer posicao + captura imutavel/mutavel (depende #99 ✅)
-- **#96 DWARF** — debug info no ObjectModule
+- **#96 DWARF** — debug info no ObjectModule (investigacao complexa, ver comentario da issue)
 - **#90 loop block params** — deferred; impl atual ja produz SSA correto via frontend
 - **#92 autovec** — fechada como inviavel (Cranelift nao tem loop vectorizer)
+- **#53 object literals**, **#54 array literals** — grande, desbloqueia classes, destructuring,
+  `Array.prototype.*`
+- **#62 try/catch/throw** — error handling idiomatico
+- **#60/#61 for-of/for-in** — dependem de arrays/objects
+
+### Namespaces pendentes
+- **#23 fmt** — parse + format numerico (printf-like)
+- **#21 hash** — SipHash (std::hash)
+- **#24 crypto** — SHA/HMAC/AEAD (depende #22 ✅)
+- **#28 regex** — pattern matching
+- **#16 net** — TCP/UDP/HTTP (depende #22 ✅)
+- **#17 thread**, **#18 channel**, **#27 sync** — concorrencia
+- **#29-#39** — nicho (ffi, atomic, mem, ptr, num, hint, alloc, task, mpmc, simd, backtrace)
 
 ## Direcao alvo
 

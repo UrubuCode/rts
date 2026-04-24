@@ -12,7 +12,8 @@ Agentes automatizados e humanos devem consultar, nesta ordem:
 
 ## Notas especificas para agentes
 
-- Namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`.
+- Namespaces ativos (13): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`,
+  `path`, `buffer`, `string`, `process`, `os`, `collections`.
 - Contrato ABI unico vive em `src/abi/` (`SPECS`, `NamespaceMember`, `AbiType`, `Intrinsic`,
   simbolos `__RTS_FN_NS_<NS>_<NAME>` e dados `__RTS_DATA_NS_<NS>_<NAME>`). Nao ha mais
   `dispatch()` por namespace, nem `JsValue` no limite, nem `__rts_call_dispatch`.
@@ -24,8 +25,10 @@ Agentes automatizados e humanos devem consultar, nesta ordem:
   ver `lower_intrinsic` em `src/codegen/lower/expr.rs`.
 - User functions usam `CallConv::Tail` (para TCO); `__RTS_MAIN` usa platform default
   porque e chamado por C extern.
-- Namespaces removidos (net, process, crypto, buffer, promise, task, global) serao
-  reintroduzidos sobre o contrato novo — nao assumir que estao disponiveis.
+- Namespaces ainda nao implementados (net, thread, sync, crypto, regex, fmt, hash,
+  ffi, atomic, mem, ptr, num, hint, alloc, task, mpmc, simd, backtrace) serao
+  reintroduzidos sobre o contrato novo. Ver issues #16-#39 — nao assumir que
+  estao disponiveis.
 
 Qualquer duplicacao de conteudo entre este arquivo e `CLAUDE.md` deve ser resolvida
 a favor de `CLAUDE.md`.
