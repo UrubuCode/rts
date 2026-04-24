@@ -28,3 +28,5 @@ pub mod collections;
 pub mod hash;
 #[path = "fmt/rt.rs"]
 pub mod fmt;
+#[path = "crypto/rt.rs"]
+pub mod crypto;

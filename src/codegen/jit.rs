@@ -179,6 +179,20 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::crypto ────────────────────────────────────────────
+    {
+        use crate::namespaces::crypto::*;
+        add_fn!("__RTS_FN_NS_CRYPTO_RANDOM_BYTES", random::__RTS_FN_NS_CRYPTO_RANDOM_BYTES);
+        add_fn!("__RTS_FN_NS_CRYPTO_RANDOM_I64", random::__RTS_FN_NS_CRYPTO_RANDOM_I64);
+        add_fn!("__RTS_FN_NS_CRYPTO_RANDOM_BUFFER", random::__RTS_FN_NS_CRYPTO_RANDOM_BUFFER);
+        add_fn!("__RTS_FN_NS_CRYPTO_SHA256_STR", hash::__RTS_FN_NS_CRYPTO_SHA256_STR);
+        add_fn!("__RTS_FN_NS_CRYPTO_SHA256_BYTES", hash::__RTS_FN_NS_CRYPTO_SHA256_BYTES);
+        add_fn!("__RTS_FN_NS_CRYPTO_HEX_ENCODE", encode::__RTS_FN_NS_CRYPTO_HEX_ENCODE);
+        add_fn!("__RTS_FN_NS_CRYPTO_HEX_DECODE", encode::__RTS_FN_NS_CRYPTO_HEX_DECODE);
+        add_fn!("__RTS_FN_NS_CRYPTO_BASE64_ENCODE", encode::__RTS_FN_NS_CRYPTO_BASE64_ENCODE);
+        add_fn!("__RTS_FN_NS_CRYPTO_BASE64_DECODE", encode::__RTS_FN_NS_CRYPTO_BASE64_DECODE);
+    }
+
     // ── namespaces::fmt ───────────────────────────────────────────────
     {
         use crate::namespaces::fmt::*;
