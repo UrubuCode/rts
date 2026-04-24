@@ -74,20 +74,68 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
 
         // ── Assignment ────────────────────────────────────────────────────
         Expr::Assign(a) => {
-            use swc_ecma_ast::AssignTarget;
+            use swc_ecma_ast::{AssignOp, AssignTarget};
             let name = match &a.left {
                 AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) => {
                     id.sym.as_str().to_string()
                 }
                 _ => return Err(anyhow!("only simple identifier assignment is supported")),
             };
-            let rhs = lower_expr(ctx, &a.right)?;
-            // Coerce rhs to match the declared type of the local.
+
+            // Compound assignments (`x += y`, etc) — desugar para o
+            // binop equivalente sobre `x` e a rhs, depois atribuir.
+            // Logical-compound (`&&=`, `||=`, `??=`) ficam como
+            // follow-up porque exigem short-circuit.
+            let rhs_val = if matches!(a.op, AssignOp::Assign) {
+                lower_expr(ctx, &a.right)?
+            } else {
+                let binop = match a.op {
+                    AssignOp::AddAssign => BinaryOp::Add,
+                    AssignOp::SubAssign => BinaryOp::Sub,
+                    AssignOp::MulAssign => BinaryOp::Mul,
+                    AssignOp::DivAssign => BinaryOp::Div,
+                    AssignOp::ModAssign => BinaryOp::Mod,
+                    AssignOp::LShiftAssign => BinaryOp::LShift,
+                    AssignOp::RShiftAssign => BinaryOp::RShift,
+                    AssignOp::ZeroFillRShiftAssign => BinaryOp::ZeroFillRShift,
+                    AssignOp::BitOrAssign => BinaryOp::BitOr,
+                    AssignOp::BitXorAssign => BinaryOp::BitXor,
+                    AssignOp::BitAndAssign => BinaryOp::BitAnd,
+                    AssignOp::ExpAssign => BinaryOp::Exp,
+                    AssignOp::AndAssign
+                    | AssignOp::OrAssign
+                    | AssignOp::NullishAssign => {
+                        return Err(anyhow!(
+                            "logical compound assignment ({:?}) not supported yet",
+                            a.op
+                        ));
+                    }
+                    AssignOp::Assign => unreachable!(),
+                };
+                // Build synthetic `x op rhs` expression and lower via
+                // the usual binary path. Keeps all the type promotion
+                // and intrinsic logic intact.
+                let synthetic_left = Expr::Ident(swc_ecma_ast::Ident {
+                    span: a.span,
+                    ctxt: Default::default(),
+                    sym: name.as_str().into(),
+                    optional: false,
+                });
+                let bin = BinExpr {
+                    span: a.span,
+                    op: binop,
+                    left: Box::new(synthetic_left),
+                    right: a.right.clone(),
+                };
+                lower_bin(ctx, &bin)?
+            };
+
+            // Coerce to the declared type of the local.
             let coerced = match ctx.var_ty(&name) {
-                Some(ValTy::I32) => ctx.coerce_to_i32(rhs),
-                Some(ValTy::I64) => ctx.coerce_to_i64(rhs),
-                Some(ValTy::Handle) => ctx.coerce_to_handle(rhs)?,
-                _ => rhs,
+                Some(ValTy::I32) => ctx.coerce_to_i32(rhs_val),
+                Some(ValTy::I64) => ctx.coerce_to_i64(rhs_val),
+                Some(ValTy::Handle) => ctx.coerce_to_handle(rhs_val)?,
+                _ => rhs_val,
             };
             ctx.write_local(&name, coerced.val)?;
             Ok(coerced)
