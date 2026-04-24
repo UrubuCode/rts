@@ -360,7 +360,15 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
         // ── Return ────────────────────────────────────────────────────────
         Stmt::Return(ret_stmt) => {
             if let Some(arg) = &ret_stmt.arg {
+                // Mark the expression as being in tail position so
+                // lower_user_call can emit `return_call` when the callee
+                // is a user function. The flag is cleared after lowering
+                // whether or not the call was tail-eligible.
+                let prev = ctx.in_tail_position;
+                ctx.in_tail_position = true;
                 let tv = lower_expr(ctx, arg)?;
+                ctx.in_tail_position = prev;
+
                 let coerced = match ctx.return_ty {
                     Some(ValTy::I32) => ctx.coerce_to_i32(tv),
                     Some(ValTy::F64) => ctx.coerce_to_f64(tv),
@@ -368,6 +376,9 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     // Default and I64/Bool lanes share i64 storage.
                     _ => ctx.coerce_to_i64(tv),
                 };
+                // Emit the return terminator. If `lower_expr` tail-called,
+                // the current block is an unreachable placeholder — the
+                // `return_` here still acts as a valid terminator for it.
                 ctx.builder.ins().return_(&[coerced.val]);
             } else {
                 ctx.builder.ins().return_(&[]);

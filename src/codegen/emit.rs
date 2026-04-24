@@ -86,6 +86,10 @@ fn build_module() -> Result<ObjectModule> {
     flag_builder
         .set("opt_level", "speed")
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
+    // Tail calls (#93) require frame pointers on x86-64 in Cranelift 0.131.
+    flag_builder
+        .set("preserve_frame_pointers", "true")
+        .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
     let flags = settings::Flags::new(flag_builder);
 
     let isa_builder =

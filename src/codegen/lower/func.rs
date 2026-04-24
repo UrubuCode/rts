@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, anyhow};
 use cranelift_codegen::Context as ClContext;
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
+use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, Linkage, Module};
 use cranelift_object::ObjectModule;
@@ -315,9 +316,18 @@ fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
     None
 }
 
+/// User-defined functions use the Tail calling convention so codegen can
+/// emit `return_call` for tail-position invocations (#93). Extern namespace
+/// functions (fs, io, fmod, etc) remain on the platform default — they're
+/// C-ABI imports that need SystemV/Fastcall, and we only ever do regular
+/// calls to them, never tail calls.
+fn user_call_conv() -> CallConv {
+    CallConv::Tail
+}
+
 fn declare_user_fn(module: &mut ObjectModule, fn_decl: &FunctionDecl) -> Result<UserFn> {
     let (params, ret) = fn_signature(fn_decl);
-    let mut sig = Signature::new(module.isa().default_call_conv());
+    let mut sig = Signature::new(user_call_conv());
     for &ty in &params {
         sig.params.push(AbiParam::new(ty.cl_type()));
     }
@@ -371,7 +381,7 @@ fn compile_user_fn(
 ) -> Result<()> {
     let mut ctx = ClContext::new();
     ctx.func.signature = {
-        let mut sig = Signature::new(module.isa().default_call_conv());
+        let mut sig = Signature::new(user_call_conv());
         for &ty in &info.params {
             sig.params.push(AbiParam::new(ty.cl_type()));
         }
@@ -399,6 +409,7 @@ fn compile_user_fn(
             false,
         );
         fn_ctx.return_ty = info.ret;
+        fn_ctx.is_tail_conv = true;
 
         // Bind parameters as locals.
         for (i, param) in fn_decl.parameters.iter().enumerate() {
