@@ -3,73 +3,104 @@
 ## Projeto
 
 RTS e um compilador/runtime TypeScript-to-native usando Cranelift como backend de codegen.
-O objetivo e compilar TS/JS para binarios nativos com runtime minimo em Rust.
+O objetivo e compilar TS/JS para binarios nativos com runtime minimo em Rust, distribuido como
+toolchain standalone (sem runtime support library externa).
+
+A branch atual (`feat/remake-namespaces`) reorganiza a camada de runtime em torno do novo
+contrato `src/abi/` + `SPECS`, e converge o pipeline com o modelo da `main` (grafo de modulos
++ cache incremental), preservando a superficie nova da ABI.
+
+Consultar `NEXT_STEPS.md` e `ROAD_MAP.md` para a direcao vigente.
 
 ## Arquitetura
 
 ```
 src/
+  abi/          — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas)
+  codegen/      — Cranelift codegen (object emit, lower de expr/stmt/func)
+  linker/       — link nativo (system linker com fallback)
+  namespaces/   — implementacoes dos namespaces runtime: io, fs, gc
+  runtime/      — builtin module "rts" + submodulos "rts:<ns>"
+  module/       — resolver de modulos e grafo de dependencias
   parser/       — SWC parse + AST interno
-  hir/          — High-level IR (lower + optimize)
-  mir/          — Mid-level IR tipado (typed_build + optimize)
-  codegen/      — Cranelift codegen (object builder, typed codegen)
-  linker/       — Link nativo (system lld, fallback object)
-  namespaces/   — Runtime APIs: io, fs, net, process, crypto, global, buffer, promise, task
-  runtime/      — Builtin module "rts", exports, bundle format
-  module/       — Resolver de modulos, grafo de dependencias
-  type_system/  — Type checker, registry, resolver
-  diagnostics/  — Erros estruturados
-  pipeline.rs   — Orquestra build/run
-  lib.rs        — API publica (compile_and_link, eval)
-  cli/          — CLI (eval, repl)
+  type_system/  — type checker, registry, resolver
+  diagnostics/  — erros estruturados
+  cli/          — CLI (run, compile, apis, repl, eval)
+  pipeline.rs   — orquestra build/run
+  lib.rs        — API publica
+  runtime_lib.rs — resolucao do artefato de runtime support (librts.a / rts.lib)
+  main.rs       — entrypoint do binario `rts`
 ```
 
-Pipeline: `Source TS → Parser(SWC) → HIR → MIR tipado → Cranelift codegen → Object → Link → .exe`
+Pipeline: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → Object → Linker → .exe`
+
+Nao existem mais camadas HIR/MIR separadas nesta branch — o codegen consome direto a AST
+(com tipagem resolvida) e emite Cranelift IR em `src/codegen/lower/`.
+
+## ABI (`src/abi/`) — contrato unico
+
+Toda a superficie entre codegen e runtime passa por `src/abi/`. Nao existe mais
+`SPEC/MEMBERS/dispatch()` por namespace e nao existe mais `__rts_call_dispatch`.
+
+- `abi::SPECS` (`mod.rs`) — slice estatico com a `NamespaceSpec` de cada namespace registrado
+  (`io`, `fs`, `gc`). E a fonte unica consumida por codegen, runtime e gerador de `rts.d.ts`.
+- `abi::lookup(qualified)` — resolve `"io.print"` → `&NamespaceMember` com simbolo e assinatura.
+- `member.rs` — `NamespaceSpec` e `NamespaceMember` como tabelas `const` estaticas. Cada membro
+  declara `name`, `kind` (Function|Constant), `symbol`, `args[]`, `returns`, `doc`, `ts_signature`.
+- `types.rs` — `AbiType`: `Void | Bool | I32 | I64 | U64 | F64 | StrPtr | Handle`. `StrPtr`
+  expande para dois slots Cranelift (`ptr` + `len`).
+- `signature.rs` — `lower_member()` converte a spec em `LoweredSignature` Cranelift.
+- `symbols.rs` — convencao `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>` (ex: `__RTS_FN_NS_IO_PRINT`).
+  Macro `rts_sym!` gera simbolos em compile-time; `validate_symbol()` impoe uppercase ASCII.
+- `guards.rs` — `guard_for(expected, caller)` decide passthrough/coerce/trap em call sites
+  com argumentos de tipo `any`.
+
+Codegen emite `call <symbol>` direto via Cranelift, sem intermediarios.
 
 ## Estrutura de Arquivos por Namespace
 
-Cada namespace fragmenta suas funcoes por tipo em arquivos separados:
-
 ```
-src/namespaces/<name>/
-  mod.rs         — import map: re-exporta tudo dos submodulos, define SPEC/MEMBERS/dispatch()
-  tcp.rs         — funcoes TCP (ex: listen, connect, accept, send, recv)
-  udp.rs         — funcoes UDP
-  <fn_type>.rs   — grupo logico de funcoes relacionadas
+src/namespaces/<ns>/
+  mod.rs         — re-exporta submodulos e publica a NamespaceSpec
+  abi.rs         — declaracao dos NamespaceMember (tabela estatica)
+  <grupo>.rs     — impl operacional (ex: read.rs, write.rs, dir.rs, print.rs, stdout.rs, ...)
 ```
 
-E utilitarios compartilhados entre namespaces:
+Regras:
+- `mod.rs` e apenas o import map + export do `NamespaceSpec`
+- `abi.rs` e a fonte da verdade dos membros do namespace (nome, simbolo, args, return, doc, ts)
+- Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
+- Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-```
-src/namespaces/utils/
-  net.rs         — utils do namespace net
-  fs.rs          — utils do namespace fs
-  <namespace>.rs — utils especificos do namespace
-```
+Namespaces ativos nesta branch: `io`, `fs`, `gc`.
+Os demais (net, process, crypto, buffer, promise, task, global) estao removidos aqui e serao
+reintroduzidos sobre o contrato novo a medida que o pipeline principal estabiliza.
 
-Regras de fragmentacao:
-- `mod.rs` e apenas o import map — nao contem logica de negocio
-- Cada arquivo agrupa funcoes por tipo/protocolo/responsabilidade
-- Utils compartilhados vao em `utils/<namespace>.rs`, nao dentro do namespace
+### Namespaces existentes
+
+- `io/` — print, eprint, stdout_{write,flush}, stderr_{write,flush}, stdin_{read,read_line}
+- `fs/` — read, read_all, write, append, exists, is_file, is_dir, size, modified_ms,
+  create_dir(_all), remove_dir(_all), remove_file, rename, copy
+- `gc/` — handles e string pool: string_from_{i64,f64,static}, string_{new,concat,len,ptr,free},
+  `HandleTable` slab-based com 16-bit geracao + 48-bit slot (`u64` handle)
 
 ## Convencoes
 
 - Linguagem do codigo: Rust (ingles nos identificadores)
 - Linguagem de comunicacao: portugues
-- Commits seguem conventional commits: `feat:`, `fix:`, `perf:`, `refactor:`, `docs:`
-- Namespaces de runtime ficam em `src/namespaces/<name>/mod.rs`
-- Cada namespace tem: `SPEC` (const), `MEMBERS` (const), `dispatch()` (fn)
-- Novo namespace precisa ser registrado em: `SPECS`, `dispatch()` chain, `RTS_EXPORTS`
-- O `rts.d.ts` e gerado automaticamente por `render_typescript_declarations()`
+- Commits seguem conventional commits: `feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, `chore:`
+- Novo namespace precisa ser registrado em: `abi::SPECS` (e o `rts.d.ts` gerado a partir dai)
+- O `rts.d.ts` e gerado a partir de `abi::SPECS` — CI lintao committed file contra o gerador
+- Build e via `cargo` direto — `xtask` foi removido
 
 ## Como testar
 
 ```bash
-cargo test                                      # testes unitarios
-cargo build --release                           # build release
-target/release/rts.exe run file.ts             # executar (runtime)
+cargo test                                        # testes unitarios
+cargo build --release                             # build release
+target/release/rts.exe run file.ts                # executar (runtime)
 target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
-target/release/rts.exe apis                    # listar APIs disponiveis
+target/release/rts.exe apis                       # listar APIs disponiveis
 ```
 
 ## Benchmarks
@@ -84,55 +115,77 @@ Compara RTS (run), RTS (compiled), Bun e Node.
 
 - Nao implementar APIs de alto nivel em Rust — Rust so expoe primitivas raw via `"rts"`
 - Packages TS em `builtin/*` constroem APIs ergonomicas sobre o `"rts"`
+  (nesta branch: `console/`, `globals/`, `rts-types/`)
 - `rts.d.ts` so contem `declare module "rts"` — nao adicionar outros modulos
-- Handles numericos (u64) para recursos runtime (buffers, sockets, promises)
+- Handles numericos (u64) para recursos runtime (buffers, sockets, strings dinamicas, etc)
+- Distribuicao standalone: runtime support resolvido por `runtime_lib.rs` (cache toolchain
+  local `~/.rts/...` ou artefato em `target/{debug,release}/`); nao dependemos de download
+  externo em tempo de build
 
 ## Sem Codigo Legacy
 
 **Regra absoluta: codigo morto e removido imediatamente. Nunca comentar, nunca deixar "por precaucao".**
 
-- Qualquer codigo que nao e chamado por nenhum caminho vivo deve ser deletado no mesmo commit que o tornou morto
-- Stubs `todo!()` / `unimplemented!()` sao aceitaveis como marcador temporario de WIP; codigo comentado nao
-- Warnings de dead_code sao tratados como erros — o build nao pode terminar com warnings
+- Qualquer codigo que nao e chamado por nenhum caminho vivo deve ser deletado no mesmo commit
+  que o tornou morto
+- Stubs `todo!()` / `unimplemented!()` sao aceitaveis como marcador temporario de WIP;
+  codigo comentado nao
+- Warnings de `dead_code` sao tratados como erros — o build nao pode terminar com warnings
 
-## ABI de Maquina — sem JsValue no limite
+## ABI de Maquina — extern "C" tipado, sem dispatch
 
-`JsValue` e uma abstracao de alto nivel (semântica JS) que nao tem lugar no limite entre codegen e runtime. O caminho correto:
+Nao ha `JsValue`, nem `__rts_call_dispatch`, nem boxing no limite entre codegen e runtime.
+Cada funcao de namespace e um simbolo `extern "C"` tipado.
 
-```
-JsValue (LEGADO)              Maquina (CORRETO)
-─────────────────────────────────────────────────
-dispatch(&[JsValue]) → JsValue   extern "C" fn tipado(i64, f64, ...) → i64
-__rts_call_dispatch + handles    __rts_<ns>_<fn>(ptr, len, ...) direto
-boxing/unboxing em cada call     zero overhead — tipos nativos no registrador
-```
+### Convencao ABI por tipo
 
-### Convencao ABI para tipos primitivos
-
-| Tipo TS  | Tipo Rust ABI | Convencao                          |
-|----------|---------------|------------------------------------|
-| `number` | `i64` / `f64` | bits nativos, sem boxing            |
-| `bool`   | `i64`         | 0 = false, 1 = true                |
-| `string` | `(i64, i64)`  | `(ptr, len)` — dados UTF-8 estaticos do codegen |
-| handle   | `u64`         | indice opaco para recursos heap (buffers, sockets, promises, strings dinamicas) |
+| Tipo TS  | `AbiType`    | Representacao Cranelift         | Observacao                                              |
+|----------|--------------|---------------------------------|---------------------------------------------------------|
+| `number` | `I64` / `F64`| `i64` / `f64`                   | bits nativos, sem boxing                                |
+| `bool`   | `Bool`       | `i8` (0/1)                      | 0 = false, 1 = true                                     |
+| `string` | `StrPtr`     | 2 slots: `(i64 ptr, i64 len)`   | UTF-8; ptr estatica do codegen, ou buffer via handle GC |
+| handle   | `Handle`     | `u64`                           | `HandleTable` (gen:16 + slot:48)                        |
+| void    | `Void`       | —                               | sem retorno                                             |
+| inteiros| `I32` / `U64`| `i32` / `u64`                   | usados em contagens, status, tamanhos                   |
 
 ### Regras de implementacao
 
-- Cada funcao de namespace vira um simbolo `#[unsafe(no_mangle)] pub extern "C" fn __rts_<ns>_<fn>(...)`
-- Nenhuma funcao de namespace aceita `JsValue` como argumento ou retorno no limite `extern "C"`
-- `dispatch(&[JsValue])` e mantido apenas internamente como roteador temporario enquanto a migracao ocorre — nao e parte da ABI publica
-- Strings de retorno dinamico (ex: resultado de `fs.read`) sao alocadas no heap e retornam um handle `u64`; o caller chama `__rts_string_ptr(handle)` e `__rts_string_len(handle)` para ler
+- Cada membro de namespace vira um `#[unsafe(no_mangle)] pub extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`
+- Nenhuma funcao de namespace aceita/retorna `JsValue` no limite `extern "C"`
+- Strings dinamicas (ex: resultado de leitura) sao alocadas pelo `gc` e retornam um handle `u64`;
+  leitura via `gc::string_ptr(handle)` + `gc::string_len(handle)`
+- Call sites com argumentos `any` passam por `abi::guards::guard_for(...)` para decidir coerce/trap
 
 ## Runtime vs Compile (AOT)
 
-Runtime e AOT sao unificados — ambos geram `.o`/`.m` objects via Cranelift. A diferenca e de escopo:
+Runtime e AOT sao unificados — ambos geram `.o` via Cranelift. A diferenca e de escopo:
 
-- **Runtime (`rts run`)**: gera objects completos de todos os modulos builtin, mesmo com `-p`. O builtin sempre tem todos os namespaces presentes nos objects.
-- **Compile (`rts compile`)**: gera apenas os objects dos modulos efetivamente usados (slicing). Produce o binario final em `target/release/`.
+- **Runtime (`rts run`)**: inclui todos os modulos builtin nos objects
+- **Compile (`rts compile`)**: aplica slicing, gera apenas os objects dos modulos efetivamente
+  usados; produz o binario final
 
-Nao ha divergencia de codepath entre runtime e AOT — o mesmo pipeline de codegen e usado. Runtime e inerentemente mais pesado por incluir todos os builtins; AOT e otimizado por slicing.
+O pipeline de codegen e o mesmo nos dois casos. Convencao de nomes: `<module>.o` (e `.m` quando
+houver metadata associado para cache incremental).
 
-Convencao de nomes dos objects: `<module>.o` (e `.m` se houver metadata associado).
+## Layout de Artefatos do Usuario
+
+Alvo da Fase 1 do roadmap (em progresso):
+
+```
+<project>/
+  src/main.ts
+  package.json
+  tsconfig.json
+
+  node_modules/.rts/
+    objs/
+      runtime/        — objects completos do builtin (todos os modulos)
+      compile/        — objects AOT com slicing (apenas em rts compile)
+    modules/          — modulos resolvidos e cacheados (com metadata .ometa)
+
+  release/            — apenas em rts compile
+    <project_name>    — .exe / .dll / .so / .node conforme target
+```
 
 ## GC — gc-arena (coleta deterministica)
 
@@ -141,30 +194,13 @@ Usar o crate `gc-arena` como sistema de GC deterministico. Coleta e disparada ap
 - Execucao de metodos de classe
 - Fim de escopo de closures
 
-Principio: `safe_collect()` e chamado em pontos de quiescencia bem definidos, nao de forma periodica/assincrona.
-
-## Estrutura de Projeto do Usuario
-
-```
-<project>/
-  src/
-    main.ts
-  package.json
-  tsconfig.json
-
-  target/
-    modules/          — node_modules resolvidos
-    objs/
-      runtime/        — objects completos do builtin (todos os modulos)
-      compile/        — objects AOT (apenas presente em rts compile)
-
-  release/            — apenas em rts compile
-    <project_name>    — .exe / .dll / .so / .node conforme target
-```
+Principio: `safe_collect()` e chamado em pontos de quiescencia bem definidos, nao de forma
+periodica/assincrona. O namespace `gc` publica a API de alocacao de strings e o `HandleTable`.
 
 ## State
 
-Estado de namespace usa `Arc<Mutex<T>>` direto quando necessario, ou `thread_local!` para caches por-thread. Nao ha sistema centralizado de state — cada namespace gerencia seu proprio estado com os patterns padrao de Rust.
+Estado de namespace usa `Arc<Mutex<T>>` direto quando necessario, ou `thread_local!` para caches
+por-thread. Nao ha sistema centralizado de state — cada namespace gerencia o seu.
 
 ### Pattern para estado compartilhado
 
@@ -172,15 +208,15 @@ Estado de namespace usa `Arc<Mutex<T>>` direto quando necessario, ou `thread_loc
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
-static NET_STATE: std::sync::OnceLock<Arc<Mutex<NetState>>> = std::sync::OnceLock::new();
+static FS_STATE: std::sync::OnceLock<Arc<Mutex<FsState>>> = std::sync::OnceLock::new();
 
-fn net_state() -> Arc<Mutex<NetState>> {
-    NET_STATE.get_or_init(|| Arc::new(Mutex::new(NetState::default()))).clone()
+fn fs_state() -> Arc<Mutex<FsState>> {
+    FS_STATE.get_or_init(|| Arc::new(Mutex::new(FsState::default()))).clone()
 }
 
 #[derive(Default)]
-struct NetState {
-    tcp_listeners: HashMap<u64, TcpListener>,
+struct FsState {
+    open_files: HashMap<u64, std::fs::File>,
 }
 ```
 
@@ -201,4 +237,5 @@ pub fn reset_cache() {
 ## Docs e especificacoes
 
 A pasta `docs/specs/` contem especificacoes de features, decisoes de design e notas tecnicas.
-Consultar o indice em `docs/specs/INDEX.md`.
+Consultar o indice em `docs/specs/INDEX.md`. Direcao de alto nivel fica em `NEXT_STEPS.md` e
+`ROAD_MAP.md` na raiz.
