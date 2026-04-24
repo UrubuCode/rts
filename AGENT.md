@@ -17,8 +17,8 @@ Agentes automatizados e humanos devem consultar, nesta ordem:
   simbolos `__RTS_FN_NS_<NS>_<NAME>` e dados `__RTS_DATA_NS_<NS>_<NAME>`). Nao ha mais
   `dispatch()` por namespace, nem `JsValue` no limite, nem `__rts_call_dispatch`.
 - Sem HIR/MIR separados: codegen consome AST direto em `src/codegen/lower/`.
-- Dois paths de execucao: `ObjectModule` (AOT, default) e `JITModule` (opt-in via
-  `RTS_JIT=1`). `FnCtx.module` e `&mut dyn Module` — ambos passam pelo mesmo codegen.
+- Dois paths de execucao: `JITModule` (`rts run`) e `ObjectModule` (AOT, `rts compile`).
+  `FnCtx.module` e `&mut dyn Module` — ambos passam pelo mesmo codegen.
 - Build e via `cargo` puro (sem `xtask`). Artefatos do usuario ficam em `node_modules/.rts/`.
 - `Intrinsic` em `NamespaceMember.intrinsic` permite emitir IR inline em vez de `call`;
   ver `lower_intrinsic` em `src/codegen/lower/expr.rs`.

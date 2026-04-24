@@ -80,41 +80,28 @@ function Get-Stats([System.Collections.Generic.List[double]]$Values) {
 # Definição das ações de benchmark
 # -------------------------------------------------------------------
 
-# 1. RTS Runtime AOT (escreve .o, linka, executa o binário)
-$rtsRunAction = {
-  $env:RTS_JIT = ""
-  & $RtsExe run $SourceFile *> $null
-}
+# 1. RTS Runtime JIT (compila direto para memória executável)
+$rtsRunAction = { & $RtsExe run $SourceFile *> $null }
 
-# 2. RTS Runtime JIT (compila direto para memória executável — sem
-#    disco e sem linker externo).
-$rtsJitAction = {
-  $env:RTS_JIT = "1"
-  & $RtsExe run $SourceFile *> $null
-  $env:RTS_JIT = ""
-}
-
-# 3. RTS Compiled (executa o binário gerado)
+# 2. RTS Compiled (executa o binário gerado)
 $rtsCompiledAction = { & $CompiledExe *> $null }
 
-# 4. Bun Runtime
+# 3. Bun Runtime
 $bunAction = { bun run "bench\bun_simple.ts" *> $null }
 
-# 5. Node runtime
+# 4. Node runtime
 $NodeAction = { node "bench\bun_simple.ts" *> $null }
 
 # -------------------------------------------------------------------
 # Execução dos benchmarks
 # -------------------------------------------------------------------
-$rtsRunResults      = Measure-Suite "RTS (run, AOT)"     $rtsRunAction      $Warmup $Runs
-$rtsJitResults      = Measure-Suite "RTS (run, JIT)"     $rtsJitAction      $Warmup $Runs
+$rtsRunResults      = Measure-Suite "RTS (run, JIT)"     $rtsRunAction      $Warmup $Runs
 $rtsCompiledResults = Measure-Suite "RTS (compiled)"     $rtsCompiledAction $Warmup $Runs
 $bunResults         = Measure-Suite "Bun (run)"          $bunAction         $Warmup $Runs
 $NodeResults        = Measure-Suite "Node (run)"         $NodeAction        $Warmup $Runs
 
 # Estatísticas
 $rtsRunStats      = Get-Stats $rtsRunResults
-$rtsJitStats      = Get-Stats $rtsJitResults
 $rtsCompiledStats = Get-Stats $rtsCompiledResults
 $bunStats         = Get-Stats $bunResults
 $NodeStats        = Get-Stats $NodeResults
@@ -126,20 +113,12 @@ Write-Host ""
 Write-Host "=== Benchmark Summary (ms) ==="
 $summary = @()
 $summary += [PSCustomObject]@{
-  runner    = "RTS (run, AOT)"
+  runner    = "RTS (run, JIT)"
   mean_ms   = $rtsRunStats.mean_ms
   median_ms = $rtsRunStats.median_ms
   p95_ms    = $rtsRunStats.p95_ms
   min_ms    = $rtsRunStats.min_ms
   max_ms    = $rtsRunStats.max_ms
-}
-$summary += [PSCustomObject]@{
-  runner    = "RTS (run, JIT)"
-  mean_ms   = $rtsJitStats.mean_ms
-  median_ms = $rtsJitStats.median_ms
-  p95_ms    = $rtsJitStats.p95_ms
-  min_ms    = $rtsJitStats.min_ms
-  max_ms    = $rtsJitStats.max_ms
 }
 $summary += [PSCustomObject]@{
   runner    = "RTS (compiled)"
@@ -172,19 +151,17 @@ $summary | Format-Table -AutoSize
 Write-Host "`n=== Relative Comparisons ==="
 if ($rtsCompiledStats.mean_ms -gt 0) {
   $rtsRunVsCompiled = $rtsRunStats.mean_ms / $rtsCompiledStats.mean_ms
-  $rtsJitVsCompiled = $rtsJitStats.mean_ms / $rtsCompiledStats.mean_ms
   $bunVsCompiled    = $bunStats.mean_ms    / $rtsCompiledStats.mean_ms
   $nodeVsCompiled   = $NodeStats.mean_ms   / $rtsCompiledStats.mean_ms
-  Write-Host ("RTS (run, AOT) vs RTS compiled : {0:F2}x slower" -f $rtsRunVsCompiled)
-  Write-Host ("RTS (run, JIT) vs RTS compiled : {0:F2}x slower" -f $rtsJitVsCompiled)
+  Write-Host ("RTS (run, JIT) vs RTS compiled : {0:F2}x slower" -f $rtsRunVsCompiled)
   Write-Host ("Bun (run)      vs RTS compiled : {0:F2}x slower" -f $bunVsCompiled)
   Write-Host ("Node (run)     vs RTS compiled : {0:F2}x slower" -f $nodeVsCompiled)
 }
 
 # Comparações vs Bun
-if ($bunStats.mean_ms -gt 0 -and $rtsJitStats.mean_ms -gt 0) {
-  $rtsJitVsBun      = $bunStats.mean_ms / $rtsJitStats.mean_ms
+if ($bunStats.mean_ms -gt 0 -and $rtsRunStats.mean_ms -gt 0) {
+  $rtsRunVsBun      = $bunStats.mean_ms / $rtsRunStats.mean_ms
   $rtsCompiledVsBun = $bunStats.mean_ms / $rtsCompiledStats.mean_ms
-  Write-Host ("RTS (run, JIT) vs Bun          : {0:F2}x faster" -f $rtsJitVsBun)
+  Write-Host ("RTS (run, JIT) vs Bun          : {0:F2}x faster" -f $rtsRunVsBun)
   Write-Host ("RTS (compiled) vs Bun          : {0:F2}x faster" -f $rtsCompiledVsBun)
 }

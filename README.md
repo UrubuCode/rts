@@ -4,11 +4,11 @@ Compilador e runtime TypeScript-to-native baseado em Cranelift. Compila TS/JS
 para binarios nativos com runtime minimo em Rust e um contrato ABI unico para
 os namespaces builtin. Ha dois caminhos de execucao:
 
+- **JIT** (`rts run`) — compila direto para memoria executavel via `cranelift_jit`,
+  sem disco e sem linker externo. Latencia de startup drasticamente menor, ideal
+  para dev loop.
 - **AOT** (`rts compile`) — emite object file, linka com o linker do sistema,
   produz executavel standalone.
-- **JIT** (`RTS_JIT=1 rts run`) — compila direto para memoria executavel via
-  `cranelift_jit`, sem disco e sem linker externo. Latencia de startup drastica-
-  mente menor, ideal para dev loop.
 
 Namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`.
 
@@ -20,7 +20,7 @@ src/
   codegen/           Cranelift codegen direto sobre o AST (sem HIR/MIR)
     lower/           Lowering de expressoes/statements
     emit.rs          Object emitter (AOT)
-    jit.rs           JIT emitter (rts run com RTS_JIT=1)
+    jit.rs           JIT emitter (rts run)
   abi/               Contrato ABI unico
     member.rs        NamespaceMember / NamespaceSpec / Intrinsic
     types.rs         AbiType
@@ -101,8 +101,7 @@ captura de variaveis externas estao em fase 1 (ponteiros de funcao sem env).
 ## CLI
 
 ```bash
-rts run file.ts                       # executa via AOT (compile + link + exec)
-RTS_JIT=1 rts run file.ts             # executa via JIT in-memory (mais rapido)
+rts run file.ts                       # executa via JIT in-memory
 rts compile -p file.ts output         # AOT com slicing por modulo usado
 rts apis                              # lista APIs registradas em abi::SPECS
 rts init                              # gera projeto base
@@ -113,7 +112,6 @@ Tambem funciona via Cargo:
 
 ```bash
 cargo run -- run examples/console.ts
-RTS_JIT=1 cargo run -- run examples/console.ts
 cargo run -- compile -p examples/console.ts target/console
 cargo run -- apis
 ```
@@ -147,14 +145,12 @@ powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 
 ## Runtime vs Compile (AOT)
 
-Runtime (`rts run`) e AOT (`rts compile`) compartilham o mesmo pipeline de
+JIT (`rts run`) e AOT (`rts compile`) compartilham o mesmo pipeline de
 codegen. Diferencas:
 
-- `rts run` (AOT default): objects completos dos modulos builtin, cache em
-  `node_modules/.rts/`.
-- `rts run` (JIT, `RTS_JIT=1`): compila para memoria executavel, sem disco.
-  Todos os simbolos do ABI sao registrados em `JITBuilder::symbol` no
-  startup; nao passa pelo linker do sistema.
+- `rts run`: compila para memoria executavel, sem disco. Todos os simbolos do
+  ABI sao registrados em `JITBuilder::symbol` no startup; nao passa pelo
+  linker do sistema.
 - `rts compile`: aplica slicing por uso, emite objects + binario final.
 
 Runtime support AOT e resolvido por objetos `.o/.obj` precompilados
@@ -228,8 +224,7 @@ periodico — coleta acontece em pontos de quiescencia quando e aplicavel.
 ```bash
 cargo test                                    # testes unitarios + fixtures
 cargo build --release                         # build release
-target/release/rts.exe run file.ts            # executar (AOT)
-RTS_JIT=1 target/release/rts.exe run file.ts  # executar (JIT)
+target/release/rts.exe run file.ts            # executar (JIT)
 target/release/rts.exe compile -p file.ts o   # compilar AOT
 target/release/rts.exe apis                   # listar APIs
 ```

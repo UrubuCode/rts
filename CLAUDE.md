@@ -7,9 +7,9 @@ O objetivo e compilar TS/JS para binarios nativos com runtime minimo em Rust, di
 toolchain standalone (sem runtime support library externa).
 
 A camada de runtime e organizada em torno do contrato `src/abi/` + `SPECS`, com pipeline
-por grafo de modulos + cache incremental. Dois caminhos de execucao coexistem: AOT via
-`cranelift_object::ObjectModule` (linker externo) e JIT via `cranelift_jit::JITModule`
-(memoria executavel direta, ativado por `RTS_JIT=1`).
+por grafo de modulos + cache incremental. Dois caminhos de execucao: JIT via
+`cranelift_jit::JITModule` (memoria executavel direta, `rts run`) e AOT via
+`cranelift_object::ObjectModule` (linker externo, `rts compile`).
 
 Consultar `NEXT_STEPS.md` e `ROAD_MAP.md` para a direcao vigente.
 
@@ -20,7 +20,7 @@ src/
   abi/          — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas, Intrinsic)
   codegen/      — Cranelift codegen
     emit.rs     — ObjectModule emitter (AOT)
-    jit.rs      — JITModule emitter (rts run com RTS_JIT=1)
+    jit.rs      — JITModule emitter (rts run)
     lower/      — lower de expr/stmt/func sobre &mut dyn Module
   linker/       — link nativo (system linker com fallback object backend)
   namespaces/   — implementacoes dos namespaces runtime: io, fs, gc, math, bigfloat
@@ -117,8 +117,7 @@ atual a medida que o pipeline estabiliza. Ver issues #12-#39 para o backlog.
 ```bash
 cargo test                                        # testes unitarios + fixtures
 cargo build --release                             # build release
-target/release/rts.exe run file.ts                # executar (AOT default)
-RTS_JIT=1 target/release/rts.exe run file.ts      # executar via JIT in-memory
+target/release/rts.exe run file.ts                # executar via JIT in-memory
 target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
 target/release/rts.exe apis                       # listar APIs disponiveis
 ```
@@ -198,16 +197,13 @@ Cada funcao de namespace e um simbolo `extern "C"` tipado.
   leitura via `gc::string_ptr(handle)` + `gc::string_len(handle)`
 - Call sites com argumentos `any` passam por `abi::guards::guard_for(...)` para decidir coerce/trap
 
-## Runtime vs Compile (AOT) vs JIT
+## Runtime vs Compile
 
-Tres rotas de execucao compartilhando o mesmo codegen Cranelift:
+Dois caminhos de execucao compartilhando o mesmo codegen Cranelift:
 
-- **`rts run` (AOT, default)**: inclui todos os modulos builtin nos objects; escreve `.o`,
-  chama linker do sistema, executa o binario linkado. Cache em `node_modules/.rts/`.
-- **`rts run` com `RTS_JIT=1`**: compila direto para memoria executavel via `JITModule`.
-  Sem disco, sem linker externo. Startup drasticamente mais rapido para dev loop. Todos os
-  simbolos do ABI sao registrados em `JITBuilder::symbol` no startup do modulo JIT
-  (`src/codegen/jit.rs`).
+- **`rts run`**: compila direto para memoria executavel via `JITModule`. Sem disco, sem
+  linker externo. Todos os simbolos do ABI sao registrados em `JITBuilder::symbol` no
+  startup do modulo JIT (`src/codegen/jit.rs`).
 - **`rts compile`**: aplica slicing por uso, gera apenas os objects dos modulos efetivamente
   utilizados, produz binario final.
 
