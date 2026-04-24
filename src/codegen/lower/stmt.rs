@@ -408,6 +408,31 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
 
         Stmt::Empty(_) => Ok(false),
 
+        // ── Throw ─────────────────────────────────────────────────────────
+        // Fase 1 de #62: seta o slot global thread-local com o handle
+        // da string de erro e **segue o fluxo normal**. O caller (seja
+        // try/catch ou a funcao raiz) eh responsavel por checar o slot
+        // apos call sites sensiveis. Semantica imperfeita mas pragmatica
+        // — codigo apos `throw` no mesmo bloco ainda executa. Fase 2
+        // integra unwind real via Cranelift invoke.
+        Stmt::Throw(throw_stmt) => {
+            let tv = lower_expr(ctx, &throw_stmt.arg)?;
+            let handle = ctx.coerce_to_handle(tv)?;
+            let set_fref = ctx.get_extern("__RTS_FN_RT_ERROR_SET", &[cl::I64], None)?;
+            ctx.builder.ins().call(set_fref, &[handle.val]);
+            // Retorna false — fluxo continua normalmente. A diferenca
+            // de comportamento fica com o try/catch que enxerga o
+            // slot apos o body.
+            Ok(false)
+        }
+
+        // ── Try / catch / finally ─────────────────────────────────────────
+        // Fase 1: zera slot antes do body, roda body; apos o body,
+        // checa slot != 0 → pula para catch com binding = handle
+        // corrente; zera slot no inicio do catch. Finally roda
+        // em qualquer caminho (normal e apos catch).
+        Stmt::Try(try_stmt) => lower_try(ctx, try_stmt),
+
         other => Err(anyhow!("unsupported statement: {}", stmt_kind_name(other))),
     }
 }
@@ -457,6 +482,105 @@ fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
         return Some(ValTy::from_annotation(name));
     }
     None
+}
+
+/// Lowers `try { ... } catch (e) { ... } finally { ... }`.
+///
+/// Estrategia simples (fase 1 de #62): zera o slot de erro antes do
+/// body, roda o body, checa o slot depois. Sem unwind real —
+/// captura so funciona para `throw` cujo caminho de execucao
+/// retorna ao fim do body `try` com o slot setado (ex: throw
+/// direto no try, ou throw dentro de funcao chamada do try que
+/// retornou).
+fn lower_try(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Result<bool> {
+    use cranelift_codegen::ir::condcodes::IntCC;
+
+    let has_catch = t.handler.is_some();
+    let has_finally = t.finalizer.is_some();
+
+    // Clear do slot antes do body.
+    let clear_fref = ctx.get_extern("__RTS_FN_RT_ERROR_CLEAR", &[], None)?;
+    ctx.builder.ins().call(clear_fref, &[]);
+
+    // Compila body. Depois dele, verifica slot.
+    lower_block(ctx, &t.block)?;
+
+    // Blocos de orchestration.
+    let catch_block = if has_catch {
+        Some(ctx.builder.create_block())
+    } else {
+        None
+    };
+    let finally_block = if has_finally {
+        Some(ctx.builder.create_block())
+    } else {
+        None
+    };
+    let after_block = ctx.builder.create_block();
+
+    // Se o body ja terminou (return/throw), nao emite check — mas
+    // se o body caiu pro fluxo normal, emite check do slot.
+    if !ctx.builder.is_unreachable() {
+        let get_fref =
+            ctx.get_extern("__RTS_FN_RT_ERROR_GET", &[], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(get_fref, &[]);
+        let err_handle = ctx.builder.inst_results(inst)[0];
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        let is_err = ctx
+            .builder
+            .ins()
+            .icmp(IntCC::NotEqual, err_handle, zero);
+
+        // Branch: se erro, catch (se existir); senao finally/after.
+        let ok_target = finally_block.unwrap_or(after_block);
+        let err_target = catch_block.unwrap_or(ok_target);
+        ctx.builder
+            .ins()
+            .brif(is_err, err_target, &[], ok_target, &[]);
+    }
+
+    // Emite catch block.
+    if let Some(cb) = catch_block {
+        ctx.builder.switch_to_block(cb);
+        ctx.builder.seal_block(cb);
+
+        // Binding: le slot, atribui a variavel (se houver param), limpa.
+        let handler = t.handler.as_ref().unwrap();
+        if let Some(param) = &handler.param {
+            if let swc_ecma_ast::Pat::Ident(id) = param {
+                let name = id.id.sym.as_str();
+                let get_fref =
+                    ctx.get_extern("__RTS_FN_RT_ERROR_GET", &[], Some(cl::I64))?;
+                let inst = ctx.builder.ins().call(get_fref, &[]);
+                let err_handle = ctx.builder.inst_results(inst)[0];
+                ctx.declare_local(name, ValTy::Handle, err_handle);
+            }
+        }
+        let clear_fref =
+            ctx.get_extern("__RTS_FN_RT_ERROR_CLEAR", &[], None)?;
+        ctx.builder.ins().call(clear_fref, &[]);
+
+        lower_block(ctx, &handler.body)?;
+        if !ctx.builder.is_unreachable() {
+            let next = finally_block.unwrap_or(after_block);
+            ctx.builder.ins().jump(next, &[]);
+        }
+    }
+
+    // Emite finally block.
+    if let Some(fb) = finally_block {
+        ctx.builder.switch_to_block(fb);
+        ctx.builder.seal_block(fb);
+        let finalizer = t.finalizer.as_ref().unwrap();
+        lower_block(ctx, finalizer)?;
+        if !ctx.builder.is_unreachable() {
+            ctx.builder.ins().jump(after_block, &[]);
+        }
+    }
+
+    ctx.builder.switch_to_block(after_block);
+    ctx.builder.seal_block(after_block);
+    Ok(false)
 }
 
 /// Extracts an integer case label for jump-table switch lowering.
