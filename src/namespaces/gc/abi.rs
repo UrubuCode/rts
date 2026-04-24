@@ -14,6 +14,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Handle,
         doc: "Converts an i64 to its decimal string and returns a handle.",
         ts_signature: "string_from_i64(value: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "string_from_f64",
@@ -23,6 +24,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Handle,
         doc: "Converts an f64 to its decimal string and returns a handle.",
         ts_signature: "string_from_f64(value: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "string_concat",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Handle,
         doc: "Concatenates two string handles and returns a new handle.",
         ts_signature: "string_concat(a: number, b: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "string_from_static",
@@ -41,6 +44,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Handle,
         doc: "Promotes a static (ptr, len) string to a GC handle.",
         ts_signature: "string_from_static(data: string): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "string_new",
@@ -50,6 +54,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Handle,
         doc: "Allocates a string handle from a (ptr, len) pair. Returns 0 on error.",
         ts_signature: "string_new(data: string): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "string_len",
@@ -59,6 +64,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Returns the byte length of the string, or -1 on invalid handle.",
         ts_signature: "string_len(handle: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "string_ptr",
@@ -68,6 +74,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::U64,
         doc: "Returns the raw pointer to the string buffer, or 0 on invalid handle.",
         ts_signature: "string_ptr(handle: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "string_free",
@@ -77,6 +84,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Frees the string handle. Returns 1 on success, 0 if already invalid.",
         ts_signature: "string_free(handle: number): number",
+        intrinsic: None,
     },
 ];
 

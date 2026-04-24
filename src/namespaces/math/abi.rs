@@ -4,7 +4,7 @@
 //! constantes e xorshift PRNG. Constantes são expostas como fns
 //! zero-arg até o codegen aprender `MemberKind::Constant` real.
 
-use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+use crate::abi::{AbiType, Intrinsic, MemberKind, NamespaceMember, NamespaceSpec};
 
 pub const MEMBERS: &[NamespaceMember] = &[
     // ── Basic ─────────────────────────────────────────────────────────────
@@ -16,6 +16,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Largest integer <= x.",
         ts_signature: "floor(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "ceil",
@@ -25,6 +26,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Smallest integer >= x.",
         ts_signature: "ceil(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "round",
@@ -34,6 +36,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Rounds to nearest; ties go to +Infinity to match JS semantics.",
         ts_signature: "round(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "trunc",
@@ -43,6 +46,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Truncates fractional part (rounds toward zero).",
         ts_signature: "trunc(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "sqrt",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Square root.",
         ts_signature: "sqrt(x: number): number",
+        intrinsic: Some(Intrinsic::Sqrt),
     },
     NamespaceMember {
         name: "cbrt",
@@ -61,6 +66,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Cube root.",
         ts_signature: "cbrt(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "pow",
@@ -70,6 +76,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "base raised to exp.",
         ts_signature: "pow(base: number, exp: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "exp",
@@ -79,6 +86,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "e^x.",
         ts_signature: "exp(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "ln",
@@ -88,6 +96,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Natural logarithm (base e).",
         ts_signature: "ln(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "log2",
@@ -97,6 +106,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Base-2 logarithm.",
         ts_signature: "log2(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "log10",
@@ -106,6 +116,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Base-10 logarithm.",
         ts_signature: "log10(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "abs_f64",
@@ -115,6 +126,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Absolute value (f64).",
         ts_signature: "abs_f64(x: number): number",
+        intrinsic: Some(Intrinsic::AbsF64),
     },
     NamespaceMember {
         name: "abs_i64",
@@ -124,6 +136,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Absolute value (i64); i64::MIN maps to itself (wrapping).",
         ts_signature: "abs_i64(x: number): number",
+        intrinsic: Some(Intrinsic::AbsI64),
     },
 
     // ── Trig ──────────────────────────────────────────────────────────────
@@ -135,6 +148,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Sine (radians).",
         ts_signature: "sin(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "cos",
@@ -144,6 +158,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Cosine (radians).",
         ts_signature: "cos(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "tan",
@@ -153,6 +168,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Tangent (radians).",
         ts_signature: "tan(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "asin",
@@ -162,6 +178,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Arc sine (returns radians).",
         ts_signature: "asin(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "acos",
@@ -171,6 +188,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Arc cosine (returns radians).",
         ts_signature: "acos(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "atan",
@@ -180,6 +198,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Arc tangent (returns radians).",
         ts_signature: "atan(x: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "atan2",
@@ -189,6 +208,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "atan2(y, x) — angle (radians) of the 2D vector (x, y).",
         ts_signature: "atan2(y: number, x: number): number",
+        intrinsic: None,
     },
 
     // ── Min / max / clamp ─────────────────────────────────────────────────
@@ -200,6 +220,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Minimum of two f64 values (NaN-aware).",
         ts_signature: "min_f64(a: number, b: number): number",
+        intrinsic: Some(Intrinsic::MinF64),
     },
     NamespaceMember {
         name: "max_f64",
@@ -209,6 +230,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Maximum of two f64 values (NaN-aware).",
         ts_signature: "max_f64(a: number, b: number): number",
+        intrinsic: Some(Intrinsic::MaxF64),
     },
     NamespaceMember {
         name: "min_i64",
@@ -218,6 +240,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Minimum of two i64 values.",
         ts_signature: "min_i64(a: number, b: number): number",
+        intrinsic: Some(Intrinsic::MinI64),
     },
     NamespaceMember {
         name: "max_i64",
@@ -227,6 +250,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Maximum of two i64 values.",
         ts_signature: "max_i64(a: number, b: number): number",
+        intrinsic: Some(Intrinsic::MaxI64),
     },
     NamespaceMember {
         name: "clamp_f64",
@@ -236,6 +260,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Clamps x into [lo, hi]. NaN propagates.",
         ts_signature: "clamp_f64(x: number, lo: number, hi: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "clamp_i64",
@@ -245,6 +270,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Clamps x into [lo, hi].",
         ts_signature: "clamp_i64(x: number, lo: number, hi: number): number",
+        intrinsic: None,
     },
 
     // ── Random ────────────────────────────────────────────────────────────
@@ -256,6 +282,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Uniform f64 in [0, 1) from a thread-local xorshift64 PRNG.",
         ts_signature: "random_f64(): number",
+        intrinsic: Some(Intrinsic::RandomF64),
     },
     NamespaceMember {
         name: "random_i64_range",
@@ -265,6 +292,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Uniform i64 in [lo, hi). Returns lo when lo >= hi.",
         ts_signature: "random_i64_range(lo: number, hi: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "seed",
@@ -274,6 +302,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Void,
         doc: "Seeds the PRNG. Zero is replaced by the default seed.",
         ts_signature: "seed(s: number): void",
+        intrinsic: None,
     },
 
     // ── Constants ─────────────────────────────────────────────────────────
@@ -287,6 +316,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Archimedes' constant.",
         ts_signature: "readonly PI: number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "E",
@@ -296,6 +326,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Euler's number.",
         ts_signature: "readonly E: number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "INFINITY",
@@ -305,6 +336,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Positive infinity.",
         ts_signature: "readonly INFINITY: number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "NAN",
@@ -314,6 +346,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Quiet NaN.",
         ts_signature: "readonly NAN: number",
+        intrinsic: None,
     },
 ];
 

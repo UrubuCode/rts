@@ -34,6 +34,39 @@ pub struct NamespaceMember {
 
     /// TypeScript signature text, e.g. `"print(msg: string): void"`.
     pub ts_signature: &'static str,
+
+    /// When present, codegen emits this operation inline at the call site
+    /// instead of a call to `symbol`. Reserved for trivial hot-path members
+    /// (single native Cranelift op, or a short inline sequence). The `symbol`
+    /// is still exported so callers that do not know the member statically
+    /// (e.g. reflection, FFI) keep working.
+    pub intrinsic: Option<Intrinsic>,
+}
+
+/// Inlinable operations recognised by codegen.
+///
+/// Keep this list small: every variant forces codegen to carry hand-written
+/// Cranelift IR that mirrors the extern implementation. Add a new variant
+/// only when there's a measurable win in a real benchmark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intrinsic {
+    /// `f64::sqrt` → Cranelift `sqrt`.
+    Sqrt,
+    /// `f64::abs` → Cranelift `fabs`.
+    AbsF64,
+    /// `f64::min` → Cranelift `fmin`.
+    MinF64,
+    /// `f64::max` → Cranelift `fmax`.
+    MaxF64,
+    /// `i64::wrapping_abs` → sign-based abs using `iconst`, `ineg`, `select`.
+    AbsI64,
+    /// `i64::min` → signed integer min.
+    MinI64,
+    /// `i64::max` → signed integer max.
+    MaxI64,
+    /// Xorshift64 PRNG: load global state, mutate, store, convert to f64.
+    /// State symbol is `__RTS_DATA_NS_MATH_RNG_STATE` (u64).
+    RandomF64,
 }
 
 /// Whether a member is a function or a constant.
