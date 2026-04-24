@@ -171,6 +171,13 @@ fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Result<TypedVal>
             // Numeric identity — coerce to i64 if needed
             Ok(ctx.coerce_to_i64(operand))
         }
+        UnaryOp::Tilde => {
+            let as_i64 = ctx.coerce_to_i64(operand);
+            Ok(TypedVal::new(
+                ctx.builder.ins().bnot(as_i64.val),
+                ValTy::I64,
+            ))
+        }
         op => Err(anyhow!("unsupported unary op: {op:?}")),
     }
 }
@@ -306,6 +313,33 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             TypedVal::new(rv, ty),
         )),
 
+        // Bitwise — always operate on i64. JS spec truncates to i32 but the
+        // rest of the codebase works in i64; matching existing conventions.
+        BinaryOp::BitAnd => {
+            let (li, ri) = (coerce_bits_i64(ctx, lv, ty), coerce_bits_i64(ctx, rv, ty));
+            Ok(TypedVal::new(ctx.builder.ins().band(li, ri), ValTy::I64))
+        }
+        BinaryOp::BitOr => {
+            let (li, ri) = (coerce_bits_i64(ctx, lv, ty), coerce_bits_i64(ctx, rv, ty));
+            Ok(TypedVal::new(ctx.builder.ins().bor(li, ri), ValTy::I64))
+        }
+        BinaryOp::BitXor => {
+            let (li, ri) = (coerce_bits_i64(ctx, lv, ty), coerce_bits_i64(ctx, rv, ty));
+            Ok(TypedVal::new(ctx.builder.ins().bxor(li, ri), ValTy::I64))
+        }
+        BinaryOp::LShift => {
+            let (li, ri) = (coerce_bits_i64(ctx, lv, ty), coerce_bits_i64(ctx, rv, ty));
+            Ok(TypedVal::new(ctx.builder.ins().ishl(li, ri), ValTy::I64))
+        }
+        BinaryOp::RShift => {
+            let (li, ri) = (coerce_bits_i64(ctx, lv, ty), coerce_bits_i64(ctx, rv, ty));
+            Ok(TypedVal::new(ctx.builder.ins().sshr(li, ri), ValTy::I64))
+        }
+        BinaryOp::ZeroFillRShift => {
+            let (li, ri) = (coerce_bits_i64(ctx, lv, ty), coerce_bits_i64(ctx, rv, ty));
+            Ok(TypedVal::new(ctx.builder.ins().ushr(li, ri), ValTy::I64))
+        }
+
         op => Err(anyhow!("unsupported binary op: {op:?}")),
     }
 }
@@ -404,6 +438,21 @@ fn promote_numeric(
     let lv = ctx.coerce_to_i64(lhs).val;
     let rv = ctx.coerce_to_i64(rhs).val;
     (lv, rv, ValTy::I64)
+}
+
+/// Coerces a raw Cranelift value (of type `ty` as seen by promote_numeric)
+/// into an i64 suitable for bitwise ops. F64 is reinterpreted by converting
+/// to signed integer (JS spec would ToInt32; we use i64 for consistency).
+fn coerce_bits_i64(
+    ctx: &mut FnCtx,
+    val: cranelift_codegen::ir::Value,
+    ty: ValTy,
+) -> cranelift_codegen::ir::Value {
+    if ty == ValTy::F64 {
+        ctx.builder.ins().fcvt_to_sint_sat(cl::I64, val)
+    } else {
+        val
+    }
 }
 
 fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Value {

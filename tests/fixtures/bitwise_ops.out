@@ -1,0 +1,8 @@
+and  = 0
+or   = 255
+xor  = 255
+not  = -1
+shl  = 16
+shr  = 64
+ushr = 4
+mask = 10
