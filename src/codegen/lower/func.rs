@@ -245,6 +245,8 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
                 ValTy::I64
             }
         }
+        // `**` sempre retorna F64 (roteado via libc pow).
+        Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Exp) => ValTy::F64,
         Expr::Bin(b) => {
             // Numeric ops other than + (string concat handled above).
             // Propagate F64 so globals holding `math.PI * x` get the right

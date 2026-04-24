@@ -471,6 +471,19 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             Ok(TypedVal::new(ctx.builder.ins().ushr(li, ri), ValTy::I64))
         }
 
+        // `a ** b` — delega para `pow` de libc. Mesma instrucao que
+        // Math.pow em JS. Se ambos operandos forem inteiros pequenos
+        // o resultado ainda e f64 aqui; caller pode truncar via
+        // anotacao `: i32` se quiser o valor inteiro.
+        BinaryOp::Exp => {
+            let lf = to_f64(ctx, TypedVal::new(lv, ty));
+            let rf = to_f64(ctx, TypedVal::new(rv, ty));
+            let fref = ctx.get_extern("pow", &[cl::F64, cl::F64], Some(cl::F64))?;
+            let inst = ctx.builder.ins().call(fref, &[lf, rf]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(TypedVal::new(v, ValTy::F64))
+        }
+
         op => Err(anyhow!("unsupported binary op: {op:?}")),
     }
 }
