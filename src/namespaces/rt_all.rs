@@ -20,3 +20,5 @@ pub mod buffer;
 pub mod string;
 #[path = "process/rt.rs"]
 pub mod process;
+#[path = "os/rt.rs"]
+pub mod os;
