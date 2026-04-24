@@ -12,4 +12,5 @@ pub mod gc;
 pub mod io;
 pub mod math;
 pub mod path;
+pub mod string;
 pub mod time;

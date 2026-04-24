@@ -16,3 +16,5 @@ pub mod env;
 pub mod path;
 #[path = "buffer/rt.rs"]
 pub mod buffer;
+#[path = "string/rt.rs"]
+pub mod string;
