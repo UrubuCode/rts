@@ -273,14 +273,30 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                 .filter_map(|(idx, case)| if case.test.is_some() { Some(idx) } else { None })
                 .collect();
 
-            // Build comparison chain. False branch continues comparisons;
-            // final false goes to default (if present) or exits switch.
+            // Fast path: every non-default case tests against an integer
+            // literal. Emit a Cranelift `Switch` table — the backend picks
+            // between `br_table` (dense) and binary search (sparse).
+            let integer_tests: Option<Vec<u128>> = non_default_indices
+                .iter()
+                .map(|case_idx| {
+                    let test_expr = sw.cases[*case_idx].test.as_ref()?;
+                    extract_integer_literal(test_expr)
+                })
+                .collect();
+
             if non_default_indices.is_empty() {
                 if let Some(di) = default_idx {
                     ctx.builder.ins().jump(case_blocks[di], &[]);
                 } else {
                     ctx.builder.ins().jump(exit, &[]);
                 }
+            } else if let Some(values) = integer_tests {
+                let mut table = cranelift_frontend::Switch::new();
+                for (pos, case_idx) in non_default_indices.iter().enumerate() {
+                    table.set_entry(values[pos], case_blocks[*case_idx]);
+                }
+                let fallback = default_idx.map(|di| case_blocks[di]).unwrap_or(exit);
+                table.emit(ctx.builder, disc_i64.val, fallback);
             } else {
                 for (pos, case_idx) in non_default_indices.iter().enumerate() {
                     let test_expr = sw.cases[*case_idx]
@@ -430,6 +446,37 @@ fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
         return Some(ValTy::from_annotation(name));
     }
     None
+}
+
+/// Extracts an integer case label for jump-table switch lowering.
+/// Accepts numeric literals with no decimal point, optionally with `+` or
+/// unary minus. Returns None for any other shape (string, computed, float).
+fn extract_integer_literal(expr: &swc_ecma_ast::Expr) -> Option<u128> {
+    use swc_ecma_ast::{Expr, Lit, UnaryOp};
+    match expr {
+        Expr::Lit(Lit::Num(n)) => {
+            let v = n.value;
+            if v.fract() != 0.0 || !v.is_finite() {
+                return None;
+            }
+            if let Some(raw) = n.raw.as_ref() {
+                let bytes = raw.as_bytes();
+                if bytes.iter().any(|&b| b == b'.' || b == b'e' || b == b'E') {
+                    return None;
+                }
+            }
+            Some(v as i64 as u128)
+        }
+        Expr::Unary(u) if matches!(u.op, UnaryOp::Minus) => {
+            let inner = extract_integer_literal(&u.arg)?;
+            // Negate within i64 range via wrapping.
+            let as_i64 = inner as i64;
+            Some(as_i64.wrapping_neg() as u128)
+        }
+        Expr::Unary(u) if matches!(u.op, UnaryOp::Plus) => extract_integer_literal(&u.arg),
+        Expr::Paren(p) => extract_integer_literal(&p.expr),
+        _ => None,
+    }
 }
 
 fn zero_for_ty(ctx: &mut FnCtx, ty: ValTy) -> cranelift_codegen::ir::Value {
