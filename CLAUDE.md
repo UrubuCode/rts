@@ -6,9 +6,10 @@ RTS e um compilador/runtime TypeScript-to-native usando Cranelift como backend d
 O objetivo e compilar TS/JS para binarios nativos com runtime minimo em Rust, distribuido como
 toolchain standalone (sem runtime support library externa).
 
-A branch atual (`feat/remake-namespaces`) reorganiza a camada de runtime em torno do novo
-contrato `src/abi/` + `SPECS`, e converge o pipeline com o modelo da `main` (grafo de modulos
-+ cache incremental), preservando a superficie nova da ABI.
+A camada de runtime e organizada em torno do contrato `src/abi/` + `SPECS`, com pipeline
+por grafo de modulos + cache incremental. Dois caminhos de execucao coexistem: AOT via
+`cranelift_object::ObjectModule` (linker externo) e JIT via `cranelift_jit::JITModule`
+(memoria executavel direta, ativado por `RTS_JIT=1`).
 
 Consultar `NEXT_STEPS.md` e `ROAD_MAP.md` para a direcao vigente.
 
@@ -16,26 +17,32 @@ Consultar `NEXT_STEPS.md` e `ROAD_MAP.md` para a direcao vigente.
 
 ```
 src/
-  abi/          — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas)
-  codegen/      — Cranelift codegen (object emit, lower de expr/stmt/func)
-  linker/       — link nativo (system linker com fallback)
-  namespaces/   — implementacoes dos namespaces runtime: io, fs, gc
+  abi/          — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas, Intrinsic)
+  codegen/      — Cranelift codegen
+    emit.rs     — ObjectModule emitter (AOT)
+    jit.rs      — JITModule emitter (rts run com RTS_JIT=1)
+    lower/      — lower de expr/stmt/func sobre &mut dyn Module
+  linker/       — link nativo (system linker com fallback object backend)
+  namespaces/   — implementacoes dos namespaces runtime: io, fs, gc, math, bigfloat
   runtime/      — builtin module "rts" + submodulos "rts:<ns>"
   module/       — resolver de modulos e grafo de dependencias
-  parser/       — SWC parse + AST interno
+  parser/       — SWC parse + AST interno; converte arrow/fn expressions em Item::Function
+                  top-level
   type_system/  — type checker, registry, resolver
   diagnostics/  — erros estruturados
   cli/          — CLI (run, compile, apis, repl, eval)
-  pipeline.rs   — orquestra build/run
+  pipeline.rs   — orquestra build/run; inclui run_jit para path JIT
   lib.rs        — API publica
-  runtime_objects.rs — resolucao dos objetos de runtime support (.o/.obj)
+  runtime_objects.rs — resolucao dos objetos de runtime support (.o/.obj, AOT)
   main.rs       — entrypoint do binario `rts`
 ```
 
-Pipeline: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → Object → Linker → .exe`
+Pipeline AOT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → Object → Linker → .exe`
+Pipeline JIT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → JITModule → call __RTS_MAIN`
 
-Nao existem mais camadas HIR/MIR separadas nesta branch — o codegen consome direto a AST
-(com tipagem resolvida) e emite Cranelift IR em `src/codegen/lower/`.
+`FnCtx.module` e `&mut dyn Module` para servir ambos os paths sem duplicar codegen. Nao
+existem mais camadas HIR/MIR separadas — o codegen consome direto a AST (com tipagem
+resolvida) e emite Cranelift IR em `src/codegen/lower/`.
 
 ## ABI (`src/abi/`) — contrato unico
 
@@ -43,10 +50,13 @@ Toda a superficie entre codegen e runtime passa por `src/abi/`. Nao existe mais
 `SPEC/MEMBERS/dispatch()` por namespace e nao existe mais `__rts_call_dispatch`.
 
 - `abi::SPECS` (`mod.rs`) — slice estatico com a `NamespaceSpec` de cada namespace registrado
-  (`io`, `fs`, `gc`). E a fonte unica consumida por codegen, runtime e gerador de `rts.d.ts`.
+  (`io`, `fs`, `gc`, `math`, `bigfloat`). Fonte unica consumida por codegen, runtime, JIT e
+  gerador de `rts.d.ts`.
 - `abi::lookup(qualified)` — resolve `"io.print"` → `&NamespaceMember` com simbolo e assinatura.
-- `member.rs` — `NamespaceSpec` e `NamespaceMember` como tabelas `const` estaticas. Cada membro
-  declara `name`, `kind` (Function|Constant), `symbol`, `args[]`, `returns`, `doc`, `ts_signature`.
+- `member.rs` — `NamespaceSpec`, `NamespaceMember` (const estaticos) e `Intrinsic` (enum das
+  ops inlinaveis). Cada membro declara `name`, `kind` (Function|Constant), `symbol`, `args[]`,
+  `returns`, `doc`, `ts_signature`, `intrinsic: Option<Intrinsic>`. Quando `intrinsic` e
+  `Some`, codegen emite IR Cranelift direto em vez de `call <symbol>`.
 - `types.rs` — `AbiType`: `Void | Bool | I32 | I64 | U64 | F64 | StrPtr | Handle`. `StrPtr`
   expande para dois slots Cranelift (`ptr` + `len`).
 - `signature.rs` — `lower_member()` converte a spec em `LoweredSignature` Cranelift.
@@ -72,9 +82,9 @@ Regras:
 - Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
 - Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-Namespaces ativos nesta branch: `io`, `fs`, `gc`.
-Os demais (net, process, crypto, buffer, promise, task, global) estao removidos aqui e serao
-reintroduzidos sobre o contrato novo a medida que o pipeline principal estabiliza.
+Namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`.
+Demais (net, process, crypto, buffer, thread, etc) serao reintroduzidos sobre o contrato
+atual a medida que o pipeline estabiliza. Ver issues #12-#39 para o backlog.
 
 ### Namespaces existentes
 
@@ -82,7 +92,16 @@ reintroduzidos sobre o contrato novo a medida que o pipeline principal estabiliz
 - `fs/` — read, read_all, write, append, exists, is_file, is_dir, size, modified_ms,
   create_dir(_all), remove_dir(_all), remove_file, rename, copy
 - `gc/` — handles e string pool: string_from_{i64,f64,static}, string_{new,concat,len,ptr,free},
-  `HandleTable` slab-based com 16-bit geracao + 48-bit slot (`u64` handle)
+  `HandleTable` slab-based com 16-bit geracao + 48-bit slot (`u64` handle); `Entry` enumera
+  tipos armazenados (`String`, `BigFixed`, `Free`)
+- `math/` — basic (floor/ceil/round/trunc/sqrt/cbrt/pow/exp/ln/log2/log10/abs_f64/abs_i64),
+  trig (sin/cos/tan/asin/acos/atan/atan2), minmax (min/max/clamp_f64/i64), consts
+  (PI/E/INFINITY/NAN como `MemberKind::Constant`), random (xorshift64 com estado em
+  `__RTS_DATA_NS_MATH_RNG_STATE`). Intrinsics: sqrt/abs_f64/min_f64/max_f64/abs_i64/
+  min_i64/max_i64/random_f64
+- `bigfloat/` — decimal fixed-point via i128 (scale decimal ate 36). Operacoes:
+  zero/from_f64/from_i64/from_str/to_f64/to_string/add/sub/mul/div/neg/sqrt/free.
+  Usado para pi com 29+ digitos via Machin + atan de Maclaurin
 
 ## Convencoes
 
@@ -96,20 +115,43 @@ reintroduzidos sobre o contrato novo a medida que o pipeline principal estabiliz
 ## Como testar
 
 ```bash
-cargo test                                        # testes unitarios
+cargo test                                        # testes unitarios + fixtures
 cargo build --release                             # build release
-target/release/rts.exe run file.ts                # executar (runtime)
+target/release/rts.exe run file.ts                # executar (AOT default)
+RTS_JIT=1 target/release/rts.exe run file.ts      # executar via JIT in-memory
 target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
 target/release/rts.exe apis                       # listar APIs disponiveis
 ```
 
+Fixtures de codegen vivem em `tests/fixtures/*.{ts,out}`. O teste
+`codegen_fixtures` compila o `.ts` e compara stdout com o `.out`
+byte-a-byte. Para adicionar nova fixture:
+
+1. `tests/fixtures/<name>.ts` — programa
+2. `tests/fixtures/<name>.out` — saida esperada (LF, sem CRLF)
+3. `#[test] fn fixture_<name>() { run_fixture("<name>") }` em
+   `tests/codegen_fixtures.rs`
+
 ## Benchmarks
+
+Benches canonicos em `bench/`:
+
+- `monte_carlo_pi.ts` — estimacao de pi por Monte Carlo 10M (xorshift64 inline)
+- `pi_bigfloat.ts` — pi via Machin 30 digitos usando `bigfloat`
+- `pi_machin.ts` — pi via Machin em f64 (16 digitos)
+
+Placar atual (AOT + JIT vs Bun/Node, medianas):
+
+| Bench            | RTS JIT | RTS AOT | Bun    | Node   |
+|------------------|---------|---------|--------|--------|
+| Monte Carlo 10M  | 119 ms  | 156 ms  | 173 ms | 281 ms |
+| Machin bigfloat  | 47 ms   | 48 ms   | 109 ms | 108 ms |
+
+Suite completa:
 
 ```bash
 powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 ```
-
-Compara RTS (run), RTS (compiled), Bun e Node.
 
 ## Regras
 
@@ -156,16 +198,48 @@ Cada funcao de namespace e um simbolo `extern "C"` tipado.
   leitura via `gc::string_ptr(handle)` + `gc::string_len(handle)`
 - Call sites com argumentos `any` passam por `abi::guards::guard_for(...)` para decidir coerce/trap
 
-## Runtime vs Compile (AOT)
+## Runtime vs Compile (AOT) vs JIT
 
-Runtime e AOT sao unificados — ambos geram `.o` via Cranelift. A diferenca e de escopo:
+Tres rotas de execucao compartilhando o mesmo codegen Cranelift:
 
-- **Runtime (`rts run`)**: inclui todos os modulos builtin nos objects
-- **Compile (`rts compile`)**: aplica slicing, gera apenas os objects dos modulos efetivamente
-  usados; produz o binario final
+- **`rts run` (AOT, default)**: inclui todos os modulos builtin nos objects; escreve `.o`,
+  chama linker do sistema, executa o binario linkado. Cache em `node_modules/.rts/`.
+- **`rts run` com `RTS_JIT=1`**: compila direto para memoria executavel via `JITModule`.
+  Sem disco, sem linker externo. Startup drasticamente mais rapido para dev loop. Todos os
+  simbolos do ABI sao registrados em `JITBuilder::symbol` no startup do modulo JIT
+  (`src/codegen/jit.rs`).
+- **`rts compile`**: aplica slicing por uso, gera apenas os objects dos modulos efetivamente
+  utilizados, produz binario final.
 
-O pipeline de codegen e o mesmo nos dois casos. Convencao de nomes: `<module>.o` (e `.m` quando
-houver metadata associado para cache incremental).
+`FnCtx.module` e `&mut dyn Module` — `ObjectModule` e `JITModule` implementam o mesmo trait
+e passam pelo mesmo pipeline de `compile_program`.
+
+Convencao de nomes de object: `<module>.o` (e `.m` quando houver metadata para cache
+incremental).
+
+## Otimizacoes de codegen notaveis
+
+- **Intrinsics inline** (`abi::Intrinsic`): `sqrt`, `abs_f64`, `min/max_f64`, `abs_i64`,
+  `min/max_i64`, `random_f64` — emitidos como IR Cranelift direto em `lower_intrinsic`
+- **Tail call optimization**: user functions em `CallConv::Tail`; `return f(x)` em posicao de
+  tail emite `return_call` (exige `preserve_frame_pointers=true` em x86-64)
+- **First-class function pointers** (#97 fase 1): `Expr::Ident` resolvendo a user fn
+  materializa `func_addr` como i64; call via ident local/param faz `call_indirect` com
+  signature provisoria Tail
+- **Jump table switch**: quando todos os non-default cases sao literais inteiros, usa
+  `cranelift_frontend::Switch` (backend decide `br_table` vs binary search)
+- **Imm forms**: `x + N` / `x & MASK` / `x << K` emitem `iadd_imm` / `band_imm` / `ishl_imm`
+  sem iconst intermediario
+- **MemFlags::trusted** em loads/stores de globals e RNG state
+- **f64 modulo** via libc `fmod` (antes truncava via i64 perdendo a parte fracionaria)
+- **Constantes como propriedades** (`math.PI` sem parens) via `MemberKind::Constant` +
+  `emit_constant_load`
+
+## Otimizacoes pendentes / backlog
+
+Ver issues abertas #90, #96, #97 (fases 2/3). #92 autovec foi fechada como inviavel sem
+loop vectorizer proprio (Cranelift nao tem um); Bun ganha em Monte Carlo >1B iter por
+autovec do V8.
 
 ## Layout de Artefatos do Usuario
 
