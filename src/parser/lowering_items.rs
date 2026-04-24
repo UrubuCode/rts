@@ -116,7 +116,7 @@ fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec
                 let span = fn_expr.function.span;
                 pending.push(lower_function(cm, &name, &fn_expr.function, span));
             }
-            Expr::Arrow(arrow) if matches!(&*arrow.body, swc_ecma_ast::BlockStmtOrExpr::BlockStmt(_)) => {
+            Expr::Arrow(arrow) => {
                 let synthetic = arrow_to_function(arrow);
                 pending.push(lower_function(cm, &name, &synthetic, arrow.span));
             }
@@ -131,10 +131,24 @@ fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec
 
 /// Builds a `swc_ecma_ast::Function` from an `ArrowExpr` so it can flow
 /// through the same lowering path as regular function declarations.
+///
+/// For expression-bodied arrows (`(x) => x * 2`) the single expression is
+/// wrapped in a synthetic `{ return <expr>; }` so downstream codegen only
+/// needs to know how to handle block-bodied functions.
 fn arrow_to_function(arrow: &ArrowExpr) -> SwcFunction {
     let body = match &*arrow.body {
         swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => Some(block.clone()),
-        _ => None,
+        swc_ecma_ast::BlockStmtOrExpr::Expr(expr) => {
+            let return_stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
+                span: arrow.span,
+                arg: Some(expr.clone()),
+            });
+            Some(BlockStmt {
+                span: arrow.span,
+                ctxt: arrow.ctxt,
+                stmts: vec![return_stmt],
+            })
+        }
     };
     let params = arrow
         .params
