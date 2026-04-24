@@ -99,3 +99,8 @@ fn fixture_string_concat() {
 fn fixture_template_literals() {
     run_fixture("template_literals");
 }
+
+#[test]
+fn fixture_let_const_var() {
+    run_fixture("let_const_var");
+}
