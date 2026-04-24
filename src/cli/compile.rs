@@ -1,7 +1,7 @@
 //! `rts compile <input.ts> [output]` — full compile + link pipeline.
 //!
 //! Emits a native executable by combining the user program (compiled
-//! via Cranelift) with the RTS static runtime support library.
+//! via Cranelift) with the RTS runtime support objects.
 
 use std::path::{Path, PathBuf};
 

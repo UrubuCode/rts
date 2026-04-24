@@ -1,7 +1,7 @@
 //! Integration tests: compile each `.ts` fixture and compare stdout to `.out`.
 //!
 //! Each test compiles the fixture via the RTS pipeline, links against the
-//! runtime support library, runs the resulting binary, and asserts its stdout
+//! runtime support objects, runs the resulting binary, and asserts its stdout
 //! matches the adjacent `.out` file byte-for-byte.
 //!
 //! Requires a pre-built `target/release/rts` binary (or `target/debug/rts`

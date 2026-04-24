@@ -6,7 +6,7 @@ Seguir a mesma ideia arquitetural da `main`, mas mantendo a API nova organizada.
 
 Isso significa:
 - pipeline completo com grafo de modulos, cache de objetos e link final;
-- runtime support integrado ao `rts` (sem dependencia de `rts.lib` externa);
+- runtime support integrado ao `rts` via objetos `.o/.obj` precompilados;
 - sem download de runtime lib em tempo de uso;
 - sem fallback para `cargo build --lib` no ambiente do usuario;
 - API de runtime centralizada em `src/abi/` e namespaces organizados por modulo.
@@ -35,7 +35,7 @@ Isso significa:
 ### Etapa 1 - Reancorar no fluxo da main
 
 - Reintroduzir pipeline de grafo/caching inspirado em `origin/main`.
-- Substituir `runtime_lib` externo por runtime payload interno ao `rts`.
+- Consolidar runtime support via objetos `.o/.obj` precompilados no fluxo principal.
 - Remover caminho de download de runtime support library.
 - Remover fallback para `cargo build --lib` no fluxo de execucao do usuario.
 - Manter o linker atual e validar compilacao end-to-end de exemplos.
@@ -56,6 +56,6 @@ Isso significa:
 
 - `rts compile` funciona com pipeline de grafo e cache.
 - `rts run` e `rts compile` validos em exemplos principais.
-- `rts run` funciona fora do repo sem `Cargo.toml`, sem `rts.lib` externa.
+- `rts run` funciona fora do repo sem `Cargo.toml`, sem runtime archive `.lib/.a`.
 - `io/fs/gc` estaveis no contrato novo da ABI.
 - build e docs sem dependencia de `xtask`.

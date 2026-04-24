@@ -30,7 +30,7 @@ src/
     <ns>/abi.rs    tabela estatica de NamespaceMember
     <ns>/<op>.rs   implementacao operacional (um arquivo por grupo de funcao)
   linker/          Link nativo (linker do sistema com fallback)
-  runtime_lib.rs   Runtime support embutido no proprio binario do rts
+  runtime_objects.rs Resolucao dos objetos de runtime support (.o/.obj)
   pipeline.rs      Orquestra build/run
   cli/             CLI (run, compile, apis, init)
 
@@ -91,9 +91,9 @@ Runtime e AOT compartilham o mesmo pipeline de codegen. A diferenca e o escopo:
 - `rts compile` aplica slicing e gera somente os objects efetivamente usados,
   emitindo o binario final.
 
-Runtime support e embutido no proprio binario do `rts` via `runtime_lib.rs` —
-nao ha download de `rts.lib` externa e nao ha fallback para
-`cargo build --lib` no ambiente do usuario.
+Runtime support e resolvido por objetos `.o/.obj` precompilados
+(`runtime_objects.rs`). Nao ha download de runtime support e nao ha fallback
+para `cargo build --lib` no ambiente do usuario.
 
 Artefatos auxiliares vivem em `node_modules/.rts/`:
 

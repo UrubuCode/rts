@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Convergir para o modelo da `main` (pipeline completo + cache), mantendo a organizacao da API nova (`src/abi` + `SPECS` + namespaces modulares), porem com runtime support interno ao `rts` (sem `rts.lib` externa).
+Convergir para o modelo da `main` (pipeline completo + cache), mantendo a organizacao da API nova (`src/abi` + `SPECS` + namespaces modulares), porem com runtime support interno ao `rts` via objetos `.o/.obj` precompilados.
 
 ---
 

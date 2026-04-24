@@ -3,7 +3,7 @@
 //! Responsibilities:
 //! 1. Read + parse the source file.
 //! 2. Emit a user object via `codegen`.
-//! 3. Resolve the RTS static library as an external artifact.
+//! 3. Resolve RTS runtime support objects (`.o` / `.obj`).
 //! 4. Optionally link the user object + runtime + CRT into a final binary.
 
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ pub struct CompileOutcome {
 pub struct LinkOutcome {
     pub compile: CompileOutcome,
     pub binary: LinkedBinary,
-    pub runtime_staticlib: PathBuf,
+    pub runtime_objects: Vec<PathBuf>,
 }
 
 /// Parses `input` and emits an object file next to it.
@@ -69,16 +69,18 @@ pub fn build_executable(
     let compile = compile_file(input, &user_object, options)?;
 
     let deps_dir = output_binary.parent().unwrap_or_else(|| Path::new("."));
-    let runtime_lib = crate::runtime_lib::resolve_runtime_support_library(deps_dir)
-        .context("failed to resolve RTS runtime support library")?;
+    let runtime_objects = crate::runtime_objects::resolve_runtime_support_objects(deps_dir)
+        .context("failed to resolve RTS runtime support objects")?;
 
-    let inputs = vec![compile.object.path.clone(), runtime_lib.clone()];
+    let mut inputs = Vec::with_capacity(1 + runtime_objects.len());
+    inputs.push(compile.object.path.clone());
+    inputs.extend(runtime_objects.iter().cloned());
     let binary = linker::link_objects_to_binary(&inputs, output_binary)
         .context("linker failed while combining user object + RTS runtime")?;
 
     Ok(LinkOutcome {
         compile,
         binary,
-        runtime_staticlib: runtime_lib,
+        runtime_objects,
     })
 }

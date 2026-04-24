@@ -18,4 +18,4 @@ pub mod pipeline;
 pub mod runtime;
 pub mod type_system;
 
-mod runtime_lib;
+mod runtime_objects;

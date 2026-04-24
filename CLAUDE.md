@@ -28,7 +28,7 @@ src/
   cli/          — CLI (run, compile, apis, repl, eval)
   pipeline.rs   — orquestra build/run
   lib.rs        — API publica
-  runtime_lib.rs — resolucao do artefato de runtime support (librts.a / rts.lib)
+  runtime_objects.rs — resolucao dos objetos de runtime support (.o/.obj)
   main.rs       — entrypoint do binario `rts`
 ```
 
@@ -118,9 +118,9 @@ Compara RTS (run), RTS (compiled), Bun e Node.
   (nesta branch: `console/`, `globals/`, `rts-types/`)
 - `rts.d.ts` so contem `declare module "rts"` — nao adicionar outros modulos
 - Handles numericos (u64) para recursos runtime (buffers, sockets, strings dinamicas, etc)
-- Distribuicao standalone: runtime support resolvido por `runtime_lib.rs` (cache toolchain
-  local `~/.rts/...` ou artefato em `target/{debug,release}/`); nao dependemos de download
-  externo em tempo de build
+- Distribuicao standalone: runtime support resolvido por objetos `.o/.obj`
+  precompilados (via `RTS_RUNTIME_OBJECTS_DIR` ou pasta `runtime-objects` ao lado do `rts`);
+  nao dependemos de download externo em tempo de build
 
 ## Sem Codigo Legacy
 
