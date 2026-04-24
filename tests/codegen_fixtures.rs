@@ -139,3 +139,8 @@ fn fixture_switch_jump_table() {
 fn fixture_tail_call() {
     run_fixture("tail_call");
 }
+
+#[test]
+fn fixture_first_class_functions() {
+    run_fixture("first_class_functions");
+}

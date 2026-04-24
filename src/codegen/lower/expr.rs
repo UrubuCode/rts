@@ -28,8 +28,19 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // ── Identifiers ───────────────────────────────────────────────────
         Expr::Ident(id) => {
             let name = id.sym.as_str();
-            ctx.read_local(name)
-                .ok_or_else(|| anyhow!("undefined variable `{name}`"))
+            // Locals and globals take priority. A user function with the
+            // same name is shadowed — matches JS scoping.
+            if let Some(tv) = ctx.read_local(name) {
+                return Ok(tv);
+            }
+            // Fallback: bare reference to a user-defined function resolves
+            // to its function pointer as an i64 value. Lets callers pass
+            // functions around as first-class values and invoke them via
+            // `call_indirect` (#97, fase 1).
+            if ctx.user_fns.contains_key(name) {
+                return emit_user_fn_addr(ctx, name);
+            }
+            Err(anyhow!("undefined variable `{name}`"))
         }
 
         // ── Parenthesised ─────────────────────────────────────────────────
@@ -713,12 +724,84 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         if let Some(qualified) = qualified_member_name(callee) {
             return lower_ns_call(ctx, &qualified, call);
         }
-        // User-defined function call: `fn_name(...)`
+        // Ident callee: prefer direct user-fn call; fall back to indirect
+        // when the name resolves to a local/parameter holding a funcptr
+        // (e.g. `function apply(fn, x) { return fn(x); }`).
         if let Expr::Ident(id) = callee.as_ref() {
-            return lower_user_call(ctx, id.sym.as_str(), call);
+            let name = id.sym.as_str();
+            if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
+                return lower_user_call(ctx, name, call);
+            }
+            if ctx.var_ty(name).is_some() {
+                return lower_indirect_call(ctx, callee, call);
+            }
+            // Unknown name — let lower_user_call produce a clear error.
+            return lower_user_call(ctx, name, call);
         }
     }
     Err(anyhow!("unsupported call expression form"))
+}
+
+/// Materialises the address of a user-defined function as an i64 value.
+/// Produced when a bare `Ident` referring to a user fn appears in a value
+/// position — lets callers pass functions as first-class values (#97).
+fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
+    let mangled: &'static str = Box::leak(format!("__user_{name}").into_boxed_str());
+    let func_id = *ctx
+        .extern_cache
+        .get(mangled)
+        .ok_or_else(|| anyhow!("user function `{name}` has no cached id"))?;
+    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+    let ptr_ty = ctx.module.isa().pointer_type();
+    let addr = ctx.builder.ins().func_addr(ptr_ty, fref);
+    // Function pointers live in the I64 lane — same as any other handle-
+    // shaped value. Downstream consumers just need to be able to
+    // call_indirect with a compatible signature.
+    Ok(TypedVal::new(addr, ValTy::I64))
+}
+
+/// Indirect call through a value holding a function pointer.
+/// Provisional signature: one i64 param, i64 return. Covers the canonical
+/// `function apply(fn, x) { return fn(x); }` pattern used to test first-
+/// class functions. Richer signatures require closure-aware typing (fase
+/// 2 of #97).
+fn lower_indirect_call(
+    ctx: &mut FnCtx,
+    callee_expr: &Expr,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    use cranelift_codegen::ir::{AbiParam, Signature};
+    use cranelift_codegen::isa::CallConv;
+
+    let callee = lower_expr(ctx, callee_expr)?;
+    let callee_val = ctx.coerce_to_i64(callee).val;
+
+    // Build provisional signature matching how user fns are declared
+    // (Tail conv, all i64). One parameter per call arg; single i64 return.
+    let mut sig = Signature::new(CallConv::Tail);
+    for _ in &call.args {
+        sig.params.push(AbiParam::new(cl::I64));
+    }
+    sig.returns.push(AbiParam::new(cl::I64));
+    let sig_ref = ctx.builder.import_signature(sig);
+
+    // Lower argument expressions, coercing each to i64.
+    let mut args: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(call.args.len());
+    for arg in &call.args {
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in indirect call"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        args.push(ctx.coerce_to_i64(tv).val);
+    }
+
+    let inst = ctx.builder.ins().call_indirect(sig_ref, callee_val, &args);
+    let results = ctx.builder.inst_results(inst);
+    let v = results
+        .first()
+        .copied()
+        .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
+    Ok(TypedVal::new(v, ValTy::I64))
 }
 
 /// Emits a zero-arg call to a constant's accessor symbol (e.g. `math.PI`).
