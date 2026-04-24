@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Fixture files are compared byte-for-byte — keep LF across platforms.
+tests/fixtures/*.out text eol=lf
+tests/fixtures/*.ts  text eol=lf

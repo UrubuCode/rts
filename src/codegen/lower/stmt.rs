@@ -5,7 +5,7 @@
 
 use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{InstBuilder, condcodes::IntCC, types as cl};
-use swc_ecma_ast::{BlockStmt, Decl, Pat, Stmt, VarDeclOrExpr};
+use swc_ecma_ast::{BlockStmt, Decl, Pat, Stmt, VarDeclKind, VarDeclOrExpr};
 
 use super::ctx::{FnCtx, TypedVal, ValTy};
 use super::expr::lower_expr;
@@ -67,7 +67,9 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     // Top-level declarations initialize module globals.
                     ctx.write_local(&name, init_coerced)?;
                 } else {
-                    ctx.declare_local(&name, ty, init_coerced);
+                    let is_const = matches!(var_decl.kind, VarDeclKind::Const);
+                    let function_scope = matches!(var_decl.kind, VarDeclKind::Var);
+                    ctx.declare_local_kind(&name, ty, init_coerced, is_const, function_scope);
                 }
             }
             Ok(false)
@@ -378,13 +380,27 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
 }
 
 pub fn lower_block(ctx: &mut FnCtx, block: &BlockStmt) -> Result<bool> {
+    ctx.push_scope();
+    let mut exited = false;
+    let mut err = None;
     for s in &block.stmts {
-        let exits = lower_stmt(ctx, s)?;
-        if exits {
-            return Ok(true);
+        match lower_stmt(ctx, s) {
+            Ok(true) => {
+                exited = true;
+                break;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                err = Some(e);
+                break;
+            }
         }
     }
-    Ok(false)
+    ctx.pop_scope();
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(exited)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

@@ -73,6 +73,8 @@ impl TypedVal {
 pub struct LocalVar {
     pub var: Variable,
     pub ty: ValTy,
+    /// True when declared with `const` — reassignment must be rejected.
+    pub is_const: bool,
 }
 
 /// Module-scope global lowered to a data symbol.
@@ -96,8 +98,9 @@ pub struct FnCtx<'m, 'fb> {
     pub extern_cache: &'fb mut HashMap<&'static str, cranelift_module::FuncId>,
     pub data_counter: &'fb mut u32,
 
-    /// Local variables in scope.
-    pub locals: HashMap<String, LocalVar>,
+    /// Stack of scopes. The first entry is the function scope (where `var`
+    /// declarations live); subsequent entries are block scopes for `let`/`const`.
+    pub locals: Vec<HashMap<String, LocalVar>>,
     /// Module-scope globals visible from functions.
     pub globals: &'fb HashMap<String, GlobalVar>,
     /// User-defined function signatures by source name.
@@ -127,7 +130,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             module,
             extern_cache,
             data_counter,
-            locals: HashMap::new(),
+            locals: vec![HashMap::new()],
             globals,
             user_fns,
             module_scope,
@@ -142,16 +145,54 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         self.builder.declare_var(ty.cl_type())
     }
 
-    /// Declares a named local and initializes it.
+    /// Pushes a new block scope. Variables declared with `let`/`const` go here.
+    pub fn push_scope(&mut self) {
+        self.locals.push(HashMap::new());
+    }
+
+    /// Pops the current block scope.
+    pub fn pop_scope(&mut self) {
+        if self.locals.len() > 1 {
+            self.locals.pop();
+        }
+    }
+
+    /// Declares a named local in the current (top-most) scope.
     pub fn declare_local(&mut self, name: &str, ty: ValTy, init: Value) {
+        self.declare_local_kind(name, ty, init, false, false);
+    }
+
+    /// Declares a named local with control over mutability and scope target.
+    ///
+    /// `function_scope = true` places the binding in the function-level scope
+    /// (used for `var`); otherwise it lands in the current block scope.
+    pub fn declare_local_kind(
+        &mut self,
+        name: &str,
+        ty: ValTy,
+        init: Value,
+        is_const: bool,
+        function_scope: bool,
+    ) {
         let var = self.new_var(ty);
         self.builder.def_var(var, init);
-        self.locals.insert(name.to_string(), LocalVar { var, ty });
+        let slot = LocalVar { var, ty, is_const };
+        let idx = if function_scope { 0 } else { self.locals.len() - 1 };
+        self.locals[idx].insert(name.to_string(), slot);
+    }
+
+    fn find_local(&self, name: &str) -> Option<LocalVar> {
+        for scope in self.locals.iter().rev() {
+            if let Some(slot) = scope.get(name) {
+                return Some(slot.clone());
+            }
+        }
+        None
     }
 
     /// Reads a named local or module global.
     pub fn read_local(&mut self, name: &str) -> Option<TypedVal> {
-        if let Some(local) = self.locals.get(name).cloned() {
+        if let Some(local) = self.find_local(name) {
             let val = self.builder.use_var(local.var);
             return Some(TypedVal::new(val, local.ty));
         }
@@ -173,7 +214,10 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
 
     /// Writes to a named local or module global.
     pub fn write_local(&mut self, name: &str, val: Value) -> Result<()> {
-        if let Some(local) = self.locals.get(name).cloned() {
+        if let Some(local) = self.find_local(name) {
+            if local.is_const {
+                return Err(anyhow!("assignment to const variable `{name}`"));
+            }
             self.builder.def_var(local.var, val);
             return Ok(());
         }
@@ -196,8 +240,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
 
     /// Returns the declared type of a local/global variable.
     pub fn var_ty(&self, name: &str) -> Option<ValTy> {
-        self.locals
-            .get(name)
+        self.find_local(name)
             .map(|local| local.ty)
             .or_else(|| self.globals.get(name).map(|global| global.ty))
     }
