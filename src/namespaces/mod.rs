@@ -10,6 +10,7 @@ pub mod collections;
 pub mod env;
 pub mod fs;
 pub mod gc;
+pub mod hash;
 pub mod io;
 pub mod math;
 pub mod os;

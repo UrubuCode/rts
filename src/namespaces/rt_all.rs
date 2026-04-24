@@ -24,3 +24,5 @@ pub mod process;
 pub mod os;
 #[path = "collections/rt.rs"]
 pub mod collections;
+#[path = "hash/rt.rs"]
+pub mod hash;
