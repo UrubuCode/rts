@@ -1,0 +1,134 @@
+//! `bigfloat` namespace registration.
+//!
+//! Handle-based arbitrary precision decimal float. Callers allocate with
+//! `zero` / `from_f64` / `from_str`, chain through `add`/`sub`/`mul`/`div`/
+//! `neg`/`sqrt`, materialize with `to_f64` or `to_string`, and `free` when
+//! done. Higher-level algorithms (Machin's pi, series) live in TS.
+
+use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+
+pub const MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "zero",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_ZERO",
+        args: &[AbiType::I64],
+        returns: AbiType::U64,
+        doc: "Allocates a zero big float with the given decimal precision.",
+        ts_signature: "zero(precision: number): number",
+    },
+    NamespaceMember {
+        name: "from_f64",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_FROM_F64",
+        args: &[AbiType::F64, AbiType::I64],
+        returns: AbiType::U64,
+        doc: "Converts an f64 into a big float rounded to `precision` digits.",
+        ts_signature: "from_f64(x: number, precision: number): number",
+    },
+    NamespaceMember {
+        name: "from_str",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_FROM_STR",
+        args: &[AbiType::StrPtr, AbiType::I64],
+        returns: AbiType::U64,
+        doc: "Parses a decimal string into a big float with `precision` digits.",
+        ts_signature: "from_str(s: string, precision: number): number",
+    },
+    NamespaceMember {
+        name: "from_i64",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_FROM_I64",
+        args: &[AbiType::I64, AbiType::I64],
+        returns: AbiType::U64,
+        doc: "Creates a big float from an integer with `precision` digits.",
+        ts_signature: "from_i64(x: number, precision: number): number",
+    },
+    NamespaceMember {
+        name: "to_f64",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_TO_F64",
+        args: &[AbiType::U64],
+        returns: AbiType::F64,
+        doc: "Lossy conversion back to f64.",
+        ts_signature: "to_f64(h: number): number",
+    },
+    NamespaceMember {
+        name: "to_string",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_TO_STRING",
+        args: &[AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "Renders as a decimal string at full precision.",
+        ts_signature: "to_string(h: number): string",
+    },
+    NamespaceMember {
+        name: "add",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_ADD",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::U64,
+        doc: "a + b.",
+        ts_signature: "add(a: number, b: number): number",
+    },
+    NamespaceMember {
+        name: "sub",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_SUB",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::U64,
+        doc: "a - b.",
+        ts_signature: "sub(a: number, b: number): number",
+    },
+    NamespaceMember {
+        name: "mul",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_MUL",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::U64,
+        doc: "a * b.",
+        ts_signature: "mul(a: number, b: number): number",
+    },
+    NamespaceMember {
+        name: "div",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_DIV",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::U64,
+        doc: "a / b.",
+        ts_signature: "div(a: number, b: number): number",
+    },
+    NamespaceMember {
+        name: "neg",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_NEG",
+        args: &[AbiType::U64],
+        returns: AbiType::U64,
+        doc: "-a.",
+        ts_signature: "neg(a: number): number",
+    },
+    NamespaceMember {
+        name: "sqrt",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_SQRT",
+        args: &[AbiType::U64],
+        returns: AbiType::U64,
+        doc: "Square root. Returns 0 for negative input.",
+        ts_signature: "sqrt(a: number): number",
+    },
+    NamespaceMember {
+        name: "free",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BIGFLOAT_FREE",
+        args: &[AbiType::U64],
+        returns: AbiType::Void,
+        doc: "Releases the handle.",
+        ts_signature: "free(h: number): void",
+    },
+];
+
+pub const SPEC: NamespaceSpec = NamespaceSpec {
+    name: "bigfloat",
+    doc: "Arbitrary-precision decimal floating-point via handle table.",
+    members: MEMBERS,
+};

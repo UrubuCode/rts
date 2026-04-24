@@ -91,8 +91,22 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // ── Ternary (a ? b : c) ───────────────────────────────────────────
         Expr::Cond(cond) => lower_cond(ctx, cond),
 
-        // ── Member (e.g. `io.print` used as expression) ───────────────────
-        Expr::Member(_) => Err(anyhow!("bare member expression not supported as value")),
+        // ── Member ────────────────────────────────────────────────────────
+        // Resolves `ns.CONST` into a direct call to the constant's accessor
+        // symbol. Regular function references like `io.print` (without a
+        // call) are rejected.
+        Expr::Member(_) => {
+            let qualified = qualified_member_name(expr)
+                .ok_or_else(|| anyhow!("bare member expression not supported as value"))?;
+            let (_spec, member) = lookup(&qualified)
+                .ok_or_else(|| anyhow!("unknown namespace member `{qualified}`"))?;
+            if !matches!(member.kind, crate::abi::MemberKind::Constant) {
+                return Err(anyhow!(
+                    "`{qualified}` is a function, not a constant — use `{qualified}(...)`"
+                ));
+            }
+            emit_constant_load(ctx, member)
+        }
 
         other => Err(anyhow!(
             "unsupported expression kind: {}",
@@ -107,20 +121,33 @@ fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
     match lit {
         Lit::Num(n) => {
             let v = n.value;
-            if v.fract() == 0.0 && v.is_finite() && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
+            // If the source written form carries a decimal point or exponent,
+            // treat the literal as f64 even when the value happens to be
+            // integral. Without this, `1.0` would silently become i32 and
+            // poison divisions like `1.0 / 5.0`.
+            let wrote_as_float = n
+                .raw
+                .as_ref()
+                .map(|r| {
+                    let s = r.as_bytes();
+                    s.iter().any(|&b| b == b'.' || b == b'e' || b == b'E')
+                })
+                .unwrap_or(false);
+
+            if wrote_as_float || !v.is_finite() || v.fract() != 0.0 {
+                Ok(TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64))
+            } else if v >= i32::MIN as f64 && v <= i32::MAX as f64 {
                 // Default to I32 for integer literals that fit; codegen
                 // coerces when the context demands I64.
                 Ok(TypedVal::new(
                     ctx.builder.ins().iconst(cl::I32, v as i64),
                     ValTy::I32,
                 ))
-            } else if v.fract() == 0.0 && v.is_finite() {
+            } else {
                 Ok(TypedVal::new(
                     ctx.builder.ins().iconst(cl::I64, v as i64),
                     ValTy::I64,
                 ))
-            } else {
-                Ok(TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64))
             }
         }
         Lit::Bool(b) => Ok(TypedVal::new(
@@ -603,6 +630,42 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         }
     }
     Err(anyhow!("unsupported call expression form"))
+}
+
+/// Emits a zero-arg call to a constant's accessor symbol (e.g. `math.PI`).
+///
+/// Constants are backed by thin `extern "C"` functions declared via the ABI
+/// so callers can read `math.PI` as an expression; LLVM/Cranelift is free
+/// to inline the returned literal through normal import rules.
+fn emit_constant_load(
+    ctx: &mut FnCtx,
+    member: &crate::abi::NamespaceMember,
+) -> Result<TypedVal> {
+    use cranelift_codegen::ir::{AbiParam, Signature};
+    use cranelift_module::Linkage;
+
+    let lowered = lower_member(member);
+    let ret_cl = lowered
+        .ret
+        .ok_or_else(|| anyhow!("constant `{}` has no return type", member.name))?;
+
+    // Declare import (idempotent via cache).
+    let func_id = if let Some(id) = ctx.extern_cache.get(member.symbol).copied() {
+        id
+    } else {
+        let mut sig = Signature::new(ctx.module.isa().default_call_conv());
+        sig.returns.push(AbiParam::new(ret_cl));
+        let id = ctx
+            .module
+            .declare_function(member.symbol, Linkage::Import, &sig)
+            .map_err(|e| anyhow!("failed to declare {}: {e}", member.symbol))?;
+        ctx.extern_cache.insert(member.symbol, id);
+        id
+    };
+    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+    let inst = ctx.builder.ins().call(fref, &[]);
+    let val = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(val, ValTy::from_abi(member.returns)))
 }
 
 fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {

@@ -21,6 +21,12 @@ const SENTINEL_INVALID: u64 = 0;
 pub enum Entry {
     /// UTF-8 string owned on the heap.
     String(Vec<u8>),
+    /// Fixed-point decimal number, see `bigfloat::fixed::FixedDecimal`.
+    ///
+    /// Path uses `super::super` (gc's parent) to stay valid in both the
+    /// main crate (`namespaces::bigfloat`) and the standalone runtime
+    /// staticlib (`crate::bigfloat`).
+    BigFixed(Box<super::super::bigfloat::fixed::FixedDecimal>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
@@ -93,8 +99,9 @@ fn decode(handle: u64) -> Option<(u16, u32)> {
     Some((generation, slot))
 }
 
-/// Global table instance. Exposed to the rest of the GC namespace.
-pub(super) fn table() -> &'static Mutex<HandleTable> {
+/// Global table instance. Exposed to the rest of the runtime so sibling
+/// namespaces (bigfloat, etc) can allocate/query handles uniformly.
+pub fn table() -> &'static Mutex<HandleTable> {
     static TABLE: OnceLock<Mutex<HandleTable>> = OnceLock::new();
     TABLE.get_or_init(|| Mutex::new(HandleTable::default()))
 }

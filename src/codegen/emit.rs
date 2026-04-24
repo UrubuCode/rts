@@ -81,8 +81,10 @@ fn build_module() -> Result<ObjectModule> {
     flag_builder
         .set("is_pic", "true")
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
+    // Speed: inlining and LICM help hot loops like bench/monte_carlo_pi;
+    // impact on non-loop code is negligible.
     flag_builder
-        .set("opt_level", "none")
+        .set("opt_level", "speed")
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
     let flags = settings::Flags::new(flag_builder);
 

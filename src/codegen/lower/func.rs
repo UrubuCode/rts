@@ -215,12 +215,20 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
     match expr {
         Expr::Lit(Lit::Num(n)) => {
             let v = n.value;
-            if v.fract() == 0.0 && v.is_finite() && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
-                ValTy::I32
-            } else if v.fract() == 0.0 && v.is_finite() {
-                ValTy::I64
-            } else {
+            let wrote_as_float = n
+                .raw
+                .as_ref()
+                .map(|r| {
+                    let s = r.as_bytes();
+                    s.iter().any(|&b| b == b'.' || b == b'e' || b == b'E')
+                })
+                .unwrap_or(false);
+            if wrote_as_float || !v.is_finite() || v.fract() != 0.0 {
                 ValTy::F64
+            } else if v >= i32::MIN as f64 && v <= i32::MAX as f64 {
+                ValTy::I32
+            } else {
+                ValTy::I64
             }
         }
         Expr::Lit(Lit::Bool(_)) => ValTy::Bool,
@@ -231,6 +239,20 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
             let r = infer_expr_ty(Some(&b.right));
             if l == ValTy::Handle || r == ValTy::Handle {
                 ValTy::Handle
+            } else if l == ValTy::F64 || r == ValTy::F64 {
+                ValTy::F64
+            } else {
+                ValTy::I64
+            }
+        }
+        Expr::Bin(b) => {
+            // Numeric ops other than + (string concat handled above).
+            // Propagate F64 so globals holding `math.PI * x` get the right
+            // storage; otherwise default to I64.
+            let l = infer_expr_ty(Some(&b.left));
+            let r = infer_expr_ty(Some(&b.right));
+            if l == ValTy::F64 || r == ValTy::F64 {
+                ValTy::F64
             } else {
                 ValTy::I64
             }
@@ -241,8 +263,32 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
             if l == r { l } else { ValTy::I64 }
         }
         Expr::Paren(p) => infer_expr_ty(Some(&p.expr)),
+        Expr::Unary(u) => infer_expr_ty(Some(&u.arg)),
+        Expr::Member(_) => infer_abi_member_ty(expr).unwrap_or(ValTy::I64),
+        Expr::Call(c) => {
+            if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                if let Some(ty) = infer_abi_member_ty(callee) {
+                    return ty;
+                }
+            }
+            ValTy::I64
+        }
         _ => ValTy::I64,
     }
+}
+
+/// If `expr` is an ABI member reference (`ns.name`), returns the ValTy of
+/// its return/value type.
+fn infer_abi_member_ty(expr: &Expr) -> Option<ValTy> {
+    let Expr::Member(m) = expr else { return None };
+    let Expr::Ident(ns) = m.obj.as_ref() else { return None };
+    let name = match &m.prop {
+        swc_ecma_ast::MemberProp::Ident(id) => id.sym.as_str(),
+        _ => return None,
+    };
+    let qualified = format!("{}.{}", ns.sym.as_str(), name);
+    let (_, member) = crate::abi::lookup(&qualified)?;
+    Some(ValTy::from_abi(member.returns))
 }
 
 fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {

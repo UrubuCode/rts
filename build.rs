@@ -41,6 +41,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/gc/");
     println!("cargo:rerun-if-changed=src/namespaces/io/");
     println!("cargo:rerun-if-changed=src/namespaces/fs/");
+    println!("cargo:rerun-if-changed=src/namespaces/math/");
+    println!("cargo:rerun-if-changed=src/namespaces/bigfloat/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }
