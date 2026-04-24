@@ -91,8 +91,22 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // ── Ternary (a ? b : c) ───────────────────────────────────────────
         Expr::Cond(cond) => lower_cond(ctx, cond),
 
-        // ── Member (e.g. `io.print` used as expression) ───────────────────
-        Expr::Member(_) => Err(anyhow!("bare member expression not supported as value")),
+        // ── Member ────────────────────────────────────────────────────────
+        // Resolves `ns.CONST` into a direct call to the constant's accessor
+        // symbol. Regular function references like `io.print` (without a
+        // call) are rejected.
+        Expr::Member(_) => {
+            let qualified = qualified_member_name(expr)
+                .ok_or_else(|| anyhow!("bare member expression not supported as value"))?;
+            let (_spec, member) = lookup(&qualified)
+                .ok_or_else(|| anyhow!("unknown namespace member `{qualified}`"))?;
+            if !matches!(member.kind, crate::abi::MemberKind::Constant) {
+                return Err(anyhow!(
+                    "`{qualified}` is a function, not a constant — use `{qualified}(...)`"
+                ));
+            }
+            emit_constant_load(ctx, member)
+        }
 
         other => Err(anyhow!(
             "unsupported expression kind: {}",
@@ -603,6 +617,42 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         }
     }
     Err(anyhow!("unsupported call expression form"))
+}
+
+/// Emits a zero-arg call to a constant's accessor symbol (e.g. `math.PI`).
+///
+/// Constants are backed by thin `extern "C"` functions declared via the ABI
+/// so callers can read `math.PI` as an expression; LLVM/Cranelift is free
+/// to inline the returned literal through normal import rules.
+fn emit_constant_load(
+    ctx: &mut FnCtx,
+    member: &crate::abi::NamespaceMember,
+) -> Result<TypedVal> {
+    use cranelift_codegen::ir::{AbiParam, Signature};
+    use cranelift_module::Linkage;
+
+    let lowered = lower_member(member);
+    let ret_cl = lowered
+        .ret
+        .ok_or_else(|| anyhow!("constant `{}` has no return type", member.name))?;
+
+    // Declare import (idempotent via cache).
+    let func_id = if let Some(id) = ctx.extern_cache.get(member.symbol).copied() {
+        id
+    } else {
+        let mut sig = Signature::new(ctx.module.isa().default_call_conv());
+        sig.returns.push(AbiParam::new(ret_cl));
+        let id = ctx
+            .module
+            .declare_function(member.symbol, Linkage::Import, &sig)
+            .map_err(|e| anyhow!("failed to declare {}: {e}", member.symbol))?;
+        ctx.extern_cache.insert(member.symbol, id);
+        id
+    };
+    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+    let inst = ctx.builder.ins().call(fref, &[]);
+    let val = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(val, ValTy::from_abi(member.returns)))
 }
 
 fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {

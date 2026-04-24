@@ -276,42 +276,44 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "seed(s: number): void",
     },
 
-    // ── Constants (as zero-arg fns for now) ───────────────────────────────
+    // ── Constants ─────────────────────────────────────────────────────────
+    // Backed by zero-arg extern "C" fns in consts.rs; codegen resolves
+    // bare `math.PI` (MemberExpr) into a direct call.
     NamespaceMember {
         name: "PI",
-        kind: MemberKind::Function,
+        kind: MemberKind::Constant,
         symbol: "__RTS_FN_NS_MATH_PI",
         args: &[],
         returns: AbiType::F64,
         doc: "Archimedes' constant.",
-        ts_signature: "PI(): number",
+        ts_signature: "readonly PI: number",
     },
     NamespaceMember {
         name: "E",
-        kind: MemberKind::Function,
+        kind: MemberKind::Constant,
         symbol: "__RTS_FN_NS_MATH_E",
         args: &[],
         returns: AbiType::F64,
         doc: "Euler's number.",
-        ts_signature: "E(): number",
+        ts_signature: "readonly E: number",
     },
     NamespaceMember {
         name: "INFINITY",
-        kind: MemberKind::Function,
+        kind: MemberKind::Constant,
         symbol: "__RTS_FN_NS_MATH_INFINITY",
         args: &[],
         returns: AbiType::F64,
         doc: "Positive infinity.",
-        ts_signature: "INFINITY(): number",
+        ts_signature: "readonly INFINITY: number",
     },
     NamespaceMember {
         name: "NAN",
-        kind: MemberKind::Function,
+        kind: MemberKind::Constant,
         symbol: "__RTS_FN_NS_MATH_NAN",
         args: &[],
         returns: AbiType::F64,
         doc: "Quiet NaN.",
-        ts_signature: "NAN(): number",
+        ts_signature: "readonly NAN: number",
     },
 ];
 
