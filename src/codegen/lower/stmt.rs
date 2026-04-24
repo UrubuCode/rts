@@ -345,8 +345,14 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
         Stmt::Return(ret_stmt) => {
             if let Some(arg) = &ret_stmt.arg {
                 let tv = lower_expr(ctx, arg)?;
-                let as_i64 = ctx.coerce_to_i64(tv);
-                ctx.builder.ins().return_(&[as_i64.val]);
+                let coerced = match ctx.return_ty {
+                    Some(ValTy::I32) => ctx.coerce_to_i32(tv),
+                    Some(ValTy::F64) => ctx.coerce_to_f64(tv),
+                    Some(ValTy::Handle) => ctx.coerce_to_handle(tv)?,
+                    // Default and I64/Bool lanes share i64 storage.
+                    _ => ctx.coerce_to_i64(tv),
+                };
+                ctx.builder.ins().return_(&[coerced.val]);
             } else {
                 ctx.builder.ins().return_(&[]);
             }

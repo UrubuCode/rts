@@ -107,6 +107,9 @@ pub struct FnCtx<'m, 'fb> {
     pub user_fns: &'fb HashMap<String, UserFnAbi>,
     /// True when lowering top-level statements in `main`.
     pub module_scope: bool,
+    /// Declared return type of the surrounding function, used to coerce
+    /// `return <expr>` to the correct Cranelift type.
+    pub return_ty: Option<ValTy>,
 
     /// Cranelift variable counter.
     var_counter: u32,
@@ -134,6 +137,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             globals,
             user_fns,
             module_scope,
+            return_ty: None,
             var_counter: 0,
             loop_stack: Vec::new(),
         }
@@ -387,6 +391,21 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 let as_i64 = self.builder.ins().fcvt_to_sint_sat(cl::I64, tv.val);
                 TypedVal::new(self.builder.ins().ireduce(cl::I32, as_i64), ValTy::I32)
             }
+        }
+    }
+
+    /// Coerces a value to F64.
+    pub fn coerce_to_f64(&mut self, tv: TypedVal) -> TypedVal {
+        match tv.ty {
+            ValTy::F64 => tv,
+            ValTy::I32 => TypedVal::new(
+                self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
+                ValTy::F64,
+            ),
+            ValTy::I64 | ValTy::Bool | ValTy::Handle => TypedVal::new(
+                self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
+                ValTy::F64,
+            ),
         }
     }
 

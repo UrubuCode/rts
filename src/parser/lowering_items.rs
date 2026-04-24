@@ -83,12 +83,78 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
         Decl::TsInterface(interface_decl) => {
             out.push(Item::Interface(lower_interface_decl(cm, interface_decl)));
         }
+        Decl::Var(var_decl) if try_lower_fn_expr_decl(cm, var_decl, out) => {
+            // All declarators were function/arrow expressions and have been
+            // emitted as Item::Function above.
+        }
         _ => {
             // Preserve non-function/class declarations (e.g. let/const) as a
             // real SWC statement so codegen can lower module-scope globals.
             let stmt = Stmt::Decl(decl.clone());
             push_raw_statement_with_stmt(cm, decl.span(), Some(&stmt), out);
         }
+    }
+}
+
+/// Rewrites `const NAME = function(...) { ... }` (or arrow with block body)
+/// into a synthetic `Item::Function` so callers can invoke it like a regular
+/// named function. Returns true only if *every* declarator was a supported
+/// function expression; otherwise the caller falls back to the statement path.
+fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec<Item>) -> bool {
+    let mut pending = Vec::new();
+    for decl in &var_decl.decls {
+        let Pat::Ident(binding) = &decl.name else {
+            return false;
+        };
+        let Some(init) = &decl.init else {
+            return false;
+        };
+        let name = binding.id.sym.to_string();
+
+        match init.as_ref() {
+            Expr::Fn(fn_expr) => {
+                let span = fn_expr.function.span;
+                pending.push(lower_function(cm, &name, &fn_expr.function, span));
+            }
+            Expr::Arrow(arrow) if matches!(&*arrow.body, swc_ecma_ast::BlockStmtOrExpr::BlockStmt(_)) => {
+                let synthetic = arrow_to_function(arrow);
+                pending.push(lower_function(cm, &name, &synthetic, arrow.span));
+            }
+            _ => return false,
+        }
+    }
+    for fn_decl in pending {
+        out.push(Item::Function(fn_decl));
+    }
+    true
+}
+
+/// Builds a `swc_ecma_ast::Function` from an `ArrowExpr` so it can flow
+/// through the same lowering path as regular function declarations.
+fn arrow_to_function(arrow: &ArrowExpr) -> SwcFunction {
+    let body = match &*arrow.body {
+        swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => Some(block.clone()),
+        _ => None,
+    };
+    let params = arrow
+        .params
+        .iter()
+        .map(|pat| swc_ecma_ast::Param {
+            span: pat.span(),
+            decorators: Vec::new(),
+            pat: pat.clone(),
+        })
+        .collect();
+    SwcFunction {
+        params,
+        decorators: Vec::new(),
+        span: arrow.span,
+        ctxt: arrow.ctxt,
+        body,
+        is_generator: false,
+        is_async: arrow.is_async,
+        type_params: arrow.type_params.clone(),
+        return_type: arrow.return_type.clone(),
     }
 }
 
