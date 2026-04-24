@@ -171,6 +171,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::process ───────────────────────────────────────────
+    {
+        use crate::namespaces::process::*;
+        add_fn!("__RTS_FN_NS_PROCESS_EXIT", exit::__RTS_FN_NS_PROCESS_EXIT);
+        add_fn!("__RTS_FN_NS_PROCESS_ABORT", exit::__RTS_FN_NS_PROCESS_ABORT);
+        add_fn!("__RTS_FN_NS_PROCESS_PID", info::__RTS_FN_NS_PROCESS_PID);
+        add_fn!("__RTS_FN_NS_PROCESS_SPAWN", spawn::__RTS_FN_NS_PROCESS_SPAWN);
+        add_fn!("__RTS_FN_NS_PROCESS_WAIT", spawn::__RTS_FN_NS_PROCESS_WAIT);
+        add_fn!("__RTS_FN_NS_PROCESS_KILL", spawn::__RTS_FN_NS_PROCESS_KILL);
+    }
+
     // ── namespaces::string ────────────────────────────────────────────
     use crate::namespaces::string::*;
     add_fn!("__RTS_FN_NS_STRING_CONTAINS", search::__RTS_FN_NS_STRING_CONTAINS);
