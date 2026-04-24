@@ -7,8 +7,8 @@ import { io, math } from "rts";
 const N = 10_000_000;
 math.seed(1);
 
-let inside = 0;
-let i = 0;
+let inside: i64 = 0;
+let i: i64 = 0;
 while (i < N) {
   const x = math.random_f64();
   const y = math.random_f64();

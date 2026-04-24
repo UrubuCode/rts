@@ -720,6 +720,37 @@ não muda. Útil em workflow de dev rápido, não para o bench.
 - **Substituir `FxHashMap` por algo mais rápido**: com shadow globals, só
   200k calls por run passam pela HashMap. Não é o gargalo mensurável.
 
+### 6.7 Intrínsecos para funções ABI triviais (inline at call site)
+
+**Estado atual (2026-04-24)**: toda chamada a um `NamespaceMember` vira
+`call <symbol>`, independente de quão trivial seja o corpo. Em loops
+quentes isso domina o custo:
+
+- `bench/monte_carlo_pi.ts` @ 1B iter: `math.random_f64` é ~2B calls,
+  cada uma ~3 ns (prólogo + `thread_local!::with` + xorshift + epílogo
+  + retorno em xmm0). Total: ~6 s dos ~8 s medidos.
+- Bun/V8 reconhecem `Math.random` como intrínseco e emitem o xorshift
+  inline no loop. Zero overhead de call.
+
+**Próximo passo**: adicionar campo `intrinsic: Option<Intrinsic>` em
+`NamespaceMember`. Quando presente, `lower_ns_call` emite IR inline em
+vez de `call`:
+
+- `math.sqrt` → `fcvt + sqrt + fcvt` (Cranelift `sqrt` instrução nativa)
+- `math.abs_f64` → `fabs` nativo
+- `math.min_f64`/`max_f64` → `fmin`/`fmax`
+- `math.random_f64` → inline do xorshift, com state num **global data**
+  visível ao codegen (não `thread_local!`)
+- `gc::string_len`/`gc::string_ptr` — se o handle for conhecido
+  estaticamente (string literal), pode virar constante
+
+**Ganho estimado (bench monte_carlo)**: 8 s → 3-4 s (alcança ou passa
+Bun). Também abre porta pra autovec em loops puramente aritméticos.
+
+**Risco**: precisa manter a versão extern (para callers que não
+conhecem o símbolo em compile time) + a versão inline consistentes.
+Não usar intrínseco para coisas com side effect não-trivial (fs, io).
+
 ---
 
 ## 7. Referências rápidas
