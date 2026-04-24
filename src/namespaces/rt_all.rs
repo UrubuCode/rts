@@ -22,3 +22,5 @@ pub mod string;
 pub mod process;
 #[path = "os/rt.rs"]
 pub mod os;
+#[path = "collections/rt.rs"]
+pub mod collections;

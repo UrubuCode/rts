@@ -6,6 +6,7 @@
 
 pub mod bigfloat;
 pub mod buffer;
+pub mod collections;
 pub mod env;
 pub mod fs;
 pub mod gc;

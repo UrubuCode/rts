@@ -171,6 +171,27 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::collections ───────────────────────────────────────
+    {
+        use crate::namespaces::collections::*;
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_NEW", map::__RTS_FN_NS_COLLECTIONS_MAP_NEW);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_FREE", map::__RTS_FN_NS_COLLECTIONS_MAP_FREE);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_LEN", map::__RTS_FN_NS_COLLECTIONS_MAP_LEN);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_HAS", map::__RTS_FN_NS_COLLECTIONS_MAP_HAS);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_GET", map::__RTS_FN_NS_COLLECTIONS_MAP_GET);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_SET", map::__RTS_FN_NS_COLLECTIONS_MAP_SET);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_DELETE", map::__RTS_FN_NS_COLLECTIONS_MAP_DELETE);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_CLEAR", map::__RTS_FN_NS_COLLECTIONS_MAP_CLEAR);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_NEW", vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_FREE", vec::__RTS_FN_NS_COLLECTIONS_VEC_FREE);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_LEN", vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_POP", vec::__RTS_FN_NS_COLLECTIONS_VEC_POP);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_GET", vec::__RTS_FN_NS_COLLECTIONS_VEC_GET);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_SET", vec::__RTS_FN_NS_COLLECTIONS_VEC_SET);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", vec::__RTS_FN_NS_COLLECTIONS_VEC_CLEAR);
+    }
+
     // ── namespaces::os ────────────────────────────────────────────────
     {
         use crate::namespaces::os::*;
