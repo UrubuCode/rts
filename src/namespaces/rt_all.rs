@@ -26,3 +26,5 @@ pub mod os;
 pub mod collections;
 #[path = "hash/rt.rs"]
 pub mod hash;
+#[path = "fmt/rt.rs"]
+pub mod fmt;

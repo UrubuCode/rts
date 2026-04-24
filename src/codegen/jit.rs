@@ -171,6 +171,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::fmt ───────────────────────────────────────────────
+    {
+        use crate::namespaces::fmt::*;
+        add_fn!("__RTS_FN_NS_FMT_PARSE_I64", parse::__RTS_FN_NS_FMT_PARSE_I64);
+        add_fn!("__RTS_FN_NS_FMT_PARSE_F64", parse::__RTS_FN_NS_FMT_PARSE_F64);
+        add_fn!("__RTS_FN_NS_FMT_PARSE_BOOL", parse::__RTS_FN_NS_FMT_PARSE_BOOL);
+        add_fn!("__RTS_FN_NS_FMT_FMT_I64", format::__RTS_FN_NS_FMT_FMT_I64);
+        add_fn!("__RTS_FN_NS_FMT_FMT_F64", format::__RTS_FN_NS_FMT_FMT_F64);
+        add_fn!("__RTS_FN_NS_FMT_FMT_BOOL", format::__RTS_FN_NS_FMT_FMT_BOOL);
+        add_fn!("__RTS_FN_NS_FMT_FMT_HEX", format::__RTS_FN_NS_FMT_FMT_HEX);
+        add_fn!("__RTS_FN_NS_FMT_FMT_BIN", format::__RTS_FN_NS_FMT_FMT_BIN);
+        add_fn!("__RTS_FN_NS_FMT_FMT_OCT", format::__RTS_FN_NS_FMT_FMT_OCT);
+        add_fn!("__RTS_FN_NS_FMT_FMT_F64_PREC", format::__RTS_FN_NS_FMT_FMT_F64_PREC);
+    }
+
     // ── namespaces::hash ──────────────────────────────────────────────
     {
         use crate::namespaces::hash::ops as h;
