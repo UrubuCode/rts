@@ -171,6 +171,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::path ──────────────────────────────────────────────
+    use crate::namespaces::path::*;
+    add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);
+    add_fn!("__RTS_FN_NS_PATH_PARENT", components::__RTS_FN_NS_PATH_PARENT);
+    add_fn!("__RTS_FN_NS_PATH_FILE_NAME", components::__RTS_FN_NS_PATH_FILE_NAME);
+    add_fn!("__RTS_FN_NS_PATH_STEM", components::__RTS_FN_NS_PATH_STEM);
+    add_fn!("__RTS_FN_NS_PATH_EXT", components::__RTS_FN_NS_PATH_EXT);
+    add_fn!("__RTS_FN_NS_PATH_IS_ABSOLUTE", join::__RTS_FN_NS_PATH_IS_ABSOLUTE);
+    add_fn!("__RTS_FN_NS_PATH_NORMALIZE", join::__RTS_FN_NS_PATH_NORMALIZE);
+    add_fn!("__RTS_FN_NS_PATH_WITH_EXT", join::__RTS_FN_NS_PATH_WITH_EXT);
+
     // ── namespaces::env ───────────────────────────────────────────────
     use crate::namespaces::env::*;
     add_fn!("__RTS_FN_NS_ENV_GET_VAR", vars::__RTS_FN_NS_ENV_GET_VAR);

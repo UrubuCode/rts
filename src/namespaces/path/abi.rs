@@ -1,0 +1,92 @@
+//! `path` namespace — ABI registration.
+
+use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+
+pub const MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "join",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_JOIN",
+        args: &[AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Joins a base path with a relative fragment.",
+        ts_signature: "join(base: string, part: string): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "parent",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_PARENT",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Parent directory; 0 when path has no parent (e.g. root or bare filename).",
+        ts_signature: "parent(path: string): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "file_name",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_FILE_NAME",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Final component of the path (file name with extension).",
+        ts_signature: "file_name(path: string): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "stem",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_STEM",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "File name without extension.",
+        ts_signature: "stem(path: string): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "ext",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_EXT",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "File extension without leading dot; 0 when absent.",
+        ts_signature: "ext(path: string): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "is_absolute",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_IS_ABSOLUTE",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Bool,
+        doc: "True when path is absolute for the current target.",
+        ts_signature: "is_absolute(path: string): boolean",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "normalize",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_NORMALIZE",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Removes `.` and collapses `..` without touching the filesystem.",
+        ts_signature: "normalize(path: string): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "with_ext",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PATH_WITH_EXT",
+        args: &[AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Returns the path with the extension replaced (or added).",
+        ts_signature: "with_ext(path: string, ext: string): string",
+        intrinsic: None,
+    },
+];
+
+pub const SPEC: NamespaceSpec = NamespaceSpec {
+    name: "path",
+    doc: "Pure path manipulation — no filesystem calls.",
+    members: MEMBERS,
+};
