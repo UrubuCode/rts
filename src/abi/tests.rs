@@ -8,10 +8,10 @@
 
 use std::collections::HashSet;
 
+use crate::abi::SPECS;
 use crate::abi::member::{MemberKind, NamespaceSpec};
 use crate::abi::symbols::validate_symbol;
 use crate::abi::types::AbiType;
-use crate::abi::SPECS;
 
 #[test]
 fn every_symbol_is_canonical() {

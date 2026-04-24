@@ -48,7 +48,10 @@ impl HandleTable {
             return encode(slot.generation, idx);
         }
         let idx = self.slots.len() as u32;
-        self.slots.push(Slot { generation: 1, entry });
+        self.slots.push(Slot {
+            generation: 1,
+            entry,
+        });
         encode(1, idx)
     }
 

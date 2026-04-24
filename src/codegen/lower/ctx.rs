@@ -1,19 +1,15 @@
 //! Per-function compilation context.
 //!
-//! `FnCtx` wraps a Cranelift `FunctionBuilder` and carries all the
-//! bookkeeping needed to compile one user-defined function: variable slots,
-//! the current break target (for loops), and the extern-function cache
-//! shared with the module.
+//! `FnCtx` wraps a Cranelift `FunctionBuilder` and carries the bookkeeping
+//! needed to compile one function: local/global variables, extern cache,
+//! string literal data, and loop control targets.
 
 use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
-use cranelift_codegen::ir::{
-    Block, FuncRef, InstBuilder, Value,
-    types as cl,
-};
+use cranelift_codegen::ir::{Block, FuncRef, InstBuilder, MemFlags, Value, types as cl};
 use cranelift_frontend::{FunctionBuilder, Variable};
-use cranelift_module::Module;
+use cranelift_module::{DataId, Module};
 use cranelift_object::ObjectModule;
 
 use crate::abi::types::AbiType;
@@ -25,7 +21,7 @@ pub enum ValTy {
     I64,
     F64,
     Bool,
-    /// GC handle — stored as I64 but semantically a string/object handle.
+    /// GC handle. Backed by I64.
     Handle,
 }
 
@@ -72,11 +68,25 @@ impl TypedVal {
     }
 }
 
-/// Slot for a local variable: a Cranelift `Variable` and its static type.
+/// Slot for a local variable.
 #[derive(Debug, Clone)]
 pub struct LocalVar {
     pub var: Variable,
     pub ty: ValTy,
+}
+
+/// Module-scope global lowered to a data symbol.
+#[derive(Debug, Clone)]
+pub struct GlobalVar {
+    pub data_id: DataId,
+    pub ty: ValTy,
+}
+
+/// Callable user function signature visible while lowering calls.
+#[derive(Debug, Clone)]
+pub struct UserFnAbi {
+    pub params: Vec<ValTy>,
+    pub ret: Option<ValTy>,
 }
 
 /// Per-function compilation context.
@@ -86,9 +96,16 @@ pub struct FnCtx<'m, 'fb> {
     pub extern_cache: &'fb mut HashMap<&'static str, cranelift_module::FuncId>,
     pub data_counter: &'fb mut u32,
 
-    /// Local variables in scope (name → slot).
+    /// Local variables in scope.
     pub locals: HashMap<String, LocalVar>,
-    /// Cranelift variable counter — monotonically increasing across the fn.
+    /// Module-scope globals visible from functions.
+    pub globals: &'fb HashMap<String, GlobalVar>,
+    /// User-defined function signatures by source name.
+    pub user_fns: &'fb HashMap<String, UserFnAbi>,
+    /// True when lowering top-level statements in `main`.
+    pub module_scope: bool,
+
+    /// Cranelift variable counter.
     var_counter: u32,
 
     /// Stack of (break_block, continue_block) for nested loops.
@@ -101,6 +118,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         module: &'m mut ObjectModule,
         extern_cache: &'fb mut HashMap<&'static str, cranelift_module::FuncId>,
         data_counter: &'fb mut u32,
+        globals: &'fb HashMap<String, GlobalVar>,
+        user_fns: &'fb HashMap<String, UserFnAbi>,
+        module_scope: bool,
     ) -> Self {
         Self {
             builder,
@@ -108,6 +128,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             extern_cache,
             data_counter,
             locals: HashMap::new(),
+            globals,
+            user_fns,
+            module_scope,
             var_counter: 0,
             loop_stack: Vec::new(),
         }
@@ -119,32 +142,93 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         self.builder.declare_var(ty.cl_type())
     }
 
-    /// Declares a named local and initialises it to `init`.
+    /// Declares a named local and initializes it.
     pub fn declare_local(&mut self, name: &str, ty: ValTy, init: Value) {
         let var = self.new_var(ty);
         self.builder.def_var(var, init);
         self.locals.insert(name.to_string(), LocalVar { var, ty });
     }
 
-    /// Reads a named local. Returns `None` if not in scope.
+    /// Reads a named local or module global.
     pub fn read_local(&mut self, name: &str) -> Option<TypedVal> {
-        let local = self.locals.get(name)?.clone();
-        let val = self.builder.use_var(local.var);
-        Some(TypedVal::new(val, local.ty))
+        if let Some(local) = self.locals.get(name).cloned() {
+            let val = self.builder.use_var(local.var);
+            return Some(TypedVal::new(val, local.ty));
+        }
+
+        let global = self.globals.get(name).cloned()?;
+        let gv = self
+            .module
+            .declare_data_in_func(global.data_id, self.builder.func);
+        let ptr = self
+            .builder
+            .ins()
+            .global_value(self.module.isa().pointer_type(), gv);
+        let val = self
+            .builder
+            .ins()
+            .load(global.ty.cl_type(), MemFlags::new(), ptr, 0);
+        Some(TypedVal::new(val, global.ty))
     }
 
-    /// Writes `val` to a named local. Errors if not declared.
+    /// Writes to a named local or module global.
     pub fn write_local(&mut self, name: &str, val: Value) -> Result<()> {
-        let local = self
-            .locals
-            .get(name)
-            .ok_or_else(|| anyhow!("assignment to undeclared variable `{name}`"))?
-            .clone();
-        self.builder.def_var(local.var, val);
-        Ok(())
+        if let Some(local) = self.locals.get(name).cloned() {
+            self.builder.def_var(local.var, val);
+            return Ok(());
+        }
+
+        if let Some(global) = self.globals.get(name).cloned() {
+            let gv = self
+                .module
+                .declare_data_in_func(global.data_id, self.builder.func);
+            let ptr = self
+                .builder
+                .ins()
+                .global_value(self.module.isa().pointer_type(), gv);
+            let casted = self.coerce_value_to_ty(val, global.ty);
+            self.builder.ins().store(MemFlags::new(), casted, ptr, 0);
+            return Ok(());
+        }
+
+        Err(anyhow!("assignment to undeclared variable `{name}`"))
     }
 
-    /// Ensures an extern symbol is declared in the module and returns its FuncRef.
+    /// Returns the declared type of a local/global variable.
+    pub fn var_ty(&self, name: &str) -> Option<ValTy> {
+        self.locals
+            .get(name)
+            .map(|local| local.ty)
+            .or_else(|| self.globals.get(name).map(|global| global.ty))
+    }
+
+    /// Returns true if `name` is a module global.
+    pub fn has_global(&self, name: &str) -> bool {
+        self.globals.contains_key(name)
+    }
+
+    fn coerce_value_to_ty(&mut self, value: Value, ty: ValTy) -> Value {
+        let expected = ty.cl_type();
+        let actual = self.builder.func.dfg.value_type(value);
+        if actual == expected {
+            return value;
+        }
+
+        match (actual, expected) {
+            (cl::I32, cl::I64) => self.builder.ins().sextend(cl::I64, value),
+            (cl::I64, cl::I32) => self.builder.ins().ireduce(cl::I32, value),
+            (cl::I32, cl::F64) => self.builder.ins().fcvt_from_sint(cl::F64, value),
+            (cl::I64, cl::F64) => self.builder.ins().fcvt_from_sint(cl::F64, value),
+            (cl::F64, cl::I64) => self.builder.ins().fcvt_to_sint_sat(cl::I64, value),
+            (cl::F64, cl::I32) => {
+                let as_i64 = self.builder.ins().fcvt_to_sint_sat(cl::I64, value);
+                self.builder.ins().ireduce(cl::I32, as_i64)
+            }
+            _ => value,
+        }
+    }
+
+    /// Ensures an extern symbol is declared and returns a FuncRef.
     pub fn get_extern(
         &mut self,
         symbol: &'static str,
@@ -168,7 +252,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 .map_err(|e| anyhow!("failed to declare extern {symbol}: {e}"))?;
             self.extern_cache.insert(symbol, id);
         }
-        let id = *self.extern_cache.get(symbol).unwrap();
+        let id = *self.extern_cache.get(symbol).expect("extern declared");
         Ok(self.module.declare_func_in_func(id, self.builder.func))
     }
 
@@ -202,7 +286,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         Ok((ptr, len))
     }
 
-    /// Promotes a static string to a GC handle.
+    /// Promotes a static string literal to a GC handle.
     pub fn emit_str_handle(&mut self, bytes: &[u8]) -> Result<TypedVal> {
         let (ptr, len) = self.emit_str_literal(bytes)?;
         let fref = self.get_extern(
@@ -221,21 +305,15 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             ValTy::Handle => Ok(tv),
             ValTy::I64 | ValTy::I32 | ValTy::Bool => {
                 let as_i64 = self.coerce_to_i64(tv);
-                let fref = self.get_extern(
-                    "__RTS_FN_NS_GC_STRING_FROM_I64",
-                    &[cl::I64],
-                    Some(cl::I64),
-                )?;
+                let fref =
+                    self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64", &[cl::I64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[as_i64.val]);
                 let val = self.builder.inst_results(inst)[0];
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
             ValTy::F64 => {
-                let fref = self.get_extern(
-                    "__RTS_FN_NS_GC_STRING_FROM_F64",
-                    &[cl::F64],
-                    Some(cl::I64),
-                )?;
+                let fref =
+                    self.get_extern("__RTS_FN_NS_GC_STRING_FROM_F64", &[cl::F64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[tv.val]);
                 let val = self.builder.inst_results(inst)[0];
                 Ok(TypedVal::new(val, ValTy::Handle))
@@ -243,14 +321,11 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         }
     }
 
-    /// Coerces a value to I64 (widening I32, bool passthrough, f64 truncation).
+    /// Coerces a value to I64.
     pub fn coerce_to_i64(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
             ValTy::I64 | ValTy::Bool | ValTy::Handle => tv,
-            ValTy::I32 => TypedVal::new(
-                self.builder.ins().sextend(cl::I64, tv.val),
-                ValTy::I64,
-            ),
+            ValTy::I32 => TypedVal::new(self.builder.ins().sextend(cl::I64, tv.val), ValTy::I64),
             ValTy::F64 => TypedVal::new(
                 self.builder.ins().fcvt_to_sint_sat(cl::I64, tv.val),
                 ValTy::I64,
@@ -258,14 +333,13 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         }
     }
 
-    /// Coerces a value to I32 (narrowing I64, bool, truncating f64).
+    /// Coerces a value to I32.
     pub fn coerce_to_i32(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
             ValTy::I32 => tv,
-            ValTy::I64 | ValTy::Bool | ValTy::Handle => TypedVal::new(
-                self.builder.ins().ireduce(cl::I32, tv.val),
-                ValTy::I32,
-            ),
+            ValTy::I64 | ValTy::Bool | ValTy::Handle => {
+                TypedVal::new(self.builder.ins().ireduce(cl::I32, tv.val), ValTy::I32)
+            }
             ValTy::F64 => {
                 let as_i64 = self.builder.ins().fcvt_to_sint_sat(cl::I64, tv.val);
                 TypedVal::new(self.builder.ins().ireduce(cl::I32, as_i64), ValTy::I32)
@@ -273,12 +347,12 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         }
     }
 
-    /// Returns the current loop's break target, if any.
+    /// Returns the current loop break target, if any.
     pub fn break_block(&self) -> Option<Block> {
         self.loop_stack.last().map(|(brk, _)| *brk)
     }
 
-    /// Returns the current loop's continue target, if any.
+    /// Returns the current loop continue target, if any.
     pub fn continue_block(&self) -> Option<Block> {
         self.loop_stack.last().map(|(_, cont)| *cont)
     }

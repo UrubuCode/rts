@@ -6,8 +6,8 @@
 //! `ir::Type`) so callers can attach their own calling convention and module
 //! without this module depending on a specific Cranelift backend.
 
-use cranelift_codegen::ir::types as cl_types;
 use cranelift_codegen::ir::Type as ClType;
+use cranelift_codegen::ir::types as cl_types;
 
 use crate::abi::member::{MemberKind, NamespaceMember};
 use crate::abi::types::AbiType;

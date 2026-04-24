@@ -83,7 +83,12 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
         Decl::TsInterface(interface_decl) => {
             out.push(Item::Interface(lower_interface_decl(cm, interface_decl)));
         }
-        _ => push_raw_statement(cm, decl.span(), out),
+        _ => {
+            // Preserve non-function/class declarations (e.g. let/const) as a
+            // real SWC statement so codegen can lower module-scope globals.
+            let stmt = Stmt::Decl(decl.clone());
+            push_raw_statement_with_stmt(cm, decl.span(), Some(&stmt), out);
+        }
     }
 }
 

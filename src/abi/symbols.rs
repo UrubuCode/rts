@@ -21,12 +21,7 @@
 #[macro_export]
 macro_rules! rts_sym {
     (FN NS $ns:ident $name:ident) => {
-        concat!(
-            "__RTS_FN_NS_",
-            stringify!($ns),
-            "_",
-            stringify!($name)
-        )
+        concat!("__RTS_FN_NS_", stringify!($ns), "_", stringify!($name))
     };
     (FN GC $name:ident) => {
         concat!("__RTS_FN_GC_", stringify!($name))
@@ -35,12 +30,7 @@ macro_rules! rts_sym {
         concat!("__RTS_FN_ABI_", stringify!($name))
     };
     (CONST NS $ns:ident $name:ident) => {
-        concat!(
-            "__RTS_CONST_NS_",
-            stringify!($ns),
-            "_",
-            stringify!($name)
-        )
+        concat!("__RTS_CONST_NS_", stringify!($ns), "_", stringify!($name))
     };
 }
 

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
@@ -58,8 +58,8 @@ fn build_module() -> Result<ObjectModule> {
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
     let flags = settings::Flags::new(flag_builder);
 
-    let isa_builder = cranelift_native::builder()
-        .map_err(|e| anyhow!("failed to detect native target: {e}"))?;
+    let isa_builder =
+        cranelift_native::builder().map_err(|e| anyhow!("failed to detect native target: {e}"))?;
     let isa = isa_builder
         .finish(flags)
         .map_err(|e| anyhow!("failed to finalise ISA: {e}"))?;

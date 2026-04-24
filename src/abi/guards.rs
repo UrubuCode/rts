@@ -47,8 +47,7 @@ pub fn guard_for(expected: AbiType, caller: CallerShape) -> GuardAction {
         (exp, CallerShape::Known(got)) if exp == got => GuardAction::Passthrough,
         (exp, CallerShape::Known(_)) => GuardAction::Coerce(exp),
         (exp, CallerShape::Unknown) => GuardAction::Coerce(exp),
-        (AbiType::Handle, CallerShape::Nullish)
-        | (AbiType::StrPtr, CallerShape::Nullish) => {
+        (AbiType::Handle, CallerShape::Nullish) | (AbiType::StrPtr, CallerShape::Nullish) => {
             GuardAction::Trap("nullish value cannot be converted to handle")
         }
         (_, CallerShape::Nullish) => GuardAction::Coerce(expected),

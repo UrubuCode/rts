@@ -99,8 +99,7 @@ fn emit_rts_dts(path: &Path) -> Result<()> {
     }
 
     out.push_str("}\n");
-    std::fs::write(path, out)
-        .with_context(|| format!("failed to write {}", path.display()))?;
+    std::fs::write(path, out).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }
 

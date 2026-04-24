@@ -242,7 +242,9 @@ fn msvc_tool_lib_paths() -> Vec<PathBuf> {
         }
     }
     roots.push(PathBuf::from(r"C:\Program Files\Microsoft Visual Studio"));
-    roots.push(PathBuf::from(r"C:\Program Files (x86)\Microsoft Visual Studio"));
+    roots.push(PathBuf::from(
+        r"C:\Program Files (x86)\Microsoft Visual Studio",
+    ));
 
     let arch = if cfg!(target_arch = "x86_64") {
         "x64"
