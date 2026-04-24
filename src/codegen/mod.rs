@@ -5,8 +5,10 @@
 //! native object file via the `lower` module.
 
 pub mod emit;
+pub mod jit;
 pub mod lower;
 pub mod object;
 
 pub use emit::compile_program_to_object;
+pub use jit::compile_program_to_jit;
 pub use object::ObjectArtifact;

@@ -15,6 +15,20 @@ pub fn command(input: Option<String>, options: CompileOptions) -> Result<()> {
         return Err(anyhow!("input file not found: {}", input_path.display()));
     }
 
+    // Opt-in JIT path via `RTS_JIT=1`. Skips disk I/O and the system
+    // linker, running the program straight out of executable memory.
+    // Default remains AOT (object + linker) until JIT validation is wider.
+    if std::env::var("RTS_JIT").ok().as_deref() == Some("1") {
+        let (exit_code, warnings) = pipeline::run_jit(&input_path, options)
+            .with_context(|| format!("JIT run of {} failed", input_path.display()))?;
+        if options.debug {
+            for warning in &warnings {
+                eprintln!("warning: {warning}");
+            }
+        }
+        std::process::exit(exit_code);
+    }
+
     let out_path = temp_binary_path(&input_path);
     let outcome = pipeline::build_executable(&input_path, &out_path, options)
         .with_context(|| format!("compile of {} failed", input_path.display()))?;
