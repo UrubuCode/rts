@@ -15,6 +15,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Void,
         doc: "Writes a UTF-8 message followed by newline to stdout.",
         ts_signature: "print(message: string): void",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "eprint",
@@ -24,6 +25,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Void,
         doc: "Writes a UTF-8 message followed by newline to stderr.",
         ts_signature: "eprint(message: string): void",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "stdout_write",
@@ -33,6 +35,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Writes raw bytes to stdout, returns bytes written or -1 on error.",
         ts_signature: "stdout_write(data: string): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "stdout_flush",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Flushes stdout buffer. Returns 0 on success, -1 on error.",
         ts_signature: "stdout_flush(): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "stderr_write",
@@ -51,6 +55,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Writes raw bytes to stderr, returns bytes written or -1 on error.",
         ts_signature: "stderr_write(data: string): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "stderr_flush",
@@ -60,6 +65,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Flushes stderr buffer. Returns 0 on success, -1 on error.",
         ts_signature: "stderr_flush(): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "stdin_read",
@@ -69,6 +75,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Reads up to `len` bytes from stdin into buffer. Returns byte count or -1.",
         ts_signature: "stdin_read(bufPtr: number, bufLen: number): number",
+        intrinsic: None,
     },
     NamespaceMember {
         name: "stdin_read_line",
@@ -78,6 +85,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::I64,
         doc: "Reads a single line from stdin (no terminator) into buffer.",
         ts_signature: "stdin_read_line(bufPtr: number, bufLen: number): number",
+        intrinsic: None,
     },
 ];
 

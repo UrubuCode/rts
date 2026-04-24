@@ -17,7 +17,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub use member::{MemberKind, NamespaceMember, NamespaceSpec};
+pub use member::{Intrinsic, MemberKind, NamespaceMember, NamespaceSpec};
 pub use types::AbiType;
 
 /// Global registry of namespaces exposed through the new ABI.
