@@ -21,6 +21,10 @@ const SENTINEL_INVALID: u64 = 0;
 pub enum Entry {
     /// UTF-8 string owned on the heap.
     String(Vec<u8>),
+    /// Zeroed byte buffer used to back class instances and other composite
+    /// values. Codegen addresses fields via raw `load`/`store` on the
+    /// pointer returned by `__RTS_FN_NS_GC_OBJECT_PTR`.
+    Object(Vec<u8>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

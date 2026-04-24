@@ -73,6 +73,9 @@ impl TypedVal {
 pub struct LocalVar {
     pub var: Variable,
     pub ty: ValTy,
+    /// When the local holds a handle to a class instance, the class name
+    /// — used to resolve field offsets and method calls on `obj.field`.
+    pub class_name: Option<String>,
 }
 
 /// Module-scope global lowered to a data symbol.
@@ -89,6 +92,40 @@ pub struct UserFnAbi {
     pub ret: Option<ValTy>,
 }
 
+/// One field of a class instance: its ValTy and byte offset in the buffer.
+#[derive(Debug, Clone)]
+pub struct ClassField {
+    pub name: String,
+    pub ty: ValTy,
+    pub offset: i32,
+}
+
+/// Signature of a class method or constructor, stored by class.
+/// The first parameter is implicitly `this: Handle`.
+#[derive(Debug, Clone)]
+pub struct ClassMethod {
+    pub symbol: &'static str,
+    /// Parameters NOT counting the implicit `this`.
+    pub params: Vec<ValTy>,
+    pub ret: Option<ValTy>,
+}
+
+/// Layout + symbol table for a user-declared class.
+#[derive(Debug, Clone, Default)]
+pub struct ClassInfo {
+    pub name: String,
+    pub fields: Vec<ClassField>,
+    pub size_bytes: i64,
+    pub ctor: Option<ClassMethod>,
+    pub methods: HashMap<String, ClassMethod>,
+}
+
+impl ClassInfo {
+    pub fn field(&self, name: &str) -> Option<&ClassField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+}
+
 /// Per-function compilation context.
 pub struct FnCtx<'m, 'fb> {
     pub builder: &'fb mut FunctionBuilder<'m>,
@@ -102,6 +139,14 @@ pub struct FnCtx<'m, 'fb> {
     pub globals: &'fb HashMap<String, GlobalVar>,
     /// User-defined function signatures by source name.
     pub user_fns: &'fb HashMap<String, UserFnAbi>,
+    /// Class layouts + method tables visible for `new`/field access/method call.
+    pub classes: &'fb HashMap<String, ClassInfo>,
+    /// When lowering a ctor/method body, the enclosing class — used to
+    /// resolve `this`. The implicit `this` is always parameter #0.
+    pub current_class: Option<String>,
+    /// Declared return type of the function being compiled, so `return`
+    /// expressions coerce to the right Cranelift type. `None` means void.
+    pub current_return_ty: Option<ValTy>,
     /// True when lowering top-level statements in `main`.
     pub module_scope: bool,
 
@@ -120,6 +165,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         data_counter: &'fb mut u32,
         globals: &'fb HashMap<String, GlobalVar>,
         user_fns: &'fb HashMap<String, UserFnAbi>,
+        classes: &'fb HashMap<String, ClassInfo>,
         module_scope: bool,
     ) -> Self {
         Self {
@@ -130,6 +176,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             locals: HashMap::new(),
             globals,
             user_fns,
+            classes,
+            current_class: None,
+            current_return_ty: None,
             module_scope,
             var_counter: 0,
             loop_stack: Vec::new(),
@@ -144,9 +193,33 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
 
     /// Declares a named local and initializes it.
     pub fn declare_local(&mut self, name: &str, ty: ValTy, init: Value) {
+        self.declare_local_of_class(name, ty, init, None);
+    }
+
+    /// Declares a named local that holds a handle to a class instance.
+    /// The class name is stored so that `name.field` can be resolved later.
+    pub fn declare_local_of_class(
+        &mut self,
+        name: &str,
+        ty: ValTy,
+        init: Value,
+        class_name: Option<String>,
+    ) {
         let var = self.new_var(ty);
         self.builder.def_var(var, init);
-        self.locals.insert(name.to_string(), LocalVar { var, ty });
+        self.locals.insert(
+            name.to_string(),
+            LocalVar {
+                var,
+                ty,
+                class_name,
+            },
+        );
+    }
+
+    /// Returns the class name associated with a local holding a class handle.
+    pub fn local_class_name(&self, name: &str) -> Option<&String> {
+        self.locals.get(name).and_then(|l| l.class_name.as_ref())
     }
 
     /// Reads a named local or module global.

@@ -13,12 +13,20 @@ use cranelift_module::{DataDescription, Linkage, Module};
 use cranelift_object::ObjectModule;
 use swc_ecma_ast::{Decl, Expr, Lit, Pat, Stmt, TsType, TsTypeRef};
 
-use crate::parser::ast::{FunctionDecl, Item, Program, Statement};
+use crate::parser::ast::{
+    ClassDecl, ClassMember, ConstructorDecl, FunctionDecl, Item, MethodDecl, Parameter, Program,
+    PropertyDecl, Statement,
+};
 
-use super::ctx::{FnCtx, GlobalVar, UserFnAbi, ValTy};
+use super::ctx::{ClassField, ClassInfo, ClassMethod, FnCtx, GlobalVar, UserFnAbi, ValTy};
 use super::stmt::lower_stmt;
 
 const RUNTIME_MAIN_SYMBOL: &str = "__RTS_MAIN";
+
+/// Width of every object-buffer slot. Fields are laid out at `idx * 8`,
+/// regardless of the underlying primitive type. Keeps alignment simple and
+/// lets the handle point at a single contiguous `Vec<u8>`.
+const SLOT_SIZE: i32 = 8;
 
 /// Info about a user-defined function needed by callers.
 #[derive(Debug, Clone)]
@@ -39,7 +47,7 @@ pub fn compile_program(
 
     let globals = collect_module_globals(program, module)?;
 
-    // Collect function declarations.
+    // Collect function and class declarations.
     let fn_decls: Vec<&FunctionDecl> = program
         .items
         .iter()
@@ -52,13 +60,37 @@ pub fn compile_program(
         })
         .collect();
 
-    // Phase 1: declare all user functions so forward calls resolve.
+    let class_decls: Vec<&ClassDecl> = program
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let Item::Class(c) = item {
+                Some(c)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Phase 1a: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     for fn_decl in &fn_decls {
         let info = declare_user_fn(module, fn_decl)?;
         let mangled: &'static str = Box::leak(format!("__user_{}", fn_decl.name).into_boxed_str());
         extern_cache.insert(mangled, info.id);
         user_fns.insert(fn_decl.name.clone(), info);
+    }
+
+    // Phase 1b: compute class layouts and declare ctor/method symbols.
+    let mut classes: HashMap<String, ClassInfo> = HashMap::new();
+    let mut class_user_fns: HashMap<&'static str, UserFn> = HashMap::new();
+    for class_decl in &class_decls {
+        let (info, declared) = declare_class(module, class_decl)?;
+        for (sym, user_fn) in declared {
+            extern_cache.insert(sym, user_fn.id);
+            class_user_fns.insert(sym, user_fn);
+        }
+        classes.insert(class_decl.name.clone(), info);
     }
 
     let user_fn_abis: HashMap<String, UserFnAbi> = user_fns
@@ -74,7 +106,7 @@ pub fn compile_program(
         })
         .collect();
 
-    // Phase 2: compile user function bodies.
+    // Phase 2a: compile user function bodies.
     for fn_decl in &fn_decls {
         let info = user_fns
             .get(&fn_decl.name)
@@ -85,10 +117,26 @@ pub fn compile_program(
             data_counter,
             &globals,
             &user_fn_abis,
+            &classes,
             fn_decl,
             info,
         )
         .with_context(|| format!("in function `{}`", fn_decl.name))?;
+    }
+
+    // Phase 2b: compile ctor and method bodies for each class.
+    for class_decl in &class_decls {
+        compile_class_bodies(
+            module,
+            extern_cache,
+            data_counter,
+            &globals,
+            &user_fn_abis,
+            &classes,
+            &class_user_fns,
+            class_decl,
+        )
+        .with_context(|| format!("in class `{}`", class_decl.name))?;
     }
 
     // Phase 3: collect top-level statements.
@@ -122,6 +170,7 @@ pub fn compile_program(
         data_counter,
         &globals,
         &user_fn_abis,
+        &classes,
         &top_stmts,
         &mut warnings,
     )
@@ -304,6 +353,7 @@ fn compile_user_fn(
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
+    classes: &HashMap<String, ClassInfo>,
     fn_decl: &FunctionDecl,
     info: &UserFn,
 ) -> Result<()> {
@@ -334,8 +384,10 @@ fn compile_user_fn(
             data_counter,
             globals,
             user_fns,
+            classes,
             false,
         );
+        fn_ctx.current_return_ty = info.ret;
 
         // Bind parameters as locals.
         for (i, param) in fn_decl.parameters.iter().enumerate() {
@@ -345,7 +397,11 @@ fn compile_user_fn(
                 .map(ValTy::from_annotation)
                 .unwrap_or(ValTy::I64);
             let block_param = fn_ctx.builder.block_params(entry)[i];
-            fn_ctx.declare_local(&param.name, ty, block_param);
+            let class_name = param
+                .type_annotation
+                .as_deref()
+                .and_then(|t| classes.get(t).map(|c| c.name.clone()));
+            fn_ctx.declare_local_of_class(&param.name, ty, block_param, class_name);
         }
 
         // Compile body statements.
@@ -362,8 +418,12 @@ fn compile_user_fn(
 
         // If we did not hit a return, emit one.
         if !terminated && !fn_ctx.builder.is_unreachable() {
-            if info.ret.is_some() {
-                let zero = fn_ctx.builder.ins().iconst(cl::I64, 0);
+            if let Some(ret_ty) = info.ret {
+                let zero = match ret_ty {
+                    ValTy::F64 => fn_ctx.builder.ins().f64const(0.0),
+                    ValTy::I32 => fn_ctx.builder.ins().iconst(cl::I32, 0),
+                    _ => fn_ctx.builder.ins().iconst(cl::I64, 0),
+                };
                 fn_ctx.builder.ins().return_(&[zero]);
             } else {
                 fn_ctx.builder.ins().return_(&[]);
@@ -386,6 +446,7 @@ fn compile_main(
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
+    classes: &HashMap<String, ClassInfo>,
     stmts: &[&Stmt],
     warnings: &mut Vec<String>,
 ) -> Result<()> {
@@ -413,6 +474,7 @@ fn compile_main(
             data_counter,
             globals,
             user_fns,
+            classes,
             true,
         );
 
@@ -437,6 +499,341 @@ fn compile_main(
 
     compile_main_entry_shim(module, runtime_main_id, &sig)
         .context("failed to define C entrypoint shim `main`")?;
+
+    Ok(())
+}
+
+/// Computes layout and declares Cranelift symbols for a class' constructor
+/// and methods. Property types determine field ValTy (all fields share an
+/// 8-byte slot for alignment simplicity). Every ctor/method implicitly takes
+/// `this: Handle` as its first parameter.
+fn declare_class(
+    module: &mut ObjectModule,
+    class_decl: &ClassDecl,
+) -> Result<(ClassInfo, Vec<(&'static str, UserFn)>)> {
+    let mut info = ClassInfo {
+        name: class_decl.name.clone(),
+        ..ClassInfo::default()
+    };
+    let mut declared: Vec<(&'static str, UserFn)> = Vec::new();
+
+    // Properties declared directly in the class body.
+    let mut field_idx = 0i32;
+    let record_field = |info: &mut ClassInfo, field_idx: &mut i32, prop: &PropertyDecl| {
+        if prop.modifiers.is_static {
+            return;
+        }
+        let ty = prop
+            .type_annotation
+            .as_deref()
+            .map(ValTy::from_annotation)
+            .unwrap_or(ValTy::I64);
+        info.fields.push(ClassField {
+            name: prop.name.clone(),
+            ty,
+            offset: *field_idx * SLOT_SIZE,
+        });
+        *field_idx += 1;
+    };
+    for member in &class_decl.members {
+        if let ClassMember::Property(prop) = member {
+            record_field(&mut info, &mut field_idx, prop);
+        }
+    }
+    // Ctor parameters marked with a visibility modifier become fields too.
+    for member in &class_decl.members {
+        if let ClassMember::Constructor(ctor) = member {
+            for param in &ctor.parameters {
+                if param.modifiers.visibility.is_none() {
+                    continue;
+                }
+                let ty = param
+                    .type_annotation
+                    .as_deref()
+                    .map(ValTy::from_annotation)
+                    .unwrap_or(ValTy::I64);
+                if info.fields.iter().any(|f| f.name == param.name) {
+                    continue;
+                }
+                info.fields.push(ClassField {
+                    name: param.name.clone(),
+                    ty,
+                    offset: field_idx * SLOT_SIZE,
+                });
+                field_idx += 1;
+            }
+        }
+    }
+    info.size_bytes = (field_idx as i64) * (SLOT_SIZE as i64);
+
+    // Declare ctor + method symbols. Each takes `this: Handle` first.
+    for member in &class_decl.members {
+        match member {
+            ClassMember::Constructor(ctor) => {
+                let params = ctor_params(ctor);
+                let (user_fn, symbol) =
+                    declare_class_fn(module, &class_decl.name, "CTOR", &params, None)?;
+                declared.push((symbol, user_fn.clone()));
+                info.ctor = Some(ClassMethod {
+                    symbol,
+                    params: params.into_iter().skip(1).collect(),
+                    ret: None,
+                });
+            }
+            ClassMember::Method(m) => {
+                if m.modifiers.is_static {
+                    continue;
+                }
+                let (params, ret) = method_signature(m);
+                let (user_fn, symbol) =
+                    declare_class_fn(module, &class_decl.name, &m.name, &params, ret)?;
+                declared.push((symbol, user_fn.clone()));
+                info.methods.insert(
+                    m.name.clone(),
+                    ClassMethod {
+                        symbol,
+                        params: params.into_iter().skip(1).collect(),
+                        ret,
+                    },
+                );
+            }
+            ClassMember::Property(_) => {}
+        }
+    }
+
+    Ok((info, declared))
+}
+
+/// Declares a Cranelift function for a class member (ctor or method).
+/// `params` already includes the implicit `this: Handle` at index 0.
+fn declare_class_fn(
+    module: &mut ObjectModule,
+    class_name: &str,
+    member_name: &str,
+    params: &[ValTy],
+    ret: Option<ValTy>,
+) -> Result<(UserFn, &'static str)> {
+    let mut sig = Signature::new(module.isa().default_call_conv());
+    for &ty in params {
+        sig.params.push(AbiParam::new(ty.cl_type()));
+    }
+    if let Some(rt) = ret {
+        sig.returns.push(AbiParam::new(rt.cl_type()));
+    }
+
+    let symbol_owned = format!(
+        "__RTS_USER_{}_{}",
+        sanitize_symbol(class_name),
+        sanitize_symbol(member_name)
+    );
+    let symbol: &'static str = Box::leak(symbol_owned.into_boxed_str());
+
+    let id = module
+        .declare_function(symbol, Linkage::Local, &sig)
+        .with_context(|| format!("failed to declare class member `{symbol}`"))?;
+
+    Ok((
+        UserFn {
+            id,
+            params: params.to_vec(),
+            ret,
+        },
+        symbol,
+    ))
+}
+
+fn ctor_params(ctor: &ConstructorDecl) -> Vec<ValTy> {
+    let mut params = vec![ValTy::Handle]; // implicit this
+    for p in &ctor.parameters {
+        params.push(param_val_ty(p));
+    }
+    params
+}
+
+fn method_signature(m: &MethodDecl) -> (Vec<ValTy>, Option<ValTy>) {
+    let mut params = vec![ValTy::Handle]; // implicit this
+    for p in &m.parameters {
+        params.push(param_val_ty(p));
+    }
+    let ret = m.return_type.as_deref().and_then(|r| {
+        if r == "void" {
+            None
+        } else {
+            Some(ValTy::from_annotation(r))
+        }
+    });
+    (params, ret)
+}
+
+fn param_val_ty(p: &Parameter) -> ValTy {
+    p.type_annotation
+        .as_deref()
+        .map(ValTy::from_annotation)
+        .unwrap_or(ValTy::I64)
+}
+
+/// Compiles the bodies of a class' constructor and methods. `this` is always
+/// the first Cranelift block parameter; the caller exposes it as a regular
+/// local named `this` with the owning class attached.
+fn compile_class_bodies(
+    module: &mut ObjectModule,
+    extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
+    data_counter: &mut u32,
+    globals: &HashMap<String, GlobalVar>,
+    user_fns: &HashMap<String, UserFnAbi>,
+    classes: &HashMap<String, ClassInfo>,
+    class_user_fns: &HashMap<&'static str, UserFn>,
+    class_decl: &ClassDecl,
+) -> Result<()> {
+    for member in &class_decl.members {
+        match member {
+            ClassMember::Constructor(ctor) => {
+                let symbol = class_member_symbol(&class_decl.name, "CTOR");
+                let info = class_user_fns
+                    .get(symbol.as_str())
+                    .ok_or_else(|| anyhow!("missing declared symbol for `{symbol}`"))?;
+                compile_class_member_body(
+                    module,
+                    extern_cache,
+                    data_counter,
+                    globals,
+                    user_fns,
+                    classes,
+                    &class_decl.name,
+                    info,
+                    &ctor.parameters,
+                    &ctor.body,
+                )
+                .with_context(|| format!("in constructor of `{}`", class_decl.name))?;
+            }
+            ClassMember::Method(m) => {
+                if m.modifiers.is_static {
+                    continue;
+                }
+                let symbol = class_member_symbol(&class_decl.name, &m.name);
+                let info = class_user_fns
+                    .get(symbol.as_str())
+                    .ok_or_else(|| anyhow!("missing declared symbol for `{symbol}`"))?;
+                compile_class_member_body(
+                    module,
+                    extern_cache,
+                    data_counter,
+                    globals,
+                    user_fns,
+                    classes,
+                    &class_decl.name,
+                    info,
+                    &m.parameters,
+                    &m.body,
+                )
+                .with_context(|| format!("in method `{}.{}`", class_decl.name, m.name))?;
+            }
+            ClassMember::Property(_) => {}
+        }
+    }
+    Ok(())
+}
+
+fn class_member_symbol(class_name: &str, member: &str) -> String {
+    format!(
+        "__RTS_USER_{}_{}",
+        sanitize_symbol(class_name),
+        sanitize_symbol(member)
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_class_member_body(
+    module: &mut ObjectModule,
+    extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
+    data_counter: &mut u32,
+    globals: &HashMap<String, GlobalVar>,
+    user_fns: &HashMap<String, UserFnAbi>,
+    classes: &HashMap<String, ClassInfo>,
+    class_name: &str,
+    info: &UserFn,
+    parameters: &[Parameter],
+    body: &[Statement],
+) -> Result<()> {
+    let mut ctx = ClContext::new();
+    ctx.func.signature = {
+        let mut sig = Signature::new(module.isa().default_call_conv());
+        for &ty in &info.params {
+            sig.params.push(AbiParam::new(ty.cl_type()));
+        }
+        if let Some(rt) = info.ret {
+            sig.returns.push(AbiParam::new(rt.cl_type()));
+        }
+        sig
+    };
+
+    let mut fbx = FunctionBuilderContext::new();
+    {
+        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fbx);
+        let entry = builder.create_block();
+        builder.append_block_params_for_function_params(entry);
+        builder.switch_to_block(entry);
+        builder.seal_block(entry);
+
+        let mut fn_ctx = FnCtx::new(
+            &mut builder,
+            module,
+            extern_cache,
+            data_counter,
+            globals,
+            user_fns,
+            classes,
+            false,
+        );
+        fn_ctx.current_class = Some(class_name.to_string());
+        fn_ctx.current_return_ty = info.ret;
+
+        // Bind `this` (block param #0) as a typed local.
+        let this_val = fn_ctx.builder.block_params(entry)[0];
+        fn_ctx.declare_local_of_class(
+            "this",
+            ValTy::Handle,
+            this_val,
+            Some(class_name.to_string()),
+        );
+
+        // Bind user parameters starting at index 1.
+        for (i, param) in parameters.iter().enumerate() {
+            let ty = param_val_ty(param);
+            let block_param = fn_ctx.builder.block_params(entry)[i + 1];
+            let class_of = param
+                .type_annotation
+                .as_deref()
+                .and_then(|t| classes.get(t).map(|c| c.name.clone()));
+            fn_ctx.declare_local_of_class(&param.name, ty, block_param, class_of);
+        }
+
+        let mut terminated = false;
+        for stmt_raw in body {
+            if terminated {
+                break;
+            }
+            let Statement::Raw(raw) = stmt_raw;
+            if let Some(swc_stmt) = raw.stmt.as_ref() {
+                terminated = lower_stmt(&mut fn_ctx, swc_stmt)?;
+            }
+        }
+
+        if !terminated && !fn_ctx.builder.is_unreachable() {
+            if info.ret.is_some() {
+                let zero = fn_ctx.builder.ins().iconst(cl::I64, 0);
+                fn_ctx.builder.ins().return_(&[zero]);
+            } else {
+                fn_ctx.builder.ins().return_(&[]);
+            }
+        }
+
+        builder.finalize();
+    }
+
+    module
+        .define_function(info.id, &mut ctx)
+        .with_context(|| format!("failed to define class member function"))?;
 
     Ok(())
 }

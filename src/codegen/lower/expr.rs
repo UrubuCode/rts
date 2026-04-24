@@ -6,8 +6,11 @@
 //! lowered to `__RTS_FN_NS_GC_STRING_CONCAT`.
 
 use anyhow::{Result, anyhow};
-use cranelift_codegen::ir::{InstBuilder, condcodes::IntCC, types as cl};
-use swc_ecma_ast::{BinExpr, BinaryOp, CallExpr, Callee, Expr, Lit, MemberProp, UnaryOp, UpdateOp};
+use cranelift_codegen::ir::{InstBuilder, MemFlags, condcodes::IntCC, types as cl};
+use swc_ecma_ast::{
+    BinExpr, BinaryOp, CallExpr, Callee, Expr, Lit, MemberExpr, MemberProp, NewExpr, UnaryOp,
+    UpdateOp,
+};
 
 use cranelift_module::Module;
 
@@ -15,7 +18,7 @@ use crate::abi::lookup;
 use crate::abi::signature::lower_member;
 use crate::abi::types::AbiType;
 
-use super::ctx::{FnCtx, TypedVal, ValTy};
+use super::ctx::{ClassField, ClassInfo, FnCtx, TypedVal, ValTy};
 
 /// Compiles a SWC expression and returns a typed Cranelift value.
 pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
@@ -38,6 +41,23 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
 
         // ── Update (++, --) ───────────────────────────────────────────────
         Expr::Update(u) => {
+            // `obj.field++` / `--` — load via pointer, compute, store back.
+            if let Expr::Member(m) = u.arg.as_ref() {
+                let target = resolve_member_target(ctx, m)?;
+                let cur = load_field(ctx, &target)?;
+                let one = match cur.ty {
+                    ValTy::F64 => TypedVal::new(ctx.builder.ins().f64const(1.0), ValTy::F64),
+                    ValTy::I32 => TypedVal::new(ctx.builder.ins().iconst(cl::I32, 1), ValTy::I32),
+                    _ => TypedVal::new(ctx.builder.ins().iconst(cl::I64, 1), ValTy::I64),
+                };
+                let new_val = match u.op {
+                    UpdateOp::PlusPlus => lower_add(ctx, cur, one)?,
+                    UpdateOp::MinusMinus => lower_sub(ctx, cur, one)?,
+                };
+                store_field(ctx, &target, new_val)?;
+                return if u.prefix { Ok(new_val) } else { Ok(cur) };
+            }
+
             let name = ident_name(&u.arg)
                 .ok_or_else(|| anyhow!("update target must be a simple identifier"))?;
             let cur = ctx
@@ -60,37 +80,261 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         Expr::Bin(bin) => lower_bin(ctx, bin),
 
         // ── Assignment ────────────────────────────────────────────────────
-        Expr::Assign(a) => {
-            use swc_ecma_ast::AssignTarget;
-            let name = match &a.left {
-                AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) => {
-                    id.sym.as_str().to_string()
-                }
-                _ => return Err(anyhow!("only simple identifier assignment is supported")),
-            };
-            let rhs = lower_expr(ctx, &a.right)?;
-            // Coerce rhs to match the declared type of the local.
-            let coerced = match ctx.var_ty(&name) {
-                Some(ValTy::I32) => ctx.coerce_to_i32(rhs),
-                Some(ValTy::I64) => ctx.coerce_to_i64(rhs),
-                Some(ValTy::Handle) => ctx.coerce_to_handle(rhs)?,
-                _ => rhs,
-            };
-            ctx.write_local(&name, coerced.val)?;
-            Ok(coerced)
-        }
+        Expr::Assign(a) => lower_assign(ctx, a),
 
         // ── Call ──────────────────────────────────────────────────────────
         Expr::Call(call) => lower_call(ctx, call),
 
-        // ── Member (e.g. `io.print` used as expression) ───────────────────
-        Expr::Member(_) => Err(anyhow!("bare member expression not supported as value")),
+        // ── New (class instantiation) ─────────────────────────────────────
+        Expr::New(n) => lower_new(ctx, n),
+
+        // ── This ──────────────────────────────────────────────────────────
+        Expr::This(_) => ctx
+            .read_local("this")
+            .ok_or_else(|| anyhow!("`this` is not available outside a class member")),
+
+        // ── Member (`obj.field` read) ─────────────────────────────────────
+        Expr::Member(m) => {
+            let target = resolve_member_target(ctx, m)?;
+            load_field(ctx, &target)
+        }
 
         other => Err(anyhow!(
             "unsupported expression kind: {}",
             expr_kind_name(other)
         )),
     }
+}
+
+// ── Assignment ───────────────────────────────────────────────────────────
+
+fn lower_assign(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<TypedVal> {
+    use swc_ecma_ast::{AssignOp, AssignTarget, SimpleAssignTarget};
+
+    match &a.left {
+        AssignTarget::Simple(SimpleAssignTarget::Ident(id)) => {
+            let name = id.sym.as_str().to_string();
+            let rhs = lower_expr(ctx, &a.right)?;
+            if a.op == AssignOp::Assign {
+                let coerced = coerce_for_local(ctx, &name, rhs)?;
+                ctx.write_local(&name, coerced.val)?;
+                return Ok(coerced);
+            }
+            let cur = ctx
+                .read_local(&name)
+                .ok_or_else(|| anyhow!("assignment to undeclared variable `{name}`"))?;
+            let new_val = apply_compound(ctx, a.op, cur, rhs)?;
+            let coerced = coerce_for_local(ctx, &name, new_val)?;
+            ctx.write_local(&name, coerced.val)?;
+            Ok(coerced)
+        }
+        AssignTarget::Simple(SimpleAssignTarget::Member(m)) => {
+            let target = resolve_member_target(ctx, m)?;
+            let rhs = lower_expr(ctx, &a.right)?;
+            if a.op == AssignOp::Assign {
+                store_field(ctx, &target, rhs)?;
+                return Ok(rhs);
+            }
+            let cur = load_field(ctx, &target)?;
+            let new_val = apply_compound(ctx, a.op, cur, rhs)?;
+            store_field(ctx, &target, new_val)?;
+            Ok(new_val)
+        }
+        _ => Err(anyhow!(
+            "only identifier or member assignment is supported"
+        )),
+    }
+}
+
+fn coerce_for_local(ctx: &mut FnCtx, name: &str, val: TypedVal) -> Result<TypedVal> {
+    Ok(match ctx.var_ty(name) {
+        Some(ValTy::I32) => ctx.coerce_to_i32(val),
+        Some(ValTy::I64) => ctx.coerce_to_i64(val),
+        Some(ValTy::Handle) => ctx.coerce_to_handle(val)?,
+        _ => val,
+    })
+}
+
+fn apply_compound(
+    ctx: &mut FnCtx,
+    op: swc_ecma_ast::AssignOp,
+    cur: TypedVal,
+    rhs: TypedVal,
+) -> Result<TypedVal> {
+    use swc_ecma_ast::AssignOp;
+    let (lv, rv, ty) = promote_numeric(ctx, cur, rhs);
+    let l = TypedVal::new(lv, ty);
+    let r = TypedVal::new(rv, ty);
+    match op {
+        AssignOp::AddAssign => lower_add(ctx, l, r),
+        AssignOp::SubAssign => lower_sub(ctx, l, r),
+        AssignOp::MulAssign => lower_mul(ctx, l, r),
+        AssignOp::DivAssign => lower_div(ctx, l, r),
+        AssignOp::ModAssign => lower_mod(ctx, l, r),
+        other => Err(anyhow!("unsupported compound assignment op: {other:?}")),
+    }
+}
+
+// ── Class instantiation and field access ─────────────────────────────────
+
+/// A resolved `obj.field` reference ready for load/store.
+struct MemberTarget<'a> {
+    /// The handle (Cranelift value) of the class instance.
+    handle: TypedVal,
+    field: &'a ClassField,
+}
+
+fn resolve_member_target<'a>(
+    ctx: &mut FnCtx,
+    m: &MemberExpr,
+) -> Result<MemberTarget<'static>> {
+    let field_name = match &m.prop {
+        MemberProp::Ident(id) => id.sym.as_str(),
+        _ => return Err(anyhow!("computed member access not supported")),
+    };
+
+    // Look up the class of the object expression.
+    let class_name = match m.obj.as_ref() {
+        Expr::Ident(id) => ctx
+            .local_class_name(id.sym.as_str())
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!(
+                    "cannot resolve `{}.{}` — `{}` is not a class instance",
+                    id.sym.as_str(),
+                    field_name,
+                    id.sym.as_str()
+                )
+            })?,
+        Expr::This(_) => ctx
+            .current_class
+            .clone()
+            .ok_or_else(|| anyhow!("`this.{}` used outside a class member", field_name))?,
+        _ => {
+            return Err(anyhow!(
+                "member access target must be an identifier or `this`"
+            ));
+        }
+    };
+
+    let class = ctx
+        .classes
+        .get(&class_name)
+        .ok_or_else(|| anyhow!("unknown class `{class_name}`"))?;
+    // Clone a 'static-compatible ClassField by transferring the actual field
+    // behind a Box — class layouts live for the entire compilation, so we
+    // leak a cloned ClassField to borrow it for the returned MemberTarget.
+    let field = class
+        .field(field_name)
+        .ok_or_else(|| anyhow!("class `{class_name}` has no field `{field_name}`"))?;
+    let field_owned: &'static ClassField = Box::leak(Box::new(field.clone()));
+
+    let handle = lower_expr(ctx, &m.obj)?;
+    let handle = ctx.coerce_to_i64(handle);
+    let handle = TypedVal::new(handle.val, ValTy::Handle);
+    Ok(MemberTarget {
+        handle,
+        field: field_owned,
+    })
+}
+
+fn object_ptr(ctx: &mut FnCtx, handle: TypedVal) -> Result<cranelift_codegen::ir::Value> {
+    let fref = ctx.get_extern(
+        "__RTS_FN_NS_GC_OBJECT_PTR",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(fref, &[handle.val]);
+    Ok(ctx.builder.inst_results(inst)[0])
+}
+
+fn load_field(ctx: &mut FnCtx, target: &MemberTarget<'_>) -> Result<TypedVal> {
+    let ptr = object_ptr(ctx, target.handle)?;
+    let cl_ty = target.field.ty.cl_type();
+    let val = ctx
+        .builder
+        .ins()
+        .load(cl_ty, MemFlags::new(), ptr, target.field.offset);
+    Ok(TypedVal::new(val, target.field.ty))
+}
+
+fn store_field(ctx: &mut FnCtx, target: &MemberTarget<'_>, val: TypedVal) -> Result<()> {
+    let coerced = match target.field.ty {
+        ValTy::I32 => ctx.coerce_to_i32(val),
+        ValTy::I64 => ctx.coerce_to_i64(val),
+        ValTy::Bool | ValTy::Handle => ctx.coerce_to_i64(val),
+        ValTy::F64 => TypedVal::new(to_f64(ctx, val), ValTy::F64),
+    };
+    let ptr = object_ptr(ctx, target.handle)?;
+    ctx.builder
+        .ins()
+        .store(MemFlags::new(), coerced.val, ptr, target.field.offset);
+    Ok(())
+}
+
+fn lower_new(ctx: &mut FnCtx, n: &NewExpr) -> Result<TypedVal> {
+    let class_name = match n.callee.as_ref() {
+        Expr::Ident(id) => id.sym.as_str().to_string(),
+        _ => return Err(anyhow!("`new` callee must be a class identifier")),
+    };
+    let class_info: ClassInfo = ctx
+        .classes
+        .get(&class_name)
+        .ok_or_else(|| anyhow!("unknown class `{class_name}` in `new`"))?
+        .clone();
+
+    // Allocate the object buffer.
+    let size = ctx
+        .builder
+        .ins()
+        .iconst(cl::I64, class_info.size_bytes.max(8));
+    let new_fref = ctx.get_extern(
+        "__RTS_FN_NS_GC_OBJECT_NEW",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(new_fref, &[size]);
+    let handle = ctx.builder.inst_results(inst)[0];
+
+    // Invoke the constructor if one exists, passing `this` as arg #0.
+    if let Some(ctor) = &class_info.ctor {
+        let args = n.args.as_deref().unwrap_or(&[]);
+        if args.len() != ctor.params.len() {
+            return Err(anyhow!(
+                "constructor of `{class_name}` expects {} argument(s), got {}",
+                ctor.params.len(),
+                args.len()
+            ));
+        }
+        let mut values: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(args.len() + 1);
+        values.push(handle);
+        for (arg, &expected_ty) in args.iter().zip(ctor.params.iter()) {
+            if arg.spread.is_some() {
+                return Err(anyhow!("spread not supported"));
+            }
+            let tv = lower_expr(ctx, &arg.expr)?;
+            let v = match expected_ty {
+                ValTy::I32 => ctx.coerce_to_i32(tv).val,
+                ValTy::I64 | ValTy::Bool | ValTy::Handle => ctx.coerce_to_i64(tv).val,
+                ValTy::F64 => to_f64(ctx, tv),
+            };
+            values.push(v);
+        }
+        let ctor_fref = ctx.get_extern(
+            ctor.symbol,
+            &std::iter::once(cl::I64)
+                .chain(ctor.params.iter().map(|t| t.cl_type()))
+                .collect::<Vec<_>>(),
+            None,
+        )?;
+        ctx.builder.ins().call(ctor_fref, &values);
+    } else if !n.args.as_deref().unwrap_or(&[]).is_empty() {
+        return Err(anyhow!(
+            "class `{class_name}` has no constructor but was called with arguments"
+        ));
+    }
+
+    Ok(TypedVal::new(handle, ValTy::Handle))
 }
 
 // ── Literals ──────────────────────────────────────────────────────────────
@@ -346,6 +590,12 @@ fn promote_numeric(
     (lv, rv, ValTy::I64)
 }
 
+/// Public re-export of the internal `to_f64` helper so other lowering
+/// modules (e.g. `stmt::Return`) can coerce values to f64 uniformly.
+pub fn coerce_to_f64_val(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Value {
+    to_f64(ctx, tv)
+}
+
 fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Value {
     match tv.ty {
         ValTy::F64 => tv.val,
@@ -435,8 +685,19 @@ fn lower_icmp(ctx: &mut FnCtx, cc: IntCC, lhs: TypedVal, rhs: TypedVal) -> Typed
 // ── Calls ─────────────────────────────────────────────────────────────────
 
 fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
-    // Namespace call: `ns.fn(...)`
     if let Callee::Expr(callee) = &call.callee {
+        // Method call `obj.method(...)` where `obj` is a class instance.
+        if let Expr::Member(m) = callee.as_ref() {
+            if let Some(tv) = lower_method_call(ctx, m, call)? {
+                return Ok(tv);
+            }
+            // Fall through to namespace call resolution.
+            if let Some(qualified) = qualified_member_name(callee) {
+                return lower_ns_call(ctx, &qualified, call);
+            }
+            return Err(anyhow!("unsupported call expression form"));
+        }
+        // Namespace call: `ns.fn(...)`
         if let Some(qualified) = qualified_member_name(callee) {
             return lower_ns_call(ctx, &qualified, call);
         }
@@ -446,6 +707,85 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         }
     }
     Err(anyhow!("unsupported call expression form"))
+}
+
+/// Attempts to lower `obj.method(...)` as a class method call. Returns
+/// `Ok(None)` if the callee is not a method on a known class instance,
+/// letting the caller fall through to namespace call resolution.
+fn lower_method_call(
+    ctx: &mut FnCtx,
+    m: &MemberExpr,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    let method_name = match &m.prop {
+        MemberProp::Ident(id) => id.sym.as_str().to_string(),
+        _ => return Ok(None),
+    };
+
+    let class_name = match m.obj.as_ref() {
+        Expr::Ident(id) => match ctx.local_class_name(id.sym.as_str()) {
+            Some(n) => n.clone(),
+            None => return Ok(None),
+        },
+        Expr::This(_) => match ctx.current_class.clone() {
+            Some(n) => n,
+            None => return Ok(None),
+        },
+        _ => return Ok(None),
+    };
+
+    let method = {
+        let class = match ctx.classes.get(&class_name) {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+        match class.methods.get(&method_name) {
+            Some(m) => m.clone(),
+            None => return Ok(None),
+        }
+    };
+
+    if call.args.len() != method.params.len() {
+        return Err(anyhow!(
+            "method `{class_name}.{method_name}` expects {} argument(s), got {}",
+            method.params.len(),
+            call.args.len()
+        ));
+    }
+
+    // Evaluate the receiver as a handle.
+    let recv = lower_expr(ctx, &m.obj)?;
+    let recv = ctx.coerce_to_i64(recv);
+
+    let mut values: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(call.args.len() + 1);
+    values.push(recv.val);
+    for (arg, &expected_ty) in call.args.iter().zip(method.params.iter()) {
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        let v = match expected_ty {
+            ValTy::I32 => ctx.coerce_to_i32(tv).val,
+            ValTy::I64 | ValTy::Bool | ValTy::Handle => ctx.coerce_to_i64(tv).val,
+            ValTy::F64 => to_f64(ctx, tv),
+        };
+        values.push(v);
+    }
+
+    let param_types: Vec<cranelift_codegen::ir::Type> = std::iter::once(cl::I64)
+        .chain(method.params.iter().map(|t| t.cl_type()))
+        .collect();
+    let ret_cl = method.ret.map(|t| t.cl_type());
+    let fref = ctx.get_extern(method.symbol, &param_types, ret_cl)?;
+    let inst = ctx.builder.ins().call(fref, &values);
+
+    let result = if let Some(ret_ty) = method.ret {
+        let v = ctx.builder.inst_results(inst)[0];
+        TypedVal::new(v, ret_ty)
+    } else {
+        TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64)
+    };
+    Ok(Some(result))
 }
 
 fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {
@@ -489,25 +829,19 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
         match abi_ty {
             AbiType::StrPtr => {
                 let tv = lower_expr(ctx, &arg.expr)?;
-                match tv.ty {
-                    ValTy::Handle => {
-                        // Extract ptr+len from the handle
-                        let ptr_fref =
-                            ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
-                        let len_fref =
-                            ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
-                        let pi = ctx.builder.ins().call(ptr_fref, &[tv.val]);
-                        let ptr = ctx.builder.inst_results(pi)[0];
-                        let li = ctx.builder.ins().call(len_fref, &[tv.val]);
-                        let len = ctx.builder.inst_results(li)[0];
-                        values.push(ptr);
-                        values.push(len);
-                    }
-                    _ => {
-                        // Literal string: get (ptr, len) from rodata
-                        return Err(anyhow!("StrPtr argument must be a string value"));
-                    }
-                }
+                // Any value type gets coerced to a GC string handle; numbers
+                // are auto-stringified via __RTS_FN_NS_GC_STRING_FROM_I64/F64.
+                let handle = ctx.coerce_to_handle(tv)?;
+                let ptr_fref =
+                    ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                let len_fref =
+                    ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let pi = ctx.builder.ins().call(ptr_fref, &[handle.val]);
+                let ptr = ctx.builder.inst_results(pi)[0];
+                let li = ctx.builder.ins().call(len_fref, &[handle.val]);
+                let len = ctx.builder.inst_results(li)[0];
+                values.push(ptr);
+                values.push(len);
             }
             AbiType::I32 => {
                 let tv = lower_expr(ctx, &arg.expr)?;
