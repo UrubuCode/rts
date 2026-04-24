@@ -1,7 +1,7 @@
 //! User-defined function and module-level compilation.
 //!
 //! `compile_program` declares all user functions first (for forward calls),
-//! lowers bodies, then lowers top-level statements into `main`.
+//! lowers bodies, then lowers top-level statements into `__RTS_MAIN`.
 
 use std::collections::HashMap;
 
@@ -17,6 +17,8 @@ use crate::parser::ast::{FunctionDecl, Item, Program, Statement};
 
 use super::ctx::{FnCtx, GlobalVar, UserFnAbi, ValTy};
 use super::stmt::lower_stmt;
+
+const RUNTIME_MAIN_SYMBOL: &str = "__RTS_MAIN";
 
 /// Info about a user-defined function needed by callers.
 #[derive(Debug, Clone)]
@@ -113,7 +115,7 @@ pub fn compile_program(
         }
     }
 
-    // Phase 4: emit main.
+    // Phase 4: emit runtime entrypoint + exported C `main` shim.
     compile_main(
         module,
         extern_cache,
@@ -123,7 +125,7 @@ pub fn compile_program(
         &top_stmts,
         &mut warnings,
     )
-    .context("in top-level main")?;
+    .context("in top-level runtime entry")?;
 
     Ok(warnings)
 }
@@ -261,11 +263,16 @@ fn declare_user_fn(module: &mut ObjectModule, fn_decl: &FunctionDecl) -> Result<
         sig.returns.push(AbiParam::new(rt.cl_type()));
     }
 
+    let symbol = user_symbol_name(&fn_decl.name);
     let id = module
-        .declare_function(&fn_decl.name, Linkage::Local, &sig)
+        .declare_function(&symbol, Linkage::Local, &sig)
         .with_context(|| format!("failed to declare function `{}`", fn_decl.name))?;
 
     Ok(UserFn { id, params, ret })
+}
+
+fn user_symbol_name(name: &str) -> String {
+    format!("__RTS_USER_{}", sanitize_symbol(name))
 }
 
 fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
@@ -384,16 +391,16 @@ fn compile_main(
 ) -> Result<()> {
     let mut sig = Signature::new(module.isa().default_call_conv());
     sig.returns.push(AbiParam::new(cl::I32));
-    let main_id = module
-        .declare_function("main", Linkage::Export, &sig)
-        .context("failed to declare main")?;
+    let runtime_main_id = module
+        .declare_function(RUNTIME_MAIN_SYMBOL, Linkage::Local, &sig)
+        .context("failed to declare runtime entrypoint __RTS_MAIN")?;
 
-    let mut ctx = ClContext::new();
-    ctx.func.signature = sig;
+    let mut runtime_ctx = ClContext::new();
+    runtime_ctx.func.signature = sig.clone();
 
     let mut fbx = FunctionBuilderContext::new();
     {
-        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fbx);
+        let mut builder = FunctionBuilder::new(&mut runtime_ctx.func, &mut fbx);
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
@@ -425,8 +432,49 @@ fn compile_main(
     }
 
     module
-        .define_function(main_id, &mut ctx)
-        .context("failed to define main")?;
+        .define_function(runtime_main_id, &mut runtime_ctx)
+        .context("failed to define runtime entrypoint __RTS_MAIN")?;
+
+    compile_main_entry_shim(module, runtime_main_id, &sig)
+        .context("failed to define C entrypoint shim `main`")?;
+
+    Ok(())
+}
+
+fn compile_main_entry_shim(
+    module: &mut ObjectModule,
+    runtime_main_id: cranelift_module::FuncId,
+    sig: &Signature,
+) -> Result<()> {
+    let entry_main_id = module
+        .declare_function("main", Linkage::Export, sig)
+        .context("failed to declare exported entrypoint `main`")?;
+
+    let mut ctx = ClContext::new();
+    ctx.func.signature = sig.clone();
+
+    let mut fbx = FunctionBuilderContext::new();
+    {
+        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fbx);
+        let entry = builder.create_block();
+        builder.append_block_params_for_function_params(entry);
+        builder.switch_to_block(entry);
+        builder.seal_block(entry);
+
+        let runtime_ref = module.declare_func_in_func(runtime_main_id, builder.func);
+        let call = builder.ins().call(runtime_ref, &[]);
+        let result = builder
+            .inst_results(call)
+            .first()
+            .copied()
+            .unwrap_or_else(|| builder.ins().iconst(cl::I32, 0));
+        builder.ins().return_(&[result]);
+        builder.finalize();
+    }
+
+    module
+        .define_function(entry_main_id, &mut ctx)
+        .context("failed to define exported entrypoint `main`")?;
 
     Ok(())
 }

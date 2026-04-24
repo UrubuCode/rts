@@ -6,7 +6,9 @@ Seguir a mesma ideia arquitetural da `main`, mas mantendo a API nova organizada.
 
 Isso significa:
 - pipeline completo com grafo de modulos, cache de objetos e link final;
-- runtime support library resolvida como artefato externo (nao embed recursivo no build);
+- runtime support integrado ao `rts` (sem dependencia de `rts.lib` externa);
+- sem download de runtime lib em tempo de uso;
+- sem fallback para `cargo build --lib` no ambiente do usuario;
 - API de runtime centralizada em `src/abi/` e namespaces organizados por modulo.
 
 ## Base funcional desejada (paridade com main)
@@ -14,8 +16,9 @@ Isso significa:
 1. Compilacao por grafo (`ModuleGraph`) e nao apenas arquivo unico.
 2. Cache incremental de `.o` + metadata (`.ometa`) por modulo.
 3. Link final via backend de sistema por padrao (`system_linker`) com fallback quando necessario.
-4. Resolucao de runtime support library no estilo `runtime_lib` da `main`.
+4. Resolucao de runtime support a partir de payload interno do proprio `rts`.
 5. Emissao e sincronizacao de artefatos em `node_modules/.rts`.
+6. Distribuicao standalone: uso de `rts` fora do repo sem `Cargo.toml`.
 
 ## API nova organizada (mantida)
 
@@ -32,7 +35,9 @@ Isso significa:
 ### Etapa 1 - Reancorar no fluxo da main
 
 - Reintroduzir pipeline de grafo/caching inspirado em `origin/main`.
-- Reestabelecer `runtime_lib` como fonte de runtime support library.
+- Substituir `runtime_lib` externo por runtime payload interno ao `rts`.
+- Remover caminho de download de runtime support library.
+- Remover fallback para `cargo build --lib` no fluxo de execucao do usuario.
 - Manter o linker atual e validar compilacao end-to-end de exemplos.
 
 ### Etapa 2 - Plugar API nova no pipeline completo
@@ -51,5 +56,6 @@ Isso significa:
 
 - `rts compile` funciona com pipeline de grafo e cache.
 - `rts run` e `rts compile` validos em exemplos principais.
+- `rts run` funciona fora do repo sem `Cargo.toml`, sem `rts.lib` externa.
 - `io/fs/gc` estaveis no contrato novo da ABI.
 - build e docs sem dependencia de `xtask`.

@@ -174,12 +174,10 @@ fn write_new_file(path: &Path, content: &str) -> Result<()> {
 }
 
 fn render_main_ts(project_name: &str) -> String {
-    // O RTS ja invoca `main()` automaticamente como entry point.
-    // Nao incluir `main();` no top-level — isso cria uma chamada recursiva
-    // com o bootstrap do runtime.
-    format!(
-        "import {{ io }} from \"rts\";\n\nfunction main(): void {{\n  io.print(\"hello from {project_name}\");\n}}\n"
-    )
+    // O entrypoint do RTS e o top-level do modulo.
+    // Mantemos o scaffold sem `function main()` para evitar conflito
+    // com simbolos reservados do entrypoint nativo.
+    format!("import {{ io }} from \"rts\";\n\nio.print(\"hello from {project_name}\");\n")
 }
 
 fn render_package_json(package_name: &str) -> String {

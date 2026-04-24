@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Convergir para o modelo da `main` (pipeline completo + cache + runtime lib externo), mantendo a organizacao da API nova (`src/abi` + `SPECS` + namespaces modulares).
+Convergir para o modelo da `main` (pipeline completo + cache), mantendo a organizacao da API nova (`src/abi` + `SPECS` + namespaces modulares), porem com runtime support interno ao `rts` (sem `rts.lib` externa).
 
 ---
 
@@ -10,10 +10,12 @@ Convergir para o modelo da `main` (pipeline completo + cache + runtime lib exter
 
 - [ ] Pipeline por grafo de modulos (`compile_graph`).
 - [ ] Cache de objetos e metadados por modulo.
-- [ ] Runtime support library resolvida por `runtime_lib`.
+- [ ] Runtime support resolvido por payload interno do proprio `rts`.
+- [ ] Remover caminho de download de runtime support library.
+- [ ] Remover fallback para `cargo build --lib` no fluxo de uso.
 - [ ] Fluxo `node_modules/.rts` para artefatos auxiliares.
 
-Resultado esperado: base de compilacao equivalente a `main`, sem perder a estrutura nova da ABI.
+Resultado esperado: base de compilacao equivalente a `main`, sem perder a estrutura nova da ABI e sem dependencia de runtime externo.
 
 ---
 
@@ -41,4 +43,6 @@ Regra: nao juntar refactor grande e mudanca de comportamento no mesmo lote.
 
 - Sem dependencia de `xtask` para build padrao.
 - Build reproduzivel via comandos `cargo` diretos.
+- Distribuicao standalone sem exigir Rust/Cargo no ambiente de uso.
+- Sem dependencia de download de runtime support library em tempo de execucao.
 - Cada etapa com criterio de validacao objetivo antes de avancar.
