@@ -1,28 +1,38 @@
 # Especificacoes e Notas Tecnicas
 
-Indice de documentos de design, especificacoes de features e decisoes arquiteturais.
+Indice de documentos de design, especificacoes de features e decisoes
+arquiteturais. Para direcao de alto nivel do projeto consulte
+`../../NEXT_STEPS.md` e `../../ROAD_MAP.md` na raiz do repositorio.
 
-## Guias
+## Guias ativos
 
-- [Como criar um namespace](namespace-creation-guide.md) — Checklist obrigatorio para novos namespaces
+- [Como criar um namespace](namespace-creation-guide.md) — Processo atual
+  baseado em `src/abi/` (SPECS centralizado, simbolos `__RTS_FN_NS_*`,
+  `AbiType`). Reflete a branch `feat/remake-namespaces`.
 
-## Namespaces Runtime
+## Historico / pendente de reescrita
 
-- [net — TCP nativo](net-namespace.md) — Sockets TCP via std::net, handles no runtime state
+Os documentos abaixo descrevem versoes anteriores do runtime e ainda nao
+foram reescritos para o novo contrato ABI. Use-os apenas como referencia
+historica; nao os tome como guia para novo codigo.
 
-## Pipeline
+- [app-features.md](app-features.md) — Roadmap de features do runtime. Muitos
+  itens foram reorganizados; alinhar com `ROAD_MAP.md` antes de consultar.
+- [perf-hot-path-optimization.md](perf-hot-path-optimization.md) — Notas da
+  otimizacao do hot path (`rts_simple.ts`) antes da remocao de
+  `__rts_call_dispatch`. Os numeros permanecem validos como marcador
+  historico, mas o caminho descrito nao e mais o atual.
+- [rtslib-external-namespaces.md](rtslib-external-namespaces.md) — Design de
+  pacotes `.rtslib` externos. Depende da nova ABI estabilizar antes de ser
+  retomado.
 
-- [Otimização do hot path de execução](perf-hot-path-optimization.md) — Como o bench `rts_simple.ts` saiu de ~2300 ms para 66 ms (AOT) / 73 ms (JIT), batendo Bun em 1.6×. Análise, decisões e armadilhas encontradas.
+## Pendencias conhecidas
 
-## Roadmap e Features
+Itens acompanhados em `NEXT_STEPS.md` / `ROAD_MAP.md`:
 
-- [App features e roadmap de evolução](app-features.md) — Estado atual + 10 etapas planejadas (diagnósticos, cache em disco, fragmentação de dispatch, GC com ValueStore, etc). Documento vivo, atualizar a cada feature concluída.
-- [.rtslib — namespaces externos empacotados](rtslib-external-namespaces.md) — Design de pacotes `.rtslib` com `.o` pré-compilado por triple + manifest, consumidos via `package.json.rtslibs`. Depende da fragmentação de dispatch.
-
-## Pendencias
-
-- GC deterministico (F001)
-- Semantica de modulos top-level (F002)
-- Pipeline sem stubs de funcao (F003)
-- Link fallback multi-objeto (F004)
-- Promises sem vazamento (F005)
+- GC deterministico (gc-arena) nos pontos de quiescencia documentados em
+  `CLAUDE.md`.
+- Semantica de modulos top-level.
+- Pipeline sem stubs de funcao.
+- Link fallback multi-objeto.
+- Promises sem vazamento.

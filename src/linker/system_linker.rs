@@ -31,8 +31,9 @@ pub fn link(
     }
 
     let args = build_linker_args(&layout.target.flavor, object_paths, &final_path, &linker)?;
+    let (invocation_args, rsp_file) = prepare_invocation_args(&linker, &args)?;
     let output = Command::new(&linker.path)
-        .args(&args)
+        .args(&invocation_args)
         .output()
         .with_context(|| {
             format!(
@@ -41,6 +42,9 @@ pub fn link(
                 layout.target.triple
             )
         })?;
+    if let Some(path) = rsp_file {
+        let _ = std::fs::remove_file(path);
+    }
 
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -62,6 +66,54 @@ pub fn link(
     })
 }
 
+fn prepare_invocation_args(
+    linker: &ResolvedLinker,
+    args: &[String],
+) -> Result<(Vec<String>, Option<PathBuf>)> {
+    let total_len = args.iter().map(|arg| arg.len() + 1).sum::<usize>();
+    if total_len < 24_000 || args.len() < 200 {
+        return Ok((args.to_vec(), None));
+    }
+
+    let mut prelude = Vec::<String>::new();
+    let mut response_args = args.to_vec();
+
+    if linker.is_rust_lld()
+        && response_args.len() >= 2
+        && response_args[0] == "-flavor"
+        && response_args[1] == "link"
+    {
+        prelude.push(response_args.remove(0));
+        prelude.push(response_args.remove(0));
+    }
+
+    let rsp_path = std::env::temp_dir().join(format!("rts_linker_{}.rsp", std::process::id()));
+    let body = response_args
+        .iter()
+        .map(|arg| quote_rsp_arg(arg))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&rsp_path, body).with_context(|| {
+        format!(
+            "failed to write linker response file {}",
+            rsp_path.display()
+        )
+    })?;
+
+    let mut invocation = prelude;
+    invocation.push(format!("@{}", rsp_path.display()));
+    Ok((invocation, Some(rsp_path)))
+}
+
+fn quote_rsp_arg(arg: &str) -> String {
+    if arg.chars().all(|ch| !ch.is_whitespace() && ch != '"') {
+        return arg.to_string();
+    }
+
+    let escaped = arg.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
 fn build_linker_args(
     flavor: &TargetFlavor,
     object_paths: &[PathBuf],
@@ -71,7 +123,7 @@ fn build_linker_args(
     match flavor {
         TargetFlavor::Coff => {
             let mut args = Vec::new();
-            let requires_runtime = requires_windows_runtime_support(object_paths);
+            let requires_runtime = true;
 
             if linker.is_rust_lld() {
                 args.push("-flavor".to_string());
@@ -84,11 +136,10 @@ fn build_linker_args(
             }
 
             args.push("/nologo".to_string());
-            args.push("/entry:_start".to_string());
+            // Bootstrap codegen emits a `main` symbol; the MSVC CRT entry
+            // `mainCRTStartup` initialises the runtime and calls into it.
+            args.push("/entry:mainCRTStartup".to_string());
             args.push("/subsystem:console".to_string());
-            if !requires_runtime {
-                args.push("/nodefaultlib".to_string());
-            }
             args.push(format!("/out:{}", output_path.display()));
             for object_path in object_paths {
                 args.push(object_path.display().to_string());
@@ -130,15 +181,6 @@ fn build_linker_args(
     }
 }
 
-fn requires_windows_runtime_support(object_paths: &[PathBuf]) -> bool {
-    object_paths.iter().any(|path| {
-        path.extension()
-            .and_then(|value| value.to_str())
-            .map(|value| value.eq_ignore_ascii_case("lib"))
-            .unwrap_or(false)
-    })
-}
-
 fn windows_runtime_default_libs() -> &'static [&'static str] {
     &[
         "kernel32.lib",
@@ -153,7 +195,10 @@ fn windows_runtime_default_libs() -> &'static [&'static str] {
         "shell32.lib",
         "ole32.lib",
         "synchronization.lib",
-        "libucrt.lib",
+        // Rust staticlib on MSVC uses the dynamic CRT by default; keep only
+        // the matching dynamic import libraries to avoid duplicate symbols
+        // like `__report_gsfailure` that appear in both static and dynamic
+        // variants.
         "ucrt.lib",
         "vcruntime.lib",
         "msvcrt.lib",
@@ -214,9 +259,80 @@ fn windows_runtime_lib_paths() -> Vec<PathBuf> {
         }
     }
 
+    // MSVC toolchain libs (libcmt.lib, msvcrt.lib, vcruntime.lib) live under
+    // the MSVC install, separate from the Windows SDK. Auto-discover the
+    // latest installed VC Tools directory so `rts compile` works without
+    // requiring the Developer Command Prompt environment.
+    for msvc_path in msvc_tool_lib_paths() {
+        paths.push(msvc_path);
+    }
+
     paths.sort();
     paths.dedup();
     paths
+}
+
+/// Walks common Visual Studio install roots looking for the MSVC `lib`
+/// directory corresponding to the current architecture.
+fn msvc_tool_lib_paths() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for env in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(base) = std::env::var(env) {
+            roots.push(PathBuf::from(base).join("Microsoft Visual Studio"));
+        }
+    }
+    roots.push(PathBuf::from(r"C:\Program Files\Microsoft Visual Studio"));
+    roots.push(PathBuf::from(
+        r"C:\Program Files (x86)\Microsoft Visual Studio",
+    ));
+
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "x86") {
+        "x86"
+    } else if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+
+    let mut out = Vec::new();
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        // Layout: <root>/<year>/<edition>/VC/Tools/MSVC/<version>/lib/<arch>
+        let Ok(years) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for year in years.flatten() {
+            let Ok(editions) = std::fs::read_dir(year.path()) else {
+                continue;
+            };
+            for edition in editions.flatten() {
+                let msvc = edition.path().join("VC").join("Tools").join("MSVC");
+                if !msvc.is_dir() {
+                    continue;
+                }
+                let Ok(versions) = std::fs::read_dir(&msvc) else {
+                    continue;
+                };
+                let mut version_dirs: Vec<PathBuf> = versions
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|p| p.is_dir())
+                    .collect();
+                version_dirs.sort();
+                if let Some(latest) = version_dirs.last() {
+                    let lib = latest.join("lib").join(arch);
+                    if lib.is_dir() {
+                        out.push(lib);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 fn normalize_output_path(path: &Path, flavor: TargetFlavor) -> PathBuf {

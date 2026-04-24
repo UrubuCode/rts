@@ -1,6 +1,6 @@
 name: rts.d.ts lint
 
-# Garante que `packages/rts-types/rts.d.ts` no repo esta em sincronia com o
+# Garante que `builtin/rts-types/rts.d.ts` no repo esta em sincronia com o
 # que `rts emit-types` geraria a partir dos namespaces registrados. Se alguem
 # adicionar uma NamespaceMember em Rust mas esquecer de regenerar o .d.ts,
 # este job falha.
@@ -34,8 +34,8 @@ jobs:
 
       - name: Diff generated vs committed
         run: |
-          if ! diff -u packages/rts-types/rts.d.ts .tmp-types-check/rts.d.ts; then
-            echo "::error::packages/rts-types/rts.d.ts is out of sync with namespace SPECs."
+          if ! diff -u builtin/rts-types/rts.d.ts .tmp-types-check/rts.d.ts; then
+            echo "::error::builtin/rts-types/rts.d.ts is out of sync with namespace SPECs."
             echo "::error::Run 'cargo run --release -- emit-types' and commit the updated rts.d.ts."
             exit 1
           fi

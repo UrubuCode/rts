@@ -1,6 +1,10 @@
 # APP_FEATURES.MD
 > Documento vivo de estado atual, plano de evolução e benchmarks do RTS.
 > Atualizar a cada feature concluída. Data de criação: 2026-04-11.
+>
+> **Ultima revisao: 2026-04-24** — alinhado com branch `feat/remake-namespaces`.
+> Status de etapas anteriores pode estar desatualizado; consultar `NEXT_STEPS.md`
+> e `ROAD_MAP.md` para direcao vigente.
 
 ---
 
@@ -10,10 +14,12 @@
 
 | Comando | Rota | Usa disco? |
 |---|---|---|
-| `rts run <file>` | Source → HIR → MIR → **Cranelift JIT** em RAM | Não |
-| `rts compile <file> <out>` | Source → HIR → MIR → **Object (.o + .m cache)** → Linker → `.exe` | Sim |
+| `rts run <file>` | Source → Parser(SWC) → type_system → **Codegen (Cranelift)** → Object → Linker (ou carga in-memory) | Sim (em `node_modules/.rts/objs/runtime/`) |
+| `rts compile <file> <out>` | Source → Parser(SWC) → type_system → **Codegen (Cranelift)** → Object (.o + .m cache) → Linker → `.exe` | Sim (em `node_modules/.rts/objs/compile/`) |
 
-O `rts run` compila e executa **inteiramente em memória** via JIT. Não grava `.o` nem `.m` em disco — cada execução reconstrói tudo do zero. O `rts compile` usa cache: grava `<stem>.o` (objeto Cranelift) e `<stem>.m` (JSON com hash do fonte, flags, versão RTS). Na próxima execução, se o `.m` bate com o fonte atual, o `.o` é reusado sem recompilar.
+Pipeline canonico: `Source TS → Parser(SWC) → type_system → codegen(Cranelift, src/codegen/lower/) → Object → Linker → .exe`.
+
+As camadas HIR e MIR foram removidas da branch `feat/remake-namespaces`: o codegen consome o AST do SWC diretamente via `src/codegen/lower/`. Cache: grava `<stem>.o` (objeto Cranelift) e `<stem>.m` (JSON com hash do fonte, flags, versao RTS). Na proxima execucao, se o `.m` bate com o fonte atual, o `.o` e reusado sem recompilar.
 
 ### Flags CLI atuais
 
@@ -26,20 +32,33 @@ O `rts run` compila e executa **inteiramente em memória** via JIT. Não grava `
 | `--compat` | — | Frontend modo compat |
 | `--eval` | `-e` | Avalia código inline |
 
-### Estrutura de diretórios atual (compile)
+### Estrutura de diretorios atual
 
 ```
 <project>/
-  target/
-    .deps/
-      <app>_<module>.o          — objeto compilado
-      <app>_<module>.m          — cache metadata (JSON)
-      rts_namespace_dispatch.o  — dispatch unificado de todos os namespaces usados
+  node_modules/
+    .rts/
+      objs/
+        runtime/
+          <module>.o     — objects completos do builtin (rts run)
+          <module>.m     — cache metadata (JSON)
+        compile/
+          <module>.o     — objects AOT, somente modulos usados (rts compile)
+          <module>.m
+      modules/           — dependencias resolvidas
+  release/               — apenas em rts compile (binario final)
+    <project_name>(.exe|.dll|.so|.node)
 ```
 
-### Dispatch de namespaces
+### Contrato ABI centralizado (`src/abi/`)
 
-O `rts_namespace_dispatch.o` é um único objeto que concentra todo o roteamento de chamadas de namespace. Gerado por `build_namespace_dispatch_object()` em `object_builder.rs`. Não é fragmentado por namespace — um único símbolo `__rts_dispatch(fn_id, a0..a5) -> i64` cobre todos os callees registrados.
+O antigo dispatch unificado (`rts_namespace_dispatch.o`, `__rts_call_dispatch`, `JsValue` no limite) foi substituido por um contrato ABI estatico em `src/abi/`:
+
+- **`NamespaceSpec` / `NamespaceMember`**: tabelas estaticas descrevendo cada namespace, seus membros, assinaturas e tipos ABI.
+- **`AbiType`**: enum dos tipos primitivos do limite (`I64`, `F64`, `Bool`, `StringSlice (ptr,len)`, `Handle`).
+- **Simbolos**: cada funcao de namespace exporta `__RTS_FN_NS_<NS>_<NAME>` como `#[unsafe(no_mangle)] pub extern "C"` com tipos nativos — sem boxing, sem `JsValue`, sem dispatch generico em runtime.
+- Codegen emite chamadas diretas ao simbolo `__RTS_FN_NS_<NS>_<NAME>` com base no `NamespaceSpec` — nao ha mais `__rts_dispatch(fn_id, a0..a5)` como intermediario.
+- Handles (`u64`) continuam sendo o transporte para recursos heap (buffers, sockets, promises, strings dinamicas).
 
 ### GC Arena
 
@@ -56,26 +75,22 @@ O `rts_namespace_dispatch.o` é um único objeto que concentra todo o roteamento
 - Gerados por `render_typescript_declarations()` e `emit_split_typescript_declarations()`
 - Problema: o `rts.d.ts` contém namespaces `rts.natives`, `rts.hotops`, `rts.debug` com sintaxe `export namespace rts.natives { ... }` que **não é TypeScript válido** (namespace aninhado com ponto no nome não é suportado pelo compilador TS)
 
-### HIR (High-level IR)
+### HIR / MIR
 
-- `HirModule`: items, imports, classes, functions, interfaces
-- `HirFunction.body`: `Vec<String>` — corpo como texto plano, não AST estruturado
-- O lower (`hir/lower.rs`) processa o AST do SWC mas serializa statements e expressions de volta para strings (`HirItem::Statement(String)`)
-- Isso força o MIR a reparsar texto em vez de trabalhar com nós estruturados
-
-### MIR (Mid-level IR)
-
-- `TypedMirModule` / `TypedMirFunction` / `TypedBasicBlock` / `MirInstruction` — SSA com VRegs
-- `typed_build.rs` — único arquivo responsável por converter HIR → Typed MIR (~600+ linhas)
-- Inclui: `ConstantPool` para deduplicação de literais, análise de tipos de parâmetros, lowering de binops, loops, classes, campos
-- Presença de instruções de otimização no IR (`SimdOp`, `UnrollHint`, `LoopBegin/End`, `HoistInvariant`, `InlineCandidate`) que o codegen atual **não implementa completamente** — caem em `RuntimeEval` como fallback
+> [obsoleto — nao se aplica a arquitetura atual]
+>
+> As camadas HIR (`src/hir/`) e MIR (`src/mir/`) foram removidas na branch
+> `feat/remake-namespaces`. O codegen agora consome diretamente o AST do SWC
+> via `src/codegen/lower/`, eliminando o ciclo parse→string→re-parse que gerava
+> a maior parte dos fallbacks `RuntimeEval`. Conteudo historico sobre
+> `typed_build.rs`, `typed_codegen.rs`, `VRegKind`, `CALLEE_FN_IDS` e
+> `RuntimeEval` nao reflete o codepath atual.
 
 ### Codegen (Cranelift)
 
-- `typed_codegen.rs` — único arquivo (~900+ linhas) que faz Typed MIR → Cranelift IR
-- Rastreia `VRegKind` (Handle, NativeF64, NativeI32) para evitar boxing desnecessário
-- Callees conhecidos mapeados em `CALLEE_FN_IDS` para emissão direta via `__rts_dispatch(fn_id, ...)`
-- Fallback `RuntimeEval` para construções não implementadas — emite chamada de dispatch genérica
+- `src/codegen/lower/` — conjunto de modulos que faz AST (SWC) → Cranelift IR diretamente.
+- Integra com o contrato ABI em `src/abi/`: cada chamada de namespace resolve para o simbolo `__RTS_FN_NS_<NS>_<NAME>` com assinatura tipada.
+- Sem boxing no limite — tipos nativos (`i64`, `f64`, `(ptr,len)`, `u64` handle) circulam direto nos registradores.
 
 ---
 
@@ -357,6 +372,11 @@ O campo `CompileOptions::debug` permanece internamente, apenas o parse do CLI mu
 
 ### ETAPA 3 — Fragmentação do dispatch por namespace
 
+> [obsoleto — nao se aplica ao contrato ABI atual]
+>
+> A branch `feat/remake-namespaces` ja nao tem dispatch unificado.
+> Cada funcao de namespace e um simbolo proprio `__RTS_FN_NS_<NS>_<NAME>` gerado a partir de `src/abi/`. O objetivo desta etapa (visibilidade por namespace no profiler, simbolos independentes) ja e inerente ao contrato atual — nao ha mais `rts_namespace_dispatch.o` a fragmentar. Mantido abaixo como historico.
+
 **Motivação:** `rts_namespace_dispatch.o` é um objeto monolítico. Se um namespace estiver causando latência, não há como isolá-lo no profiler sem instrumentação manual.
 
 **O que muda:**
@@ -517,6 +537,13 @@ Hoje `packages/rts-types` existe no repositório do RTS mas não há mecanismo p
 
 ### ETAPA 6 — Fragmentação de `typed_build.rs` e `typed_codegen.rs`
 
+> [obsoleto — nao se aplica ao contrato ABI atual]
+>
+> Os arquivos `typed_build.rs` e `typed_codegen.rs` foram removidos junto com
+> as camadas HIR/MIR. O codegen hoje ja e fragmentado em `src/codegen/lower/`
+> e consome o AST do SWC diretamente — nao existe mais o ciclo
+> parse→string→re-parse descrito abaixo. Mantido como historico.
+
 **Motivação:** ambos os arquivos têm > 600 linhas e cobrem responsabilidades heterogêneas (literais, binops, loops, classes, campos, SIMD). Dificulta revisão, testes unitários e adição de novos constructs.
 
 **Raiz do problema `RuntimeEval` — o ciclo parse→string→re-parse:**
@@ -643,6 +670,11 @@ export namespace rts {
 ---
 
 ### ETAPA 9 — Revisão de dead code em HIR / MIR / Codegen
+
+> [obsoleto — nao se aplica ao contrato ABI atual]
+>
+> HIR e MIR nao existem mais na branch atual. A revisao de dead code agora se
+> aplica a `src/codegen/lower/` e `src/abi/`. Mantido como historico.
 
 **HIR:**
 - `HirFunction.body: Vec<String>` — serializar statements para strings e reparsar no MIR é perda de informação. Candidato a substituição por `Vec<HirStatement>` estruturado quando o SWC AST for usado diretamente

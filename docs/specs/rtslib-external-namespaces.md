@@ -1,3 +1,10 @@
+> **Status (2026-04-24):** Proposta historica baseada em dispatch fragmentado e
+> macros de namespace (`#[namespace]`, `#[callee]`). A branch
+> `feat/remake-namespaces` adotou um contrato ABI centralizado em `src/abi/`
+> com tabelas estaticas `NamespaceSpec`/`NamespaceMember` e simbolos
+> `__RTS_FN_NS_<NS>_<NAME>`. Esta spec precisa ser retrabalhada sobre o novo
+> contrato antes de ser considerada acionavel. Mantida como historico.
+
 Design: .rtslib como namespace externo
 
   O que seria um .rtslib

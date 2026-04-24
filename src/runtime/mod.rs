@@ -2,6 +2,8 @@ pub mod bundle;
 
 use std::collections::BTreeSet;
 
+use crate::abi::SPECS;
+
 #[derive(Debug, Clone)]
 pub struct BuiltinModule {
     pub name: String,
@@ -25,22 +27,28 @@ pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
     }
 
     if let Some(ns_name) = name.strip_prefix("rts:") {
-        if let Some(exports) = crate::namespaces::namespace_exports_for(ns_name) {
-            return Some(BuiltinModule::new(name, exports));
+        if let Some(spec) = SPECS.iter().copied().find(|s| s.name == ns_name) {
+            let exports: Vec<String> = spec
+                .members
+                .iter()
+                .map(|m| m.name.to_string())
+                .chain(std::iter::once("default".to_string()))
+                .collect();
+            let mut module = BuiltinModule::new(name, std::iter::empty::<&'static str>());
+            module.exports = exports.into_iter().collect();
+            return Some(module);
         }
     }
 
     None
 }
 
-/// Retorna os nomes de todos os modulos builtin conhecidos.
-/// Usado por diagnosticos para sugerir correcoes ("voce quis dizer 'rts:fs'?").
+/// Returns every known builtin module key so diagnostics can suggest
+/// corrections ("did you mean 'rts:fs'?").
 pub fn builtin_module_keys() -> Vec<&'static str> {
     let mut keys = vec!["rts"];
-    for ns in crate::namespaces::namespace_names() {
-        // Ambos com e sem prefixo sao aceitos para sugestao, ja que o autor
-        // pode errar em qualquer um dos dois formatos.
-        keys.push(ns);
+    for spec in SPECS {
+        keys.push(spec.name);
     }
     keys
 }
@@ -58,34 +66,8 @@ pub fn rts_pending_apis() -> &'static [&'static str] {
 }
 
 const RTS_EXPORTS: &[&str] = &[
-    "i8",
-    "u8",
-    "i16",
-    "u16",
-    "i32",
-    "u32",
-    "i64",
-    "u64",
-    "isize",
-    "usize",
-    "f32",
-    "f64",
-    "bool",
-    "str",
-    "WritableStream",
-    "ReadableStream",
-    "FileHandle",
-    "fs",
-    "io",
-    "net",
-    "process",
-    "crypto",
-    "globals",
-    "buffer",
-    "promise",
-    "task",
-    "test",
-    "gc",
+    "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "isize", "usize", "f32", "f64", "bool",
+    "str", "fs", "io",
 ];
 
 const COMPILER_DEPENDENCIES: &[&str] = &[
@@ -96,17 +78,20 @@ const COMPILER_DEPENDENCIES: &[&str] = &[
     "ureq",
     "rayon",
     "sha2",
+    "cranelift-codegen",
+    "cranelift-module",
+    "cranelift-object",
+    "cranelift-jit",
 ];
 
 const RTS_PENDING_APIS: &[&str] = &[
-    "FFI ABI stable layer (C-compatible calls and symbol loader)",
-    "Expandir namespaces sem aumentar API plana no modulo `rts`",
-    "Process spawn + piping API (stdin/stdout/stderr + exit status)",
-    "Async runtime primitives (timers, poller, task scheduler)",
-    "Memory safety contract for alloc/dealloc in userland packages",
-    "Binary package format for precompiled RTS modules",
-    "Cross-platform path API package (normalize/join/resolve)",
-    "Networking primitives (TCP, UDP, DNS, HTTP client/server)",
-    "Structured diagnostics protocol and source maps for AOT binaries",
-    "Package publish/install workflow for node_modules/.rts/modules layout",
+    "Codegen rebuild on top of the new ABI surface",
+    "AOT pipeline rewire to consume abi::SPECS directly",
+    "GC namespace with handle table + string pool",
+    "Networking namespace (TCP, UDP, HTTP)",
+    "Process namespace (spawn, env, exit, argv)",
+    "Crypto namespace (SHA family, HMAC, AEAD)",
+    "Async runtime primitives (timers, task scheduler)",
+    "Structured diagnostics + source maps for AOT binaries",
+    "builtin/ tarball embed + `rts i` installer",
 ];

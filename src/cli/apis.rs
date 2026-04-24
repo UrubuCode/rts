@@ -1,4 +1,9 @@
+//! `rts apis` — prints every namespace and member registered on the ABI.
+
 use anyhow::Result;
+
+use crate::abi::SPECS;
+use crate::abi::member::MemberKind;
 
 pub fn command() -> Result<()> {
     println!("RTS Runtime APIs (builtin module \"rts\"):");
@@ -8,12 +13,18 @@ pub fn command() -> Result<()> {
 
     println!();
     println!("RTS Namespace Catalog (Rust -> Cranelift):");
-    for namespace in crate::namespaces::documentation_catalog() {
-        println!("  - {}: {}", namespace.namespace, namespace.doc);
-        for function in namespace.functions {
+    for spec in SPECS {
+        println!("  - {}: {}", spec.name, spec.doc);
+        for member in spec.members {
+            let kind = match member.kind {
+                MemberKind::Function => "fn",
+                MemberKind::Constant => "const",
+            };
             println!(
-                "      * {} ({}) -> {}",
-                function.callee, function.ts_signature, function.doc
+                "      * [{kind}] {sig}  -> {symbol}  // {doc}",
+                sig = member.ts_signature,
+                symbol = member.symbol,
+                doc = member.doc,
             );
         }
     }

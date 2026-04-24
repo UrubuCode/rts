@@ -1,323 +1,65 @@
+//! `rts compile <input.ts> [output]` — full compile + link pipeline.
+//!
+//! Emits a native executable by combining the user program (compiled
+//! via Cranelift) with the RTS runtime support objects.
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use colored::Colorize;
-use console::style;
-use object::{Object, ObjectSection};
-use serde_json::Value;
 
 use crate::compile_options::CompileOptions;
+use crate::pipeline;
 
 pub fn command(
-    input_arg: Option<String>,
-    output_arg: Option<String>,
-    mut options: CompileOptions,
+    input: Option<String>,
+    output: Option<String>,
+    options: CompileOptions,
 ) -> Result<()> {
-    let input = input_arg
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow!("missing input for 'compile'"))?;
+    let input = input.ok_or_else(|| anyhow!("missing input file for `rts compile`"))?;
+    let input_path = PathBuf::from(&input);
 
-    let output = match output_arg {
-        Some(value) => PathBuf::from(value),
-        None => resolve_default_output_path(&input)?,
-    };
-
-    if let Some(parent) = output.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
+    if !input_path.exists() {
+        return Err(anyhow!("input file not found: {}", input_path.display()));
     }
 
-    options.emit_module_progress = true;
-
-    // Cabeçalho moderno com ícone e gradiente de cores
-    println!(
-        "{} {}",
-        "⚡".bright_blue().bold(),
-        "RTS Compile Pipeline".bright_blue().bold()
-    );
-    println!("{}", "─".repeat(50).dimmed());
-
-    let summary = crate::compile_file_with_options(&input, &output, options)
-        .with_context(|| format!("failed to compile {}", input.display()))?;
-
-    // Sucesso com ícone
-    println!(
-        "\n{} {}\n{}",
-        "✔".green().bold(),
-        "Compile completed successfully".green().bold(),
-        format!("  {}", summary.binary_file.display()).dimmed()
-    );
-
-    // Layout de tabela para estatísticas
-    println!("\n{}", "📊 Compile Summary".cyan().bold());
-    println!("{}", "─".repeat(50).dimmed());
-
-    // Função auxiliar para imprimir linha alinhada
-    let print_row = |label: &str, value: String| {
-        println!("  {:<20} {}", label.dimmed(), value);
+    let output_path = match output {
+        Some(value) => PathBuf::from(value),
+        None => default_output_path(&input_path),
     };
 
-    print_row("Profile", style(&summary.profile).yellow().to_string());
-    print_row(
-        "Modules",
-        style(summary.compiled_modules).cyan().to_string(),
-    );
-    print_row("Types", style(summary.discovered_types).cyan().to_string());
-    print_row(
-        "Functions",
-        style(summary.lowered_functions).cyan().to_string(),
-    );
+    let outcome = pipeline::build_executable(&input_path, &output_path, options)
+        .with_context(|| format!("compile of {} failed", input_path.display()))?;
 
-    println!("{}", "  ──────────────────────────────────".dimmed());
+    if options.debug {
+        for warning in &outcome.compile.warnings {
+            eprintln!("warning: {warning}");
+        }
+    }
 
-    let runtime_ns = if summary.runtime_namespaces.is_empty() {
-        "none".to_string()
-    } else {
-        summary.runtime_namespaces.join(", ")
-    };
-    print_row(
-        "Runtime namespaces",
-        style(runtime_ns).magenta().to_string(),
-    );
-    print_row(
-        "Runtime functions",
-        style(summary.runtime_functions).magenta().to_string(),
-    );
-    print_row(
-        "Cache directory",
-        style(summary.runtime_cache_dir.display()).dim().to_string(),
-    );
-
-    println!("{}", "  ──────────────────────────────────".dimmed());
-
-    print_row(
-        "Link backend",
-        style(&summary.link_backend).blue().to_string(),
-    );
-    print_row(
-        "Link format",
-        style(&summary.link_format).blue().to_string(),
-    );
-
-    println!("{}", "  ──────────────────────────────────".dimmed());
-
-    print_row(
-        "Dependency objects",
-        style(summary.dependency_objects).green().to_string(),
-    );
-    print_row(
-        "Cache hits/misses",
-        format!(
-            "{}/{}",
-            style(summary.cache_hits).green(),
-            style(summary.cache_misses).red()
-        ),
-    );
-
-    println!("{}", "  ──────────────────────────────────".dimmed());
-
-    // Tamanhos dos arquivos com ícones
-    println!("  {} {}", "📦".yellow(), "Size breakdown".yellow().bold());
     println!(
-        "    {:<18} {}",
-        "App object".dimmed(),
-        format_bytes(summary.app_object_bytes as u64).cyan()
+        "wrote {}  ({} byte(s), {} call(s) emitted, {} warning(s))",
+        outcome.binary.path.display(),
+        outcome.compile.object.bytes_written,
+        outcome.compile.object.emitted_calls,
+        outcome.compile.warnings.len(),
     );
-    let runtime_size = if summary.runtime_object_bytes == 0 {
-        "disabled".dimmed().to_string()
-    } else {
-        format_bytes(summary.runtime_object_bytes as u64)
-            .magenta()
-            .to_string()
-    };
-    println!("    {:<18} {}", "Runtime".dimmed(), runtime_size);
     println!(
-        "    {:<18} {}",
-        "Final binary".dimmed(),
-        format_bytes(summary.binary_bytes).green().bold()
+        "linker backend: {}, format: {}",
+        outcome.binary.backend, outcome.binary.format
     );
-
-    emit_object_diagnostics(&summary.object_file);
 
     Ok(())
 }
 
-fn emit_object_diagnostics(path: &Path) {
-    match read_object_section_sizes(path) {
-        Ok(mut sections) if !sections.is_empty() => {
-            sections.sort_by(|a, b| b.1.cmp(&a.1));
-            println!(
-                "\n{} {}",
-                "🔬".bright_blue(),
-                "Object sections".bright_blue().bold()
-            );
-            println!("   {}", path.display().to_string().dimmed());
-
-            for (name, size) in sections.into_iter().take(8) {
-                let bar = generate_usage_bar(size, 1024 * 1024); // escala relativa a 1MB
-                println!(
-                    "    {:<20} {} {}",
-                    name.dimmed(),
-                    format_bytes(size).cyan(),
-                    bar
-                );
-            }
-        }
-        Ok(_) => {
-            println!("\n{} {}", "🔬".bright_blue(), "No object sections".dimmed());
-        }
-        Err(error) => {
-            println!(
-                "\n{} {} {}",
-                "⚠".yellow(),
-                "Object diagnostics unavailable:".red(),
-                error
-            );
-        }
+fn default_output_path(input: &Path) -> PathBuf {
+    let mut out = input.to_path_buf();
+    #[cfg(target_os = "windows")]
+    {
+        out.set_extension("exe");
     }
-}
-
-fn read_object_section_sizes(path: &Path) -> Result<Vec<(String, u64)>> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("failed to read object file {}", path.display()))?;
-    let file = object::File::parse(&*bytes).map_err(|error| {
-        anyhow::anyhow!("failed to parse object file {}: {error}", path.display())
-    })?;
-
-    let mut sections = Vec::new();
-    for section in file.sections() {
-        let name = section.name().unwrap_or("<invalid>");
-        let size = section.size();
-        sections.push((name.to_string(), size));
+    #[cfg(not(target_os = "windows"))]
+    {
+        out.set_extension("");
     }
-
-    Ok(sections)
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
-    let mut unit = 0usize;
-
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-
-    if unit == 0 {
-        format!("{} {}", bytes, UNITS[unit])
-    } else {
-        format!("{value:.2} {}", UNITS[unit])
-    }
-}
-
-/// Gera uma barra de uso proporcional (estilo moderna)
-fn generate_usage_bar(value: u64, max: u64) -> String {
-    let ratio = (value as f64 / max as f64).min(1.0);
-    let bar_width = 20;
-    let filled = (ratio * bar_width as f64).round() as usize;
-    let empty = bar_width - filled;
-    format!(
-        "[{}{}]",
-        "█".repeat(filled).green(),
-        "░".repeat(empty).dimmed()
-    )
-}
-
-fn resolve_default_output_path(input: &Path) -> Result<PathBuf> {
-    let cwd = std::env::current_dir().context("failed to read current directory")?;
-    let base_name = detect_project_name_from_package_json(&cwd)?
-        .or_else(|| {
-            input
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(ToString::to_string)
-        })
-        .unwrap_or_else(|| "app".to_string());
-
-    Ok(cwd.join(sanitize_output_name(&base_name)))
-}
-
-fn detect_project_name_from_package_json(cwd: &Path) -> Result<Option<String>> {
-    let package_json = cwd.join("package.json");
-    if !package_json.exists() {
-        return Ok(None);
-    }
-
-    let content = std::fs::read_to_string(&package_json)
-        .with_context(|| format!("failed to read {}", package_json.display()))?;
-    let parsed = serde_json::from_str::<Value>(&strip_json_comments(&content))
-        .with_context(|| format!("failed to parse {}", package_json.display()))?;
-
-    let name = parsed
-        .get("name")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
-
-    Ok(name)
-}
-
-fn sanitize_output_name(raw: &str) -> String {
-    let candidate = raw
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string();
-
-    if candidate.is_empty() {
-        "app".to_string()
-    } else {
-        candidate
-    }
-}
-
-fn strip_json_comments(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut chars = input.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if in_string {
-            output.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if ch == '"' {
-            in_string = true;
-            output.push(ch);
-            continue;
-        }
-
-        if ch == '/' && matches!(chars.peek(), Some('/')) {
-            let _ = chars.next();
-            for next in chars.by_ref() {
-                if next == '\n' {
-                    output.push('\n');
-                    break;
-                }
-            }
-            continue;
-        }
-
-        output.push(ch);
-    }
-
-    output
+    out
 }
