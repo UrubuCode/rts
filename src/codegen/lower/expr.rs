@@ -668,9 +668,139 @@ fn emit_constant_load(
     Ok(TypedVal::new(val, ValTy::from_abi(member.returns)))
 }
 
+/// Emits Cranelift IR inline for an intrinsic. Returns `Ok(None)` when the
+/// intrinsic is not handled here (e.g. still pending implementation) so the
+/// caller falls back to a regular extern call.
+fn lower_intrinsic(
+    ctx: &mut FnCtx,
+    kind: crate::abi::Intrinsic,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    use crate::abi::Intrinsic;
+    use cranelift_codegen::ir::condcodes::IntCC;
+
+    // Helper: evaluate each argument and coerce to the requested scalar.
+    fn arg_f64(ctx: &mut FnCtx, call: &CallExpr, idx: usize) -> Result<cranelift_codegen::ir::Value> {
+        let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing arg {idx}"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in intrinsic call"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        Ok(to_f64(ctx, tv))
+    }
+    fn arg_i64(ctx: &mut FnCtx, call: &CallExpr, idx: usize) -> Result<cranelift_codegen::ir::Value> {
+        let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing arg {idx}"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in intrinsic call"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        Ok(ctx.coerce_to_i64(tv).val)
+    }
+
+    match kind {
+        Intrinsic::Sqrt => {
+            let x = arg_f64(ctx, call, 0)?;
+            let v = ctx.builder.ins().sqrt(x);
+            Ok(Some(TypedVal::new(v, ValTy::F64)))
+        }
+        Intrinsic::AbsF64 => {
+            let x = arg_f64(ctx, call, 0)?;
+            let v = ctx.builder.ins().fabs(x);
+            Ok(Some(TypedVal::new(v, ValTy::F64)))
+        }
+        Intrinsic::MinF64 => {
+            let a = arg_f64(ctx, call, 0)?;
+            let b = arg_f64(ctx, call, 1)?;
+            let v = ctx.builder.ins().fmin(a, b);
+            Ok(Some(TypedVal::new(v, ValTy::F64)))
+        }
+        Intrinsic::MaxF64 => {
+            let a = arg_f64(ctx, call, 0)?;
+            let b = arg_f64(ctx, call, 1)?;
+            let v = ctx.builder.ins().fmax(a, b);
+            Ok(Some(TypedVal::new(v, ValTy::F64)))
+        }
+        Intrinsic::AbsI64 => {
+            // `abs(x) = x >= 0 ? x : -x` via select; matches wrapping_abs for i64::MIN.
+            let x = arg_i64(ctx, call, 0)?;
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_neg = ctx.builder.ins().icmp(IntCC::SignedLessThan, x, zero);
+            let neg = ctx.builder.ins().ineg(x);
+            let v = ctx.builder.ins().select(is_neg, neg, x);
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        Intrinsic::MinI64 => {
+            let a = arg_i64(ctx, call, 0)?;
+            let b = arg_i64(ctx, call, 1)?;
+            let less = ctx.builder.ins().icmp(IntCC::SignedLessThan, a, b);
+            let v = ctx.builder.ins().select(less, a, b);
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        Intrinsic::MaxI64 => {
+            let a = arg_i64(ctx, call, 0)?;
+            let b = arg_i64(ctx, call, 1)?;
+            let greater = ctx.builder.ins().icmp(IntCC::SignedGreaterThan, a, b);
+            let v = ctx.builder.ins().select(greater, a, b);
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        Intrinsic::RandomF64 => {
+            // Inline xorshift64:
+            //   x = *state
+            //   x ^= x << 13; x ^= x >> 7; x ^= x << 17
+            //   *state = x
+            //   f = ((x >> 11) as f64) / 2^53
+            use cranelift_codegen::ir::MemFlags;
+            use cranelift_module::{DataDescription, Linkage};
+
+            const STATE_SYMBOL: &str = "__RTS_DATA_NS_MATH_RNG_STATE";
+            // Declare the data as an import (idempotent). We never define
+            // it here — the runtime staticlib provides the actual storage.
+            let data_id = ctx
+                .module
+                .declare_data(STATE_SYMBOL, Linkage::Import, true, false)
+                .map_err(|e| anyhow!("failed to declare {STATE_SYMBOL}: {e}"))?;
+            // declare_data for an import is fine even if called multiple
+            // times; Cranelift dedupes.
+            let _ = DataDescription::new(); // keep type in scope, no-op
+
+            let gv = ctx.module.declare_data_in_func(data_id, ctx.builder.func);
+            let ptr_ty = ctx.module.isa().pointer_type();
+            let ptr = ctx.builder.ins().global_value(ptr_ty, gv);
+
+            let x0 = ctx.builder.ins().load(cl::I64, MemFlags::new(), ptr, 0);
+            let s13 = ctx.builder.ins().ishl_imm(x0, 13);
+            let x1 = ctx.builder.ins().bxor(x0, s13);
+            let s7 = ctx.builder.ins().ushr_imm(x1, 7);
+            let x2 = ctx.builder.ins().bxor(x1, s7);
+            let s17 = ctx.builder.ins().ishl_imm(x2, 17);
+            let x3 = ctx.builder.ins().bxor(x2, s17);
+            ctx.builder.ins().store(MemFlags::new(), x3, ptr, 0);
+
+            // Take top 53 bits and divide by 2^53 as f64.
+            let bits = ctx.builder.ins().ushr_imm(x3, 11);
+            let as_f = ctx.builder.ins().fcvt_from_uint(cl::F64, bits);
+            let scale = ctx
+                .builder
+                .ins()
+                .f64const(1.0f64 / ((1u64 << 53) as f64));
+            let result = ctx.builder.ins().fmul(as_f, scale);
+            Ok(Some(TypedVal::new(result, ValTy::F64)))
+        }
+    }
+}
+
 fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {
     let (_spec, member) =
         lookup(qualified).ok_or_else(|| anyhow!("unknown namespace member `{qualified}`"))?;
+
+    // If the member has an intrinsic, emit IR inline. Falls through to the
+    // extern call only when the intrinsic is not recognised (keeps the
+    // symbol alive so reflection/FFI consumers see the exported impl).
+    if let Some(kind) = member.intrinsic {
+        if let Some(result) = lower_intrinsic(ctx, kind, call)? {
+            return Ok(result);
+        }
+    }
 
     let lowered = lower_member(member);
 
