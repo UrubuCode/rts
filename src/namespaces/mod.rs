@@ -4,6 +4,7 @@
 //! [`crate::abi::SPECS`]. No legacy dispatch path remains: every callee is
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
+pub mod bigfloat;
 pub mod fs;
 pub mod gc;
 pub mod io;
