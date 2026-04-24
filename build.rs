@@ -50,6 +50,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/string/");
     println!("cargo:rerun-if-changed=src/namespaces/process/");
     println!("cargo:rerun-if-changed=src/namespaces/os/");
+    println!("cargo:rerun-if-changed=src/namespaces/collections/");
+    println!("cargo:rerun-if-changed=src/namespaces/hash/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

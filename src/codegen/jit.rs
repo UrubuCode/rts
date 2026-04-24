@@ -171,6 +171,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::hash ──────────────────────────────────────────────
+    {
+        use crate::namespaces::hash::ops as h;
+        add_fn!("__RTS_FN_NS_HASH_HASH_STR", h::__RTS_FN_NS_HASH_HASH_STR);
+        add_fn!("__RTS_FN_NS_HASH_HASH_BYTES", h::__RTS_FN_NS_HASH_HASH_BYTES);
+        add_fn!("__RTS_FN_NS_HASH_HASH_I64", h::__RTS_FN_NS_HASH_HASH_I64);
+        add_fn!("__RTS_FN_NS_HASH_HASH_COMBINE", h::__RTS_FN_NS_HASH_HASH_COMBINE);
+    }
+
     // ── namespaces::collections ───────────────────────────────────────
     {
         use crate::namespaces::collections::*;
