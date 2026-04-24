@@ -177,6 +177,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROCESS_EXIT", exit::__RTS_FN_NS_PROCESS_EXIT);
         add_fn!("__RTS_FN_NS_PROCESS_ABORT", exit::__RTS_FN_NS_PROCESS_ABORT);
         add_fn!("__RTS_FN_NS_PROCESS_PID", info::__RTS_FN_NS_PROCESS_PID);
+        add_fn!("__RTS_FN_NS_PROCESS_ARGS_COUNT", info::__RTS_FN_NS_PROCESS_ARGS_COUNT);
+        add_fn!("__RTS_FN_NS_PROCESS_ARG_AT", info::__RTS_FN_NS_PROCESS_ARG_AT);
         add_fn!("__RTS_FN_NS_PROCESS_SPAWN", spawn::__RTS_FN_NS_PROCESS_SPAWN);
         add_fn!("__RTS_FN_NS_PROCESS_WAIT", spawn::__RTS_FN_NS_PROCESS_WAIT);
         add_fn!("__RTS_FN_NS_PROCESS_KILL", spawn::__RTS_FN_NS_PROCESS_KILL);
