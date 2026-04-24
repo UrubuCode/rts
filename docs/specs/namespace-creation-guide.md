@@ -193,3 +193,73 @@ Nao ha outro arquivo gerado; nao adicione modulos adicionais ao
   assinaturas.
 - Quando a API for observavel por TS, adicionar um teste integrado em
   `tests/` que chame `<ns>.<fn>` atraves de `rts run`.
+
+## 9. Estendendo o `HandleTable` (recursos heap)
+
+Recursos que vivem alem de uma unica chamada (sockets, arquivos abertos,
+buffers, objetos) usam sempre `namespaces::gc::handles::HandleTable`. Nao
+crie tabela paralela — o codegen depende desse espaco unico para validar
+generation+slot de handles.
+
+Para suportar um novo tipo de recurso:
+
+1. Em `src/namespaces/gc/handles.rs` adicione uma variant ao `enum Entry`,
+   por ex. `Entry::TcpStream(std::net::TcpStream)` ou `Entry::Buffer(Vec<u8>)`.
+2. No seu namespace, use o padrao "lock curto":
+
+   ```rust
+   use crate::namespaces::gc::handles::{Entry, table};
+
+   #[unsafe(no_mangle)]
+   pub extern "C" fn __RTS_FN_NS_<NS>_<NAME>_NEW(size: i64) -> u64 {
+       if size < 0 { return 0; }
+       let bytes = vec![0u8; size as usize];
+       let mut t = table().lock().expect("handle table poisoned");
+       t.alloc(Entry::Buffer(bytes))
+   }
+   ```
+
+3. Toda funcao que consome um handle deve validar via `t.get(handle)` e
+   rejeitar handles invalidos com um sentinela (`-1`, `0`, null) em vez de
+   panicar. Handles invalidos sao parte do contrato, nao bug.
+4. Se o recurso precisa de leitura nativa direta (ex.: `load`/`store` em
+   campo de objeto), exponha `<NS>_<NAME>_PTR(handle) -> U64` no modelo de
+   `__RTS_FN_NS_GC_OBJECT_PTR` — o codegen pega o ponteiro e emite
+   `load`/`store` diretos, evitando round-trip ABI por acesso.
+
+Lembre-se: `Entry::Free` nunca deve ser retornado por `get()`; a
+implementacao atual ja garante isso.
+
+## 10. Armadilhas comuns (aprendizado de implementacao)
+
+- **Cache de runtime support invalida.** Adicionar um simbolo novo
+  (`__RTS_FN_NS_<NS>_<NAME>`) nao invalida objetos ja materializados em
+  `~/.rts/toolchains/rts-runtime-objects/<target>/<hash>/`. Se o linker
+  acusar "undefined symbol", apague a pasta do target e rode qualquer
+  `rts run` — o build do runtime support roda de novo e regenera o hash.
+- **`Box::leak` para simbolos dinamicos.** Quando o simbolo depende de
+  nomes do codigo do usuario (ex.: `__RTS_USER_<Class>_<method>`), e
+  aceitavel usar `Box::leak(format!(...).into_boxed_str())` para obter
+  `&'static str`. O conjunto cresce so durante a compilacao e some com o
+  processo. Nao use isso para simbolos dos namespaces built-in — esses
+  sao literais estaticos em `abi.rs`.
+- **`StrPtr` nao e retornavel.** Se precisa devolver string, aloque um
+  `Handle` via `gc::string_new`. Funcoes que retornam `StrPtr` nao
+  compilam (`lower_member` rejeita).
+- **`AbiType::Handle` vs `AbiType::U64`.** Os dois sao `u64` no ABI C,
+  mas sinalizam intencoes diferentes: `Handle` e opaco e validado contra
+  generation; `U64` e numero/ponteiro bruto. Codegen e guards tratam
+  nullish de forma diferente (Handle rejeita, U64 coerce). Escolha
+  conscientemente.
+- **Coercoes de argumento sao responsabilidade do codegen**, nao da
+  funcao extern. Quando `io.print(42)` chega no extern, o codegen ja
+  converteu o `42` para handle de string via `gc::string_from_i64`. Sua
+  funcao recebe tipos exatos do `AbiType` declarado e nao faz coercao.
+- **Nao retorne `Result<T>` atravessando a ABI.** Use convencao de
+  sentinela (`-1`, `0` para handle invalido) e opcionalmente um par
+  `ok/err` exposto como dois simbolos separados. `Result<T>` existe como
+  ergonomia em TS (builtin packages), mas a borda C e crua.
+- **Estado compartilhado.** Quando o namespace precisa de estado mutavel
+  global, siga o padrao do `HandleTable`: `static LOCK:
+  OnceLock<Mutex<State>>` com funcao pub(super) `fn state() -> &'static
+  Mutex<State>`. Thread-local so para caches por-thread.

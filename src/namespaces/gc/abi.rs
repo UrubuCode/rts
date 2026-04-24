@@ -78,6 +78,42 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Frees the string handle. Returns 1 on success, 0 if already invalid.",
         ts_signature: "string_free(handle: number): number",
     },
+    NamespaceMember {
+        name: "object_new",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_OBJECT_NEW",
+        args: &[AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "Allocates a zeroed object buffer of `size` bytes and returns a handle.",
+        ts_signature: "object_new(size: number): number",
+    },
+    NamespaceMember {
+        name: "object_ptr",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_OBJECT_PTR",
+        args: &[AbiType::Handle],
+        returns: AbiType::U64,
+        doc: "Returns the raw pointer to the object buffer, or 0 on invalid handle.",
+        ts_signature: "object_ptr(handle: number): number",
+    },
+    NamespaceMember {
+        name: "object_size",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_OBJECT_SIZE",
+        args: &[AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Returns the byte size of the object buffer, or -1 on invalid handle.",
+        ts_signature: "object_size(handle: number): number",
+    },
+    NamespaceMember {
+        name: "object_free",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_OBJECT_FREE",
+        args: &[AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Frees the object handle. Returns 1 on success, 0 if already invalid.",
+        ts_signature: "object_free(handle: number): number",
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {

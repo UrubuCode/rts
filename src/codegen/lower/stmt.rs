@@ -36,6 +36,32 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     _ => None,
                 };
 
+                // When the annotation names a user class (e.g. `const p: Point`),
+                // remember that so `p.field` and `p.method()` resolve.
+                let ann_class = match &decl.name {
+                    Pat::Ident(id) => id.type_ann.as_ref().and_then(|t| {
+                        ts_type_name(&t.type_ann)
+                            .filter(|n| ctx.classes.contains_key(n.as_str()))
+                    }),
+                    _ => None,
+                };
+
+                // Detect class bindings from `new Foo(...)` initialisers.
+                let init_class: Option<String> = match decl.init.as_deref() {
+                    Some(swc_ecma_ast::Expr::New(n)) => match n.callee.as_ref() {
+                        swc_ecma_ast::Expr::Ident(id) => {
+                            let n = id.sym.as_str();
+                            if ctx.classes.contains_key(n) {
+                                Some(n.to_string())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+
                 let (init_val, inferred_ty) = if let Some(init) = &decl.init {
                     let tv = lower_expr(ctx, init)?;
                     (tv.val, tv.ty)
@@ -45,7 +71,10 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     (zero, ty)
                 };
 
-                let ty = if ctx.module_scope && ctx.has_global(&name) {
+                let class_name = ann_class.or(init_class);
+                let ty = if class_name.is_some() {
+                    ValTy::Handle
+                } else if ctx.module_scope && ctx.has_global(&name) {
                     ctx.var_ty(&name).unwrap_or(ann_ty.unwrap_or(inferred_ty))
                 } else {
                     ann_ty.unwrap_or(inferred_ty)
@@ -56,7 +85,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                         let tv = TypedVal::new(init_val, inferred_ty);
                         ctx.coerce_to_i32(tv).val
                     }
-                    ValTy::I64 => {
+                    ValTy::I64 | ValTy::Handle => {
                         let tv = TypedVal::new(init_val, inferred_ty);
                         ctx.coerce_to_i64(tv).val
                     }
@@ -67,7 +96,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     // Top-level declarations initialize module globals.
                     ctx.write_local(&name, init_coerced)?;
                 } else {
-                    ctx.declare_local(&name, ty, init_coerced);
+                    ctx.declare_local_of_class(&name, ty, init_coerced, class_name);
                 }
             }
             Ok(false)
@@ -343,8 +372,16 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
         Stmt::Return(ret_stmt) => {
             if let Some(arg) = &ret_stmt.arg {
                 let tv = lower_expr(ctx, arg)?;
-                let as_i64 = ctx.coerce_to_i64(tv);
-                ctx.builder.ins().return_(&[as_i64.val]);
+                let coerced = match ctx.current_return_ty {
+                    Some(ValTy::F64) => {
+                        let v = crate::codegen::lower::expr::coerce_to_f64_val(ctx, tv);
+                        TypedVal::new(v, ValTy::F64)
+                    }
+                    Some(ValTy::I32) => ctx.coerce_to_i32(tv),
+                    Some(ValTy::Handle) => ctx.coerce_to_handle(tv)?,
+                    Some(ValTy::I64) | Some(ValTy::Bool) | None => ctx.coerce_to_i64(tv),
+                };
+                ctx.builder.ins().return_(&[coerced.val]);
             } else {
                 ctx.builder.ins().return_(&[]);
             }
@@ -406,6 +443,18 @@ fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
             _ => return None,
         };
         return Some(ValTy::from_annotation(name));
+    }
+    None
+}
+
+/// Extracts the identifier name of a simple `TsTypeRef` annotation, e.g.
+/// returns `Some("Point")` for `: Point` — used to detect class bindings.
+fn ts_type_name(ty: &swc_ecma_ast::TsType) -> Option<String> {
+    use swc_ecma_ast::TsType;
+    if let TsType::TsTypeRef(r) = ty {
+        if let swc_ecma_ast::TsEntityName::Ident(id) = &r.type_name {
+            return Some(id.sym.as_str().to_string());
+        }
     }
     None
 }

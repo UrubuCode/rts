@@ -6,4 +6,5 @@
 
 pub mod abi;
 pub mod handles;
+pub mod object_pool;
 pub mod string_pool;
