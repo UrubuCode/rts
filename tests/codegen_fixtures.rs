@@ -114,3 +114,8 @@ fn fixture_function_expressions() {
 fn fixture_arrow_functions() {
     run_fixture("arrow_functions");
 }
+
+#[test]
+fn fixture_bitwise_ops() {
+    run_fixture("bitwise_ops");
+}
