@@ -141,6 +141,11 @@ fn fixture_exponentiation() {
 }
 
 #[test]
+fn fixture_compound_assign() {
+    run_fixture("compound_assign");
+}
+
+#[test]
 fn fixture_tail_call() {
     run_fixture("tail_call");
 }
