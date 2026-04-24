@@ -91,6 +91,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         };
     }
 
+    // ── runtime error slot (used by try/catch/throw in codegen) ──────
+    {
+        use crate::namespaces::gc::error::*;
+        add_fn!("__RTS_FN_RT_ERROR_SET", __RTS_FN_RT_ERROR_SET);
+        add_fn!("__RTS_FN_RT_ERROR_GET", __RTS_FN_RT_ERROR_GET);
+        add_fn!("__RTS_FN_RT_ERROR_CLEAR", __RTS_FN_RT_ERROR_CLEAR);
+    }
+
     // ── namespaces::gc ────────────────────────────────────────────────
     use crate::namespaces::gc::string_pool::*;
     add_fn!("__RTS_FN_NS_GC_STRING_NEW", __RTS_FN_NS_GC_STRING_NEW);

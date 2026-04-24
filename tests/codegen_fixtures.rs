@@ -156,6 +156,11 @@ fn fixture_nullish_optional() {
 }
 
 #[test]
+fn fixture_try_catch() {
+    run_fixture("try_catch");
+}
+
+#[test]
 fn fixture_tail_call() {
     run_fixture("tail_call");
 }
