@@ -146,6 +146,11 @@ fn fixture_compound_assign() {
 }
 
 #[test]
+fn fixture_typeof_void_delete() {
+    run_fixture("typeof_void_delete");
+}
+
+#[test]
 fn fixture_tail_call() {
     run_fixture("tail_call");
 }

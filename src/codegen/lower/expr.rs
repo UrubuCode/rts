@@ -230,6 +230,32 @@ fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
 // ── Unary ─────────────────────────────────────────────────────────────────
 
 fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Result<TypedVal> {
+    // `typeof`, `void`, `delete` trocam semantica do operando — nao
+    // avaliamos antes pra evitar side effects em `typeof ident` e
+    // controlar como `void` descarta.
+    match u.op {
+        UnaryOp::TypeOf => return lower_typeof(ctx, &u.arg),
+        UnaryOp::Void => {
+            // Avalia pelo side effect, descarta resultado, retorna
+            // sentinel 0 no lane I64 (RTS nao tem `undefined` real).
+            let _ = lower_expr(ctx, &u.arg)?;
+            return Ok(TypedVal::new(
+                ctx.builder.ins().iconst(cl::I64, 0),
+                ValTy::I64,
+            ));
+        }
+        UnaryOp::Delete => {
+            // Non-strict JS: `delete x` em variavel nao-property e
+            // no-op, retorno true. Sem property access ainda; basta
+            // emitir true.
+            return Ok(TypedVal::new(
+                ctx.builder.ins().iconst(cl::I64, 1),
+                ValTy::Bool,
+            ));
+        }
+        _ => {}
+    }
+
     let operand = lower_expr(ctx, &u.arg)?;
     match u.op {
         UnaryOp::Minus => match operand.ty {
@@ -269,6 +295,23 @@ fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Result<TypedVal>
         }
         op => Err(anyhow!("unsupported unary op: {op:?}")),
     }
+}
+
+/// Emite uma string literal equivalente a `typeof <expr>` em JS, usando
+/// o `ValTy` que o codegen consegue inferir localmente. E static/estatico
+/// ao contrario do JS runtime-dispatched — suficiente para o grosso dos
+/// casos (branches baseadas em tipo de variavel declarada). Operandos
+/// que nao resolvem tipo estatico caem em `"number"` por default, que e
+/// o que `typeof` retornaria para o lane I64 usado pelo RTS em runtime.
+fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
+    // Evalua pelo side effect (membro call, etc), descarta o valor.
+    let tv = lower_expr(ctx, operand)?;
+    let ty_str: &str = match tv.ty {
+        ValTy::Bool => "boolean",
+        ValTy::Handle => "string",
+        ValTy::F64 | ValTy::I32 | ValTy::I64 => "number",
+    };
+    ctx.emit_str_handle(ty_str.as_bytes())
 }
 
 // ── Template literals ─────────────────────────────────────────────────────
