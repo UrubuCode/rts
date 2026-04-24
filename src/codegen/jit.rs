@@ -171,6 +171,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::string ────────────────────────────────────────────
+    use crate::namespaces::string::*;
+    add_fn!("__RTS_FN_NS_STRING_CONTAINS", search::__RTS_FN_NS_STRING_CONTAINS);
+    add_fn!("__RTS_FN_NS_STRING_STARTS_WITH", search::__RTS_FN_NS_STRING_STARTS_WITH);
+    add_fn!("__RTS_FN_NS_STRING_ENDS_WITH", search::__RTS_FN_NS_STRING_ENDS_WITH);
+    add_fn!("__RTS_FN_NS_STRING_FIND", search::__RTS_FN_NS_STRING_FIND);
+    add_fn!("__RTS_FN_NS_STRING_TO_UPPER", transform::__RTS_FN_NS_STRING_TO_UPPER);
+    add_fn!("__RTS_FN_NS_STRING_TO_LOWER", transform::__RTS_FN_NS_STRING_TO_LOWER);
+    add_fn!("__RTS_FN_NS_STRING_TRIM", transform::__RTS_FN_NS_STRING_TRIM);
+    add_fn!("__RTS_FN_NS_STRING_TRIM_START", transform::__RTS_FN_NS_STRING_TRIM_START);
+    add_fn!("__RTS_FN_NS_STRING_TRIM_END", transform::__RTS_FN_NS_STRING_TRIM_END);
+    add_fn!("__RTS_FN_NS_STRING_REPEAT", transform::__RTS_FN_NS_STRING_REPEAT);
+    add_fn!("__RTS_FN_NS_STRING_REPLACE", replace::__RTS_FN_NS_STRING_REPLACE);
+    add_fn!("__RTS_FN_NS_STRING_REPLACEN", replace::__RTS_FN_NS_STRING_REPLACEN);
+    add_fn!("__RTS_FN_NS_STRING_CHAR_COUNT", split::__RTS_FN_NS_STRING_CHAR_COUNT);
+    add_fn!("__RTS_FN_NS_STRING_BYTE_LEN", split::__RTS_FN_NS_STRING_BYTE_LEN);
+    add_fn!("__RTS_FN_NS_STRING_CHAR_AT", split::__RTS_FN_NS_STRING_CHAR_AT);
+    add_fn!("__RTS_FN_NS_STRING_CHAR_CODE_AT", split::__RTS_FN_NS_STRING_CHAR_CODE_AT);
+
     // ── namespaces::buffer ────────────────────────────────────────────
     use crate::namespaces::buffer::ops as buf;
     add_fn!("__RTS_FN_NS_BUFFER_ALLOC", buf::__RTS_FN_NS_BUFFER_ALLOC);
