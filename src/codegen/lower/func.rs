@@ -235,6 +235,12 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
                 ValTy::I64
             }
         }
+        Expr::Cond(c) => {
+            let l = infer_expr_ty(Some(&c.cons));
+            let r = infer_expr_ty(Some(&c.alt));
+            if l == r { l } else { ValTy::I64 }
+        }
+        Expr::Paren(p) => infer_expr_ty(Some(&p.expr)),
         _ => ValTy::I64,
     }
 }
