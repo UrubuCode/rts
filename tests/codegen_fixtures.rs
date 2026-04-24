@@ -129,3 +129,8 @@ fn fixture_ternary() {
 fn fixture_f64_modulo() {
     run_fixture("f64_modulo");
 }
+
+#[test]
+fn fixture_switch_jump_table() {
+    run_fixture("switch_jump_table");
+}
