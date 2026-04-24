@@ -124,3 +124,8 @@ fn fixture_bitwise_ops() {
 fn fixture_ternary() {
     run_fixture("ternary");
 }
+
+#[test]
+fn fixture_f64_modulo() {
+    run_fixture("f64_modulo");
+}
