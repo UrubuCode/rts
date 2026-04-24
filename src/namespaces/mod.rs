@@ -7,3 +7,4 @@
 pub mod fs;
 pub mod gc;
 pub mod io;
+pub mod math;

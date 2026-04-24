@@ -4,3 +4,5 @@ pub mod gc;
 pub mod io;
 #[path = "fs/rt.rs"]
 pub mod fs;
+#[path = "math/rt.rs"]
+pub mod math;
