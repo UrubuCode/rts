@@ -14,3 +14,5 @@ pub mod time;
 pub mod env;
 #[path = "path/rt.rs"]
 pub mod path;
+#[path = "buffer/rt.rs"]
+pub mod buffer;

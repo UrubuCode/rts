@@ -141,6 +141,21 @@ fn fixture_exponentiation() {
 }
 
 #[test]
+fn fixture_compound_assign() {
+    run_fixture("compound_assign");
+}
+
+#[test]
+fn fixture_typeof_void_delete() {
+    run_fixture("typeof_void_delete");
+}
+
+#[test]
+fn fixture_nullish_optional() {
+    run_fixture("nullish_optional");
+}
+
+#[test]
 fn fixture_tail_call() {
     run_fixture("tail_call");
 }
