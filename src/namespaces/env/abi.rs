@@ -1,0 +1,82 @@
+//! `env` namespace — ABI registration.
+
+use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+
+pub const MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "get_var",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_ENV_GET_VAR",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Returns a string handle with the environment variable's value, or 0 when absent.",
+        ts_signature: "get_var(name: string): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "set_var",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_ENV_SET_VAR",
+        args: &[AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Void,
+        doc: "Sets an environment variable.",
+        ts_signature: "set_var(name: string, value: string): void",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "remove_var",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_ENV_REMOVE_VAR",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Void,
+        doc: "Removes an environment variable.",
+        ts_signature: "remove_var(name: string): void",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "args_count",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_ENV_ARGS_COUNT",
+        args: &[],
+        returns: AbiType::I64,
+        doc: "Number of command-line arguments (including argv[0]).",
+        ts_signature: "args_count(): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "arg_at",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_ENV_ARG_AT",
+        args: &[AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "Returns the argv entry at `index` as a string handle; 0 when out of range.",
+        ts_signature: "arg_at(index: number): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "cwd",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_ENV_CWD",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Returns the current working directory as a string handle.",
+        ts_signature: "cwd(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "set_cwd",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_ENV_SET_CWD",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::I64,
+        doc: "Changes the current working directory. Returns 0 on success, -1 on error.",
+        ts_signature: "set_cwd(path: string): number",
+        intrinsic: None,
+    },
+];
+
+pub const SPEC: NamespaceSpec = NamespaceSpec {
+    name: "env",
+    doc: "Environment variables, process argv, and current working directory.",
+    members: MEMBERS,
+};
