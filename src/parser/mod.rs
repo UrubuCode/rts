@@ -5,12 +5,12 @@ pub mod span;
 use anyhow::{Result, anyhow};
 use swc_common::{FileName, SourceMap, SourceMapper, Span as SwcSpan, Spanned, sync::Lrc};
 use swc_ecma_ast::{
-    Accessibility, BlockStmt, Class as SwcClass, ClassDecl as SwcClassDecl,
+    Accessibility, ArrowExpr, BlockStmt, Class as SwcClass, ClassDecl as SwcClassDecl,
     ClassMember as SwcClassMember, Decl, DefaultDecl, Expr, FnDecl as SwcFnDecl,
     Function as SwcFunction, ImportDecl as SwcImportDecl, ImportSpecifier, Lit, ModuleDecl,
     ModuleExportName, ModuleItem, Param as SwcParam, ParamOrTsParamProp, Pat,
     Program as SwcProgram, PropName, Stmt, TsInterfaceDecl as SwcTsInterfaceDecl, TsParamProp,
-    TsParamPropParam, TsTypeAnn, TsTypeElement,
+    TsParamPropParam, TsTypeAnn, TsTypeElement, VarDecl,
 };
 use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
 

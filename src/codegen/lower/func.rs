@@ -346,6 +346,7 @@ fn compile_user_fn(
             user_fns,
             false,
         );
+        fn_ctx.return_ty = info.ret;
 
         // Bind parameters as locals.
         for (i, param) in fn_decl.parameters.iter().enumerate() {

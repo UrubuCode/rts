@@ -104,3 +104,8 @@ fn fixture_template_literals() {
 fn fixture_let_const_var() {
     run_fixture("let_const_var");
 }
+
+#[test]
+fn fixture_function_expressions() {
+    run_fixture("function_expressions");
+}
