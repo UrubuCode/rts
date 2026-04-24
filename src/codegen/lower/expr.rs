@@ -580,15 +580,14 @@ fn lower_div(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> 
 fn lower_mod(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
     let val = match lhs.ty {
         ValTy::F64 => {
-            // f64 remainder not directly in Cranelift; use libcall or manual
-            // For now emit integer truncation path
-            let li = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, lhs.val);
-            let ri = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, rhs.val);
-            let rem = ctx.builder.ins().srem(li, ri);
-            return Ok(TypedVal::new(
-                ctx.builder.ins().fcvt_from_sint(cl::F64, rem),
-                ValTy::F64,
-            ));
+            // Cranelift has no native f64 remainder. Delegate to libc `fmod`,
+            // which is available on every supported target (msvcrt on
+            // Windows, libc elsewhere). Matches JS `%` semantics on finite
+            // operands and keeps the fractional part.
+            let fref = ctx.get_extern("fmod", &[cl::F64, cl::F64], Some(cl::F64))?;
+            let inst = ctx.builder.ins().call(fref, &[lhs.val, rhs.val]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(TypedVal::new(v, ValTy::F64));
         }
         ValTy::I32 => ctx.builder.ins().srem(lhs.val, rhs.val),
         _ => ctx.builder.ins().srem(lhs.val, rhs.val),
