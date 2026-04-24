@@ -269,10 +269,100 @@ fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
 
 // ── Binary ────────────────────────────────────────────────────────────────
 
+/// Extracts a small integer literal (`i64` fits) from an expression,
+/// including `-n` unary on a numeric literal. Returns `None` for anything
+/// the imm form can't represent.
+fn as_int_literal(expr: &Expr) -> Option<i64> {
+    match expr {
+        Expr::Lit(Lit::Num(n)) => {
+            let v = n.value;
+            // Must be exact integer, finite, fits in i64.
+            if v.fract() != 0.0 || !v.is_finite() {
+                return None;
+            }
+            // Literals written with a decimal point are f64 — not an imm candidate.
+            if let Some(raw) = n.raw.as_ref() {
+                if raw.as_bytes().iter().any(|&b| b == b'.' || b == b'e' || b == b'E') {
+                    return None;
+                }
+            }
+            if v >= i64::MIN as f64 && v <= i64::MAX as f64 {
+                Some(v as i64)
+            } else {
+                None
+            }
+        }
+        Expr::Unary(u) if matches!(u.op, UnaryOp::Minus) => {
+            // Recurse: `-5` is a literal we can represent as imm.
+            as_int_literal(&u.arg).and_then(|v| v.checked_neg())
+        }
+        _ => None,
+    }
+}
+
+/// Attempts to lower `lhs OP literal` using Cranelift imm forms. Returns
+/// `Ok(None)` if the op isn't supported by an imm variant or if the
+/// operand shape doesn't match. Keeps the result ValTy aligned with the
+/// lhs type so callers downstream see the same tag they would from the
+/// materialised path.
+fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
+    // Pick out a literal on either side; for commutative ops we still
+    // evaluate lhs first to preserve TS evaluation order.
+    let (const_side, var_side, imm_is_rhs) = match as_int_literal(&bin.right) {
+        Some(v) => (v, bin.left.as_ref(), true),
+        None => match as_int_literal(&bin.left) {
+            // Non-commutative ops (sub/div/mod/shifts) cannot swap operands.
+            Some(v)
+                if matches!(
+                    bin.op,
+                    BinaryOp::Add | BinaryOp::Mul | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor
+                ) =>
+            {
+                (v, bin.right.as_ref(), false)
+            }
+            _ => return Ok(None),
+        },
+    };
+
+    let lhs = lower_expr(ctx, var_side)?;
+    // Only operate on integer-ish lanes; floats would need fadd_imm which
+    // Cranelift doesn't expose.
+    if lhs.ty == ValTy::F64 {
+        // Restore the original path by re-entering the generic code: caller
+        // will repeat lower_expr on var_side which is cheap (constant fold-
+        // friendly) but we'd rather avoid double-eval side effects. Since
+        // `as_int_literal` only fires on pure literals, the side-effect of
+        // re-lowering the literal side is nil. Signal "no imm" instead.
+        return Ok(None);
+    }
+    let lhs_i64 = ctx.coerce_to_i64(lhs).val;
+
+    let val = match bin.op {
+        BinaryOp::Add => ctx.builder.ins().iadd_imm(lhs_i64, const_side),
+        BinaryOp::Sub if imm_is_rhs => ctx.builder.ins().iadd_imm(lhs_i64, -const_side),
+        BinaryOp::Mul => ctx.builder.ins().imul_imm(lhs_i64, const_side),
+        BinaryOp::BitAnd => ctx.builder.ins().band_imm(lhs_i64, const_side),
+        BinaryOp::BitOr => ctx.builder.ins().bor_imm(lhs_i64, const_side),
+        BinaryOp::BitXor => ctx.builder.ins().bxor_imm(lhs_i64, const_side),
+        BinaryOp::LShift if imm_is_rhs => ctx.builder.ins().ishl_imm(lhs_i64, const_side),
+        BinaryOp::RShift if imm_is_rhs => ctx.builder.ins().sshr_imm(lhs_i64, const_side),
+        BinaryOp::ZeroFillRShift if imm_is_rhs => ctx.builder.ins().ushr_imm(lhs_i64, const_side),
+        _ => return Ok(None),
+    };
+    Ok(Some(TypedVal::new(val, ValTy::I64)))
+}
+
 fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // Short-circuit logical ops
     if matches!(bin.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr) {
         return lower_logical(ctx, bin);
+    }
+
+    // Immediate-form peephole: when RHS is a small integer literal and the
+    // op has an `_imm` variant, skip the `iconst` and call the imm form.
+    // Limits to i64-backed integer ops; float / string paths fall through.
+    if let Some(result) = try_bin_imm(ctx, bin)? {
+        return Ok(result);
     }
 
     let lhs = lower_expr(ctx, &bin.left)?;
