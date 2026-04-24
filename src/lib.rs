@@ -6,6 +6,7 @@
 //! the AOT pipeline are being rebuilt on top of this foundation.
 
 pub mod abi;
+pub mod cache;
 pub mod cli;
 pub mod codegen;
 pub mod compile_options;
@@ -18,4 +19,4 @@ pub mod pipeline;
 pub mod runtime;
 pub mod type_system;
 
-mod runtime_objects;
+pub(crate) mod runtime_objects;

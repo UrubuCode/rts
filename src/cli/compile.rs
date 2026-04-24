@@ -36,12 +36,14 @@ pub fn command(
         }
     }
 
+    let cache_tag = if outcome.from_cache { " [cached]" } else { "" };
     println!(
-        "wrote {}  ({} byte(s), {} call(s) emitted, {} warning(s))",
+        "wrote {}  ({} byte(s), {} call(s) emitted, {} warning(s)){}",
         outcome.binary.path.display(),
         outcome.compile.object.bytes_written,
         outcome.compile.object.emitted_calls,
         outcome.compile.warnings.len(),
+        cache_tag,
     );
     println!(
         "linker backend: {}, format: {}",

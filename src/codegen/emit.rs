@@ -4,7 +4,7 @@
 //! arithmetic, and namespace calls — into a native `.o` file with a `main`
 //! entry point.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
@@ -26,6 +26,8 @@ pub fn compile_program_to_object(
 
     let warnings = compile_program(program, &mut module, &mut extern_cache, &mut data_counter)?;
 
+    let used_namespaces = collect_used_namespaces(&extern_cache);
+
     let product = module.finish();
     let bytes = product
         .emit()
@@ -38,14 +40,40 @@ pub fn compile_program_to_object(
     std::fs::write(output_path, &bytes)
         .with_context(|| format!("failed to write object to {}", output_path.display()))?;
 
+    let emitted_calls = extern_cache
+        .keys()
+        .filter(|s| s.starts_with("__RTS_FN_NS_") || s.starts_with("__RTS_CONST_NS_"))
+        .count();
+
     Ok((
         ObjectArtifact {
             path: output_path.to_path_buf(),
             bytes_written: bytes.len(),
-            emitted_calls: 0,
+            emitted_calls,
+            used_namespaces,
         },
         warnings,
     ))
+}
+
+fn collect_used_namespaces(
+    extern_cache: &HashMap<&'static str, cranelift_module::FuncId>,
+) -> HashSet<String> {
+    extern_cache
+        .keys()
+        .filter_map(|sym| namespace_from_symbol(sym))
+        .collect()
+}
+
+fn namespace_from_symbol(symbol: &str) -> Option<String> {
+    let rest = symbol
+        .strip_prefix("__RTS_FN_NS_")
+        .or_else(|| symbol.strip_prefix("__RTS_CONST_NS_"))?;
+    let ns_upper = rest.split('_').next()?;
+    if ns_upper.is_empty() {
+        return None;
+    }
+    Some(ns_upper.to_ascii_lowercase())
 }
 
 fn build_module() -> Result<ObjectModule> {

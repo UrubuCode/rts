@@ -1,15 +1,9 @@
-//! End-to-end compile pipeline for the bootstrap MVP.
-//!
-//! Responsibilities:
-//! 1. Read + parse the source file.
-//! 2. Emit a user object via `codegen`.
-//! 3. Resolve RTS runtime support objects (`.o` / `.obj`).
-//! 4. Optionally link the user object + runtime + CRT into a final binary.
-
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use crate::cache::ObjCache;
 use crate::codegen::ObjectArtifact;
 use crate::compile_options::CompileOptions;
 use crate::linker::{self, LinkedBinary};
@@ -27,6 +21,7 @@ pub struct LinkOutcome {
     pub compile: CompileOutcome,
     pub binary: LinkedBinary,
     pub runtime_objects: Vec<PathBuf>,
+    pub from_cache: bool,
 }
 
 /// Parses `input` and emits an object file next to it.
@@ -59,28 +54,76 @@ pub fn compile_source(
     })
 }
 
-/// Full compile + link path: produces an executable at `output_binary`.
+/// Full compile + link: produces an executable at `output_binary`.
+///
+/// User object and namespace objects are cached under
+/// `node_modules/.rts/` relative to the nearest `package.json`.
 pub fn build_executable(
     input: &Path,
     output_binary: &Path,
     options: CompileOptions,
 ) -> Result<LinkOutcome> {
-    let user_object = output_binary.with_extension("o");
-    let compile = compile_file(input, &user_object, options)?;
+    let cache = ObjCache::for_input(input);
 
-    let deps_dir = output_binary.parent().unwrap_or_else(|| Path::new("."));
-    let runtime_objects = crate::runtime_objects::resolve_runtime_support_objects(deps_dir)
-        .context("failed to resolve RTS runtime support objects")?;
+    let (obj_path, compile_outcome, from_cache) =
+        match cache.lookup(input).context("cache lookup failed")? {
+            Some(hit) => {
+                let fake_artifact = ObjectArtifact {
+                    path: hit.obj_path.clone(),
+                    bytes_written: std::fs::metadata(&hit.obj_path)
+                        .map(|m| m.len() as usize)
+                        .unwrap_or(0),
+                    emitted_calls: 0,
+                    used_namespaces: hit.used_namespaces,
+                };
+                let outcome = CompileOutcome {
+                    input: input.to_path_buf(),
+                    object: fake_artifact,
+                    warnings: vec![],
+                };
+                (hit.obj_path, outcome, true)
+            }
+            None => {
+                let tmp_obj = std::env::temp_dir()
+                    .join(format!("rts_compile_{}.o", std::process::id()));
+                let compile = compile_file(input, &tmp_obj, options)?;
+                let used_ns = compile.object.used_namespaces.clone();
+                let cached_path = cache
+                    .store(input, &tmp_obj, &used_ns)
+                    .context("failed to store compiled object in cache")?;
+                let _ = std::fs::remove_file(&tmp_obj);
+                (cached_path, compile, false)
+            }
+        };
 
-    let mut inputs = Vec::with_capacity(1 + runtime_objects.len());
-    inputs.push(compile.object.path.clone());
-    inputs.extend(runtime_objects.iter().cloned());
+    let runtime_archive =
+        crate::runtime_objects::extract_runtime_archive(&cache.runtime_dir())
+            .context("failed to extract runtime archive")?;
+
+    let inputs = vec![obj_path, runtime_archive.clone()];
+
     let binary = linker::link_objects_to_binary(&inputs, output_binary)
-        .context("linker failed while combining user object + RTS runtime")?;
+        .context("linker failed")?;
 
     Ok(LinkOutcome {
-        compile,
+        compile: compile_outcome,
         binary,
-        runtime_objects,
+        runtime_objects: vec![runtime_archive],
+        from_cache,
     })
+}
+
+/// Returns the set of namespaces inferred from a pre-compiled object's
+/// extern symbols without re-running codegen.
+pub fn namespaces_from_symbols(symbols: &HashSet<String>) -> HashSet<String> {
+    symbols
+        .iter()
+        .filter_map(|s| {
+            let rest = s
+                .strip_prefix("__RTS_FN_NS_")
+                .or_else(|| s.strip_prefix("__RTS_CONST_NS_"))?;
+            let ns = rest.split('_').next()?;
+            if ns.is_empty() { None } else { Some(ns.to_ascii_lowercase()) }
+        })
+        .collect()
 }

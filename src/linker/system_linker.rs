@@ -140,6 +140,9 @@ fn build_linker_args(
             // `mainCRTStartup` initialises the runtime and calls into it.
             args.push("/entry:mainCRTStartup".to_string());
             args.push("/subsystem:console".to_string());
+            // Dead code / COMDAT elimination — strips unused namespace functions.
+            args.push("/OPT:REF".to_string());
+            args.push("/OPT:ICF".to_string());
             args.push(format!("/out:{}", output_path.display()));
             for object_path in object_paths {
                 args.push(object_path.display().to_string());
@@ -163,6 +166,8 @@ fn build_linker_args(
             for object_path in object_paths {
                 args.push(object_path.display().to_string());
             }
+            // Strip unreferenced sections — removes unused namespace functions.
+            args.push("--gc-sections".to_string());
             Ok(args)
         }
         TargetFlavor::MachO => {
@@ -176,6 +181,8 @@ fn build_linker_args(
             for object_path in object_paths {
                 args.push(object_path.display().to_string());
             }
+            // Strip unreferenced symbols — removes unused namespace functions.
+            args.push("-dead_strip".to_string());
             Ok(args)
         }
     }
