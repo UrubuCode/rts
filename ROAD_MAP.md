@@ -24,7 +24,8 @@ Convergir para o modelo da `main` (pipeline completo + cache), mantendo a organi
 - [x] Namespaces `io`, `fs`, `gc` completos no fluxo novo.
 - [x] Declaracoes TypeScript sincronizadas a partir da ABI nova.
 - [x] Namespaces adicionais consolidados: `math` (27 membros + 4 constantes),
-      `bigfloat` (decimal 30 digitos).
+      `bigfloat` (decimal 30 digitos), `time`, `env`, `path`, `buffer`,
+      `string`, `process`, `os`, `collections` — 13 namespaces total.
 
 ---
 
@@ -32,6 +33,7 @@ Convergir para o modelo da `main` (pipeline completo + cache), mantendo a organi
 
 ### Concluido
 
+Codegen:
 - [x] Intrinsics inline (#87)
 - [x] f64 modulo via fmod (#89)
 - [x] Switch jump table (#91)
@@ -41,14 +43,36 @@ Convergir para o modelo da `main` (pipeline completo + cache), mantendo a organi
 - [x] First-class function pointers (#97 fase 1)
 - [x] MemFlags::trusted (#98)
 - [x] stack_slot helper (#99)
+- [x] Compound assign (#48)
+- [x] Ternario (#49)
+- [x] Bitwise ops (#47)
+- [x] Exponentiation (#52)
+- [x] `typeof`/`void`/`delete` (#51)
+- [x] `??` e optional call `?.()` (#50)
+- [x] Template literals (#46)
+- [x] let/const scoping (#44)
+- [x] Function/arrow expressions (#55, #56)
+
+Namespaces:
+- [x] math (#20), time (#14), env (#12), path (#13)
+- [x] buffer (#22), string (#25), process (#15), os (#19)
+- [x] collections (#26), bigfloat
 
 ### Pendente
 
+Codegen:
 - [ ] #96 DWARF debug info
 - [ ] #97 fases 2/3 — arrow como valor + captura de escopo externo
 - [ ] #90 loop block params — deferred; SSA atual ja funcional
-- [ ] Novos namespaces sobre o contrato atual (#12-#39: env, path, time, process,
-      net, thread, etc)
+- [ ] #92 autovec — fechada como inviavel sem loop vectorizer
+- [ ] #53 object literals, #54 array literals — desbloqueia classes/HOF idiomatico
+- [ ] #62 try/catch/throw — error handling
+- [ ] #60/#61 for-of / for-in
+
+Namespaces:
+- [ ] #23 fmt, #21 hash, #24 crypto, #28 regex
+- [ ] #16 net, #17 thread, #18 channel, #27 sync
+- [ ] #29-#39 (ffi, atomic, mem, ptr, num, hint, alloc, task, mpmc, simd, backtrace)
 
 Regra: nao juntar refactor grande e mudanca de comportamento no mesmo lote.
 

@@ -10,7 +10,17 @@ os namespaces builtin. Ha dois caminhos de execucao:
 - **AOT** (`rts compile`) — emite object file, linka com o linker do sistema,
   produz executavel standalone.
 
-Namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`.
+Namespaces ativos (13): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
+`buffer`, `string`, `process`, `os`, `collections`.
+
+**Observação de perf (Windows, `rts_simple.ts`, 10 runs):**
+
+| Runner          | Mediana | vs Bun           |
+|-----------------|---------|------------------|
+| RTS (compiled)  |  15 ms  | **5.9× faster**  |
+| RTS (run, JIT)  |  22 ms  | **4.1× faster**  |
+| Bun             |  88 ms  | —                |
+| Node            | 118 ms  | 0.75× slower     |
 
 ## Arquitetura
 
@@ -31,9 +41,18 @@ src/
   namespaces/        Implementacoes dos namespaces builtin
     io/              print, eprint, stdout/stderr/stdin
     fs/              read, write, metadata, dir, copy, rename, ...
-    gc/              HandleTable (slab + generation) + string pool
+    gc/              HandleTable (slab + generation) + string pool;
+                     Entry enumera String/BigFixed/Buffer/ProcessChild/Map/Vec
     math/            f64/i64 intrinsics + xorshift64 PRNG + constantes
     bigfloat/        decimal fixed-point via i128 (~30 digitos)
+    time/            monotonic clock, wall clock, sleep
+    env/             get/set/remove vars, argv, cwd
+    path/            join, parent, file_name, stem, ext, normalize, with_ext
+    buffer/          Vec<u8> via HandleTable (alloc/read/write/copy/fill)
+    string/          contains, trim, to_upper/lower, replace, char_count, find
+    process/         exit/abort/pid, argv aliases, spawn/wait/kill
+    os/              platform, arch, family, home/temp/config/cache_dir
+    collections/     HashMap<string, i64> e Vec<i64> via HandleTable
     <ns>/mod.rs      import map
     <ns>/abi.rs      tabela estatica de NamespaceMember
     <ns>/rt.rs       re-exports para o runtime staticlib
@@ -55,7 +74,8 @@ Pipeline JIT: `Source TS -> Parser (SWC) -> Codegen Cranelift -> JITModule in-me
 ## Contrato ABI
 
 - Fonte unica: `src/abi/`.
-- `abi::SPECS` lista os namespaces ativos (hoje: `io`, `fs`, `gc`, `math`, `bigfloat`).
+- `abi::SPECS` lista os 13 namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`,
+  `time`, `env`, `path`, `buffer`, `string`, `process`, `os`, `collections`.
 - Cada membro declara nome, parametros, retorno via `AbiType`, e opcionalmente
   um `Intrinsic` que permite ao codegen emitir IR inline ao inves de call extern
   (usado em `math.sqrt`, `math.random_f64`, etc).
@@ -81,22 +101,29 @@ Suportadas no codegen:
 
 - **Controle de fluxo**: if/else, while, do-while, for, switch (com jump table
   nativa quando todos os cases sao literais inteiros), break/continue.
-- **Expressoes**: aritmetica (+ - * / %), bitwise (`& | ^ ~ << >> >>>`),
-  ternario (`a ? b : c`), logicos (&& ||), comparacoes, assignment, template
-  literals (com interpolacao de qualquer tipo).
+- **Expressoes**: aritmetica (`+ - * / % **`), bitwise (`& | ^ ~ << >> >>>`),
+  ternario (`a ? b : c`), logicos (`&& || ??`), comparacoes, assignment,
+  compound assignment (`+= -= *= ... **=`), template literals (com
+  interpolacao de qualquer tipo), `typeof` / `void` / `delete`, optional
+  call (`fn?.()`), exponenciacao (`a ** b` via libc pow), modulo f64
+  (`a % b` via libc fmod).
 - **Funcoes**: declaracao, `function` expression, arrow functions (bloco ou
   expressao), tail call optimization (`return f(x)` vira `return_call`),
-  ponteiros de funcao como valores de primeira classe (callbacks).
+  ponteiros de funcao como valores de primeira classe (callbacks, higher-
+  order functions como `apply(fn, x)` e `compose(f, g, x)`).
 - **Escopo**: `let`/`const`/`var` com semantica de bloco; `const` impede
   reassignment.
 - **Namespaces**: `import { io, math, ... } from "rts"` + `io.print(...)`,
   `math.sqrt(x)`, etc. Constantes via `math.PI`, `math.E`, sem parens.
 - **Big decimal**: `bigfloat.add/sub/mul/div/sqrt` com handles de ~30 digitos
-  decimais. Suficiente para calcular pi com 29 digitos corretos.
+  decimais. Suficiente para calcular pi com 29 digitos corretos via Machin.
+- **Containers**: `collections.map_*` e `collections.vec_*` via handles
+  (HashMap<string, i64> e Vec<i64>), `buffer.alloc/read/write` pra bytes.
 
 Nao suportado ainda: `class`, `try/catch`, `async/await`, generators,
-destructuring, spread/rest, regex, object e array literals. Closures com
-captura de variaveis externas estao em fase 1 (ponteiros de funcao sem env).
+destructuring, spread/rest, regex, object e array literals nativos.
+Closures com captura de variaveis externas estao em fase 1 (ponteiros de
+funcao sem env).
 
 ## CLI
 
@@ -137,11 +164,15 @@ cargo run -- apis
   `bigfloat`. Resultado `3.141592653589793238462643383280` (29 digitos corretos,
   f64 entrega 16).
 
-Suite tradicional:
+Suite `bench/benchmark.ps1` compara 5 runners (RTS compiled / RTS run
+JIT / RTS run AOT / Bun / Node) em `bench/rts_simple.ts`:
 
 ```bash
-powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
+powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1 -Runs 10 -Warmup 2
 ```
+
+Numeros tipicos (Windows, 10 runs): `RTS compiled ~15 ms`, `RTS JIT ~22 ms`,
+`Bun ~88 ms`, `Node ~118 ms`. **RTS JIT ~4× mais rapido que Bun.**
 
 ## Runtime vs Compile (AOT)
 
