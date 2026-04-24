@@ -7,7 +7,9 @@
 
 use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{InstBuilder, condcodes::IntCC, types as cl};
-use swc_ecma_ast::{BinExpr, BinaryOp, CallExpr, Callee, Expr, Lit, MemberProp, UnaryOp, UpdateOp};
+use swc_ecma_ast::{
+    BinExpr, BinaryOp, CallExpr, Callee, Expr, Lit, MemberProp, Tpl, UnaryOp, UpdateOp,
+};
 
 use cranelift_module::Module;
 
@@ -82,6 +84,9 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
 
         // ── Call ──────────────────────────────────────────────────────────
         Expr::Call(call) => lower_call(ctx, call),
+
+        // ── Template literal ──────────────────────────────────────────────
+        Expr::Tpl(tpl) => lower_tpl(ctx, tpl),
 
         // ── Member (e.g. `io.print` used as expression) ───────────────────
         Expr::Member(_) => Err(anyhow!("bare member expression not supported as value")),
@@ -168,6 +173,61 @@ fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Result<TypedVal>
         }
         op => Err(anyhow!("unsupported unary op: {op:?}")),
     }
+}
+
+// ── Template literals ─────────────────────────────────────────────────────
+
+/// Desugars a template literal into a chain of `gc::string_concat` calls.
+///
+/// `` `a${x}b${y}c` `` becomes `concat(concat(concat(concat("a", x), "b"), y), "c")`.
+/// Each quasi cooked value is uploaded as a static string handle; each
+/// interpolated expression is coerced to a handle via `coerce_to_handle`.
+fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
+    let cook = |e: &swc_ecma_ast::TplElement| -> Vec<u8> {
+        if let Some(c) = &e.cooked {
+            if let Some(s) = c.as_str() {
+                return s.as_bytes().to_vec();
+            }
+        }
+        e.raw.as_bytes().to_vec()
+    };
+
+    // Start from the first quasi (there is always at least one).
+    let first = tpl
+        .quasis
+        .first()
+        .ok_or_else(|| anyhow!("template literal has no quasis"))?;
+    let mut acc = ctx.emit_str_handle(&cook(first))?;
+
+    let fref = ctx.get_extern(
+        "__RTS_FN_NS_GC_STRING_CONCAT",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+
+    for (i, expr) in tpl.exprs.iter().enumerate() {
+        // Interpolated expression → handle
+        let val = lower_expr(ctx, expr)?;
+        let h = ctx.coerce_to_handle(val)?;
+        let inst = ctx.builder.ins().call(fref, &[acc.val, h.val]);
+        let v = ctx.builder.inst_results(inst)[0];
+        acc = TypedVal::new(v, ValTy::Handle);
+
+        // Trailing quasi after this expression
+        let q = tpl
+            .quasis
+            .get(i + 1)
+            .ok_or_else(|| anyhow!("malformed template: missing quasi after expression"))?;
+        let bytes = cook(q);
+        if !bytes.is_empty() {
+            let qh = ctx.emit_str_handle(&bytes)?;
+            let inst = ctx.builder.ins().call(fref, &[acc.val, qh.val]);
+            let v = ctx.builder.inst_results(inst)[0];
+            acc = TypedVal::new(v, ValTy::Handle);
+        }
+    }
+
+    Ok(acc)
 }
 
 // ── Binary ────────────────────────────────────────────────────────────────

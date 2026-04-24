@@ -94,3 +94,8 @@ fn fixture_functions() {
 fn fixture_string_concat() {
     run_fixture("string_concat");
 }
+
+#[test]
+fn fixture_template_literals() {
+    run_fixture("template_literals");
+}
