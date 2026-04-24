@@ -134,3 +134,8 @@ fn fixture_f64_modulo() {
 fn fixture_switch_jump_table() {
     run_fixture("switch_jump_table");
 }
+
+#[test]
+fn fixture_tail_call() {
+    run_fixture("tail_call");
+}

@@ -1018,6 +1018,34 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         values.push(value);
     }
 
+    // Tail-call optimisation (#93). Only safe when:
+    //   1. The caller itself uses the Tail calling convention
+    //      (otherwise the ABI does not support tail transfer).
+    //   2. The callsite is in tail position (set by `Stmt::Return`).
+    //   3. The callee's return type matches the caller's — return_call
+    //      cannot convert values between types; this is true here because
+    //      every user fn we lower returns via the same ABI lane.
+    if ctx.is_tail_conv && ctx.in_tail_position {
+        ctx.builder.ins().return_call(fref, &values);
+        // `return_call` is a terminator. Switch to a fresh sealed block
+        // with no predecessors — subsequent IR emitted by the caller
+        // (typically `Stmt::Return` placing a final `return_`) lands in
+        // dead code that Cranelift DCEs. The block needs a terminator
+        // for the verifier though, which `Stmt::Return` provides.
+        let cont = ctx.builder.create_block();
+        ctx.builder.switch_to_block(cont);
+        ctx.builder.seal_block(cont);
+        let ty = abi.ret.unwrap_or(ValTy::I64);
+        // Placeholder value with the correct Cranelift type so the
+        // caller's coerce_* code produces a well-typed `return_` arg.
+        let placeholder = match ty {
+            ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+            ValTy::F64 => ctx.builder.ins().f64const(0.0),
+            _ => ctx.builder.ins().iconst(cl::I64, 0),
+        };
+        return Ok(TypedVal::new(placeholder, ty));
+    }
+
     let inst = ctx.builder.ins().call(fref, &values);
     let results = ctx.builder.inst_results(inst);
     if let Some(ret_ty) = abi.ret {

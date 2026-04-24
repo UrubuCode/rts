@@ -113,6 +113,14 @@ pub struct FnCtx<'m, 'fb> {
     /// Declared return type of the surrounding function, used to coerce
     /// `return <expr>` to the correct Cranelift type.
     pub return_ty: Option<ValTy>,
+    /// True while lowering the expression of a `return` statement — enables
+    /// tail-call optimisation in `lower_user_call` when the surrounding
+    /// function uses the Tail calling convention.
+    pub in_tail_position: bool,
+    /// True when the function being lowered uses `CallConv::Tail`. Only
+    /// tail-conv callers can emit `return_call` to tail-conv callees.
+    /// `__RTS_MAIN` stays on the platform default and keeps this false.
+    pub is_tail_conv: bool,
 
     /// Cranelift variable counter.
     var_counter: u32,
@@ -141,6 +149,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             user_fns,
             module_scope,
             return_ty: None,
+            in_tail_position: false,
+            is_tail_conv: false,
             var_counter: 0,
             loop_stack: Vec::new(),
         }
