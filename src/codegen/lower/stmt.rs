@@ -5,9 +5,7 @@
 
 use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{InstBuilder, condcodes::IntCC, types as cl};
-use swc_ecma_ast::{
-    BlockStmt, Decl, Pat, Stmt, VarDeclOrExpr,
-};
+use swc_ecma_ast::{BlockStmt, Decl, Pat, Stmt, VarDeclOrExpr};
 
 use super::ctx::{FnCtx, TypedVal, ValTy};
 use super::expr::lower_expr;
@@ -24,7 +22,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                 let name = match &decl.name {
                     Pat::Ident(id) => id.sym.as_str().to_string(),
                     Pat::Array(_) | Pat::Object(_) => {
-                        return Err(anyhow!("destructuring not supported"))
+                        return Err(anyhow!("destructuring not supported"));
                     }
                     other => return Err(anyhow!("unsupported binding pattern: {other:?}")),
                 };
@@ -47,7 +45,11 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     (zero, ty)
                 };
 
-                let ty = ann_ty.unwrap_or(inferred_ty);
+                let ty = if ctx.module_scope && ctx.has_global(&name) {
+                    ctx.var_ty(&name).unwrap_or(ann_ty.unwrap_or(inferred_ty))
+                } else {
+                    ann_ty.unwrap_or(inferred_ty)
+                };
                 // Coerce init to declared type
                 let init_coerced = match ty {
                     ValTy::I32 => {
@@ -61,7 +63,12 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     _ => init_val,
                 };
 
-                ctx.declare_local(&name, ty, init_coerced);
+                if ctx.module_scope && ctx.has_global(&name) {
+                    // Top-level declarations initialize module globals.
+                    ctx.write_local(&name, init_coerced)?;
+                } else {
+                    ctx.declare_local(&name, ty, init_coerced);
+                }
             }
             Ok(false)
         }
@@ -80,10 +87,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             let cond = lower_expr(ctx, &if_stmt.test)?;
             let cond_i64 = ctx.coerce_to_i64(cond);
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
-            let is_true = ctx
-                .builder
-                .ins()
-                .icmp(IntCC::NotEqual, cond_i64.val, zero);
+            let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
 
             let then_block = ctx.builder.create_block();
             let merge_block = ctx.builder.create_block();
@@ -103,8 +107,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
 
                 ctx.builder.switch_to_block(else_block);
                 ctx.builder.seal_block(else_block);
-                let else_exits =
-                    lower_stmt(ctx, if_stmt.alt.as_ref().unwrap())?;
+                let else_exits = lower_stmt(ctx, if_stmt.alt.as_ref().unwrap())?;
                 if !else_exits {
                     ctx.builder.ins().jump(merge_block, &[]);
                 }
@@ -119,8 +122,10 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
 
                 ctx.builder.switch_to_block(then_block);
                 ctx.builder.seal_block(then_block);
-                lower_stmt(ctx, &if_stmt.cons)?;
-                ctx.builder.ins().jump(merge_block, &[]);
+                let then_exits = lower_stmt(ctx, &if_stmt.cons)?;
+                if !then_exits && !ctx.builder.is_unreachable() {
+                    ctx.builder.ins().jump(merge_block, &[]);
+                }
 
                 ctx.builder.switch_to_block(merge_block);
                 ctx.builder.seal_block(merge_block);
@@ -140,13 +145,8 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             let cond = lower_expr(ctx, &wh.test)?;
             let cond_i64 = ctx.coerce_to_i64(cond);
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
-            let is_true = ctx
-                .builder
-                .ins()
-                .icmp(IntCC::NotEqual, cond_i64.val, zero);
-            ctx.builder
-                .ins()
-                .brif(is_true, body, &[], exit, &[]);
+            let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
+            ctx.builder.ins().brif(is_true, body, &[], exit, &[]);
 
             ctx.builder.switch_to_block(body);
             ctx.loop_stack.push((exit, header));
@@ -178,19 +178,14 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             if !ctx.builder.is_unreachable() {
                 ctx.builder.ins().jump(cond_block, &[]);
             }
-            ctx.builder.seal_block(body);
 
             ctx.builder.switch_to_block(cond_block);
             let cond = lower_expr(ctx, &dw.test)?;
             let cond_i64 = ctx.coerce_to_i64(cond);
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
-            let is_true = ctx
-                .builder
-                .ins()
-                .icmp(IntCC::NotEqual, cond_i64.val, zero);
-            ctx.builder
-                .ins()
-                .brif(is_true, body, &[], exit, &[]);
+            let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
+            ctx.builder.ins().brif(is_true, body, &[], exit, &[]);
+            ctx.builder.seal_block(body);
             ctx.builder.seal_block(cond_block);
 
             ctx.builder.switch_to_block(exit);
@@ -225,13 +220,8 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                 let cond = lower_expr(ctx, test)?;
                 let cond_i64 = ctx.coerce_to_i64(cond);
                 let zero = ctx.builder.ins().iconst(cl::I64, 0);
-                let is_true = ctx
-                    .builder
-                    .ins()
-                    .icmp(IntCC::NotEqual, cond_i64.val, zero);
-                ctx.builder
-                    .ins()
-                    .brif(is_true, body, &[], exit, &[]);
+                let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
+                ctx.builder.ins().brif(is_true, body, &[], exit, &[]);
             } else {
                 ctx.builder.ins().jump(body, &[]);
             }
@@ -266,70 +256,74 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             let disc_i64 = ctx.coerce_to_i64(discriminant);
             let exit = ctx.builder.create_block();
 
-            // Collect case blocks
+            // One block per case in source order (fallthrough semantics).
             let case_blocks: Vec<cranelift_codegen::ir::Block> = sw
                 .cases
                 .iter()
                 .map(|_| ctx.builder.create_block())
                 .collect();
 
-            // Build comparison chain
-            let _fallthrough = exit; // fallthrough for no match = exit
-            let default_idx = sw
+            let default_idx = sw.cases.iter().position(|case| case.test.is_none());
+            let non_default_indices: Vec<usize> = sw
                 .cases
                 .iter()
-                .position(|c| c.test.is_none());
+                .enumerate()
+                .filter_map(|(idx, case)| if case.test.is_some() { Some(idx) } else { None })
+                .collect();
 
-            for (i, case) in sw.cases.iter().enumerate() {
-                if let Some(test_expr) = &case.test {
+            // Build comparison chain. False branch continues comparisons;
+            // final false goes to default (if present) or exits switch.
+            if non_default_indices.is_empty() {
+                if let Some(di) = default_idx {
+                    ctx.builder.ins().jump(case_blocks[di], &[]);
+                } else {
+                    ctx.builder.ins().jump(exit, &[]);
+                }
+            } else {
+                for (pos, case_idx) in non_default_indices.iter().enumerate() {
+                    let test_expr = sw.cases[*case_idx]
+                        .test
+                        .as_ref()
+                        .expect("non-default case must have test expression");
                     let test_val = lower_expr(ctx, test_expr)?;
                     let test_i64 = ctx.coerce_to_i64(test_val);
-                    let eq = ctx.builder.ins().icmp(
-                        IntCC::Equal,
-                        disc_i64.val,
-                        test_i64.val,
-                    );
-                    let next = if i + 1 < case_blocks.len() {
-                        // next comparison block
+                    let eq = ctx
+                        .builder
+                        .ins()
+                        .icmp(IntCC::Equal, disc_i64.val, test_i64.val);
+
+                    let false_block = if pos + 1 < non_default_indices.len() {
                         ctx.builder.create_block()
                     } else {
-                        // last case: go to default or exit
-                        default_idx.map(|d| case_blocks[d]).unwrap_or(exit)
+                        default_idx.map(|di| case_blocks[di]).unwrap_or(exit)
                     };
+
                     ctx.builder
                         .ins()
-                        .brif(eq, case_blocks[i], &[], next, &[]);
-                    if i + 1 < sw.cases.len() && sw.cases[i + 1].test.is_some() {
-                        ctx.builder.switch_to_block(next);
-                        ctx.builder.seal_block(next);
-                    } else if i + 1 < sw.cases.len() && sw.cases[i + 1].test.is_none() {
-                        // next is default, already exists
+                        .brif(eq, case_blocks[*case_idx], &[], false_block, &[]);
+
+                    if pos + 1 < non_default_indices.len() {
+                        ctx.builder.switch_to_block(false_block);
+                        ctx.builder.seal_block(false_block);
                     }
                 }
             }
 
-            // If no case matched and there's a default
-            if let Some(di) = default_idx {
-                if !ctx.builder.is_unreachable() {
-                    ctx.builder.ins().jump(case_blocks[di], &[]);
-                }
-            } else if !ctx.builder.is_unreachable() {
-                ctx.builder.ins().jump(exit, &[]);
-            }
-
-            // Emit case bodies
+            // Emit case bodies.
             ctx.loop_stack.push((exit, exit)); // break target
             for (i, case) in sw.cases.iter().enumerate() {
                 ctx.builder.switch_to_block(case_blocks[i]);
                 ctx.builder.seal_block(case_blocks[i]);
+                let mut case_exits = false;
                 for s in &case.cons {
                     let exits = lower_stmt(ctx, s)?;
                     if exits {
+                        case_exits = true;
                         break;
                     }
                 }
-                // Fallthrough to next case if not terminated
-                if !ctx.builder.is_unreachable() {
+                // Fallthrough to next case if not terminated.
+                if !case_exits && !ctx.builder.is_unreachable() {
                     let next = if i + 1 < case_blocks.len() {
                         case_blocks[i + 1]
                     } else {
@@ -379,10 +373,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
 
         Stmt::Empty(_) => Ok(false),
 
-        other => Err(anyhow!(
-            "unsupported statement: {}",
-            stmt_kind_name(other)
-        )),
+        other => Err(anyhow!("unsupported statement: {}", stmt_kind_name(other))),
     }
 }
 

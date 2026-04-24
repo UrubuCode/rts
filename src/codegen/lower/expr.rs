@@ -7,9 +7,7 @@
 
 use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{InstBuilder, condcodes::IntCC, types as cl};
-use swc_ecma_ast::{
-    BinExpr, BinaryOp, CallExpr, Callee, Expr, Lit, MemberProp, UnaryOp, UpdateOp,
-};
+use swc_ecma_ast::{BinExpr, BinaryOp, CallExpr, Callee, Expr, Lit, MemberProp, UnaryOp, UpdateOp};
 
 use cranelift_module::Module;
 
@@ -72,7 +70,7 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
             };
             let rhs = lower_expr(ctx, &a.right)?;
             // Coerce rhs to match the declared type of the local.
-            let coerced = match ctx.locals.get(&name).map(|l| l.ty) {
+            let coerced = match ctx.var_ty(&name) {
                 Some(ValTy::I32) => ctx.coerce_to_i32(rhs),
                 Some(ValTy::I64) => ctx.coerce_to_i64(rhs),
                 Some(ValTy::Handle) => ctx.coerce_to_handle(rhs)?,
@@ -118,14 +116,19 @@ fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
             }
         }
         Lit::Bool(b) => Ok(TypedVal::new(
-            ctx.builder.ins().iconst(cl::I64, if b.value { 1 } else { 0 }),
+            ctx.builder
+                .ins()
+                .iconst(cl::I64, if b.value { 1 } else { 0 }),
             ValTy::Bool,
         )),
         Lit::Str(s) => {
             let tv = ctx.emit_str_handle(s.value.as_bytes())?;
             Ok(tv)
         }
-        Lit::Null(_) => Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64)),
+        Lit::Null(_) => Ok(TypedVal::new(
+            ctx.builder.ins().iconst(cl::I64, 0),
+            ValTy::I64,
+        )),
         other => Err(anyhow!("unsupported literal: {other:?}")),
     }
 }
@@ -136,11 +139,20 @@ fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Result<TypedVal>
     let operand = lower_expr(ctx, &u.arg)?;
     match u.op {
         UnaryOp::Minus => match operand.ty {
-            ValTy::F64 => Ok(TypedVal::new(ctx.builder.ins().fneg(operand.val), ValTy::F64)),
-            ValTy::I32 => Ok(TypedVal::new(ctx.builder.ins().ineg(operand.val), ValTy::I32)),
+            ValTy::F64 => Ok(TypedVal::new(
+                ctx.builder.ins().fneg(operand.val),
+                ValTy::F64,
+            )),
+            ValTy::I32 => Ok(TypedVal::new(
+                ctx.builder.ins().ineg(operand.val),
+                ValTy::I32,
+            )),
             _ => {
                 let as_i64 = ctx.coerce_to_i64(operand);
-                Ok(TypedVal::new(ctx.builder.ins().ineg(as_i64.val), ValTy::I64))
+                Ok(TypedVal::new(
+                    ctx.builder.ins().ineg(as_i64.val),
+                    ValTy::I64,
+                ))
             }
         },
         UnaryOp::Bang => {
@@ -170,9 +182,7 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     let rhs = lower_expr(ctx, &bin.right)?;
 
     // String concat: if either side is a Handle, use string concat
-    if matches!(bin.op, BinaryOp::Add)
-        && (lhs.ty == ValTy::Handle || rhs.ty == ValTy::Handle)
-    {
+    if matches!(bin.op, BinaryOp::Add) && (lhs.ty == ValTy::Handle || rhs.ty == ValTy::Handle) {
         let lh = ctx.coerce_to_handle(lhs)?;
         let rh = ctx.coerce_to_handle(rhs)?;
         let fref = ctx.get_extern(
@@ -195,15 +205,25 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         BinaryOp::Div => lower_div(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
         BinaryOp::Mod => lower_mod(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
 
-        BinaryOp::EqEq | BinaryOp::EqEqEq => {
-            Ok(lower_icmp(ctx, IntCC::Equal, TypedVal::new(lv, ty), TypedVal::new(rv, ty)))
-        }
-        BinaryOp::NotEq | BinaryOp::NotEqEq => {
-            Ok(lower_icmp(ctx, IntCC::NotEqual, TypedVal::new(lv, ty), TypedVal::new(rv, ty)))
-        }
+        BinaryOp::EqEq | BinaryOp::EqEqEq => Ok(lower_icmp(
+            ctx,
+            IntCC::Equal,
+            TypedVal::new(lv, ty),
+            TypedVal::new(rv, ty),
+        )),
+        BinaryOp::NotEq | BinaryOp::NotEqEq => Ok(lower_icmp(
+            ctx,
+            IntCC::NotEqual,
+            TypedVal::new(lv, ty),
+            TypedVal::new(rv, ty),
+        )),
         BinaryOp::Lt => Ok(lower_icmp(
             ctx,
-            if ty == ValTy::F64 { IntCC::SignedLessThan } else { IntCC::SignedLessThan },
+            if ty == ValTy::F64 {
+                IntCC::SignedLessThan
+            } else {
+                IntCC::SignedLessThan
+            },
             TypedVal::new(lv, ty),
             TypedVal::new(rv, ty),
         )),
@@ -239,16 +259,15 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     let lhs_i64 = ctx.coerce_to_i64(lhs);
 
     let zero = ctx.builder.ins().iconst(cl::I64, 0);
-    let is_truthy = ctx
-        .builder
-        .ins()
-        .icmp(IntCC::NotEqual, lhs_i64.val, zero);
+    let is_truthy = ctx.builder.ins().icmp(IntCC::NotEqual, lhs_i64.val, zero);
 
     let true_block = ctx.builder.create_block();
     let false_block = ctx.builder.create_block();
     let merge_block = ctx.builder.create_block();
 
-    ctx.builder.ins().brif(is_truthy, true_block, &[], false_block, &[]);
+    ctx.builder
+        .ins()
+        .brif(is_truthy, true_block, &[], false_block, &[]);
 
     match bin.op {
         BinaryOp::LogicalAnd => {
@@ -294,7 +313,11 @@ fn promote_numeric(
     ctx: &mut FnCtx,
     lhs: TypedVal,
     rhs: TypedVal,
-) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, ValTy) {
+) -> (
+    cranelift_codegen::ir::Value,
+    cranelift_codegen::ir::Value,
+    ValTy,
+) {
     // If either side is f64, promote both
     if lhs.ty == ValTy::F64 || rhs.ty == ValTy::F64 {
         let lv = to_f64(ctx, lhs);
@@ -303,16 +326,24 @@ fn promote_numeric(
     }
 
     // If either side is I64/Handle/Bool, widen both
-    if lhs.ty == ValTy::I64 || lhs.ty == ValTy::Handle || lhs.ty == ValTy::Bool
-        || rhs.ty == ValTy::I64 || rhs.ty == ValTy::Handle || rhs.ty == ValTy::Bool
+    if lhs.ty == ValTy::I64
+        || lhs.ty == ValTy::Handle
+        || lhs.ty == ValTy::Bool
+        || rhs.ty == ValTy::I64
+        || rhs.ty == ValTy::Handle
+        || rhs.ty == ValTy::Bool
     {
         let lv = ctx.coerce_to_i64(lhs).val;
         let rv = ctx.coerce_to_i64(rhs).val;
         return (lv, rv, ValTy::I64);
     }
 
-    // Both I32
-    (lhs.val, rhs.val, ValTy::I32)
+    // Both I32: evaluate in I64 to avoid premature overflow in mixed
+    // arithmetic chains like `(a * b + c) % m`. We truncate only when the
+    // value is assigned/stored into an I32-typed slot.
+    let lv = ctx.coerce_to_i64(lhs).val;
+    let rv = ctx.coerce_to_i64(rhs).val;
+    (lv, rv, ValTy::I64)
 }
 
 fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Value {
@@ -461,16 +492,10 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
                 match tv.ty {
                     ValTy::Handle => {
                         // Extract ptr+len from the handle
-                        let ptr_fref = ctx.get_extern(
-                            "__RTS_FN_NS_GC_STRING_PTR",
-                            &[cl::I64],
-                            Some(cl::I64),
-                        )?;
-                        let len_fref = ctx.get_extern(
-                            "__RTS_FN_NS_GC_STRING_LEN",
-                            &[cl::I64],
-                            Some(cl::I64),
-                        )?;
+                        let ptr_fref =
+                            ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                        let len_fref =
+                            ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
                         let pi = ctx.builder.ins().call(ptr_fref, &[tv.val]);
                         let ptr = ctx.builder.inst_results(pi)[0];
                         let li = ctx.builder.ins().call(len_fref, &[tv.val]);
@@ -517,14 +542,12 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
 }
 
 fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<TypedVal> {
-    // User functions are declared in the module under their plain name.
-    // We look them up via the extern cache (keyed by a static string isn't
-    // possible for user functions, but we use the same HashMap with a
-    // Box::leak trick is heavy). Instead, we keep a separate path in emit.rs
-    // where user function IDs are pre-declared. Here we just emit an error
-    // for now if the function isn't in the extern cache with a mangled key.
-    // The real wiring happens in func.rs which pre-declares user functions
-    // before compiling any body.
+    let abi = ctx
+        .user_fns
+        .get(name)
+        .ok_or_else(|| anyhow!("call to undeclared user function `{name}`"))?
+        .clone();
+
     let mangled: &'static str = Box::leak(format!("__user_{name}").into_boxed_str());
     if !ctx.extern_cache.contains_key(mangled) {
         return Err(anyhow!("call to undeclared user function `{name}`"));
@@ -532,20 +555,41 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     let func_id = *ctx.extern_cache.get(mangled).unwrap();
     let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
 
+    if call.args.len() != abi.params.len() {
+        return Err(anyhow!(
+            "function `{name}` expects {} argument(s), got {}",
+            abi.params.len(),
+            call.args.len()
+        ));
+    }
+
     let mut values = Vec::new();
-    for arg in &call.args {
+    for (arg, expected_ty) in call.args.iter().zip(abi.params.iter().copied()) {
         if arg.spread.is_some() {
             return Err(anyhow!("spread not supported"));
         }
         let tv = lower_expr(ctx, &arg.expr)?;
-        values.push(ctx.coerce_to_i64(tv).val);
+        let value = match expected_ty {
+            ValTy::I32 => ctx.coerce_to_i32(tv).val,
+            ValTy::I64 | ValTy::Bool | ValTy::Handle => ctx.coerce_to_i64(tv).val,
+            ValTy::F64 => to_f64(ctx, tv),
+        };
+        values.push(value);
     }
+
     let inst = ctx.builder.ins().call(fref, &values);
     let results = ctx.builder.inst_results(inst);
-    if results.is_empty() {
-        Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
+    if let Some(ret_ty) = abi.ret {
+        if let Some(&value) = results.first() {
+            Ok(TypedVal::new(value, ret_ty))
+        } else {
+            Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ret_ty))
+        }
     } else {
-        Ok(TypedVal::new(results[0], ValTy::I64))
+        Ok(TypedVal::new(
+            ctx.builder.ins().iconst(cl::I64, 0),
+            ValTy::I64,
+        ))
     }
 }
 
@@ -553,7 +597,9 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
 
 fn qualified_member_name(expr: &Expr) -> Option<String> {
     let Expr::Member(m) = expr else { return None };
-    let Expr::Ident(ns) = m.obj.as_ref() else { return None };
+    let Expr::Ident(ns) = m.obj.as_ref() else {
+        return None;
+    };
     let fn_name = match &m.prop {
         MemberProp::Ident(id) => id.sym.as_str().to_string(),
         _ => return None,

@@ -1,5 +1,4 @@
 pub mod bundle;
-pub mod embedded;
 
 use std::collections::BTreeSet;
 

@@ -3,7 +3,7 @@
 //! Responsibilities:
 //! 1. Read + parse the source file.
 //! 2. Emit a user object via `codegen`.
-//! 3. Extract the embedded RTS static library to a cache directory.
+//! 3. Resolve the RTS static library as an external artifact.
 //! 4. Optionally link the user object + runtime + CRT into a final binary.
 
 use std::path::{Path, PathBuf};
@@ -14,7 +14,6 @@ use crate::codegen::ObjectArtifact;
 use crate::compile_options::CompileOptions;
 use crate::linker::{self, LinkedBinary};
 use crate::parser;
-use crate::runtime::embedded::extract_runtime_staticlib;
 
 #[derive(Debug, Clone)]
 pub struct CompileOutcome {
@@ -51,8 +50,7 @@ pub fn compile_source(
     let program = parser::parse_source_with_mode(source, options.frontend_mode)
         .with_context(|| format!("failed to parse {}", input.display()))?;
 
-    let (object, warnings) =
-        crate::codegen::compile_program_to_object(&program, output_object)?;
+    let (object, warnings) = crate::codegen::compile_program_to_object(&program, output_object)?;
 
     Ok(CompileOutcome {
         input: input.to_path_buf(),
@@ -67,12 +65,12 @@ pub fn build_executable(
     output_binary: &Path,
     options: CompileOptions,
 ) -> Result<LinkOutcome> {
-    let user_object = output_binary
-        .with_extension("o");
+    let user_object = output_binary.with_extension("o");
     let compile = compile_file(input, &user_object, options)?;
 
-    let runtime_lib = extract_runtime_staticlib()
-        .context("failed to prepare embedded RTS runtime static library")?;
+    let deps_dir = output_binary.parent().unwrap_or_else(|| Path::new("."));
+    let runtime_lib = crate::runtime_lib::resolve_runtime_support_library(deps_dir)
+        .context("failed to resolve RTS runtime support library")?;
 
     let inputs = vec![compile.object.path.clone(), runtime_lib.clone()];
     let binary = linker::link_objects_to_binary(&inputs, output_binary)
