@@ -10,8 +10,8 @@ math.seed(1);
 let inside = 0;
 let i = 0;
 while (i < N) {
-  const x = math.random();
-  const y = math.random();
+  const x = math.random_f64();
+  const y = math.random_f64();
   if (x * x + y * y <= 1.0) {
     inside = inside + 1;
   }
