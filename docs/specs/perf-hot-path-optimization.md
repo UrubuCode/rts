@@ -1,5 +1,13 @@
 # Otimização do Hot Path de Execução — do `FN_EVAL_STMT` ao Bun-Beater
 
+> **Caveat (2026-04-24):** Este documento descreve medições e instrumentação
+> feitas em versões anteriores do pipeline, antes da migração para a ABI em
+> `src/abi/` e da remoção das camadas HIR/MIR. Numeros de benchmark devem ser
+> re-medidos na branch atual. Referencias a `__rts_call_dispatch`,
+> `namespaces::abi`, ou a `SPEC/MEMBERS/dispatch()` por namespace refletem a
+> arquitetura antiga. Mantido como material historico e referencia de analise.
+
+
 > **TL;DR**: o bench `rts_simple.ts` saiu de ~2300 ms para **26 ms** (AOT) / **36 ms** (JIT)
 > no decorrer de 8 commits, sem mudar arquitetura. O RTS hoje é **3.8× mais rápido**
 > que Bun e **4.9× mais rápido** que Node nesse bench.

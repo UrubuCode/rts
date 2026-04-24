@@ -1,94 +1,92 @@
 # FEATURES
 
+> Alinhado com branch `feat/remake-namespaces` (2026-04).
+> Consultar `NEXT_STEPS.md` e `ROAD_MAP.md` para a direcao atual.
+>
+> Este arquivo e mantido como backlog historico. Itens marcados `OBSOLETO` ou
+> `HISTORICO` refletem decisoes anteriores que foram substituidas pela arquitetura
+> atual (contrato ABI unico em `src/abi/`, sem HIR/MIR, sem dispatch por namespace,
+> sem `JsValue` no limite extern "C").
+
 ## Direcao
 RTS deve ser uma dependencia de runtime/compilacao para executar TS/JS em linguagem de maquina.
 O foco e previsibilidade, portabilidade e controle de runtime, nao compatibilidade estrita com V8.
 
 ## Prioridade P0
 
-### F000 - Exportar toda superficie `std::*` via modulo `"rts"`
+### F000 - Exportar superficie de runtime via modulo `"rts"`
+Status atual: **parcial** — apenas `io`, `fs`, `gc` estao ativos nesta branch.
+
 Objetivo:
-- expor no `"rts"` todas as funcoes de runtime no estilo `std::*`, para TS/JS criar apps, CLIs, servicos e bibliotecas como linguagem completa.
+- expor no `"rts"` as funcoes de runtime no estilo `std::*`, para TS/JS criar apps, CLIs,
+  servicos e bibliotecas como linguagem completa.
+
+Ativos hoje:
+- `io` — print, eprint, stdout/stderr write+flush, stdin read/read_line
+- `fs`  — read, write, append, exists, is_file, is_dir, size, modified_ms, dir ops, rename, copy
+- `gc`  — handles e string pool (string_from_*, string_new/concat/len/ptr/free, HandleTable)
+
+Pendentes de reintroducao sobre o novo contrato ABI (`src/abi/`): `process`, `crypto`, `net`,
+`time`, `task`, `buffer`, `promise`, `global`. Serao redesenhados como `NamespaceSpec` com
+membros `extern "C"` tipados — sem `dispatch()` nem `JsValue`.
 
 Diretriz:
-- manter API por namespaces (`io`, `fs`, `process`, `crypto`, `net`, `time`, `task`, etc), evitando API plana.
-- garantir contratos estaveis de tipos em `builtin/rts-types/rts.d.ts`.
-- tratar `std::*` como superficie oficial do RTS para userland.
-- compilar/linkar apenas namespaces e funcoes realmente usados no projeto (runtime slicing), evitando incluir todo o `"rts"`.
-
-Valor:
-- experiencia de desenvolvimento de linguagem "first-class" para apps reais.
-- menor friccao para migrar codigo de scripts para projetos maiores.
+- manter API por namespaces, evitando API plana
+- contratos de tipos em `builtin/rts-types/rts.d.ts` sao gerados a partir de `abi::SPECS`
+- compilar/linkar apenas namespaces e funcoes realmente usados no projeto (runtime slicing
+  aplicado por `rts compile`)
 
 Criterios de aceite:
-- comando `rts apis` lista toda a superficie `std::*` disponivel.
-- exemplos cobrindo app CLI, IO/FS, processo e async task.
-- documentacao de cada namespace no README e em types.
+- comando `rts apis` lista toda a superficie disponivel a partir de `abi::SPECS`
+- exemplos cobrindo app CLI, IO/FS, processo e async task
+- documentacao gerada automaticamente a partir do `doc` de cada `NamespaceMember`
 
-### F001 - GC automatico deterministico (sem modelo "preguicoso")
-Objetivo:
-- liberar memoria rapido e de forma previsivel, sem esperar pausas opportunisticas do host.
+### F001 - GC deterministico [HISTORICO — substituido]
+Proposta original previa heap proprio com ARC eager + coletor de ciclos em
+`src/runtime/state.rs` e `src/runtime/bootstrap_lang/value.rs`, arquivos que nao
+existem mais nesta branch.
 
-Proposta tecnica:
-- heap proprio do RTS com `Handle` (`u64`) em vez de ponteiros expostos;
-- ARC eager (retain/release imediato) para liberar no instante em que `rc == 0`;
-- coletor de ciclos periodico para grafos ciclicos (RC sozinho nao resolve ciclo);
-- roots explicitas (stack de execucao, globais, promises/tarefas em voo, modulos carregados).
+Direcao atual: `gc-arena` para objetos gerenciados + `HandleTable` do namespace `gc`
+para handles opacos (`u64` com gen:16 + slot:48). Coleta em pontos de quiescencia
+(retorno de funcao, fim de metodo, fim de escopo de closure). Ver secao "GC" em `CLAUDE.md`.
 
-Integracao sugerida:
-- `src/runtime/state.rs`: adicionar `heap: BTreeMap<u64, HeapNode>`, `roots`, contadores e metricas;
-- `src/runtime/bootstrap_lang/value.rs`: introduzir variante de valor por handle (`HeapRef(u64)`);
-- `src/runtime/namespaces/*`: alocacao e acesso de objetos/arrays/string grandes via API de heap.
-
-Politica de coleta:
-- coleta imediata em `release()` quando `rc == 0`;
-- varredura de ciclos a cada `N` alocacoes ou quando `heap_bytes >= threshold`;
-- modo de teste `stress`: roda ciclo em toda alocacao.
-
-Observabilidade:
-- `RTS_GC_MODE=deterministic|stress|off`
-- `RTS_GC_CYCLE_EVERY=<N>`
-- `RTS_GC_HEAP_LIMIT_MB=<N>`
-- `RTS_GC_LOG=1`
-
-Criterios de aceite:
-- teste de ciclo (`a -> b -> a`) deve ser coletado;
-- heap estabiliza em benchmark de longa execucao;
-- sem regressao funcional em `cargo test`.
+Permanece no backlog: estrategia formal para ciclos, metricas e modos (`RTS_GC_*`).
 
 ### F002 - Semantica correta de modulos (efeitos colaterais top-level)
+Status: em aberto. Continua relevante.
+
 Objetivo:
-- executar top-level de modulos importados uma unica vez, em ordem topologica.
+- executar top-level de modulos importados uma unica vez, em ordem topologica
 
 Valor:
-- comportamento previsivel para pacotes TS/JS reais;
-- evita diferenca entre "compila" e "executa".
+- comportamento previsivel para pacotes TS/JS reais
+- evita diferenca entre "compila" e "executa"
 
-### F003 - Pipeline sem stubs de funcao
-Objetivo:
-- carregar corpo real de funcoes no AST/HIR/MIR (nao apenas assinatura + `ret`).
-
-Valor:
-- JIT/AOT refletem logica real do programa;
-- base correta para otimizacoes futuras.
+### F003 - Pipeline sem stubs de funcao [OBSOLETO]
+Formulacao original ("carregar corpo real de funcoes no AST/HIR/MIR") nao se aplica:
+HIR/MIR foram removidos nesta branch e o codegen consome AST direto em
+`src/codegen/lower/`. A preocupacao equivalente (garantir que corpos reais sejam
+emitidos, nao apenas assinaturas com `ret`) vive hoje como trabalho continuo no
+codegen e no pipeline de modulos; acompanhar via `NEXT_STEPS.md`.
 
 ## Prioridade P1
 
 ### F004 - Link fallback robusto para multiplos objetos
-Objetivo:
-- backend de fallback precisa aceitar `N` objetos, nao apenas 1.
+Status: em aberto. Continua relevante — o backend de fallback precisa aceitar `N`
+objetos em projetos multi-modulo quando o linker do sistema falha.
 
-Valor:
-- build continua funcionando em projetos multi-modulo quando linker do sistema falha.
-
-### F005 - Runtime de promises sem vazamento
-Objetivo:
-- remover promises do estado apos settle/await e adicionar estrategia de expiracao opcional.
-
-Valor:
-- evita crescimento infinito de memoria em execucoes longas.
+### F005 - Runtime de promises sem vazamento [PENDENTE DE REINTRODUCAO]
+O namespace `promise` nao esta ativo nesta branch. Quando for reintroduzido sobre o
+novo contrato ABI, este item volta ao escopo: remover promises do estado apos
+settle/await e adicionar estrategia de expiracao opcional para evitar crescimento
+infinito de memoria em execucoes longas.
 
 ## Notas de implementacao
-- manter API interna de memoria pequena e testavel (`alloc`, `retain`, `release`, `set_field`, `get_field`);
-- expor metricas de runtime para benchmark (`alloc_count`, `free_count`, `cycle_runs`, `heap_bytes`);
-- priorizar testes de regressao antes de ampliar superficie publica do modulo `"rts"`.
+
+- Manter API interna de memoria pequena e testavel (operacoes do namespace `gc`:
+  alocacao de string, retain/release implicito por handle, leitura via `string_ptr`/`string_len`).
+- Expor metricas de runtime para benchmark quando fizer sentido (`alloc_count`,
+  `free_count`, `cycle_runs`, `heap_bytes`).
+- Priorizar testes de regressao antes de ampliar superficie publica do modulo `"rts"`.
+- Qualquer novo namespace precisa ser registrado em `abi::SPECS` — e a fonte unica de
+  verdade para codegen, runtime e gerador de `rts.d.ts`.
