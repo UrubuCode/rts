@@ -33,6 +33,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::bigfloat::abi::SPEC,
     &crate::namespaces::time::abi::SPEC,
     &crate::namespaces::env::abi::SPEC,
+    &crate::namespaces::path::abi::SPEC,
 ];
 
 /// Locates a member by its fully qualified name (e.g. `"io.print"`).
