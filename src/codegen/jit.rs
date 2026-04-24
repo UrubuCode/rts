@@ -171,6 +171,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::time ──────────────────────────────────────────────
+    use crate::namespaces::time::*;
+    add_fn!("__RTS_FN_NS_TIME_NOW_MS", instant::__RTS_FN_NS_TIME_NOW_MS);
+    add_fn!("__RTS_FN_NS_TIME_NOW_NS", instant::__RTS_FN_NS_TIME_NOW_NS);
+    add_fn!("__RTS_FN_NS_TIME_UNIX_MS", system::__RTS_FN_NS_TIME_UNIX_MS);
+    add_fn!("__RTS_FN_NS_TIME_UNIX_NS", system::__RTS_FN_NS_TIME_UNIX_NS);
+    add_fn!("__RTS_FN_NS_TIME_SLEEP_MS", sleep::__RTS_FN_NS_TIME_SLEEP_MS);
+    add_fn!("__RTS_FN_NS_TIME_SLEEP_NS", sleep::__RTS_FN_NS_TIME_SLEEP_NS);
+
     // ── namespaces::bigfloat ──────────────────────────────────────────
     use crate::namespaces::bigfloat::ops::*;
     add_fn!("__RTS_FN_NS_BIGFLOAT_ZERO", __RTS_FN_NS_BIGFLOAT_ZERO);
