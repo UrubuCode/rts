@@ -225,6 +225,16 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
         }
         Expr::Lit(Lit::Bool(_)) => ValTy::Bool,
         Expr::Lit(Lit::Str(_)) => ValTy::Handle,
+        Expr::Tpl(_) => ValTy::Handle,
+        Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Add) => {
+            let l = infer_expr_ty(Some(&b.left));
+            let r = infer_expr_ty(Some(&b.right));
+            if l == ValTy::Handle || r == ValTy::Handle {
+                ValTy::Handle
+            } else {
+                ValTy::I64
+            }
+        }
         _ => ValTy::I64,
     }
 }
