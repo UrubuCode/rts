@@ -7,7 +7,10 @@
 use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
-use cranelift_codegen::ir::{Block, FuncRef, InstBuilder, MemFlags, Value, types as cl};
+use cranelift_codegen::ir::{
+    Block, FuncRef, InstBuilder, MemFlags, StackSlot, StackSlotData, StackSlotKind, Value,
+    types as cl,
+};
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataId, Module};
 use cranelift_object::ObjectModule;
@@ -147,6 +150,38 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn new_var(&mut self, ty: ValTy) -> Variable {
         self.var_counter += 1;
         self.builder.declare_var(ty.cl_type())
+    }
+
+    /// Allocates an explicit stack slot of `size` bytes with the given
+    /// log2 alignment. Returns the slot handle and a pointer to its base.
+    ///
+    /// Use when a value needs a stable address — scenarios that
+    /// [`Variable`] (pure SSA) cannot model:
+    ///
+    /// - **Mutable captures in closures** (#97 — `() => x++` needs `&mut x`)
+    /// - **Aggregate return values** (tuple/struct returns, future)
+    /// - **Fixed-size local arrays** (`const buf = [0, 0, 0]`)
+    ///
+    /// Loads and stores through the returned pointer should use
+    /// [`MemFlags::trusted()`] — stack slots are always aligned and
+    /// addressable. Prefer [`new_var`](Self::new_var) for plain scalars
+    /// that do not need an address: `Variable` is cheaper and lowers to
+    /// a single Cranelift value without going through memory.
+    ///
+    /// Until #97 lands there is no consumer inside this crate; the helper
+    /// is kept `pub` so the closure lowering work has a small surface to
+    /// plug into.
+    pub fn alloc_stack_slot(&mut self, size: u32, align_log2: u8) -> (StackSlot, Value) {
+        let slot = self
+            .builder
+            .create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                size,
+                align_log2,
+            ));
+        let ptr_ty = self.module.isa().pointer_type();
+        let addr = self.builder.ins().stack_addr(ptr_ty, slot, 0);
+        (slot, addr)
     }
 
     /// Pushes a new block scope. Variables declared with `let`/`const` go here.
