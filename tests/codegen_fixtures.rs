@@ -109,3 +109,8 @@ fn fixture_let_const_var() {
 fn fixture_function_expressions() {
     run_fixture("function_expressions");
 }
+
+#[test]
+fn fixture_arrow_functions() {
+    run_fixture("arrow_functions");
+}
