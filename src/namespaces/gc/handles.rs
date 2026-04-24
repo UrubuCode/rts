@@ -30,6 +30,9 @@ pub enum Entry {
     /// Raw byte buffer — Vec<u8> com capacidade igual ao size.
     /// Usado pelo namespace `buffer` para dados binarios, FFI, etc.
     Buffer(Vec<u8>),
+    /// Child process handle owned via std::process::Child — usado pelo
+    /// namespace `process` para spawn/wait/kill.
+    ProcessChild(Box<std::process::Child>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
