@@ -136,6 +136,11 @@ fn fixture_switch_jump_table() {
 }
 
 #[test]
+fn fixture_exponentiation() {
+    run_fixture("exponentiation");
+}
+
+#[test]
 fn fixture_tail_call() {
     run_fixture("tail_call");
 }
