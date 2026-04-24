@@ -46,6 +46,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/time/");
     println!("cargo:rerun-if-changed=src/namespaces/env/");
     println!("cargo:rerun-if-changed=src/namespaces/path/");
+    println!("cargo:rerun-if-changed=src/namespaces/buffer/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

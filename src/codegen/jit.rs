@@ -171,6 +171,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::buffer ────────────────────────────────────────────
+    use crate::namespaces::buffer::ops as buf;
+    add_fn!("__RTS_FN_NS_BUFFER_ALLOC", buf::__RTS_FN_NS_BUFFER_ALLOC);
+    add_fn!("__RTS_FN_NS_BUFFER_ALLOC_ZEROED", buf::__RTS_FN_NS_BUFFER_ALLOC_ZEROED);
+    add_fn!("__RTS_FN_NS_BUFFER_FREE", buf::__RTS_FN_NS_BUFFER_FREE);
+    add_fn!("__RTS_FN_NS_BUFFER_LEN", buf::__RTS_FN_NS_BUFFER_LEN);
+    add_fn!("__RTS_FN_NS_BUFFER_PTR", buf::__RTS_FN_NS_BUFFER_PTR);
+    add_fn!("__RTS_FN_NS_BUFFER_READ_U8", buf::__RTS_FN_NS_BUFFER_READ_U8);
+    add_fn!("__RTS_FN_NS_BUFFER_READ_I32", buf::__RTS_FN_NS_BUFFER_READ_I32);
+    add_fn!("__RTS_FN_NS_BUFFER_READ_I64", buf::__RTS_FN_NS_BUFFER_READ_I64);
+    add_fn!("__RTS_FN_NS_BUFFER_READ_F64", buf::__RTS_FN_NS_BUFFER_READ_F64);
+    add_fn!("__RTS_FN_NS_BUFFER_WRITE_U8", buf::__RTS_FN_NS_BUFFER_WRITE_U8);
+    add_fn!("__RTS_FN_NS_BUFFER_WRITE_I32", buf::__RTS_FN_NS_BUFFER_WRITE_I32);
+    add_fn!("__RTS_FN_NS_BUFFER_WRITE_I64", buf::__RTS_FN_NS_BUFFER_WRITE_I64);
+    add_fn!("__RTS_FN_NS_BUFFER_WRITE_F64", buf::__RTS_FN_NS_BUFFER_WRITE_F64);
+    add_fn!("__RTS_FN_NS_BUFFER_COPY", buf::__RTS_FN_NS_BUFFER_COPY);
+    add_fn!("__RTS_FN_NS_BUFFER_FILL", buf::__RTS_FN_NS_BUFFER_FILL);
+    add_fn!("__RTS_FN_NS_BUFFER_TO_STRING", buf::__RTS_FN_NS_BUFFER_TO_STRING);
+
     // ── namespaces::path ──────────────────────────────────────────────
     use crate::namespaces::path::*;
     add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);
