@@ -171,6 +171,16 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::env ───────────────────────────────────────────────
+    use crate::namespaces::env::*;
+    add_fn!("__RTS_FN_NS_ENV_GET_VAR", vars::__RTS_FN_NS_ENV_GET_VAR);
+    add_fn!("__RTS_FN_NS_ENV_SET_VAR", vars::__RTS_FN_NS_ENV_SET_VAR);
+    add_fn!("__RTS_FN_NS_ENV_REMOVE_VAR", vars::__RTS_FN_NS_ENV_REMOVE_VAR);
+    add_fn!("__RTS_FN_NS_ENV_ARGS_COUNT", args::__RTS_FN_NS_ENV_ARGS_COUNT);
+    add_fn!("__RTS_FN_NS_ENV_ARG_AT", args::__RTS_FN_NS_ENV_ARG_AT);
+    add_fn!("__RTS_FN_NS_ENV_CWD", cwd::__RTS_FN_NS_ENV_CWD);
+    add_fn!("__RTS_FN_NS_ENV_SET_CWD", cwd::__RTS_FN_NS_ENV_SET_CWD);
+
     // ── namespaces::time ──────────────────────────────────────────────
     use crate::namespaces::time::*;
     add_fn!("__RTS_FN_NS_TIME_NOW_MS", instant::__RTS_FN_NS_TIME_NOW_MS);

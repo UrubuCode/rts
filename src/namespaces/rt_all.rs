@@ -10,3 +10,5 @@ pub mod math;
 pub mod bigfloat;
 #[path = "time/rt.rs"]
 pub mod time;
+#[path = "env/rt.rs"]
+pub mod env;
