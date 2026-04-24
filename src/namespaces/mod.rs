@@ -11,6 +11,7 @@ pub mod fs;
 pub mod gc;
 pub mod io;
 pub mod math;
+pub mod os;
 pub mod path;
 pub mod process;
 pub mod string;

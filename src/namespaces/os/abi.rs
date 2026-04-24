@@ -1,0 +1,92 @@
+//! `os` namespace — ABI registration.
+
+use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+
+pub const MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "platform",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_PLATFORM",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Canonical OS name: 'windows', 'linux', 'macos', 'ios', 'android', ...",
+        ts_signature: "platform(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "arch",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_ARCH",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "CPU architecture: 'x86_64', 'aarch64', 'x86', ...",
+        ts_signature: "arch(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "family",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_FAMILY",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "OS family: 'unix' or 'windows'.",
+        ts_signature: "family(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "eol",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_EOL",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Native line ending: '\\r\\n' on Windows, '\\n' elsewhere.",
+        ts_signature: "eol(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "home_dir",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_HOME_DIR",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "User home directory. Empty string if unresolvable.",
+        ts_signature: "home_dir(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "temp_dir",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_TEMP_DIR",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "System temporary directory.",
+        ts_signature: "temp_dir(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "config_dir",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_CONFIG_DIR",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Per-user config dir (%APPDATA% / XDG_CONFIG_HOME / ~/.config).",
+        ts_signature: "config_dir(): string",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "cache_dir",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_OS_CACHE_DIR",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Per-user cache dir (%LOCALAPPDATA% / XDG_CACHE_HOME / ~/.cache).",
+        ts_signature: "cache_dir(): string",
+        intrinsic: None,
+    },
+];
+
+pub const SPEC: NamespaceSpec = NamespaceSpec {
+    name: "os",
+    doc: "OS and environment info: platform, arch, special directories.",
+    members: MEMBERS,
+};

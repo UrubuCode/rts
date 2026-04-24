@@ -171,6 +171,19 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::os ────────────────────────────────────────────────
+    {
+        use crate::namespaces::os::*;
+        add_fn!("__RTS_FN_NS_OS_PLATFORM", info::__RTS_FN_NS_OS_PLATFORM);
+        add_fn!("__RTS_FN_NS_OS_ARCH", info::__RTS_FN_NS_OS_ARCH);
+        add_fn!("__RTS_FN_NS_OS_FAMILY", info::__RTS_FN_NS_OS_FAMILY);
+        add_fn!("__RTS_FN_NS_OS_EOL", info::__RTS_FN_NS_OS_EOL);
+        add_fn!("__RTS_FN_NS_OS_HOME_DIR", dirs::__RTS_FN_NS_OS_HOME_DIR);
+        add_fn!("__RTS_FN_NS_OS_TEMP_DIR", dirs::__RTS_FN_NS_OS_TEMP_DIR);
+        add_fn!("__RTS_FN_NS_OS_CONFIG_DIR", dirs::__RTS_FN_NS_OS_CONFIG_DIR);
+        add_fn!("__RTS_FN_NS_OS_CACHE_DIR", dirs::__RTS_FN_NS_OS_CACHE_DIR);
+    }
+
     // ── namespaces::process ───────────────────────────────────────────
     {
         use crate::namespaces::process::*;
