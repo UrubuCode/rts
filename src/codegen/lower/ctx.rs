@@ -13,7 +13,6 @@ use cranelift_codegen::ir::{
 };
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataId, Module};
-use cranelift_object::ObjectModule;
 
 use crate::abi::types::AbiType;
 
@@ -95,9 +94,14 @@ pub struct UserFnAbi {
 }
 
 /// Per-function compilation context.
+///
+/// `module` is stored as `&mut dyn Module` so the same codegen plumbing
+/// serves both `ObjectModule` (AOT via `rts compile`) and `JITModule`
+/// (in-memory via `rts run`). The Module trait is object-safe — every
+/// method we need dispatches through the vtable without Self-bounds.
 pub struct FnCtx<'m, 'fb> {
     pub builder: &'fb mut FunctionBuilder<'m>,
-    pub module: &'m mut ObjectModule,
+    pub module: &'m mut dyn Module,
     pub extern_cache: &'fb mut HashMap<&'static str, cranelift_module::FuncId>,
     pub data_counter: &'fb mut u32,
 
@@ -132,7 +136,7 @@ pub struct FnCtx<'m, 'fb> {
 impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn new(
         builder: &'fb mut FunctionBuilder<'m>,
-        module: &'m mut ObjectModule,
+        module: &'m mut dyn Module,
         extern_cache: &'fb mut HashMap<&'static str, cranelift_module::FuncId>,
         data_counter: &'fb mut u32,
         globals: &'fb HashMap<String, GlobalVar>,

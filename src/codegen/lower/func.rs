@@ -11,7 +11,6 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, Linkage, Module};
-use cranelift_object::ObjectModule;
 use swc_ecma_ast::{Decl, Expr, Lit, Pat, Stmt, TsType, TsTypeRef};
 
 use crate::parser::ast::{FunctionDecl, Item, Program, Statement};
@@ -32,7 +31,7 @@ struct UserFn {
 /// Compiles the full program: user functions + top-level `main`.
 pub fn compile_program(
     program: &Program,
-    module: &mut ObjectModule,
+    module: &mut dyn Module,
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
@@ -133,7 +132,7 @@ pub fn compile_program(
 
 fn collect_module_globals(
     program: &Program,
-    module: &mut ObjectModule,
+    module: &mut dyn Module,
 ) -> Result<HashMap<String, GlobalVar>> {
     let mut globals = HashMap::<String, GlobalVar>::new();
     let mut counter = 0usize;
@@ -325,7 +324,7 @@ fn user_call_conv() -> CallConv {
     CallConv::Tail
 }
 
-fn declare_user_fn(module: &mut ObjectModule, fn_decl: &FunctionDecl) -> Result<UserFn> {
+fn declare_user_fn(module: &mut dyn Module, fn_decl: &FunctionDecl) -> Result<UserFn> {
     let (params, ret) = fn_signature(fn_decl);
     let mut sig = Signature::new(user_call_conv());
     for &ty in &params {
@@ -371,7 +370,7 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
 }
 
 fn compile_user_fn(
-    module: &mut ObjectModule,
+    module: &mut dyn Module,
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
@@ -455,7 +454,7 @@ fn compile_user_fn(
 }
 
 fn compile_main(
-    module: &mut ObjectModule,
+    module: &mut dyn Module,
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
@@ -516,7 +515,7 @@ fn compile_main(
 }
 
 fn compile_main_entry_shim(
-    module: &mut ObjectModule,
+    module: &mut dyn Module,
     runtime_main_id: cranelift_module::FuncId,
     sig: &Signature,
 ) -> Result<()> {

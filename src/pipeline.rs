@@ -113,6 +113,47 @@ pub fn build_executable(
     })
 }
 
+/// Parses `input` and runs it directly in memory via Cranelift JIT.
+///
+/// Skips the object-file + system-linker cycle entirely: the program is
+/// compiled into executable memory by `JITModule`, the `__RTS_MAIN`
+/// symbol is resolved to a raw function pointer, and the binary is
+/// invoked with an `extern "C"` transmute. Returns the exit code the
+/// program produced.
+///
+/// This is the hot path for `rts run` — no disk I/O after parse, no
+/// linker spawn. AOT (`rts compile`) keeps going through
+/// [`build_executable`].
+pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String>)> {
+    let source = std::fs::read_to_string(input)
+        .with_context(|| format!("failed to read {}", input.display()))?;
+    let program = parser::parse_source_with_mode(&source, options.frontend_mode)
+        .with_context(|| format!("failed to parse {}", input.display()))?;
+
+    let (module, warnings) = crate::codegen::compile_program_to_jit(&program)
+        .context("JIT compile failed")?;
+
+    // Resolve `__RTS_MAIN`. The codegen pipeline always emits it with
+    // Linkage::Local + platform default call conv (`int __RTS_MAIN(void)`).
+    use cranelift_module::Module;
+    let name = "__RTS_MAIN";
+    let main_id = match module.get_name(name) {
+        Some(cranelift_module::FuncOrDataId::Func(id)) => id,
+        _ => anyhow::bail!("JIT: `{name}` not found in module"),
+    };
+    let main_ptr = module.get_finalized_function(main_id);
+    // SAFETY: codegen guarantees __RTS_MAIN matches this signature.
+    let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
+    let exit_code = main_fn();
+
+    // JITModule owns the executable pages — keep it alive until the
+    // call returns. Leaking is fine for one-shot `rts run`: the process
+    // exits right after this function.
+    std::mem::forget(module);
+
+    Ok((exit_code, warnings))
+}
+
 /// Returns the set of namespaces inferred from a pre-compiled object's
 /// extern symbols without re-running codegen.
 pub fn namespaces_from_symbols(symbols: &HashSet<String>) -> HashSet<String> {
