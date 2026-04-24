@@ -119,3 +119,8 @@ fn fixture_arrow_functions() {
 fn fixture_bitwise_ops() {
     run_fixture("bitwise_ops");
 }
+
+#[test]
+fn fixture_ternary() {
+    run_fixture("ternary");
+}

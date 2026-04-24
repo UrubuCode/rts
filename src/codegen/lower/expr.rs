@@ -88,6 +88,9 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // ── Template literal ──────────────────────────────────────────────
         Expr::Tpl(tpl) => lower_tpl(ctx, tpl),
 
+        // ── Ternary (a ? b : c) ───────────────────────────────────────────
+        Expr::Cond(cond) => lower_cond(ctx, cond),
+
         // ── Member (e.g. `io.print` used as expression) ───────────────────
         Expr::Member(_) => Err(anyhow!("bare member expression not supported as value")),
 
@@ -342,6 +345,51 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
 
         op => Err(anyhow!("unsupported binary op: {op:?}")),
     }
+}
+
+fn lower_cond(ctx: &mut FnCtx, cond: &swc_ecma_ast::CondExpr) -> Result<TypedVal> {
+    // Evaluate test, branch into cons/alt, merge in i64 slot.
+    let test = lower_expr(ctx, &cond.test)?;
+    let test_i64 = ctx.coerce_to_i64(test);
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let is_truthy = ctx.builder.ins().icmp(IntCC::NotEqual, test_i64.val, zero);
+
+    let cons_block = ctx.builder.create_block();
+    let alt_block = ctx.builder.create_block();
+    let merge_block = ctx.builder.create_block();
+    let result_var = ctx.builder.declare_var(cl::I64);
+
+    ctx.builder
+        .ins()
+        .brif(is_truthy, cons_block, &[], alt_block, &[]);
+
+    ctx.builder.switch_to_block(cons_block);
+    ctx.builder.seal_block(cons_block);
+    let cons = lower_expr(ctx, &cond.cons)?;
+    let cons_ty = cons.ty;
+    let cons_i64 = ctx.coerce_to_i64(cons);
+    ctx.builder.def_var(result_var, cons_i64.val);
+    ctx.builder.ins().jump(merge_block, &[]);
+
+    ctx.builder.switch_to_block(alt_block);
+    ctx.builder.seal_block(alt_block);
+    let alt = lower_expr(ctx, &cond.alt)?;
+    let alt_ty = alt.ty;
+    let alt_i64 = ctx.coerce_to_i64(alt);
+    ctx.builder.def_var(result_var, alt_i64.val);
+    ctx.builder.ins().jump(merge_block, &[]);
+
+    ctx.builder.switch_to_block(merge_block);
+    ctx.builder.seal_block(merge_block);
+    let result = ctx.builder.use_var(result_var);
+    // Slot is i64; if both branches report Handle/Bool (also i64-backed in
+    // Cranelift) we keep the tag so downstream code skips redundant work.
+    let ty = match (cons_ty, alt_ty) {
+        (ValTy::Handle, ValTy::Handle) => ValTy::Handle,
+        (ValTy::Bool, ValTy::Bool) => ValTy::Bool,
+        _ => ValTy::I64,
+    };
+    Ok(TypedVal::new(result, ty))
 }
 
 fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
