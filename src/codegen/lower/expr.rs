@@ -167,6 +167,12 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
             emit_constant_load(ctx, member)
         }
 
+        // ── Optional chain (a?.b, a?.()) ─────────────────────────────────
+        // Member access (`a?.b`) precisa de objects (#53) — rejeita com
+        // mensagem clara. Optional call (`fn?.()`) funciona porque
+        // callee resolve a i64 funcptr; basta checar se e 0 e pular.
+        Expr::OptChain(opt) => lower_opt_chain(ctx, opt),
+
         other => Err(anyhow!(
             "unsupported expression kind: {}",
             expr_kind_name(other)
@@ -456,7 +462,10 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
 
 fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // Short-circuit logical ops
-    if matches!(bin.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr) {
+    if matches!(
+        bin.op,
+        BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing
+    ) {
         return lower_logical(ctx, bin);
     }
 
@@ -579,6 +588,63 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     }
 }
 
+/// Lowers `a?.b` / `a?.()`. Sem suporte a property access (depende de
+/// #53 objects), so tratamos optional call — `callee?.()` resolvendo
+/// callee a i64 funcptr: se for 0 (null), resultado e 0; senao
+/// call_indirect normal.
+fn lower_opt_chain(
+    ctx: &mut FnCtx,
+    opt: &swc_ecma_ast::OptChainExpr,
+) -> Result<TypedVal> {
+    use swc_ecma_ast::OptChainBase;
+    match opt.base.as_ref() {
+        OptChainBase::Call(call) => {
+            let callee_tv = lower_expr(ctx, &call.callee)?;
+            let callee_i64 = ctx.coerce_to_i64(callee_tv).val;
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_null = ctx.builder.ins().icmp(IntCC::Equal, callee_i64, zero);
+
+            let null_block = ctx.builder.create_block();
+            let call_block = ctx.builder.create_block();
+            let merge_block = ctx.builder.create_block();
+            let result_var = ctx.builder.declare_var(cl::I64);
+
+            ctx.builder
+                .ins()
+                .brif(is_null, null_block, &[], call_block, &[]);
+
+            // null path: resultado 0
+            ctx.builder.switch_to_block(null_block);
+            ctx.builder.seal_block(null_block);
+            ctx.builder.def_var(result_var, zero);
+            ctx.builder.ins().jump(merge_block, &[]);
+
+            // call path: reconstroi CallExpr sintetico e indireta
+            ctx.builder.switch_to_block(call_block);
+            ctx.builder.seal_block(call_block);
+            let synthetic_call = CallExpr {
+                span: call.span,
+                ctxt: call.ctxt,
+                callee: Callee::Expr(call.callee.clone()),
+                args: call.args.clone(),
+                type_args: call.type_args.clone(),
+            };
+            let result = lower_indirect_call(ctx, &call.callee, &synthetic_call)?;
+            let result_i64 = ctx.coerce_to_i64(result).val;
+            ctx.builder.def_var(result_var, result_i64);
+            ctx.builder.ins().jump(merge_block, &[]);
+
+            ctx.builder.switch_to_block(merge_block);
+            ctx.builder.seal_block(merge_block);
+            let v = ctx.builder.use_var(result_var);
+            Ok(TypedVal::new(v, ValTy::I64))
+        }
+        OptChainBase::Member(_) => Err(anyhow!(
+            "optional member access (a?.b) requires object literals (#53) — not supported yet"
+        )),
+    }
+}
+
 fn lower_cond(ctx: &mut FnCtx, cond: &swc_ecma_ast::CondExpr) -> Result<TypedVal> {
     // Evaluate test, branch into cons/alt, merge in i64 slot.
     let test = lower_expr(ctx, &cond.test)?;
@@ -667,6 +733,27 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             ctx.builder.ins().jump(merge_block, &[]);
 
             // false branch: evaluate rhs
+            ctx.builder.switch_to_block(false_block);
+            ctx.builder.seal_block(false_block);
+            let rhs = lower_expr(ctx, &bin.right)?;
+            let rhs_i64 = ctx.coerce_to_i64(rhs);
+            ctx.builder.def_var(result_var, rhs_i64.val);
+            ctx.builder.ins().jump(merge_block, &[]);
+        }
+        BinaryOp::NullishCoalescing => {
+            // `lhs ?? rhs` — JS spec: se lhs e null/undefined, retorna
+            // rhs; caso contrario retorna lhs. RTS representa null
+            // como valor sentinel 0 (no lane I64 ou como Handle 0).
+            // Para numeros bem tipados a semantica reduz a "se lhs
+            // == 0 use rhs senao use lhs" — igual ao || do
+            // ramo truthy. Ja funciona porque is_truthy == (x != 0).
+            // true branch: non-zero, mantem lhs
+            ctx.builder.switch_to_block(true_block);
+            ctx.builder.seal_block(true_block);
+            ctx.builder.def_var(result_var, lhs_i64.val);
+            ctx.builder.ins().jump(merge_block, &[]);
+
+            // false branch: zero/null/undefined, usa rhs
             ctx.builder.switch_to_block(false_block);
             ctx.builder.seal_block(false_block);
             let rhs = lower_expr(ctx, &bin.right)?;
