@@ -5,6 +5,7 @@
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
 pub mod bigfloat;
+pub mod buffer;
 pub mod env;
 pub mod fs;
 pub mod gc;

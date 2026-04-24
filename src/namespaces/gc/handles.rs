@@ -27,6 +27,9 @@ pub enum Entry {
     /// main crate (`namespaces::bigfloat`) and the standalone runtime
     /// staticlib (`crate::bigfloat`).
     BigFixed(Box<super::super::bigfloat::fixed::FixedDecimal>),
+    /// Raw byte buffer — Vec<u8> com capacidade igual ao size.
+    /// Usado pelo namespace `buffer` para dados binarios, FFI, etc.
+    Buffer(Vec<u8>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
@@ -83,6 +86,17 @@ impl HandleTable {
             return None;
         }
         Some(&slot.entry)
+    }
+
+    /// Mutable variant of [`get`], used by namespaces that need in-place
+    /// edits (e.g. `buffer.write_u8`). Same validity checks apply.
+    pub fn get_mut(&mut self, handle: u64) -> Option<&mut Entry> {
+        let (expected_gen, idx) = decode(handle)?;
+        let slot = self.slots.get_mut(idx as usize)?;
+        if slot.generation != expected_gen || matches!(slot.entry, Entry::Free) {
+            return None;
+        }
+        Some(&mut slot.entry)
     }
 }
 
