@@ -121,20 +121,33 @@ fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
     match lit {
         Lit::Num(n) => {
             let v = n.value;
-            if v.fract() == 0.0 && v.is_finite() && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
+            // If the source written form carries a decimal point or exponent,
+            // treat the literal as f64 even when the value happens to be
+            // integral. Without this, `1.0` would silently become i32 and
+            // poison divisions like `1.0 / 5.0`.
+            let wrote_as_float = n
+                .raw
+                .as_ref()
+                .map(|r| {
+                    let s = r.as_bytes();
+                    s.iter().any(|&b| b == b'.' || b == b'e' || b == b'E')
+                })
+                .unwrap_or(false);
+
+            if wrote_as_float || !v.is_finite() || v.fract() != 0.0 {
+                Ok(TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64))
+            } else if v >= i32::MIN as f64 && v <= i32::MAX as f64 {
                 // Default to I32 for integer literals that fit; codegen
                 // coerces when the context demands I64.
                 Ok(TypedVal::new(
                     ctx.builder.ins().iconst(cl::I32, v as i64),
                     ValTy::I32,
                 ))
-            } else if v.fract() == 0.0 && v.is_finite() {
+            } else {
                 Ok(TypedVal::new(
                     ctx.builder.ins().iconst(cl::I64, v as i64),
                     ValTy::I64,
                 ))
-            } else {
-                Ok(TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64))
             }
         }
         Lit::Bool(b) => Ok(TypedVal::new(

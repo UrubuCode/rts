@@ -215,12 +215,20 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
     match expr {
         Expr::Lit(Lit::Num(n)) => {
             let v = n.value;
-            if v.fract() == 0.0 && v.is_finite() && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
-                ValTy::I32
-            } else if v.fract() == 0.0 && v.is_finite() {
-                ValTy::I64
-            } else {
+            let wrote_as_float = n
+                .raw
+                .as_ref()
+                .map(|r| {
+                    let s = r.as_bytes();
+                    s.iter().any(|&b| b == b'.' || b == b'e' || b == b'E')
+                })
+                .unwrap_or(false);
+            if wrote_as_float || !v.is_finite() || v.fract() != 0.0 {
                 ValTy::F64
+            } else if v >= i32::MIN as f64 && v <= i32::MAX as f64 {
+                ValTy::I32
+            } else {
+                ValTy::I64
             }
         }
         Expr::Lit(Lit::Bool(_)) => ValTy::Bool,
