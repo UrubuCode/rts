@@ -856,14 +856,16 @@ fn lower_intrinsic(
             let ptr_ty = ctx.module.isa().pointer_type();
             let ptr = ctx.builder.ins().global_value(ptr_ty, gv);
 
-            let x0 = ctx.builder.ins().load(cl::I64, MemFlags::new(), ptr, 0);
+            // RNG state is a static u64: naturally aligned and always
+            // valid storage. `trusted()` unlocks the tightest load/store.
+            let x0 = ctx.builder.ins().load(cl::I64, MemFlags::trusted(), ptr, 0);
             let s13 = ctx.builder.ins().ishl_imm(x0, 13);
             let x1 = ctx.builder.ins().bxor(x0, s13);
             let s7 = ctx.builder.ins().ushr_imm(x1, 7);
             let x2 = ctx.builder.ins().bxor(x1, s7);
             let s17 = ctx.builder.ins().ishl_imm(x2, 17);
             let x3 = ctx.builder.ins().bxor(x2, s17);
-            ctx.builder.ins().store(MemFlags::new(), x3, ptr, 0);
+            ctx.builder.ins().store(MemFlags::trusted(), x3, ptr, 0);
 
             // Take top 53 bits and divide by 2^53 as f64.
             let bits = ctx.builder.ins().ushr_imm(x3, 11);

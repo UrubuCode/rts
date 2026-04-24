@@ -209,10 +209,14 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             .builder
             .ins()
             .global_value(self.module.isa().pointer_type(), gv);
+        // Module globals are declared with natural alignment (4/8 bytes)
+        // and always initialised before first read (top-level emits the
+        // initialiser before any reader). `trusted()` = aligned + notrap
+        // lets the backend pick the widest load instruction.
         let val = self
             .builder
             .ins()
-            .load(global.ty.cl_type(), MemFlags::new(), ptr, 0);
+            .load(global.ty.cl_type(), MemFlags::trusted(), ptr, 0);
         Some(TypedVal::new(val, global.ty))
     }
 
@@ -235,7 +239,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 .ins()
                 .global_value(self.module.isa().pointer_type(), gv);
             let casted = self.coerce_value_to_ty(val, global.ty);
-            self.builder.ins().store(MemFlags::new(), casted, ptr, 0);
+            self.builder
+                .ins()
+                .store(MemFlags::trusted(), casted, ptr, 0);
             return Ok(());
         }
 
