@@ -77,6 +77,16 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         Expr::Assign(a) => {
             use swc_ecma_ast::{AssignOp, AssignTarget};
 
+            // super.field = v: similar ao member assignment mas com
+            // semantica de bypass de virtual dispatch quando há setter
+            // override em Sub. Compound (+=, etc) suportado via
+            // desugar usando super.field como leitura.
+            if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::SuperProp(sp)) =
+                &a.left
+            {
+                return lower_super_prop_assign(ctx, sp, a);
+            }
+
             // Member assignment: obj.field = v / obj[key] = v
             // Compound (+=, -=, etc) desugar para `obj.field op= rhs`
             // -> `obj.field = (obj.field) op rhs`. NOTA: avalia `obj`
@@ -307,6 +317,13 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
             ctx.read_local("this")
                 .ok_or_else(|| anyhow!("`this` nao disponivel no contexto atual"))
         }
+
+        // ── super.field (read) ───────────────────────────────────────────
+        // `super.x` em método de Sub: se o parent define um getter para
+        // `x`, chama `__class_<getter_owner>_get_x(this)` direto (skip
+        // virtual dispatch — `super` propositalmente pula o override).
+        // Caso contrário, lê o field via map_get(this, "x").
+        Expr::SuperProp(sp) => lower_super_prop_read(ctx, sp),
 
         // ── new C(args) ──────────────────────────────────────────────────
         Expr::New(new_expr) => lower_new(ctx, new_expr),
@@ -1771,6 +1788,146 @@ fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     }
     ctx.builder.ins().call(fref, &args);
     Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
+}
+
+/// Read access via `super.x` (não method call).
+///
+/// Resolve diferente de `this.x` apenas quando o parent define um getter:
+/// nesse caso pula o virtual dispatch e chama o getter da classe pai
+/// direto. Para fields normais, super.x == this.x porque o layout é
+/// flat por instância (não há shadow de field — TS proíbe).
+fn lower_super_prop_read(
+    ctx: &mut FnCtx,
+    sp: &swc_ecma_ast::SuperPropExpr,
+) -> Result<TypedVal> {
+    let class_name = ctx
+        .current_class
+        .clone()
+        .ok_or_else(|| anyhow!("`super.field` fora de metodo de classe"))?;
+    let parent = ctx
+        .classes
+        .get(&class_name)
+        .and_then(|m| m.super_class.clone())
+        .ok_or_else(|| anyhow!("`super.field` em classe sem extends"))?;
+
+    let prop_name = match &sp.prop {
+        swc_ecma_ast::SuperProp::Ident(id) => id.sym.as_str().to_string(),
+        swc_ecma_ast::SuperProp::Computed(_) => {
+            return Err(anyhow!("computed em super[expr] nao suportado"));
+        }
+    };
+
+    // Lê `this` (receiver).
+    let this_val = ctx
+        .read_local("this")
+        .ok_or_else(|| anyhow!("`this` indisponivel em super.field"))?;
+    let recv_i64 = ctx.coerce_to_i64(this_val).val;
+
+    // Se o parent (ou um ancestral) define um getter `get x()`, invoca
+    // direto a versão do parent — bypass do override em Sub.
+    if let Some(getter_owner) = resolve_getter_owner(ctx, &parent, &prop_name) {
+        let fn_name = class_getter_name(&getter_owner, &prop_name);
+        return emit_named_method_call(ctx, &fn_name, recv_i64, &[]);
+    }
+
+    // Field comum: equivalente a `this.x` — map_get(this, "x") com o
+    // tipo declarado do field na hierarquia (se conhecido).
+    let field_ty = field_type_in_hierarchy(ctx, &parent, &prop_name);
+    map_get_static_typed(ctx, recv_i64, prop_name.as_bytes(), field_ty)
+}
+
+/// `super.x = v` (e compound assignments). Bypassa setter override em Sub.
+fn lower_super_prop_assign(
+    ctx: &mut FnCtx,
+    sp: &swc_ecma_ast::SuperPropExpr,
+    a: &swc_ecma_ast::AssignExpr,
+) -> Result<TypedVal> {
+    use swc_ecma_ast::AssignOp;
+
+    let class_name = ctx
+        .current_class
+        .clone()
+        .ok_or_else(|| anyhow!("`super.field = ...` fora de metodo de classe"))?;
+    let parent = ctx
+        .classes
+        .get(&class_name)
+        .and_then(|m| m.super_class.clone())
+        .ok_or_else(|| anyhow!("`super.field = ...` em classe sem extends"))?;
+
+    let prop_name = match &sp.prop {
+        swc_ecma_ast::SuperProp::Ident(id) => id.sym.as_str().to_string(),
+        swc_ecma_ast::SuperProp::Computed(_) => {
+            return Err(anyhow!("computed em super[expr] = ... nao suportado"));
+        }
+    };
+
+    // Compound: desugar para `super.x = super.x OP rhs`.
+    let final_rhs_expr: Box<Expr> = if matches!(a.op, AssignOp::Assign) {
+        a.right.clone()
+    } else {
+        let binop = match a.op {
+            AssignOp::AddAssign => BinaryOp::Add,
+            AssignOp::SubAssign => BinaryOp::Sub,
+            AssignOp::MulAssign => BinaryOp::Mul,
+            AssignOp::DivAssign => BinaryOp::Div,
+            AssignOp::ModAssign => BinaryOp::Mod,
+            AssignOp::LShiftAssign => BinaryOp::LShift,
+            AssignOp::RShiftAssign => BinaryOp::RShift,
+            AssignOp::ZeroFillRShiftAssign => BinaryOp::ZeroFillRShift,
+            AssignOp::BitOrAssign => BinaryOp::BitOr,
+            AssignOp::BitXorAssign => BinaryOp::BitXor,
+            AssignOp::BitAndAssign => BinaryOp::BitAnd,
+            AssignOp::ExpAssign => BinaryOp::Exp,
+            AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullishAssign => {
+                return Err(anyhow!("logical compound em super.field nao suportado"));
+            }
+            AssignOp::Assign => unreachable!(),
+        };
+        let read_lhs = Expr::SuperProp(sp.clone());
+        Box::new(Expr::Bin(BinExpr {
+            span: a.span,
+            op: binop,
+            left: Box::new(read_lhs),
+            right: a.right.clone(),
+        }))
+    };
+
+    let rhs = lower_expr(ctx, &final_rhs_expr)?;
+    let rhs_i64 = ctx.coerce_to_i64(rhs).val;
+
+    let this_val = ctx
+        .read_local("this")
+        .ok_or_else(|| anyhow!("`this` indisponivel em super.field assign"))?;
+    let recv_i64 = ctx.coerce_to_i64(this_val).val;
+
+    // Setter do parent (bypass override em Sub).
+    if let Some(setter_owner) = resolve_setter_owner(ctx, &parent, &prop_name) {
+        let fn_name = class_setter_name(&setter_owner, &prop_name);
+        let abi = ctx
+            .user_fns
+            .get(&fn_name)
+            .ok_or_else(|| anyhow!("setter `{fn_name}` nao registrado"))?
+            .clone();
+        let param_ty = abi.params.get(1).copied().unwrap_or(ValTy::I64);
+        let rhs_tv = TypedVal::new(rhs_i64, ValTy::I64);
+        let coerced = match param_ty {
+            ValTy::I32 => ctx.coerce_to_i32(rhs_tv).val,
+            ValTy::F64 => to_f64(ctx, rhs_tv),
+            _ => rhs_i64,
+        };
+        emit_named_method_call(ctx, &fn_name, recv_i64, &[coerced])?;
+        return Ok(TypedVal::new(rhs_i64, ValTy::I64));
+    }
+
+    // Field comum: map_set(this, "x", v) — semanticamente igual a this.x = v.
+    let set_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+        &[cl::I64, cl::I64, cl::I64, cl::I64],
+        None,
+    )?;
+    let (kp, kl) = ctx.emit_str_literal(prop_name.as_bytes())?;
+    ctx.builder.ins().call(set_fn, &[recv_i64, kp, kl, rhs_i64]);
+    Ok(TypedVal::new(rhs_i64, ValTy::I64))
 }
 
 fn lower_super_method_call(
