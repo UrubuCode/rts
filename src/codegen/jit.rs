@@ -229,6 +229,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_SET", map::__RTS_FN_NS_COLLECTIONS_MAP_SET);
         add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_DELETE", map::__RTS_FN_NS_COLLECTIONS_MAP_DELETE);
         add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_CLEAR", map::__RTS_FN_NS_COLLECTIONS_MAP_CLEAR);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT", map::__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT);
         add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_NEW", vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW);
         add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_FREE", vec::__RTS_FN_NS_COLLECTIONS_VEC_FREE);
         add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_LEN", vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN);

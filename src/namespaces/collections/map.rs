@@ -113,3 +113,26 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(handle: u64) {
     with_map_mut(handle, (), |m| m.clear());
 }
+
+/// Retorna a key na posição `idx` (em ordem de iteração estável dentro
+/// de uma chamada). Usado por for-in. Coleta keys em snapshot Vec
+/// ordenado pra garantir ordem reproduzível em runs distintos. Retorna
+/// handle de string ou 0 se idx fora de range.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(handle: u64, idx: i64) -> u64 {
+    if idx < 0 {
+        return 0;
+    }
+    let key_opt: Option<String> = with_map(handle, None, |m| {
+        let mut keys: Vec<&String> = m.keys().collect();
+        keys.sort();
+        keys.get(idx as usize).map(|s| (*s).clone())
+    });
+    match key_opt {
+        Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            s.as_ptr(),
+            s.len() as i64,
+        ),
+        None => 0,
+    }
+}

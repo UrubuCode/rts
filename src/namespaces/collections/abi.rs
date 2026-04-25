@@ -84,6 +84,16 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "map_clear(h: number): void",
         intrinsic: None,
     },
+    NamespaceMember {
+        name: "map_key_at",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT",
+        args: &[AbiType::U64, AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "Returns the key at index in deterministic order (sorted). 0 if out of range.",
+        ts_signature: "map_key_at(h: number, idx: number): number",
+        intrinsic: None,
+    },
 
     // ── Vec ───────────────────────────────────────────────────────────
     NamespaceMember {
