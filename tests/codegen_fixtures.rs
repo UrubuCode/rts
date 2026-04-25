@@ -767,3 +767,18 @@ fn fixture_generator_empty() {
 fn fixture_generator_method() {
     run_fixture("generator_method");
 }
+
+#[test]
+fn fixture_generator_inherited() {
+    run_fixture("generator_inherited");
+}
+
+#[test]
+fn fixture_generator_override() {
+    run_fixture("generator_override");
+}
+
+#[test]
+fn fixture_generator_super() {
+    run_fixture("generator_super");
+}
