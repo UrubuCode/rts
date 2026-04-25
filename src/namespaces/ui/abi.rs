@@ -135,6 +135,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
     },
     NamespaceMember {
+        name: "widget_set_callback_with_ud",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD",
+        args: &[AbiType::Handle, AbiType::I64, AbiType::U64],
+        returns: AbiType::Void,
+        doc: "Variante de set_callback que passa userdata (ex: handle de `this`) ao callback.",
+        ts_signature:
+            "widget_set_callback_with_ud(widget: number, fn: (this: number) => void, userdata: number): void",
+        intrinsic: None,
+    },
+    NamespaceMember {
         name: "widget_set_color",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_UI_WIDGET_SET_COLOR",

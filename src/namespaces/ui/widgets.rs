@@ -5,8 +5,8 @@ use fltk::{
 use crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 
 use super::store::{
-    UiEntry, alloc_entry, apply_set_callback, apply_set_draw, apply_widget_op, free_entry,
-    with_entry, with_entry_mut,
+    UiEntry, alloc_entry, apply_set_callback, apply_set_callback_with_ud, apply_set_draw,
+    apply_widget_op, free_entry, with_entry, with_entry_mut,
 };
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> &'a str {
@@ -52,6 +52,19 @@ pub extern "C" fn __RTS_FN_NS_UI_WIDGET_LABEL(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_UI_WIDGET_SET_CALLBACK(handle: u64, fn_ptr: i64) {
     apply_set_callback(handle, fn_ptr);
+}
+
+/// Variante com userdata: usado para callbacks que capturam `this` em
+/// classes. O codegen emite uma chamada a esse símbolo (em vez de
+/// `widget_set_callback`) quando o arrow do trampolim recebe um
+/// parâmetro tipado com a classe.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD(
+    handle: u64,
+    fn_ptr: i64,
+    userdata: u64,
+) {
+    apply_set_callback_with_ud(handle, fn_ptr, userdata);
 }
 
 #[unsafe(no_mangle)]
