@@ -792,3 +792,28 @@ fn fixture_generator_static() {
 fn fixture_generator_yield_star() {
     run_fixture("generator_yield_star");
 }
+
+#[test]
+fn fixture_enum_string() {
+    run_fixture("enum_string");
+}
+
+#[test]
+fn fixture_enum_string_concat() {
+    run_fixture("enum_string_concat");
+}
+
+#[test]
+fn fixture_enum_string_eq() {
+    run_fixture("enum_string_eq");
+}
+
+#[test]
+fn fixture_enum_mixed() {
+    run_fixture("enum_mixed");
+}
+
+#[test]
+fn fixture_enum_string_switch() {
+    run_fixture("enum_string_switch");
+}

@@ -138,9 +138,17 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             if let Some(cls) = receiver_class.as_deref() {
                 validate_visibility(ctx, cls, key)?;
             }
-            let field_ty = receiver_class
+            let mut field_ty = receiver_class
                 .as_deref()
                 .and_then(|c| field_type_in_hierarchy(ctx, c, key));
+            // Fallback: tipo de campo registrado em var local (object literal).
+            if field_ty.is_none() {
+                if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                    if let Some(types) = ctx.local_obj_field_types.get(obj_id.sym.as_str()) {
+                        field_ty = types.get(key).copied();
+                    }
+                }
+            }
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
         MemberProp::Computed(c) => {
