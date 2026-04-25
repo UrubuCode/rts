@@ -572,3 +572,23 @@ fn fixture_try_catch_nested() {
 fn fixture_try_catch_rethrow() {
     run_fixture("try_catch_rethrow");
 }
+
+#[test]
+fn fixture_union_param() {
+    run_fixture("union_param");
+}
+
+#[test]
+fn fixture_intersection_type() {
+    run_fixture("intersection_type");
+}
+
+#[test]
+fn fixture_union_var() {
+    run_fixture("union_var");
+}
+
+#[test]
+fn fixture_union_null() {
+    run_fixture("union_null");
+}
