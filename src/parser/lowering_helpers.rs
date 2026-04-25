@@ -69,7 +69,43 @@ fn prop_name_to_string(name: &PropName, cm: &Lrc<SourceMap>) -> String {
         PropName::Str(text) => text.value.to_string_lossy().to_string(),
         PropName::Num(number) => number.value.to_string(),
         PropName::BigInt(number) => number.value.to_string(),
-        PropName::Computed(computed) => span_snippet(cm, computed.expr.span()).unwrap_or_default(),
+        PropName::Computed(computed) => {
+            // Resolução em compile-time:
+            //   ["foo"]      → "foo"      (literal string)
+            //   [42]         → "42"       (literal numérico)
+            //   [`tpl`]      → conteúdo do template sem interpolação
+            //   [a + b]      → fallback: snippet do código (mantém comportamento
+            //                  anterior pra não quebrar casos não-críticos).
+            //                  Computed dinâmico real (com expressões não-const)
+            //                  fica fora do MVP — os snippets não são únicos
+            //                  e podem colidir. Documenta-se em #153.
+            if let Some(s) = computed_to_static_str(computed.expr.as_ref()) {
+                return s;
+            }
+            span_snippet(cm, computed.expr.span()).unwrap_or_default()
+        }
+    }
+}
+
+/// Resolve a expressão de um nome computed (`[expr]`) para uma string
+/// estática, quando possível. Cobre literais string/número e templates
+/// sem interpolação. Outros casos retornam None — caller decide o
+/// fallback (no parser, snippet textual; no codegen, erro).
+fn computed_to_static_str(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Lit(Lit::Str(s)) => Some(s.value.to_string_lossy().to_string()),
+        Expr::Lit(Lit::Num(n)) => Some(n.value.to_string()),
+        Expr::Lit(Lit::BigInt(n)) => Some(n.value.to_string()),
+        Expr::Tpl(tpl) if tpl.exprs.is_empty() => {
+            // Template literal sem interpolação: junta os quasis.
+            let mut out = String::new();
+            for q in &tpl.quasis {
+                out.push_str(q.raw.as_ref());
+            }
+            Some(out)
+        }
+        Expr::Paren(p) => computed_to_static_str(&p.expr),
+        _ => None,
     }
 }
 
