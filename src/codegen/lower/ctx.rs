@@ -108,6 +108,10 @@ pub struct ClassMeta {
     /// para tipar o resultado de `obj.field` quando a classe da var e
     /// conhecida.
     pub field_types: HashMap<String, ValTy>,
+    /// Nome textual cru do tipo de cada field (ex: `"Vec3"`, `"i32"`).
+    /// Permite descobrir quando o field e instancia de outra classe
+    /// registrada — habilita overload em `this.field + x`.
+    pub field_class_names: HashMap<String, String>,
     /// True quando a classe tem constructor proprio (mesmo se vazio).
     pub has_constructor: bool,
 }

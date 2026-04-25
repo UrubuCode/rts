@@ -553,20 +553,47 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
         Expr::This(_) => ctx.current_class.clone(),
         Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
         Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
-        // Encadeamento: `a + b - c`. Se `a + b` resolve a um overload
-        // de classe X que define `add` retornando X (assumido por
-        // convencao), entao o LHS do `- c` tambem e classe X.
-        // Sem type system mais completo, pressupomos que metodos de
-        // operador retornam a mesma classe do receiver — e o caso
-        // canonico em Rust e o que a infraestrutura suporta.
+        // Encadeamento: `a + b - c`. Pressupomos que metodos de
+        // operador retornam a mesma classe do receiver (convencao Rust).
         Expr::Bin(b) => {
             if operator_method_name(b.op).is_none() {
                 return None;
             }
             let cls = lhs_static_class(ctx, &b.left)?;
-            // Confirma que o metodo existe na classe (cadeia de heranca).
             let method = operator_method_name(b.op)?;
             resolve_method_owner(ctx, &cls, method).map(|_| cls)
+        }
+        // Resultado de chamada de metodo: `obj.m()` herda a classe do
+        // receiver assumindo que o metodo retorna a propria classe.
+        // Cobre `a.add(b) - c` e usos similares.
+        Expr::Call(call) => {
+            if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
+                if let Expr::Member(m) = callee.as_ref() {
+                    let recv_cls = lhs_static_class(ctx, &m.obj)?;
+                    if let MemberProp::Ident(method_id) = &m.prop {
+                        let method = method_id.sym.as_str();
+                        return resolve_method_owner(ctx, &recv_cls, method).map(|_| recv_cls);
+                    }
+                }
+            }
+            None
+        }
+        // Member access em receiver de classe conhecida: `this.field`,
+        // `obj.field` quando o field tem tipo declarado de outra classe.
+        Expr::Member(m) => {
+            let recv_cls = lhs_static_class(ctx, &m.obj)?;
+            let field_name = match &m.prop {
+                MemberProp::Ident(id) => id.sym.as_str().to_string(),
+                MemberProp::Computed(c) => {
+                    if let Expr::Lit(Lit::Str(s)) = c.expr.as_ref() {
+                        s.value.to_string_lossy().to_string()
+                    } else {
+                        return None;
+                    }
+                }
+                _ => return None,
+            };
+            field_class_in_hierarchy(ctx, &recv_cls, &field_name)
         }
         _ => None,
     }
@@ -2031,6 +2058,25 @@ fn field_type_in_hierarchy(ctx: &FnCtx, class: &str, field: &str) -> Option<ValT
         let meta = ctx.classes.get(&cur)?;
         if let Some(ty) = meta.field_types.get(field).copied() {
             return Some(ty);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
+/// Quando o tipo declarado de um field bate com uma classe registrada,
+/// retorna o nome da classe. Permite tratar `this.v` como instancia
+/// quando v: V e V e classe.
+fn field_class_in_hierarchy(ctx: &FnCtx, class: &str, field: &str) -> Option<String> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if let Some(ann) = meta.field_class_names.get(field) {
+            if ctx.classes.contains_key(ann) {
+                return Some(ann.clone());
+            }
         }
         match &meta.super_class {
             Some(parent) => cur = parent.clone(),

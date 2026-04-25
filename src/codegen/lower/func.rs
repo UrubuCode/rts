@@ -608,6 +608,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut methods: Vec<String> = Vec::new();
     let mut fns: Vec<FunctionDecl> = Vec::new();
     let mut field_types: HashMap<String, ValTy> = HashMap::new();
+    let mut field_class_names: HashMap<String, String> = HashMap::new();
     let mut has_constructor = false;
 
     for member in &class.members {
@@ -650,7 +651,9 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
             }
             ClassMember::Property(prop) => {
                 if let Some(ann) = prop.type_annotation.as_deref() {
+                    let ann = ann.trim();
                     field_types.insert(prop.name.clone(), ValTy::from_annotation(ann));
+                    field_class_names.insert(prop.name.clone(), ann.to_string());
                 }
             }
         }
@@ -661,6 +664,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         super_class: class.super_class.clone(),
         methods,
         field_types,
+        field_class_names,
         has_constructor,
     };
     (meta, fns)
