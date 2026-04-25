@@ -42,10 +42,10 @@ pub fn compile_source(
     output_object: &Path,
     options: CompileOptions,
 ) -> Result<CompileOutcome> {
-    let program = parser::parse_source_with_mode(source, options.frontend_mode)
+    let mut program = parser::parse_source_with_mode(source, options.frontend_mode)
         .with_context(|| format!("failed to parse {}", input.display()))?;
 
-    let (object, warnings) = crate::codegen::compile_program_to_object(&program, output_object)?;
+    let (object, warnings) = crate::codegen::compile_program_to_object(&mut program, output_object)?;
 
     Ok(CompileOutcome {
         input: input.to_path_buf(),
@@ -127,10 +127,10 @@ pub fn build_executable(
 pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String>)> {
     let source = std::fs::read_to_string(input)
         .with_context(|| format!("failed to read {}", input.display()))?;
-    let program = parser::parse_source_with_mode(&source, options.frontend_mode)
+    let mut program = parser::parse_source_with_mode(&source, options.frontend_mode)
         .with_context(|| format!("failed to parse {}", input.display()))?;
 
-    let (module, warnings) = crate::codegen::compile_program_to_jit(&program)
+    let (module, warnings) = crate::codegen::compile_program_to_jit(&mut program)
         .context("JIT compile failed")?;
 
     // Resolve `__RTS_MAIN`. The codegen pipeline always emits it with

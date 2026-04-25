@@ -209,3 +209,10 @@ fn fixture_class_virtual_dispatch() {
 fn fixture_class_extras() {
     run_fixture("class_extras");
 }
+
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test fixture_ui_window -- --ignored"]
+fn fixture_ui_window() {
+    run_fixture("ui_window");
+}

@@ -30,3 +30,5 @@ pub mod hash;
 pub mod fmt;
 #[path = "crypto/rt.rs"]
 pub mod crypto;
+// ui namespace is excluded from runtime_support.a — fltk requires cargo
+// dependency resolution. JIT registers symbols directly via jit.rs.

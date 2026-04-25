@@ -3,7 +3,7 @@
 //! `compile_program` declares all user functions first (for forward calls),
 //! lowers bodies, then lowers top-level statements into `__RTS_MAIN`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, anyhow};
 use cranelift_codegen::Context as ClContext;
@@ -11,12 +11,13 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, Linkage, Module};
-use swc_ecma_ast::{Decl, Expr, Lit, Pat, Stmt, TsType, TsTypeRef};
+use swc_ecma_ast::{Callee, Decl, Expr, Lit, MemberProp, Pat, Stmt, TsType, TsTypeRef};
 
 use crate::parser::ast::{
     ClassDecl, ClassMember, FunctionDecl, Item, MemberModifiers, MethodRole, Parameter, Program,
-    Statement,
+    RawStmt, Statement,
 };
+use crate::parser::span::Span;
 
 use super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
 use super::stmt::lower_stmt;
@@ -31,13 +32,135 @@ struct UserFn {
     ret: Option<ValTy>,
 }
 
+/// Lifts inline `() => { ... }` arrow expressions that appear as `I64`-typed
+/// ABI arguments into synthetic top-level `FunctionDecl`s so codegen can
+/// emit a `func_addr` pointer for them.
+///
+/// The arrow in the raw SWC statement is replaced with an `Ident` naming
+/// the synthetic function. Runs before Phase 1 (declaration) so the lifted
+/// functions go through the normal declare → compile path.
+fn lift_arrow_callbacks(program: &mut Program) {
+    use crate::abi::AbiType;
+
+    let mut counter: u32 = 0;
+    let mut new_fns: Vec<Item> = Vec::new();
+    let user_fn_names: HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(f) => Some(f.name.clone()),
+            _ => None,
+        })
+        .collect();
+    let n = program.items.len();
+
+    for i in 0..n {
+        let Item::Statement(Statement::Raw(raw)) = &mut program.items[i] else { continue };
+        let Some(Stmt::Expr(expr_stmt)) = raw.stmt.as_mut() else { continue };
+        let Expr::Call(call) = expr_stmt.expr.as_mut() else { continue };
+
+        // Extract owned ns/method names so the callee borrow ends before we
+        // mutate call.args below.
+        let ns_method = match &call.callee {
+            Callee::Expr(ce) => match ce.as_ref() {
+                Expr::Member(m) => match (m.obj.as_ref(), &m.prop) {
+                    (Expr::Ident(obj), MemberProp::Ident(prop)) => {
+                        Some((obj.sym.to_string(), prop.sym.to_string()))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some((ns_name, method_name)) = ns_method else { continue };
+
+        let qualified = format!("{ns_name}.{method_name}");
+        let Some((_spec, member)) = crate::abi::lookup(&qualified) else { continue };
+
+        for (arg, &abi_ty) in call.args.iter_mut().zip(member.args.iter()) {
+            if abi_ty != AbiType::I64 { continue; }
+
+            let body_stmts: Vec<Statement> = match arg.expr.as_ref() {
+                Expr::Arrow(arrow) => match arrow.body.as_ref() {
+                    swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => block
+                        .stmts
+                        .iter()
+                        .map(|s| {
+                            Statement::Raw(
+                                RawStmt::new("<lifted>".to_string(), Span::default())
+                                    .with_stmt(s.clone()),
+                            )
+                        })
+                        .collect(),
+                    swc_ecma_ast::BlockStmtOrExpr::Expr(expr) => {
+                        let ret = Stmt::Return(swc_ecma_ast::ReturnStmt {
+                            span: Default::default(),
+                            arg: Some(expr.clone()),
+                        });
+                        vec![Statement::Raw(
+                            RawStmt::new("<lifted>".to_string(), Span::default())
+                                .with_stmt(ret),
+                        )]
+                    }
+                },
+                Expr::Ident(id) if user_fn_names.contains(id.sym.as_str()) => {
+                    // Also lift named function callbacks so UI receives a
+                    // C-ABI-compatible zero-arg wrapper function pointer.
+                    let call = Stmt::Expr(swc_ecma_ast::ExprStmt {
+                        span: id.span,
+                        expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
+                            span: id.span,
+                            ctxt: id.ctxt,
+                            callee: Callee::Expr(Box::new(Expr::Ident(id.clone()))),
+                            args: Vec::new(),
+                            type_args: None,
+                        })),
+                    });
+                    vec![Statement::Raw(
+                        RawStmt::new("<lifted>".to_string(), Span::default())
+                            .with_stmt(call),
+                    )]
+                }
+                _ => continue,
+            };
+
+            let syn_name = format!("__lifted_arrow_{counter}");
+            counter += 1;
+
+            new_fns.push(Item::Function(FunctionDecl {
+                name: syn_name.clone(),
+                parameters: Vec::new(),
+                return_type: Some("void".to_string()),
+                body: body_stmts,
+                span: Span::default(),
+            }));
+
+            *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: syn_name.into(),
+                optional: false,
+            });
+        }
+    }
+
+    // Prepend lifted functions so Phase 1 declaration sees them before the
+    // top-level statements that reference them.
+    for fn_item in new_fns.into_iter().rev() {
+        program.items.insert(0, fn_item);
+    }
+}
+
 /// Compiles the full program: user functions + top-level `main`.
 pub fn compile_program(
-    program: &Program,
+    program: &mut Program,
     module: &mut dyn Module,
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
+    lift_arrow_callbacks(program);
+
     let mut warnings = Vec::new();
 
     let globals = collect_module_globals(program, module)?;
@@ -414,18 +537,28 @@ fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
     None
 }
 
-/// User-defined functions use the Tail calling convention so codegen can
-/// emit `return_call` for tail-position invocations (#93). Extern namespace
-/// functions (fs, io, fmod, etc) remain on the platform default — they're
-/// C-ABI imports that need SystemV/Fastcall, and we only ever do regular
-/// calls to them, never tail calls.
-fn user_call_conv() -> CallConv {
-    CallConv::Tail
+/// Lifted callback stubs (`__lifted_arrow_*`) are invoked by native UI
+/// toolkits as plain C function pointers (`extern "C" fn()`), so they must
+/// use the platform default calling convention.
+#[inline]
+fn is_lifted_callback(name: &str) -> bool {
+    name.starts_with("__lifted_arrow_")
+}
+
+/// User-defined functions generally use the Tail calling convention so codegen
+/// can emit `return_call` for tail-position invocations (#93). Lifted UI
+/// callbacks are the exception: they cross a native C ABI boundary.
+fn user_call_conv(module: &dyn Module, fn_name: &str) -> CallConv {
+    if is_lifted_callback(fn_name) {
+        module.isa().default_call_conv()
+    } else {
+        CallConv::Tail
+    }
 }
 
 fn declare_user_fn(module: &mut dyn Module, fn_decl: &FunctionDecl) -> Result<UserFn> {
     let (params, ret) = fn_signature(fn_decl);
-    let mut sig = Signature::new(user_call_conv());
+    let mut sig = Signature::new(user_call_conv(module, &fn_decl.name));
     for &ty in &params {
         sig.params.push(AbiParam::new(ty.cl_type()));
     }
@@ -482,8 +615,9 @@ fn compile_user_fn(
     current_class: Option<String>,
 ) -> Result<()> {
     let mut ctx = ClContext::new();
+    let call_conv = user_call_conv(module, &fn_decl.name);
     ctx.func.signature = {
-        let mut sig = Signature::new(user_call_conv());
+        let mut sig = Signature::new(call_conv);
         for &ty in &info.params {
             sig.params.push(AbiParam::new(ty.cl_type()));
         }
@@ -519,7 +653,7 @@ fn compile_user_fn(
             false,
         );
         fn_ctx.return_ty = info.ret;
-        fn_ctx.is_tail_conv = true;
+        fn_ctx.is_tail_conv = call_conv == CallConv::Tail;
         fn_ctx.current_class = current_class.clone();
         // Em metodos/constructors, o param `this` e instancia da classe
         // dona — populamos local_class_ty pra que `this.field`/dispatch

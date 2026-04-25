@@ -17,7 +17,7 @@ use crate::parser::ast::Program;
 
 /// Compiles a program into a native object file.
 pub fn compile_program_to_object(
-    program: &Program,
+    program: &mut Program,
     output_path: &Path,
 ) -> Result<(ObjectArtifact, Vec<String>)> {
     let mut module = build_module()?;
