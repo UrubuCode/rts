@@ -181,6 +181,16 @@ pub unsafe fn call_fn_ptr(fn_ptr: i64) {
     }
 }
 
+/// Variante com userdata: invoca `extern "C" fn(u64)` passando o
+/// handle capturado. Usado por callbacks de classe que capturam `this`.
+#[inline(always)]
+pub unsafe fn call_fn_ptr_with_ud(fn_ptr: i64, userdata: u64) {
+    if fn_ptr != 0 {
+        let f: unsafe extern "C" fn(u64) = unsafe { std::mem::transmute(fn_ptr as usize) };
+        unsafe { f(userdata) };
+    }
+}
+
 /// set_callback requires concrete types (where Self: Sized, not in vtable).
 macro_rules! dispatch_set_callback {
     ($entry:expr, $fn_ptr:expr) => {{
@@ -195,6 +205,27 @@ macro_rules! dispatch_set_callback {
             UiEntry::Slider(w) => w.set_callback(move |_| unsafe { call_fn_ptr(fp) }),
             UiEntry::Spinner(w) => w.set_callback(move |_| unsafe { call_fn_ptr(fp) }),
             UiEntry::MenuBar(w) => w.set_callback(move |_| unsafe { call_fn_ptr(fp) }),
+            _ => {}
+        }
+    }};
+}
+
+/// Igual a dispatch_set_callback mas captura userdata e passa para o
+/// fn_ptr no momento do callback.
+macro_rules! dispatch_set_callback_with_ud {
+    ($entry:expr, $fn_ptr:expr, $userdata:expr) => {{
+        let fp = $fn_ptr;
+        let ud = $userdata;
+        match $entry {
+            UiEntry::Window(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::Button(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::Frame(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::CheckButton(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::RadioButton(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::Input(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::Slider(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::Spinner(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::MenuBar(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
             _ => {}
         }
     }};
@@ -219,6 +250,14 @@ pub fn apply_set_callback(handle: u64, fn_ptr: i64) {
         let mut store = s.borrow_mut();
         let Some(entry) = store.get_mut(handle) else { return; };
         dispatch_set_callback!(entry, fn_ptr);
+    });
+}
+
+pub fn apply_set_callback_with_ud(handle: u64, fn_ptr: i64, userdata: u64) {
+    UI_STORE.with(|s| {
+        let mut store = s.borrow_mut();
+        let Some(entry) = store.get_mut(handle) else { return; };
+        dispatch_set_callback_with_ud!(entry, fn_ptr, userdata);
     });
 }
 

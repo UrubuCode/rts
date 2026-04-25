@@ -214,6 +214,10 @@ impl LiftAcc {
             // `pre_stmts` sao statements a inserir antes do callsite (escrita
             // do slot `__cb_this_N = this`).
             let mut pre_stmts: Vec<Statement> = Vec::new();
+            // Marca quando precisamos reescrever o callsite atual pra
+            // chamar `widget_set_callback_with_ud` em vez de
+            // `widget_set_callback`, adicionando `this` como 3º arg.
+            let mut pending_userdata_rewrite = false;
 
             for (arg, &abi_ty) in call.args.iter_mut().zip(member.args.iter()) {
                 if abi_ty != AbiType::I64 {
@@ -232,21 +236,39 @@ impl LiftAcc {
                 };
 
                 let body_stmts: Vec<Statement>;
-                let mut needs_this_slot: Option<String> = None; // nome da global
+                let mut needs_this_slot: Option<String> = None; // slot global (path antigo)
+                // Quando true: callsite será reescrito pra usar
+                // `widget_set_callback_with_ud` passando `this` como
+                // userdata. Trampolim recebe `this` como parâmetro
+                // — sem slot global, sem limitação \"última vence\".
+                let mut use_userdata_callback = false;
+                let is_widget_set_callback =
+                    qualified == "ui.widget_set_callback";
 
                 match arg.expr.as_ref() {
+                    Expr::Arrow(arrow) if arrow_uses_this && is_widget_set_callback => {
+                        // Path NOVO (#148): trampolim recebe `this` por
+                        // parâmetro. O callsite é reescrito abaixo.
+                        use_userdata_callback = true;
+                        let raw_stmts = arrow_body_to_stmts(arrow);
+                        body_stmts = raw_stmts
+                            .into_iter()
+                            .map(|s| {
+                                Statement::Raw(
+                                    RawStmt::new("<lifted>".to_string(), Span::default())
+                                        .with_stmt(s),
+                                )
+                            })
+                            .collect();
+                    }
                     Expr::Arrow(arrow) if arrow_uses_this => {
-                        // O trampolim recebe um nome mangled
-                        // `__class_C_lifted_arrow_N` para que `extract_class_owner`
-                        // detecte e o codegen popule `current_class = "C"` —
-                        // habilita `Expr::This` e `super.method()` sem
-                        // tratamento especial.
+                        // Path antigo (slot global): usado por callsites
+                        // que não têm variante `_with_ud` no ABI ainda
+                        // (window_set_callback, widget_set_draw,
+                        // menubar_add). Mantém limitação \"última vence\".
                         let slot = format!("__cb_this_{}", self.counter);
                         needs_this_slot = Some(slot.clone());
                         let raw_stmts = arrow_body_to_stmts(arrow);
-                        // Prefixa: `let this: ClassName = __cb_this_N;` —
-                        // o nome do bind é "this" (read_local("this"))
-                        // funciona naturalmente.
                         let prologue = make_this_local(class_name, &slot);
                         let mut stmts: Vec<swc_ecma_ast::Stmt> = raw_stmts;
                         stmts.insert(0, prologue);
@@ -295,24 +317,36 @@ impl LiftAcc {
                 // habilita `current_class` no codegen via
                 // `extract_class_owner`, o que destrava `Expr::This`,
                 // `super.method()` e dispatch virtual.
-                let syn_name = if needs_this_slot.is_some() {
+                let captures_this = needs_this_slot.is_some() || use_userdata_callback;
+                let syn_name = if captures_this {
                     format!("__class_{}_lifted_arrow_{}", class_name, self.counter)
                 } else {
                     format!("__lifted_arrow_{}", self.counter)
                 };
                 self.counter += 1;
 
-                // Recurse: lift arrows nested inside this trampoline's body
-                // antes de selar como FunctionDecl. Como o trampolim externo
-                // tem `let this: C = ...` no topo, nenhuma reescrita
-                // adicional é necessária — `this` permanece como `Expr::This`
-                // em todo lugar.
+                // Recurse pra arrows aninhadas no body do trampolim.
                 let mut body_stmts = body_stmts;
                 self.lift_in_body(class_name, &mut body_stmts, in_class);
 
+                // Trampolim recebe `this: ClassName` como parâmetro
+                // quando vamos passar `this` por userdata. Caso contrário,
+                // sem parâmetros (path antigo).
+                let parameters: Vec<Parameter> = if use_userdata_callback {
+                    vec![Parameter {
+                        name: "this".to_string(),
+                        type_annotation: Some(class_name.to_string()),
+                        modifiers: MemberModifiers::default(),
+                        variadic: false,
+                        span: Span::default(),
+                    }]
+                } else {
+                    Vec::new()
+                };
+
                 self.new_fns.push(Item::Function(FunctionDecl {
                     name: syn_name.clone(),
-                    parameters: Vec::new(),
+                    parameters,
                     return_type: Some("void".to_string()),
                     body: body_stmts,
                     span: Span::default(),
@@ -320,9 +354,6 @@ impl LiftAcc {
 
                 if let Some(slot_name) = needs_this_slot {
                     self.new_globals.push(slot_name.clone());
-                    // Pré-statement: `__cb_this_N = this;` (ou `= __this;` se
-                    // estamos dentro de outro trampolim onde `this` original
-                    // já foi renomeado).
                     pre_stmts.push(make_slot_assign(&slot_name));
                 }
 
@@ -331,6 +362,34 @@ impl LiftAcc {
                     ctxt: Default::default(),
                     sym: syn_name.into(),
                     optional: false,
+                });
+
+                // Se vamos passar userdata, marca o callsite pra
+                // reescrita posterior. Mais simples fazer fora do loop
+                // de args — ver `pending_userdata_rewrite` abaixo.
+                if use_userdata_callback {
+                    pending_userdata_rewrite = true;
+                }
+            }
+
+            // Reescrita do callsite quando o trampolim captura `this`
+            // via parâmetro (path novo de #148). Substitui o callee
+            // `ui.widget_set_callback` por `ui.widget_set_callback_with_ud`
+            // e anexa `this` como 3º argumento.
+            if pending_userdata_rewrite {
+                if let Callee::Expr(callee_expr) = &mut call.callee {
+                    if let Expr::Member(m) = callee_expr.as_mut() {
+                        if let MemberProp::Ident(prop_id) = &mut m.prop {
+                            prop_id.sym = "widget_set_callback_with_ud".into();
+                        }
+                    }
+                }
+                // Adiciona `this` como 3º arg.
+                call.args.push(swc_ecma_ast::ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
+                        span: Default::default(),
+                    })),
                 });
             }
 

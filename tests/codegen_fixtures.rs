@@ -413,3 +413,9 @@ fn fixture_closure_super() {
 fn fixture_closure_nested() {
     run_fixture("closure_nested");
 }
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_per_instance() {
+    run_fixture("closure_per_instance");
+}

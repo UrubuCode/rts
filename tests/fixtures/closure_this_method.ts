@@ -17,8 +17,8 @@ class C {
 const app = ui.app_new();
 const win = ui.window_new(10, 10, "x");
 const c = new C();
-__class_C_lifted_arrow_0();
-__class_C_lifted_arrow_0();
+__class_C_lifted_arrow_0(c);
+__class_C_lifted_arrow_0(c);
 const h = gc.string_from_i64(c.n);
 io.print(h);
 gc.string_free(h);

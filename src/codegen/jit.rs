@@ -368,6 +368,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_UI_WIDGET_SET_LABEL",       widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL);
         add_fn!("__RTS_FN_NS_UI_WIDGET_LABEL",           widgets::__RTS_FN_NS_UI_WIDGET_LABEL);
         add_fn!("__RTS_FN_NS_UI_WIDGET_SET_CALLBACK",    widgets::__RTS_FN_NS_UI_WIDGET_SET_CALLBACK);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD", widgets::__RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD);
         add_fn!("__RTS_FN_NS_UI_WIDGET_SET_COLOR",       widgets::__RTS_FN_NS_UI_WIDGET_SET_COLOR);
         add_fn!("__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR", widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR);
         add_fn!("__RTS_FN_NS_UI_WIDGET_RESIZE",          widgets::__RTS_FN_NS_UI_WIDGET_RESIZE);

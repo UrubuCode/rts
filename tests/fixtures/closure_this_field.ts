@@ -21,9 +21,10 @@ const before = gc.string_from_i64(c.n);
 io.print(before);
 gc.string_free(before);
 
-__class_Counter_lifted_arrow_0();
-__class_Counter_lifted_arrow_0();
-__class_Counter_lifted_arrow_0();
+// O trampolim agora recebe `this` por parâmetro (path #148).
+__class_Counter_lifted_arrow_0(c);
+__class_Counter_lifted_arrow_0(c);
+__class_Counter_lifted_arrow_0(c);
 
 const after = gc.string_from_i64(c.n);
 io.print(after);
