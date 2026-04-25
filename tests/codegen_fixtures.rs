@@ -662,3 +662,13 @@ fn fixture_labeled_nested() {
 fn fixture_satisfies_op() {
     run_fixture("satisfies_op");
 }
+
+#[test]
+fn fixture_spread_new() {
+    run_fixture("spread_new");
+}
+
+#[test]
+fn fixture_spread_super() {
+    run_fixture("spread_super");
+}
