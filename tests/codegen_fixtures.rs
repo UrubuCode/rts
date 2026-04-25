@@ -702,3 +702,18 @@ fn fixture_async_arrow() {
 fn fixture_async_class() {
     run_fixture("async_class");
 }
+
+#[test]
+fn fixture_namespace_basic() {
+    run_fixture("namespace_basic");
+}
+
+#[test]
+fn fixture_namespace_const() {
+    run_fixture("namespace_const");
+}
+
+#[test]
+fn fixture_namespace_enum() {
+    run_fixture("namespace_enum");
+}

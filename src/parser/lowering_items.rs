@@ -96,6 +96,17 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
                 push_raw_statement_with_stmt(cm, enum_decl.span, Some(&stmt), out);
             }
         }
+        Decl::TsModule(module_decl) => {
+            // \`namespace Foo { export function f() {} ... }\`
+            // Desugar:
+            //   - Cada \`export function bar(...)\` vira \`function __ns_Foo_bar(...)\`
+            //     no top-level (mangled).
+            //   - Cada \`export class C {}\` vira \`class __ns_Foo_C {}\`.
+            //   - Cada \`export const x = ...\` vira \`const __ns_Foo_x = ...\`.
+            //   - Por fim, gera \`const Foo = { bar: __ns_Foo_bar, ... }\` pra
+            //     habilitar \`Foo.bar()\` via member access + call_indirect.
+            lower_ts_namespace(cm, module_decl, out);
+        }
         Decl::Var(var_decl) if try_lower_fn_expr_decl(cm, var_decl, out) => {
             // All declarators were function/arrow expressions and have been
             // emitted as Item::Function above.
@@ -309,6 +320,176 @@ fn lower_ts_enum_to_const(enum_decl: &swc_ecma_ast::TsEnumDecl) -> Option<Stmt> 
         }],
     };
     Some(Stmt::Decl(Decl::Var(Box::new(var_decl))))
+}
+
+/// Desugar \`namespace Foo { export function f() {} }\`:
+/// 1. Members exportados viram top-level com nome mangled \`__ns_<NS>_<member>\`.
+/// 2. Gera \`const <NS> = { member: __ns_<NS>_member, ... }\` no fim
+///    pra habilitar \`<NS>.member()\` via member access + call_indirect.
+fn lower_ts_namespace(
+    cm: &Lrc<SourceMap>,
+    module_decl: &swc_ecma_ast::TsModuleDecl,
+    out: &mut Vec<Item>,
+) {
+    use swc_ecma_ast::*;
+
+    // Pega o nome do namespace (skip strings — só Ident).
+    let ns_name: String = match &module_decl.id {
+        TsModuleName::Ident(id) => id.sym.to_string(),
+        TsModuleName::Str(_) => return, // ambient module string — skip MVP
+    };
+
+    // Body é \`TsModuleBlock\` ou \`TsNamespaceDecl\` (nested).
+    let block: &TsModuleBlock = match module_decl.body.as_ref() {
+        Some(TsNamespaceBody::TsModuleBlock(b)) => b,
+        Some(TsNamespaceBody::TsNamespaceDecl(_)) => {
+            // Nested namespace (`namespace A.B {}`) — não suportado MVP.
+            return;
+        }
+        None => return,
+    };
+
+    // Coleta nomes dos membros pra gerar o objeto const final.
+    let mut member_names: Vec<String> = Vec::new();
+
+    for item in &block.body {
+        match item {
+            ModuleItem::Stmt(Stmt::Decl(decl)) => {
+                process_namespace_member(cm, &ns_name, decl, &mut member_names, out);
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ed)) => {
+                process_namespace_member(cm, &ns_name, &ed.decl, &mut member_names, out);
+            }
+            _ => {}
+        }
+    }
+
+    // Gera \`const <NS> = { member: __ns_<NS>_member, ... };\`
+    if !member_names.is_empty() {
+        let mut props: Vec<PropOrSpread> = Vec::with_capacity(member_names.len());
+        for member in &member_names {
+            let mangled = format!("__ns_{ns_name}_{member}");
+            let prop = PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                key: PropName::Ident(IdentName {
+                    span: Default::default(),
+                    sym: member.as_str().into(),
+                }),
+                value: Box::new(Expr::Ident(Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: mangled.into(),
+                    optional: false,
+                })),
+            })));
+            props.push(prop);
+        }
+        let obj_lit = Expr::Object(ObjectLit {
+            span: Default::default(),
+            props,
+        });
+        let var_decl = VarDecl {
+            span: Default::default(),
+            ctxt: Default::default(),
+            kind: VarDeclKind::Const,
+            declare: false,
+            decls: vec![VarDeclarator {
+                span: Default::default(),
+                name: Pat::Ident(BindingIdent {
+                    id: Ident {
+                        span: Default::default(),
+                        ctxt: Default::default(),
+                        sym: ns_name.clone().into(),
+                        optional: false,
+                    },
+                    type_ann: None,
+                }),
+                init: Some(Box::new(obj_lit)),
+                definite: false,
+            }],
+        };
+        let stmt = Stmt::Decl(Decl::Var(Box::new(var_decl)));
+        push_raw_statement_with_stmt(cm, module_decl.span, Some(&stmt), out);
+    }
+}
+
+fn process_namespace_member(
+    cm: &Lrc<SourceMap>,
+    ns_name: &str,
+    decl: &swc_ecma_ast::Decl,
+    member_names: &mut Vec<String>,
+    out: &mut Vec<Item>,
+) {
+    use swc_ecma_ast::*;
+    match decl {
+        Decl::Fn(fn_decl) => {
+            // Renomeia para \`__ns_<NS>_<name>\`.
+            let original_name = fn_decl.ident.sym.to_string();
+            let mangled = format!("__ns_{ns_name}_{original_name}");
+            // Constrói uma cópia do FnDecl com o ident renomeado.
+            let mut renamed = fn_decl.clone();
+            renamed.ident.sym = mangled.into();
+            out.push(Item::Function(lower_fn_decl(cm, &renamed)));
+            member_names.push(original_name);
+        }
+        Decl::Class(class_decl) => {
+            let original_name = class_decl.ident.sym.to_string();
+            let mangled = format!("__ns_{ns_name}_{original_name}");
+            let mut renamed = class_decl.clone();
+            renamed.ident.sym = mangled.into();
+            out.push(Item::Class(lower_class_decl(cm, &renamed)));
+            // Classes não vão para o objeto namespace porque \`Foo.C\` não
+            // é \`new\` direto sem suporte adicional. Documentamos como
+            // limitação. Por enquanto, ainda registramos o nome para
+            // que o usuário possa fazer \`Foo.C\` (mas \`new Foo.C()\` não
+            // funciona — usar \`new __ns_Foo_C()\` ou alias).
+            // Skip do member_names: melhor não confundir.
+            let _ = original_name;
+        }
+        Decl::Var(var_decl) => {
+            // \`export const x = ...\` ou \`let\`/\`var\`. Renomeia cada decl.
+            for d in &var_decl.decls {
+                if let Pat::Ident(id) = &d.name {
+                    let original_name = id.id.sym.to_string();
+                    let mangled = format!("__ns_{ns_name}_{original_name}");
+                    let new_decl = VarDeclarator {
+                        span: d.span,
+                        name: Pat::Ident(BindingIdent {
+                            id: Ident {
+                                span: Default::default(),
+                                ctxt: Default::default(),
+                                sym: mangled.into(),
+                                optional: false,
+                            },
+                            type_ann: id.type_ann.clone(),
+                        }),
+                        init: d.init.clone(),
+                        definite: d.definite,
+                    };
+                    let renamed_decl = VarDecl {
+                        span: var_decl.span,
+                        ctxt: var_decl.ctxt,
+                        kind: var_decl.kind,
+                        declare: var_decl.declare,
+                        decls: vec![new_decl],
+                    };
+                    let stmt = Stmt::Decl(Decl::Var(Box::new(renamed_decl)));
+                    push_raw_statement_with_stmt(cm, var_decl.span, Some(&stmt), out);
+                    member_names.push(original_name);
+                }
+            }
+        }
+        Decl::TsEnum(enum_decl) => {
+            // Enum interno: gera com nome mangled e adiciona ao namespace.
+            let original_name = enum_decl.id.sym.to_string();
+            let mut renamed = enum_decl.clone();
+            renamed.id.sym = format!("__ns_{ns_name}_{original_name}").into();
+            if let Some(stmt) = lower_ts_enum_to_const(&renamed) {
+                push_raw_statement_with_stmt(cm, enum_decl.span, Some(&stmt), out);
+                member_names.push(original_name);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn lower_class_decl(cm: &Lrc<SourceMap>, class_decl: &SwcClassDecl) -> ClassDecl {
