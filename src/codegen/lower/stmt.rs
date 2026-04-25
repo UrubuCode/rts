@@ -60,6 +60,17 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                                 }
                             }
                         }
+                        // Quando init e chamada `f(...)` cujo return_type
+                        // e classe registrada, herda essa classe.
+                        if let swc_ecma_ast::Expr::Call(call) = init.as_ref() {
+                            if let swc_ecma_ast::Callee::Expr(cb) = &call.callee {
+                                if let swc_ecma_ast::Expr::Ident(fid) = cb.as_ref() {
+                                    if let Some(cn) = ctx.fn_class_returns.get(fid.sym.as_str()) {
+                                        ctx.local_class_ty.insert(name.clone(), cn.clone());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

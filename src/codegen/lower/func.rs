@@ -105,6 +105,60 @@ pub fn compile_program(
         })
         .collect();
 
+    // Mapeia funcoes que retornam classe registrada — usado para
+    // dispatch de overload em `const x: V = makeV()` e
+    // `obj.m() + obj.m()`. Le `return_type` textual do FunctionDecl.
+    let mut fn_class_returns: HashMap<String, String> = HashMap::new();
+    for fn_decl in &fn_decls {
+        if let Some(ret) = fn_decl.return_type.as_deref() {
+            let ret_trim = ret.trim();
+            if classes.contains_key(ret_trim) {
+                fn_class_returns.insert(fn_decl.name.clone(), ret_trim.to_string());
+            }
+        }
+    }
+
+    // Mapeia globais module-scope cuja anotacao bate com classe
+    // registrada. Permite funcoes top-level acessarem globais como
+    // instancias e participarem de overload.
+    let mut global_class_ty: HashMap<String, String> = HashMap::new();
+    for item in &program.items {
+        let Item::Statement(Statement::Raw(raw)) = item else {
+            continue;
+        };
+        let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else {
+            continue;
+        };
+        for d in &var_decl.decls {
+            let Pat::Ident(id) = &d.name else { continue };
+            let name = id.sym.as_str().to_string();
+            // Anotacao explicita
+            if let Some(ann) = id.type_ann.as_ref() {
+                if let swc_ecma_ast::TsType::TsTypeRef(r) = ann.type_ann.as_ref() {
+                    if let swc_ecma_ast::TsEntityName::Ident(t) = &r.type_name {
+                        let t_name = t.sym.as_str();
+                        if classes.contains_key(t_name) {
+                            global_class_ty.insert(name.clone(), t_name.to_string());
+                        }
+                    }
+                }
+            }
+            // Heuristica: init = new C(...)
+            if !global_class_ty.contains_key(&name) {
+                if let Some(init) = d.init.as_ref() {
+                    if let swc_ecma_ast::Expr::New(ne) = init.as_ref() {
+                        if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
+                            let cn = cid.sym.as_str();
+                            if classes.contains_key(cn) {
+                                global_class_ty.insert(name, cn.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Phase 2: compile user function bodies.
     for fn_decl in &fn_decls {
         let info = user_fns
@@ -121,6 +175,8 @@ pub fn compile_program(
             &globals,
             &user_fn_abis,
             &classes,
+            &global_class_ty,
+            &fn_class_returns,
             fn_decl,
             info,
             owner_class,
@@ -160,6 +216,8 @@ pub fn compile_program(
         &globals,
         &user_fn_abis,
         &classes,
+        &global_class_ty,
+        &fn_class_returns,
         &top_stmts,
         &mut warnings,
     )
@@ -416,6 +474,8 @@ fn compile_user_fn(
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
     classes: &HashMap<String, ClassMeta>,
+    global_class_ty: &HashMap<String, String>,
+    fn_class_returns: &HashMap<String, String>,
     fn_decl: &FunctionDecl,
     info: &UserFn,
     current_class: Option<String>,
@@ -448,11 +508,32 @@ fn compile_user_fn(
             globals,
             user_fns,
             classes,
+            global_class_ty,
+            fn_class_returns,
             false,
         );
         fn_ctx.return_ty = info.ret;
         fn_ctx.is_tail_conv = true;
         fn_ctx.current_class = current_class.clone();
+        // Em metodos/constructors, o param `this` e instancia da classe
+        // dona — populamos local_class_ty pra que `this.field`/dispatch
+        // tipicos funcionem (e overload em `this.x + ...`).
+        if let Some(cls) = current_class.as_deref() {
+            fn_ctx
+                .local_class_ty
+                .insert("this".to_string(), cls.to_string());
+        }
+        // Parametros tipados como classe registrada → trackear.
+        for p in &fn_decl.parameters {
+            if let Some(ann) = p.type_annotation.as_deref() {
+                let ann = ann.trim();
+                if classes.contains_key(ann) {
+                    fn_ctx
+                        .local_class_ty
+                        .insert(p.name.clone(), ann.to_string());
+                }
+            }
+        }
 
         // Bind parameters as locals.
         for (i, param) in fn_decl.parameters.iter().enumerate() {
@@ -504,6 +585,8 @@ fn compile_main(
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
     classes: &HashMap<String, ClassMeta>,
+    global_class_ty: &HashMap<String, String>,
+    fn_class_returns: &HashMap<String, String>,
     stmts: &[&Stmt],
     warnings: &mut Vec<String>,
 ) -> Result<()> {
@@ -532,6 +615,8 @@ fn compile_main(
             globals,
             user_fns,
             classes,
+            global_class_ty,
+            fn_class_returns,
             true,
         );
 

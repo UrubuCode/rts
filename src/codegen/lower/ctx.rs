@@ -135,6 +135,10 @@ pub struct FnCtx<'m, 'fb> {
     pub globals: &'fb HashMap<String, GlobalVar>,
     /// User-defined function signatures by source name.
     pub user_fns: &'fb HashMap<String, UserFnAbi>,
+    /// Classe retornada por user functions cujo return_type bate com
+    /// uma classe registrada. Permite `const x: V = makeV()` e
+    /// `this.doubled() + this.doubled()` detectarem o tipo.
+    pub fn_class_returns: &'fb HashMap<String, String>,
     /// Classes registradas no programa, indexadas pelo nome da classe.
     /// Permite resolver `new C(args)`, `super(args)` e `super.method(args)`
     /// em compile-time sem vtable.
@@ -143,6 +147,11 @@ pub struct FnCtx<'m, 'fb> {
     /// de classe — povoado quando a anotacao do bind e `: ClassName`.
     /// Permite dispatch estatico de `obj.method(...)`.
     pub local_class_ty: HashMap<String, String>,
+    /// Tipo estatico de globais module-scope que sao instancias de
+    /// classe. Populado uma vez em compile_program e compartilhado
+    /// entre todos os FnCtx — permite dispatch de overload em funcoes
+    /// top-level que referenciam `const a: V = new V(...)` global.
+    pub global_class_ty: &'fb HashMap<String, String>,
     /// Nome da classe atualmente sendo lowered (quando dentro de um
     /// metodo ou constructor). Usado para resolver `super`.
     pub current_class: Option<String>,
@@ -176,6 +185,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         globals: &'fb HashMap<String, GlobalVar>,
         user_fns: &'fb HashMap<String, UserFnAbi>,
         classes: &'fb HashMap<String, ClassMeta>,
+        global_class_ty: &'fb HashMap<String, String>,
+        fn_class_returns: &'fb HashMap<String, String>,
         module_scope: bool,
     ) -> Self {
         Self {
@@ -186,8 +197,10 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             locals: vec![HashMap::new()],
             globals,
             user_fns,
+            fn_class_returns,
             classes,
             local_class_ty: HashMap::new(),
+            global_class_ty,
             current_class: None,
             module_scope,
             return_ty: None,

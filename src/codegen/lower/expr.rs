@@ -551,7 +551,13 @@ fn operator_method_name(op: BinaryOp) -> Option<&'static str> {
 fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
-        Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        Expr::Ident(id) => {
+            let name = id.sym.as_str();
+            ctx.local_class_ty
+                .get(name)
+                .or_else(|| ctx.global_class_ty.get(name))
+                .cloned()
+        }
         Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
         // Encadeamento: `a + b - c`. Pressupomos que metodos de
         // operador retornam a mesma classe do receiver (convencao Rust).
@@ -563,16 +569,31 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
             let method = operator_method_name(b.op)?;
             resolve_method_owner(ctx, &cls, method).map(|_| cls)
         }
-        // Resultado de chamada de metodo: `obj.m()` herda a classe do
-        // receiver assumindo que o metodo retorna a propria classe.
-        // Cobre `a.add(b) - c` e usos similares.
+        // Resultado de chamada: prioridade
+        //   1. user fn top-level cujo return_type bate com classe (fn_class_returns)
+        //   2. metodo de classe declarado: usa o return_type do metodo
+        //      via fn_class_returns sob o nome mangled `__class_C_m`
+        //   3. fallback: assume retorno da classe do receiver (overload-friendly)
         Expr::Call(call) => {
             if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
+                // Caso 1: chamada simples a user fn
+                if let Expr::Ident(id) = callee.as_ref() {
+                    if let Some(cls) = ctx.fn_class_returns.get(id.sym.as_str()) {
+                        return Some(cls.clone());
+                    }
+                }
                 if let Expr::Member(m) = callee.as_ref() {
                     let recv_cls = lhs_static_class(ctx, &m.obj)?;
                     if let MemberProp::Ident(method_id) = &m.prop {
                         let method = method_id.sym.as_str();
-                        return resolve_method_owner(ctx, &recv_cls, method).map(|_| recv_cls);
+                        let owner = resolve_method_owner(ctx, &recv_cls, method)?;
+                        // Caso 2: metodo declarado com return_type explicito
+                        let mangled = format!("__class_{owner}_{method}");
+                        if let Some(cls) = ctx.fn_class_returns.get(&mangled) {
+                            return Some(cls.clone());
+                        }
+                        // Caso 3: fallback assume mesma classe do receiver
+                        return Some(recv_cls);
                     }
                 }
             }
