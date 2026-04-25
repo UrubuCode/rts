@@ -552,3 +552,23 @@ fn fixture_enum_explicit() {
 fn fixture_enum_compare() {
     run_fixture("enum_compare");
 }
+
+#[test]
+fn fixture_try_catch_no_binding() {
+    run_fixture("try_catch_no_binding");
+}
+
+#[test]
+fn fixture_try_catch_propagation() {
+    run_fixture("try_catch_propagation");
+}
+
+#[test]
+fn fixture_try_catch_nested() {
+    run_fixture("try_catch_nested");
+}
+
+#[test]
+fn fixture_try_catch_rethrow() {
+    run_fixture("try_catch_rethrow");
+}
