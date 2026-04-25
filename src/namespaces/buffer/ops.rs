@@ -259,8 +259,11 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_FILL(handle: u64, byte: i32, len: i64) {
 /// `gc::string_pool`. Conteudo invalido volta como string vazia.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_BUFFER_TO_STRING(handle: u64) -> u64 {
-    with_buffer(handle, 0, |b| {
-        let text = std::str::from_utf8(b).unwrap_or("");
-        unsafe { __RTS_FN_NS_GC_STRING_NEW(text.as_ptr(), text.len() as i64) }
-    })
+    // Clona os bytes antes de chamar STRING_NEW: o callback de
+    // with_buffer segura o lock do HandleTable, e STRING_NEW tambem
+    // tenta adquirir o mesmo lock — chamar dentro do callback gera
+    // deadlock.
+    let bytes = with_buffer(handle, Vec::new(), |b| b.clone());
+    let text = std::str::from_utf8(&bytes).unwrap_or("");
+    unsafe { __RTS_FN_NS_GC_STRING_NEW(text.as_ptr(), text.len() as i64) }
 }
