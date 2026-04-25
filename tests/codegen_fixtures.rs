@@ -497,3 +497,23 @@ fn fixture_private_method_err() {
         "membro `secret` é private em `C`",
     );
 }
+
+#[test]
+fn fixture_default_param_basic() {
+    run_fixture("default_param_basic");
+}
+
+#[test]
+fn fixture_default_param_multi() {
+    run_fixture("default_param_multi");
+}
+
+#[test]
+fn fixture_default_param_expr() {
+    run_fixture("default_param_expr");
+}
+
+#[test]
+fn fixture_default_param_string() {
+    run_fixture("default_param_string");
+}
