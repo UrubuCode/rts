@@ -1,10 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
+use super::toolchain::{
+    ensure_windows_msvc_runtime_lib_paths, resolve_linker, ResolvedLinker, TargetFlavor,
+    TargetTriple, ToolchainLayout,
+};
 use super::WindowsSubsystem;
-use super::toolchain::{ResolvedLinker, TargetFlavor, ToolchainLayout, resolve_linker};
 
 #[derive(Debug, Clone)]
 pub struct LinkedArtifact {
@@ -33,7 +36,7 @@ pub fn link(
     }
 
     let args = build_linker_args(
-        &layout.target.flavor,
+        &layout.target,
         object_paths,
         &final_path,
         &linker,
@@ -123,13 +126,13 @@ fn quote_rsp_arg(arg: &str) -> String {
 }
 
 fn build_linker_args(
-    flavor: &TargetFlavor,
+    target: &TargetTriple,
     object_paths: &[PathBuf],
     output_path: &Path,
     linker: &ResolvedLinker,
     windows_subsystem: Option<WindowsSubsystem>,
 ) -> Result<Vec<String>> {
-    match flavor {
+    match target.flavor {
         TargetFlavor::Coff => {
             let mut args = Vec::new();
             let requires_runtime = true;
@@ -162,7 +165,7 @@ fn build_linker_args(
             }
 
             if requires_runtime {
-                for path in windows_runtime_lib_paths() {
+                for path in windows_runtime_lib_paths(&target.triple) {
                     args.push(format!("/libpath:{}", path.display()));
                 }
                 for lib in windows_runtime_default_libs() {
@@ -230,7 +233,7 @@ fn windows_runtime_default_libs() -> &'static [&'static str] {
     ]
 }
 
-fn windows_runtime_lib_paths() -> Vec<PathBuf> {
+fn windows_runtime_lib_paths(target_triple: &str) -> Vec<PathBuf> {
     let mut paths = Vec::<PathBuf>::new();
     if let Ok(raw) = std::env::var("LIB") {
         for part in raw
@@ -244,6 +247,8 @@ fn windows_runtime_lib_paths() -> Vec<PathBuf> {
             }
         }
     }
+
+    let arch = windows_arch_for_target(target_triple);
 
     let sdk_root = std::env::var("WindowsSdkDir")
         .ok()
@@ -261,16 +266,6 @@ fn windows_runtime_lib_paths() -> Vec<PathBuf> {
             .collect::<Vec<_>>();
         versions.sort();
         if let Some(version) = versions.pop() {
-            let arch = if cfg!(target_arch = "x86_64") {
-                "x64"
-            } else if cfg!(target_arch = "x86") {
-                "x86"
-            } else if cfg!(target_arch = "aarch64") {
-                "arm64"
-            } else {
-                "x64"
-            };
-
             let um = version.join("um").join(arch);
             if um.is_dir() {
                 paths.push(um);
@@ -287,8 +282,18 @@ fn windows_runtime_lib_paths() -> Vec<PathBuf> {
     // the MSVC install, separate from the Windows SDK. Auto-discover the
     // latest installed VC Tools directory so `rts compile` works without
     // requiring the Developer Command Prompt environment.
-    for msvc_path in msvc_tool_lib_paths() {
+    for msvc_path in msvc_tool_lib_paths(arch) {
         paths.push(msvc_path);
+    }
+
+    if !windows_runtime_libs_available(&paths) {
+        match ensure_windows_msvc_runtime_lib_paths(target_triple) {
+            Ok(downloaded) => paths.extend(downloaded),
+            Err(error) => eprintln!(
+                "RTS toolchain: automatic Windows SDK/CRT provisioning failed ({:#}). Continuing with local linker search paths.",
+                error
+            ),
+        }
     }
 
     paths.sort();
@@ -298,7 +303,7 @@ fn windows_runtime_lib_paths() -> Vec<PathBuf> {
 
 /// Walks common Visual Studio install roots looking for the MSVC `lib`
 /// directory corresponding to the current architecture.
-fn msvc_tool_lib_paths() -> Vec<PathBuf> {
+fn msvc_tool_lib_paths(arch: &str) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     for env in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(base) = std::env::var(env) {
@@ -309,16 +314,6 @@ fn msvc_tool_lib_paths() -> Vec<PathBuf> {
     roots.push(PathBuf::from(
         r"C:\Program Files (x86)\Microsoft Visual Studio",
     ));
-
-    let arch = if cfg!(target_arch = "x86_64") {
-        "x64"
-    } else if cfg!(target_arch = "x86") {
-        "x86"
-    } else if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x64"
-    };
 
     let mut out = Vec::new();
     for root in roots {
@@ -357,6 +352,28 @@ fn msvc_tool_lib_paths() -> Vec<PathBuf> {
         }
     }
     out
+}
+
+fn windows_runtime_libs_available(paths: &[PathBuf]) -> bool {
+    let has_um = paths.iter().any(|path| path.join("kernel32.lib").is_file());
+    let has_ucrt = paths.iter().any(|path| path.join("ucrt.lib").is_file());
+    let has_crt = paths
+        .iter()
+        .any(|path| path.join("vcruntime.lib").is_file() || path.join("msvcrt.lib").is_file());
+    has_um && has_ucrt && has_crt
+}
+
+fn windows_arch_for_target(target_triple: &str) -> &'static str {
+    let lower = target_triple.to_ascii_lowercase();
+    if lower.starts_with("x86_64-") {
+        "x64"
+    } else if lower.starts_with("i686-") || lower.starts_with("x86-") {
+        "x86"
+    } else if lower.starts_with("aarch64-") {
+        "arm64"
+    } else {
+        "x64"
+    }
 }
 
 fn normalize_output_path(path: &Path, flavor: TargetFlavor) -> PathBuf {
