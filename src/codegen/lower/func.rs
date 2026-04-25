@@ -831,14 +831,19 @@ pub(super) fn class_setter_name(class: &str, prop: &str) -> String {
 /// classe quando o function name segue a convencao de mangle.
 fn extract_class_owner(fn_name: &str) -> Option<String> {
     let rest = fn_name.strip_prefix("__class_")?;
-    // Variantes: `<C>__init` e `<C>_<method>`. Como `<C>` pode conter
-    // `_`, procuramos pelo separador double-underscore primeiro.
+    // Variante: `<C>__init`
     if let Some(idx) = rest.find("__init") {
         return Some(rest[..idx].to_string());
     }
-    // Para metodos: o ultimo `_` separa classe de metodo. Mas o nome da
-    // classe tambem pode ter `_`; usamos a primeira ocorrencia que ainda
-    // mantem um sufixo de metodo nao vazio.
+    // Variantes especiais com prefixo de papel: `<C>_get_<x>`,
+    // `<C>_set_<x>`, `<C>_static_<x>`. Detecta o prefixo no resto e
+    // pega tudo antes dele.
+    for marker in ["_get_", "_set_", "_static_"] {
+        if let Some(idx) = rest.find(marker) {
+            return Some(rest[..idx].to_string());
+        }
+    }
+    // Variante: `<C>_<method>` — ultimo `_` separa classe de metodo.
     if let Some(idx) = rest.rfind('_') {
         return Some(rest[..idx].to_string());
     }
