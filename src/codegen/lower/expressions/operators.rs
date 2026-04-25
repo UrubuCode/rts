@@ -127,10 +127,42 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
 
     let lhs = lower_expr(ctx, &bin.left)?;
     let rhs = lower_expr(ctx, &bin.right)?;
+
+    // Add precisa do tipo original (string concat detecta Handle).
+    // Demais ops aritmeticos promovem internamente.
+    if matches!(bin.op, BinaryOp::Add) {
+        return lower_add(ctx, lhs, rhs);
+    }
+
+    // String equality (#130): quando ambos sao Handle, comparar por
+    // conteudo via __RTS_FN_NS_GC_STRING_EQ. Sem isso `==` compararia
+    // handles u64 (sempre distintos para interneds diferentes).
+    if matches!(
+        bin.op,
+        BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq
+    ) && lhs.ty == ValTy::Handle
+        && rhs.ty == ValTy::Handle
+    {
+        let fref = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_EQ",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[lhs.val, rhs.val]);
+        let eq = ctx.builder.inst_results(inst)[0];
+        let result = if matches!(bin.op, BinaryOp::NotEq | BinaryOp::NotEqEq) {
+            let one = ctx.builder.ins().iconst(cl::I64, 1);
+            ctx.builder.ins().bxor(eq, one)
+        } else {
+            eq
+        };
+        return Ok(TypedVal::new(result, ValTy::Bool));
+    }
+
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
 
     match bin.op {
-        BinaryOp::Add => lower_add(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
+        BinaryOp::Add => unreachable!(),
         BinaryOp::Sub => lower_sub(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
         BinaryOp::Mul => lower_mul(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
         BinaryOp::Div => lower_div(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
@@ -145,16 +177,21 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         BinaryOp::BitXor => Ok(TypedVal::new(ctx.builder.ins().bxor(lv, rv), ty)),
         BinaryOp::BitAnd => Ok(TypedVal::new(ctx.builder.ins().band(lv, rv), ty)),
         BinaryOp::LShift => {
-            let bits = coerce_bits_i64(ctx, rv);
-            Ok(TypedVal::new(ctx.builder.ins().ishl(lv, bits), ty))
+            Ok(TypedVal::new(ctx.builder.ins().ishl(lv, rv), ty))
         }
         BinaryOp::RShift => {
-            let bits = coerce_bits_i64(ctx, rv);
-            Ok(TypedVal::new(ctx.builder.ins().sshr(lv, bits), ty))
+            Ok(TypedVal::new(ctx.builder.ins().sshr(lv, rv), ty))
         }
         BinaryOp::ZeroFillRShift => {
-            let bits = coerce_bits_i64(ctx, rv);
-            Ok(TypedVal::new(ctx.builder.ins().ushr(lv, bits), ty))
+            Ok(TypedVal::new(ctx.builder.ins().ushr(lv, rv), ty))
+        }
+        BinaryOp::Exp => {
+            let lf = to_f64(ctx, TypedVal::new(lv, ty));
+            let rf = to_f64(ctx, TypedVal::new(rv, ty));
+            let fref = ctx.get_extern("pow", &[cl::F64, cl::F64], Some(cl::F64))?;
+            let inst = ctx.builder.ins().call(fref, &[lf, rf]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(TypedVal::new(v, ValTy::F64))
         }
         other => Err(anyhow!("unsupported binary op: {other:?}")),
     }
@@ -169,6 +206,29 @@ pub(super) fn lower_opt_chain(
             super::members::lower_member_expr(ctx, member)
         }
         swc_ecma_ast::OptChainBase::Call(call) => {
+            // `callee?.(args)`: se callee for 0 (null), retorna 0 sem chamar.
+            // Caso contrario, faz call_indirect via i64 funcptr.
+            let callee_tv = lower_expr(ctx, &call.callee)?;
+            let callee_i64 = ctx.coerce_to_i64(callee_tv).val;
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_null = ctx.builder.ins().icmp(IntCC::Equal, callee_i64, zero);
+
+            let null_block = ctx.builder.create_block();
+            let call_block = ctx.builder.create_block();
+            let merge = ctx.builder.create_block();
+            let result = ctx.builder.append_block_param(merge, cl::I64);
+
+            ctx.builder
+                .ins()
+                .brif(is_null, null_block, &[], call_block, &[]);
+
+            ctx.builder.switch_to_block(null_block);
+            ctx.builder.seal_block(null_block);
+            let z = ctx.builder.ins().iconst(cl::I64, 0);
+            ctx.builder.ins().jump(merge, &[z.into()]);
+
+            ctx.builder.switch_to_block(call_block);
+            ctx.builder.seal_block(call_block);
             let synthetic = CallExpr {
                 span: call.span,
                 ctxt: call.ctxt,
@@ -176,7 +236,13 @@ pub(super) fn lower_opt_chain(
                 args: call.args.clone(),
                 type_args: call.type_args.clone(),
             };
-            super::calls::lower_call(ctx, &synthetic)
+            let call_tv = super::calls::lower_call(ctx, &synthetic)?;
+            let call_i64 = ctx.coerce_to_i64(call_tv).val;
+            ctx.builder.ins().jump(merge, &[call_i64.into()]);
+
+            ctx.builder.switch_to_block(merge);
+            ctx.builder.seal_block(merge);
+            Ok(TypedVal::new(result, ValTy::I64))
         }
     }
 }
@@ -331,7 +397,14 @@ fn coerce_bits_i64(
     ctx: &mut FnCtx,
     value: cranelift_codegen::ir::Value,
 ) -> cranelift_codegen::ir::Value {
-    ctx.builder.ins().ireduce(cl::I64, value)
+    let ty = ctx.builder.func.dfg.value_type(value);
+    if ty == cl::I64 {
+        value
+    } else if ty.bytes() < 8 {
+        ctx.builder.ins().sextend(cl::I64, value)
+    } else {
+        ctx.builder.ins().ireduce(cl::I64, value)
+    }
 }
 
 pub(super) fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Value {
