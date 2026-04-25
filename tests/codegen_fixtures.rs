@@ -862,3 +862,33 @@ fn fixture_decorator_multiple() {
 fn fixture_decorator_method_tolerated() {
     run_fixture("decorator_method_tolerated");
 }
+
+#[test]
+fn fixture_generic_identity() {
+    run_fixture("generic_identity");
+}
+
+#[test]
+fn fixture_generic_first_array() {
+    run_fixture("generic_first_array");
+}
+
+#[test]
+fn fixture_generic_class() {
+    run_fixture("generic_class");
+}
+
+#[test]
+fn fixture_generic_multi_params() {
+    run_fixture("generic_multi_params");
+}
+
+#[test]
+fn fixture_generic_constraint() {
+    run_fixture("generic_constraint");
+}
+
+#[test]
+fn fixture_generic_stack() {
+    run_fixture("generic_stack");
+}
