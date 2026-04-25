@@ -690,7 +690,8 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
             None
         }
         // Member access em receiver de classe conhecida: `this.field`,
-        // `obj.field` quando o field tem tipo declarado de outra classe.
+        // `obj.field` quando o field tem tipo declarado de outra classe,
+        // ou quando o membro e um getter cujo return type bate com classe.
         Expr::Member(m) => {
             let recv_cls = lhs_static_class(ctx, &m.obj)?;
             let field_name = match &m.prop {
@@ -704,6 +705,14 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
                 }
                 _ => return None,
             };
+            // Prioridade 1: getter retornando classe registrada.
+            if let Some(getter_owner) = resolve_getter_owner(ctx, &recv_cls, &field_name) {
+                let mangled = format!("__class_{getter_owner}_get_{field_name}");
+                if let Some(cls) = ctx.fn_class_returns.get(&mangled) {
+                    return Some(cls.clone());
+                }
+            }
+            // Prioridade 2: field declarado com tipo de classe.
             field_class_in_hierarchy(ctx, &recv_cls, &field_name)
         }
         _ => None,
