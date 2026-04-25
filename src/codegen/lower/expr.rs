@@ -129,6 +129,27 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
                         right: a.right.clone(),
                     }))
                 };
+                // Readonly: rejeita `obj.x = v` fora do constructor
+                // quando `x` foi declarado `readonly`. Só aplicamos
+                // quando o receiver tem classe estática conhecida —
+                // sem isso, deixamos passar.
+                if let MemberProp::Ident(id) = &m.prop {
+                    if let Some(cls) = lhs_static_class(ctx, &m.obj) {
+                        let prop_name = id.sym.as_str();
+                        if field_is_readonly_in_hierarchy(ctx, &cls, prop_name) {
+                            // Permitido apenas dentro do constructor da
+                            // própria classe (ou subclasse depois de super()).
+                            if !ctx.current_is_ctor
+                                || ctx.current_class.as_deref() != Some(&cls)
+                            {
+                                return Err(anyhow!(
+                                    "readonly `{cls}.{prop_name}` so pode ser \
+                                     atribuido dentro do constructor de `{cls}`"
+                                ));
+                            }
+                        }
+                    }
+                }
                 let rhs = lower_expr(ctx, &final_rhs_expr)?;
                 let rhs_i64 = ctx.coerce_to_i64(rhs).val;
                 // Setter: `obj.x = v` quando classe define `set x(v)` —
@@ -201,8 +222,12 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
                             ctx.builder.ins().call(vec_set, &[obj_h, idx, rhs_i64]);
                         }
                     }
-                    MemberProp::PrivateName(_) => {
-                        return Err(anyhow!("atribuicao a private name nao suportada"));
+                    MemberProp::PrivateName(pn) => {
+                        // Mesmo mangling que lowering_decls usa: `#<name>`.
+                        let key = format!("#{}", pn.name.as_ref());
+                        validate_private_scope(ctx, &key)?;
+                        let (kp, kl) = ctx.emit_str_literal(key.as_bytes())?;
+                        ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
                     }
                 }
                 return Ok(TypedVal::new(rhs_i64, ValTy::I64));
@@ -2802,8 +2827,17 @@ fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<Ty
                 }
             }
         }
-        MemberProp::PrivateName(_) => {
-            Err(anyhow!("private name access nao suportado"))
+        MemberProp::PrivateName(pn) => {
+            let key = format!("#{}", pn.name.as_ref());
+            // Validação de escopo léxico (TS): private só é acessível
+            // dentro de métodos da classe que o declara — não basta o
+            // receiver ser dessa classe. `current_class` precisa coincidir
+            // com a classe que tem o private declarado.
+            validate_private_scope(ctx, &key)?;
+            let field_ty = receiver_class
+                .as_deref()
+                .and_then(|c| field_type_in_hierarchy(ctx, c, &key));
+            map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
     }
 }
@@ -2843,6 +2877,47 @@ fn map_get_static_typed(
 }
 
 /// Procura o tipo declarado de um field na cadeia de heranca da classe.
+/// Verifica se acesso ao private `#name` é permitido no escopo atual.
+///
+/// Semântica TS: private só é acessível dentro do corpo da classe que o
+/// declara (incluindo `other.#x` quando `other` é da mesma classe).
+/// Implementação: encontra a classe que declara o private e exige que
+/// `current_class` coincida com ela. Privates de ancestrais NÃO são
+/// herdados — cada classe tem seu próprio escopo léxico.
+fn validate_private_scope(ctx: &FnCtx, key: &str) -> Result<()> {
+    // Acesso fora de qualquer classe (top-level, função livre): rejeita.
+    let Some(current) = ctx.current_class.as_deref() else {
+        return Err(anyhow!(
+            "private `{key}` so pode ser acessado dentro do corpo da classe que o declara"
+        ));
+    };
+    // O current declara o private?
+    if let Some(meta) = ctx.classes.get(current) {
+        if meta.field_types.contains_key(key) {
+            return Ok(());
+        }
+    }
+    // Algum ancestral declara — TS não herda privates entre classes.
+    Err(anyhow!(
+        "private `{key}` nao e visivel em `{current}` (privates nao sao herdados de ancestrais)"
+    ))
+}
+
+/// True se `field` é declarado readonly em `class` ou ancestral.
+fn field_is_readonly_in_hierarchy(ctx: &FnCtx, class: &str, field: &str) -> bool {
+    let mut cur = class.to_string();
+    loop {
+        let Some(meta) = ctx.classes.get(&cur) else { return false };
+        if meta.readonly_fields.contains(field) {
+            return true;
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return false,
+        }
+    }
+}
+
 fn field_type_in_hierarchy(ctx: &FnCtx, class: &str, field: &str) -> Option<ValTy> {
     let mut cur = class.to_string();
     loop {

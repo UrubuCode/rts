@@ -60,6 +60,35 @@ fn run_fixture(name: &str) {
     );
 }
 
+/// Roda uma fixture esperando falha de compile/run, e exige que o stderr
+/// contenha um substring específico. Use para validar mensagens de erro.
+fn run_fixture_expect_error(name: &str, expected_substr: &str) {
+    let Some(rts) = rts_binary() else {
+        eprintln!("skipping {name}: no rts binary found");
+        return;
+    };
+
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let ts_path = manifest.join(format!("tests/fixtures/{name}.ts"));
+
+    let output = Command::new(&rts)
+        .args(["run", ts_path.to_str().unwrap()])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run rts for {name}: {e}"));
+
+    assert!(
+        !output.status.success(),
+        "fixture `{name}` deveria ter falhado mas saiu com status {}",
+        output.status,
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(expected_substr),
+        "fixture `{name}` falhou mas mensagem de erro não contém `{expected_substr}`\nstderr completo:\n{stderr}",
+    );
+}
+
 #[test]
 fn fixture_empty() {
     run_fixture("empty");
@@ -295,6 +324,42 @@ fn fixture_super_field_getter() {
 #[test]
 fn fixture_super_field_setter() {
     run_fixture("super_field_setter");
+}
+
+#[test]
+fn fixture_private_field_basic() {
+    run_fixture("private_field_basic");
+}
+
+#[test]
+fn fixture_private_field_no_collision() {
+    run_fixture("private_field_no_collision");
+}
+
+#[test]
+fn fixture_private_field_other_instance() {
+    run_fixture("private_field_other_instance");
+}
+
+#[test]
+fn fixture_readonly_field_ctor() {
+    run_fixture("readonly_field_ctor");
+}
+
+#[test]
+fn fixture_private_field_cross_class_err() {
+    run_fixture_expect_error(
+        "private_field_cross_class_err",
+        "private `#x` nao e visivel em `A`",
+    );
+}
+
+#[test]
+fn fixture_readonly_field_reassign_err() {
+    run_fixture_expect_error(
+        "readonly_field_reassign_err",
+        "readonly `C.x` so pode ser atribuido",
+    );
 }
 
 // Closure capturando `this`/`super` em callback de classe.
