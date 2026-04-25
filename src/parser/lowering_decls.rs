@@ -31,12 +31,31 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                     .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
                     .collect::<Vec<_>>();
 
-                let body = lower_block_body(cm, method.function.body.as_ref());
+                let body = if method.function.is_generator {
+                    let desugared = method
+                        .function
+                        .body
+                        .as_ref()
+                        .map(|b| crate::parser::generator_desugar::desugar_generator_body(b));
+                    lower_block_body(cm, desugared.as_ref())
+                } else {
+                    lower_block_body(cm, method.function.body.as_ref())
+                };
 
                 let role = match method.kind {
                     swc_ecma_ast::MethodKind::Method => MethodRole::Method,
                     swc_ecma_ast::MethodKind::Getter => MethodRole::Getter,
                     swc_ecma_ast::MethodKind::Setter => MethodRole::Setter,
+                };
+
+                let return_type = if method.function.is_generator {
+                    Some("i64".to_string())
+                } else {
+                    method
+                        .function
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation))
                 };
 
                 members.push(ClassMember::Method(MethodDecl {
@@ -48,11 +67,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         is_abstract: method.is_abstract,
                     },
                     parameters,
-                    return_type: method
-                        .function
-                        .return_type
-                        .as_ref()
-                        .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    return_type,
                     body,
                     role,
                     span: convert_span(cm, method.span),
@@ -66,7 +81,26 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                     .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
                     .collect::<Vec<_>>();
 
-                let body = lower_block_body(cm, method.function.body.as_ref());
+                let body = if method.function.is_generator {
+                    let desugared = method
+                        .function
+                        .body
+                        .as_ref()
+                        .map(|b| crate::parser::generator_desugar::desugar_generator_body(b));
+                    lower_block_body(cm, desugared.as_ref())
+                } else {
+                    lower_block_body(cm, method.function.body.as_ref())
+                };
+
+                let return_type = if method.function.is_generator {
+                    Some("i64".to_string())
+                } else {
+                    method
+                        .function
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| normalize_type_annotation(cm, annotation))
+                };
 
                 members.push(ClassMember::Method(MethodDecl {
                     name: format!("#{}", method.key.name),
@@ -77,11 +111,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         is_abstract: false,
                     },
                     parameters,
-                    return_type: method
-                        .function
-                        .return_type
-                        .as_ref()
-                        .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    return_type,
                     body,
                     role: MethodRole::Method,
                     span: convert_span(cm, method.span),

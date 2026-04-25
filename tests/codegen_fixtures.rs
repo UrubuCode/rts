@@ -747,3 +747,23 @@ fn fixture_generator_loop() {
 fn fixture_generator_conditional() {
     run_fixture("generator_conditional");
 }
+
+#[test]
+fn fixture_generator_nested_loop() {
+    run_fixture("generator_nested_loop");
+}
+
+#[test]
+fn fixture_generator_while() {
+    run_fixture("generator_while");
+}
+
+#[test]
+fn fixture_generator_empty() {
+    run_fixture("generator_empty");
+}
+
+#[test]
+fn fixture_generator_method() {
+    run_fixture("generator_method");
+}
