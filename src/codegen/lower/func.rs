@@ -183,6 +183,16 @@ impl LiftAcc {
     /// I64 é um `ArrowExpr` ou `Ident` apontando pra user fn. Substitui in
     /// place pelo `Ident` da fn lifted, e injeta statements/fns de suporte.
     fn lift_in_body(&mut self, class_name: &str, body: &mut Vec<Statement>, in_class: bool) {
+        self.lift_in_body_inner(class_name, body, in_class, /*this_is_under_this=*/ false);
+    }
+
+    fn lift_in_body_inner(
+        &mut self,
+        class_name: &str,
+        body: &mut Vec<Statement>,
+        in_class: bool,
+        this_is_under_this: bool,
+    ) {
         use crate::abi::AbiType;
 
         let mut idx = 0usize;
@@ -289,6 +299,33 @@ impl LiftAcc {
                 let syn_name = format!("__lifted_arrow_{}", self.counter);
                 self.counter += 1;
 
+                // Recurse: lift arrows nested inside this trampoline's body
+                // before sealing it as a FunctionDecl. Arrows that referenced
+                // `this` already had `this` rewritten to `__this` above; an
+                // inner arrow that *also* uses `this` was rewritten too, so
+                // here `in_class` stays true and `class_name` is the same —
+                // when the inner arrow is lifted to its own trampoline, the
+                // codegen will resolve `__this` via `let __this: C = __cb_this_M`
+                // injected for the inner.
+                //
+                // CAVEAT: the outer rewrite turned `this` into `__this`. The
+                // inner arrow's body therefore reads `__this`, not `this`. To
+                // make the inner trampoline's slot capture work, we revert
+                // any `__this` references inside nested arrows back to `this`
+                // before the recursion sees them. The outer trampoline keeps
+                // the rewritten form because it has its own `let __this`.
+                let mut body_stmts = body_stmts;
+                let trampoline_has_under_this = needs_this_slot.is_some();
+                if trampoline_has_under_this {
+                    revert_under_this_inside_arrows(&mut body_stmts);
+                }
+                self.lift_in_body_inner(
+                    class_name,
+                    &mut body_stmts,
+                    in_class,
+                    trampoline_has_under_this,
+                );
+
                 self.new_fns.push(Item::Function(FunctionDecl {
                     name: syn_name.clone(),
                     parameters: Vec::new(),
@@ -299,8 +336,10 @@ impl LiftAcc {
 
                 if let Some(slot_name) = needs_this_slot {
                     self.new_globals.push(slot_name.clone());
-                    // Pré-statement: `__cb_this_N = this;`
-                    pre_stmts.push(make_slot_assign(&slot_name));
+                    // Pré-statement: `__cb_this_N = this;` (ou `= __this;` se
+                    // estamos dentro de outro trampolim onde `this` original
+                    // já foi renomeado).
+                    pre_stmts.push(make_slot_assign(&slot_name, this_is_under_this));
                 }
 
                 *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
@@ -596,6 +635,306 @@ fn rewrite_expr(expr: &mut Expr) {
     }
 }
 
+/// Inside any nested `Expr::Arrow` found in `stmts`, revert `__this`
+/// identifiers back to `this`. Used after the outer arrow's body had
+/// `this`→`__this` rewritten: inner arrows kept the rewrite, but they
+/// will be lifted to their own trampolines that re-bind `__this`
+/// from their own slot, so they need to start with `this` again.
+/// Statements outside arrows are left as is (the outer trampoline
+/// owns those and binds `__this` itself).
+fn revert_under_this_inside_arrows(stmts: &mut [Statement]) {
+    for s in stmts.iter_mut() {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = raw.stmt.as_mut() {
+            revert_stmt_arrows(stmt);
+        }
+    }
+}
+
+fn revert_stmt_arrows(stmt: &mut Stmt) {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Expr(e) => revert_expr_arrows(&mut e.expr),
+        Return(r) => {
+            if let Some(a) = r.arg.as_deref_mut() {
+                revert_expr_arrows(a);
+            }
+        }
+        If(i) => {
+            revert_expr_arrows(&mut i.test);
+            revert_stmt_arrows(&mut i.cons);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                revert_stmt_arrows(alt);
+            }
+        }
+        Block(b) => {
+            for s in &mut b.stmts {
+                revert_stmt_arrows(s);
+            }
+        }
+        While(w) => {
+            revert_expr_arrows(&mut w.test);
+            revert_stmt_arrows(&mut w.body);
+        }
+        DoWhile(w) => {
+            revert_expr_arrows(&mut w.test);
+            revert_stmt_arrows(&mut w.body);
+        }
+        For(f) => {
+            if let Some(init) = f.init.as_mut() {
+                match init {
+                    swc_ecma_ast::VarDeclOrExpr::Expr(e) => revert_expr_arrows(e),
+                    swc_ecma_ast::VarDeclOrExpr::VarDecl(v) => {
+                        for d in &mut v.decls {
+                            if let Some(e) = d.init.as_deref_mut() {
+                                revert_expr_arrows(e);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(t) = f.test.as_deref_mut() {
+                revert_expr_arrows(t);
+            }
+            if let Some(u) = f.update.as_deref_mut() {
+                revert_expr_arrows(u);
+            }
+            revert_stmt_arrows(&mut f.body);
+        }
+        ForOf(f) => {
+            revert_expr_arrows(&mut f.right);
+            revert_stmt_arrows(&mut f.body);
+        }
+        Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in &mut v.decls {
+                if let Some(e) = d.init.as_deref_mut() {
+                    revert_expr_arrows(e);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn revert_expr_arrows(expr: &mut Expr) {
+    use swc_ecma_ast::Expr::*;
+    match expr {
+        Arrow(arrow) => {
+            // Within the arrow's body, swap `__this` ident for `Expr::This`.
+            match arrow.body.as_mut() {
+                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+                    for s in &mut b.stmts {
+                        revert_under_this_in_stmt(s);
+                    }
+                }
+                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                    revert_under_this_in_expr(e);
+                }
+            }
+        }
+        Member(m) => revert_expr_arrows(&mut m.obj),
+        Bin(b) => {
+            revert_expr_arrows(&mut b.left);
+            revert_expr_arrows(&mut b.right);
+        }
+        Unary(u) => revert_expr_arrows(&mut u.arg),
+        Update(u) => revert_expr_arrows(&mut u.arg),
+        Assign(a) => {
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(m),
+            ) = &mut a.left
+            {
+                revert_expr_arrows(&mut m.obj);
+            }
+            revert_expr_arrows(&mut a.right);
+        }
+        Call(c) => {
+            if let Callee::Expr(e) = &mut c.callee {
+                revert_expr_arrows(e);
+            }
+            for a in &mut c.args {
+                revert_expr_arrows(&mut a.expr);
+            }
+        }
+        New(n) => {
+            if let Some(args) = n.args.as_mut() {
+                for a in args {
+                    revert_expr_arrows(&mut a.expr);
+                }
+            }
+        }
+        Cond(c) => {
+            revert_expr_arrows(&mut c.test);
+            revert_expr_arrows(&mut c.cons);
+            revert_expr_arrows(&mut c.alt);
+        }
+        Paren(p) => revert_expr_arrows(&mut p.expr),
+        Tpl(t) => {
+            for e in &mut t.exprs {
+                revert_expr_arrows(e);
+            }
+        }
+        Array(a) => {
+            for el in a.elems.iter_mut().flatten() {
+                revert_expr_arrows(&mut el.expr);
+            }
+        }
+        Seq(s) => {
+            for e in &mut s.exprs {
+                revert_expr_arrows(e);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn revert_under_this_in_stmt(stmt: &mut Stmt) {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Expr(e) => revert_under_this_in_expr(&mut e.expr),
+        Return(r) => {
+            if let Some(a) = r.arg.as_deref_mut() {
+                revert_under_this_in_expr(a);
+            }
+        }
+        If(i) => {
+            revert_under_this_in_expr(&mut i.test);
+            revert_under_this_in_stmt(&mut i.cons);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                revert_under_this_in_stmt(alt);
+            }
+        }
+        Block(b) => {
+            for s in &mut b.stmts {
+                revert_under_this_in_stmt(s);
+            }
+        }
+        While(w) => {
+            revert_under_this_in_expr(&mut w.test);
+            revert_under_this_in_stmt(&mut w.body);
+        }
+        DoWhile(w) => {
+            revert_under_this_in_expr(&mut w.test);
+            revert_under_this_in_stmt(&mut w.body);
+        }
+        For(f) => {
+            if let Some(init) = f.init.as_mut() {
+                match init {
+                    swc_ecma_ast::VarDeclOrExpr::Expr(e) => revert_under_this_in_expr(e),
+                    swc_ecma_ast::VarDeclOrExpr::VarDecl(v) => {
+                        for d in &mut v.decls {
+                            if let Some(e) = d.init.as_deref_mut() {
+                                revert_under_this_in_expr(e);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(t) = f.test.as_deref_mut() {
+                revert_under_this_in_expr(t);
+            }
+            if let Some(u) = f.update.as_deref_mut() {
+                revert_under_this_in_expr(u);
+            }
+            revert_under_this_in_stmt(&mut f.body);
+        }
+        ForOf(f) => {
+            revert_under_this_in_expr(&mut f.right);
+            revert_under_this_in_stmt(&mut f.body);
+        }
+        Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in &mut v.decls {
+                if let Some(e) = d.init.as_deref_mut() {
+                    revert_under_this_in_expr(e);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn revert_under_this_in_expr(expr: &mut Expr) {
+    use swc_ecma_ast::Expr::*;
+    if let Ident(id) = expr {
+        if id.sym.as_ref() == "__this" {
+            *expr = Expr::This(swc_ecma_ast::ThisExpr {
+                span: Default::default(),
+            });
+            return;
+        }
+    }
+    match expr {
+        Member(m) => revert_under_this_in_expr(&mut m.obj),
+        Bin(b) => {
+            revert_under_this_in_expr(&mut b.left);
+            revert_under_this_in_expr(&mut b.right);
+        }
+        Unary(u) => revert_under_this_in_expr(&mut u.arg),
+        Update(u) => revert_under_this_in_expr(&mut u.arg),
+        Assign(a) => {
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(m),
+            ) = &mut a.left
+            {
+                revert_under_this_in_expr(&mut m.obj);
+            }
+            revert_under_this_in_expr(&mut a.right);
+        }
+        Call(c) => {
+            if let Callee::Expr(e) = &mut c.callee {
+                revert_under_this_in_expr(e);
+            }
+            for a in &mut c.args {
+                revert_under_this_in_expr(&mut a.expr);
+            }
+        }
+        New(n) => {
+            if let Some(args) = n.args.as_mut() {
+                for a in args {
+                    revert_under_this_in_expr(&mut a.expr);
+                }
+            }
+        }
+        Cond(c) => {
+            revert_under_this_in_expr(&mut c.test);
+            revert_under_this_in_expr(&mut c.cons);
+            revert_under_this_in_expr(&mut c.alt);
+        }
+        Paren(p) => revert_under_this_in_expr(&mut p.expr),
+        Arrow(arrow) => {
+            // Recurse into arrow body too — same rule applies to nested
+            // arrows: any `__this` they hold should revert to `this` so
+            // their own lift sees the canonical form.
+            match arrow.body.as_mut() {
+                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+                    for s in &mut b.stmts {
+                        revert_under_this_in_stmt(s);
+                    }
+                }
+                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                    revert_under_this_in_expr(e);
+                }
+            }
+        }
+        Tpl(t) => {
+            for e in &mut t.exprs {
+                revert_under_this_in_expr(e);
+            }
+        }
+        Array(a) => {
+            for el in a.elems.iter_mut().flatten() {
+                revert_under_this_in_expr(&mut el.expr);
+            }
+        }
+        Seq(s) => {
+            for e in &mut s.exprs {
+                revert_under_this_in_expr(e);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// `let __this: ClassName = __cb_this_N;`
 fn make_this_local(class_name: &str, slot_name: &str) -> Stmt {
     let cls_ann = TsType::TsTypeRef(TsTypeRef {
@@ -640,8 +979,22 @@ fn make_this_local(class_name: &str, slot_name: &str) -> Stmt {
     Stmt::Decl(Decl::Var(Box::new(var)))
 }
 
-/// `__cb_this_N = this;`
-fn make_slot_assign(slot_name: &str) -> Statement {
+/// `__cb_this_N = this;` (ou `__cb_this_N = __this;` quando `under_this`
+/// — o callsite está dentro de um trampolim onde o `this` original foi
+/// renomeado para `__this`).
+fn make_slot_assign(slot_name: &str, under_this: bool) -> Statement {
+    let rhs: Expr = if under_this {
+        Expr::Ident(swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: "__this".into(),
+            optional: false,
+        })
+    } else {
+        Expr::This(swc_ecma_ast::ThisExpr {
+            span: Default::default(),
+        })
+    };
     let assign = Expr::Assign(swc_ecma_ast::AssignExpr {
         span: Default::default(),
         op: swc_ecma_ast::AssignOp::Assign,
@@ -656,9 +1009,7 @@ fn make_slot_assign(slot_name: &str) -> Statement {
                 type_ann: None,
             },
         )),
-        right: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
-            span: Default::default(),
-        })),
+        right: Box::new(rhs),
     });
     let stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
         span: Default::default(),
