@@ -672,3 +672,23 @@ fn fixture_spread_new() {
 fn fixture_spread_super() {
     run_fixture("spread_super");
 }
+
+#[test]
+fn fixture_destruct_array() {
+    run_fixture("destruct_array");
+}
+
+#[test]
+fn fixture_destruct_object() {
+    run_fixture("destruct_object");
+}
+
+#[test]
+fn fixture_destruct_alias() {
+    run_fixture("destruct_alias");
+}
+
+#[test]
+fn fixture_destruct_in_fn() {
+    run_fixture("destruct_in_fn");
+}
