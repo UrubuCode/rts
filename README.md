@@ -10,8 +10,8 @@ os namespaces builtin. Ha dois caminhos de execucao:
 - **AOT** (`rts compile`) — emite object file, linka com o linker do sistema,
   produz executavel standalone.
 
-Namespaces ativos (13): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
-`buffer`, `string`, `process`, `os`, `collections`.
+Namespaces ativos (16): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
+`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`.
 
 **Observação de perf (Windows, `rts_simple.ts`, 10 runs):**
 
@@ -53,6 +53,9 @@ src/
     process/         exit/abort/pid, argv aliases, spawn/wait/kill
     os/              platform, arch, family, home/temp/config/cache_dir
     collections/     HashMap<string, i64> e Vec<i64> via HandleTable
+    hash/            SipHash-2-4 deterministico (str/i64/bytes)
+    fmt/             parse_i64/f64, fmt_hex/oct/bin, fmt_f64_prec
+    crypto/          SHA-256 inline, base64/hex encode/decode, CSPRNG
     <ns>/mod.rs      import map
     <ns>/abi.rs      tabela estatica de NamespaceMember
     <ns>/rt.rs       re-exports para o runtime staticlib
@@ -74,8 +77,9 @@ Pipeline JIT: `Source TS -> Parser (SWC) -> Codegen Cranelift -> JITModule in-me
 ## Contrato ABI
 
 - Fonte unica: `src/abi/`.
-- `abi::SPECS` lista os 13 namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`,
-  `time`, `env`, `path`, `buffer`, `string`, `process`, `os`, `collections`.
+- `abi::SPECS` lista os 16 namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`,
+  `time`, `env`, `path`, `buffer`, `string`, `process`, `os`, `collections`,
+  `hash`, `fmt`, `crypto`.
 - Cada membro declara nome, parametros, retorno via `AbiType`, e opcionalmente
   um `Intrinsic` que permite ao codegen emitir IR inline ao inves de call extern
   (usado em `math.sqrt`, `math.random_f64`, etc).
@@ -119,11 +123,29 @@ Suportadas no codegen:
   decimais. Suficiente para calcular pi com 29 digitos corretos via Machin.
 - **Containers**: `collections.map_*` e `collections.vec_*` via handles
   (HashMap<string, i64> e Vec<i64>), `buffer.alloc/read/write` pra bytes.
+- **Object/array literals**: `{ k: v }` desugar em `map_*`, `[1, 2, 3]` em
+  `vec_*`. Member access (`obj.x`, `obj["x"]`, `arr[i]`) e atribuicao
+  (`obj.x = v`) suportados. Aninhamento livre.
+- **Classes**: `class C { constructor(...) {...} method() {...} field: T }`,
+  `new C(args)`, `this`, `extends`/`super(args)`, `super.method(args)`,
+  static methods (`static m()` chamados via `C.m()`), getters/setters
+  (`get x()`, `set x(v)`), dispatch virtual real (instancia armazena
+  `__rts_class`; metodos overrideados em subclasses sao despachados via
+  string-eq sobre o tag de runtime). Operator overload Rust-style: `a + b`
+  vira `a.add(b)` em compile-time quando classe define o metodo
+  (`add`/`sub`/`mul`/`div`/`rem`/`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`bit_*`/`shl`/`shr`).
+- **for...of**: itera sobre arrays (`vec_*`); bind herda classe quando
+  array tem anotacao `: C[]` para habilitar dispatch de metodo.
+- **try / catch / throw / finally** (fase 1): captura via slot de erro
+  thread-local checado ao fim do try. Sem unwind real ainda — `throw` nao
+  interrompe o fluxo (#128 rastreia fase 2 com Cranelift invoke).
+- **String equality**: `s1 == s2` compara conteudo via `gc.string_eq`
+  quando ambos os operandos sao Handle.
 
-Nao suportado ainda: `class`, `try/catch`, `async/await`, generators,
-destructuring, spread/rest, regex, object e array literals nativos.
-Closures com captura de variaveis externas estao em fase 1 (ponteiros de
-funcao sem env).
+Nao suportado ainda: `async/await`, generators, destructuring, spread/rest,
+regex, decorators, generics, abstract classes, satisfies, enum, default
+parameters. Closures com captura de variaveis externas estao em fase 1
+(ponteiros de funcao sem env).
 
 ## CLI
 

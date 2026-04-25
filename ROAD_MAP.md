@@ -25,7 +25,8 @@ Convergir para o modelo da `main` (pipeline completo + cache), mantendo a organi
 - [x] Declaracoes TypeScript sincronizadas a partir da ABI nova.
 - [x] Namespaces adicionais consolidados: `math` (27 membros + 4 constantes),
       `bigfloat` (decimal 30 digitos), `time`, `env`, `path`, `buffer`,
-      `string`, `process`, `os`, `collections` — 13 namespaces total.
+      `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`
+      — 16 namespaces total.
 
 ---
 
