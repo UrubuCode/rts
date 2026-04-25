@@ -150,22 +150,22 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // ── Ternary (a ? b : c) ───────────────────────────────────────────
         Expr::Cond(cond) => lower_cond(ctx, cond),
 
+        // ── Array literal ─────────────────────────────────────────────────
+        // `[a, b, c]` desugar em `vec_new` + `vec_push` por elemento.
+        // Holes (sparse: `[1,,3]`) viram 0. Spread nao suportado no MVP.
+        Expr::Array(arr) => lower_array_lit(ctx, arr),
+
+        // ── Object literal ────────────────────────────────────────────────
+        // `{k: v, x}` desugar em `map_new` + `map_set` por entrada. Apenas
+        // chaves Ident/Str sao aceitas no MVP (sem computed/method/spread).
+        Expr::Object(obj) => lower_object_lit(ctx, obj),
+
         // ── Member ────────────────────────────────────────────────────────
-        // Resolves `ns.CONST` into a direct call to the constant's accessor
-        // symbol. Regular function references like `io.print` (without a
-        // call) are rejected.
-        Expr::Member(_) => {
-            let qualified = qualified_member_name(expr)
-                .ok_or_else(|| anyhow!("bare member expression not supported as value"))?;
-            let (_spec, member) = lookup(&qualified)
-                .ok_or_else(|| anyhow!("unknown namespace member `{qualified}`"))?;
-            if !matches!(member.kind, crate::abi::MemberKind::Constant) {
-                return Err(anyhow!(
-                    "`{qualified}` is a function, not a constant — use `{qualified}(...)`"
-                ));
-            }
-            emit_constant_load(ctx, member)
-        }
+        // Tres casos:
+        // 1. Namespace constant (math.PI): emit constant load.
+        // 2. Computed access em runtime handle: obj[expr] → vec_get/map_get.
+        // 3. Static access em runtime handle: obj.foo → map_get(obj, "foo").
+        Expr::Member(m) => lower_member_expr(ctx, m),
 
         // ── Optional chain (a?.b, a?.()) ─────────────────────────────────
         // Member access (`a?.b`) precisa de objects (#53) — rejeita com
@@ -1334,6 +1334,177 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
             ValTy::I64,
         ))
     }
+}
+
+// ── Array / Object literals ───────────────────────────────────────────────
+
+fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> Result<TypedVal> {
+    let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst = ctx.builder.ins().call(new_fn, &[]);
+    let handle = ctx.builder.inst_results(inst)[0];
+
+    let push_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
+
+    for elem in &arr.elems {
+        let value = match elem {
+            Some(e) => {
+                if e.spread.is_some() {
+                    return Err(anyhow!("spread em array literal nao suportado (MVP)"));
+                }
+                let tv = lower_expr(ctx, &e.expr)?;
+                ctx.coerce_to_i64(tv).val
+            }
+            None => ctx.builder.ins().iconst(cl::I64, 0),
+        };
+        ctx.builder.ins().call(push_fn, &[handle, value]);
+    }
+
+    Ok(TypedVal::new(handle, ValTy::Handle))
+}
+
+fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -> Result<TypedVal> {
+    use swc_ecma_ast::{Prop, PropName, PropOrSpread};
+
+    let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+    let inst = ctx.builder.ins().call(new_fn, &[]);
+    let handle = ctx.builder.inst_results(inst)[0];
+
+    let set_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+        &[cl::I64, cl::I64, cl::I64, cl::I64],
+        None,
+    )?;
+
+    for prop in &obj.props {
+        let p = match prop {
+            PropOrSpread::Prop(p) => p,
+            PropOrSpread::Spread(_) => {
+                return Err(anyhow!("spread em object literal nao suportado (MVP)"));
+            }
+        };
+
+        let (key_str, value_expr): (String, Box<Expr>) = match p.as_ref() {
+            Prop::KeyValue(kv) => {
+                let k = match &kv.key {
+                    PropName::Ident(id) => id.sym.as_str().to_string(),
+                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                    PropName::Num(n) => n.value.to_string(),
+                    PropName::Computed(_) | PropName::BigInt(_) => {
+                        return Err(anyhow!("computed/bigint key em object literal nao suportado (MVP)"));
+                    }
+                };
+                (k, kv.value.clone())
+            }
+            Prop::Shorthand(id) => {
+                let name = id.sym.as_str().to_string();
+                let synthetic = Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                    span: id.span,
+                    ctxt: Default::default(),
+                    sym: name.as_str().into(),
+                    optional: false,
+                }));
+                (name, synthetic)
+            }
+            Prop::Method(_) | Prop::Getter(_) | Prop::Setter(_) | Prop::Assign(_) => {
+                return Err(anyhow!("method/get/set/assign em object literal nao suportado (MVP)"));
+            }
+        };
+
+        let value_tv = lower_expr(ctx, &value_expr)?;
+        let value_i64 = ctx.coerce_to_i64(value_tv).val;
+        let (kptr, klen) = ctx.emit_str_literal(key_str.as_bytes())?;
+        ctx.builder.ins().call(set_fn, &[handle, kptr, klen, value_i64]);
+    }
+
+    Ok(TypedVal::new(handle, ValTy::Handle))
+}
+
+fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<TypedVal> {
+    // Caso 1: namespace constant (math.PI). qualified_member_name so
+    // resolve quando obj e ident e prop e ident.
+    if let Some(qualified) = qualified_member_name(&Expr::Member(m.clone())) {
+        if let Some((_spec, member)) = lookup(&qualified) {
+            if !matches!(member.kind, crate::abi::MemberKind::Constant) {
+                return Err(anyhow!(
+                    "`{qualified}` is a function, not a constant — use `{qualified}(...)`"
+                ));
+            }
+            return emit_constant_load(ctx, member);
+        }
+    }
+
+    // Caso 2/3: runtime member access. obj precisa virar handle.
+    let obj_tv = lower_expr(ctx, &m.obj)?;
+    let obj_handle = ctx.coerce_to_i64(obj_tv).val;
+
+    match &m.prop {
+        // obj.foo → map_get(obj, "foo")
+        MemberProp::Ident(id) => {
+            let key = id.sym.as_str();
+            map_get_static(ctx, obj_handle, key.as_bytes())
+        }
+        // obj["foo"] ou obj[i]
+        MemberProp::Computed(c) => {
+            // Detecta string literal estatica para usar map_get direto.
+            if let Expr::Lit(Lit::Str(s)) = c.expr.as_ref() {
+                return map_get_static(ctx, obj_handle, s.value.as_bytes());
+            }
+            // Indexa por valor: avalia e decide pela natureza do valor.
+            let idx_tv = lower_expr(ctx, &c.expr)?;
+            match idx_tv.ty {
+                ValTy::Handle => {
+                    // String dinamica como chave de map.
+                    let ptr_fref = ctx
+                        .get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                    let len_fref = ctx
+                        .get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                    let pi = ctx.builder.ins().call(ptr_fref, &[idx_tv.val]);
+                    let kptr = ctx.builder.inst_results(pi)[0];
+                    let li = ctx.builder.ins().call(len_fref, &[idx_tv.val]);
+                    let klen = ctx.builder.inst_results(li)[0];
+                    let get_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+                        &[cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(get_fn, &[obj_handle, kptr, klen]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    Ok(TypedVal::new(v, ValTy::I64))
+                }
+                _ => {
+                    // Indice numerico: vec_get.
+                    let idx = ctx.coerce_to_i64(idx_tv).val;
+                    let get_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    Ok(TypedVal::new(v, ValTy::I64))
+                }
+            }
+        }
+        MemberProp::PrivateName(_) => {
+            Err(anyhow!("private name access nao suportado"))
+        }
+    }
+}
+
+fn map_get_static(ctx: &mut FnCtx, obj_handle: cranelift_codegen::ir::Value, key: &[u8]) -> Result<TypedVal> {
+    let (kptr, klen) = ctx.emit_str_literal(key)?;
+    let get_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(get_fn, &[obj_handle, kptr, klen]);
+    let v = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(v, ValTy::I64))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

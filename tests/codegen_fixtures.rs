@@ -169,3 +169,8 @@ fn fixture_tail_call() {
 fn fixture_first_class_functions() {
     run_fixture("first_class_functions");
 }
+
+#[test]
+fn fixture_object_array_literals() {
+    run_fixture("object_array_literals");
+}
