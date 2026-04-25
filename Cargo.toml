@@ -37,6 +37,9 @@ rustc-hash = "1.1"
 notify = "6.1"
 fltk = { version = "1", features = ["fltk-bundled"] }
 
+[build-dependencies]
+fltk = { version = "1", features = ["fltk-bundled"] }
+
 [profile.release]
 opt-level = "z"
 lto = true

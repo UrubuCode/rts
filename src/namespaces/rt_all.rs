@@ -30,5 +30,12 @@ pub mod hash;
 pub mod fmt;
 #[path = "crypto/rt.rs"]
 pub mod crypto;
-// ui namespace is excluded from runtime_support.a — fltk requires cargo
-// dependency resolution. JIT registers symbols directly via jit.rs.
+#[path = "ui/rt.rs"]
+pub mod ui;
+
+// rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
+// modules reference `crate::namespaces::...`, so we expose a compatibility
+// shim with the subset they need in runtime_support.
+pub mod namespaces {
+    pub use crate::gc;
+}

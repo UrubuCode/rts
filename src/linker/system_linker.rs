@@ -201,6 +201,10 @@ fn windows_runtime_default_libs() -> &'static [&'static str] {
         "ntdll.lib",
         "shell32.lib",
         "ole32.lib",
+        "comctl32.lib",
+        "comdlg32.lib",
+        "gdiplus.lib",
+        "winspool.lib",
         "synchronization.lib",
         // Rust staticlib on MSVC uses the dynamic CRT by default; keep only
         // the matching dynamic import libraries to avoid duplicate symbols

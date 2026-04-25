@@ -13,6 +13,8 @@ struct ObjMeta {
     source_checksum: String,
     rts_version: String,
     target: String,
+    #[serde(default)]
+    compiler_fingerprint: String,
     used_namespaces: Vec<String>,
 }
 
@@ -34,6 +36,8 @@ impl ObjCache {
 
     pub fn lookup(&self, source: &Path) -> Result<Option<CacheHit>> {
         let checksum = file_sha256(source)?;
+        let target = crate::linker::toolchain::TargetTriple::resolve(None).triple;
+        let compiler_fingerprint = compiler_fingerprint();
         let dir = self.obj_dir(&checksum);
         let obj_path = dir.join("output.o");
         let meta_path = dir.join("output.ometa");
@@ -48,7 +52,11 @@ impl ObjCache {
         )
         .with_context(|| format!("malformed ometa at {}", meta_path.display()))?;
 
-        if meta.source_checksum != checksum || meta.rts_version != RTS_VERSION {
+        if meta.source_checksum != checksum
+            || meta.rts_version != RTS_VERSION
+            || meta.target != target
+            || meta.compiler_fingerprint != compiler_fingerprint
+        {
             return Ok(None);
         }
 
@@ -81,6 +89,7 @@ impl ObjCache {
             source_checksum: checksum,
             rts_version: RTS_VERSION.to_string(),
             target,
+            compiler_fingerprint: compiler_fingerprint(),
             used_namespaces: sorted_ns,
         };
 
@@ -113,6 +122,16 @@ fn file_sha256(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
     Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
+
+fn compiler_fingerprint() -> String {
+    let Ok(exe) = std::env::current_exe() else {
+        return format!("rts-{RTS_VERSION}");
+    };
+    let Ok(bytes) = std::fs::read(exe) else {
+        return format!("rts-{RTS_VERSION}");
+    };
+    format!("{:x}", Sha256::digest(&bytes))
 }
 
 fn find_project_root(input: &Path) -> PathBuf {

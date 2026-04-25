@@ -104,6 +104,13 @@ pub fn link_objects_to_binary_with_request(
             match link_with_system_backend(object_paths, output_path, request) {
                 Ok(linked) => Ok(linked),
                 Err(system_error) => {
+                    if object_paths.len() != 1 {
+                        bail!(
+                            "system backend unavailable ({}); object fallback requires exactly 1 object file (got {}). install/configure platform runtime libs for the target linker",
+                            system_error,
+                            object_paths.len()
+                        );
+                    }
                     eprintln!(
                         "RTS linker: system backend unavailable ({}). Falling back to object backend.",
                         system_error

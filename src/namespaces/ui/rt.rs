@@ -1,2 +1,8 @@
-// UI namespace is excluded from runtime_support.a — fltk requires cargo
-// dependency resolution. JIT registers symbols directly via jit.rs.
+pub mod app;
+pub mod dialog;
+pub mod draw;
+pub mod menu;
+pub mod store;
+pub mod text;
+pub mod widgets;
+pub mod window;
