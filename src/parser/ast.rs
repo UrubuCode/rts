@@ -129,6 +129,10 @@ pub struct Parameter {
     pub type_annotation: Option<String>,
     pub modifiers: MemberModifiers,
     pub variadic: bool,
+    /// Expressão de default (`(x = 42)`). Quando presente, callsites
+    /// que omitem este argumento são expandidos com o valor default
+    /// num pass do compilador.
+    pub default: Option<Box<swc_ecma_ast::Expr>>,
     pub span: Span,
 }
 
