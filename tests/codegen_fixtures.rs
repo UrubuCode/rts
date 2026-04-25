@@ -717,3 +717,18 @@ fn fixture_namespace_const() {
 fn fixture_namespace_enum() {
     run_fixture("namespace_enum");
 }
+
+#[test]
+fn fixture_regex_test() {
+    run_fixture("regex_test");
+}
+
+#[test]
+fn fixture_regex_find_at() {
+    run_fixture("regex_find_at");
+}
+
+#[test]
+fn fixture_regex_replace() {
+    run_fixture("regex_replace");
+}

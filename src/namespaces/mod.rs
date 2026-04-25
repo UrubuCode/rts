@@ -18,6 +18,7 @@ pub mod math;
 pub mod os;
 pub mod path;
 pub mod process;
+pub mod regex;
 pub mod string;
 pub mod time;
 pub mod ui;

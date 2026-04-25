@@ -30,6 +30,8 @@ pub mod hash;
 pub mod fmt;
 #[path = "crypto/rt.rs"]
 pub mod crypto;
+#[path = "regex/rt.rs"]
+pub mod regex;
 #[path = "ui/rt.rs"]
 pub mod ui;
 

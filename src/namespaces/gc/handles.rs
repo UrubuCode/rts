@@ -38,6 +38,8 @@ pub enum Entry {
     Map(Box<std::collections::HashMap<String, i64>>),
     /// Vec<i64> — namespace `collections` (vec_*).
     Vec(Box<Vec<i64>>),
+    /// Regex compilada — namespace `regex`.
+    Regex(Box<regex::Regex>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

@@ -301,6 +301,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
     }
 
+    // ── namespaces::regex ─────────────────────────────────────────────
+    {
+        use crate::namespaces::regex::ops as rx;
+        add_fn!("__RTS_FN_NS_REGEX_COMPILE", rx::__RTS_FN_NS_REGEX_COMPILE);
+        add_fn!("__RTS_FN_NS_REGEX_FREE", rx::__RTS_FN_NS_REGEX_FREE);
+        add_fn!("__RTS_FN_NS_REGEX_TEST", rx::__RTS_FN_NS_REGEX_TEST);
+        add_fn!("__RTS_FN_NS_REGEX_FIND", rx::__RTS_FN_NS_REGEX_FIND);
+        add_fn!("__RTS_FN_NS_REGEX_FIND_AT", rx::__RTS_FN_NS_REGEX_FIND_AT);
+        add_fn!("__RTS_FN_NS_REGEX_REPLACE", rx::__RTS_FN_NS_REGEX_REPLACE);
+        add_fn!(
+            "__RTS_FN_NS_REGEX_REPLACE_ALL",
+            rx::__RTS_FN_NS_REGEX_REPLACE_ALL
+        );
+        add_fn!(
+            "__RTS_FN_NS_REGEX_MATCH_COUNT",
+            rx::__RTS_FN_NS_REGEX_MATCH_COUNT
+        );
+    }
+
     // ── namespaces::collections ───────────────────────────────────────
     {
         use crate::namespaces::collections::*;
