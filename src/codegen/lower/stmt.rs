@@ -417,12 +417,17 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
         // ── Return ────────────────────────────────────────────────────────
         Stmt::Return(ret_stmt) => {
             if let Some(arg) = &ret_stmt.arg {
-                // Mark the expression as being in tail position so
-                // lower_user_call can emit `return_call` when the callee
-                // is a user function. The flag is cleared after lowering
-                // whether or not the call was tail-eligible.
+                // Marca tail position SOMENTE quando a expressão retornada
+                // é diretamente uma CallExpr (talvez envolta em Paren).
+                // Isso permite `return f(x)` virar `return_call`, mas
+                // impede que `return n * f(x)` ou `return -f(x)` etc
+                // marquem o `f(x)` interno como tail — onde o multiply/
+                // negate ainda precisa rodar depois do retorno do callee.
+                // Sem essa restrição, `return_call` despreza a operação
+                // pendente e o programa retorna o valor errado (#164).
+                let is_direct_tail_call = is_direct_call_expr(arg);
                 let prev = ctx.in_tail_position;
-                ctx.in_tail_position = true;
+                ctx.in_tail_position = is_direct_tail_call;
                 let tv = lower_expr(ctx, arg)?;
                 ctx.in_tail_position = prev;
 
@@ -652,6 +657,18 @@ fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) -> Result<boo
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/// True quando `expr` é diretamente uma chamada (eligível pra tail call
+/// de `return f(args)`). Aceita parens redundantes mas rejeita qualquer
+/// operação composta — em `return n * f(x)`, o `f(x)` aninhado não é
+/// tail position porque a multiplicação ainda roda depois.
+fn is_direct_call_expr(expr: &swc_ecma_ast::Expr) -> bool {
+    match expr {
+        swc_ecma_ast::Expr::Call(_) => true,
+        swc_ecma_ast::Expr::Paren(p) => is_direct_call_expr(&p.expr),
+        _ => false,
+    }
+}
 
 fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
     use swc_ecma_ast::{TsKeywordTypeKind, TsType};
