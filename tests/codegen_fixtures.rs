@@ -657,3 +657,8 @@ fn fixture_labeled_continue() {
 fn fixture_labeled_nested() {
     run_fixture("labeled_nested");
 }
+
+#[test]
+fn fixture_satisfies_op() {
+    run_fixture("satisfies_op");
+}
