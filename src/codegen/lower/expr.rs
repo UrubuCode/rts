@@ -356,6 +356,19 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // ── new C(args) ──────────────────────────────────────────────────
         Expr::New(new_expr) => lower_new(ctx, new_expr),
 
+        // ── Type assertions TS (passthrough no codegen) ───────────────────
+        // Todas as variantes apenas anotam o tipo do expr interno.
+        // Coerções numéricas (i64↔i32↔f64) acontecem nos call sites
+        // via `coerce_to_*` quando o destino exige; assertions não
+        // emitem instruções extras.
+        Expr::TsAs(a) => lower_expr(ctx, &a.expr),
+        Expr::TsTypeAssertion(a) => lower_expr(ctx, &a.expr),
+        Expr::TsConstAssertion(a) => lower_expr(ctx, &a.expr),
+        Expr::TsSatisfies(a) => lower_expr(ctx, &a.expr),
+        // `expr!` non-null assertion: no-op em runtime — RTS não tem
+        // `null` real. Se um dia tivermos verificação debug, fica aqui.
+        Expr::TsNonNull(n) => lower_expr(ctx, &n.expr),
+
         other => Err(anyhow!(
             "unsupported expression kind: {}",
             expr_kind_name(other)
@@ -672,6 +685,17 @@ fn operator_method_name(op: BinaryOp) -> Option<&'static str> {
 /// `this`, ident local com classe trackeada e member access em
 /// receiver de classe conhecida (campo cujo tipo declarado e outra
 /// classe — feature pequena, opt-in via field_types).
+/// Extrai o nome da classe de uma TsType, quando ela é \`TsTypeRef\` para
+/// um identifier. Usado em \`expr as C\` para detectar cast a classe.
+fn class_name_from_ts_type(ty: &swc_ecma_ast::TsType) -> Option<String> {
+    if let swc_ecma_ast::TsType::TsTypeRef(r) = ty {
+        if let swc_ecma_ast::TsEntityName::Ident(id) = &r.type_name {
+            return Some(id.sym.as_str().to_string());
+        }
+    }
+    None
+}
+
 fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
@@ -694,6 +718,28 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
             None
         }
         Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
+        // Type assertions: a anotação TS sobrepõe o tipo inferido.
+        // Quando `expr as C` e `C` é classe registrada, usamos C como
+        // a classe estática — habilita dispatch de método/field.
+        Expr::TsAs(a) => {
+            if let Some(cn) = class_name_from_ts_type(&a.type_ann) {
+                if ctx.classes.contains_key(&cn) {
+                    return Some(cn);
+                }
+            }
+            lhs_static_class(ctx, &a.expr)
+        }
+        Expr::TsTypeAssertion(a) => {
+            if let Some(cn) = class_name_from_ts_type(&a.type_ann) {
+                if ctx.classes.contains_key(&cn) {
+                    return Some(cn);
+                }
+            }
+            lhs_static_class(ctx, &a.expr)
+        }
+        Expr::TsSatisfies(a) => lhs_static_class(ctx, &a.expr),
+        Expr::TsNonNull(n) => lhs_static_class(ctx, &n.expr),
+        Expr::TsConstAssertion(a) => lhs_static_class(ctx, &a.expr),
         // Encadeamento: `a + b - c`. Pressupomos que metodos de
         // operador retornam a mesma classe do receiver (convencao Rust).
         Expr::Bin(b) => {
