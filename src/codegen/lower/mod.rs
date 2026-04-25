@@ -5,8 +5,8 @@
 //! string operations.
 
 pub mod ctx;
-pub mod expr;
+pub mod expressions;
 pub mod func;
-pub mod stmt;
+pub mod statements;
 
 pub use func::compile_program;

@@ -20,7 +20,7 @@ use crate::parser::ast::{
 use crate::parser::span::Span;
 
 use super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
-use super::stmt::lower_stmt;
+use super::statements::lower_stmt;
 
 const RUNTIME_MAIN_SYMBOL: &str = "__RTS_MAIN";
 
@@ -95,7 +95,9 @@ fn lift_arrow_callbacks(program: &mut Program) {
     // anterior.
     let n = program.items.len();
     for i in 0..n {
-        let Item::Statement(Statement::Raw(_)) = &program.items[i] else { continue };
+        let Item::Statement(Statement::Raw(_)) = &program.items[i] else {
+            continue;
+        };
         // Extrair temporariamente para evitar conflito de borrow.
         let mut taken = std::mem::replace(
             &mut program.items[i],
@@ -104,10 +106,7 @@ fn lift_arrow_callbacks(program: &mut Program) {
         if let Item::Statement(Statement::Raw(raw)) = &mut taken {
             // Empacota num Vec<Statement> de 1 elemento e reaproveita a
             // varredura unificada.
-            let placeholder = std::mem::replace(
-                raw,
-                RawStmt::new(String::new(), Span::default()),
-            );
+            let placeholder = std::mem::replace(raw, RawStmt::new(String::new(), Span::default()));
             let mut body = vec![Statement::Raw(placeholder)];
             acc.lift_in_body("", &mut body, /*in_class=*/ false);
             // Reescreve o item top-level como o (possivelmente expandido) primeiro
@@ -150,14 +149,12 @@ fn lift_arrow_callbacks(program: &mut Program) {
                         span: Default::default(),
                         type_ann: Box::new(TsType::TsTypeRef(TsTypeRef {
                             span: Default::default(),
-                            type_name: swc_ecma_ast::TsEntityName::Ident(
-                                swc_ecma_ast::Ident {
-                                    span: Default::default(),
-                                    ctxt: Default::default(),
-                                    sym: "i64".into(),
-                                    optional: false,
-                                },
-                            ),
+                            type_name: swc_ecma_ast::TsEntityName::Ident(swc_ecma_ast::Ident {
+                                span: Default::default(),
+                                ctxt: Default::default(),
+                                sym: "i64".into(),
+                                optional: false,
+                            }),
                             type_params: None,
                         })),
                     })),
@@ -183,7 +180,6 @@ fn lift_arrow_callbacks(program: &mut Program) {
     for global_item in prepend.into_iter().rev() {
         program.items.insert(0, global_item);
     }
-
 }
 
 struct LiftAcc {
@@ -248,7 +244,13 @@ fn expand_destructuring(program: &mut Program) {
             let kind = var_decl.kind;
             let mut new_stmts: Vec<Statement> = Vec::new();
             for decl in &var_decl.decls {
-                expand_destruct_decl(&decl.name, decl.init.as_deref(), kind, counter, &mut new_stmts);
+                expand_destruct_decl(
+                    &decl.name,
+                    decl.init.as_deref(),
+                    kind,
+                    counter,
+                    &mut new_stmts,
+                );
             }
 
             // Substitui o stmt atual pelos novos.
@@ -321,7 +323,13 @@ fn expand_destructuring(program: &mut Program) {
         let kind = var_decl.kind;
         let mut new_stmts: Vec<Statement> = Vec::new();
         for decl in &var_decl.decls {
-            expand_destruct_decl(&decl.name, decl.init.as_deref(), kind, &mut counter, &mut new_stmts);
+            expand_destruct_decl(
+                &decl.name,
+                decl.init.as_deref(),
+                kind,
+                &mut counter,
+                &mut new_stmts,
+            );
         }
         program.items.remove(i);
         for (k, s) in new_stmts.into_iter().enumerate() {
@@ -408,9 +416,7 @@ fn expand_destruct_decl(
                         // \`{ x: a }\` — alias
                         let key = match &kvp.key {
                             swc_ecma_ast::PropName::Ident(id) => id.sym.to_string(),
-                            swc_ecma_ast::PropName::Str(s) => {
-                                s.value.to_string_lossy().to_string()
-                            }
+                            swc_ecma_ast::PropName::Str(s) => s.value.to_string_lossy().to_string(),
                             _ => continue,
                         };
                         let access = make_member_access(&tmp_name, &key);
@@ -430,11 +436,7 @@ fn expand_destruct_decl(
 }
 
 /// `const <name> = <expr>;` (kind preservado).
-fn make_const_decl(
-    name: &str,
-    expr: Expr,
-    kind: swc_ecma_ast::VarDeclKind,
-) -> Statement {
+fn make_const_decl(name: &str, expr: Expr, kind: swc_ecma_ast::VarDeclKind) -> Statement {
     let var = swc_ecma_ast::VarDecl {
         span: Default::default(),
         ctxt: Default::default(),
@@ -519,12 +521,12 @@ fn expand_default_args(program: &mut Program) {
                 for m in &c.members {
                     if let ClassMember::Method(method) = m {
                         if method.parameters.iter().any(|p| p.default.is_some()) {
-                            let defaults: Vec<Option<Box<Expr>>> =
-                                method.parameters.iter().map(|p| p.default.clone()).collect();
-                            method_defaults.insert(
-                                (c.name.clone(), method.name.clone()),
-                                defaults,
-                            );
+                            let defaults: Vec<Option<Box<Expr>>> = method
+                                .parameters
+                                .iter()
+                                .map(|p| p.default.clone())
+                                .collect();
+                            method_defaults.insert((c.name.clone(), method.name.clone()), defaults);
                         }
                     }
                 }
@@ -728,9 +730,8 @@ fn expand_in_expr(
         Expr::Unary(u) => expand_in_expr(&mut u.arg, fn_defaults, method_defaults),
         Expr::Update(u) => expand_in_expr(&mut u.arg, fn_defaults, method_defaults),
         Expr::Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &mut a.left
             {
                 expand_in_expr(&mut m.obj, fn_defaults, method_defaults);
             }
@@ -789,10 +790,7 @@ fn expand_rest_args(program: &mut Program) {
                 for m in &c.members {
                     if let ClassMember::Method(method) = m {
                         if let Some(idx) = method.parameters.iter().position(|p| p.variadic) {
-                            method_rest.insert(
-                                (c.name.clone(), method.name.clone()),
-                                idx,
-                            );
+                            method_rest.insert((c.name.clone(), method.name.clone()), idx);
                         }
                     }
                 }
@@ -953,9 +951,8 @@ fn rest_in_expr(
         Expr::Unary(u) => rest_in_expr(&mut u.arg, fn_rest, method_rest),
         Expr::Update(u) => rest_in_expr(&mut u.arg, fn_rest, method_rest),
         Expr::Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &mut a.left
             {
                 rest_in_expr(&mut m.obj, fn_rest, method_rest);
             }
@@ -1002,10 +999,7 @@ fn pack_rest_args(args: &mut Vec<swc_ecma_ast::ExprOrSpread>, rest_idx: usize) {
         });
         return;
     }
-    let extra: Vec<Option<swc_ecma_ast::ExprOrSpread>> = args
-        .drain(rest_idx..)
-        .map(Some)
-        .collect();
+    let extra: Vec<Option<swc_ecma_ast::ExprOrSpread>> = args.drain(rest_idx..).map(Some).collect();
     let arr = Expr::Array(swc_ecma_ast::ArrayLit {
         span: Default::default(),
         elems: extra,
@@ -1156,9 +1150,8 @@ fn spread_in_expr(expr: &mut Expr) {
         Expr::Unary(u) => spread_in_expr(&mut u.arg),
         Expr::Update(u) => spread_in_expr(&mut u.arg),
         Expr::Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &mut a.left
             {
                 spread_in_expr(&mut m.obj);
             }
@@ -1236,8 +1229,7 @@ impl LiftAcc {
     fn lift_in_user_fn(&mut self, f: &mut FunctionDecl) {
         // Coleta locais declaradas e parâmetros — qualquer ident que
         // referencie um desses *dentro de um arrow* é uma captura.
-        let mut locals: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut locals: std::collections::HashSet<String> = std::collections::HashSet::new();
         for p in &f.parameters {
             locals.insert(p.name.clone());
         }
@@ -1248,11 +1240,8 @@ impl LiftAcc {
         let captured = collect_captures_in_body(&f.body, &locals);
 
         // Determina conjunto de parâmetros (vs locais declaradas).
-        let param_names: std::collections::HashSet<String> = f
-            .parameters
-            .iter()
-            .map(|p| p.name.clone())
-            .collect();
+        let param_names: std::collections::HashSet<String> =
+            f.parameters.iter().map(|p| p.name.clone()).collect();
 
         // Promove cada captura pra global e reescreve toda a fn.
         // Insere as syncs de parâmetros no topo (em ordem reversa para
@@ -1299,8 +1288,14 @@ impl LiftAcc {
             // mutações separadas: substituições de args + statements a
             // injetar antes deste.
             let Statement::Raw(raw) = &mut body[idx];
-            let Some(Stmt::Expr(expr_stmt)) = raw.stmt.as_mut() else { idx += 1; continue };
-            let Expr::Call(call) = expr_stmt.expr.as_mut() else { idx += 1; continue };
+            let Some(Stmt::Expr(expr_stmt)) = raw.stmt.as_mut() else {
+                idx += 1;
+                continue;
+            };
+            let Expr::Call(call) = expr_stmt.expr.as_mut() else {
+                idx += 1;
+                continue;
+            };
 
             let ns_method = match &call.callee {
                 Callee::Expr(ce) => match ce.as_ref() {
@@ -1314,10 +1309,16 @@ impl LiftAcc {
                 },
                 _ => None,
             };
-            let Some((ns_name, method_name)) = ns_method else { idx += 1; continue };
+            let Some((ns_name, method_name)) = ns_method else {
+                idx += 1;
+                continue;
+            };
 
             let qualified = format!("{ns_name}.{method_name}");
-            let Some((_spec, member)) = crate::abi::lookup(&qualified) else { idx += 1; continue };
+            let Some((_spec, member)) = crate::abi::lookup(&qualified) else {
+                idx += 1;
+                continue;
+            };
 
             // `pre_stmts` sao statements a inserir antes do callsite (escrita
             // do slot `__cb_this_N = this`).
@@ -1350,8 +1351,7 @@ impl LiftAcc {
                 // userdata. Trampolim recebe `this` como parâmetro
                 // — sem slot global, sem limitação \"última vence\".
                 let mut use_userdata_callback = false;
-                let is_widget_set_callback =
-                    qualified == "ui.widget_set_callback";
+                let is_widget_set_callback = qualified == "ui.widget_set_callback";
 
                 match arg.expr.as_ref() {
                     Expr::Arrow(arrow) if arrow_uses_this && is_widget_set_callback => {
@@ -1558,9 +1558,7 @@ fn stmt_uses_this(stmt: &Stmt) -> bool {
                 || f.update.as_deref().map_or(false, expr_uses_this)
                 || stmt_uses_this(&f.body)
         }
-        ForOf(f) => {
-            expr_uses_this(&f.right) || stmt_uses_this(&f.body)
-        }
+        ForOf(f) => expr_uses_this(&f.right) || stmt_uses_this(&f.body),
         Decl(swc_ecma_ast::Decl::Var(v)) => v
             .decls
             .iter()
@@ -1754,9 +1752,8 @@ fn rewrite_expr(expr: &mut Expr) {
         Unary(u) => rewrite_expr(&mut u.arg),
         Update(u) => rewrite_expr(&mut u.arg),
         Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &mut a.left
             {
                 rewrite_expr(&mut m.obj);
             }
@@ -1910,9 +1907,8 @@ fn revert_expr_arrows(expr: &mut Expr) {
         Unary(u) => revert_expr_arrows(&mut u.arg),
         Update(u) => revert_expr_arrows(&mut u.arg),
         Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &mut a.left
             {
                 revert_expr_arrows(&mut m.obj);
             }
@@ -2044,9 +2040,8 @@ fn revert_under_this_in_expr(expr: &mut Expr) {
         Unary(u) => revert_under_this_in_expr(&mut u.arg),
         Update(u) => revert_under_this_in_expr(&mut u.arg),
         Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &mut a.left
             {
                 revert_under_this_in_expr(&mut m.obj);
             }
@@ -2546,7 +2541,9 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
 /// its return/value type.
 fn infer_abi_member_ty(expr: &Expr) -> Option<ValTy> {
     let Expr::Member(m) = expr else { return None };
-    let Expr::Ident(ns) = m.obj.as_ref() else { return None };
+    let Expr::Ident(ns) = m.obj.as_ref() else {
+        return None;
+    };
     let name = match &m.prop {
         swc_ecma_ast::MemberProp::Ident(id) => id.sym.as_str(),
         _ => return None,
@@ -2901,7 +2898,6 @@ fn compile_main_entry_shim(
     Ok(())
 }
 
-
 // ── Class lowering ────────────────────────────────────────────────────────
 
 /// Sintetiza os FunctionDecl para uma classe: constructor + cada metodo
@@ -2911,17 +2907,14 @@ fn compile_main_entry_shim(
 /// herdados de seus ancestrais. Coleta o conjunto de abstracts da
 /// hierarquia, subtrai os métodos concretos efetivamente declarados
 /// e exige conjunto vazio.
-fn validate_abstract_method_implementations(
-    classes: &HashMap<String, ClassMeta>,
-) -> Result<()> {
+fn validate_abstract_method_implementations(classes: &HashMap<String, ClassMeta>) -> Result<()> {
     for (name, meta) in classes {
         if meta.is_abstract {
             continue; // abstract classes podem deixar abstracts pendentes
         }
 
         // Acumula abstracts da hierarquia.
-        let mut required: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut required: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut cur = Some(name.clone());
         while let Some(c) = cur {
             if let Some(m) = classes.get(&c) {
@@ -2970,14 +2963,10 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut fns: Vec<FunctionDecl> = Vec::new();
     let mut field_types: HashMap<String, ValTy> = HashMap::new();
     let mut field_class_names: HashMap<String, String> = HashMap::new();
-    let mut readonly_fields: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-    let mut abstract_methods: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-    let mut member_visibility: std::collections::HashMap<
-        String,
-        crate::parser::ast::Visibility,
-    > = std::collections::HashMap::new();
+    let mut readonly_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut abstract_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut member_visibility: std::collections::HashMap<String, crate::parser::ast::Visibility> =
+        std::collections::HashMap::new();
     let mut has_constructor = false;
 
     // Coleta initializers de instância (`x = expr`) na ordem declarada.
@@ -3016,8 +3005,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                 // Detecta `super(...)` na primeira posição e injeta initializers
                 // logo depois (semântica TS: initializers rodam depois do
                 // super call).
-                let body =
-                    weave_initializers(&ctor.body, &init_stmts, class.super_class.is_some());
+                let body = weave_initializers(&ctor.body, &init_stmts, class.super_class.is_some());
                 fns.push(FunctionDecl {
                     name: class_init_name(&class.name),
                     parameters: params,
@@ -3123,9 +3111,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                     // Private fields sem anotação ainda precisam ser
                     // detectáveis na hierarquia para validação de escopo.
                     // Garantimos uma entrada em field_types (default I64).
-                    if prop.name.starts_with('#')
-                        && !field_types.contains_key(&prop.name)
-                    {
+                    if prop.name.starts_with('#') && !field_types.contains_key(&prop.name) {
                         field_types.insert(prop.name.clone(), ValTy::I64);
                     }
                 }
@@ -3328,17 +3314,20 @@ pub(super) fn class_setter_name(class: &str, prop: &str) -> String {
 
 fn sanitize_for_symbol(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 /// Colete nomes declarados via `let`/`const`/`var` em todos os statements
 /// do body. Não desce em arrows (escopos próprios) — apenas o escopo da
 /// fn. Adiciona ao set existente.
-fn collect_local_decls(
-    body: &[Statement],
-    locals: &mut std::collections::HashSet<String>,
-) {
+fn collect_local_decls(body: &[Statement], locals: &mut std::collections::HashSet<String>) {
     for s in body {
         let Statement::Raw(raw) = s;
         if let Some(stmt) = raw.stmt.as_ref() {
@@ -3347,10 +3336,7 @@ fn collect_local_decls(
     }
 }
 
-fn collect_decls_in_stmt(
-    stmt: &Stmt,
-    locals: &mut std::collections::HashSet<String>,
-) {
+fn collect_decls_in_stmt(stmt: &Stmt, locals: &mut std::collections::HashSet<String>) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
         Decl(swc_ecma_ast::Decl::Var(v)) => {
@@ -3501,9 +3487,8 @@ fn scan_expr_for_arrows(
         Expr::Unary(u) => scan_expr_for_arrows(&u.arg, locals, captured),
         Expr::Update(u) => scan_expr_for_arrows(&u.arg, locals, captured),
         Expr::Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &a.left
             {
                 scan_expr_for_arrows(&m.obj, locals, captured);
             }
@@ -3525,8 +3510,7 @@ fn collect_captured_from_arrow(
     captured: &mut std::collections::BTreeSet<String>,
 ) {
     // Locais do arrow (parâmetros + decls dentro do body) — não são capturas.
-    let mut arrow_locals: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut arrow_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
     for p in &arrow.params {
         if let Pat::Ident(id) = p {
             arrow_locals.insert(id.id.sym.to_string());
@@ -3635,18 +3619,16 @@ fn collect_idents_used_in_expr(
         Expr::Update(u) => collect_idents_used_in_expr(&u.arg, enclosing, shadowed, captured),
         Expr::Assign(a) => {
             // LHS Ident também conta como uso (vamos reescrever).
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Ident(id),
-            ) = &a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) =
+                &a.left
             {
                 let name = id.id.sym.as_str();
                 if enclosing.contains(name) && !shadowed.contains(name) {
                     captured.insert(name.to_string());
                 }
             }
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &a.left
             {
                 collect_idents_used_in_expr(&m.obj, enclosing, shadowed, captured);
             }
@@ -3687,10 +3669,12 @@ fn collect_idents_used_in_expr(
             }
             let stmts: Vec<Stmt> = match arrow.body.as_ref() {
                 swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => b.stmts.clone(),
-                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
-                    span: Default::default(),
-                    arg: Some(e.clone()),
-                })],
+                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                    vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+                        span: Default::default(),
+                        arg: Some(e.clone()),
+                    })]
+                }
             };
             for s in &stmts {
                 collect_decls_in_stmt(s, &mut nested_shadowed);
@@ -3797,17 +3781,15 @@ fn rename_ident_in_expr(expr: &mut Expr, old: &str, new: &str) {
         Expr::Unary(u) => rename_ident_in_expr(&mut u.arg, old, new),
         Expr::Update(u) => rename_ident_in_expr(&mut u.arg, old, new),
         Expr::Assign(a) => {
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Ident(id),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) =
+                &mut a.left
             {
                 if id.id.sym.as_str() == old {
                     id.id.sym = new.into();
                 }
             }
-            if let swc_ecma_ast::AssignTarget::Simple(
-                swc_ecma_ast::SimpleAssignTarget::Member(m),
-            ) = &mut a.left
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) =
+                &mut a.left
             {
                 rename_ident_in_expr(&mut m.obj, old, new);
             }
@@ -3903,7 +3885,9 @@ fn make_sync_param_to_global(global: &str, param: &str) -> Statement {
 fn promote_local_to_global(body: &mut Vec<Statement>, old: &str, new: &str) {
     for s in body.iter_mut() {
         let Statement::Raw(raw) = s;
-        let Some(stmt) = raw.stmt.as_mut() else { continue };
+        let Some(stmt) = raw.stmt.as_mut() else {
+            continue;
+        };
         // Caso especial: `let <var> = expr` no topo do body.
         if let Stmt::Decl(swc_ecma_ast::Decl::Var(v)) = stmt {
             // Se a única decl é o `var` que estamos promovendo, substitui
