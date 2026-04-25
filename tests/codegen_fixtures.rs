@@ -692,3 +692,23 @@ fn fixture_destruct_alias() {
 fn fixture_destruct_in_fn() {
     run_fixture("destruct_in_fn");
 }
+
+#[test]
+fn fixture_async_basic() {
+    run_fixture("async_basic");
+}
+
+#[test]
+fn fixture_async_chain() {
+    run_fixture("async_chain");
+}
+
+#[test]
+fn fixture_async_arrow() {
+    run_fixture("async_arrow");
+}
+
+#[test]
+fn fixture_async_class() {
+    run_fixture("async_class");
+}

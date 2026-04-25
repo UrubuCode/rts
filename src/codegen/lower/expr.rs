@@ -369,6 +369,14 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // `null` real. Se um dia tivermos verificação debug, fica aqui.
         Expr::TsNonNull(n) => lower_expr(ctx, &n.expr),
 
+        // `await expr` — fase 1 (síncrona): apenas avalia o expr.
+        // RTS ainda não tem runtime async/event loop, então `async fn`
+        // executa síncronamente e \`await\` é no-op semântico (extrai
+        // o valor \"resolvido\" que é o próprio retorno da fn).
+        // Quando #36 (task namespace) e event loop entrarem, esta
+        // branch precisa virar uma suspensão real.
+        Expr::Await(a) => lower_expr(ctx, &a.arg),
+
         other => Err(anyhow!(
             "unsupported expression kind: {}",
             expr_kind_name(other)
