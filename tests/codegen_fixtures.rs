@@ -445,3 +445,21 @@ fn fixture_closure_nested() {
 fn fixture_closure_per_instance() {
     run_fixture("closure_per_instance");
 }
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_local_capture() {
+    run_fixture("closure_local_capture");
+}
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_local_multi() {
+    run_fixture("closure_local_multi");
+}
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_local_param() {
+    run_fixture("closure_local_param");
+}
