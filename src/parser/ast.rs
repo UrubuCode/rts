@@ -45,6 +45,9 @@ pub struct ClassDecl {
     /// dispatch estatico de super().
     pub super_class: Option<String>,
     pub members: Vec<ClassMember>,
+    /// `abstract class C { ... }` — não pode ser instanciada via `new C()`.
+    /// Subclasses concretas devem implementar todos os métodos abstract.
+    pub is_abstract: bool,
     pub span: Span,
 }
 
@@ -98,6 +101,10 @@ pub struct MemberModifiers {
     pub visibility: Option<Visibility>,
     pub readonly: bool,
     pub is_static: bool,
+    /// `abstract method(): T` ou `abstract field: T` — sem implementação
+    /// nesta classe; subclasses concretas devem prover. Só faz sentido
+    /// dentro de uma `abstract class`.
+    pub is_abstract: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1113,6 +1113,11 @@ pub fn compile_program(
         synthetic_fns.extend(fns);
     }
 
+    // Valida que toda classe concreta implementa todos os abstract methods
+    // herdados. Coleta os abstract de toda a hierarquia, descontando os
+    // que a classe (ou descendentes diretos) implementam.
+    validate_abstract_method_implementations(&classes)?;
+
     // Collect function declarations (originais + sinteticos das classes).
     let mut fn_decls: Vec<&FunctionDecl> = program
         .items
@@ -1696,7 +1701,19 @@ fn compile_main(
         for stmt in stmts {
             match lower_stmt(&mut fn_ctx, stmt) {
                 Ok(_) => {}
-                Err(e) => warnings.push(format!("codegen warning: {e}")),
+                Err(e) => {
+                    // Erros que sinalizam violação de contrato (abstract,
+                    // readonly, private de outra classe) devem ser hard-fail
+                    // — não fazem sentido como warning.
+                    let msg = format!("{e}");
+                    let is_hard = msg.contains("abstract")
+                        || msg.contains("readonly")
+                        || msg.contains("private");
+                    if is_hard {
+                        return Err(e);
+                    }
+                    warnings.push(format!("codegen warning: {e}"));
+                }
             }
         }
 
@@ -1762,6 +1779,60 @@ fn compile_main_entry_shim(
 /// Sintetiza os FunctionDecl para uma classe: constructor + cada metodo
 /// vira uma funcao independente que recebe `this` como primeiro parametro.
 /// Retorna o ClassMeta usado pelo codegen para resolver `new` e dispatch.
+/// Verifica que toda classe concreta implementa os métodos abstract
+/// herdados de seus ancestrais. Coleta o conjunto de abstracts da
+/// hierarquia, subtrai os métodos concretos efetivamente declarados
+/// e exige conjunto vazio.
+fn validate_abstract_method_implementations(
+    classes: &HashMap<String, ClassMeta>,
+) -> Result<()> {
+    for (name, meta) in classes {
+        if meta.is_abstract {
+            continue; // abstract classes podem deixar abstracts pendentes
+        }
+
+        // Acumula abstracts da hierarquia.
+        let mut required: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut cur = Some(name.clone());
+        while let Some(c) = cur {
+            if let Some(m) = classes.get(&c) {
+                for am in &m.abstract_methods {
+                    required.insert(am.clone());
+                }
+                cur = m.super_class.clone();
+            } else {
+                break;
+            }
+        }
+
+        // Subtrai métodos concretos providos pela classe ou ancestrais.
+        let mut cur = Some(name.clone());
+        while let Some(c) = cur {
+            if let Some(m) = classes.get(&c) {
+                for method in &m.methods {
+                    if !m.abstract_methods.contains(method) {
+                        required.remove(method);
+                    }
+                }
+                cur = m.super_class.clone();
+            } else {
+                break;
+            }
+        }
+
+        if !required.is_empty() {
+            let mut missing: Vec<&str> = required.iter().map(|s| s.as_str()).collect();
+            missing.sort();
+            return Err(anyhow!(
+                "classe concreta `{name}` nao implementa metodo(s) abstract: {}",
+                missing.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut methods: Vec<String> = Vec::new();
     let mut getters: Vec<String> = Vec::new();
@@ -1772,6 +1843,8 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut field_types: HashMap<String, ValTy> = HashMap::new();
     let mut field_class_names: HashMap<String, String> = HashMap::new();
     let mut readonly_fields: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    let mut abstract_methods: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     let mut has_constructor = false;
 
@@ -1822,6 +1895,39 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                 });
             }
             ClassMember::Method(method) => {
+                // Métodos abstract: gera um stub que faz `throw "abstract"`
+                // (na prática, retorna 0). O stub permite que o codegen
+                // resolva referências `__class_C_<m>` para checagem de
+                // assinatura, e o dispatch virtual roteia para a impl
+                // concreta da subclasse em runtime. Se chamado direto na
+                // base abstract (não deveria acontecer porque `new` é
+                // bloqueado), retorna o default da assinatura.
+                if method.modifiers.is_abstract {
+                    abstract_methods.insert(method.name.clone());
+                    if matches!(method.role, MethodRole::Method) {
+                        methods.push(method.name.clone());
+                    }
+                    let synth_name = match method.role {
+                        MethodRole::Getter => class_getter_name(&class.name, &method.name),
+                        MethodRole::Setter => class_setter_name(&class.name, &method.name),
+                        MethodRole::Method => class_method_name(&class.name, &method.name),
+                    };
+                    let mut params = Vec::with_capacity(method.parameters.len() + 1);
+                    params.push(this_param(method.span));
+                    params.extend(method.parameters.iter().cloned());
+                    // Body do stub: retorna o default do tipo declarado.
+                    // Se return_type é "void", body vazio basta. Caso
+                    // contrário, `return 0;` ou `return 0.0;`.
+                    let body = synth_abstract_stub_body(method.return_type.as_deref());
+                    fns.push(FunctionDecl {
+                        name: synth_name,
+                        parameters: params,
+                        return_type: method.return_type.clone(),
+                        body,
+                        span: method.span,
+                    });
+                    continue;
+                }
                 if method.modifiers.is_static {
                     static_methods.push(method.name.clone());
                     fns.push(FunctionDecl {
@@ -1919,6 +2025,8 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         setters,
         has_constructor,
         readonly_fields,
+        is_abstract: class.is_abstract,
+        abstract_methods,
     };
     (meta, fns)
 }
@@ -2006,6 +2114,36 @@ fn is_super_call_stmt(s: &Statement) -> bool {
         return false;
     };
     matches!(call.callee, Callee::Super(_))
+}
+
+/// Body padrão para stub de método abstract: `return 0;` (ou nada se void).
+fn synth_abstract_stub_body(return_type: Option<&str>) -> Vec<Statement> {
+    let ret_type = return_type.map(|s| s.trim()).unwrap_or("void");
+    if ret_type == "void" || ret_type.is_empty() {
+        return Vec::new();
+    }
+    let zero_expr = if ret_type == "f64" || ret_type == "F64" {
+        // f64 → 0.0
+        Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+            span: Default::default(),
+            value: 0.0,
+            raw: None,
+        }))
+    } else {
+        // i32/i64/handle/bool: literal 0
+        Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+            span: Default::default(),
+            value: 0.0,
+            raw: Some("0".into()),
+        }))
+    };
+    let stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
+        span: Default::default(),
+        arg: Some(Box::new(zero_expr)),
+    });
+    vec![Statement::Raw(
+        RawStmt::new("<abstract-stub>".to_string(), Span::default()).with_stmt(stmt),
+    )]
 }
 
 fn this_param(span: crate::parser::span::Span) -> Parameter {

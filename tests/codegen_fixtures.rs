@@ -382,6 +382,32 @@ fn fixture_computed_accessor() {
     run_fixture("computed_accessor");
 }
 
+#[test]
+fn fixture_abstract_class_basic() {
+    run_fixture("abstract_class_basic");
+}
+
+#[test]
+fn fixture_abstract_chain() {
+    run_fixture("abstract_chain");
+}
+
+#[test]
+fn fixture_abstract_class_no_new_err() {
+    run_fixture_expect_error(
+        "abstract_class_no_new_err",
+        "classe abstract `Shape` nao pode ser instanciada",
+    );
+}
+
+#[test]
+fn fixture_abstract_missing_impl_err() {
+    run_fixture_expect_error(
+        "abstract_missing_impl_err",
+        "classe concreta `Square` nao implementa",
+    );
+}
+
 // Closure capturando `this`/`super` em callback de classe.
 // Disparam o trampolim diretamente via `__class_C_lifted_arrow_N()` em
 // vez de depender de evento UI — o nome mangled é estável porque o

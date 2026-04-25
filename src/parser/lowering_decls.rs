@@ -45,6 +45,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         visibility: map_accessibility(method.accessibility),
                         readonly: false,
                         is_static: method.is_static,
+                        is_abstract: method.is_abstract,
                     },
                     parameters,
                     return_type: method
@@ -73,6 +74,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         visibility: Some(Visibility::Private),
                         readonly: false,
                         is_static: method.is_static,
+                        is_abstract: false,
                     },
                     parameters,
                     return_type: method
@@ -97,6 +99,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         visibility: map_accessibility(prop.accessibility),
                         readonly: prop.readonly,
                         is_static: prop.is_static,
+                        is_abstract: prop.is_abstract,
                     },
                     type_annotation: prop
                         .type_ann
@@ -113,6 +116,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         visibility: Some(Visibility::Private),
                         readonly: prop.readonly,
                         is_static: prop.is_static,
+                        is_abstract: false,
                     },
                     type_annotation: prop
                         .type_ann
@@ -134,6 +138,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         visibility: map_accessibility(accessor.accessibility),
                         readonly: false,
                         is_static: accessor.is_static,
+                        is_abstract: false,
                     },
                     type_annotation: accessor
                         .type_ann
@@ -159,6 +164,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
         name: name.to_string(),
         super_class,
         members,
+        is_abstract: class.is_abstract,
         span: convert_span(cm, span),
     }
 }
@@ -213,6 +219,7 @@ fn lower_ts_param_prop(cm: &Lrc<SourceMap>, param_prop: &TsParamProp) -> Option<
         visibility: map_accessibility(param_prop.accessibility),
         readonly: param_prop.readonly,
         is_static: false,
+        is_abstract: false,
     };
 
     match &param_prop.param {
