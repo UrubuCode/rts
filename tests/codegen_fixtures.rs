@@ -592,3 +592,23 @@ fn fixture_union_var() {
 fn fixture_union_null() {
     run_fixture("union_null");
 }
+
+#[test]
+fn fixture_for_in_basic() {
+    run_fixture("for_in_basic");
+}
+
+#[test]
+fn fixture_for_in_values() {
+    run_fixture("for_in_values");
+}
+
+#[test]
+fn fixture_for_in_empty() {
+    run_fixture("for_in_empty");
+}
+
+#[test]
+fn fixture_for_in_break() {
+    run_fixture("for_in_break");
+}
