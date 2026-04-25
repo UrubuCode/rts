@@ -136,8 +136,17 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
         }
     }
 
+    let super_class = class.super_class.as_ref().and_then(|expr| {
+        if let swc_ecma_ast::Expr::Ident(id) = expr.as_ref() {
+            Some(id.sym.as_str().to_string())
+        } else {
+            None
+        }
+    });
+
     ClassDecl {
         name: name.to_string(),
+        super_class,
         members,
         span: convert_span(cm, span),
     }

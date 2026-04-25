@@ -13,9 +13,11 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, Linkage, Module};
 use swc_ecma_ast::{Decl, Expr, Lit, Pat, Stmt, TsType, TsTypeRef};
 
-use crate::parser::ast::{FunctionDecl, Item, Program, Statement};
+use crate::parser::ast::{
+    ClassDecl, ClassMember, FunctionDecl, Item, MemberModifiers, Parameter, Program, Statement,
+};
 
-use super::ctx::{FnCtx, GlobalVar, UserFnAbi, ValTy};
+use super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
 use super::stmt::lower_stmt;
 
 const RUNTIME_MAIN_SYMBOL: &str = "__RTS_MAIN";
@@ -39,8 +41,34 @@ pub fn compile_program(
 
     let globals = collect_module_globals(program, module)?;
 
-    // Collect function declarations.
-    let fn_decls: Vec<&FunctionDecl> = program
+    // Collect class declarations e expande em FunctionDecl sinteticos.
+    // Cada classe `C` gera:
+    //   - `__class_C__init(this, ...args)` para o constructor
+    //   - `__class_C_<method>(this, ...args)` para cada metodo
+    // O nome mangled e usado como `FunctionDecl.name`. Nao colide com
+    // identifier TS valido (sem `__` no inicio em codigo de usuario).
+    let class_decls: Vec<&ClassDecl> = program
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let Item::Class(c) = item {
+                Some(c)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut classes: HashMap<String, ClassMeta> = HashMap::new();
+    let mut synthetic_fns: Vec<FunctionDecl> = Vec::new();
+    for class in &class_decls {
+        let (meta, fns) = synthesize_class_fns(class);
+        classes.insert(class.name.clone(), meta);
+        synthetic_fns.extend(fns);
+    }
+
+    // Collect function declarations (originais + sinteticos das classes).
+    let mut fn_decls: Vec<&FunctionDecl> = program
         .items
         .iter()
         .filter_map(|item| {
@@ -51,6 +79,9 @@ pub fn compile_program(
             }
         })
         .collect();
+    for f in &synthetic_fns {
+        fn_decls.push(f);
+    }
 
     // Phase 1: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
@@ -79,14 +110,20 @@ pub fn compile_program(
         let info = user_fns
             .get(&fn_decl.name)
             .ok_or_else(|| anyhow!("missing user function metadata for `{}`", fn_decl.name))?;
+        // Determina se a function pertence a uma classe (mangled name
+        // `__class_<C>_*` ou `__class_<C>__init`) — usado para resolver
+        // `super` no body do metodo.
+        let owner_class = extract_class_owner(&fn_decl.name);
         compile_user_fn(
             module,
             extern_cache,
             data_counter,
             &globals,
             &user_fn_abis,
+            &classes,
             fn_decl,
             info,
+            owner_class,
         )
         .with_context(|| format!("in function `{}`", fn_decl.name))?;
     }
@@ -122,6 +159,7 @@ pub fn compile_program(
         data_counter,
         &globals,
         &user_fn_abis,
+        &classes,
         &top_stmts,
         &mut warnings,
     )
@@ -377,8 +415,10 @@ fn compile_user_fn(
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
+    classes: &HashMap<String, ClassMeta>,
     fn_decl: &FunctionDecl,
     info: &UserFn,
+    current_class: Option<String>,
 ) -> Result<()> {
     let mut ctx = ClContext::new();
     ctx.func.signature = {
@@ -407,10 +447,12 @@ fn compile_user_fn(
             data_counter,
             globals,
             user_fns,
+            classes,
             false,
         );
         fn_ctx.return_ty = info.ret;
         fn_ctx.is_tail_conv = true;
+        fn_ctx.current_class = current_class.clone();
 
         // Bind parameters as locals.
         for (i, param) in fn_decl.parameters.iter().enumerate() {
@@ -461,6 +503,7 @@ fn compile_main(
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
+    classes: &HashMap<String, ClassMeta>,
     stmts: &[&Stmt],
     warnings: &mut Vec<String>,
 ) -> Result<()> {
@@ -488,6 +531,7 @@ fn compile_main(
             data_counter,
             globals,
             user_fns,
+            classes,
             true,
         );
 
@@ -552,4 +596,108 @@ fn compile_main_entry_shim(
         .context("failed to define exported entrypoint `main`")?;
 
     Ok(())
+}
+
+
+// ── Class lowering ────────────────────────────────────────────────────────
+
+/// Sintetiza os FunctionDecl para uma classe: constructor + cada metodo
+/// vira uma funcao independente que recebe `this` como primeiro parametro.
+/// Retorna o ClassMeta usado pelo codegen para resolver `new` e dispatch.
+fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
+    let mut methods: Vec<String> = Vec::new();
+    let mut fns: Vec<FunctionDecl> = Vec::new();
+    let mut field_types: HashMap<String, ValTy> = HashMap::new();
+    let mut has_constructor = false;
+
+    for member in &class.members {
+        match member {
+            ClassMember::Constructor(ctor) => {
+                has_constructor = true;
+                // Heuristica: parametros do constructor com nome igual a
+                // um field comum sao frequentemente atribuidos a `this.x`.
+                // Capturamos o tipo declarado para fallback.
+                for p in &ctor.parameters {
+                    if let Some(ann) = p.type_annotation.as_deref() {
+                        field_types
+                            .entry(p.name.clone())
+                            .or_insert(ValTy::from_annotation(ann));
+                    }
+                }
+                let mut params = Vec::with_capacity(ctor.parameters.len() + 1);
+                params.push(this_param(ctor.span));
+                params.extend(ctor.parameters.iter().cloned());
+                fns.push(FunctionDecl {
+                    name: class_init_name(&class.name),
+                    parameters: params,
+                    return_type: None,
+                    body: ctor.body.clone(),
+                    span: ctor.span,
+                });
+            }
+            ClassMember::Method(method) => {
+                methods.push(method.name.clone());
+                let mut params = Vec::with_capacity(method.parameters.len() + 1);
+                params.push(this_param(method.span));
+                params.extend(method.parameters.iter().cloned());
+                fns.push(FunctionDecl {
+                    name: class_method_name(&class.name, &method.name),
+                    parameters: params,
+                    return_type: method.return_type.clone(),
+                    body: method.body.clone(),
+                    span: method.span,
+                });
+            }
+            ClassMember::Property(prop) => {
+                if let Some(ann) = prop.type_annotation.as_deref() {
+                    field_types.insert(prop.name.clone(), ValTy::from_annotation(ann));
+                }
+            }
+        }
+    }
+
+    let meta = ClassMeta {
+        name: class.name.clone(),
+        super_class: class.super_class.clone(),
+        methods,
+        field_types,
+        has_constructor,
+    };
+    (meta, fns)
+}
+
+fn this_param(span: crate::parser::span::Span) -> Parameter {
+    Parameter {
+        name: "this".to_string(),
+        type_annotation: None,
+        modifiers: MemberModifiers::default(),
+        variadic: false,
+        span,
+    }
+}
+
+pub(super) fn class_init_name(class: &str) -> String {
+    format!("__class_{class}__init")
+}
+
+pub(super) fn class_method_name(class: &str, method: &str) -> String {
+    format!("__class_{class}_{method}")
+}
+
+/// Inverso de `class_init_name`/`class_method_name`: extrai o nome da
+/// classe quando o function name segue a convencao de mangle.
+fn extract_class_owner(fn_name: &str) -> Option<String> {
+    let rest = fn_name.strip_prefix("__class_")?;
+    // Variantes: `<C>__init` e `<C>_<method>`. Como `<C>` pode conter
+    // `_`, procuramos pelo separador double-underscore primeiro.
+    if let Some(idx) = rest.find("__init") {
+        return Some(rest[..idx].to_string());
+    }
+    // Para metodos: o ultimo `_` separa classe de metodo. Mas o nome da
+    // classe tambem pode ter `_`; usamos a primeira ocorrencia que ainda
+    // mantem um sufixo de metodo nao vazio.
+    if let Some(idx) = rest.rfind('_') {
+        return Some(rest[..idx].to_string());
+    }
+    None
 }
