@@ -23,7 +23,7 @@ use crate::parser::ast::Program;
 /// Compiles a program into a JIT module and returns an owned `JITModule`
 /// plus the FuncId for `__RTS_MAIN`. Caller invokes
 /// `module.get_finalized_function(id)` to obtain the pointer to execute.
-pub fn compile_program_to_jit(program: &Program) -> Result<(JITModule, Vec<String>)> {
+pub fn compile_program_to_jit(program: &mut Program) -> Result<(JITModule, Vec<String>)> {
     let mut module = build_jit_module()?;
     let mut extern_cache = HashMap::new();
     let mut data_counter: u32 = 0;
@@ -348,6 +348,90 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_BIGFLOAT_NEG", __RTS_FN_NS_BIGFLOAT_NEG);
     add_fn!("__RTS_FN_NS_BIGFLOAT_SQRT", __RTS_FN_NS_BIGFLOAT_SQRT);
     add_fn!("__RTS_FN_NS_BIGFLOAT_FREE", __RTS_FN_NS_BIGFLOAT_FREE);
+
+    // ── namespaces::ui ────────────────────────────────────────────────
+    {
+        use crate::namespaces::ui::*;
+        // app
+        add_fn!("__RTS_FN_NS_UI_APP_NEW",  app::__RTS_FN_NS_UI_APP_NEW);
+        add_fn!("__RTS_FN_NS_UI_APP_RUN",  app::__RTS_FN_NS_UI_APP_RUN);
+        add_fn!("__RTS_FN_NS_UI_APP_FREE", app::__RTS_FN_NS_UI_APP_FREE);
+        // window
+        add_fn!("__RTS_FN_NS_UI_WINDOW_NEW",          window::__RTS_FN_NS_UI_WINDOW_NEW);
+        add_fn!("__RTS_FN_NS_UI_WINDOW_SHOW",         window::__RTS_FN_NS_UI_WINDOW_SHOW);
+        add_fn!("__RTS_FN_NS_UI_WINDOW_END",          window::__RTS_FN_NS_UI_WINDOW_END);
+        add_fn!("__RTS_FN_NS_UI_WINDOW_FREE",         window::__RTS_FN_NS_UI_WINDOW_FREE);
+        add_fn!("__RTS_FN_NS_UI_WINDOW_SET_CALLBACK", window::__RTS_FN_NS_UI_WINDOW_SET_CALLBACK);
+        add_fn!("__RTS_FN_NS_UI_WINDOW_SET_COLOR",    window::__RTS_FN_NS_UI_WINDOW_SET_COLOR);
+        add_fn!("__RTS_FN_NS_UI_WINDOW_RESIZE",       window::__RTS_FN_NS_UI_WINDOW_RESIZE);
+        // generic widget ops
+        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_LABEL",       widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_LABEL",           widgets::__RTS_FN_NS_UI_WIDGET_LABEL);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_CALLBACK",    widgets::__RTS_FN_NS_UI_WIDGET_SET_CALLBACK);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_COLOR",       widgets::__RTS_FN_NS_UI_WIDGET_SET_COLOR);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR", widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_RESIZE",          widgets::__RTS_FN_NS_UI_WIDGET_RESIZE);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_REDRAW",          widgets::__RTS_FN_NS_UI_WIDGET_REDRAW);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_HIDE",            widgets::__RTS_FN_NS_UI_WIDGET_HIDE);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_SHOW",            widgets::__RTS_FN_NS_UI_WIDGET_SHOW);
+        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_DRAW",        widgets::__RTS_FN_NS_UI_WIDGET_SET_DRAW);
+        // button / frame / check / radio
+        add_fn!("__RTS_FN_NS_UI_BUTTON_NEW",       widgets::__RTS_FN_NS_UI_BUTTON_NEW);
+        add_fn!("__RTS_FN_NS_UI_FRAME_NEW",        widgets::__RTS_FN_NS_UI_FRAME_NEW);
+        add_fn!("__RTS_FN_NS_UI_CHECK_NEW",        widgets::__RTS_FN_NS_UI_CHECK_NEW);
+        add_fn!("__RTS_FN_NS_UI_CHECK_VALUE",      widgets::__RTS_FN_NS_UI_CHECK_VALUE);
+        add_fn!("__RTS_FN_NS_UI_CHECK_SET_VALUE",  widgets::__RTS_FN_NS_UI_CHECK_SET_VALUE);
+        add_fn!("__RTS_FN_NS_UI_RADIO_NEW",        widgets::__RTS_FN_NS_UI_RADIO_NEW);
+        add_fn!("__RTS_FN_NS_UI_RADIO_VALUE",      widgets::__RTS_FN_NS_UI_RADIO_VALUE);
+        add_fn!("__RTS_FN_NS_UI_RADIO_SET_VALUE",  widgets::__RTS_FN_NS_UI_RADIO_SET_VALUE);
+        // input / output
+        add_fn!("__RTS_FN_NS_UI_INPUT_NEW",        widgets::__RTS_FN_NS_UI_INPUT_NEW);
+        add_fn!("__RTS_FN_NS_UI_INPUT_VALUE",      widgets::__RTS_FN_NS_UI_INPUT_VALUE);
+        add_fn!("__RTS_FN_NS_UI_INPUT_SET_VALUE",  widgets::__RTS_FN_NS_UI_INPUT_SET_VALUE);
+        add_fn!("__RTS_FN_NS_UI_OUTPUT_NEW",       widgets::__RTS_FN_NS_UI_OUTPUT_NEW);
+        add_fn!("__RTS_FN_NS_UI_OUTPUT_SET_VALUE", widgets::__RTS_FN_NS_UI_OUTPUT_SET_VALUE);
+        // slider / progress / spinner
+        add_fn!("__RTS_FN_NS_UI_SLIDER_NEW",        widgets::__RTS_FN_NS_UI_SLIDER_NEW);
+        add_fn!("__RTS_FN_NS_UI_SLIDER_VALUE",      widgets::__RTS_FN_NS_UI_SLIDER_VALUE);
+        add_fn!("__RTS_FN_NS_UI_SLIDER_SET_VALUE",  widgets::__RTS_FN_NS_UI_SLIDER_SET_VALUE);
+        add_fn!("__RTS_FN_NS_UI_SLIDER_SET_BOUNDS", widgets::__RTS_FN_NS_UI_SLIDER_SET_BOUNDS);
+        add_fn!("__RTS_FN_NS_UI_PROGRESS_NEW",        widgets::__RTS_FN_NS_UI_PROGRESS_NEW);
+        add_fn!("__RTS_FN_NS_UI_PROGRESS_VALUE",      widgets::__RTS_FN_NS_UI_PROGRESS_VALUE);
+        add_fn!("__RTS_FN_NS_UI_PROGRESS_SET_VALUE",  widgets::__RTS_FN_NS_UI_PROGRESS_SET_VALUE);
+        add_fn!("__RTS_FN_NS_UI_SPINNER_NEW",        widgets::__RTS_FN_NS_UI_SPINNER_NEW);
+        add_fn!("__RTS_FN_NS_UI_SPINNER_VALUE",      widgets::__RTS_FN_NS_UI_SPINNER_VALUE);
+        add_fn!("__RTS_FN_NS_UI_SPINNER_SET_VALUE",  widgets::__RTS_FN_NS_UI_SPINNER_SET_VALUE);
+        add_fn!("__RTS_FN_NS_UI_SPINNER_SET_BOUNDS", widgets::__RTS_FN_NS_UI_SPINNER_SET_BOUNDS);
+        // menu
+        add_fn!("__RTS_FN_NS_UI_MENUBAR_NEW",  menu::__RTS_FN_NS_UI_MENUBAR_NEW);
+        add_fn!("__RTS_FN_NS_UI_MENUBAR_ADD",  menu::__RTS_FN_NS_UI_MENUBAR_ADD);
+        add_fn!("__RTS_FN_NS_UI_MENUBAR_FREE", widgets::__RTS_FN_NS_UI_MENUBAR_FREE);
+        // text
+        add_fn!("__RTS_FN_NS_UI_TEXTBUF_NEW",              text::__RTS_FN_NS_UI_TEXTBUF_NEW);
+        add_fn!("__RTS_FN_NS_UI_TEXTBUF_SET_TEXT",         text::__RTS_FN_NS_UI_TEXTBUF_SET_TEXT);
+        add_fn!("__RTS_FN_NS_UI_TEXTBUF_TEXT",             text::__RTS_FN_NS_UI_TEXTBUF_TEXT);
+        add_fn!("__RTS_FN_NS_UI_TEXTBUF_APPEND",           text::__RTS_FN_NS_UI_TEXTBUF_APPEND);
+        add_fn!("__RTS_FN_NS_UI_TEXTBUF_FREE",             widgets::__RTS_FN_NS_UI_TEXTBUF_FREE);
+        add_fn!("__RTS_FN_NS_UI_TEXTDISPLAY_NEW",          text::__RTS_FN_NS_UI_TEXTDISPLAY_NEW);
+        add_fn!("__RTS_FN_NS_UI_TEXTDISPLAY_SET_BUFFER",   text::__RTS_FN_NS_UI_TEXTDISPLAY_SET_BUFFER);
+        add_fn!("__RTS_FN_NS_UI_TEXTEDITOR_NEW",           text::__RTS_FN_NS_UI_TEXTEDITOR_NEW);
+        add_fn!("__RTS_FN_NS_UI_TEXTEDITOR_SET_BUFFER",    text::__RTS_FN_NS_UI_TEXTEDITOR_SET_BUFFER);
+        // draw
+        add_fn!("__RTS_FN_NS_UI_DRAW_RECT",      draw::__RTS_FN_NS_UI_DRAW_RECT);
+        add_fn!("__RTS_FN_NS_UI_DRAW_RECT_FILL", draw::__RTS_FN_NS_UI_DRAW_RECT_FILL);
+        add_fn!("__RTS_FN_NS_UI_DRAW_LINE",      draw::__RTS_FN_NS_UI_DRAW_LINE);
+        add_fn!("__RTS_FN_NS_UI_DRAW_CIRCLE",    draw::__RTS_FN_NS_UI_DRAW_CIRCLE);
+        add_fn!("__RTS_FN_NS_UI_DRAW_ARC",       draw::__RTS_FN_NS_UI_DRAW_ARC);
+        add_fn!("__RTS_FN_NS_UI_DRAW_TEXT",      draw::__RTS_FN_NS_UI_DRAW_TEXT);
+        add_fn!("__RTS_FN_NS_UI_SET_DRAW_COLOR", draw::__RTS_FN_NS_UI_SET_DRAW_COLOR);
+        add_fn!("__RTS_FN_NS_UI_SET_FONT",       draw::__RTS_FN_NS_UI_SET_FONT);
+        add_fn!("__RTS_FN_NS_UI_SET_LINE_STYLE", draw::__RTS_FN_NS_UI_SET_LINE_STYLE);
+        add_fn!("__RTS_FN_NS_UI_MEASURE_WIDTH",  draw::__RTS_FN_NS_UI_MEASURE_WIDTH);
+        // dialog
+        add_fn!("__RTS_FN_NS_UI_ALERT",        dialog::__RTS_FN_NS_UI_ALERT);
+        add_fn!("__RTS_FN_NS_UI_DIALOG_ASK",   dialog::__RTS_FN_NS_UI_DIALOG_ASK);
+        add_fn!("__RTS_FN_NS_UI_DIALOG_INPUT", dialog::__RTS_FN_NS_UI_DIALOG_INPUT);
+    }
 
     // ── Data symbols ──────────────────────────────────────────────────
     // Xorshift PRNG state (mutable u64 global).

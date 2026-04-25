@@ -91,7 +91,10 @@
       "Bash(objdump -t /tmp/rts_test/hello.o)",
       "Bash(/tmp/rts_test/hello.exe *)",
       "Bash(target/rts_app.exe)",
-      "Bash(echo \"---exit: $?\")"
+      "Bash(echo \"---exit: $?\")",
+      "Bash(xargs grep *)",
+      "Bash(target/debug/rts.exe run *)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }
