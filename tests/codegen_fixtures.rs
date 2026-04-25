@@ -277,6 +277,26 @@ fn fixture_property_init_no_super_call() {
     run_fixture("property_init_no_super_call");
 }
 
+#[test]
+fn fixture_super_field_read() {
+    run_fixture("super_field_read");
+}
+
+#[test]
+fn fixture_super_field_write() {
+    run_fixture("super_field_write");
+}
+
+#[test]
+fn fixture_super_field_getter() {
+    run_fixture("super_field_getter");
+}
+
+#[test]
+fn fixture_super_field_setter() {
+    run_fixture("super_field_setter");
+}
+
 // Closure capturando `this`/`super` em callback de classe.
 // Disparam o trampolim diretamente via `__class_C_lifted_arrow_N()` em
 // vez de depender de evento UI — o nome mangled é estável porque o
