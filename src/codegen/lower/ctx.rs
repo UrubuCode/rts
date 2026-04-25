@@ -93,6 +93,25 @@ pub struct UserFnAbi {
     pub ret: Option<ValTy>,
 }
 
+/// Metadata estatica de uma classe TS/JS, consumida pelo codegen para
+/// resolver `new C(...)`, `obj.method(...)` e dispatch de `super`.
+///
+/// Usado em compile-time apenas — runtime nao conhece classes, apenas
+/// handles de map/vec.
+#[derive(Debug, Clone)]
+pub struct ClassMeta {
+    pub name: String,
+    pub super_class: Option<String>,
+    /// Nomes de metodos definidos diretamente nesta classe.
+    pub methods: Vec<String>,
+    /// Tipo declarado de cada field (via `class { x: string }`). Usado
+    /// para tipar o resultado de `obj.field` quando a classe da var e
+    /// conhecida.
+    pub field_types: HashMap<String, ValTy>,
+    /// True quando a classe tem constructor proprio (mesmo se vazio).
+    pub has_constructor: bool,
+}
+
 /// Per-function compilation context.
 ///
 /// `module` is stored as `&mut dyn Module` so the same codegen plumbing
@@ -112,6 +131,17 @@ pub struct FnCtx<'m, 'fb> {
     pub globals: &'fb HashMap<String, GlobalVar>,
     /// User-defined function signatures by source name.
     pub user_fns: &'fb HashMap<String, UserFnAbi>,
+    /// Classes registradas no programa, indexadas pelo nome da classe.
+    /// Permite resolver `new C(args)`, `super(args)` e `super.method(args)`
+    /// em compile-time sem vtable.
+    pub classes: &'fb HashMap<String, ClassMeta>,
+    /// Tipo estatico declarado de cada local conhecido como instancia
+    /// de classe — povoado quando a anotacao do bind e `: ClassName`.
+    /// Permite dispatch estatico de `obj.method(...)`.
+    pub local_class_ty: HashMap<String, String>,
+    /// Nome da classe atualmente sendo lowered (quando dentro de um
+    /// metodo ou constructor). Usado para resolver `super`.
+    pub current_class: Option<String>,
     /// True when lowering top-level statements in `main`.
     pub module_scope: bool,
     /// Declared return type of the surrounding function, used to coerce
@@ -141,6 +171,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         data_counter: &'fb mut u32,
         globals: &'fb HashMap<String, GlobalVar>,
         user_fns: &'fb HashMap<String, UserFnAbi>,
+        classes: &'fb HashMap<String, ClassMeta>,
         module_scope: bool,
     ) -> Self {
         Self {
@@ -151,6 +182,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             locals: vec![HashMap::new()],
             globals,
             user_fns,
+            classes,
+            local_class_ty: HashMap::new(),
+            current_class: None,
             module_scope,
             return_ty: None,
             in_tail_position: false,

@@ -75,6 +75,50 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // ── Assignment ────────────────────────────────────────────────────
         Expr::Assign(a) => {
             use swc_ecma_ast::{AssignOp, AssignTarget};
+
+            // Member assignment: obj.field = v / obj[key] = v
+            // Suportado apenas para `=` simples (sem compound) no MVP.
+            if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
+                if !matches!(a.op, AssignOp::Assign) {
+                    return Err(anyhow!("compound assign em member access nao suportado"));
+                }
+                let rhs = lower_expr(ctx, &a.right)?;
+                let rhs_i64 = ctx.coerce_to_i64(rhs).val;
+                let obj_tv = lower_expr(ctx, &m.obj)?;
+                let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                let set_fn = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                    &[cl::I64, cl::I64, cl::I64, cl::I64],
+                    None,
+                )?;
+                match &m.prop {
+                    MemberProp::Ident(id) => {
+                        let (kp, kl) = ctx.emit_str_literal(id.sym.as_bytes())?;
+                        ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
+                    }
+                    MemberProp::Computed(c) => {
+                        if let Expr::Lit(Lit::Str(s)) = c.expr.as_ref() {
+                            let (kp, kl) = ctx.emit_str_literal(s.value.as_bytes())?;
+                            ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
+                        } else {
+                            // indice numerico → vec_set
+                            let idx_tv = lower_expr(ctx, &c.expr)?;
+                            let idx = ctx.coerce_to_i64(idx_tv).val;
+                            let vec_set = ctx.get_extern(
+                                "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+                                &[cl::I64, cl::I64, cl::I64],
+                                None,
+                            )?;
+                            ctx.builder.ins().call(vec_set, &[obj_h, idx, rhs_i64]);
+                        }
+                    }
+                    MemberProp::PrivateName(_) => {
+                        return Err(anyhow!("atribuicao a private name nao suportada"));
+                    }
+                }
+                return Ok(TypedVal::new(rhs_i64, ValTy::I64));
+            }
+
             let name = match &a.left {
                 AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) => {
                     id.sym.as_str().to_string()
@@ -172,6 +216,21 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         // mensagem clara. Optional call (`fn?.()`) funciona porque
         // callee resolve a i64 funcptr; basta checar se e 0 e pular.
         Expr::OptChain(opt) => lower_opt_chain(ctx, opt),
+
+        // ── this ─────────────────────────────────────────────────────────
+        // `this` em metodo/constructor de classe resolve para o primeiro
+        // parametro implicito (handle do receiver). Fora de classes,
+        // erro.
+        Expr::This(_) => {
+            if ctx.current_class.is_none() {
+                return Err(anyhow!("`this` so e valido dentro de metodo/constructor de classe"));
+            }
+            ctx.read_local("this")
+                .ok_or_else(|| anyhow!("`this` nao disponivel no contexto atual"))
+        }
+
+        // ── new C(args) ──────────────────────────────────────────────────
+        Expr::New(new_expr) => lower_new(ctx, new_expr),
 
         other => Err(anyhow!(
             "unsupported expression kind: {}",
@@ -937,8 +996,57 @@ fn lower_icmp(ctx: &mut FnCtx, cc: IntCC, lhs: TypedVal, rhs: TypedVal) -> Typed
 // ── Calls ─────────────────────────────────────────────────────────────────
 
 fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
-    // Namespace call: `ns.fn(...)`
+    // super(args) — chamada ao constructor da classe pai.
+    if matches!(&call.callee, Callee::Super(_)) {
+        return lower_super_call(ctx, call);
+    }
+    // Namespace call: `ns.fn(...)` — apenas quando `ns` resolve a
+    // namespace do ABI. Quando `ns` e um local com classe estatica
+    // conhecida, despacha para `__class_<C>_<method>`.
     if let Callee::Expr(callee) = &call.callee {
+        if let Expr::Member(m) = callee.as_ref() {
+            // super.method(args)
+            if matches!(m.obj.as_ref(), Expr::SuperProp(_)) {
+                return Err(anyhow!("super.method via SuperProp ainda nao suportado — use super(args) no constructor"));
+            }
+            if let Expr::SuperProp(sp) = m.obj.as_ref() {
+                let _ = sp;
+            }
+            // Detecta `super.method(args)` (SWC representa como Member
+            // com obj = Expr::Super... na verdade sao callees diferentes)
+            if let Some(qualified) = qualified_member_name(callee) {
+                if lookup(&qualified).is_some() {
+                    return lower_ns_call(ctx, &qualified, call);
+                }
+            }
+            // obj.method(args) com obj = ident local de classe conhecida
+            if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                let obj_name = obj_id.sym.as_str();
+                if let Some(class_name) = ctx.local_class_ty.get(obj_name).cloned() {
+                    if let MemberProp::Ident(method_id) = &m.prop {
+                        let method_name = method_id.sym.as_str();
+                        return lower_class_method_call(
+                            ctx,
+                            &class_name,
+                            method_name,
+                            obj_name,
+                            call,
+                        );
+                    }
+                }
+            }
+            // this.method(args)
+            if matches!(m.obj.as_ref(), Expr::This(_)) {
+                if let MemberProp::Ident(method_id) = &m.prop {
+                    let method_name = method_id.sym.as_str();
+                    let class_name = ctx
+                        .current_class
+                        .clone()
+                        .ok_or_else(|| anyhow!("`this.method()` fora de classe"))?;
+                    return lower_class_method_call(ctx, &class_name, method_name, "this", call);
+                }
+            }
+        }
         if let Some(qualified) = qualified_member_name(callee) {
             return lower_ns_call(ctx, &qualified, call);
         }
@@ -958,6 +1066,222 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         }
     }
     Err(anyhow!("unsupported call expression form"))
+}
+
+// ── Class operations ─────────────────────────────────────────────────────
+
+/// Resolve o nome do metodo `m` na classe `c`, descendo pela hierarquia
+/// de heranca quando filho nao define o proprio. Retorna o nome da
+/// classe que efetivamente provê o metodo, ou None se nao encontrar.
+fn resolve_method_owner<'a>(
+    ctx: &'a FnCtx,
+    class: &str,
+    method: &str,
+) -> Option<String> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if meta.methods.iter().any(|m| m == method) {
+            return Some(cur);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
+/// Sobe a hierarquia ate achar uma classe que define constructor proprio.
+/// Quando nenhuma classe da cadeia define, retorna None — chamada de
+/// `__init` e elidida.
+fn resolve_init_owner(ctx: &FnCtx, class: &str) -> Option<String> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if meta.has_constructor {
+            return Some(cur);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
+fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedVal> {
+    let class_name = match new_expr.callee.as_ref() {
+        Expr::Ident(id) => id.sym.as_str().to_string(),
+        _ => return Err(anyhow!("`new` so suporta callee identifier (sem `new (expr)()`)")),
+    };
+    let _meta = ctx
+        .classes
+        .get(&class_name)
+        .ok_or_else(|| anyhow!("classe `{class_name}` nao declarada"))?
+        .clone();
+
+    // Aloca map handle para a instancia.
+    let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+    let inst = ctx.builder.ins().call(new_fn, &[]);
+    let handle = ctx.builder.inst_results(inst)[0];
+
+    // Chama o constructor (se a classe ou algum ancestral definir).
+    if let Some(init_owner) = resolve_init_owner(ctx, &class_name) {
+        let init_fn_name = format!("__class_{init_owner}__init");
+        let abi = ctx
+            .user_fns
+            .get(&init_fn_name)
+            .ok_or_else(|| anyhow!("init de classe `{init_owner}` nao registrado"))?
+            .clone();
+        let mangled: &'static str =
+            Box::leak(format!("__user_{init_fn_name}").into_boxed_str());
+        let fn_id = *ctx
+            .extern_cache
+            .get(mangled)
+            .ok_or_else(|| anyhow!("init mangled `{mangled}` faltando"))?;
+        let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+
+        // abi.params[0] e o `this` (i64); pulamos no zip com call.args.
+        let user_args: &[swc_ecma_ast::ExprOrSpread] = new_expr
+            .args
+            .as_ref()
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let expected = abi.params.len().saturating_sub(1);
+        if user_args.len() != expected {
+            return Err(anyhow!(
+                "constructor de `{class_name}` espera {} argumento(s), recebeu {}",
+                expected,
+                user_args.len()
+            ));
+        }
+        let mut args = vec![handle];
+        for (a, expected_ty) in user_args.iter().zip(abi.params.iter().skip(1).copied()) {
+            if a.spread.is_some() {
+                return Err(anyhow!("spread em `new` nao suportado"));
+            }
+            let tv = lower_expr(ctx, &a.expr)?;
+            let value = match expected_ty {
+                ValTy::I32 => ctx.coerce_to_i32(tv).val,
+                ValTy::F64 => to_f64(ctx, tv),
+                _ => ctx.coerce_to_i64(tv).val,
+            };
+            args.push(value);
+        }
+        ctx.builder.ins().call(fref, &args);
+    }
+
+    Ok(TypedVal::new(handle, ValTy::Handle))
+}
+
+fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
+    let class_name = ctx
+        .current_class
+        .clone()
+        .ok_or_else(|| anyhow!("`super(...)` fora de metodo de classe"))?;
+    let parent = ctx
+        .classes
+        .get(&class_name)
+        .and_then(|m| m.super_class.clone())
+        .ok_or_else(|| anyhow!("`super(...)` em classe sem extends"))?;
+    let init_owner = resolve_init_owner(ctx, &parent).unwrap_or(parent);
+
+    let init_fn_name = format!("__class_{init_owner}__init");
+    let abi = ctx
+        .user_fns
+        .get(&init_fn_name)
+        .ok_or_else(|| anyhow!("super init de `{init_owner}` nao registrado"))?
+        .clone();
+    let mangled: &'static str = Box::leak(format!("__user_{init_fn_name}").into_boxed_str());
+    let fn_id = *ctx
+        .extern_cache
+        .get(mangled)
+        .ok_or_else(|| anyhow!("super init mangled `{mangled}` faltando"))?;
+    let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+
+    let this_val = ctx
+        .read_local("this")
+        .ok_or_else(|| anyhow!("`this` indisponivel em super(...)"))?;
+    let mut args = vec![this_val.val];
+    let expected = abi.params.len().saturating_sub(1);
+    if call.args.len() != expected {
+        return Err(anyhow!(
+            "super(...) espera {} argumento(s), recebeu {}",
+            expected,
+            call.args.len()
+        ));
+    }
+    for (a, expected_ty) in call.args.iter().zip(abi.params.iter().skip(1).copied()) {
+        if a.spread.is_some() {
+            return Err(anyhow!("spread em super(...) nao suportado"));
+        }
+        let tv = lower_expr(ctx, &a.expr)?;
+        let value = match expected_ty {
+            ValTy::I32 => ctx.coerce_to_i32(tv).val,
+            ValTy::F64 => to_f64(ctx, tv),
+            _ => ctx.coerce_to_i64(tv).val,
+        };
+        args.push(value);
+    }
+    ctx.builder.ins().call(fref, &args);
+    Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
+}
+
+fn lower_class_method_call(
+    ctx: &mut FnCtx,
+    class_name: &str,
+    method_name: &str,
+    receiver_local: &str,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    let owner = resolve_method_owner(ctx, class_name, method_name).ok_or_else(|| {
+        anyhow!("metodo `{method_name}` nao encontrado em `{class_name}` ou ancestrais")
+    })?;
+
+    let fn_name = format!("__class_{owner}_{method_name}");
+    let abi = ctx
+        .user_fns
+        .get(&fn_name)
+        .ok_or_else(|| anyhow!("metodo `{owner}.{method_name}` nao registrado"))?
+        .clone();
+    let mangled: &'static str = Box::leak(format!("__user_{fn_name}").into_boxed_str());
+    let fn_id = *ctx
+        .extern_cache
+        .get(mangled)
+        .ok_or_else(|| anyhow!("metodo mangled `{mangled}` faltando"))?;
+    let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+
+    let recv = ctx
+        .read_local(receiver_local)
+        .ok_or_else(|| anyhow!("receiver `{receiver_local}` indisponivel"))?;
+    let mut args = vec![ctx.coerce_to_i64(recv).val];
+    let expected = abi.params.len().saturating_sub(1);
+    if call.args.len() != expected {
+        return Err(anyhow!(
+            "metodo `{owner}.{method_name}` espera {} argumento(s), recebeu {}",
+            expected,
+            call.args.len()
+        ));
+    }
+    for (a, expected_ty) in call.args.iter().zip(abi.params.iter().skip(1).copied()) {
+        if a.spread.is_some() {
+            return Err(anyhow!("spread em chamada de metodo nao suportado"));
+        }
+        let tv = lower_expr(ctx, &a.expr)?;
+        let value = match expected_ty {
+            ValTy::I32 => ctx.coerce_to_i32(tv).val,
+            ValTy::F64 => to_f64(ctx, tv),
+            _ => ctx.coerce_to_i64(tv).val,
+        };
+        args.push(value);
+    }
+    let inst = ctx.builder.ins().call(fref, &args);
+    let results = ctx.builder.inst_results(inst);
+    if let Some(&v) = results.first() {
+        let ret_ty = abi.ret.unwrap_or(ValTy::I64);
+        Ok(TypedVal::new(v, ret_ty))
+    } else {
+        Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
+    }
 }
 
 /// Materialises the address of a user-defined function as an i64 value.
@@ -1464,6 +1788,15 @@ fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<Ty
         }
     }
 
+    // Resolve a classe estatica do receiver (this ou local tipado), se
+    // houver. Permite tipar o resultado de map_get conforme o field
+    // declarado da classe (ex: `: string` retorna Handle).
+    let receiver_class: Option<String> = match m.obj.as_ref() {
+        Expr::This(_) => ctx.current_class.clone(),
+        Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        _ => None,
+    };
+
     // Caso 2/3: runtime member access. obj precisa virar handle.
     let obj_tv = lower_expr(ctx, &m.obj)?;
     let obj_handle = ctx.coerce_to_i64(obj_tv).val;
@@ -1472,7 +1805,12 @@ fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<Ty
         // obj.foo → map_get(obj, "foo")
         MemberProp::Ident(id) => {
             let key = id.sym.as_str();
-            map_get_static(ctx, obj_handle, key.as_bytes())
+            // Se conhecemos a classe + tipo do field, retornamos com o
+            // tipo declarado em vez do default I64.
+            let field_ty = receiver_class
+                .as_deref()
+                .and_then(|c| field_type_in_hierarchy(ctx, c, key));
+            map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
         // obj["foo"] ou obj[i]
         MemberProp::Computed(c) => {
@@ -1523,6 +1861,15 @@ fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<Ty
 }
 
 fn map_get_static(ctx: &mut FnCtx, obj_handle: cranelift_codegen::ir::Value, key: &[u8]) -> Result<TypedVal> {
+    map_get_static_typed(ctx, obj_handle, key, None)
+}
+
+fn map_get_static_typed(
+    ctx: &mut FnCtx,
+    obj_handle: cranelift_codegen::ir::Value,
+    key: &[u8],
+    declared_ty: Option<ValTy>,
+) -> Result<TypedVal> {
     let (kptr, klen) = ctx.emit_str_literal(key)?;
     let get_fn = ctx.get_extern(
         "__RTS_FN_NS_COLLECTIONS_MAP_GET",
@@ -1531,7 +1878,35 @@ fn map_get_static(ctx: &mut FnCtx, obj_handle: cranelift_codegen::ir::Value, key
     )?;
     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, kptr, klen]);
     let v = ctx.builder.inst_results(inst)[0];
-    Ok(TypedVal::new(v, ValTy::I64))
+    // map_get devolve sempre i64 (lane fisica). Coerce conforme o tipo
+    // declarado do field (Handle, I32, F64, ...). Default I64 quando
+    // nao sabemos.
+    match declared_ty {
+        Some(ValTy::I32) => {
+            let narrowed = ctx.builder.ins().ireduce(cl::I32, v);
+            Ok(TypedVal::new(narrowed, ValTy::I32))
+        }
+        Some(ValTy::Handle) => Ok(TypedVal::new(v, ValTy::Handle)),
+        Some(ValTy::Bool) => Ok(TypedVal::new(v, ValTy::Bool)),
+        // F64 nao suportado como field no MVP — coerce_to_i64 perde
+        // precisao numerica. Usuario que precise pode usar `number` (i64).
+        _ => Ok(TypedVal::new(v, ValTy::I64)),
+    }
+}
+
+/// Procura o tipo declarado de um field na cadeia de heranca da classe.
+fn field_type_in_hierarchy(ctx: &FnCtx, class: &str, field: &str) -> Option<ValTy> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if let Some(ty) = meta.field_types.get(field).copied() {
+            return Some(ty);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

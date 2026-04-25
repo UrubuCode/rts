@@ -36,6 +36,33 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                     _ => None,
                 };
 
+                // Trackeia tipo estatico de classe quando o bind tem
+                // anotacao `: ClassName` cuja classe esta registrada.
+                // Usado para dispatch de `obj.method(...)`.
+                if let Pat::Ident(id) = &decl.name {
+                    if let Some(ann) = id.type_ann.as_ref() {
+                        if let Some(cn) = class_name_from_annotation(&ann.type_ann) {
+                            if ctx.classes.contains_key(&cn) {
+                                ctx.local_class_ty.insert(name.clone(), cn);
+                            }
+                        }
+                    }
+                }
+                // Heuristica: quando o init e `new C(...)`, a var herda
+                // a classe sem precisar de anotacao explicita.
+                if !ctx.local_class_ty.contains_key(&name) {
+                    if let Some(init) = decl.init.as_ref() {
+                        if let swc_ecma_ast::Expr::New(ne) = init.as_ref() {
+                            if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
+                                let cn = cid.sym.as_str().to_string();
+                                if ctx.classes.contains_key(&cn) {
+                                    ctx.local_class_ty.insert(name.clone(), cn);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let (init_val, inferred_ty) = if let Some(init) = &decl.init {
                     let tv = lower_expr(ctx, init)?;
                     (tv.val, tv.ty)
@@ -614,6 +641,18 @@ fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
             _ => return None,
         };
         return Some(ValTy::from_annotation(name));
+    }
+    None
+}
+
+/// Extrai `ClassName` de uma anotacao `: ClassName`. Retorna None
+/// quando a anotacao nao e um simple ident.
+fn class_name_from_annotation(ty: &swc_ecma_ast::TsType) -> Option<String> {
+    use swc_ecma_ast::TsType;
+    if let TsType::TsTypeRef(r) = ty {
+        if let swc_ecma_ast::TsEntityName::Ident(id) = &r.type_name {
+            return Some(id.sym.as_str().to_string());
+        }
     }
     None
 }

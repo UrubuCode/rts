@@ -41,6 +41,9 @@ pub struct FieldDecl {
 #[derive(Debug, Clone)]
 pub struct ClassDecl {
     pub name: String,
+    /// Classe pai em `class C extends P`. Resolve em codegen para
+    /// dispatch estatico de super().
+    pub super_class: Option<String>,
     pub members: Vec<ClassMember>,
     pub span: Span,
 }

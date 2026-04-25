@@ -184,3 +184,13 @@ fn fixture_for_of() {
 fn fixture_string_eq() {
     run_fixture("string_eq");
 }
+
+#[test]
+fn fixture_class_basic() {
+    run_fixture("class_basic");
+}
+
+#[test]
+fn fixture_class_inheritance() {
+    run_fixture("class_inheritance");
+}
