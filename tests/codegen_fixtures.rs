@@ -842,3 +842,23 @@ fn fixture_union_number_literal() {
 fn fixture_intersection_extended() {
     run_fixture("intersection_extended");
 }
+
+#[test]
+fn fixture_decorator_class() {
+    run_fixture("decorator_class");
+}
+
+#[test]
+fn fixture_decorator_factory() {
+    run_fixture("decorator_factory");
+}
+
+#[test]
+fn fixture_decorator_multiple() {
+    run_fixture("decorator_multiple");
+}
+
+#[test]
+fn fixture_decorator_method_tolerated() {
+    run_fixture("decorator_method_tolerated");
+}
