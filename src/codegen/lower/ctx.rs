@@ -203,8 +203,14 @@ pub struct FnCtx<'m, 'fb> {
     /// Cranelift variable counter.
     var_counter: u32,
 
-    /// Stack of (break_block, continue_block) for nested loops.
-    pub loop_stack: Vec<(Block, Block)>,
+    /// Stack of (break_block, continue_block, optional_label) for nested
+    /// loops. Label permite \`break LABEL\` saltar para um loop externo
+    /// específico em vez do mais interno.
+    pub loop_stack: Vec<(Block, Block, Option<String>)>,
+    /// Quando \`Stmt::Labeled\` envolve o próximo loop, registra aqui o
+    /// nome do label. O loop seguinte consome (via \`take()\`) ao fazer
+    /// push no \`loop_stack\`.
+    pub pending_label: Option<String>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -241,6 +247,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             is_tail_conv: false,
             var_counter: 0,
             loop_stack: Vec::new(),
+            pending_label: None,
         }
     }
 
@@ -548,13 +555,35 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         }
     }
 
-    /// Returns the current loop break target, if any.
+    /// Returns the current loop break target, if any. Sem label,
+    /// usa o loop mais interno; com label, busca pelo label.
     pub fn break_block(&self) -> Option<Block> {
-        self.loop_stack.last().map(|(brk, _)| *brk)
+        self.loop_stack.last().map(|(brk, _, _)| *brk)
     }
 
     /// Returns the current loop continue target, if any.
     pub fn continue_block(&self) -> Option<Block> {
-        self.loop_stack.last().map(|(_, cont)| *cont)
+        self.loop_stack.last().map(|(_, cont, _)| *cont)
+    }
+
+    /// Resolve break para um label específico — busca no stack do
+    /// topo até a base. Returns None se não encontrar.
+    pub fn break_block_for_label(&self, label: &str) -> Option<Block> {
+        for (brk, _, lbl) in self.loop_stack.iter().rev() {
+            if lbl.as_deref() == Some(label) {
+                return Some(*brk);
+            }
+        }
+        None
+    }
+
+    /// Resolve continue para um label específico.
+    pub fn continue_block_for_label(&self, label: &str) -> Option<Block> {
+        for (_, cont, lbl) in self.loop_stack.iter().rev() {
+            if lbl.as_deref() == Some(label) {
+                return Some(*cont);
+            }
+        }
+        None
     }
 }

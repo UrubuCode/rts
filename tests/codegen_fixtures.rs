@@ -642,3 +642,18 @@ fn fixture_spread_call_mixed() {
 fn fixture_spread_with_rest() {
     run_fixture("spread_with_rest");
 }
+
+#[test]
+fn fixture_labeled_break() {
+    run_fixture("labeled_break");
+}
+
+#[test]
+fn fixture_labeled_continue() {
+    run_fixture("labeled_continue");
+}
+
+#[test]
+fn fixture_labeled_nested() {
+    run_fixture("labeled_nested");
+}

@@ -213,7 +213,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             ctx.builder.ins().brif(is_true, body, &[], exit, &[]);
 
             ctx.builder.switch_to_block(body);
-            ctx.loop_stack.push((exit, header));
+            ctx.loop_stack.push((exit, header, ctx.pending_label.take()));
             lower_stmt(ctx, &wh.body)?;
             ctx.loop_stack.pop();
             if !ctx.builder.is_unreachable() {
@@ -236,7 +236,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             ctx.builder.ins().jump(body, &[]);
             ctx.builder.switch_to_block(body);
 
-            ctx.loop_stack.push((exit, cond_block));
+            ctx.loop_stack.push((exit, cond_block, ctx.pending_label.take()));
             lower_stmt(ctx, &dw.body)?;
             ctx.loop_stack.pop();
             if !ctx.builder.is_unreachable() {
@@ -291,7 +291,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             }
 
             ctx.builder.switch_to_block(body);
-            ctx.loop_stack.push((exit, update_block));
+            ctx.loop_stack.push((exit, update_block, ctx.pending_label.take()));
             lower_stmt(ctx, &for_stmt.body)?;
             ctx.loop_stack.pop();
             if !ctx.builder.is_unreachable() {
@@ -402,7 +402,7 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             }
 
             // Emit case bodies.
-            ctx.loop_stack.push((exit, exit)); // break target
+            ctx.loop_stack.push((exit, exit, ctx.pending_label.take())); // break target
             for (i, case) in sw.cases.iter().enumerate() {
                 ctx.builder.switch_to_block(case_blocks[i]);
                 ctx.builder.seal_block(case_blocks[i]);
@@ -466,26 +466,54 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
         }
 
         // ── Break ─────────────────────────────────────────────────────────
-        Stmt::Break(_) => {
-            if let Some(brk) = ctx.break_block() {
-                ctx.builder.ins().jump(brk, &[]);
-                Ok(true)
+        Stmt::Break(b) => {
+            let target = if let Some(lbl) = &b.label {
+                let name = lbl.sym.as_str();
+                ctx.break_block_for_label(name).ok_or_else(|| {
+                    anyhow!("break: label `{name}` nao encontrado em loops envolventes")
+                })?
             } else {
-                Err(anyhow!("break outside of loop or switch"))
-            }
+                ctx.break_block()
+                    .ok_or_else(|| anyhow!("break outside of loop or switch"))?
+            };
+            ctx.builder.ins().jump(target, &[]);
+            Ok(true)
         }
 
         // ── Continue ──────────────────────────────────────────────────────
-        Stmt::Continue(_) => {
-            if let Some(cont) = ctx.continue_block() {
-                ctx.builder.ins().jump(cont, &[]);
-                Ok(true)
+        Stmt::Continue(c) => {
+            let target = if let Some(lbl) = &c.label {
+                let name = lbl.sym.as_str();
+                ctx.continue_block_for_label(name).ok_or_else(|| {
+                    anyhow!("continue: label `{name}` nao encontrado em loops envolventes")
+                })?
             } else {
-                Err(anyhow!("continue outside of loop"))
-            }
+                ctx.continue_block()
+                    .ok_or_else(|| anyhow!("continue outside of loop"))?
+            };
+            ctx.builder.ins().jump(target, &[]);
+            Ok(true)
         }
 
         Stmt::Empty(_) => Ok(false),
+
+        // ── Labeled ────────────────────────────────────────────────────────
+        // \`label: <stmt>\` — registra o nome em \`pending_label\`; o body
+        // (que tipicamente é um loop) consome ao push no \`loop_stack\`.
+        // \`break label\` / \`continue label\` em \`Stmt::Break/Continue\`
+        // fazem lookup pela cadeia de loops.
+        Stmt::Labeled(lbl) => {
+            let name = lbl.label.sym.as_str().to_string();
+            // Salva o estado anterior — labels aninhadas não compõem,
+            // mas se houver um label pendente não consumido (raro),
+            // este novo o substitui.
+            let prev = ctx.pending_label.take();
+            ctx.pending_label = Some(name);
+            let terminated = lower_stmt(ctx, &lbl.body)?;
+            // Se o loop não consumiu o label (caso anômalo), descarta.
+            ctx.pending_label = prev;
+            Ok(terminated)
+        }
 
         // ── Throw ─────────────────────────────────────────────────────────
         // Fase 1 de #62: seta o slot global thread-local com o handle
@@ -649,7 +677,7 @@ fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) -> Result<boo
     let elem = ctx.builder.inst_results(inst)[0];
     ctx.write_local(&bind_name, elem)?;
 
-    ctx.loop_stack.push((exit, update_block));
+    ctx.loop_stack.push((exit, update_block, ctx.pending_label.take()));
     lower_stmt(ctx, &for_of.body)?;
     ctx.loop_stack.pop();
     if !ctx.builder.is_unreachable() {
@@ -750,7 +778,7 @@ fn lower_for_in(ctx: &mut FnCtx, for_in: &swc_ecma_ast::ForInStmt) -> Result<boo
     let key_handle = ctx.builder.inst_results(inst)[0];
     ctx.write_local(&bind_name, key_handle)?;
 
-    ctx.loop_stack.push((exit, update_block));
+    ctx.loop_stack.push((exit, update_block, ctx.pending_label.take()));
     lower_stmt(ctx, &for_in.body)?;
     ctx.loop_stack.pop();
     if !ctx.builder.is_unreachable() {
