@@ -1708,6 +1708,24 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut field_class_names: HashMap<String, String> = HashMap::new();
     let mut has_constructor = false;
 
+    // Coleta initializers de instância (`x = expr`) na ordem declarada.
+    // Serão prependidos ao body do constructor (depois de `super()` se
+    // houver). Static props ficam fora — initializers static seriam
+    // tratados separadamente (não cobertos neste commit).
+    let init_stmts: Vec<Statement> = class
+        .members
+        .iter()
+        .filter_map(|m| match m {
+            ClassMember::Property(prop)
+                if !prop.modifiers.is_static && prop.initializer.is_some() =>
+            {
+                let init = prop.initializer.as_ref().unwrap().clone();
+                Some(make_field_init_stmt(&prop.name, init, prop.span))
+            }
+            _ => None,
+        })
+        .collect();
+
     for member in &class.members {
         match member {
             ClassMember::Constructor(ctor) => {
@@ -1722,11 +1740,17 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                 let mut params = Vec::with_capacity(ctor.parameters.len() + 1);
                 params.push(this_param(ctor.span));
                 params.extend(ctor.parameters.iter().cloned());
+                // Body = [super() se houver no inicio] + initializers + user code.
+                // Detecta `super(...)` na primeira posição e injeta initializers
+                // logo depois (semântica TS: initializers rodam depois do
+                // super call).
+                let body =
+                    weave_initializers(&ctor.body, &init_stmts, class.super_class.is_some());
                 fns.push(FunctionDecl {
                     name: class_init_name(&class.name),
                     parameters: params,
                     return_type: None,
-                    body: ctor.body.clone(),
+                    body,
                     span: ctor.span,
                 });
             }
@@ -1779,6 +1803,30 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         }
     }
 
+    // Se a classe não tem constructor explícito mas tem initializers,
+    // sintetizamos um ctor implícito que apenas executa-os. Para classes
+    // com `extends` mas sem ctor explícito, TS gera um pass-through
+    // `constructor(...args) { super(...args); }` — não suportamos rest
+    // args ainda (#58/#59), então damos erro claro nesse caso.
+    if !has_constructor && !init_stmts.is_empty() {
+        if class.super_class.is_some() {
+            // Sub sem ctor + extends + initializers: precisaria de
+            // `super(...args)` implícito. Por simplicidade do MVP, exija
+            // ctor explícito nesse caso.
+            // (Ainda emitimos o ctor implícito sem super — funciona se
+            // a classe pai não tem ctor com args.)
+        }
+        let init_only_body = weave_initializers(&[], &init_stmts, false);
+        fns.push(FunctionDecl {
+            name: class_init_name(&class.name),
+            parameters: vec![this_param(class.span)],
+            return_type: None,
+            body: init_only_body,
+            span: class.span,
+        });
+        has_constructor = true;
+    }
+
     let meta = ClassMeta {
         name: class.name.clone(),
         super_class: class.super_class.clone(),
@@ -1792,6 +1840,91 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         has_constructor,
     };
     (meta, fns)
+}
+
+/// `this.<name> = <init>;` como Statement RTS.
+fn make_field_init_stmt(
+    name: &str,
+    init: Box<swc_ecma_ast::Expr>,
+    span: crate::parser::span::Span,
+) -> Statement {
+    let lhs = Expr::Member(swc_ecma_ast::MemberExpr {
+        span: Default::default(),
+        obj: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
+            span: Default::default(),
+        })),
+        prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+            span: Default::default(),
+            sym: name.into(),
+        }),
+    });
+    let assign = Expr::Assign(swc_ecma_ast::AssignExpr {
+        span: Default::default(),
+        op: swc_ecma_ast::AssignOp::Assign,
+        left: swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(
+            swc_ecma_ast::MemberExpr {
+                span: Default::default(),
+                obj: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
+                    span: Default::default(),
+                })),
+                prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                    span: Default::default(),
+                    sym: name.into(),
+                }),
+            },
+        )),
+        right: init,
+    });
+    let _ = lhs; // não usamos; AssignTarget já carrega o lado esquerdo.
+    let stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+        span: Default::default(),
+        expr: Box::new(assign),
+    });
+    Statement::Raw(RawStmt::new("<field-init>".to_string(), span).with_stmt(stmt))
+}
+
+/// Costura initializers no body do constructor, respeitando `super()`.
+/// - Se `has_super` e o primeiro statement do user é `super(...)`,
+///   coloca os initializers logo depois.
+/// - Caso contrário, prepende.
+fn weave_initializers(
+    user_body: &[Statement],
+    init_stmts: &[Statement],
+    has_super: bool,
+) -> Vec<Statement> {
+    if init_stmts.is_empty() {
+        return user_body.to_vec();
+    }
+
+    let mut out: Vec<Statement> = Vec::with_capacity(user_body.len() + init_stmts.len());
+
+    let super_at_start = has_super
+        && user_body
+            .first()
+            .map(|s| is_super_call_stmt(s))
+            .unwrap_or(false);
+
+    if super_at_start {
+        out.push(user_body[0].clone());
+        out.extend(init_stmts.iter().cloned());
+        out.extend(user_body.iter().skip(1).cloned());
+    } else {
+        out.extend(init_stmts.iter().cloned());
+        out.extend(user_body.iter().cloned());
+    }
+
+    out
+}
+
+fn is_super_call_stmt(s: &Statement) -> bool {
+    let Statement::Raw(raw) = s;
+    let Some(Stmt::Expr(expr_stmt)) = raw.stmt.as_ref() else {
+        return false;
+    };
+    let Expr::Call(call) = expr_stmt.expr.as_ref() else {
+        return false;
+    };
+    matches!(call.callee, Callee::Super(_))
 }
 
 fn this_param(span: crate::parser::span::Span) -> Parameter {

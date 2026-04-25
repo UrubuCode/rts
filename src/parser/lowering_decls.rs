@@ -102,6 +102,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         .type_ann
                         .as_ref()
                         .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    initializer: prop.value.clone(),
                     span: convert_span(cm, prop.span),
                 }));
             }
@@ -117,6 +118,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         .type_ann
                         .as_ref()
                         .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    initializer: prop.value.clone(),
                     span: convert_span(cm, prop.span),
                 }));
             }
@@ -137,6 +139,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         .type_ann
                         .as_ref()
                         .map(|annotation| normalize_type_annotation(cm, annotation)),
+                    initializer: None,
                     span: convert_span(cm, accessor.span),
                 }));
             }
