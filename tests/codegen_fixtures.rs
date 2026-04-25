@@ -612,3 +612,18 @@ fn fixture_for_in_empty() {
 fn fixture_for_in_break() {
     run_fixture("for_in_break");
 }
+
+#[test]
+fn fixture_rest_param_basic() {
+    run_fixture("rest_param_basic");
+}
+
+#[test]
+fn fixture_rest_param_mixed() {
+    run_fixture("rest_param_mixed");
+}
+
+#[test]
+fn fixture_rest_param_empty() {
+    run_fixture("rest_param_empty");
+}
