@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod generator_desugar;
 pub mod lexer;
 pub mod span;
 

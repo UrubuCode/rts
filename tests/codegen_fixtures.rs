@@ -732,3 +732,63 @@ fn fixture_regex_find_at() {
 fn fixture_regex_replace() {
     run_fixture("regex_replace");
 }
+
+#[test]
+fn fixture_generator_basic() {
+    run_fixture("generator_basic");
+}
+
+#[test]
+fn fixture_generator_loop() {
+    run_fixture("generator_loop");
+}
+
+#[test]
+fn fixture_generator_conditional() {
+    run_fixture("generator_conditional");
+}
+
+#[test]
+fn fixture_generator_nested_loop() {
+    run_fixture("generator_nested_loop");
+}
+
+#[test]
+fn fixture_generator_while() {
+    run_fixture("generator_while");
+}
+
+#[test]
+fn fixture_generator_empty() {
+    run_fixture("generator_empty");
+}
+
+#[test]
+fn fixture_generator_method() {
+    run_fixture("generator_method");
+}
+
+#[test]
+fn fixture_generator_inherited() {
+    run_fixture("generator_inherited");
+}
+
+#[test]
+fn fixture_generator_override() {
+    run_fixture("generator_override");
+}
+
+#[test]
+fn fixture_generator_super() {
+    run_fixture("generator_super");
+}
+
+#[test]
+fn fixture_generator_static() {
+    run_fixture("generator_static");
+}
+
+#[test]
+fn fixture_generator_yield_star() {
+    run_fixture("generator_yield_star");
+}

@@ -976,6 +976,12 @@ fn lower_var_member_call(
         .read_local(obj_name)
         .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
     let obj_h = ctx.coerce_to_i64(obj_tv).val;
+
+    // Builtins de array/map: arr.push(x), arr.length() etc.
+    if let Some(tv) = lower_array_builtin(ctx, prop, obj_h, call)? {
+        return Ok(tv);
+    }
+
     let (kp, kl) = ctx.emit_str_literal(prop.as_bytes())?;
     let map_get = ctx.get_extern(
         "__RTS_FN_NS_COLLECTIONS_MAP_GET",
@@ -1008,6 +1014,40 @@ fn lower_var_member_call(
         .copied()
         .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
     Ok(TypedVal::new(v, ValTy::I64))
+}
+
+/// Builtins universais para arrays/maps via handle. Retorna `Some` se
+/// a chamada foi tratada como builtin.
+fn lower_array_builtin(
+    ctx: &mut FnCtx,
+    method: &str,
+    obj_h: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    match method {
+        "push" => {
+            if call.args.len() != 1 {
+                return Ok(None);
+            }
+            let arg = &call.args[0];
+            if arg.spread.is_some() {
+                return Ok(None);
+            }
+            let push_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                &[cl::I64, cl::I64],
+                None,
+            )?;
+            let tv = lower_expr(ctx, &arg.expr)?;
+            let v = ctx.coerce_to_i64(tv).val;
+            ctx.builder.ins().call(push_fn, &[obj_h, v]);
+            Ok(Some(TypedVal::new(
+                ctx.builder.ins().iconst(cl::I64, 0),
+                ValTy::I64,
+            )))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> Result<TypedVal> {

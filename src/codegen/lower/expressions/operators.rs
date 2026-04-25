@@ -393,19 +393,6 @@ fn coerce_result(
     })
 }
 
-fn coerce_bits_i64(
-    ctx: &mut FnCtx,
-    value: cranelift_codegen::ir::Value,
-) -> cranelift_codegen::ir::Value {
-    let ty = ctx.builder.func.dfg.value_type(value);
-    if ty == cl::I64 {
-        value
-    } else if ty.bytes() < 8 {
-        ctx.builder.ins().sextend(cl::I64, value)
-    } else {
-        ctx.builder.ins().ireduce(cl::I64, value)
-    }
-}
 
 pub(super) fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Value {
     match tv.ty {
