@@ -83,6 +83,19 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
         Decl::TsInterface(interface_decl) => {
             out.push(Item::Interface(lower_interface_decl(cm, interface_decl)));
         }
+        Decl::TsEnum(enum_decl) => {
+            // Desugar `enum E { A, B = 5, C }` em
+            // `const E = { A: 0, B: 5, C: 6 };` — objeto literal que o
+            // codegen já trata via path normal de member access.
+            //
+            // Numeric enums: auto-incremento começando em 0; init explícito
+            // (numérico) reseta o contador.
+            // String enums: init obrigatório, valor literal.
+            // Mistos seguem a regra do membro vigente.
+            if let Some(stmt) = lower_ts_enum_to_const(enum_decl) {
+                push_raw_statement_with_stmt(cm, enum_decl.span, Some(&stmt), out);
+            }
+        }
         Decl::Var(var_decl) if try_lower_fn_expr_decl(cm, var_decl, out) => {
             // All declarators were function/arrow expressions and have been
             // emitted as Item::Function above.
@@ -226,6 +239,76 @@ fn lower_interface_decl(cm: &Lrc<SourceMap>, interface_decl: &SwcTsInterfaceDecl
         fields,
         span: convert_span(cm, interface_decl.span),
     }
+}
+
+/// Desugar `enum E { A, B = 5 }` em `const E = { A: 0, B: 5 };`.
+fn lower_ts_enum_to_const(enum_decl: &swc_ecma_ast::TsEnumDecl) -> Option<Stmt> {
+    use swc_ecma_ast::*;
+
+    let enum_name = enum_decl.id.sym.to_string();
+    let mut props: Vec<PropOrSpread> = Vec::with_capacity(enum_decl.members.len());
+    // Auto-counter pra membros numéricos sem init.
+    let mut next_numeric: i64 = 0;
+
+    for member in &enum_decl.members {
+        let key_str = match &member.id {
+            TsEnumMemberId::Ident(id) => id.sym.to_string(),
+            TsEnumMemberId::Str(s) => s.value.to_string_lossy().to_string(),
+        };
+
+        // Determina o valor: usa init se presente, senão auto-incremento.
+        let value_expr: Expr = if let Some(init) = &member.init {
+            // Quando init é Lit::Num, atualiza o counter.
+            if let Expr::Lit(Lit::Num(n)) = init.as_ref() {
+                next_numeric = n.value as i64 + 1;
+            }
+            (**init).clone()
+        } else {
+            let val = next_numeric;
+            next_numeric += 1;
+            Expr::Lit(Lit::Num(Number {
+                span: Default::default(),
+                value: val as f64,
+                raw: Some(format!("{val}").into()),
+            }))
+        };
+
+        let prop = PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+            key: PropName::Ident(IdentName {
+                span: Default::default(),
+                sym: key_str.into(),
+            }),
+            value: Box::new(value_expr),
+        })));
+        props.push(prop);
+    }
+
+    let obj_lit = Expr::Object(ObjectLit {
+        span: Default::default(),
+        props,
+    });
+
+    let var_decl = VarDecl {
+        span: Default::default(),
+        ctxt: Default::default(),
+        kind: VarDeclKind::Const,
+        declare: false,
+        decls: vec![VarDeclarator {
+            span: Default::default(),
+            name: Pat::Ident(BindingIdent {
+                id: Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: enum_name.into(),
+                    optional: false,
+                },
+                type_ann: None,
+            }),
+            init: Some(Box::new(obj_lit)),
+            definite: false,
+        }],
+    };
+    Some(Stmt::Decl(Decl::Var(Box::new(var_decl))))
 }
 
 fn lower_class_decl(cm: &Lrc<SourceMap>, class_decl: &SwcClassDecl) -> ClassDecl {

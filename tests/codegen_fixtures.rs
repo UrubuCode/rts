@@ -537,3 +537,18 @@ fn fixture_type_assertion_misc() {
 fn fixture_type_assertion_member() {
     run_fixture("type_assertion_member");
 }
+
+#[test]
+fn fixture_enum_basic() {
+    run_fixture("enum_basic");
+}
+
+#[test]
+fn fixture_enum_explicit() {
+    run_fixture("enum_explicit");
+}
+
+#[test]
+fn fixture_enum_compare() {
+    run_fixture("enum_compare");
+}
