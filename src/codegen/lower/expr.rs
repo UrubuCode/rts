@@ -147,7 +147,18 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
                                 ValTy::F64 => to_f64(ctx, rhs_tv),
                                 _ => rhs_i64,
                             };
-                            emit_named_method_call(ctx, &setter_fn_name, obj_h, &[coerced])?;
+                            let cls_owned = cls.clone();
+                            let prop_owned = prop_name.to_string();
+                            let _ = setter_fn_name;
+                            emit_virtual_accessor_dispatch(
+                                ctx,
+                                &cls_owned,
+                                &setter_owner,
+                                AccessorKind::Setter,
+                                &prop_owned,
+                                obj_h,
+                                &[coerced],
+                            )?;
                             return Ok(TypedVal::new(rhs_i64, ValTy::I64));
                         }
                     }
@@ -1405,6 +1416,140 @@ fn resolve_setter_owner(ctx: &FnCtx, class: &str, prop: &str) -> Option<String> 
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum AccessorKind { Getter, Setter }
+
+fn accessor_mangled(kind: AccessorKind, owner: &str, prop: &str) -> String {
+    match kind {
+        AccessorKind::Getter => class_getter_name(owner, prop),
+        AccessorKind::Setter => class_setter_name(owner, prop),
+    }
+}
+
+fn class_has_accessor(meta: &crate::codegen::lower::ctx::ClassMeta, kind: AccessorKind, prop: &str) -> bool {
+    match kind {
+        AccessorKind::Getter => meta.getters.iter().any(|g| g == prop),
+        AccessorKind::Setter => meta.setters.iter().any(|s| s == prop),
+    }
+}
+
+fn resolve_accessor_owner(ctx: &FnCtx, kind: AccessorKind, class: &str, prop: &str) -> Option<String> {
+    match kind {
+        AccessorKind::Getter => resolve_getter_owner(ctx, class, prop),
+        AccessorKind::Setter => resolve_setter_owner(ctx, class, prop),
+    }
+}
+
+/// Dispatch virtual para getter/setter. Le `__rts_class` da instancia,
+/// compara com cada subclasse que define o accessor proprio (mais
+/// derivada primeiro), chama o owner certo. Fallback no static_owner.
+fn emit_virtual_accessor_dispatch(
+    ctx: &mut FnCtx,
+    static_class: &str,
+    static_owner: &str,
+    kind: AccessorKind,
+    prop: &str,
+    recv_i64: cranelift_codegen::ir::Value,
+    arg_values: &[cranelift_codegen::ir::Value],
+) -> Result<TypedVal> {
+    // Coleta (subclass, owner_que_define_accessor).
+    let mut overrides: Vec<(String, String)> = Vec::new();
+    for (cname, _meta) in ctx.classes.iter() {
+        if !is_subclass_of(ctx, cname, static_class) {
+            continue;
+        }
+        if let Some(owner) = resolve_accessor_owner(ctx, kind, cname, prop) {
+            overrides.push((cname.clone(), owner));
+        }
+    }
+    let mut distinct: Vec<String> = Vec::new();
+    for (_c, o) in &overrides {
+        if !distinct.contains(o) { distinct.push(o.clone()); }
+    }
+    if !distinct.contains(&static_owner.to_string()) {
+        distinct.insert(0, static_owner.to_string());
+    }
+    if distinct.len() == 1 {
+        return emit_named_method_call(ctx, &accessor_mangled(kind, static_owner, prop), recv_i64, arg_values);
+    }
+
+    // Determina ret_ty pelo accessor estatico.
+    let static_fn_name = accessor_mangled(kind, static_owner, prop);
+    let ret_ty = ctx
+        .user_fns
+        .get(&static_fn_name)
+        .and_then(|abi| abi.ret)
+        .unwrap_or(ValTy::I64);
+
+    // Le __rts_class.
+    let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
+    let map_get = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(map_get, &[recv_i64, key_ptr, key_len]);
+    let class_handle = ctx.builder.inst_results(inst)[0];
+
+    // Ordena overrides mais derivado -> base.
+    let mut ordered: Vec<(String, String)> = overrides.iter()
+        .filter(|(c, _)| ctx.classes.get(c)
+            .map(|m| class_has_accessor(m, kind, prop))
+            .unwrap_or(false))
+        .cloned()
+        .collect();
+    ordered.sort_by_key(|(c, _)| {
+        let mut depth = 0;
+        let mut cur = c.clone();
+        while let Some(meta) = ctx.classes.get(&cur) {
+            match &meta.super_class { Some(p) => { depth += 1; cur = p.clone(); } None => break, }
+        }
+        std::cmp::Reverse(depth)
+    });
+
+    let merge_block = ctx.builder.create_block();
+    let result_param = ctx.builder.append_block_param(merge_block, ret_ty.cl_type());
+
+    let str_eq = ctx.get_extern("__RTS_FN_NS_GC_STRING_EQ", &[cl::I64, cl::I64], Some(cl::I64))?;
+
+    for (cname, owner) in &ordered {
+        let (cn_ptr, cn_len) = ctx.emit_str_literal(cname.as_bytes())?;
+        let from_static = ctx.get_extern("__RTS_FN_NS_GC_STRING_FROM_STATIC", &[cl::I64, cl::I64], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(from_static, &[cn_ptr, cn_len]);
+        let target_handle = ctx.builder.inst_results(inst)[0];
+        let inst = ctx.builder.ins().call(str_eq, &[class_handle, target_handle]);
+        let cmp = ctx.builder.inst_results(inst)[0];
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        let is_eq = ctx.builder.ins().icmp(IntCC::NotEqual, cmp, zero);
+
+        let then_block = ctx.builder.create_block();
+        let else_block = ctx.builder.create_block();
+        ctx.builder.ins().brif(is_eq, then_block, &[], else_block, &[]);
+        ctx.builder.switch_to_block(then_block);
+        ctx.builder.seal_block(then_block);
+        let result = emit_named_method_call(ctx, &accessor_mangled(kind, owner, prop), recv_i64, arg_values)?;
+        let coerced = match ret_ty {
+            ValTy::I32 => ctx.coerce_to_i32(result).val,
+            ValTy::F64 => to_f64(ctx, result),
+            _ => ctx.coerce_to_i64(result).val,
+        };
+        ctx.builder.ins().jump(merge_block, &[coerced.into()]);
+        ctx.builder.switch_to_block(else_block);
+        ctx.builder.seal_block(else_block);
+    }
+
+    let result = emit_named_method_call(ctx, &accessor_mangled(kind, static_owner, prop), recv_i64, arg_values)?;
+    let coerced = match ret_ty {
+        ValTy::I32 => ctx.coerce_to_i32(result).val,
+        ValTy::F64 => to_f64(ctx, result),
+        _ => ctx.coerce_to_i64(result).val,
+    };
+    ctx.builder.ins().jump(merge_block, &[coerced.into()]);
+    ctx.builder.switch_to_block(merge_block);
+    ctx.builder.seal_block(merge_block);
+    Ok(TypedVal::new(result_param, ret_ty))
+}
+
 /// Chama uma user fn pelo nome ja mangled, com receiver direto.
 /// Usado por getter/setter dispatch.
 fn emit_named_method_call(
@@ -2401,16 +2546,22 @@ fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<Ty
     let receiver_class: Option<String> = lhs_static_class(ctx, &m.obj);
 
     // Getter: `obj.x` quando classe define `get x()` — chama
-    // __class_C_get_x(this) em vez de map_get.
+    // __class_C_get_x(this) em vez de map_get. Considera dispatch
+    // virtual quando subclasses overridem o getter.
     if let MemberProp::Ident(id) = &m.prop {
         if let Some(cls) = receiver_class.as_deref() {
             let prop_name = id.sym.as_str();
             if let Some(getter_owner) = resolve_getter_owner(ctx, cls, prop_name) {
                 let recv_tv = lower_expr(ctx, &m.obj)?;
                 let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
-                return emit_named_method_call(
+                let cls_owned = cls.to_string();
+                let prop_owned = prop_name.to_string();
+                return emit_virtual_accessor_dispatch(
                     ctx,
-                    &class_getter_name(&getter_owner, prop_name),
+                    &cls_owned,
+                    &getter_owner,
+                    AccessorKind::Getter,
+                    &prop_owned,
                     recv_i64,
                     &[],
                 );
