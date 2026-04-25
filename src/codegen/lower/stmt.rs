@@ -252,6 +252,17 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
             Ok(false)
         }
 
+        // ── For...of ──────────────────────────────────────────────────────
+        // MVP: trata o iteravel como vec handle (arrays sao Vec<i64> via
+        // collections.vec_*). Desugara em loop indexado:
+        //   const __h = <iter>;
+        //   const __len = vec_len(__h);
+        //   for (let __i = 0; __i < __len; __i++) {
+        //     <bind> = vec_get(__h, __i);
+        //     <body>
+        //   }
+        Stmt::ForOf(for_of) => return lower_for_of(ctx, for_of),
+
         // ── Switch ────────────────────────────────────────────────────────
         Stmt::Switch(sw) => {
             let discriminant = lower_expr(ctx, &sw.discriminant)?;
@@ -459,6 +470,129 @@ pub fn lower_block(ctx: &mut FnCtx, block: &BlockStmt) -> Result<bool> {
         return Err(e);
     }
     Ok(exited)
+}
+
+// ── for...of ──────────────────────────────────────────────────────────────
+
+/// Lowers `for (let x of arr) { body }` no MVP de #60.
+///
+/// Trata o iteravel como handle de `collections.vec_*`: usa `vec_len`
+/// para o limite e `vec_get` por iteracao. Sem suporte a iteradores
+/// arbitrarios (Symbol.iterator), strings ou Map.
+fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) -> Result<bool> {
+    use swc_ecma_ast::ForHead;
+
+    if for_of.is_await {
+        return Err(anyhow!("for-await-of nao suportado"));
+    }
+
+    // Bind do elemento: aceita `for (let|const|var x of ...)` ou
+    // `for (x of ...)` quando x ja e local. Le anotacao de tipo
+    // (`for (const x: string of arr)`) para decidir se o resultado de
+    // vec_get sera tratado como Handle (string) ou I64 (number/handle
+    // de objeto crus).
+    let (bind_name, bind_ty): (String, ValTy) = match &for_of.left {
+        ForHead::VarDecl(vd) => {
+            if vd.decls.len() != 1 {
+                return Err(anyhow!("for-of bind deve declarar uma variavel"));
+            }
+            match &vd.decls[0].name {
+                Pat::Ident(id) => {
+                    let ty = id
+                        .type_ann
+                        .as_ref()
+                        .and_then(|t| ts_type_to_val_ty(&t.type_ann))
+                        .unwrap_or(ValTy::I64);
+                    (id.sym.as_str().to_string(), ty)
+                }
+                _ => return Err(anyhow!("for-of bind deve ser ident simples")),
+            }
+        }
+        ForHead::Pat(p) => match p.as_ref() {
+            Pat::Ident(id) => (id.sym.as_str().to_string(), ValTy::I64),
+            _ => return Err(anyhow!("for-of bind deve ser ident simples")),
+        },
+        ForHead::UsingDecl(_) => return Err(anyhow!("`using` em for-of nao suportado")),
+    };
+
+    // Avalia o iteravel uma vez: handle u64.
+    let iter_tv = lower_expr(ctx, &for_of.right)?;
+    let handle = ctx.coerce_to_i64(iter_tv).val;
+
+    // Comprimento via vec_len.
+    let len_fref = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(len_fref, &[handle]);
+    let len = ctx.builder.inst_results(inst)[0];
+
+    // Helpers para read/write do elemento atual via vec_get.
+    let get_fref = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+
+    // Declara `bind` no tipo escolhido. Para ForHead::Pat, o ident
+    // precisa ja estar declarado no escopo atual (sem decl no MVP).
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    if matches!(&for_of.left, ForHead::VarDecl(_)) {
+        ctx.declare_local(&bind_name, bind_ty, zero);
+    }
+
+    // Counter local em i64 (handle/index sao i64). Nome unico via
+    // ponteiro do iter span para evitar colisoes em loops aninhados.
+    let counter_name: String = format!("__rts_for_of_i_{:p}", &for_of.span);
+    ctx.declare_local(&counter_name, ValTy::I64, zero);
+
+    let header = ctx.builder.create_block();
+    let body = ctx.builder.create_block();
+    let update_block = ctx.builder.create_block();
+    let exit = ctx.builder.create_block();
+
+    ctx.builder.ins().jump(header, &[]);
+    ctx.builder.switch_to_block(header);
+
+    // i < len ?
+    let i_now = ctx
+        .read_local(&counter_name)
+        .ok_or_else(|| anyhow!("for-of counter sumiu"))?;
+    let is_in_range = ctx.builder.ins().icmp(IntCC::SignedLessThan, i_now.val, len);
+    ctx.builder.ins().brif(is_in_range, body, &[], exit, &[]);
+
+    ctx.builder.switch_to_block(body);
+    // bind = vec_get(handle, i)
+    let i_now = ctx
+        .read_local(&counter_name)
+        .ok_or_else(|| anyhow!("for-of counter sumiu"))?;
+    let inst = ctx.builder.ins().call(get_fref, &[handle, i_now.val]);
+    let elem = ctx.builder.inst_results(inst)[0];
+    ctx.write_local(&bind_name, elem)?;
+
+    ctx.loop_stack.push((exit, update_block));
+    lower_stmt(ctx, &for_of.body)?;
+    ctx.loop_stack.pop();
+    if !ctx.builder.is_unreachable() {
+        ctx.builder.ins().jump(update_block, &[]);
+    }
+    ctx.builder.seal_block(body);
+
+    ctx.builder.switch_to_block(update_block);
+    let i_now = ctx
+        .read_local(&counter_name)
+        .ok_or_else(|| anyhow!("for-of counter sumiu"))?;
+    let one = ctx.builder.ins().iconst(cl::I64, 1);
+    let i_next = ctx.builder.ins().iadd(i_now.val, one);
+    ctx.write_local(&counter_name, i_next)?;
+    ctx.builder.ins().jump(header, &[]);
+    ctx.builder.seal_block(update_block);
+    ctx.builder.seal_block(header);
+
+    ctx.builder.switch_to_block(exit);
+    ctx.builder.seal_block(exit);
+    Ok(false)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

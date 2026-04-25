@@ -105,3 +105,23 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_STATIC(ptr: *const u8, len: i64) -> u64 {
     __RTS_FN_NS_GC_STRING_NEW(ptr, len)
 }
+
+/// Compares dois string handles por conteudo (memcmp). Retorna 1 se
+/// os bytes forem iguais, 0 caso contrario. Handles invalidos so sao
+/// iguais entre si quando ambos forem 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_STRING_EQ(a: u64, b: u64) -> i64 {
+    if a == b {
+        return 1;
+    }
+    let t = table().lock().expect("handle table poisoned");
+    let sa = match t.get(a) {
+        Some(Entry::String(s)) => s,
+        _ => return 0,
+    };
+    let sb = match t.get(b) {
+        Some(Entry::String(s)) => s,
+        _ => return 0,
+    };
+    if sa == sb { 1 } else { 0 }
+}

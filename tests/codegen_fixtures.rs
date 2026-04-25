@@ -174,3 +174,13 @@ fn fixture_first_class_functions() {
 fn fixture_object_array_literals() {
     run_fixture("object_array_literals");
 }
+
+#[test]
+fn fixture_for_of() {
+    run_fixture("for_of");
+}
+
+#[test]
+fn fixture_string_eq() {
+    run_fixture("string_eq");
+}

@@ -109,6 +109,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_STRING_FROM_F64", __RTS_FN_NS_GC_STRING_FROM_F64);
     add_fn!("__RTS_FN_NS_GC_STRING_CONCAT", __RTS_FN_NS_GC_STRING_CONCAT);
     add_fn!("__RTS_FN_NS_GC_STRING_FROM_STATIC", __RTS_FN_NS_GC_STRING_FROM_STATIC);
+    add_fn!("__RTS_FN_NS_GC_STRING_EQ", __RTS_FN_NS_GC_STRING_EQ);
 
     // ── namespaces::io ────────────────────────────────────────────────
     use crate::namespaces::io::print::*;
