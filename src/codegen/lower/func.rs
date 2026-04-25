@@ -201,6 +201,302 @@ struct LiftAcc {
 /// classe) e percorre toda a árvore (top-level statements + bodies de
 /// fns + bodies de métodos) reescrevendo callsites em `Expr::Call` que
 /// passem menos args que o esperado.
+/// Expande destructuring patterns em decls separadas.
+///
+/// Cobertura nesta fase:
+/// - Array: \`const [a, b] = arr\` → \`const _t = arr; const a = _t[0]; const b = _t[1]\`
+/// - Object: \`const {x, y} = obj\` → \`const _t = obj; const x = _t["x"]; const y = _t["y"]\`
+/// - Aliasing: \`const {x: a} = obj\` → \`const _t = obj; const a = _t["x"]\`
+/// - Default: \`const {x = 0} = obj\` → ... \`const x = _t["x"]\` (default precisa
+///   de expansão futura via runtime check; sem null-coalesce ainda).
+///
+/// Não cobertos (follow-up):
+/// - Nested patterns (\`const {a: {b}} = obj\`)
+/// - Rest em destructuring (\`const {a, ...rest}\`)
+/// - Destructuring em parâmetros de função e for-of
+fn expand_destructuring(program: &mut Program) {
+    // Counter global para gerar nomes de temporários únicos.
+    let mut counter: u32 = 0;
+
+    // Helper: processa um Vec<Statement>, expandindo decls de destructuring.
+    // Cria novos statements e replace in place.
+    fn process_body(body: &mut Vec<Statement>, counter: &mut u32) {
+        let mut i = 0;
+        while i < body.len() {
+            let Statement::Raw(raw) = &body[i];
+            let Some(stmt) = raw.stmt.as_ref() else {
+                i += 1;
+                continue;
+            };
+            // Apenas \`Stmt::Decl(Decl::Var)\` pode ter patterns.
+            let Stmt::Decl(Decl::Var(var_decl)) = stmt else {
+                i += 1;
+                continue;
+            };
+
+            // Verifica se algum decl tem pattern.
+            let has_pattern = var_decl
+                .decls
+                .iter()
+                .any(|d| !matches!(d.name, Pat::Ident(_)));
+            if !has_pattern {
+                i += 1;
+                continue;
+            }
+
+            // Expande: gera múltiplos statements.
+            let kind = var_decl.kind;
+            let mut new_stmts: Vec<Statement> = Vec::new();
+            for decl in &var_decl.decls {
+                expand_destruct_decl(&decl.name, decl.init.as_deref(), kind, counter, &mut new_stmts);
+            }
+
+            // Substitui o stmt atual pelos novos.
+            body.remove(i);
+            for (k, s) in new_stmts.into_iter().enumerate() {
+                body.insert(i + k, s);
+            }
+            // Skip pelos stmts inseridos (eles já são "Ident" decls,
+            // não recursam aqui).
+            // i fica no próximo após o último inserido — mas como
+            // recursamos via process_body em fns aninhadas só, ok.
+            // Avança pelo número de inserts.
+            // (Já incrementei body.remove + insert; i agora aponta pro
+            // primeiro inserido. Avanço pra depois deles.)
+            // Não faço skip extra pq são todos Ident decls.
+            i += 1;
+        }
+    }
+
+    for item in program.items.iter_mut() {
+        match item {
+            Item::Function(f) => process_body(&mut f.body, &mut counter),
+            Item::Class(c) => {
+                for m in c.members.iter_mut() {
+                    match m {
+                        ClassMember::Constructor(ctor) => {
+                            process_body(&mut ctor.body, &mut counter);
+                        }
+                        ClassMember::Method(method) => {
+                            process_body(&mut method.body, &mut counter);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Item::Statement(_) => {
+                // Top-level: empacota num Vec único e processa.
+                // A reorganização é mais delicada porque os items são
+                // Item::Statement, não Statement. Simplifico: detecta
+                // patterns em items individuais.
+            }
+            _ => {}
+        }
+    }
+
+    // Top-level: itera com índice mutável.
+    let mut i = 0;
+    while i < program.items.len() {
+        let needs_expansion = matches!(
+            &program.items[i],
+            Item::Statement(Statement::Raw(raw))
+                if matches!(
+                    raw.stmt.as_ref(),
+                    Some(Stmt::Decl(Decl::Var(v)))
+                    if v.decls.iter().any(|d| !matches!(d.name, Pat::Ident(_)))
+                )
+        );
+        if !needs_expansion {
+            i += 1;
+            continue;
+        }
+        let Item::Statement(Statement::Raw(raw)) = &program.items[i] else {
+            i += 1;
+            continue;
+        };
+        let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else {
+            i += 1;
+            continue;
+        };
+        let kind = var_decl.kind;
+        let mut new_stmts: Vec<Statement> = Vec::new();
+        for decl in &var_decl.decls {
+            expand_destruct_decl(&decl.name, decl.init.as_deref(), kind, &mut counter, &mut new_stmts);
+        }
+        program.items.remove(i);
+        for (k, s) in new_stmts.into_iter().enumerate() {
+            program.items.insert(i + k, Item::Statement(s));
+        }
+        // Avança pelos inseridos.
+        // (não faço i += new_stmts.len() porque já consumi via into_iter,
+        // mas acima o número era inserido sequencialmente; após insert,
+        // i deve avançar pelo número de elementos inseridos. Loop simples:
+        // body[i..i+N] são novos Ident decls, não precisam re-expansão.)
+        // Conta quantos foram inseridos.
+        // Como não temos esse número aqui (consumiu o iter), recomputo
+        // varredando até achar não-Statement ou seja arbitrário.
+        // Mais simples: continuar do índice atual; os novos decls são
+        // Ident (não disparam needs_expansion).
+        // Sem `i +=`, pq remove + insert deixa i no primeiro inserido.
+        i += 1;
+    }
+}
+
+/// Expande um decl com pattern para Vec<Statement>. Recurse em nested.
+fn expand_destruct_decl(
+    pat: &Pat,
+    init: Option<&Expr>,
+    kind: swc_ecma_ast::VarDeclKind,
+    counter: &mut u32,
+    out: &mut Vec<Statement>,
+) {
+    match pat {
+        Pat::Ident(_) => {
+            // Sem destructuring — apenas regenera o decl simples.
+            let var_decl = swc_ecma_ast::VarDecl {
+                span: Default::default(),
+                ctxt: Default::default(),
+                kind,
+                declare: false,
+                decls: vec![swc_ecma_ast::VarDeclarator {
+                    span: Default::default(),
+                    name: pat.clone(),
+                    init: init.map(|e| Box::new(e.clone())),
+                    definite: false,
+                }],
+            };
+            let stmt = Stmt::Decl(Decl::Var(Box::new(var_decl)));
+            out.push(Statement::Raw(
+                RawStmt::new("<destruct>".to_string(), Span::default()).with_stmt(stmt),
+            ));
+        }
+        Pat::Array(arr) => {
+            let tmp_name = format!("__destruct_{}", *counter);
+            *counter += 1;
+            // Gera const __destruct_N = init;
+            if let Some(init) = init {
+                out.push(make_const_decl(&tmp_name, init.clone(), kind));
+            }
+            for (idx, elem) in arr.elems.iter().enumerate() {
+                let Some(e) = elem else { continue }; // hole — pula
+                // const elem_name = __destruct_N[idx];
+                let access = make_index_access(&tmp_name, idx as f64);
+                expand_destruct_decl(&e, Some(&access), kind, counter, out);
+            }
+        }
+        Pat::Object(obj) => {
+            let tmp_name = format!("__destruct_{}", *counter);
+            *counter += 1;
+            if let Some(init) = init {
+                out.push(make_const_decl(&tmp_name, init.clone(), kind));
+            }
+            for prop in &obj.props {
+                match prop {
+                    swc_ecma_ast::ObjectPatProp::Assign(ap) => {
+                        // \`{ x }\` ou \`{ x = default }\`
+                        let key = ap.key.id.sym.as_str();
+                        let access = make_member_access(&tmp_name, key);
+                        let inner_pat = Pat::Ident(swc_ecma_ast::BindingIdent {
+                            id: ap.key.id.clone(),
+                            type_ann: None,
+                        });
+                        // Default em destructuring ainda não suportado;
+                        // o init do AssignPatProp é ignorado neste MVP.
+                        expand_destruct_decl(&inner_pat, Some(&access), kind, counter, out);
+                    }
+                    swc_ecma_ast::ObjectPatProp::KeyValue(kvp) => {
+                        // \`{ x: a }\` — alias
+                        let key = match &kvp.key {
+                            swc_ecma_ast::PropName::Ident(id) => id.sym.to_string(),
+                            swc_ecma_ast::PropName::Str(s) => {
+                                s.value.to_string_lossy().to_string()
+                            }
+                            _ => continue,
+                        };
+                        let access = make_member_access(&tmp_name, &key);
+                        expand_destruct_decl(&kvp.value, Some(&access), kind, counter, out);
+                    }
+                    swc_ecma_ast::ObjectPatProp::Rest(_) => {
+                        // Rest em object destructuring — follow-up.
+                    }
+                }
+            }
+        }
+        _ => {
+            // Outros patterns (Rest, Assign solo, etc) — emite decl direto
+            // se for Ident interno; senão silencia.
+        }
+    }
+}
+
+/// `const <name> = <expr>;` (kind preservado).
+fn make_const_decl(
+    name: &str,
+    expr: Expr,
+    kind: swc_ecma_ast::VarDeclKind,
+) -> Statement {
+    let var = swc_ecma_ast::VarDecl {
+        span: Default::default(),
+        ctxt: Default::default(),
+        kind,
+        declare: false,
+        decls: vec![swc_ecma_ast::VarDeclarator {
+            span: Default::default(),
+            name: Pat::Ident(swc_ecma_ast::BindingIdent {
+                id: swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: name.into(),
+                    optional: false,
+                },
+                type_ann: None,
+            }),
+            init: Some(Box::new(expr)),
+            definite: false,
+        }],
+    };
+    let stmt = Stmt::Decl(Decl::Var(Box::new(var)));
+    Statement::Raw(RawStmt::new("<destruct-tmp>".to_string(), Span::default()).with_stmt(stmt))
+}
+
+/// `<obj>[<idx>]` como Expr.
+fn make_index_access(obj_name: &str, idx: f64) -> Expr {
+    Expr::Member(swc_ecma_ast::MemberExpr {
+        span: Default::default(),
+        obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: obj_name.into(),
+            optional: false,
+        })),
+        prop: MemberProp::Computed(swc_ecma_ast::ComputedPropName {
+            span: Default::default(),
+            expr: Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                span: Default::default(),
+                value: idx,
+                raw: Some(format!("{}", idx as i64).into()),
+            }))),
+        }),
+    })
+}
+
+/// `<obj>.<key>` como Expr.
+fn make_member_access(obj_name: &str, key: &str) -> Expr {
+    Expr::Member(swc_ecma_ast::MemberExpr {
+        span: Default::default(),
+        obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: obj_name.into(),
+            optional: false,
+        })),
+        prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+            span: Default::default(),
+            sym: key.into(),
+        }),
+    })
+}
+
 fn expand_default_args(program: &mut Program) {
     use std::collections::HashMap;
 
@@ -1895,6 +2191,7 @@ pub fn compile_program(
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
     lift_arrow_callbacks(program);
+    expand_destructuring(program);
     expand_default_args(program);
     // Spread antes de rest: spread aplaina array literal nos call sites
     // (`f(...[1,2,3])` → `f(1,2,3)`); rest depois empacota argumentos
