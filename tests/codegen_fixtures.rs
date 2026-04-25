@@ -362,6 +362,26 @@ fn fixture_readonly_field_reassign_err() {
     );
 }
 
+#[test]
+fn fixture_computed_method_str() {
+    run_fixture("computed_method_str");
+}
+
+#[test]
+fn fixture_computed_property_str() {
+    run_fixture("computed_property_str");
+}
+
+#[test]
+fn fixture_computed_template() {
+    run_fixture("computed_template");
+}
+
+#[test]
+fn fixture_computed_accessor() {
+    run_fixture("computed_accessor");
+}
+
 // Closure capturando `this`/`super` em callback de classe.
 // Disparam o trampolim diretamente via `__class_C_lifted_arrow_N()` em
 // vez de depender de evento UI — o nome mangled é estável porque o
