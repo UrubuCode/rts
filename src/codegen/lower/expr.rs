@@ -519,6 +519,110 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
     Ok(Some(TypedVal::new(val, ValTy::I64)))
 }
 
+/// Mapeia operador binario para nome de metodo canonico (Rust-style).
+/// Retorna None para operadores sem overload (logical, etc — tratados
+/// no caminho normal).
+fn operator_method_name(op: BinaryOp) -> Option<&'static str> {
+    Some(match op {
+        BinaryOp::Add => "add",
+        BinaryOp::Sub => "sub",
+        BinaryOp::Mul => "mul",
+        BinaryOp::Div => "div",
+        BinaryOp::Mod => "rem",
+        BinaryOp::EqEq | BinaryOp::EqEqEq => "eq",
+        BinaryOp::NotEq | BinaryOp::NotEqEq => "ne",
+        BinaryOp::Lt => "lt",
+        BinaryOp::LtEq => "le",
+        BinaryOp::Gt => "gt",
+        BinaryOp::GtEq => "ge",
+        BinaryOp::BitAnd => "bit_and",
+        BinaryOp::BitOr => "bit_or",
+        BinaryOp::BitXor => "bit_xor",
+        BinaryOp::LShift => "shl",
+        BinaryOp::RShift => "shr",
+        _ => return None,
+    })
+}
+
+/// Resolve a classe estatica do LHS sem avaliar a expressao. Cobre
+/// `this`, ident local com classe trackeada e member access em
+/// receiver de classe conhecida (campo cujo tipo declarado e outra
+/// classe — feature pequena, opt-in via field_types).
+fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::This(_) => ctx.current_class.clone(),
+        Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        _ => None,
+    }
+}
+
+fn try_operator_overload(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
+    let Some(method) = operator_method_name(bin.op) else {
+        return Ok(None);
+    };
+    let Some(class_name) = lhs_static_class(ctx, &bin.left) else {
+        return Ok(None);
+    };
+    if resolve_method_owner(ctx, &class_name, method).is_none() {
+        return Ok(None);
+    }
+
+    // Reescreve `lhs OP rhs` como `lhs.method(rhs)` em CallExpr
+    // sintetica. Receiver e ident → permite reuso de
+    // lower_class_method_call sem materializar lhs como local extra.
+    let receiver_local = match bin.left.as_ref() {
+        Expr::This(_) => "this",
+        Expr::Ident(id) => {
+            // SAFETY: o ident foi consultado em local_class_ty pelo
+            // valor str; aqui usamos o mesmo str como nome do receiver.
+            id.sym.as_str()
+        }
+        _ => unreachable!("lhs_static_class so retorna Some para This/Ident"),
+    };
+
+    let synthetic_call = CallExpr {
+        span: bin.span,
+        ctxt: Default::default(),
+        callee: Callee::Expr(Box::new(Expr::Member(swc_ecma_ast::MemberExpr {
+            span: bin.span,
+            obj: bin.left.clone(),
+            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                span: bin.span,
+                sym: method.into(),
+            }),
+        }))),
+        args: vec![swc_ecma_ast::ExprOrSpread {
+            spread: None,
+            expr: bin.right.clone(),
+        }],
+        type_args: None,
+    };
+
+    let result = lower_class_method_call(ctx, &class_name, method, receiver_local, &synthetic_call)?;
+
+    // Para operadores de comparacao, normalizar para Bool i64.
+    // Metodos podem retornar i32/i64; coerce + tag Bool para que
+    // template literais e branchs tratem como booleano.
+    let final_result = if matches!(
+        bin.op,
+        BinaryOp::EqEq
+            | BinaryOp::EqEqEq
+            | BinaryOp::NotEq
+            | BinaryOp::NotEqEq
+            | BinaryOp::Lt
+            | BinaryOp::LtEq
+            | BinaryOp::Gt
+            | BinaryOp::GtEq
+    ) {
+        let as_i64 = ctx.coerce_to_i64(result);
+        TypedVal::new(as_i64.val, ValTy::Bool)
+    } else {
+        result
+    };
+
+    Ok(Some(final_result))
+}
+
 fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // Short-circuit logical ops
     if matches!(
@@ -526,6 +630,14 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing
     ) {
         return lower_logical(ctx, bin);
+    }
+
+    // Sobrecarga de operador via metodos de classe (Rust-style):
+    // quando LHS e local de classe conhecida e a classe define o
+    // metodo canonico do operador, reescreve `lhs OP rhs` em
+    // `lhs.method(rhs)`. Resolvido em compile-time.
+    if let Some(result) = try_operator_overload(ctx, bin)? {
+        return Ok(result);
     }
 
     // Immediate-form peephole: when RHS is a small integer literal and the
