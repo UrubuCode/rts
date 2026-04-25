@@ -127,6 +127,11 @@ pub struct ClassMeta {
     /// Nomes de fields marcados `readonly` — só podem ser atribuídos
     /// dentro do constructor. Reassign em outros métodos é erro.
     pub readonly_fields: std::collections::HashSet<String>,
+    /// Visibility declarada de cada membro (field ou método) que não
+    /// é \`public\`. \`public\` é default e não é registrado pra economizar.
+    /// Acessos a \`obj.x\` quando \`x\` é \`private\`/\`protected\` são
+    /// validados em compile-time conforme regras TS.
+    pub member_visibility: std::collections::HashMap<String, crate::parser::ast::Visibility>,
     /// `abstract class C` — não pode ser instanciada via `new C()`.
     pub is_abstract: bool,
     /// Nomes de métodos abstract declarados nesta classe (sem implementação).

@@ -1794,7 +1794,8 @@ fn compile_main(
                     let msg = format!("{e}");
                     let is_hard = msg.contains("abstract")
                         || msg.contains("readonly")
-                        || msg.contains("private");
+                        || msg.contains("private")
+                        || msg.contains("protected");
                     if is_hard {
                         return Err(e);
                     }
@@ -1932,6 +1933,10 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         std::collections::HashSet::new();
     let mut abstract_methods: std::collections::HashSet<String> =
         std::collections::HashSet::new();
+    let mut member_visibility: std::collections::HashMap<
+        String,
+        crate::parser::ast::Visibility,
+    > = std::collections::HashMap::new();
     let mut has_constructor = false;
 
     // Coleta initializers de instância (`x = expr`) na ordem declarada.
@@ -1981,6 +1986,12 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                 });
             }
             ClassMember::Method(method) => {
+                // Visibility — registra apenas private/protected (public é default).
+                if let Some(v) = method.modifiers.visibility {
+                    if !matches!(v, crate::parser::ast::Visibility::Public) {
+                        member_visibility.insert(method.name.clone(), v);
+                    }
+                }
                 // Métodos abstract: gera um stub que faz `throw "abstract"`
                 // (na prática, retorna 0). O stub permite que o codegen
                 // resolva referências `__class_C_<m>` para checagem de
@@ -2051,6 +2062,12 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                 }
             }
             ClassMember::Property(prop) => {
+                // Visibility — registra apenas private/protected.
+                if let Some(v) = prop.modifiers.visibility {
+                    if !matches!(v, crate::parser::ast::Visibility::Public) {
+                        member_visibility.insert(prop.name.clone(), v);
+                    }
+                }
                 if prop.modifiers.is_static {
                     static_fields.push(prop.name.clone());
                 } else {
@@ -2113,6 +2130,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         readonly_fields,
         is_abstract: class.is_abstract,
         abstract_methods,
+        member_visibility,
     };
     (meta, fns)
 }

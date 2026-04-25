@@ -463,3 +463,37 @@ fn fixture_closure_local_multi() {
 fn fixture_closure_local_param() {
     run_fixture("closure_local_param");
 }
+
+#[test]
+fn fixture_private_modifier_basic() {
+    run_fixture("private_modifier_basic");
+}
+
+#[test]
+fn fixture_protected_modifier_basic() {
+    run_fixture("protected_modifier_basic");
+}
+
+#[test]
+fn fixture_private_modifier_err() {
+    run_fixture_expect_error(
+        "private_modifier_err",
+        "membro `secret` é private em `C`",
+    );
+}
+
+#[test]
+fn fixture_protected_modifier_err() {
+    run_fixture_expect_error(
+        "protected_modifier_err",
+        "membro `y` é protected em `Base`",
+    );
+}
+
+#[test]
+fn fixture_private_method_err() {
+    run_fixture_expect_error(
+        "private_method_err",
+        "membro `secret` é private em `C`",
+    );
+}

@@ -136,6 +136,9 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
                 if let MemberProp::Ident(id) = &m.prop {
                     if let Some(cls) = lhs_static_class(ctx, &m.obj) {
                         let prop_name = id.sym.as_str();
+                        // Visibility (private/protected) — antes do
+                        // readonly check porque é mais geral.
+                        validate_visibility(ctx, &cls, prop_name)?;
                         if field_is_readonly_in_hierarchy(ctx, &cls, prop_name) {
                             // Permitido apenas dentro do constructor da
                             // própria classe (ou subclasse depois de super()).
@@ -2034,6 +2037,9 @@ fn lower_class_method_call_with_recv(
     recv_i64: cranelift_codegen::ir::Value,
     call: &CallExpr,
 ) -> Result<TypedVal> {
+    // Visibility check antes do dispatch.
+    validate_visibility(ctx, class_name, method_name)?;
+
     let static_owner = resolve_method_owner(ctx, class_name, method_name).ok_or_else(|| {
         anyhow!("metodo `{method_name}` nao encontrado em `{class_name}` ou ancestrais")
     })?;
@@ -2785,6 +2791,11 @@ fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<Ty
         // obj.foo → map_get(obj, "foo")
         MemberProp::Ident(id) => {
             let key = id.sym.as_str();
+            // Validação de visibility (private/protected) quando a classe
+            // do receiver é conhecida estaticamente.
+            if let Some(cls) = receiver_class.as_deref() {
+                validate_visibility(ctx, cls, key)?;
+            }
             // Se conhecemos a classe + tipo do field, retornamos com o
             // tipo declarado em vez do default I64.
             let field_ty = receiver_class
@@ -2908,6 +2919,73 @@ fn validate_private_scope(ctx: &FnCtx, key: &str) -> Result<()> {
     Err(anyhow!(
         "private `{key}` nao e visivel em `{current}` (privates nao sao herdados de ancestrais)"
     ))
+}
+
+/// Valida acesso a um membro (`obj.<member>`) conforme visibility TS:
+/// - `public` (default): qualquer um.
+/// - `private`: só dentro do corpo da classe que declara.
+/// - `protected`: dentro da classe que declara ou descendentes.
+///
+/// `receiver_class` é a classe estática do receiver (None quando o tipo
+/// é dinâmico — nesse caso não validamos, deixa passar).
+fn validate_visibility(
+    ctx: &FnCtx,
+    receiver_class: &str,
+    member: &str,
+) -> Result<()> {
+    use crate::parser::ast::Visibility;
+
+    let mut cur = receiver_class.to_string();
+    loop {
+        let Some(meta) = ctx.classes.get(&cur) else { return Ok(()) };
+        if let Some(vis) = meta.member_visibility.get(member).copied() {
+            match vis {
+                Visibility::Public => return Ok(()),
+                Visibility::Private => {
+                    if ctx.current_class.as_deref() == Some(&cur) {
+                        return Ok(());
+                    }
+                    return Err(anyhow!(
+                        "membro `{member}` é private em `{cur}` — \
+                         não acessível fora do corpo da classe"
+                    ));
+                }
+                Visibility::Protected => {
+                    let Some(current) = ctx.current_class.as_deref() else {
+                        return Err(anyhow!(
+                            "membro `{member}` é protected em `{cur}` — \
+                             só acessível em métodos de classes que estendem `{cur}`"
+                        ));
+                    };
+                    if is_descendant_of(ctx, current, &cur) {
+                        return Ok(());
+                    }
+                    return Err(anyhow!(
+                        "membro `{member}` é protected em `{cur}` — \
+                         `{current}` não estende `{cur}`"
+                    ));
+                }
+            }
+        }
+        match meta.super_class.clone() {
+            Some(p) => cur = p,
+            None => return Ok(()),
+        }
+    }
+}
+
+fn is_descendant_of(ctx: &FnCtx, descendant: &str, ancestor: &str) -> bool {
+    let mut cur = descendant.to_string();
+    loop {
+        if cur == ancestor {
+            return true;
+        }
+        let Some(meta) = ctx.classes.get(&cur) else { return false };
+        match meta.super_class.clone() {
+            Some(p) => cur = p,
+            None => return false,
+        }
+    }
 }
 
 /// True se `field` é declarado readonly em `class` ou ancestral.
