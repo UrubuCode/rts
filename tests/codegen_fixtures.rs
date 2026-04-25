@@ -217,6 +217,31 @@ fn fixture_ui_window() {
     run_fixture("ui_window");
 }
 
+#[test]
+fn fixture_property_init_basic() {
+    run_fixture("property_init_basic");
+}
+
+#[test]
+fn fixture_property_init_no_ctor() {
+    run_fixture("property_init_no_ctor");
+}
+
+#[test]
+fn fixture_property_init_override() {
+    run_fixture("property_init_override");
+}
+
+#[test]
+fn fixture_property_init_extends() {
+    run_fixture("property_init_extends");
+}
+
+#[test]
+fn fixture_property_init_expr() {
+    run_fixture("property_init_expr");
+}
+
 // Closure capturando `this`/`super` em callback de classe.
 // Disparam o trampolim diretamente via `__class_C_lifted_arrow_N()` em
 // vez de depender de evento UI — o nome mangled é estável porque o

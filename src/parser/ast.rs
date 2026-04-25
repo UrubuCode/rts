@@ -85,6 +85,11 @@ pub struct PropertyDecl {
     pub name: String,
     pub modifiers: MemberModifiers,
     pub type_annotation: Option<String>,
+    /// Inicializador opcional (`x: number = 42`). Quando presente,
+    /// `synthesize_class_fns` injeta `this.<name> = <initializer>`
+    /// no prólogo do constructor (depois de `super()`, antes do
+    /// corpo do usuário).
+    pub initializer: Option<Box<swc_ecma_ast::Expr>>,
     pub span: Span,
 }
 
