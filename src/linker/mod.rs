@@ -20,6 +20,29 @@ pub enum LinkBackendPreference {
     System,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowsSubsystem {
+    Console,
+    Windows,
+}
+
+impl WindowsSubsystem {
+    fn from_env() -> Option<Self> {
+        let raw = std::env::var("RTS_WINDOWS_SUBSYSTEM")
+            .ok()
+            .map(|value| value.trim().to_ascii_lowercase())?;
+        Self::from_raw(&raw)
+    }
+
+    pub fn from_raw(raw: &str) -> Option<Self> {
+        match raw {
+            "console" => Some(Self::Console),
+            "windows" | "gui" => Some(Self::Windows),
+            _ => None,
+        }
+    }
+}
+
 impl LinkBackendPreference {
     fn from_env() -> Self {
         let raw = std::env::var("RTS_LINKER_BACKEND")
@@ -43,6 +66,7 @@ impl LinkBackendPreference {
 pub struct LinkRequest {
     pub backend: Option<LinkBackendPreference>,
     pub target_triple: Option<String>,
+    pub windows_subsystem: Option<WindowsSubsystem>,
 }
 
 impl LinkRequest {
@@ -55,6 +79,7 @@ impl LinkRequest {
         Self {
             backend: Some(LinkBackendPreference::from_env()),
             target_triple,
+            windows_subsystem: WindowsSubsystem::from_env(),
         }
     }
 
@@ -143,8 +168,12 @@ fn link_with_system_backend(
     output_path: &Path,
     request: &LinkRequest,
 ) -> Result<LinkedBinary> {
-    let artifact =
-        system_linker::link(object_paths, output_path, request.target_triple.as_deref())?;
+    let artifact = system_linker::link(
+        object_paths,
+        output_path,
+        request.target_triple.as_deref(),
+        request.windows_subsystem,
+    )?;
     Ok(LinkedBinary {
         path: artifact.path,
         backend: format!("system:{}", artifact.linker),
@@ -154,7 +183,7 @@ fn link_with_system_backend(
 
 #[cfg(test)]
 mod tests {
-    use super::LinkBackendPreference;
+    use super::{LinkBackendPreference, WindowsSubsystem};
 
     #[test]
     fn linker_backend_manual_alias_maps_to_object() {
@@ -178,5 +207,22 @@ mod tests {
             LinkBackendPreference::from_raw("unknown-value"),
             LinkBackendPreference::Auto
         );
+    }
+
+    #[test]
+    fn windows_subsystem_parses_aliases() {
+        assert_eq!(
+            WindowsSubsystem::from_raw("console"),
+            Some(WindowsSubsystem::Console)
+        );
+        assert_eq!(
+            WindowsSubsystem::from_raw("windows"),
+            Some(WindowsSubsystem::Windows)
+        );
+        assert_eq!(
+            WindowsSubsystem::from_raw("gui"),
+            Some(WindowsSubsystem::Windows)
+        );
+        assert_eq!(WindowsSubsystem::from_raw("invalid"), None);
     }
 }

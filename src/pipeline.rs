@@ -63,6 +63,21 @@ pub fn build_executable(
     output_binary: &Path,
     options: CompileOptions,
 ) -> Result<LinkOutcome> {
+    build_executable_with_request(
+        input,
+        output_binary,
+        options,
+        linker::LinkRequest::from_env(),
+    )
+}
+
+/// Full compile + link with an explicit link request.
+pub fn build_executable_with_request(
+    input: &Path,
+    output_binary: &Path,
+    options: CompileOptions,
+    link_request: linker::LinkRequest,
+) -> Result<LinkOutcome> {
     let cache = ObjCache::for_input(input);
 
     let (obj_path, compile_outcome, from_cache) =
@@ -102,7 +117,7 @@ pub fn build_executable(
 
     let inputs = vec![obj_path, runtime_archive.clone()];
 
-    let binary = linker::link_objects_to_binary(&inputs, output_binary)
+    let binary = linker::link_objects_to_binary_with_request(&inputs, output_binary, &link_request)
         .context("linker failed")?;
 
     Ok(LinkOutcome {

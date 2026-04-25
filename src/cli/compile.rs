@@ -8,12 +8,14 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 
 use crate::compile_options::CompileOptions;
+use crate::linker::{LinkRequest, WindowsSubsystem};
 use crate::pipeline;
 
 pub fn command(
     input: Option<String>,
     output: Option<String>,
     options: CompileOptions,
+    windows_subsystem: Option<WindowsSubsystem>,
 ) -> Result<()> {
     let input = input.ok_or_else(|| anyhow!("missing input file for `rts compile`"))?;
     let input_path = PathBuf::from(&input);
@@ -27,7 +29,12 @@ pub fn command(
         None => default_output_path(&input_path),
     };
 
-    let outcome = pipeline::build_executable(&input_path, &output_path, options)
+    let mut link_request = LinkRequest::from_env();
+    if let Some(subsystem) = windows_subsystem {
+        link_request.windows_subsystem = Some(subsystem);
+    }
+
+    let outcome = pipeline::build_executable_with_request(&input_path, &output_path, options, link_request)
         .with_context(|| format!("compile of {} failed", input_path.display()))?;
 
     if options.debug {

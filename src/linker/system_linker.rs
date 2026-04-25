@@ -3,6 +3,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+use super::WindowsSubsystem;
 use super::toolchain::{ResolvedLinker, TargetFlavor, ToolchainLayout, resolve_linker};
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,7 @@ pub fn link(
     object_paths: &[PathBuf],
     output_path: &Path,
     explicit_target: Option<&str>,
+    windows_subsystem: Option<WindowsSubsystem>,
 ) -> Result<LinkedArtifact> {
     if object_paths.is_empty() {
         bail!("system linker received no object files to link");
@@ -30,7 +32,13 @@ pub fn link(
             .with_context(|| format!("failed to create output directory {}", parent.display()))?;
     }
 
-    let args = build_linker_args(&layout.target.flavor, object_paths, &final_path, &linker)?;
+    let args = build_linker_args(
+        &layout.target.flavor,
+        object_paths,
+        &final_path,
+        &linker,
+        windows_subsystem,
+    )?;
     let (invocation_args, rsp_file) = prepare_invocation_args(&linker, &args)?;
     let output = Command::new(&linker.path)
         .args(&invocation_args)
@@ -119,6 +127,7 @@ fn build_linker_args(
     object_paths: &[PathBuf],
     output_path: &Path,
     linker: &ResolvedLinker,
+    windows_subsystem: Option<WindowsSubsystem>,
 ) -> Result<Vec<String>> {
     match flavor {
         TargetFlavor::Coff => {
@@ -136,10 +145,14 @@ fn build_linker_args(
             }
 
             args.push("/nologo".to_string());
-            // Bootstrap codegen emits a `main` symbol; the MSVC CRT entry
-            // `mainCRTStartup` initialises the runtime and calls into it.
+            // Bootstrap codegen emits a `main` symbol; keep mainCRTStartup for
+            // both subsystem modes so generated programs don't need WinMain.
+            let subsystem = windows_subsystem.unwrap_or(WindowsSubsystem::Console);
             args.push("/entry:mainCRTStartup".to_string());
-            args.push("/subsystem:console".to_string());
+            match subsystem {
+                WindowsSubsystem::Console => args.push("/subsystem:console".to_string()),
+                WindowsSubsystem::Windows => args.push("/subsystem:windows".to_string()),
+            }
             // Dead code / COMDAT elimination — strips unused namespace functions.
             args.push("/OPT:REF".to_string());
             args.push("/OPT:ICF".to_string());

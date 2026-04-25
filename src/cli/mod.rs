@@ -10,12 +10,14 @@ use anyhow::{Result, anyhow, bail};
 
 use crate::compile_options::{CompilationProfile, CompileOptions, FrontendMode};
 use crate::diagnostics::reporter;
+use crate::linker::WindowsSubsystem;
 
 #[derive(Debug, Clone, Copy)]
 struct CliFlags {
     profile: CompilationProfile,
     debug: bool,
     frontend_mode: FrontendMode,
+    windows_subsystem: Option<WindowsSubsystem>,
 }
 
 impl Default for CliFlags {
@@ -24,6 +26,7 @@ impl Default for CliFlags {
             profile: CompilationProfile::Development,
             debug: false,
             frontend_mode: FrontendMode::Native,
+            windows_subsystem: None,
         }
     }
 }
@@ -61,6 +64,7 @@ where
             positional.get(1).cloned(),
             positional.get(2).cloned(),
             flags.as_compile_options(),
+            flags.windows_subsystem,
         ),
         "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
         "apis" | "api" => apis::command(),
@@ -83,17 +87,53 @@ where
 fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
     let mut flags = CliFlags::default();
     let mut positional = Vec::new();
-
-    for arg in raw {
+    let mut idx = 0usize;
+    while idx < raw.len() {
+        let arg = &raw[idx];
         match arg.as_str() {
             "--development" | "-d" => flags.profile = CompilationProfile::Development,
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--native" => flags.frontend_mode = FrontendMode::Native,
             "--compat" => flags.frontend_mode = FrontendMode::Compat,
+            "--windows-subsystem" => {
+                let value = raw
+                    .get(idx + 1)
+                    .ok_or_else(|| anyhow!("missing value for --windows-subsystem"))?;
+                if value.starts_with('-') {
+                    return Err(anyhow!(
+                        "invalid value for --windows-subsystem: {value} (expected console|windows)"
+                    ));
+                }
+                let parsed = WindowsSubsystem::from_raw(&value.to_ascii_lowercase())
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "invalid value for --windows-subsystem: {value} (expected console|windows)"
+                        )
+                    })?;
+                flags.windows_subsystem = Some(parsed);
+                idx += 2;
+                continue;
+            }
+            _ if arg.starts_with("--windows-subsystem=") => {
+                let value = arg
+                    .split_once('=')
+                    .map(|(_, v)| v)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
+                let parsed = WindowsSubsystem::from_raw(&value).ok_or_else(|| {
+                    anyhow!(
+                        "invalid value for --windows-subsystem: {} (expected console|windows)",
+                        arg.split_once('=').map(|(_, v)| v).unwrap_or_default()
+                    )
+                })?;
+                flags.windows_subsystem = Some(parsed);
+            }
             _ if arg.starts_with('-') => return Err(anyhow!("unknown option: {arg}")),
-            _ => positional.push(arg),
+            _ => positional.push(arg.clone()),
         }
+        idx += 1;
     }
 
     Ok((flags, positional))
@@ -108,4 +148,6 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} init [name]");
     println!("  {bin_name} clean");
     println!("  {bin_name} help");
+    println!("Options:");
+    println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");
 }
