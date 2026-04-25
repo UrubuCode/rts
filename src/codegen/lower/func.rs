@@ -183,16 +183,6 @@ impl LiftAcc {
     /// I64 é um `ArrowExpr` ou `Ident` apontando pra user fn. Substitui in
     /// place pelo `Ident` da fn lifted, e injeta statements/fns de suporte.
     fn lift_in_body(&mut self, class_name: &str, body: &mut Vec<Statement>, in_class: bool) {
-        self.lift_in_body_inner(class_name, body, in_class, /*this_is_under_this=*/ false);
-    }
-
-    fn lift_in_body_inner(
-        &mut self,
-        class_name: &str,
-        body: &mut Vec<Statement>,
-        in_class: bool,
-        this_is_under_this: bool,
-    ) {
         use crate::abi::AbiType;
 
         let mut idx = 0usize;
@@ -246,14 +236,19 @@ impl LiftAcc {
 
                 match arg.expr.as_ref() {
                     Expr::Arrow(arrow) if arrow_uses_this => {
-                        // Reescreve `this` → `__this` no corpo do arrow.
+                        // O trampolim recebe um nome mangled
+                        // `__class_C_lifted_arrow_N` para que `extract_class_owner`
+                        // detecte e o codegen popule `current_class = "C"` —
+                        // habilita `Expr::This` e `super.method()` sem
+                        // tratamento especial.
                         let slot = format!("__cb_this_{}", self.counter);
                         needs_this_slot = Some(slot.clone());
                         let raw_stmts = arrow_body_to_stmts(arrow);
-                        let mut stmts: Vec<swc_ecma_ast::Stmt> =
-                            raw_stmts.into_iter().map(rewrite_this_to_under_this).collect();
-                        // Prefixa: `let __this: ClassName = __cb_this_N;`
+                        // Prefixa: `let this: ClassName = __cb_this_N;` —
+                        // o nome do bind é "this" (read_local("this"))
+                        // funciona naturalmente.
                         let prologue = make_this_local(class_name, &slot);
+                        let mut stmts: Vec<swc_ecma_ast::Stmt> = raw_stmts;
                         stmts.insert(0, prologue);
                         body_stmts = stmts
                             .into_iter()
@@ -296,35 +291,24 @@ impl LiftAcc {
                     _ => continue,
                 };
 
-                let syn_name = format!("__lifted_arrow_{}", self.counter);
+                // Nome mangled quando o trampolim captura `this` —
+                // habilita `current_class` no codegen via
+                // `extract_class_owner`, o que destrava `Expr::This`,
+                // `super.method()` e dispatch virtual.
+                let syn_name = if needs_this_slot.is_some() {
+                    format!("__class_{}_lifted_arrow_{}", class_name, self.counter)
+                } else {
+                    format!("__lifted_arrow_{}", self.counter)
+                };
                 self.counter += 1;
 
                 // Recurse: lift arrows nested inside this trampoline's body
-                // before sealing it as a FunctionDecl. Arrows that referenced
-                // `this` already had `this` rewritten to `__this` above; an
-                // inner arrow that *also* uses `this` was rewritten too, so
-                // here `in_class` stays true and `class_name` is the same —
-                // when the inner arrow is lifted to its own trampoline, the
-                // codegen will resolve `__this` via `let __this: C = __cb_this_M`
-                // injected for the inner.
-                //
-                // CAVEAT: the outer rewrite turned `this` into `__this`. The
-                // inner arrow's body therefore reads `__this`, not `this`. To
-                // make the inner trampoline's slot capture work, we revert
-                // any `__this` references inside nested arrows back to `this`
-                // before the recursion sees them. The outer trampoline keeps
-                // the rewritten form because it has its own `let __this`.
+                // antes de selar como FunctionDecl. Como o trampolim externo
+                // tem `let this: C = ...` no topo, nenhuma reescrita
+                // adicional é necessária — `this` permanece como `Expr::This`
+                // em todo lugar.
                 let mut body_stmts = body_stmts;
-                let trampoline_has_under_this = needs_this_slot.is_some();
-                if trampoline_has_under_this {
-                    revert_under_this_inside_arrows(&mut body_stmts);
-                }
-                self.lift_in_body_inner(
-                    class_name,
-                    &mut body_stmts,
-                    in_class,
-                    trampoline_has_under_this,
-                );
+                self.lift_in_body(class_name, &mut body_stmts, in_class);
 
                 self.new_fns.push(Item::Function(FunctionDecl {
                     name: syn_name.clone(),
@@ -339,7 +323,7 @@ impl LiftAcc {
                     // Pré-statement: `__cb_this_N = this;` (ou `= __this;` se
                     // estamos dentro de outro trampolim onde `this` original
                     // já foi renomeado).
-                    pre_stmts.push(make_slot_assign(&slot_name, this_is_under_this));
+                    pre_stmts.push(make_slot_assign(&slot_name));
                 }
 
                 *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
@@ -430,6 +414,10 @@ fn expr_uses_this(expr: &Expr) -> bool {
     use swc_ecma_ast::Expr::*;
     match expr {
         This(_) => true,
+        // `super.method(...)` e `super[...]` também precisam do contexto
+        // de classe — tratá-los como uso de `this` força o trampolim a
+        // virar `__class_C_lifted_arrow_N` (que popula current_class).
+        SuperProp(_) => true,
         Member(m) => expr_uses_this(&m.obj),
         Bin(b) => expr_uses_this(&b.left) || expr_uses_this(&b.right),
         Unary(u) => expr_uses_this(&u.arg),
@@ -446,10 +434,12 @@ fn expr_uses_this(expr: &Expr) -> bool {
             lhs || expr_uses_this(&a.right)
         }
         Call(c) => {
-            (match &c.callee {
+            let callee_uses = match &c.callee {
                 Callee::Expr(e) => expr_uses_this(e),
+                Callee::Super(_) => true,
                 _ => false,
-            }) || c.args.iter().any(|a| expr_uses_this(&a.expr))
+            };
+            callee_uses || c.args.iter().any(|a| expr_uses_this(&a.expr))
         }
         New(n) => n
             .args
@@ -480,12 +470,20 @@ fn arrow_body_to_stmts(arrow: &swc_ecma_ast::ArrowExpr) -> Vec<Stmt> {
     }
 }
 
-/// Reescreve `Expr::This` por `Ident("__this")` em todo o subtree de `s`.
+// NOTE: As funções `rewrite_*` e `revert_*` abaixo eram usadas pela
+// estratégia anterior (renomear `this`→`__this` no body do trampolim).
+// A estratégia atual usa nome mangled `__class_C_lifted_arrow_N` +
+// `let this: C = ...` no prólogo, então `this` permanece intacto.
+// Mantenho as funções marcadas como `#[allow(dead_code)]` por enquanto
+// — limpeza num commit separado quando o approach se mostrar estável.
+
+#[allow(dead_code)]
 fn rewrite_this_to_under_this(mut s: Stmt) -> Stmt {
     rewrite_stmt(&mut s);
     s
 }
 
+#[allow(dead_code)]
 fn rewrite_stmt(stmt: &mut Stmt) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
@@ -566,6 +564,7 @@ fn rewrite_stmt(stmt: &mut Stmt) {
     }
 }
 
+#[allow(dead_code)]
 fn rewrite_expr(expr: &mut Expr) {
     use swc_ecma_ast::Expr::*;
     // Substitui `this` por Ident("__this") in-place.
@@ -642,6 +641,7 @@ fn rewrite_expr(expr: &mut Expr) {
 /// from their own slot, so they need to start with `this` again.
 /// Statements outside arrows are left as is (the outer trampoline
 /// owns those and binds `__this` itself).
+#[allow(dead_code)]
 fn revert_under_this_inside_arrows(stmts: &mut [Statement]) {
     for s in stmts.iter_mut() {
         let Statement::Raw(raw) = s;
@@ -651,6 +651,7 @@ fn revert_under_this_inside_arrows(stmts: &mut [Statement]) {
     }
 }
 
+#[allow(dead_code)]
 fn revert_stmt_arrows(stmt: &mut Stmt) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
@@ -716,6 +717,7 @@ fn revert_stmt_arrows(stmt: &mut Stmt) {
     }
 }
 
+#[allow(dead_code)]
 fn revert_expr_arrows(expr: &mut Expr) {
     use swc_ecma_ast::Expr::*;
     match expr {
@@ -788,6 +790,7 @@ fn revert_expr_arrows(expr: &mut Expr) {
     }
 }
 
+#[allow(dead_code)]
 fn revert_under_this_in_stmt(stmt: &mut Stmt) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
@@ -853,6 +856,7 @@ fn revert_under_this_in_stmt(stmt: &mut Stmt) {
     }
 }
 
+#[allow(dead_code)]
 fn revert_under_this_in_expr(expr: &mut Expr) {
     use swc_ecma_ast::Expr::*;
     if let Ident(id) = expr {
@@ -935,7 +939,11 @@ fn revert_under_this_in_expr(expr: &mut Expr) {
     }
 }
 
-/// `let __this: ClassName = __cb_this_N;`
+/// `let this: ClassName = __cb_this_N;` — o nome do bind é `this`
+/// para que `read_local("this")` no codegen retorne o handle da
+/// instância. Combinado com o nome mangled `__class_C_lifted_arrow_N`
+/// (que faz `current_class = Some("C")`), `Expr::This` e
+/// `super.method()` funcionam normalmente dentro do trampolim.
 fn make_this_local(class_name: &str, slot_name: &str) -> Stmt {
     let cls_ann = TsType::TsTypeRef(TsTypeRef {
         span: Default::default(),
@@ -964,7 +972,7 @@ fn make_this_local(class_name: &str, slot_name: &str) -> Stmt {
                 id: swc_ecma_ast::Ident {
                     span: Default::default(),
                     ctxt: Default::default(),
-                    sym: "__this".into(),
+                    sym: "this".into(),
                     optional: false,
                 },
                 type_ann: Some(Box::new(swc_ecma_ast::TsTypeAnn {
@@ -979,22 +987,11 @@ fn make_this_local(class_name: &str, slot_name: &str) -> Stmt {
     Stmt::Decl(Decl::Var(Box::new(var)))
 }
 
-/// `__cb_this_N = this;` (ou `__cb_this_N = __this;` quando `under_this`
-/// — o callsite está dentro de um trampolim onde o `this` original foi
-/// renomeado para `__this`).
-fn make_slot_assign(slot_name: &str, under_this: bool) -> Statement {
-    let rhs: Expr = if under_this {
-        Expr::Ident(swc_ecma_ast::Ident {
-            span: Default::default(),
-            ctxt: Default::default(),
-            sym: "__this".into(),
-            optional: false,
-        })
-    } else {
-        Expr::This(swc_ecma_ast::ThisExpr {
-            span: Default::default(),
-        })
-    };
+/// `__cb_this_N = this;`
+fn make_slot_assign(slot_name: &str) -> Statement {
+    let rhs: Expr = Expr::This(swc_ecma_ast::ThisExpr {
+        span: Default::default(),
+    });
     let assign = Expr::Assign(swc_ecma_ast::AssignExpr {
         span: Default::default(),
         op: swc_ecma_ast::AssignOp::Assign,
@@ -1838,7 +1835,9 @@ fn extract_class_owner(fn_name: &str) -> Option<String> {
     // Variantes especiais com prefixo de papel: `<C>_get_<x>`,
     // `<C>_set_<x>`, `<C>_static_<x>`. Detecta o prefixo no resto e
     // pega tudo antes dele.
-    for marker in ["_get_", "_set_", "_static_"] {
+    // `_lifted_arrow_<n>` cobre os trampolins gerados pelo lifter
+    // para arrows que capturam `this` ou usam `super`.
+    for marker in ["_get_", "_set_", "_static_", "_lifted_arrow_"] {
         if let Some(idx) = rest.find(marker) {
             return Some(rest[..idx].to_string());
         }
