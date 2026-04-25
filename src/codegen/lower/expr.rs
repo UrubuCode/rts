@@ -1186,31 +1186,23 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return lower_ns_call(ctx, &qualified, call);
                 }
             }
-            // obj.method(args) com obj = ident local de classe conhecida
-            if let Expr::Ident(obj_id) = m.obj.as_ref() {
-                let obj_name = obj_id.sym.as_str();
-                if let Some(class_name) = ctx.local_class_ty.get(obj_name).cloned() {
-                    if let MemberProp::Ident(method_id) = &m.prop {
-                        let method_name = method_id.sym.as_str();
-                        return lower_class_method_call(
+            // <obj>.method(args) — generaliza dispatch via
+            // lhs_static_class. Cobre obj direto (ident/this) e
+            // sub-expressoes (this.field, makeV(), (a+b).m(), etc).
+            if let MemberProp::Ident(method_id) = &m.prop {
+                if let Some(class_name) = lhs_static_class(ctx, &m.obj) {
+                    let method_name = method_id.sym.as_str();
+                    if resolve_method_owner(ctx, &class_name, method_name).is_some() {
+                        let recv_tv = lower_expr(ctx, &m.obj)?;
+                        let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
+                        return lower_class_method_call_with_recv(
                             ctx,
                             &class_name,
                             method_name,
-                            obj_name,
+                            recv_i64,
                             call,
                         );
                     }
-                }
-            }
-            // this.method(args)
-            if matches!(m.obj.as_ref(), Expr::This(_)) {
-                if let MemberProp::Ident(method_id) = &m.prop {
-                    let method_name = method_id.sym.as_str();
-                    let class_name = ctx
-                        .current_class
-                        .clone()
-                        .ok_or_else(|| anyhow!("`this.method()` fora de classe"))?;
-                    return lower_class_method_call(ctx, &class_name, method_name, "this", call);
                 }
             }
         }
@@ -1391,20 +1383,6 @@ fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     }
     ctx.builder.ins().call(fref, &args);
     Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
-}
-
-fn lower_class_method_call(
-    ctx: &mut FnCtx,
-    class_name: &str,
-    method_name: &str,
-    receiver_local: &str,
-    call: &CallExpr,
-) -> Result<TypedVal> {
-    let recv = ctx
-        .read_local(receiver_local)
-        .ok_or_else(|| anyhow!("receiver `{receiver_local}` indisponivel"))?;
-    let recv_i64 = ctx.coerce_to_i64(recv).val;
-    lower_class_method_call_with_recv(ctx, class_name, method_name, recv_i64, call)
 }
 
 fn lower_class_method_call_with_recv(
