@@ -14,7 +14,8 @@ use cranelift_module::{DataDescription, Linkage, Module};
 use swc_ecma_ast::{Decl, Expr, Lit, Pat, Stmt, TsType, TsTypeRef};
 
 use crate::parser::ast::{
-    ClassDecl, ClassMember, FunctionDecl, Item, MemberModifiers, Parameter, Program, Statement,
+    ClassDecl, ClassMember, FunctionDecl, Item, MemberModifiers, MethodRole, Parameter, Program,
+    Statement,
 };
 
 use super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
@@ -499,6 +500,11 @@ fn compile_user_fn(
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
         builder.seal_block(entry);
+        // Force layout insertion para body vazio nao crashar Cranelift.
+        // Sem nenhum opcode/terminator, builder.finalize() pode deixar
+        // o entry block fora do layout, e remove_constant_phis explode
+        // em "entry block unknown".
+        builder.func.layout.append_block(entry);
 
         let mut fn_ctx = FnCtx::new(
             &mut builder,
@@ -558,10 +564,15 @@ fn compile_user_fn(
             }
         }
 
-        // If we did not hit a return, emit one.
+        // If we did not hit a return, emit one. Body vazio: o entry
+        // block precisa ter terminator obrigatorio para Cranelift.
         if !terminated && !fn_ctx.builder.is_unreachable() {
-            if info.ret.is_some() {
-                let zero = fn_ctx.builder.ins().iconst(cl::I64, 0);
+            if let Some(rt) = info.ret {
+                let zero = match rt {
+                    ValTy::F64 => fn_ctx.builder.ins().f64const(0.0),
+                    ValTy::I32 => fn_ctx.builder.ins().iconst(cl::I32, 0),
+                    _ => fn_ctx.builder.ins().iconst(cl::I64, 0),
+                };
                 fn_ctx.builder.ins().return_(&[zero]);
             } else {
                 fn_ctx.builder.ins().return_(&[]);
@@ -691,6 +702,10 @@ fn compile_main_entry_shim(
 /// Retorna o ClassMeta usado pelo codegen para resolver `new` e dispatch.
 fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut methods: Vec<String> = Vec::new();
+    let mut getters: Vec<String> = Vec::new();
+    let mut setters: Vec<String> = Vec::new();
+    let mut static_methods: Vec<String> = Vec::new();
+    let mut static_fields: Vec<String> = Vec::new();
     let mut fns: Vec<FunctionDecl> = Vec::new();
     let mut field_types: HashMap<String, ValTy> = HashMap::new();
     let mut field_class_names: HashMap<String, String> = HashMap::new();
@@ -700,9 +715,6 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         match member {
             ClassMember::Constructor(ctor) => {
                 has_constructor = true;
-                // Heuristica: parametros do constructor com nome igual a
-                // um field comum sao frequentemente atribuidos a `this.x`.
-                // Capturamos o tipo declarado para fallback.
                 for p in &ctor.parameters {
                     if let Some(ann) = p.type_annotation.as_deref() {
                         field_types
@@ -722,20 +734,46 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                 });
             }
             ClassMember::Method(method) => {
-                methods.push(method.name.clone());
-                let mut params = Vec::with_capacity(method.parameters.len() + 1);
-                params.push(this_param(method.span));
-                params.extend(method.parameters.iter().cloned());
-                fns.push(FunctionDecl {
-                    name: class_method_name(&class.name, &method.name),
-                    parameters: params,
-                    return_type: method.return_type.clone(),
-                    body: method.body.clone(),
-                    span: method.span,
-                });
+                if method.modifiers.is_static {
+                    static_methods.push(method.name.clone());
+                    fns.push(FunctionDecl {
+                        name: class_static_method_name(&class.name, &method.name),
+                        parameters: method.parameters.clone(),
+                        return_type: method.return_type.clone(),
+                        body: method.body.clone(),
+                        span: method.span,
+                    });
+                } else {
+                    let synth_name = match method.role {
+                        MethodRole::Getter => {
+                            getters.push(method.name.clone());
+                            class_getter_name(&class.name, &method.name)
+                        }
+                        MethodRole::Setter => {
+                            setters.push(method.name.clone());
+                            class_setter_name(&class.name, &method.name)
+                        }
+                        MethodRole::Method => {
+                            methods.push(method.name.clone());
+                            class_method_name(&class.name, &method.name)
+                        }
+                    };
+                    let mut params = Vec::with_capacity(method.parameters.len() + 1);
+                    params.push(this_param(method.span));
+                    params.extend(method.parameters.iter().cloned());
+                    fns.push(FunctionDecl {
+                        name: synth_name,
+                        parameters: params,
+                        return_type: method.return_type.clone(),
+                        body: method.body.clone(),
+                        span: method.span,
+                    });
+                }
             }
             ClassMember::Property(prop) => {
-                if let Some(ann) = prop.type_annotation.as_deref() {
+                if prop.modifiers.is_static {
+                    static_fields.push(prop.name.clone());
+                } else if let Some(ann) = prop.type_annotation.as_deref() {
                     let ann = ann.trim();
                     field_types.insert(prop.name.clone(), ValTy::from_annotation(ann));
                     field_class_names.insert(prop.name.clone(), ann.to_string());
@@ -750,6 +788,10 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         methods,
         field_types,
         field_class_names,
+        static_methods,
+        static_fields,
+        getters,
+        setters,
         has_constructor,
     };
     (meta, fns)
@@ -771,6 +813,18 @@ pub(super) fn class_init_name(class: &str) -> String {
 
 pub(super) fn class_method_name(class: &str, method: &str) -> String {
     format!("__class_{class}_{method}")
+}
+
+pub(super) fn class_static_method_name(class: &str, method: &str) -> String {
+    format!("__class_{class}_static_{method}")
+}
+
+pub(super) fn class_getter_name(class: &str, prop: &str) -> String {
+    format!("__class_{class}_get_{prop}")
+}
+
+pub(super) fn class_setter_name(class: &str, prop: &str) -> String {
+    format!("__class_{class}_set_{prop}")
 }
 
 /// Inverso de `class_init_name`/`class_method_name`: extrai o nome da

@@ -19,8 +19,8 @@ use crate::diagnostics::source_store::{self, FileId};
 
 use ast::{
     ClassDecl, ClassMember, ConstructorDecl, FieldDecl, FunctionDecl, ImportDecl, InterfaceDecl,
-    Item, MemberModifiers, MethodDecl, Parameter, Program, PropertyDecl, RawStmt, Statement,
-    Visibility,
+    Item, MemberModifiers, MethodDecl, MethodRole, Parameter, Program, PropertyDecl, RawStmt,
+    Statement, Visibility,
 };
 use span::{Position, Span};
 

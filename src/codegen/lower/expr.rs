@@ -18,6 +18,7 @@ use crate::abi::signature::lower_member;
 use crate::abi::types::AbiType;
 
 use super::ctx::{FnCtx, TypedVal, ValTy};
+use super::func::{class_getter_name, class_setter_name, class_static_method_name};
 
 /// Compiles a SWC expression and returns a typed Cranelift value.
 pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
@@ -120,6 +121,37 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
                 };
                 let rhs = lower_expr(ctx, &final_rhs_expr)?;
                 let rhs_i64 = ctx.coerce_to_i64(rhs).val;
+                // Setter: `obj.x = v` quando classe define `set x(v)` —
+                // chama __class_C_set_x(this, v) em vez de map_set.
+                if let MemberProp::Ident(id) = &m.prop {
+                    if let Some(cls) = lhs_static_class(ctx, &m.obj) {
+                        let prop_name = id.sym.as_str();
+                        if let Some(setter_owner) = resolve_setter_owner(ctx, &cls, prop_name) {
+                            let obj_tv = lower_expr(ctx, &m.obj)?;
+                            let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                            // Coerce rhs ao tipo do parametro do setter.
+                            let setter_fn_name = class_setter_name(&setter_owner, prop_name);
+                            let setter_abi = ctx
+                                .user_fns
+                                .get(&setter_fn_name)
+                                .ok_or_else(|| anyhow!("setter `{setter_fn_name}` nao registrada"))?
+                                .clone();
+                            let param_ty = setter_abi
+                                .params
+                                .get(1)
+                                .copied()
+                                .unwrap_or(ValTy::I64);
+                            let rhs_tv = TypedVal::new(rhs_i64, ValTy::I64);
+                            let coerced = match param_ty {
+                                ValTy::I32 => ctx.coerce_to_i32(rhs_tv).val,
+                                ValTy::F64 => to_f64(ctx, rhs_tv),
+                                _ => rhs_i64,
+                            };
+                            emit_named_method_call(ctx, &setter_fn_name, obj_h, &[coerced])?;
+                            return Ok(TypedVal::new(rhs_i64, ValTy::I64));
+                        }
+                    }
+                }
                 let obj_tv = lower_expr(ctx, &m.obj)?;
                 let obj_h = ctx.coerce_to_i64(obj_tv).val;
                 let set_fn = ctx.get_extern(
@@ -1218,13 +1250,24 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     // namespace do ABI. Quando `ns` e um local com classe estatica
     // conhecida, despacha para `__class_<C>_<method>`.
     if let Callee::Expr(callee) = &call.callee {
+        // super.method(args) — SWC representa como Expr::SuperProp.
+        if let Expr::SuperProp(sp) = callee.as_ref() {
+            return lower_super_method_call(ctx, sp, call);
+        }
         if let Expr::Member(m) = callee.as_ref() {
-            // super.method(args)
-            if matches!(m.obj.as_ref(), Expr::SuperProp(_)) {
-                return Err(anyhow!("super.method via SuperProp ainda nao suportado — use super(args) no constructor"));
-            }
-            if let Expr::SuperProp(sp) = m.obj.as_ref() {
-                let _ = sp;
+            // Static method: `C.method(args)` quando obj e ident de
+            // classe registrada e classe tem static_method com esse nome.
+            if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                let cn = obj_id.sym.as_str();
+                if let Some(meta) = ctx.classes.get(cn) {
+                    if let MemberProp::Ident(method_id) = &m.prop {
+                        let mn = method_id.sym.as_str();
+                        if meta.static_methods.iter().any(|m| m == mn) {
+                            let fn_name = class_static_method_name(cn, mn);
+                            return lower_user_call(ctx, &fn_name, call);
+                        }
+                    }
+                }
             }
             // Detecta `super.method(args)` (SWC representa como Member
             // com obj = Expr::Super... na verdade sao callees diferentes)
@@ -1328,6 +1371,70 @@ fn is_subclass_of(ctx: &FnCtx, child: &str, ancestor: &str) -> bool {
             Some(parent) => cur = parent.clone(),
             None => return false,
         }
+    }
+}
+
+/// Retorna a classe (na cadeia de heranca) que define um getter
+/// para `prop`. None se nenhum ancestral o define.
+fn resolve_getter_owner(ctx: &FnCtx, class: &str, prop: &str) -> Option<String> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if meta.getters.iter().any(|g| g == prop) {
+            return Some(cur);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
+/// Idem para setter.
+fn resolve_setter_owner(ctx: &FnCtx, class: &str, prop: &str) -> Option<String> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if meta.setters.iter().any(|s| s == prop) {
+            return Some(cur);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
+/// Chama uma user fn pelo nome ja mangled, com receiver direto.
+/// Usado por getter/setter dispatch.
+fn emit_named_method_call(
+    ctx: &mut FnCtx,
+    fn_name: &str,
+    recv_i64: cranelift_codegen::ir::Value,
+    arg_values: &[cranelift_codegen::ir::Value],
+) -> Result<TypedVal> {
+    let abi = ctx
+        .user_fns
+        .get(fn_name)
+        .ok_or_else(|| anyhow!("user fn `{fn_name}` nao registrada"))?
+        .clone();
+    let mangled: &'static str = Box::leak(format!("__user_{fn_name}").into_boxed_str());
+    let fn_id = *ctx
+        .extern_cache
+        .get(mangled)
+        .ok_or_else(|| anyhow!("mangled `{mangled}` nao registrado"))?;
+    let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+
+    let mut args = Vec::with_capacity(arg_values.len() + 1);
+    args.push(recv_i64);
+    args.extend_from_slice(arg_values);
+    let inst = ctx.builder.ins().call(fref, &args);
+    let results = ctx.builder.inst_results(inst);
+    if let Some(&v) = results.first() {
+        let ret_ty = abi.ret.unwrap_or(ValTy::I64);
+        Ok(TypedVal::new(v, ret_ty))
+    } else {
+        Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
     }
 }
 
@@ -1500,6 +1607,71 @@ fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     }
     ctx.builder.ins().call(fref, &args);
     Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
+}
+
+fn lower_super_method_call(
+    ctx: &mut FnCtx,
+    sp: &swc_ecma_ast::SuperPropExpr,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    let class_name = ctx
+        .current_class
+        .clone()
+        .ok_or_else(|| anyhow!("`super.method()` fora de metodo de classe"))?;
+    let parent = ctx
+        .classes
+        .get(&class_name)
+        .and_then(|m| m.super_class.clone())
+        .ok_or_else(|| anyhow!("`super.method()` em classe sem extends"))?;
+
+    let method_name = match &sp.prop {
+        swc_ecma_ast::SuperProp::Ident(id) => id.sym.as_str().to_string(),
+        swc_ecma_ast::SuperProp::Computed(_) => {
+            return Err(anyhow!("computed em super[expr]() nao suportado"));
+        }
+    };
+
+    let owner = resolve_method_owner(ctx, &parent, &method_name).ok_or_else(|| {
+        anyhow!(
+            "super.{method_name}() — metodo nao encontrado em ancestrais de `{class_name}`"
+        )
+    })?;
+
+    // Le `this` para usar como receiver do call estatico (sem
+    // dispatch virtual — super pula a virtual table propositalmente).
+    let this_val = ctx
+        .read_local("this")
+        .ok_or_else(|| anyhow!("`this` indisponivel em super.method()"))?;
+    let recv_i64 = ctx.coerce_to_i64(this_val).val;
+
+    let fn_name = format!("__class_{owner}_{method_name}");
+    let abi = ctx
+        .user_fns
+        .get(&fn_name)
+        .ok_or_else(|| anyhow!("metodo `{owner}.{method_name}` nao registrado"))?
+        .clone();
+    let expected = abi.params.len().saturating_sub(1);
+    if call.args.len() != expected {
+        return Err(anyhow!(
+            "super.{method_name}() espera {} argumento(s), recebeu {}",
+            expected,
+            call.args.len()
+        ));
+    }
+    let mut arg_values: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(expected);
+    for (a, expected_ty) in call.args.iter().zip(abi.params.iter().skip(1).copied()) {
+        if a.spread.is_some() {
+            return Err(anyhow!("spread em super.method() nao suportado"));
+        }
+        let tv = lower_expr(ctx, &a.expr)?;
+        let value = match expected_ty {
+            ValTy::I32 => ctx.coerce_to_i32(tv).val,
+            ValTy::F64 => to_f64(ctx, tv),
+            _ => ctx.coerce_to_i64(tv).val,
+        };
+        arg_values.push(value);
+    }
+    emit_method_call(ctx, &owner, &method_name, recv_i64, &arg_values)
 }
 
 fn lower_class_method_call_with_recv(
@@ -2226,11 +2398,25 @@ fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<Ty
     // Resolve a classe estatica do receiver (this ou local tipado), se
     // houver. Permite tipar o resultado de map_get conforme o field
     // declarado da classe (ex: `: string` retorna Handle).
-    let receiver_class: Option<String> = match m.obj.as_ref() {
-        Expr::This(_) => ctx.current_class.clone(),
-        Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
-        _ => None,
-    };
+    let receiver_class: Option<String> = lhs_static_class(ctx, &m.obj);
+
+    // Getter: `obj.x` quando classe define `get x()` — chama
+    // __class_C_get_x(this) em vez de map_get.
+    if let MemberProp::Ident(id) = &m.prop {
+        if let Some(cls) = receiver_class.as_deref() {
+            let prop_name = id.sym.as_str();
+            if let Some(getter_owner) = resolve_getter_owner(ctx, cls, prop_name) {
+                let recv_tv = lower_expr(ctx, &m.obj)?;
+                let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
+                return emit_named_method_call(
+                    ctx,
+                    &class_getter_name(&getter_owner, prop_name),
+                    recv_i64,
+                    &[],
+                );
+            }
+        }
+    }
 
     // Caso 2/3: runtime member access. obj precisa virar handle.
     let obj_tv = lower_expr(ctx, &m.obj)?;

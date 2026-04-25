@@ -33,6 +33,12 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
 
                 let body = lower_block_body(cm, method.function.body.as_ref());
 
+                let role = match method.kind {
+                    swc_ecma_ast::MethodKind::Method => MethodRole::Method,
+                    swc_ecma_ast::MethodKind::Getter => MethodRole::Getter,
+                    swc_ecma_ast::MethodKind::Setter => MethodRole::Setter,
+                };
+
                 members.push(ClassMember::Method(MethodDecl {
                     name,
                     modifiers: MemberModifiers {
@@ -47,6 +53,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         .as_ref()
                         .map(|annotation| normalize_type_annotation(cm, annotation)),
                     body,
+                    role,
                     span: convert_span(cm, method.span),
                 }));
             }
@@ -74,6 +81,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                         .as_ref()
                         .map(|annotation| normalize_type_annotation(cm, annotation)),
                     body,
+                    role: MethodRole::Method,
                     span: convert_span(cm, method.span),
                 }));
             }
