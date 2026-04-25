@@ -552,6 +552,22 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
         Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
+        // Encadeamento: `a + b - c`. Se `a + b` resolve a um overload
+        // de classe X que define `add` retornando X (assumido por
+        // convencao), entao o LHS do `- c` tambem e classe X.
+        // Sem type system mais completo, pressupomos que metodos de
+        // operador retornam a mesma classe do receiver — e o caso
+        // canonico em Rust e o que a infraestrutura suporta.
+        Expr::Bin(b) => {
+            if operator_method_name(b.op).is_none() {
+                return None;
+            }
+            let cls = lhs_static_class(ctx, &b.left)?;
+            // Confirma que o metodo existe na classe (cadeia de heranca).
+            let method = operator_method_name(b.op)?;
+            resolve_method_owner(ctx, &cls, method).map(|_| cls)
+        }
         _ => None,
     }
 }
@@ -567,29 +583,20 @@ fn try_operator_overload(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedV
         return Ok(None);
     }
 
-    // Reescreve `lhs OP rhs` como `lhs.method(rhs)` em CallExpr
-    // sintetica. Receiver e ident → permite reuso de
-    // lower_class_method_call sem materializar lhs como local extra.
-    let receiver_local = match bin.left.as_ref() {
-        Expr::This(_) => "this",
-        Expr::Ident(id) => {
-            // SAFETY: o ident foi consultado em local_class_ty pelo
-            // valor str; aqui usamos o mesmo str como nome do receiver.
-            id.sym.as_str()
-        }
-        _ => unreachable!("lhs_static_class so retorna Some para This/Ident"),
-    };
+    // Avalia LHS uma vez como handle e usa diretamente como receiver.
+    // Cobre casos onde LHS e uma sub-expressao (ex: `(a + b) - c`,
+    // `obj.field - x`), nao apenas ident/this.
+    let lhs_tv = lower_expr(ctx, &bin.left)?;
+    let recv_i64 = ctx.coerce_to_i64(lhs_tv).val;
 
     let synthetic_call = CallExpr {
         span: bin.span,
         ctxt: Default::default(),
-        callee: Callee::Expr(Box::new(Expr::Member(swc_ecma_ast::MemberExpr {
+        callee: Callee::Expr(Box::new(Expr::Ident(swc_ecma_ast::Ident {
             span: bin.span,
-            obj: bin.left.clone(),
-            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
-                span: bin.span,
-                sym: method.into(),
-            }),
+            ctxt: Default::default(),
+            sym: "__synthetic_method_callee".into(),
+            optional: false,
         }))),
         args: vec![swc_ecma_ast::ExprOrSpread {
             spread: None,
@@ -598,7 +605,7 @@ fn try_operator_overload(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedV
         type_args: None,
     };
 
-    let result = lower_class_method_call(ctx, &class_name, method, receiver_local, &synthetic_call)?;
+    let result = lower_class_method_call_with_recv(ctx, &class_name, method, recv_i64, &synthetic_call)?;
 
     // Para operadores de comparacao, normalizar para Bool i64.
     // Metodos podem retornar i32/i64; coerce + tag Bool para que
@@ -1345,6 +1352,20 @@ fn lower_class_method_call(
     receiver_local: &str,
     call: &CallExpr,
 ) -> Result<TypedVal> {
+    let recv = ctx
+        .read_local(receiver_local)
+        .ok_or_else(|| anyhow!("receiver `{receiver_local}` indisponivel"))?;
+    let recv_i64 = ctx.coerce_to_i64(recv).val;
+    lower_class_method_call_with_recv(ctx, class_name, method_name, recv_i64, call)
+}
+
+fn lower_class_method_call_with_recv(
+    ctx: &mut FnCtx,
+    class_name: &str,
+    method_name: &str,
+    recv_i64: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<TypedVal> {
     let owner = resolve_method_owner(ctx, class_name, method_name).ok_or_else(|| {
         anyhow!("metodo `{method_name}` nao encontrado em `{class_name}` ou ancestrais")
     })?;
@@ -1362,10 +1383,7 @@ fn lower_class_method_call(
         .ok_or_else(|| anyhow!("metodo mangled `{mangled}` faltando"))?;
     let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
 
-    let recv = ctx
-        .read_local(receiver_local)
-        .ok_or_else(|| anyhow!("receiver `{receiver_local}` indisponivel"))?;
-    let mut args = vec![ctx.coerce_to_i64(recv).val];
+    let mut args = vec![recv_i64];
     let expected = abi.params.len().saturating_sub(1);
     if call.args.len() != expected {
         return Err(anyhow!(
