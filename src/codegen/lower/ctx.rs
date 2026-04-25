@@ -147,6 +147,10 @@ pub struct FnCtx<'m, 'fb> {
     /// de classe — povoado quando a anotacao do bind e `: ClassName`.
     /// Permite dispatch estatico de `obj.method(...)`.
     pub local_class_ty: HashMap<String, String>,
+    /// Quando o local e array tipado `: ClassName[]`, guarda o nome
+    /// da classe dos elementos. Usado para inferir tipo de bind em
+    /// for-of e em `arr[i]`.
+    pub local_array_class_ty: HashMap<String, String>,
     /// Tipo estatico de globais module-scope que sao instancias de
     /// classe. Populado uma vez em compile_program e compartilhado
     /// entre todos os FnCtx — permite dispatch de overload em funcoes
@@ -200,6 +204,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             fn_class_returns,
             classes,
             local_class_ty: HashMap::new(),
+            local_array_class_ty: HashMap::new(),
             global_class_ty,
             current_class: None,
             module_scope,
