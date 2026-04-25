@@ -493,6 +493,33 @@ fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return Ok(TypedVal::new(val, ValTy::Handle));
     }
 
+    // String equality (#130): quando ambos os operandos sao Handle,
+    // comparar por conteudo via __RTS_FN_NS_GC_STRING_EQ. Sem este
+    // desvio, `==` compara handles u64 (sempre distintos para
+    // interneds diferentes).
+    if matches!(
+        bin.op,
+        BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq
+    ) && lhs.ty == ValTy::Handle
+        && rhs.ty == ValTy::Handle
+    {
+        let fref = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_EQ",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[lhs.val, rhs.val]);
+        let eq = ctx.builder.inst_results(inst)[0];
+        let result = if matches!(bin.op, BinaryOp::NotEq | BinaryOp::NotEqEq) {
+            // Inverte: 1 -> 0, 0 -> 1.
+            let one = ctx.builder.ins().iconst(cl::I64, 1);
+            ctx.builder.ins().bxor(eq, one)
+        } else {
+            eq
+        };
+        return Ok(TypedVal::new(result, ValTy::Bool));
+    }
+
     // Numeric: promote to common type
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs);
 

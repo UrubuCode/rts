@@ -37,6 +37,16 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
     },
     NamespaceMember {
+        name: "string_eq",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_STRING_EQ",
+        args: &[AbiType::Handle, AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Compara dois string handles por conteudo (memcmp). 1 se iguais, 0 caso contrario.",
+        ts_signature: "string_eq(a: number, b: number): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
         name: "string_from_static",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_GC_STRING_FROM_STATIC",
