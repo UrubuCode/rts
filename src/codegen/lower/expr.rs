@@ -1426,6 +1426,23 @@ fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
         }
         if let Some(qualified) = qualified_member_name(callee) {
+            // Se está no ABI, usa namespace call. Senão, tenta tratar
+            // como member access em objeto runtime + call_indirect
+            // (cobre namespace TS desugar pra const).
+            if lookup(&qualified).is_some() {
+                return lower_ns_call(ctx, &qualified, call);
+            }
+            // Fallback: \`obj.fn(...)\` onde obj é local/global e fn é
+            // valor i64 (func ptr). Lê via map_get e chama indireto.
+            if let Expr::Member(m) = callee.as_ref() {
+                if let MemberProp::Ident(method_id) = &m.prop {
+                    let method_name = method_id.sym.as_str();
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    let obj_handle = ctx.coerce_to_i64(obj_tv).val;
+                    let fn_ptr = map_get_static(ctx, obj_handle, method_name.as_bytes())?;
+                    return lower_indirect_call_with_value(ctx, fn_ptr.val, &call.args);
+                }
+            }
             return lower_ns_call(ctx, &qualified, call);
         }
         // Ident callee: prefer direct user-fn call; fall back to indirect
@@ -2358,6 +2375,41 @@ fn lower_indirect_call(
     }
 
     let inst = ctx.builder.ins().call_indirect(sig_ref, callee_val, &args);
+    let results = ctx.builder.inst_results(inst);
+    let v = results
+        .first()
+        .copied()
+        .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
+    Ok(TypedVal::new(v, ValTy::I64))
+}
+
+/// Como \`lower_indirect_call\` mas o func ptr já vem como Value (não Expr).
+/// Usado quando o callee foi extraído de \`obj.method\` via map_get.
+fn lower_indirect_call_with_value(
+    ctx: &mut FnCtx,
+    callee_val: cranelift_codegen::ir::Value,
+    args: &[swc_ecma_ast::ExprOrSpread],
+) -> Result<TypedVal> {
+    use cranelift_codegen::ir::{AbiParam, Signature};
+    use cranelift_codegen::isa::CallConv;
+
+    let mut sig = Signature::new(CallConv::Tail);
+    for _ in args {
+        sig.params.push(AbiParam::new(cl::I64));
+    }
+    sig.returns.push(AbiParam::new(cl::I64));
+    let sig_ref = ctx.builder.import_signature(sig);
+
+    let mut arg_vals: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(args.len());
+    for arg in args {
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in indirect call"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        arg_vals.push(ctx.coerce_to_i64(tv).val);
+    }
+
+    let inst = ctx.builder.ins().call_indirect(sig_ref, callee_val, &arg_vals);
     let results = ctx.builder.inst_results(inst);
     let v = results
         .first()
