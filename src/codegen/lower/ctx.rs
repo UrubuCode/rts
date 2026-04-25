@@ -127,6 +127,12 @@ pub struct ClassMeta {
     /// Nomes de fields marcados `readonly` — só podem ser atribuídos
     /// dentro do constructor. Reassign em outros métodos é erro.
     pub readonly_fields: std::collections::HashSet<String>,
+    /// `abstract class C` — não pode ser instanciada via `new C()`.
+    pub is_abstract: bool,
+    /// Nomes de métodos abstract declarados nesta classe (sem implementação).
+    /// Subclasses concretas devem implementar todos os abstract methods
+    /// herdados (incluindo de ancestrais).
+    pub abstract_methods: std::collections::HashSet<String>,
 }
 
 /// Per-function compilation context.

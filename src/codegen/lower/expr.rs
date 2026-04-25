@@ -1669,11 +1669,18 @@ fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedV
         Expr::Ident(id) => id.sym.as_str().to_string(),
         _ => return Err(anyhow!("`new` so suporta callee identifier (sem `new (expr)()`)")),
     };
-    let _meta = ctx
+    let meta = ctx
         .classes
         .get(&class_name)
         .ok_or_else(|| anyhow!("classe `{class_name}` nao declarada"))?
         .clone();
+
+    // Abstract classes não podem ser instanciadas.
+    if meta.is_abstract {
+        return Err(anyhow!(
+            "classe abstract `{class_name}` nao pode ser instanciada via `new`"
+        ));
+    }
 
     // Aloca map handle para a instancia.
     let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
