@@ -38,6 +38,36 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             }
         }
 
+        // Capture field types for object literals (used by enum string).
+        if let Some(init) = decl.init.as_ref() {
+            if let swc_ecma_ast::Expr::Object(obj) = init.as_ref() {
+                let mut field_types: std::collections::HashMap<String, ValTy> =
+                    std::collections::HashMap::new();
+                for prop in &obj.props {
+                    if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                        if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                            let key = match &kv.key {
+                                swc_ecma_ast::PropName::Ident(id) => id.sym.as_str().to_string(),
+                                swc_ecma_ast::PropName::Str(s) => {
+                                    s.value.to_string_lossy().to_string()
+                                }
+                                _ => continue,
+                            };
+                            // Strings literais armazenam Handle.
+                            if let swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) =
+                                kv.value.as_ref()
+                            {
+                                field_types.insert(key, ValTy::Handle);
+                            }
+                        }
+                    }
+                }
+                if !field_types.is_empty() {
+                    ctx.local_obj_field_types.insert(name.clone(), field_types);
+                }
+            }
+        }
+
         if !ctx.local_class_ty.contains_key(&name) {
             if let Some(init) = decl.init.as_ref() {
                 if let swc_ecma_ast::Expr::New(ne) = init.as_ref() {

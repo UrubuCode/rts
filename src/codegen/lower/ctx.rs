@@ -175,6 +175,10 @@ pub struct FnCtx<'m, 'fb> {
     /// da classe dos elementos. Usado para inferir tipo de bind em
     /// for-of e em `arr[i]`.
     pub local_array_class_ty: HashMap<String, String>,
+    /// Tipo dos campos de uma var que e object literal (ex: enum string,
+    /// `const E = { Red: "red" }`). Permite que `E.Red` retorne Handle
+    /// em vez de I64 anonimo.
+    pub local_obj_field_types: HashMap<String, HashMap<String, ValTy>>,
     /// Tipo estatico de globais module-scope que sao instancias de
     /// classe. Populado uma vez em compile_program e compartilhado
     /// entre todos os FnCtx — permite dispatch de overload em funcoes
@@ -238,6 +242,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             classes,
             local_class_ty: HashMap::new(),
             local_array_class_ty: HashMap::new(),
+            local_obj_field_types: HashMap::new(),
             global_class_ty,
             current_class: None,
             current_is_ctor: false,
