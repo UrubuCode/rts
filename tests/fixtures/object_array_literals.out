@@ -1,0 +1,10 @@
+vec_len=3
+nums[0]=10
+nums[2]=30
+point.x=1 point.y=2
+point["y"]=2
+sh.x=7 sh.y=8
+matrix[0][0]=1 matrix[1][1]=4
+objs[0].v=100
+objs[1].v=200
+data.items[1]=22
