@@ -124,6 +124,9 @@ pub struct ClassMeta {
     pub setters: Vec<String>,
     /// True quando a classe tem constructor proprio (mesmo se vazio).
     pub has_constructor: bool,
+    /// Nomes de fields marcados `readonly` — só podem ser atribuídos
+    /// dentro do constructor. Reassign em outros métodos é erro.
+    pub readonly_fields: std::collections::HashSet<String>,
 }
 
 /// Per-function compilation context.
@@ -169,6 +172,9 @@ pub struct FnCtx<'m, 'fb> {
     /// Nome da classe atualmente sendo lowered (quando dentro de um
     /// metodo ou constructor). Usado para resolver `super`.
     pub current_class: Option<String>,
+    /// True quando a função atual é um constructor de classe
+    /// (`__class_C__init`). Usado pra permitir assign em readonly fields.
+    pub current_is_ctor: bool,
     /// True when lowering top-level statements in `main`.
     pub module_scope: bool,
     /// Declared return type of the surrounding function, used to coerce
@@ -217,6 +223,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             local_array_class_ty: HashMap::new(),
             global_class_ty,
             current_class: None,
+            current_is_ctor: false,
             module_scope,
             return_ty: None,
             in_tail_position: false,

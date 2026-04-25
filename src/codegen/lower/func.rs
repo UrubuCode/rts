@@ -1518,6 +1518,12 @@ fn compile_user_fn(
         fn_ctx.return_ty = info.ret;
         fn_ctx.is_tail_conv = call_conv == CallConv::Tail;
         fn_ctx.current_class = current_class.clone();
+        // Detecta se a função é um constructor de classe pelo mangled name.
+        // Usado pra permitir assign em readonly fields.
+        fn_ctx.current_is_ctor = current_class
+            .as_ref()
+            .map(|c| fn_decl.name == class_init_name(c))
+            .unwrap_or(false);
         // Em metodos/constructors, o param `this` e instancia da classe
         // dona — populamos local_class_ty pra que `this.field`/dispatch
         // tipicos funcionem (e overload em `this.x + ...`).
@@ -1706,6 +1712,8 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut fns: Vec<FunctionDecl> = Vec::new();
     let mut field_types: HashMap<String, ValTy> = HashMap::new();
     let mut field_class_names: HashMap<String, String> = HashMap::new();
+    let mut readonly_fields: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     let mut has_constructor = false;
 
     // Coleta initializers de instância (`x = expr`) na ordem declarada.
@@ -1794,10 +1802,23 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
             ClassMember::Property(prop) => {
                 if prop.modifiers.is_static {
                     static_fields.push(prop.name.clone());
-                } else if let Some(ann) = prop.type_annotation.as_deref() {
-                    let ann = ann.trim();
-                    field_types.insert(prop.name.clone(), ValTy::from_annotation(ann));
-                    field_class_names.insert(prop.name.clone(), ann.to_string());
+                } else {
+                    if let Some(ann) = prop.type_annotation.as_deref() {
+                        let ann = ann.trim();
+                        field_types.insert(prop.name.clone(), ValTy::from_annotation(ann));
+                        field_class_names.insert(prop.name.clone(), ann.to_string());
+                    }
+                    if prop.modifiers.readonly {
+                        readonly_fields.insert(prop.name.clone());
+                    }
+                    // Private fields sem anotação ainda precisam ser
+                    // detectáveis na hierarquia para validação de escopo.
+                    // Garantimos uma entrada em field_types (default I64).
+                    if prop.name.starts_with('#')
+                        && !field_types.contains_key(&prop.name)
+                    {
+                        field_types.insert(prop.name.clone(), ValTy::I64);
+                    }
                 }
             }
         }
@@ -1838,6 +1859,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         getters,
         setters,
         has_constructor,
+        readonly_fields,
     };
     (meta, fns)
 }
