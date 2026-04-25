@@ -732,3 +732,18 @@ fn fixture_regex_find_at() {
 fn fixture_regex_replace() {
     run_fixture("regex_replace");
 }
+
+#[test]
+fn fixture_generator_basic() {
+    run_fixture("generator_basic");
+}
+
+#[test]
+fn fixture_generator_loop() {
+    run_fixture("generator_loop");
+}
+
+#[test]
+fn fixture_generator_conditional() {
+    run_fixture("generator_conditional");
+}

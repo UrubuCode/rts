@@ -190,15 +190,30 @@ fn lower_function(
         .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
         .collect::<Vec<_>>();
 
-    let body = lower_block_body(cm, function.body.as_ref());
+    let body = if function.is_generator {
+        let desugared = function
+            .body
+            .as_ref()
+            .map(|b| crate::parser::generator_desugar::desugar_generator_body(b));
+        lower_block_body(cm, desugared.as_ref())
+    } else {
+        lower_block_body(cm, function.body.as_ref())
+    };
+
+    let return_type = if function.is_generator {
+        // Generators sempre retornam Vec<i64> handle.
+        Some("i64".to_string())
+    } else {
+        function
+            .return_type
+            .as_ref()
+            .map(|annotation| normalize_type_annotation(cm, annotation))
+    };
 
     FunctionDecl {
         name: name.to_string(),
         parameters,
-        return_type: function
-            .return_type
-            .as_ref()
-            .map(|annotation| normalize_type_annotation(cm, annotation)),
+        return_type,
         body,
         span: convert_span(cm, span),
     }
