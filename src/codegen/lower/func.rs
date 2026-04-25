@@ -40,10 +40,6 @@ struct UserFn {
 /// the synthetic function. Runs before Phase 1 (declaration) so the lifted
 /// functions go through the normal declare → compile path.
 fn lift_arrow_callbacks(program: &mut Program) {
-    use crate::abi::AbiType;
-
-    let mut counter: u32 = 0;
-    let mut new_fns: Vec<Item> = Vec::new();
     let user_fn_names: HashSet<String> = program
         .items
         .iter()
@@ -52,104 +48,623 @@ fn lift_arrow_callbacks(program: &mut Program) {
             _ => None,
         })
         .collect();
-    let n = program.items.len();
 
-    for i in 0..n {
-        let Item::Statement(Statement::Raw(raw)) = &mut program.items[i] else { continue };
-        let Some(Stmt::Expr(expr_stmt)) = raw.stmt.as_mut() else { continue };
-        let Expr::Call(call) = expr_stmt.expr.as_mut() else { continue };
+    let mut acc = LiftAcc {
+        counter: 0,
+        new_fns: Vec::new(),
+        new_globals: Vec::new(),
+        user_fn_names,
+    };
 
-        // Extract owned ns/method names so the callee borrow ends before we
-        // mutate call.args below.
-        let ns_method = match &call.callee {
-            Callee::Expr(ce) => match ce.as_ref() {
-                Expr::Member(m) => match (m.obj.as_ref(), &m.prop) {
-                    (Expr::Ident(obj), MemberProp::Ident(prop)) => {
-                        Some((obj.sym.to_string(), prop.sym.to_string()))
-                    }
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        };
-        let Some((ns_name, method_name)) = ns_method else { continue };
-
-        let qualified = format!("{ns_name}.{method_name}");
-        let Some((_spec, member)) = crate::abi::lookup(&qualified) else { continue };
-
-        for (arg, &abi_ty) in call.args.iter_mut().zip(member.args.iter()) {
-            if abi_ty != AbiType::I64 { continue; }
-
-            let body_stmts: Vec<Statement> = match arg.expr.as_ref() {
-                Expr::Arrow(arrow) => match arrow.body.as_ref() {
-                    swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => block
-                        .stmts
-                        .iter()
-                        .map(|s| {
-                            Statement::Raw(
-                                RawStmt::new("<lifted>".to_string(), Span::default())
-                                    .with_stmt(s.clone()),
-                            )
-                        })
-                        .collect(),
-                    swc_ecma_ast::BlockStmtOrExpr::Expr(expr) => {
-                        let ret = Stmt::Return(swc_ecma_ast::ReturnStmt {
-                            span: Default::default(),
-                            arg: Some(expr.clone()),
-                        });
-                        vec![Statement::Raw(
-                            RawStmt::new("<lifted>".to_string(), Span::default())
-                                .with_stmt(ret),
-                        )]
-                    }
-                },
-                Expr::Ident(id) if user_fn_names.contains(id.sym.as_str()) => {
-                    // Also lift named function callbacks so UI receives a
-                    // C-ABI-compatible zero-arg wrapper function pointer.
-                    let call = Stmt::Expr(swc_ecma_ast::ExprStmt {
-                        span: id.span,
-                        expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
-                            span: id.span,
-                            ctxt: id.ctxt,
-                            callee: Callee::Expr(Box::new(Expr::Ident(id.clone()))),
-                            args: Vec::new(),
-                            type_args: None,
-                        })),
-                    });
-                    vec![Statement::Raw(
-                        RawStmt::new("<lifted>".to_string(), Span::default())
-                            .with_stmt(call),
-                    )]
+    // Pass 1: dentro de classes (constructors e métodos). Arrows que usam
+    // `this` viram trampolins que leem o handle de uma global escrita no
+    // callsite imediatamente antes do `widget_set_callback` (etc).
+    for item in program.items.iter_mut() {
+        let Item::Class(class) = item else { continue };
+        let class_name = class.name.clone();
+        for member in class.members.iter_mut() {
+            match member {
+                ClassMember::Constructor(ctor) => {
+                    acc.lift_in_body(&class_name, &mut ctor.body, /*in_class=*/ true);
                 }
-                _ => continue,
-            };
-
-            let syn_name = format!("__lifted_arrow_{counter}");
-            counter += 1;
-
-            new_fns.push(Item::Function(FunctionDecl {
-                name: syn_name.clone(),
-                parameters: Vec::new(),
-                return_type: Some("void".to_string()),
-                body: body_stmts,
-                span: Span::default(),
-            }));
-
-            *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
-                span: Default::default(),
-                ctxt: Default::default(),
-                sym: syn_name.into(),
-                optional: false,
-            });
+                ClassMember::Method(method) if !method.modifiers.is_static => {
+                    acc.lift_in_body(&class_name, &mut method.body, /*in_class=*/ true);
+                }
+                _ => {}
+            }
         }
     }
 
-    // Prepend lifted functions so Phase 1 declaration sees them before the
-    // top-level statements that reference them.
-    for fn_item in new_fns.into_iter().rev() {
+    // Pass 2: top-level (arrows em script). Sem `this`. Mantém comportamento
+    // anterior.
+    let n = program.items.len();
+    for i in 0..n {
+        let Item::Statement(Statement::Raw(_)) = &program.items[i] else { continue };
+        // Extrair temporariamente para evitar conflito de borrow.
+        let mut taken = std::mem::replace(
+            &mut program.items[i],
+            Item::Statement(Statement::Raw(RawStmt::new(String::new(), Span::default()))),
+        );
+        if let Item::Statement(Statement::Raw(raw)) = &mut taken {
+            // Empacota num Vec<Statement> de 1 elemento e reaproveita a
+            // varredura unificada.
+            let placeholder = std::mem::replace(
+                raw,
+                RawStmt::new(String::new(), Span::default()),
+            );
+            let mut body = vec![Statement::Raw(placeholder)];
+            acc.lift_in_body("", &mut body, /*in_class=*/ false);
+            // Reescreve o item top-level como o (possivelmente expandido) primeiro
+            // statement; pré-statements do callsite (escrita do slot) vão como
+            // Items adicionais a inserir.
+            // Esperamos que body tenha 1+ statements; o primeiro vira o slot do
+            // item original, o resto também vira items.
+            let mut iter = body.into_iter();
+            if let Some(first) = iter.next() {
+                program.items[i] = Item::Statement(first);
+                // Inserir os extras logo após. Coletamos num buffer e injetamos
+                // depois pra não bagunçar o índice da iteração.
+                for extra in iter {
+                    acc.new_fns.push(Item::Statement(extra));
+                }
+            }
+        }
+    }
+
+    // Globals dos slots `__cb_this_<id>` precisam ser declaradas top-level
+    // antes de `collect_module_globals` rodar.
+    let mut prepend: Vec<Item> = Vec::new();
+    for global_name in acc.new_globals.into_iter() {
+        // `let __cb_this_N: number = 0;`
+        let var = swc_ecma_ast::VarDecl {
+            span: Default::default(),
+            ctxt: Default::default(),
+            kind: swc_ecma_ast::VarDeclKind::Let,
+            declare: false,
+            decls: vec![swc_ecma_ast::VarDeclarator {
+                span: Default::default(),
+                name: Pat::Ident(swc_ecma_ast::BindingIdent {
+                    id: swc_ecma_ast::Ident {
+                        span: Default::default(),
+                        ctxt: Default::default(),
+                        sym: global_name.into(),
+                        optional: false,
+                    },
+                    type_ann: Some(Box::new(swc_ecma_ast::TsTypeAnn {
+                        span: Default::default(),
+                        type_ann: Box::new(TsType::TsTypeRef(TsTypeRef {
+                            span: Default::default(),
+                            type_name: swc_ecma_ast::TsEntityName::Ident(
+                                swc_ecma_ast::Ident {
+                                    span: Default::default(),
+                                    ctxt: Default::default(),
+                                    sym: "i64".into(),
+                                    optional: false,
+                                },
+                            ),
+                            type_params: None,
+                        })),
+                    })),
+                }),
+                init: Some(Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                    span: Default::default(),
+                    value: 0.0,
+                    raw: None,
+                })))),
+                definite: false,
+            }],
+        };
+        let stmt = Stmt::Decl(Decl::Var(Box::new(var)));
+        prepend.push(Item::Statement(Statement::Raw(
+            RawStmt::new("<cb-slot>".to_string(), Span::default()).with_stmt(stmt),
+        )));
+    }
+
+    // Funções lifted vão antes dos statements top-level pra fase 1 declará-las.
+    for fn_item in acc.new_fns.into_iter().rev() {
         program.items.insert(0, fn_item);
     }
+    for global_item in prepend.into_iter().rev() {
+        program.items.insert(0, global_item);
+    }
+
+}
+
+struct LiftAcc {
+    counter: u32,
+    new_fns: Vec<Item>,
+    /// Nomes de globais `__cb_this_N` a declarar como `let` top-level.
+    new_globals: Vec<String>,
+    user_fn_names: HashSet<String>,
+}
+
+impl LiftAcc {
+    /// Varre `body` em busca de chamadas a funções do namespace ABI cujo arg
+    /// I64 é um `ArrowExpr` ou `Ident` apontando pra user fn. Substitui in
+    /// place pelo `Ident` da fn lifted, e injeta statements/fns de suporte.
+    fn lift_in_body(&mut self, class_name: &str, body: &mut Vec<Statement>, in_class: bool) {
+        use crate::abi::AbiType;
+
+        let mut idx = 0usize;
+        while idx < body.len() {
+            // Pega CallExpr do statement atual, se houver. Coletamos as
+            // mutações separadas: substituições de args + statements a
+            // injetar antes deste.
+            let Statement::Raw(raw) = &mut body[idx];
+            let Some(Stmt::Expr(expr_stmt)) = raw.stmt.as_mut() else { idx += 1; continue };
+            let Expr::Call(call) = expr_stmt.expr.as_mut() else { idx += 1; continue };
+
+            let ns_method = match &call.callee {
+                Callee::Expr(ce) => match ce.as_ref() {
+                    Expr::Member(m) => match (m.obj.as_ref(), &m.prop) {
+                        (Expr::Ident(obj), MemberProp::Ident(prop)) => {
+                            Some((obj.sym.to_string(), prop.sym.to_string()))
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some((ns_name, method_name)) = ns_method else { idx += 1; continue };
+
+            let qualified = format!("{ns_name}.{method_name}");
+            let Some((_spec, member)) = crate::abi::lookup(&qualified) else { idx += 1; continue };
+
+            // `pre_stmts` sao statements a inserir antes do callsite (escrita
+            // do slot `__cb_this_N = this`).
+            let mut pre_stmts: Vec<Statement> = Vec::new();
+
+            for (arg, &abi_ty) in call.args.iter_mut().zip(member.args.iter()) {
+                if abi_ty != AbiType::I64 {
+                    continue;
+                }
+
+                // Decide qual variante:
+                //  (a) Arrow capturando `this` dentro de classe → trampolim
+                //      com slot global.
+                //  (b) Arrow simples (sem `this`) → lift comum.
+                //  (c) Ident apontando pra user fn → wrapper zero-arg.
+                let arrow_uses_this = if in_class {
+                    matches!(arg.expr.as_ref(), Expr::Arrow(arrow) if arrow_uses_this(arrow))
+                } else {
+                    false
+                };
+
+                let body_stmts: Vec<Statement>;
+                let mut needs_this_slot: Option<String> = None; // nome da global
+
+                match arg.expr.as_ref() {
+                    Expr::Arrow(arrow) if arrow_uses_this => {
+                        // Reescreve `this` → `__this` no corpo do arrow.
+                        let slot = format!("__cb_this_{}", self.counter);
+                        needs_this_slot = Some(slot.clone());
+                        let raw_stmts = arrow_body_to_stmts(arrow);
+                        let mut stmts: Vec<swc_ecma_ast::Stmt> =
+                            raw_stmts.into_iter().map(rewrite_this_to_under_this).collect();
+                        // Prefixa: `let __this: ClassName = __cb_this_N;`
+                        let prologue = make_this_local(class_name, &slot);
+                        stmts.insert(0, prologue);
+                        body_stmts = stmts
+                            .into_iter()
+                            .map(|s| {
+                                Statement::Raw(
+                                    RawStmt::new("<lifted>".to_string(), Span::default())
+                                        .with_stmt(s),
+                                )
+                            })
+                            .collect();
+                    }
+                    Expr::Arrow(arrow) => {
+                        let raw_stmts = arrow_body_to_stmts(arrow);
+                        body_stmts = raw_stmts
+                            .into_iter()
+                            .map(|s| {
+                                Statement::Raw(
+                                    RawStmt::new("<lifted>".to_string(), Span::default())
+                                        .with_stmt(s),
+                                )
+                            })
+                            .collect();
+                    }
+                    Expr::Ident(id) if self.user_fn_names.contains(id.sym.as_str()) => {
+                        let call_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+                            span: id.span,
+                            expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
+                                span: id.span,
+                                ctxt: id.ctxt,
+                                callee: Callee::Expr(Box::new(Expr::Ident(id.clone()))),
+                                args: Vec::new(),
+                                type_args: None,
+                            })),
+                        });
+                        body_stmts = vec![Statement::Raw(
+                            RawStmt::new("<lifted>".to_string(), Span::default())
+                                .with_stmt(call_stmt),
+                        )];
+                    }
+                    _ => continue,
+                };
+
+                let syn_name = format!("__lifted_arrow_{}", self.counter);
+                self.counter += 1;
+
+                self.new_fns.push(Item::Function(FunctionDecl {
+                    name: syn_name.clone(),
+                    parameters: Vec::new(),
+                    return_type: Some("void".to_string()),
+                    body: body_stmts,
+                    span: Span::default(),
+                }));
+
+                if let Some(slot_name) = needs_this_slot {
+                    self.new_globals.push(slot_name.clone());
+                    // Pré-statement: `__cb_this_N = this;`
+                    pre_stmts.push(make_slot_assign(&slot_name));
+                }
+
+                *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: syn_name.into(),
+                    optional: false,
+                });
+            }
+
+            // Injeta os pre_stmts antes do callsite atual.
+            let pre_count = pre_stmts.len();
+            if pre_count > 0 {
+                for (k, s) in pre_stmts.into_iter().enumerate() {
+                    body.insert(idx + k, s);
+                }
+                idx += pre_count;
+            }
+            idx += 1;
+        }
+    }
+}
+
+fn arrow_uses_this(arrow: &swc_ecma_ast::ArrowExpr) -> bool {
+    use swc_ecma_ast::BlockStmtOrExpr;
+    let mut found = false;
+    match arrow.body.as_ref() {
+        BlockStmtOrExpr::BlockStmt(block) => {
+            for s in &block.stmts {
+                if stmt_uses_this(s) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        BlockStmtOrExpr::Expr(expr) => {
+            found = expr_uses_this(expr);
+        }
+    }
+    found
+}
+
+fn stmt_uses_this(stmt: &Stmt) -> bool {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Expr(e) => expr_uses_this(&e.expr),
+        Return(r) => r.arg.as_deref().map_or(false, expr_uses_this),
+        If(i) => {
+            expr_uses_this(&i.test)
+                || stmt_uses_this(&i.cons)
+                || i.alt.as_deref().map_or(false, stmt_uses_this)
+        }
+        Block(b) => b.stmts.iter().any(stmt_uses_this),
+        While(w) => expr_uses_this(&w.test) || stmt_uses_this(&w.body),
+        DoWhile(w) => expr_uses_this(&w.test) || stmt_uses_this(&w.body),
+        For(f) => {
+            f.init.as_ref().map_or(false, |init| match init {
+                swc_ecma_ast::VarDeclOrExpr::Expr(e) => expr_uses_this(e),
+                swc_ecma_ast::VarDeclOrExpr::VarDecl(v) => v
+                    .decls
+                    .iter()
+                    .any(|d| d.init.as_deref().map_or(false, expr_uses_this)),
+            }) || f.test.as_deref().map_or(false, expr_uses_this)
+                || f.update.as_deref().map_or(false, expr_uses_this)
+                || stmt_uses_this(&f.body)
+        }
+        ForOf(f) => {
+            expr_uses_this(&f.right) || stmt_uses_this(&f.body)
+        }
+        Decl(swc_ecma_ast::Decl::Var(v)) => v
+            .decls
+            .iter()
+            .any(|d| d.init.as_deref().map_or(false, expr_uses_this)),
+        Try(t) => {
+            t.block.stmts.iter().any(stmt_uses_this)
+                || t.handler
+                    .as_ref()
+                    .map_or(false, |h| h.body.stmts.iter().any(stmt_uses_this))
+                || t.finalizer
+                    .as_ref()
+                    .map_or(false, |f| f.stmts.iter().any(stmt_uses_this))
+        }
+        _ => false,
+    }
+}
+
+fn expr_uses_this(expr: &Expr) -> bool {
+    use swc_ecma_ast::Expr::*;
+    match expr {
+        This(_) => true,
+        Member(m) => expr_uses_this(&m.obj),
+        Bin(b) => expr_uses_this(&b.left) || expr_uses_this(&b.right),
+        Unary(u) => expr_uses_this(&u.arg),
+        Update(u) => expr_uses_this(&u.arg),
+        Assign(a) => {
+            let lhs = match &a.left {
+                swc_ecma_ast::AssignTarget::Simple(s) => match s {
+                    swc_ecma_ast::SimpleAssignTarget::Ident(_) => false,
+                    swc_ecma_ast::SimpleAssignTarget::Member(m) => expr_uses_this(&m.obj),
+                    _ => false,
+                },
+                _ => false,
+            };
+            lhs || expr_uses_this(&a.right)
+        }
+        Call(c) => {
+            (match &c.callee {
+                Callee::Expr(e) => expr_uses_this(e),
+                _ => false,
+            }) || c.args.iter().any(|a| expr_uses_this(&a.expr))
+        }
+        New(n) => n
+            .args
+            .as_ref()
+            .map_or(false, |args| args.iter().any(|a| expr_uses_this(&a.expr))),
+        Cond(c) => expr_uses_this(&c.test) || expr_uses_this(&c.cons) || expr_uses_this(&c.alt),
+        Paren(p) => expr_uses_this(&p.expr),
+        Tpl(t) => t.exprs.iter().any(|e| expr_uses_this(e)),
+        Array(a) => a
+            .elems
+            .iter()
+            .any(|e| e.as_ref().map_or(false, |el| expr_uses_this(&el.expr))),
+        Seq(s) => s.exprs.iter().any(|e| expr_uses_this(e)),
+        _ => false,
+    }
+}
+
+fn arrow_body_to_stmts(arrow: &swc_ecma_ast::ArrowExpr) -> Vec<Stmt> {
+    use swc_ecma_ast::BlockStmtOrExpr;
+    match arrow.body.as_ref() {
+        BlockStmtOrExpr::BlockStmt(block) => block.stmts.clone(),
+        BlockStmtOrExpr::Expr(expr) => {
+            vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+                span: Default::default(),
+                arg: Some(expr.clone()),
+            })]
+        }
+    }
+}
+
+/// Reescreve `Expr::This` por `Ident("__this")` em todo o subtree de `s`.
+fn rewrite_this_to_under_this(mut s: Stmt) -> Stmt {
+    rewrite_stmt(&mut s);
+    s
+}
+
+fn rewrite_stmt(stmt: &mut Stmt) {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Expr(e) => rewrite_expr(&mut e.expr),
+        Return(r) => {
+            if let Some(a) = r.arg.as_deref_mut() {
+                rewrite_expr(a);
+            }
+        }
+        If(i) => {
+            rewrite_expr(&mut i.test);
+            rewrite_stmt(&mut i.cons);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                rewrite_stmt(alt);
+            }
+        }
+        Block(b) => {
+            for s in &mut b.stmts {
+                rewrite_stmt(s);
+            }
+        }
+        While(w) => {
+            rewrite_expr(&mut w.test);
+            rewrite_stmt(&mut w.body);
+        }
+        DoWhile(w) => {
+            rewrite_expr(&mut w.test);
+            rewrite_stmt(&mut w.body);
+        }
+        For(f) => {
+            if let Some(init) = f.init.as_mut() {
+                match init {
+                    swc_ecma_ast::VarDeclOrExpr::Expr(e) => rewrite_expr(e),
+                    swc_ecma_ast::VarDeclOrExpr::VarDecl(v) => {
+                        for d in &mut v.decls {
+                            if let Some(e) = d.init.as_deref_mut() {
+                                rewrite_expr(e);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(t) = f.test.as_deref_mut() {
+                rewrite_expr(t);
+            }
+            if let Some(u) = f.update.as_deref_mut() {
+                rewrite_expr(u);
+            }
+            rewrite_stmt(&mut f.body);
+        }
+        ForOf(f) => {
+            rewrite_expr(&mut f.right);
+            rewrite_stmt(&mut f.body);
+        }
+        Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in &mut v.decls {
+                if let Some(e) = d.init.as_deref_mut() {
+                    rewrite_expr(e);
+                }
+            }
+        }
+        Try(t) => {
+            for s in &mut t.block.stmts {
+                rewrite_stmt(s);
+            }
+            if let Some(h) = t.handler.as_mut() {
+                for s in &mut h.body.stmts {
+                    rewrite_stmt(s);
+                }
+            }
+            if let Some(f) = t.finalizer.as_mut() {
+                for s in &mut f.stmts {
+                    rewrite_stmt(s);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rewrite_expr(expr: &mut Expr) {
+    use swc_ecma_ast::Expr::*;
+    // Substitui `this` por Ident("__this") in-place.
+    if matches!(expr, This(_)) {
+        *expr = Expr::Ident(swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: "__this".into(),
+            optional: false,
+        });
+        return;
+    }
+    match expr {
+        Member(m) => rewrite_expr(&mut m.obj),
+        Bin(b) => {
+            rewrite_expr(&mut b.left);
+            rewrite_expr(&mut b.right);
+        }
+        Unary(u) => rewrite_expr(&mut u.arg),
+        Update(u) => rewrite_expr(&mut u.arg),
+        Assign(a) => {
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(m),
+            ) = &mut a.left
+            {
+                rewrite_expr(&mut m.obj);
+            }
+            rewrite_expr(&mut a.right);
+        }
+        Call(c) => {
+            if let Callee::Expr(e) = &mut c.callee {
+                rewrite_expr(e);
+            }
+            for a in &mut c.args {
+                rewrite_expr(&mut a.expr);
+            }
+        }
+        New(n) => {
+            if let Some(args) = n.args.as_mut() {
+                for a in args {
+                    rewrite_expr(&mut a.expr);
+                }
+            }
+        }
+        Cond(c) => {
+            rewrite_expr(&mut c.test);
+            rewrite_expr(&mut c.cons);
+            rewrite_expr(&mut c.alt);
+        }
+        Paren(p) => rewrite_expr(&mut p.expr),
+        Tpl(t) => {
+            for e in &mut t.exprs {
+                rewrite_expr(e);
+            }
+        }
+        Array(a) => {
+            for el in a.elems.iter_mut().flatten() {
+                rewrite_expr(&mut el.expr);
+            }
+        }
+        Seq(s) => {
+            for e in &mut s.exprs {
+                rewrite_expr(e);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `let __this: ClassName = __cb_this_N;`
+fn make_this_local(class_name: &str, slot_name: &str) -> Stmt {
+    let cls_ann = TsType::TsTypeRef(TsTypeRef {
+        span: Default::default(),
+        type_name: swc_ecma_ast::TsEntityName::Ident(swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: class_name.into(),
+            optional: false,
+        }),
+        type_params: None,
+    });
+    let init = Expr::Ident(swc_ecma_ast::Ident {
+        span: Default::default(),
+        ctxt: Default::default(),
+        sym: slot_name.into(),
+        optional: false,
+    });
+    let var = swc_ecma_ast::VarDecl {
+        span: Default::default(),
+        ctxt: Default::default(),
+        kind: swc_ecma_ast::VarDeclKind::Let,
+        declare: false,
+        decls: vec![swc_ecma_ast::VarDeclarator {
+            span: Default::default(),
+            name: Pat::Ident(swc_ecma_ast::BindingIdent {
+                id: swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: "__this".into(),
+                    optional: false,
+                },
+                type_ann: Some(Box::new(swc_ecma_ast::TsTypeAnn {
+                    span: Default::default(),
+                    type_ann: Box::new(cls_ann),
+                })),
+            }),
+            init: Some(Box::new(init)),
+            definite: false,
+        }],
+    };
+    Stmt::Decl(Decl::Var(Box::new(var)))
+}
+
+/// `__cb_this_N = this;`
+fn make_slot_assign(slot_name: &str) -> Statement {
+    let assign = Expr::Assign(swc_ecma_ast::AssignExpr {
+        span: Default::default(),
+        op: swc_ecma_ast::AssignOp::Assign,
+        left: swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(
+            swc_ecma_ast::BindingIdent {
+                id: swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: slot_name.into(),
+                    optional: false,
+                },
+                type_ann: None,
+            },
+        )),
+        right: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
+            span: Default::default(),
+        })),
+    });
+    let stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+        span: Default::default(),
+        expr: Box::new(assign),
+    });
+    Statement::Raw(RawStmt::new("<cb-slot-set>".to_string(), Span::default()).with_stmt(stmt))
 }
 
 /// Compiles the full program: user functions + top-level `main`.
