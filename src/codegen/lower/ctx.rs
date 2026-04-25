@@ -37,13 +37,48 @@ impl ValTy {
     }
 
     pub fn from_annotation(ann: &str) -> Self {
-        match ann.trim() {
-            "i32" | "I32" => ValTy::I32,
-            "f64" | "F64" | "number" => ValTy::F64,
-            "bool" | "boolean" => ValTy::Bool,
-            "string" | "str" => ValTy::Handle,
-            _ => ValTy::I64,
+        let trimmed = ann.trim();
+        match trimmed {
+            "i32" | "I32" => return ValTy::I32,
+            "f64" | "F64" | "number" => return ValTy::F64,
+            "bool" | "boolean" => return ValTy::Bool,
+            "string" | "str" => return ValTy::Handle,
+            _ => {}
         }
+        // Union types raw da source: tenta resolver para um tipo unico
+        // se todos os ramos sao do mesmo. Usa parsing textual simples.
+        if trimmed.contains('|') {
+            let parts: Vec<&str> = trimmed
+                .split('|')
+                .map(|s| s.trim().trim_start_matches('(').trim_end_matches(')').trim())
+                .filter(|s| !s.is_empty() && *s != "null" && *s != "undefined")
+                .collect();
+            if !parts.is_empty() {
+                let mut acc: Option<ValTy> = None;
+                for p in parts {
+                    // Cada parte: pode ser keyword, string literal "...",
+                    // numero literal, etc.
+                    let cur = if p.starts_with('"') && p.ends_with('"') {
+                        ValTy::Handle
+                    } else if p.starts_with('\'') && p.ends_with('\'') {
+                        ValTy::Handle
+                    } else if p.parse::<f64>().is_ok() {
+                        ValTy::I64
+                    } else {
+                        ValTy::from_annotation(p)
+                    };
+                    match acc {
+                        None => acc = Some(cur),
+                        Some(prev) if prev == cur => {}
+                        _ => return ValTy::I64,
+                    }
+                }
+                if let Some(t) = acc {
+                    return t;
+                }
+            }
+        }
+        ValTy::I64
     }
 
     pub fn from_abi(abi: AbiType) -> Self {

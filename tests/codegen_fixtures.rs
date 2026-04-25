@@ -817,3 +817,28 @@ fn fixture_enum_mixed() {
 fn fixture_enum_string_switch() {
     run_fixture("enum_string_switch");
 }
+
+#[test]
+fn fixture_union_string_literal() {
+    run_fixture("union_string_literal");
+}
+
+#[test]
+fn fixture_union_nullable_string() {
+    run_fixture("union_nullable_string");
+}
+
+#[test]
+fn fixture_union_status_codes() {
+    run_fixture("union_status_codes");
+}
+
+#[test]
+fn fixture_union_number_literal() {
+    run_fixture("union_number_literal");
+}
+
+#[test]
+fn fixture_intersection_extended() {
+    run_fixture("intersection_extended");
+}

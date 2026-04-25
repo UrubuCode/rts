@@ -2554,7 +2554,7 @@ fn infer_abi_member_ty(expr: &Expr) -> Option<ValTy> {
 }
 
 fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
-    use swc_ecma_ast::TsKeywordTypeKind;
+    use swc_ecma_ast::{TsKeywordTypeKind, TsLit, TsLitType, TsUnionOrIntersectionType};
 
     if let TsType::TsKeywordType(kw) = ty {
         return Some(match kw.kind {
@@ -2566,12 +2566,47 @@ fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
         });
     }
 
+    if let TsType::TsLitType(TsLitType { lit, .. }) = ty {
+        return Some(match lit {
+            TsLit::Str(_) | TsLit::Tpl(_) => ValTy::Handle,
+            TsLit::Number(_) => ValTy::I64,
+            TsLit::Bool(_) => ValTy::Bool,
+            TsLit::BigInt(_) => ValTy::I64,
+        });
+    }
+
     if let TsType::TsTypeRef(TsTypeRef { type_name, .. }) = ty {
         let name = match type_name {
             swc_ecma_ast::TsEntityName::Ident(id) => id.sym.as_str(),
             _ => return None,
         };
         return Some(ValTy::from_annotation(name));
+    }
+
+    if let TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(u)) = ty {
+        let mut acc: Option<ValTy> = None;
+        for member in &u.types {
+            if let TsType::TsKeywordType(k) = member.as_ref() {
+                if matches!(
+                    k.kind,
+                    TsKeywordTypeKind::TsNullKeyword
+                        | TsKeywordTypeKind::TsUndefinedKeyword
+                ) {
+                    continue;
+                }
+            }
+            let mt = ts_type_to_val_ty(member)?;
+            match acc {
+                None => acc = Some(mt),
+                Some(prev) if prev == mt => {}
+                _ => return None,
+            }
+        }
+        return acc;
+    }
+
+    if let TsType::TsParenthesizedType(p) = ty {
+        return ts_type_to_val_ty(&p.type_ann);
     }
 
     None
