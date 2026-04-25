@@ -68,7 +68,11 @@ fn transform_stmt(stmt: Stmt) -> Stmt {
     match stmt {
         Stmt::Expr(es) => {
             // Caso comum: `yield expr;` -> __gen_buf.push(expr);
+            // `yield* expr;` -> for (const __t of expr) __gen_buf.push(__t);
             if let Expr::Yield(y) = es.expr.as_ref() {
+                if y.delegate {
+                    return delegate_for_of(y.arg.as_deref().cloned(), es.span);
+                }
                 return push_call_stmt(y.arg.as_deref().cloned(), es.span);
             }
             Stmt::Expr(ExprStmt {
@@ -128,6 +132,41 @@ fn transform_expr(expr: Expr) -> Expr {
         return push_call_expr(y.arg.as_deref().cloned(), y.span);
     }
     expr
+}
+
+fn delegate_for_of(arg: Option<Expr>, span: swc_common::Span) -> Stmt {
+    let iter = arg.unwrap_or(Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+        span,
+        value: 0.0,
+        raw: None,
+    })));
+    let tmp = "__yt";
+    let var_decl = VarDecl {
+        span,
+        ctxt: Default::default(),
+        kind: VarDeclKind::Const,
+        declare: false,
+        decls: vec![VarDeclarator {
+            span,
+            name: Pat::Ident(Ident::new(tmp.into(), span, Default::default()).into()),
+            init: None,
+            definite: false,
+        }],
+    };
+    let body = Stmt::Expr(ExprStmt {
+        span,
+        expr: Box::new(push_call_expr(
+            Some(Expr::Ident(Ident::new(tmp.into(), span, Default::default()))),
+            span,
+        )),
+    });
+    Stmt::ForOf(swc_ecma_ast::ForOfStmt {
+        span,
+        is_await: false,
+        left: swc_ecma_ast::ForHead::VarDecl(Box::new(var_decl)),
+        right: Box::new(iter),
+        body: Box::new(body),
+    })
 }
 
 fn push_call_stmt(arg: Option<Expr>, span: swc_common::Span) -> Stmt {

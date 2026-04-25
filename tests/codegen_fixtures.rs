@@ -782,3 +782,13 @@ fn fixture_generator_override() {
 fn fixture_generator_super() {
     run_fixture("generator_super");
 }
+
+#[test]
+fn fixture_generator_static() {
+    run_fixture("generator_static");
+}
+
+#[test]
+fn fixture_generator_yield_star() {
+    run_fixture("generator_yield_star");
+}
