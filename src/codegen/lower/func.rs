@@ -1469,7 +1469,18 @@ fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
 /// use the platform default calling convention.
 #[inline]
 fn is_lifted_callback(name: &str) -> bool {
-    name.starts_with("__lifted_arrow_")
+    // Trampolins simples (sem captura de `this`): `__lifted_arrow_N`.
+    // Trampolins de classe (capturam `this`/`super`): `__class_C_lifted_arrow_N`.
+    // Ambos atravessam a fronteira C ABI quando invocados pelo FLTK.
+    if name.starts_with("__lifted_arrow_") {
+        return true;
+    }
+    if let Some(rest) = name.strip_prefix("__class_") {
+        if rest.contains("_lifted_arrow_") {
+            return true;
+        }
+    }
+    false
 }
 
 /// User-defined functions generally use the Tail calling convention so codegen
