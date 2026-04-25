@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 const TOOLCHAINS_ENV_VAR: &str = "RTS_TOOLCHAINS_PATH";
@@ -1058,8 +1058,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        discover_complete_windows_msvc_lib_paths, flavor_from_triple, xwin_arch_for_target,
-        TargetFlavor,
+        TargetFlavor, discover_complete_windows_msvc_lib_paths, flavor_from_triple,
+        xwin_arch_for_target,
     };
 
     #[test]

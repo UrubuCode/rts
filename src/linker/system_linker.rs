@@ -1,13 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
-use super::toolchain::{
-    ensure_windows_msvc_runtime_lib_paths, resolve_linker, ResolvedLinker, TargetFlavor,
-    TargetTriple, ToolchainLayout,
-};
 use super::WindowsSubsystem;
+use super::toolchain::{
+    ResolvedLinker, TargetFlavor, TargetTriple, ToolchainLayout,
+    ensure_windows_msvc_runtime_lib_paths, resolve_linker,
+};
 
 #[derive(Debug, Clone)]
 pub struct LinkedArtifact {

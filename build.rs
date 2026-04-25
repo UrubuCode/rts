@@ -5,10 +5,7 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
-    let entry = manifest
-        .join("src")
-        .join("namespaces")
-        .join("rt_all.rs");
+    let entry = manifest.join("src").join("namespaces").join("rt_all.rs");
 
     // Output name: rustc uses the crate name for staticlib output when -o is explicit.
     // We request a plain `.a`; on Windows rust-lld also accepts COFF `.a` archives.
@@ -29,20 +26,20 @@ fn main() {
 
     let mut cmd = Command::new(&rustc);
     cmd.args([
-            "--edition",
-            "2024",
-            "--crate-type",
-            "staticlib",
-            "--crate-name",
-            "rts_rt",
-            "-C",
-            "opt-level=3",
-            "-C",
-            "panic=abort",
-            "-o",
-            output.to_str().unwrap(),
-            entry.to_str().unwrap(),
-        ]);
+        "--edition",
+        "2024",
+        "--crate-type",
+        "staticlib",
+        "--crate-name",
+        "rts_rt",
+        "-C",
+        "opt-level=3",
+        "-C",
+        "panic=abort",
+        "-o",
+        output.to_str().unwrap(),
+        entry.to_str().unwrap(),
+    ]);
     cmd.arg("-L")
         .arg(format!("dependency={}", deps_dir.display()));
     cmd.arg("--extern")

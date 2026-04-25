@@ -94,7 +94,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "map_key_at(h: number, idx: number): number",
         intrinsic: None,
     },
-
     // ── Vec ───────────────────────────────────────────────────────────
     NamespaceMember {
         name: "vec_new",

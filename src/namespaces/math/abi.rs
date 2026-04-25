@@ -138,7 +138,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "abs_i64(x: number): number",
         intrinsic: Some(Intrinsic::AbsI64),
     },
-
     // ── Trig ──────────────────────────────────────────────────────────────
     NamespaceMember {
         name: "sin",
@@ -210,7 +209,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "atan2(y: number, x: number): number",
         intrinsic: None,
     },
-
     // ── Min / max / clamp ─────────────────────────────────────────────────
     NamespaceMember {
         name: "min_f64",
@@ -272,7 +270,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "clamp_i64(x: number, lo: number, hi: number): number",
         intrinsic: None,
     },
-
     // ── Random ────────────────────────────────────────────────────────────
     NamespaceMember {
         name: "random_f64",
@@ -304,7 +301,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "seed(s: number): void",
         intrinsic: None,
     },
-
     // ── Constants ─────────────────────────────────────────────────────────
     // Backed by zero-arg extern "C" fns in consts.rs; codegen resolves
     // bare `math.PI` (MemberExpr) into a direct call.

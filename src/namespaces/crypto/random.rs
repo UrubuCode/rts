@@ -1,6 +1,6 @@
 //! CSPRNG — /dev/urandom em Unix, BCryptGenRandom em Windows.
 
-use super::super::gc::handles::{table, Entry};
+use super::super::gc::handles::{Entry, table};
 
 // ── Windows ──────────────────────────────────────────────────────────
 #[cfg(target_os = "windows")]

@@ -1,6 +1,6 @@
 //! Vec<i64> — lista ordenada de valores i64.
 
-use super::super::gc::handles::{table, Entry};
+use super::super::gc::handles::{Entry, table};
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where

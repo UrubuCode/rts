@@ -88,11 +88,17 @@ impl FixedDecimal {
     pub fn to_string_decimal(&self) -> String {
         let mut out = String::new();
         let neg = self.sig < 0;
-        let abs: u128 = if neg { self.sig.unsigned_abs() } else { self.sig as u128 };
+        let abs: u128 = if neg {
+            self.sig.unsigned_abs()
+        } else {
+            self.sig as u128
+        };
         let scale = self.scale as usize;
         let s = abs.to_string();
         if scale == 0 {
-            if neg { out.push('-'); }
+            if neg {
+                out.push('-');
+            }
             out.push_str(&s);
             return out;
         }
@@ -272,7 +278,11 @@ fn i256_is_negative((hi, _): I256) -> bool {
 /// (caller's responsibility).
 fn i256_div(num: I256, den: i128) -> i128 {
     let neg = i256_is_negative(num) ^ (den < 0);
-    let abs_num = if i256_is_negative(num) { negate_i256(num) } else { num };
+    let abs_num = if i256_is_negative(num) {
+        negate_i256(num)
+    } else {
+        num
+    };
     let abs_den = den.unsigned_abs();
 
     // Shift-subtract long division: 256 bits over a 128-bit denominator.
@@ -342,11 +352,7 @@ mod tests {
         let two = FixedDecimal::from_str("2", 30).unwrap();
         let r = two.sqrt().unwrap();
         // Accept within 1e-25 against the ground truth.
-        let expected = FixedDecimal::from_str(
-            "1.414213562373095048801688724209",
-            30,
-        )
-        .unwrap();
+        let expected = FixedDecimal::from_str("1.414213562373095048801688724209", 30).unwrap();
         let diff = (r.sig - expected.sig).abs();
         assert!(diff < 1_000_000_000, "diff = {diff}");
     }

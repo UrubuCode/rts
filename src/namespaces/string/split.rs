@@ -39,7 +39,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_BYTE_LEN(ptr: *const u8, len: i64) -> i64 {
 /// Handle 0 se indice fora do range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_STRING_CHAR_AT(ptr: *const u8, len: i64, idx: i64) -> u64 {
-    let Some(s) = str_from_abi(ptr, len) else { return 0 };
+    let Some(s) = str_from_abi(ptr, len) else {
+        return 0;
+    };
     if idx < 0 {
         return 0;
     }
@@ -56,7 +58,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_CHAR_AT(ptr: *const u8, len: i64, idx: i64)
 /// Code point do char no indice; -1 se fora do range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_STRING_CHAR_CODE_AT(ptr: *const u8, len: i64, idx: i64) -> i64 {
-    let Some(s) = str_from_abi(ptr, len) else { return -1 };
+    let Some(s) = str_from_abi(ptr, len) else {
+        return -1;
+    };
     if idx < 0 {
         return -1;
     }

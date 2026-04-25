@@ -14,7 +14,9 @@ fn current_color() -> Color {
 }
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> &'a str {
-    if ptr.is_null() || len < 0 { return ""; }
+    if ptr.is_null() || len < 0 {
+        return "";
+    }
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
     std::str::from_utf8(bytes).unwrap_or("")
 }

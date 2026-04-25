@@ -44,7 +44,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "find(s: string, needle: string): number",
         intrinsic: None,
     },
-
     // ── Transform ─────────────────────────────────────────────────────
     NamespaceMember {
         name: "to_upper",
@@ -106,7 +105,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "repeat(s: string, n: number): string",
         intrinsic: None,
     },
-
     // ── Replace ───────────────────────────────────────────────────────
     NamespaceMember {
         name: "replace",
@@ -133,7 +131,6 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature: "replacen(s: string, from: string, to: string, n: number): string",
         intrinsic: None,
     },
-
     // ── Split / count / indexing ──────────────────────────────────────
     NamespaceMember {
         name: "char_count",

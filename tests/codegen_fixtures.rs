@@ -239,7 +239,6 @@ fn fixture_class_extras() {
     run_fixture("class_extras");
 }
 
-
 #[test]
 #[ignore = "requires a display; run manually with: cargo test fixture_ui_window -- --ignored"]
 fn fixture_ui_window() {
@@ -476,26 +475,17 @@ fn fixture_protected_modifier_basic() {
 
 #[test]
 fn fixture_private_modifier_err() {
-    run_fixture_expect_error(
-        "private_modifier_err",
-        "membro `secret` é private em `C`",
-    );
+    run_fixture_expect_error("private_modifier_err", "membro `secret` é private em `C`");
 }
 
 #[test]
 fn fixture_protected_modifier_err() {
-    run_fixture_expect_error(
-        "protected_modifier_err",
-        "membro `y` é protected em `Base`",
-    );
+    run_fixture_expect_error("protected_modifier_err", "membro `y` é protected em `Base`");
 }
 
 #[test]
 fn fixture_private_method_err() {
-    run_fixture_expect_error(
-        "private_method_err",
-        "membro `secret` é private em `C`",
-    );
+    run_fixture_expect_error("private_method_err", "membro `secret` é private em `C`");
 }
 
 #[test]

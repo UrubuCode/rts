@@ -8,7 +8,7 @@
 //! representacoes nativas. Out-of-bounds retorna 0 (para reads) ou
 //! vira no-op (para writes) — sem panics no boundary C.
 
-use super::super::gc::handles::{table, Entry};
+use super::super::gc::handles::{Entry, table};
 
 // Para o runtime staticlib, `super::super::gc` resolve para
 // `crate::gc` (sem `namespaces`). Para o crate rts principal, resolve

@@ -7,7 +7,9 @@ use fltk::{
 use super::store::{UiEntry, alloc_entry, call_fn_ptr, with_entry_mut};
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> &'a str {
-    if ptr.is_null() || len < 0 { return ""; }
+    if ptr.is_null() || len < 0 {
+        return "";
+    }
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
     std::str::from_utf8(bytes).unwrap_or("")
 }
@@ -34,8 +36,8 @@ pub extern "C" fn __RTS_FN_NS_UI_MENUBAR_ADD(
                 bar.add(&path, Shortcut::None, MenuFlag::Normal, |_| {});
             } else {
                 let fp = fn_ptr;
-                bar.add(&path, Shortcut::None, MenuFlag::Normal, move |_| {
-                    unsafe { call_fn_ptr(fp) }
+                bar.add(&path, Shortcut::None, MenuFlag::Normal, move |_| unsafe {
+                    call_fn_ptr(fp)
                 });
             }
         }

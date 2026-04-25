@@ -277,13 +277,11 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     /// is kept `pub` so the closure lowering work has a small surface to
     /// plug into.
     pub fn alloc_stack_slot(&mut self, size: u32, align_log2: u8) -> (StackSlot, Value) {
-        let slot = self
-            .builder
-            .create_sized_stack_slot(StackSlotData::new(
-                StackSlotKind::ExplicitSlot,
-                size,
-                align_log2,
-            ));
+        let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            size,
+            align_log2,
+        ));
         let ptr_ty = self.module.isa().pointer_type();
         let addr = self.builder.ins().stack_addr(ptr_ty, slot, 0);
         (slot, addr)
@@ -321,7 +319,11 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         let var = self.new_var(ty);
         self.builder.def_var(var, init);
         let slot = LocalVar { var, ty, is_const };
-        let idx = if function_scope { 0 } else { self.locals.len() - 1 };
+        let idx = if function_scope {
+            0
+        } else {
+            self.locals.len() - 1
+        };
         self.locals[idx].insert(name.to_string(), slot);
     }
 

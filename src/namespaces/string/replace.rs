@@ -26,7 +26,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE(
     to_ptr: *const u8,
     to_len: i64,
 ) -> u64 {
-    let Some(s) = str_from_abi(s_ptr, s_len) else { return 0 };
+    let Some(s) = str_from_abi(s_ptr, s_len) else {
+        return 0;
+    };
     let Some(from) = str_from_abi(from_ptr, from_len) else {
         return 0;
     };
@@ -46,7 +48,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACEN(
     to_len: i64,
     n: i64,
 ) -> u64 {
-    let Some(s) = str_from_abi(s_ptr, s_len) else { return 0 };
+    let Some(s) = str_from_abi(s_ptr, s_len) else {
+        return 0;
+    };
     let Some(from) = str_from_abi(from_ptr, from_len) else {
         return 0;
     };

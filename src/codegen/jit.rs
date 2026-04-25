@@ -56,8 +56,7 @@ fn build_jit_module() -> Result<JITModule> {
         .finish(flags)
         .map_err(|e| anyhow!("failed to finalise ISA: {e}"))?;
 
-    let mut jit_builder =
-        JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
     // Register every ABI member from `abi::SPECS`. Each member's symbol
     // resolves to the `#[no_mangle] extern "C"` definition in the runtime
@@ -105,10 +104,19 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_STRING_LEN", __RTS_FN_NS_GC_STRING_LEN);
     add_fn!("__RTS_FN_NS_GC_STRING_PTR", __RTS_FN_NS_GC_STRING_PTR);
     add_fn!("__RTS_FN_NS_GC_STRING_FREE", __RTS_FN_NS_GC_STRING_FREE);
-    add_fn!("__RTS_FN_NS_GC_STRING_FROM_I64", __RTS_FN_NS_GC_STRING_FROM_I64);
-    add_fn!("__RTS_FN_NS_GC_STRING_FROM_F64", __RTS_FN_NS_GC_STRING_FROM_F64);
+    add_fn!(
+        "__RTS_FN_NS_GC_STRING_FROM_I64",
+        __RTS_FN_NS_GC_STRING_FROM_I64
+    );
+    add_fn!(
+        "__RTS_FN_NS_GC_STRING_FROM_F64",
+        __RTS_FN_NS_GC_STRING_FROM_F64
+    );
     add_fn!("__RTS_FN_NS_GC_STRING_CONCAT", __RTS_FN_NS_GC_STRING_CONCAT);
-    add_fn!("__RTS_FN_NS_GC_STRING_FROM_STATIC", __RTS_FN_NS_GC_STRING_FROM_STATIC);
+    add_fn!(
+        "__RTS_FN_NS_GC_STRING_FROM_STATIC",
+        __RTS_FN_NS_GC_STRING_FROM_STATIC
+    );
     add_fn!("__RTS_FN_NS_GC_STRING_EQ", __RTS_FN_NS_GC_STRING_EQ);
 
     // ── namespaces::io ────────────────────────────────────────────────
@@ -123,7 +131,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_IO_STDERR_WRITE", __RTS_FN_NS_IO_STDERR_WRITE);
     add_fn!("__RTS_FN_NS_IO_STDERR_FLUSH", __RTS_FN_NS_IO_STDERR_FLUSH);
     add_fn!("__RTS_FN_NS_IO_STDIN_READ", __RTS_FN_NS_IO_STDIN_READ);
-    add_fn!("__RTS_FN_NS_IO_STDIN_READ_LINE", __RTS_FN_NS_IO_STDIN_READ_LINE);
+    add_fn!(
+        "__RTS_FN_NS_IO_STDIN_READ_LINE",
+        __RTS_FN_NS_IO_STDIN_READ_LINE
+    );
 
     // ── namespaces::fs ────────────────────────────────────────────────
     use crate::namespaces::fs::*;
@@ -135,12 +146,24 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_FS_IS_FILE", metadata::__RTS_FN_NS_FS_IS_FILE);
     add_fn!("__RTS_FN_NS_FS_IS_DIR", metadata::__RTS_FN_NS_FS_IS_DIR);
     add_fn!("__RTS_FN_NS_FS_SIZE", metadata::__RTS_FN_NS_FS_SIZE);
-    add_fn!("__RTS_FN_NS_FS_MODIFIED_MS", metadata::__RTS_FN_NS_FS_MODIFIED_MS);
+    add_fn!(
+        "__RTS_FN_NS_FS_MODIFIED_MS",
+        metadata::__RTS_FN_NS_FS_MODIFIED_MS
+    );
     add_fn!("__RTS_FN_NS_FS_CREATE_DIR", dir::__RTS_FN_NS_FS_CREATE_DIR);
-    add_fn!("__RTS_FN_NS_FS_CREATE_DIR_ALL", dir::__RTS_FN_NS_FS_CREATE_DIR_ALL);
+    add_fn!(
+        "__RTS_FN_NS_FS_CREATE_DIR_ALL",
+        dir::__RTS_FN_NS_FS_CREATE_DIR_ALL
+    );
     add_fn!("__RTS_FN_NS_FS_REMOVE_DIR", dir::__RTS_FN_NS_FS_REMOVE_DIR);
-    add_fn!("__RTS_FN_NS_FS_REMOVE_DIR_ALL", dir::__RTS_FN_NS_FS_REMOVE_DIR_ALL);
-    add_fn!("__RTS_FN_NS_FS_REMOVE_FILE", ops::__RTS_FN_NS_FS_REMOVE_FILE);
+    add_fn!(
+        "__RTS_FN_NS_FS_REMOVE_DIR_ALL",
+        dir::__RTS_FN_NS_FS_REMOVE_DIR_ALL
+    );
+    add_fn!(
+        "__RTS_FN_NS_FS_REMOVE_FILE",
+        ops::__RTS_FN_NS_FS_REMOVE_FILE
+    );
     add_fn!("__RTS_FN_NS_FS_RENAME", ops::__RTS_FN_NS_FS_RENAME);
     add_fn!("__RTS_FN_NS_FS_COPY", ops::__RTS_FN_NS_FS_COPY);
 
@@ -170,74 +193,185 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_MAX_F64", minmax::__RTS_FN_NS_MATH_MAX_F64);
     add_fn!("__RTS_FN_NS_MATH_MIN_I64", minmax::__RTS_FN_NS_MATH_MIN_I64);
     add_fn!("__RTS_FN_NS_MATH_MAX_I64", minmax::__RTS_FN_NS_MATH_MAX_I64);
-    add_fn!("__RTS_FN_NS_MATH_CLAMP_F64", minmax::__RTS_FN_NS_MATH_CLAMP_F64);
-    add_fn!("__RTS_FN_NS_MATH_CLAMP_I64", minmax::__RTS_FN_NS_MATH_CLAMP_I64);
-    add_fn!("__RTS_FN_NS_MATH_RANDOM_F64", random::__RTS_FN_NS_MATH_RANDOM_F64);
-    add_fn!("__RTS_FN_NS_MATH_RANDOM_I64_RANGE", random::__RTS_FN_NS_MATH_RANDOM_I64_RANGE);
+    add_fn!(
+        "__RTS_FN_NS_MATH_CLAMP_F64",
+        minmax::__RTS_FN_NS_MATH_CLAMP_F64
+    );
+    add_fn!(
+        "__RTS_FN_NS_MATH_CLAMP_I64",
+        minmax::__RTS_FN_NS_MATH_CLAMP_I64
+    );
+    add_fn!(
+        "__RTS_FN_NS_MATH_RANDOM_F64",
+        random::__RTS_FN_NS_MATH_RANDOM_F64
+    );
+    add_fn!(
+        "__RTS_FN_NS_MATH_RANDOM_I64_RANGE",
+        random::__RTS_FN_NS_MATH_RANDOM_I64_RANGE
+    );
     add_fn!("__RTS_FN_NS_MATH_SEED", random::__RTS_FN_NS_MATH_SEED);
     add_fn!("__RTS_FN_NS_MATH_PI", consts::__RTS_FN_NS_MATH_PI);
     add_fn!("__RTS_FN_NS_MATH_E", consts::__RTS_FN_NS_MATH_E);
-    add_fn!("__RTS_FN_NS_MATH_INFINITY", consts::__RTS_FN_NS_MATH_INFINITY);
+    add_fn!(
+        "__RTS_FN_NS_MATH_INFINITY",
+        consts::__RTS_FN_NS_MATH_INFINITY
+    );
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
     // ── namespaces::crypto ────────────────────────────────────────────
     {
         use crate::namespaces::crypto::*;
-        add_fn!("__RTS_FN_NS_CRYPTO_RANDOM_BYTES", random::__RTS_FN_NS_CRYPTO_RANDOM_BYTES);
-        add_fn!("__RTS_FN_NS_CRYPTO_RANDOM_I64", random::__RTS_FN_NS_CRYPTO_RANDOM_I64);
-        add_fn!("__RTS_FN_NS_CRYPTO_RANDOM_BUFFER", random::__RTS_FN_NS_CRYPTO_RANDOM_BUFFER);
-        add_fn!("__RTS_FN_NS_CRYPTO_SHA256_STR", hash::__RTS_FN_NS_CRYPTO_SHA256_STR);
-        add_fn!("__RTS_FN_NS_CRYPTO_SHA256_BYTES", hash::__RTS_FN_NS_CRYPTO_SHA256_BYTES);
-        add_fn!("__RTS_FN_NS_CRYPTO_HEX_ENCODE", encode::__RTS_FN_NS_CRYPTO_HEX_ENCODE);
-        add_fn!("__RTS_FN_NS_CRYPTO_HEX_DECODE", encode::__RTS_FN_NS_CRYPTO_HEX_DECODE);
-        add_fn!("__RTS_FN_NS_CRYPTO_BASE64_ENCODE", encode::__RTS_FN_NS_CRYPTO_BASE64_ENCODE);
-        add_fn!("__RTS_FN_NS_CRYPTO_BASE64_DECODE", encode::__RTS_FN_NS_CRYPTO_BASE64_DECODE);
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_RANDOM_BYTES",
+            random::__RTS_FN_NS_CRYPTO_RANDOM_BYTES
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_RANDOM_I64",
+            random::__RTS_FN_NS_CRYPTO_RANDOM_I64
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_RANDOM_BUFFER",
+            random::__RTS_FN_NS_CRYPTO_RANDOM_BUFFER
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_SHA256_STR",
+            hash::__RTS_FN_NS_CRYPTO_SHA256_STR
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_SHA256_BYTES",
+            hash::__RTS_FN_NS_CRYPTO_SHA256_BYTES
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_HEX_ENCODE",
+            encode::__RTS_FN_NS_CRYPTO_HEX_ENCODE
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_HEX_DECODE",
+            encode::__RTS_FN_NS_CRYPTO_HEX_DECODE
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_BASE64_ENCODE",
+            encode::__RTS_FN_NS_CRYPTO_BASE64_ENCODE
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_BASE64_DECODE",
+            encode::__RTS_FN_NS_CRYPTO_BASE64_DECODE
+        );
     }
 
     // ── namespaces::fmt ───────────────────────────────────────────────
     {
         use crate::namespaces::fmt::*;
-        add_fn!("__RTS_FN_NS_FMT_PARSE_I64", parse::__RTS_FN_NS_FMT_PARSE_I64);
-        add_fn!("__RTS_FN_NS_FMT_PARSE_F64", parse::__RTS_FN_NS_FMT_PARSE_F64);
-        add_fn!("__RTS_FN_NS_FMT_PARSE_BOOL", parse::__RTS_FN_NS_FMT_PARSE_BOOL);
+        add_fn!(
+            "__RTS_FN_NS_FMT_PARSE_I64",
+            parse::__RTS_FN_NS_FMT_PARSE_I64
+        );
+        add_fn!(
+            "__RTS_FN_NS_FMT_PARSE_F64",
+            parse::__RTS_FN_NS_FMT_PARSE_F64
+        );
+        add_fn!(
+            "__RTS_FN_NS_FMT_PARSE_BOOL",
+            parse::__RTS_FN_NS_FMT_PARSE_BOOL
+        );
         add_fn!("__RTS_FN_NS_FMT_FMT_I64", format::__RTS_FN_NS_FMT_FMT_I64);
         add_fn!("__RTS_FN_NS_FMT_FMT_F64", format::__RTS_FN_NS_FMT_FMT_F64);
         add_fn!("__RTS_FN_NS_FMT_FMT_BOOL", format::__RTS_FN_NS_FMT_FMT_BOOL);
         add_fn!("__RTS_FN_NS_FMT_FMT_HEX", format::__RTS_FN_NS_FMT_FMT_HEX);
         add_fn!("__RTS_FN_NS_FMT_FMT_BIN", format::__RTS_FN_NS_FMT_FMT_BIN);
         add_fn!("__RTS_FN_NS_FMT_FMT_OCT", format::__RTS_FN_NS_FMT_FMT_OCT);
-        add_fn!("__RTS_FN_NS_FMT_FMT_F64_PREC", format::__RTS_FN_NS_FMT_FMT_F64_PREC);
+        add_fn!(
+            "__RTS_FN_NS_FMT_FMT_F64_PREC",
+            format::__RTS_FN_NS_FMT_FMT_F64_PREC
+        );
     }
 
     // ── namespaces::hash ──────────────────────────────────────────────
     {
         use crate::namespaces::hash::ops as h;
         add_fn!("__RTS_FN_NS_HASH_HASH_STR", h::__RTS_FN_NS_HASH_HASH_STR);
-        add_fn!("__RTS_FN_NS_HASH_HASH_BYTES", h::__RTS_FN_NS_HASH_HASH_BYTES);
+        add_fn!(
+            "__RTS_FN_NS_HASH_HASH_BYTES",
+            h::__RTS_FN_NS_HASH_HASH_BYTES
+        );
         add_fn!("__RTS_FN_NS_HASH_HASH_I64", h::__RTS_FN_NS_HASH_HASH_I64);
-        add_fn!("__RTS_FN_NS_HASH_HASH_COMBINE", h::__RTS_FN_NS_HASH_HASH_COMBINE);
+        add_fn!(
+            "__RTS_FN_NS_HASH_HASH_COMBINE",
+            h::__RTS_FN_NS_HASH_HASH_COMBINE
+        );
     }
 
     // ── namespaces::collections ───────────────────────────────────────
     {
         use crate::namespaces::collections::*;
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_NEW", map::__RTS_FN_NS_COLLECTIONS_MAP_NEW);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_FREE", map::__RTS_FN_NS_COLLECTIONS_MAP_FREE);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_LEN", map::__RTS_FN_NS_COLLECTIONS_MAP_LEN);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_HAS", map::__RTS_FN_NS_COLLECTIONS_MAP_HAS);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_GET", map::__RTS_FN_NS_COLLECTIONS_MAP_GET);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_SET", map::__RTS_FN_NS_COLLECTIONS_MAP_SET);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_DELETE", map::__RTS_FN_NS_COLLECTIONS_MAP_DELETE);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_CLEAR", map::__RTS_FN_NS_COLLECTIONS_MAP_CLEAR);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT", map::__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_NEW", vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_FREE", vec::__RTS_FN_NS_COLLECTIONS_VEC_FREE);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_LEN", vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_POP", vec::__RTS_FN_NS_COLLECTIONS_VEC_POP);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_GET", vec::__RTS_FN_NS_COLLECTIONS_VEC_GET);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_SET", vec::__RTS_FN_NS_COLLECTIONS_VEC_SET);
-        add_fn!("__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", vec::__RTS_FN_NS_COLLECTIONS_VEC_CLEAR);
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_FREE",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_FREE
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_LEN",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_LEN
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_HAS",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_HAS
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GET
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_SET
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_DELETE",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_DELETE
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_CLEAR
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FREE",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FREE
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_POP",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_POP
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_GET
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_SET
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_CLEAR",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_CLEAR
+        );
     }
 
     // ── namespaces::os ────────────────────────────────────────────────
@@ -259,68 +393,170 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROCESS_EXIT", exit::__RTS_FN_NS_PROCESS_EXIT);
         add_fn!("__RTS_FN_NS_PROCESS_ABORT", exit::__RTS_FN_NS_PROCESS_ABORT);
         add_fn!("__RTS_FN_NS_PROCESS_PID", info::__RTS_FN_NS_PROCESS_PID);
-        add_fn!("__RTS_FN_NS_PROCESS_ARGS_COUNT", info::__RTS_FN_NS_PROCESS_ARGS_COUNT);
-        add_fn!("__RTS_FN_NS_PROCESS_ARG_AT", info::__RTS_FN_NS_PROCESS_ARG_AT);
-        add_fn!("__RTS_FN_NS_PROCESS_SPAWN", spawn::__RTS_FN_NS_PROCESS_SPAWN);
+        add_fn!(
+            "__RTS_FN_NS_PROCESS_ARGS_COUNT",
+            info::__RTS_FN_NS_PROCESS_ARGS_COUNT
+        );
+        add_fn!(
+            "__RTS_FN_NS_PROCESS_ARG_AT",
+            info::__RTS_FN_NS_PROCESS_ARG_AT
+        );
+        add_fn!(
+            "__RTS_FN_NS_PROCESS_SPAWN",
+            spawn::__RTS_FN_NS_PROCESS_SPAWN
+        );
         add_fn!("__RTS_FN_NS_PROCESS_WAIT", spawn::__RTS_FN_NS_PROCESS_WAIT);
         add_fn!("__RTS_FN_NS_PROCESS_KILL", spawn::__RTS_FN_NS_PROCESS_KILL);
     }
 
     // ── namespaces::string ────────────────────────────────────────────
     use crate::namespaces::string::*;
-    add_fn!("__RTS_FN_NS_STRING_CONTAINS", search::__RTS_FN_NS_STRING_CONTAINS);
-    add_fn!("__RTS_FN_NS_STRING_STARTS_WITH", search::__RTS_FN_NS_STRING_STARTS_WITH);
-    add_fn!("__RTS_FN_NS_STRING_ENDS_WITH", search::__RTS_FN_NS_STRING_ENDS_WITH);
+    add_fn!(
+        "__RTS_FN_NS_STRING_CONTAINS",
+        search::__RTS_FN_NS_STRING_CONTAINS
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_STARTS_WITH",
+        search::__RTS_FN_NS_STRING_STARTS_WITH
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_ENDS_WITH",
+        search::__RTS_FN_NS_STRING_ENDS_WITH
+    );
     add_fn!("__RTS_FN_NS_STRING_FIND", search::__RTS_FN_NS_STRING_FIND);
-    add_fn!("__RTS_FN_NS_STRING_TO_UPPER", transform::__RTS_FN_NS_STRING_TO_UPPER);
-    add_fn!("__RTS_FN_NS_STRING_TO_LOWER", transform::__RTS_FN_NS_STRING_TO_LOWER);
-    add_fn!("__RTS_FN_NS_STRING_TRIM", transform::__RTS_FN_NS_STRING_TRIM);
-    add_fn!("__RTS_FN_NS_STRING_TRIM_START", transform::__RTS_FN_NS_STRING_TRIM_START);
-    add_fn!("__RTS_FN_NS_STRING_TRIM_END", transform::__RTS_FN_NS_STRING_TRIM_END);
-    add_fn!("__RTS_FN_NS_STRING_REPEAT", transform::__RTS_FN_NS_STRING_REPEAT);
-    add_fn!("__RTS_FN_NS_STRING_REPLACE", replace::__RTS_FN_NS_STRING_REPLACE);
-    add_fn!("__RTS_FN_NS_STRING_REPLACEN", replace::__RTS_FN_NS_STRING_REPLACEN);
-    add_fn!("__RTS_FN_NS_STRING_CHAR_COUNT", split::__RTS_FN_NS_STRING_CHAR_COUNT);
-    add_fn!("__RTS_FN_NS_STRING_BYTE_LEN", split::__RTS_FN_NS_STRING_BYTE_LEN);
-    add_fn!("__RTS_FN_NS_STRING_CHAR_AT", split::__RTS_FN_NS_STRING_CHAR_AT);
-    add_fn!("__RTS_FN_NS_STRING_CHAR_CODE_AT", split::__RTS_FN_NS_STRING_CHAR_CODE_AT);
+    add_fn!(
+        "__RTS_FN_NS_STRING_TO_UPPER",
+        transform::__RTS_FN_NS_STRING_TO_UPPER
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_TO_LOWER",
+        transform::__RTS_FN_NS_STRING_TO_LOWER
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_TRIM",
+        transform::__RTS_FN_NS_STRING_TRIM
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_TRIM_START",
+        transform::__RTS_FN_NS_STRING_TRIM_START
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_TRIM_END",
+        transform::__RTS_FN_NS_STRING_TRIM_END
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_REPEAT",
+        transform::__RTS_FN_NS_STRING_REPEAT
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_REPLACE",
+        replace::__RTS_FN_NS_STRING_REPLACE
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_REPLACEN",
+        replace::__RTS_FN_NS_STRING_REPLACEN
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_CHAR_COUNT",
+        split::__RTS_FN_NS_STRING_CHAR_COUNT
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_BYTE_LEN",
+        split::__RTS_FN_NS_STRING_BYTE_LEN
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_CHAR_AT",
+        split::__RTS_FN_NS_STRING_CHAR_AT
+    );
+    add_fn!(
+        "__RTS_FN_NS_STRING_CHAR_CODE_AT",
+        split::__RTS_FN_NS_STRING_CHAR_CODE_AT
+    );
 
     // ── namespaces::buffer ────────────────────────────────────────────
     use crate::namespaces::buffer::ops as buf;
     add_fn!("__RTS_FN_NS_BUFFER_ALLOC", buf::__RTS_FN_NS_BUFFER_ALLOC);
-    add_fn!("__RTS_FN_NS_BUFFER_ALLOC_ZEROED", buf::__RTS_FN_NS_BUFFER_ALLOC_ZEROED);
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_ALLOC_ZEROED",
+        buf::__RTS_FN_NS_BUFFER_ALLOC_ZEROED
+    );
     add_fn!("__RTS_FN_NS_BUFFER_FREE", buf::__RTS_FN_NS_BUFFER_FREE);
     add_fn!("__RTS_FN_NS_BUFFER_LEN", buf::__RTS_FN_NS_BUFFER_LEN);
     add_fn!("__RTS_FN_NS_BUFFER_PTR", buf::__RTS_FN_NS_BUFFER_PTR);
-    add_fn!("__RTS_FN_NS_BUFFER_READ_U8", buf::__RTS_FN_NS_BUFFER_READ_U8);
-    add_fn!("__RTS_FN_NS_BUFFER_READ_I32", buf::__RTS_FN_NS_BUFFER_READ_I32);
-    add_fn!("__RTS_FN_NS_BUFFER_READ_I64", buf::__RTS_FN_NS_BUFFER_READ_I64);
-    add_fn!("__RTS_FN_NS_BUFFER_READ_F64", buf::__RTS_FN_NS_BUFFER_READ_F64);
-    add_fn!("__RTS_FN_NS_BUFFER_WRITE_U8", buf::__RTS_FN_NS_BUFFER_WRITE_U8);
-    add_fn!("__RTS_FN_NS_BUFFER_WRITE_I32", buf::__RTS_FN_NS_BUFFER_WRITE_I32);
-    add_fn!("__RTS_FN_NS_BUFFER_WRITE_I64", buf::__RTS_FN_NS_BUFFER_WRITE_I64);
-    add_fn!("__RTS_FN_NS_BUFFER_WRITE_F64", buf::__RTS_FN_NS_BUFFER_WRITE_F64);
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_READ_U8",
+        buf::__RTS_FN_NS_BUFFER_READ_U8
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_READ_I32",
+        buf::__RTS_FN_NS_BUFFER_READ_I32
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_READ_I64",
+        buf::__RTS_FN_NS_BUFFER_READ_I64
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_READ_F64",
+        buf::__RTS_FN_NS_BUFFER_READ_F64
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_WRITE_U8",
+        buf::__RTS_FN_NS_BUFFER_WRITE_U8
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_WRITE_I32",
+        buf::__RTS_FN_NS_BUFFER_WRITE_I32
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_WRITE_I64",
+        buf::__RTS_FN_NS_BUFFER_WRITE_I64
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_WRITE_F64",
+        buf::__RTS_FN_NS_BUFFER_WRITE_F64
+    );
     add_fn!("__RTS_FN_NS_BUFFER_COPY", buf::__RTS_FN_NS_BUFFER_COPY);
     add_fn!("__RTS_FN_NS_BUFFER_FILL", buf::__RTS_FN_NS_BUFFER_FILL);
-    add_fn!("__RTS_FN_NS_BUFFER_TO_STRING", buf::__RTS_FN_NS_BUFFER_TO_STRING);
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_TO_STRING",
+        buf::__RTS_FN_NS_BUFFER_TO_STRING
+    );
 
     // ── namespaces::path ──────────────────────────────────────────────
     use crate::namespaces::path::*;
     add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);
-    add_fn!("__RTS_FN_NS_PATH_PARENT", components::__RTS_FN_NS_PATH_PARENT);
-    add_fn!("__RTS_FN_NS_PATH_FILE_NAME", components::__RTS_FN_NS_PATH_FILE_NAME);
+    add_fn!(
+        "__RTS_FN_NS_PATH_PARENT",
+        components::__RTS_FN_NS_PATH_PARENT
+    );
+    add_fn!(
+        "__RTS_FN_NS_PATH_FILE_NAME",
+        components::__RTS_FN_NS_PATH_FILE_NAME
+    );
     add_fn!("__RTS_FN_NS_PATH_STEM", components::__RTS_FN_NS_PATH_STEM);
     add_fn!("__RTS_FN_NS_PATH_EXT", components::__RTS_FN_NS_PATH_EXT);
-    add_fn!("__RTS_FN_NS_PATH_IS_ABSOLUTE", join::__RTS_FN_NS_PATH_IS_ABSOLUTE);
-    add_fn!("__RTS_FN_NS_PATH_NORMALIZE", join::__RTS_FN_NS_PATH_NORMALIZE);
+    add_fn!(
+        "__RTS_FN_NS_PATH_IS_ABSOLUTE",
+        join::__RTS_FN_NS_PATH_IS_ABSOLUTE
+    );
+    add_fn!(
+        "__RTS_FN_NS_PATH_NORMALIZE",
+        join::__RTS_FN_NS_PATH_NORMALIZE
+    );
     add_fn!("__RTS_FN_NS_PATH_WITH_EXT", join::__RTS_FN_NS_PATH_WITH_EXT);
 
     // ── namespaces::env ───────────────────────────────────────────────
     use crate::namespaces::env::*;
     add_fn!("__RTS_FN_NS_ENV_GET_VAR", vars::__RTS_FN_NS_ENV_GET_VAR);
     add_fn!("__RTS_FN_NS_ENV_SET_VAR", vars::__RTS_FN_NS_ENV_SET_VAR);
-    add_fn!("__RTS_FN_NS_ENV_REMOVE_VAR", vars::__RTS_FN_NS_ENV_REMOVE_VAR);
-    add_fn!("__RTS_FN_NS_ENV_ARGS_COUNT", args::__RTS_FN_NS_ENV_ARGS_COUNT);
+    add_fn!(
+        "__RTS_FN_NS_ENV_REMOVE_VAR",
+        vars::__RTS_FN_NS_ENV_REMOVE_VAR
+    );
+    add_fn!(
+        "__RTS_FN_NS_ENV_ARGS_COUNT",
+        args::__RTS_FN_NS_ENV_ARGS_COUNT
+    );
     add_fn!("__RTS_FN_NS_ENV_ARG_AT", args::__RTS_FN_NS_ENV_ARG_AT);
     add_fn!("__RTS_FN_NS_ENV_CWD", cwd::__RTS_FN_NS_ENV_CWD);
     add_fn!("__RTS_FN_NS_ENV_SET_CWD", cwd::__RTS_FN_NS_ENV_SET_CWD);
@@ -331,17 +567,35 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_TIME_NOW_NS", instant::__RTS_FN_NS_TIME_NOW_NS);
     add_fn!("__RTS_FN_NS_TIME_UNIX_MS", system::__RTS_FN_NS_TIME_UNIX_MS);
     add_fn!("__RTS_FN_NS_TIME_UNIX_NS", system::__RTS_FN_NS_TIME_UNIX_NS);
-    add_fn!("__RTS_FN_NS_TIME_SLEEP_MS", sleep::__RTS_FN_NS_TIME_SLEEP_MS);
-    add_fn!("__RTS_FN_NS_TIME_SLEEP_NS", sleep::__RTS_FN_NS_TIME_SLEEP_NS);
+    add_fn!(
+        "__RTS_FN_NS_TIME_SLEEP_MS",
+        sleep::__RTS_FN_NS_TIME_SLEEP_MS
+    );
+    add_fn!(
+        "__RTS_FN_NS_TIME_SLEEP_NS",
+        sleep::__RTS_FN_NS_TIME_SLEEP_NS
+    );
 
     // ── namespaces::bigfloat ──────────────────────────────────────────
     use crate::namespaces::bigfloat::ops::*;
     add_fn!("__RTS_FN_NS_BIGFLOAT_ZERO", __RTS_FN_NS_BIGFLOAT_ZERO);
-    add_fn!("__RTS_FN_NS_BIGFLOAT_FROM_F64", __RTS_FN_NS_BIGFLOAT_FROM_F64);
-    add_fn!("__RTS_FN_NS_BIGFLOAT_FROM_I64", __RTS_FN_NS_BIGFLOAT_FROM_I64);
-    add_fn!("__RTS_FN_NS_BIGFLOAT_FROM_STR", __RTS_FN_NS_BIGFLOAT_FROM_STR);
+    add_fn!(
+        "__RTS_FN_NS_BIGFLOAT_FROM_F64",
+        __RTS_FN_NS_BIGFLOAT_FROM_F64
+    );
+    add_fn!(
+        "__RTS_FN_NS_BIGFLOAT_FROM_I64",
+        __RTS_FN_NS_BIGFLOAT_FROM_I64
+    );
+    add_fn!(
+        "__RTS_FN_NS_BIGFLOAT_FROM_STR",
+        __RTS_FN_NS_BIGFLOAT_FROM_STR
+    );
     add_fn!("__RTS_FN_NS_BIGFLOAT_TO_F64", __RTS_FN_NS_BIGFLOAT_TO_F64);
-    add_fn!("__RTS_FN_NS_BIGFLOAT_TO_STRING", __RTS_FN_NS_BIGFLOAT_TO_STRING);
+    add_fn!(
+        "__RTS_FN_NS_BIGFLOAT_TO_STRING",
+        __RTS_FN_NS_BIGFLOAT_TO_STRING
+    );
     add_fn!("__RTS_FN_NS_BIGFLOAT_ADD", __RTS_FN_NS_BIGFLOAT_ADD);
     add_fn!("__RTS_FN_NS_BIGFLOAT_SUB", __RTS_FN_NS_BIGFLOAT_SUB);
     add_fn!("__RTS_FN_NS_BIGFLOAT_MUL", __RTS_FN_NS_BIGFLOAT_MUL);
@@ -354,92 +608,275 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     {
         use crate::namespaces::ui::*;
         // app
-        add_fn!("__RTS_FN_NS_UI_APP_NEW",  app::__RTS_FN_NS_UI_APP_NEW);
-        add_fn!("__RTS_FN_NS_UI_APP_RUN",  app::__RTS_FN_NS_UI_APP_RUN);
+        add_fn!("__RTS_FN_NS_UI_APP_NEW", app::__RTS_FN_NS_UI_APP_NEW);
+        add_fn!("__RTS_FN_NS_UI_APP_RUN", app::__RTS_FN_NS_UI_APP_RUN);
         add_fn!("__RTS_FN_NS_UI_APP_FREE", app::__RTS_FN_NS_UI_APP_FREE);
         // window
-        add_fn!("__RTS_FN_NS_UI_WINDOW_NEW",          window::__RTS_FN_NS_UI_WINDOW_NEW);
-        add_fn!("__RTS_FN_NS_UI_WINDOW_SHOW",         window::__RTS_FN_NS_UI_WINDOW_SHOW);
-        add_fn!("__RTS_FN_NS_UI_WINDOW_END",          window::__RTS_FN_NS_UI_WINDOW_END);
-        add_fn!("__RTS_FN_NS_UI_WINDOW_FREE",         window::__RTS_FN_NS_UI_WINDOW_FREE);
-        add_fn!("__RTS_FN_NS_UI_WINDOW_SET_CALLBACK", window::__RTS_FN_NS_UI_WINDOW_SET_CALLBACK);
-        add_fn!("__RTS_FN_NS_UI_WINDOW_SET_COLOR",    window::__RTS_FN_NS_UI_WINDOW_SET_COLOR);
-        add_fn!("__RTS_FN_NS_UI_WINDOW_RESIZE",       window::__RTS_FN_NS_UI_WINDOW_RESIZE);
+        add_fn!(
+            "__RTS_FN_NS_UI_WINDOW_NEW",
+            window::__RTS_FN_NS_UI_WINDOW_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WINDOW_SHOW",
+            window::__RTS_FN_NS_UI_WINDOW_SHOW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WINDOW_END",
+            window::__RTS_FN_NS_UI_WINDOW_END
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WINDOW_FREE",
+            window::__RTS_FN_NS_UI_WINDOW_FREE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WINDOW_SET_CALLBACK",
+            window::__RTS_FN_NS_UI_WINDOW_SET_CALLBACK
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WINDOW_SET_COLOR",
+            window::__RTS_FN_NS_UI_WINDOW_SET_COLOR
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WINDOW_RESIZE",
+            window::__RTS_FN_NS_UI_WINDOW_RESIZE
+        );
         // generic widget ops
-        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_LABEL",       widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_LABEL",           widgets::__RTS_FN_NS_UI_WIDGET_LABEL);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_CALLBACK",    widgets::__RTS_FN_NS_UI_WIDGET_SET_CALLBACK);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD", widgets::__RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_COLOR",       widgets::__RTS_FN_NS_UI_WIDGET_SET_COLOR);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR", widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_RESIZE",          widgets::__RTS_FN_NS_UI_WIDGET_RESIZE);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_REDRAW",          widgets::__RTS_FN_NS_UI_WIDGET_REDRAW);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_HIDE",            widgets::__RTS_FN_NS_UI_WIDGET_HIDE);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_SHOW",            widgets::__RTS_FN_NS_UI_WIDGET_SHOW);
-        add_fn!("__RTS_FN_NS_UI_WIDGET_SET_DRAW",        widgets::__RTS_FN_NS_UI_WIDGET_SET_DRAW);
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_SET_LABEL",
+            widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_LABEL",
+            widgets::__RTS_FN_NS_UI_WIDGET_LABEL
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_SET_CALLBACK",
+            widgets::__RTS_FN_NS_UI_WIDGET_SET_CALLBACK
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD",
+            widgets::__RTS_FN_NS_UI_WIDGET_SET_CALLBACK_WITH_UD
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_SET_COLOR",
+            widgets::__RTS_FN_NS_UI_WIDGET_SET_COLOR
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR",
+            widgets::__RTS_FN_NS_UI_WIDGET_SET_LABEL_COLOR
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_RESIZE",
+            widgets::__RTS_FN_NS_UI_WIDGET_RESIZE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_REDRAW",
+            widgets::__RTS_FN_NS_UI_WIDGET_REDRAW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_HIDE",
+            widgets::__RTS_FN_NS_UI_WIDGET_HIDE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_SHOW",
+            widgets::__RTS_FN_NS_UI_WIDGET_SHOW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_WIDGET_SET_DRAW",
+            widgets::__RTS_FN_NS_UI_WIDGET_SET_DRAW
+        );
         // button / frame / check / radio
-        add_fn!("__RTS_FN_NS_UI_BUTTON_NEW",       widgets::__RTS_FN_NS_UI_BUTTON_NEW);
-        add_fn!("__RTS_FN_NS_UI_FRAME_NEW",        widgets::__RTS_FN_NS_UI_FRAME_NEW);
-        add_fn!("__RTS_FN_NS_UI_CHECK_NEW",        widgets::__RTS_FN_NS_UI_CHECK_NEW);
-        add_fn!("__RTS_FN_NS_UI_CHECK_VALUE",      widgets::__RTS_FN_NS_UI_CHECK_VALUE);
-        add_fn!("__RTS_FN_NS_UI_CHECK_SET_VALUE",  widgets::__RTS_FN_NS_UI_CHECK_SET_VALUE);
-        add_fn!("__RTS_FN_NS_UI_RADIO_NEW",        widgets::__RTS_FN_NS_UI_RADIO_NEW);
-        add_fn!("__RTS_FN_NS_UI_RADIO_VALUE",      widgets::__RTS_FN_NS_UI_RADIO_VALUE);
-        add_fn!("__RTS_FN_NS_UI_RADIO_SET_VALUE",  widgets::__RTS_FN_NS_UI_RADIO_SET_VALUE);
+        add_fn!(
+            "__RTS_FN_NS_UI_BUTTON_NEW",
+            widgets::__RTS_FN_NS_UI_BUTTON_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_FRAME_NEW",
+            widgets::__RTS_FN_NS_UI_FRAME_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_CHECK_NEW",
+            widgets::__RTS_FN_NS_UI_CHECK_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_CHECK_VALUE",
+            widgets::__RTS_FN_NS_UI_CHECK_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_CHECK_SET_VALUE",
+            widgets::__RTS_FN_NS_UI_CHECK_SET_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_RADIO_NEW",
+            widgets::__RTS_FN_NS_UI_RADIO_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_RADIO_VALUE",
+            widgets::__RTS_FN_NS_UI_RADIO_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_RADIO_SET_VALUE",
+            widgets::__RTS_FN_NS_UI_RADIO_SET_VALUE
+        );
         // input / output
-        add_fn!("__RTS_FN_NS_UI_INPUT_NEW",        widgets::__RTS_FN_NS_UI_INPUT_NEW);
-        add_fn!("__RTS_FN_NS_UI_INPUT_VALUE",      widgets::__RTS_FN_NS_UI_INPUT_VALUE);
-        add_fn!("__RTS_FN_NS_UI_INPUT_SET_VALUE",  widgets::__RTS_FN_NS_UI_INPUT_SET_VALUE);
-        add_fn!("__RTS_FN_NS_UI_OUTPUT_NEW",       widgets::__RTS_FN_NS_UI_OUTPUT_NEW);
-        add_fn!("__RTS_FN_NS_UI_OUTPUT_SET_VALUE", widgets::__RTS_FN_NS_UI_OUTPUT_SET_VALUE);
+        add_fn!(
+            "__RTS_FN_NS_UI_INPUT_NEW",
+            widgets::__RTS_FN_NS_UI_INPUT_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_INPUT_VALUE",
+            widgets::__RTS_FN_NS_UI_INPUT_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_INPUT_SET_VALUE",
+            widgets::__RTS_FN_NS_UI_INPUT_SET_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_OUTPUT_NEW",
+            widgets::__RTS_FN_NS_UI_OUTPUT_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_OUTPUT_SET_VALUE",
+            widgets::__RTS_FN_NS_UI_OUTPUT_SET_VALUE
+        );
         // slider / progress / spinner
-        add_fn!("__RTS_FN_NS_UI_SLIDER_NEW",        widgets::__RTS_FN_NS_UI_SLIDER_NEW);
-        add_fn!("__RTS_FN_NS_UI_SLIDER_VALUE",      widgets::__RTS_FN_NS_UI_SLIDER_VALUE);
-        add_fn!("__RTS_FN_NS_UI_SLIDER_SET_VALUE",  widgets::__RTS_FN_NS_UI_SLIDER_SET_VALUE);
-        add_fn!("__RTS_FN_NS_UI_SLIDER_SET_BOUNDS", widgets::__RTS_FN_NS_UI_SLIDER_SET_BOUNDS);
-        add_fn!("__RTS_FN_NS_UI_PROGRESS_NEW",        widgets::__RTS_FN_NS_UI_PROGRESS_NEW);
-        add_fn!("__RTS_FN_NS_UI_PROGRESS_VALUE",      widgets::__RTS_FN_NS_UI_PROGRESS_VALUE);
-        add_fn!("__RTS_FN_NS_UI_PROGRESS_SET_VALUE",  widgets::__RTS_FN_NS_UI_PROGRESS_SET_VALUE);
-        add_fn!("__RTS_FN_NS_UI_SPINNER_NEW",        widgets::__RTS_FN_NS_UI_SPINNER_NEW);
-        add_fn!("__RTS_FN_NS_UI_SPINNER_VALUE",      widgets::__RTS_FN_NS_UI_SPINNER_VALUE);
-        add_fn!("__RTS_FN_NS_UI_SPINNER_SET_VALUE",  widgets::__RTS_FN_NS_UI_SPINNER_SET_VALUE);
-        add_fn!("__RTS_FN_NS_UI_SPINNER_SET_BOUNDS", widgets::__RTS_FN_NS_UI_SPINNER_SET_BOUNDS);
+        add_fn!(
+            "__RTS_FN_NS_UI_SLIDER_NEW",
+            widgets::__RTS_FN_NS_UI_SLIDER_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_SLIDER_VALUE",
+            widgets::__RTS_FN_NS_UI_SLIDER_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_SLIDER_SET_VALUE",
+            widgets::__RTS_FN_NS_UI_SLIDER_SET_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_SLIDER_SET_BOUNDS",
+            widgets::__RTS_FN_NS_UI_SLIDER_SET_BOUNDS
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_PROGRESS_NEW",
+            widgets::__RTS_FN_NS_UI_PROGRESS_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_PROGRESS_VALUE",
+            widgets::__RTS_FN_NS_UI_PROGRESS_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_PROGRESS_SET_VALUE",
+            widgets::__RTS_FN_NS_UI_PROGRESS_SET_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_SPINNER_NEW",
+            widgets::__RTS_FN_NS_UI_SPINNER_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_SPINNER_VALUE",
+            widgets::__RTS_FN_NS_UI_SPINNER_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_SPINNER_SET_VALUE",
+            widgets::__RTS_FN_NS_UI_SPINNER_SET_VALUE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_SPINNER_SET_BOUNDS",
+            widgets::__RTS_FN_NS_UI_SPINNER_SET_BOUNDS
+        );
         // menu
-        add_fn!("__RTS_FN_NS_UI_MENUBAR_NEW",  menu::__RTS_FN_NS_UI_MENUBAR_NEW);
-        add_fn!("__RTS_FN_NS_UI_MENUBAR_ADD",  menu::__RTS_FN_NS_UI_MENUBAR_ADD);
-        add_fn!("__RTS_FN_NS_UI_MENUBAR_FREE", widgets::__RTS_FN_NS_UI_MENUBAR_FREE);
+        add_fn!(
+            "__RTS_FN_NS_UI_MENUBAR_NEW",
+            menu::__RTS_FN_NS_UI_MENUBAR_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_MENUBAR_ADD",
+            menu::__RTS_FN_NS_UI_MENUBAR_ADD
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_MENUBAR_FREE",
+            widgets::__RTS_FN_NS_UI_MENUBAR_FREE
+        );
         // text
-        add_fn!("__RTS_FN_NS_UI_TEXTBUF_NEW",              text::__RTS_FN_NS_UI_TEXTBUF_NEW);
-        add_fn!("__RTS_FN_NS_UI_TEXTBUF_SET_TEXT",         text::__RTS_FN_NS_UI_TEXTBUF_SET_TEXT);
-        add_fn!("__RTS_FN_NS_UI_TEXTBUF_TEXT",             text::__RTS_FN_NS_UI_TEXTBUF_TEXT);
-        add_fn!("__RTS_FN_NS_UI_TEXTBUF_APPEND",           text::__RTS_FN_NS_UI_TEXTBUF_APPEND);
-        add_fn!("__RTS_FN_NS_UI_TEXTBUF_FREE",             widgets::__RTS_FN_NS_UI_TEXTBUF_FREE);
-        add_fn!("__RTS_FN_NS_UI_TEXTDISPLAY_NEW",          text::__RTS_FN_NS_UI_TEXTDISPLAY_NEW);
-        add_fn!("__RTS_FN_NS_UI_TEXTDISPLAY_SET_BUFFER",   text::__RTS_FN_NS_UI_TEXTDISPLAY_SET_BUFFER);
-        add_fn!("__RTS_FN_NS_UI_TEXTEDITOR_NEW",           text::__RTS_FN_NS_UI_TEXTEDITOR_NEW);
-        add_fn!("__RTS_FN_NS_UI_TEXTEDITOR_SET_BUFFER",    text::__RTS_FN_NS_UI_TEXTEDITOR_SET_BUFFER);
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTBUF_NEW",
+            text::__RTS_FN_NS_UI_TEXTBUF_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTBUF_SET_TEXT",
+            text::__RTS_FN_NS_UI_TEXTBUF_SET_TEXT
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTBUF_TEXT",
+            text::__RTS_FN_NS_UI_TEXTBUF_TEXT
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTBUF_APPEND",
+            text::__RTS_FN_NS_UI_TEXTBUF_APPEND
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTBUF_FREE",
+            widgets::__RTS_FN_NS_UI_TEXTBUF_FREE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTDISPLAY_NEW",
+            text::__RTS_FN_NS_UI_TEXTDISPLAY_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTDISPLAY_SET_BUFFER",
+            text::__RTS_FN_NS_UI_TEXTDISPLAY_SET_BUFFER
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTEDITOR_NEW",
+            text::__RTS_FN_NS_UI_TEXTEDITOR_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_TEXTEDITOR_SET_BUFFER",
+            text::__RTS_FN_NS_UI_TEXTEDITOR_SET_BUFFER
+        );
         // draw
-        add_fn!("__RTS_FN_NS_UI_DRAW_RECT",      draw::__RTS_FN_NS_UI_DRAW_RECT);
-        add_fn!("__RTS_FN_NS_UI_DRAW_RECT_FILL", draw::__RTS_FN_NS_UI_DRAW_RECT_FILL);
-        add_fn!("__RTS_FN_NS_UI_DRAW_LINE",      draw::__RTS_FN_NS_UI_DRAW_LINE);
-        add_fn!("__RTS_FN_NS_UI_DRAW_CIRCLE",    draw::__RTS_FN_NS_UI_DRAW_CIRCLE);
-        add_fn!("__RTS_FN_NS_UI_DRAW_ARC",       draw::__RTS_FN_NS_UI_DRAW_ARC);
-        add_fn!("__RTS_FN_NS_UI_DRAW_TEXT",      draw::__RTS_FN_NS_UI_DRAW_TEXT);
-        add_fn!("__RTS_FN_NS_UI_SET_DRAW_COLOR", draw::__RTS_FN_NS_UI_SET_DRAW_COLOR);
-        add_fn!("__RTS_FN_NS_UI_SET_FONT",       draw::__RTS_FN_NS_UI_SET_FONT);
-        add_fn!("__RTS_FN_NS_UI_SET_LINE_STYLE", draw::__RTS_FN_NS_UI_SET_LINE_STYLE);
-        add_fn!("__RTS_FN_NS_UI_MEASURE_WIDTH",  draw::__RTS_FN_NS_UI_MEASURE_WIDTH);
+        add_fn!("__RTS_FN_NS_UI_DRAW_RECT", draw::__RTS_FN_NS_UI_DRAW_RECT);
+        add_fn!(
+            "__RTS_FN_NS_UI_DRAW_RECT_FILL",
+            draw::__RTS_FN_NS_UI_DRAW_RECT_FILL
+        );
+        add_fn!("__RTS_FN_NS_UI_DRAW_LINE", draw::__RTS_FN_NS_UI_DRAW_LINE);
+        add_fn!(
+            "__RTS_FN_NS_UI_DRAW_CIRCLE",
+            draw::__RTS_FN_NS_UI_DRAW_CIRCLE
+        );
+        add_fn!("__RTS_FN_NS_UI_DRAW_ARC", draw::__RTS_FN_NS_UI_DRAW_ARC);
+        add_fn!("__RTS_FN_NS_UI_DRAW_TEXT", draw::__RTS_FN_NS_UI_DRAW_TEXT);
+        add_fn!(
+            "__RTS_FN_NS_UI_SET_DRAW_COLOR",
+            draw::__RTS_FN_NS_UI_SET_DRAW_COLOR
+        );
+        add_fn!("__RTS_FN_NS_UI_SET_FONT", draw::__RTS_FN_NS_UI_SET_FONT);
+        add_fn!(
+            "__RTS_FN_NS_UI_SET_LINE_STYLE",
+            draw::__RTS_FN_NS_UI_SET_LINE_STYLE
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_MEASURE_WIDTH",
+            draw::__RTS_FN_NS_UI_MEASURE_WIDTH
+        );
         // dialog
-        add_fn!("__RTS_FN_NS_UI_ALERT",        dialog::__RTS_FN_NS_UI_ALERT);
-        add_fn!("__RTS_FN_NS_UI_DIALOG_ASK",   dialog::__RTS_FN_NS_UI_DIALOG_ASK);
-        add_fn!("__RTS_FN_NS_UI_DIALOG_INPUT", dialog::__RTS_FN_NS_UI_DIALOG_INPUT);
+        add_fn!("__RTS_FN_NS_UI_ALERT", dialog::__RTS_FN_NS_UI_ALERT);
+        add_fn!(
+            "__RTS_FN_NS_UI_DIALOG_ASK",
+            dialog::__RTS_FN_NS_UI_DIALOG_ASK
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_DIALOG_INPUT",
+            dialog::__RTS_FN_NS_UI_DIALOG_INPUT
+        );
     }
 
     // ── Data symbols ──────────────────────────────────────────────────
     // Xorshift PRNG state (mutable u64 global).
     {
-        let ptr = &raw const crate::namespaces::math::random::__RTS_DATA_NS_MATH_RNG_STATE
-            as *const u8;
+        let ptr =
+            &raw const crate::namespaces::math::random::__RTS_DATA_NS_MATH_RNG_STATE as *const u8;
         out.push(("__RTS_DATA_NS_MATH_RNG_STATE", ptr));
     }
 

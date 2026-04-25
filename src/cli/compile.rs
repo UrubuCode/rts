@@ -34,8 +34,9 @@ pub fn command(
         link_request.windows_subsystem = Some(subsystem);
     }
 
-    let outcome = pipeline::build_executable_with_request(&input_path, &output_path, options, link_request)
-        .with_context(|| format!("compile of {} failed", input_path.display()))?;
+    let outcome =
+        pipeline::build_executable_with_request(&input_path, &output_path, options, link_request)
+            .with_context(|| format!("compile of {} failed", input_path.display()))?;
 
     if options.debug {
         for warning in &outcome.compile.warnings {

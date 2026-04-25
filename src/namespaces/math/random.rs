@@ -48,7 +48,11 @@ pub extern "C" fn __RTS_FN_NS_MATH_RANDOM_I64_RANGE(lo: i64, hi: i64) -> i64 {
 /// Seeds the PRNG. Zero is replaced by the default seed (xorshift is stuck on 0).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_MATH_SEED(seed: u64) {
-    let s = if seed == 0 { 0x853c_49e6_748f_ea9b } else { seed };
+    let s = if seed == 0 {
+        0x853c_49e6_748f_ea9b
+    } else {
+        seed
+    };
     // SAFETY: single-threaded.
     unsafe {
         __RTS_DATA_NS_MATH_RNG_STATE = s;

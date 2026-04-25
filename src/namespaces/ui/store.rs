@@ -53,14 +53,23 @@ impl UiStore {
             return encode(slot.generation, idx);
         }
         let idx = self.slots.len() as u32;
-        self.slots.push(UiSlot { generation: 1, entry });
+        self.slots.push(UiSlot {
+            generation: 1,
+            entry,
+        });
         encode(1, idx)
     }
 
     pub fn free_entry(&mut self, handle: u64) -> bool {
-        let Some((expected, idx)) = decode(handle) else { return false; };
-        let Some(slot) = self.slots.get_mut(idx as usize) else { return false; };
-        if slot.generation != expected { return false; }
+        let Some((expected, idx)) = decode(handle) else {
+            return false;
+        };
+        let Some(slot) = self.slots.get_mut(idx as usize) else {
+            return false;
+        };
+        if slot.generation != expected {
+            return false;
+        }
         slot.entry = UiEntry::Free;
         self.free_list.push(idx);
         true
@@ -90,7 +99,9 @@ fn encode(generation: u16, slot: u32) -> u64 {
 }
 
 fn decode(handle: u64) -> Option<(u16, u32)> {
-    if handle == 0 { return None; }
+    if handle == 0 {
+        return None;
+    }
     let generation = ((handle >> GEN_SHIFT) & 0xFFFF) as u16;
     let slot = (handle & SLOT_MASK) as u32;
     Some((generation, slot))
@@ -167,7 +178,9 @@ macro_rules! dispatch_widget_ext {
 pub fn apply_widget_op(handle: u64, op: impl FnOnce(&mut dyn WidgetExt)) {
     UI_STORE.with(|s| {
         let mut store = s.borrow_mut();
-        let Some(entry) = store.get_mut(handle) else { return; };
+        let Some(entry) = store.get_mut(handle) else {
+            return;
+        };
         dispatch_widget_ext!(entry, op);
     });
 }
@@ -220,8 +233,12 @@ macro_rules! dispatch_set_callback_with_ud {
             UiEntry::Window(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
             UiEntry::Button(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
             UiEntry::Frame(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
-            UiEntry::CheckButton(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
-            UiEntry::RadioButton(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
+            UiEntry::CheckButton(w) => {
+                w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) })
+            }
+            UiEntry::RadioButton(w) => {
+                w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) })
+            }
             UiEntry::Input(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
             UiEntry::Slider(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
             UiEntry::Spinner(w) => w.set_callback(move |_| unsafe { call_fn_ptr_with_ud(fp, ud) }),
@@ -248,7 +265,9 @@ macro_rules! dispatch_set_draw {
 pub fn apply_set_callback(handle: u64, fn_ptr: i64) {
     UI_STORE.with(|s| {
         let mut store = s.borrow_mut();
-        let Some(entry) = store.get_mut(handle) else { return; };
+        let Some(entry) = store.get_mut(handle) else {
+            return;
+        };
         dispatch_set_callback!(entry, fn_ptr);
     });
 }
@@ -256,7 +275,9 @@ pub fn apply_set_callback(handle: u64, fn_ptr: i64) {
 pub fn apply_set_callback_with_ud(handle: u64, fn_ptr: i64, userdata: u64) {
     UI_STORE.with(|s| {
         let mut store = s.borrow_mut();
-        let Some(entry) = store.get_mut(handle) else { return; };
+        let Some(entry) = store.get_mut(handle) else {
+            return;
+        };
         dispatch_set_callback_with_ud!(entry, fn_ptr, userdata);
     });
 }
@@ -264,7 +285,9 @@ pub fn apply_set_callback_with_ud(handle: u64, fn_ptr: i64, userdata: u64) {
 pub fn apply_set_draw(handle: u64, fn_ptr: i64) {
     UI_STORE.with(|s| {
         let mut store = s.borrow_mut();
-        let Some(entry) = store.get_mut(handle) else { return; };
+        let Some(entry) = store.get_mut(handle) else {
+            return;
+        };
         dispatch_set_draw!(entry, fn_ptr);
     });
 }

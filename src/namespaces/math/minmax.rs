@@ -23,7 +23,9 @@ pub extern "C" fn __RTS_FN_NS_MATH_MAX_I64(a: i64, b: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_MATH_CLAMP_F64(x: f64, lo: f64, hi: f64) -> f64 {
     // lo.max(x).min(hi) handles NaN-safe clamp when lo <= hi.
-    if x.is_nan() { return x; }
+    if x.is_nan() {
+        return x;
+    }
     x.max(lo).min(hi)
 }
 

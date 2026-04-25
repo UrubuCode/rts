@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::super::gc::handles::{table, Entry};
+use super::super::gc::handles::{Entry, table};
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {

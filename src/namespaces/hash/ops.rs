@@ -46,9 +46,9 @@ pub extern "C" fn __RTS_FN_NS_HASH_HASH_COMBINE(h1: i64, h2: i64) -> i64 {
     // pra preservar os bits altos; shift << 6 em i64 sinalizado seria
     // ambiguo em valores negativos.
     let (a, b) = (h1 as u64, h2 as u64);
-    let combined = a
-        ^ b.wrapping_add(0x517c_c1b7_2722_0a95)
-            .wrapping_add(a << 6)
-            .wrapping_add(a >> 2);
+    let combined = a ^ b
+        .wrapping_add(0x517c_c1b7_2722_0a95)
+        .wrapping_add(a << 6)
+        .wrapping_add(a >> 2);
     combined as i64
 }

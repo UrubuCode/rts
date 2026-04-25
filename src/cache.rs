@@ -119,8 +119,8 @@ fn runtime_stamp() -> String {
 }
 
 fn file_sha256(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
     Ok(format!("{:x}", Sha256::digest(&bytes)))
 }
 

@@ -45,7 +45,8 @@ pub fn compile_source(
     let mut program = parser::parse_source_with_mode(source, options.frontend_mode)
         .with_context(|| format!("failed to parse {}", input.display()))?;
 
-    let (object, warnings) = crate::codegen::compile_program_to_object(&mut program, output_object)?;
+    let (object, warnings) =
+        crate::codegen::compile_program_to_object(&mut program, output_object)?;
 
     Ok(CompileOutcome {
         input: input.to_path_buf(),
@@ -99,8 +100,8 @@ pub fn build_executable_with_request(
                 (hit.obj_path, outcome, true)
             }
             None => {
-                let tmp_obj = std::env::temp_dir()
-                    .join(format!("rts_compile_{}.o", std::process::id()));
+                let tmp_obj =
+                    std::env::temp_dir().join(format!("rts_compile_{}.o", std::process::id()));
                 let compile = compile_file(input, &tmp_obj, options)?;
                 let used_ns = compile.object.used_namespaces.clone();
                 let cached_path = cache
@@ -111,9 +112,8 @@ pub fn build_executable_with_request(
             }
         };
 
-    let runtime_archive =
-        crate::runtime_objects::extract_runtime_archive(&cache.runtime_dir())
-            .context("failed to extract runtime archive")?;
+    let runtime_archive = crate::runtime_objects::extract_runtime_archive(&cache.runtime_dir())
+        .context("failed to extract runtime archive")?;
 
     let inputs = vec![obj_path, runtime_archive.clone()];
 
@@ -145,8 +145,8 @@ pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String
     let mut program = parser::parse_source_with_mode(&source, options.frontend_mode)
         .with_context(|| format!("failed to parse {}", input.display()))?;
 
-    let (module, warnings) = crate::codegen::compile_program_to_jit(&mut program)
-        .context("JIT compile failed")?;
+    let (module, warnings) =
+        crate::codegen::compile_program_to_jit(&mut program).context("JIT compile failed")?;
 
     // Resolve `__RTS_MAIN`. The codegen pipeline always emits it with
     // Linkage::Local + platform default call conv (`int __RTS_MAIN(void)`).
@@ -179,7 +179,11 @@ pub fn namespaces_from_symbols(symbols: &HashSet<String>) -> HashSet<String> {
                 .strip_prefix("__RTS_FN_NS_")
                 .or_else(|| s.strip_prefix("__RTS_CONST_NS_"))?;
             let ns = rest.split('_').next()?;
-            if ns.is_empty() { None } else { Some(ns.to_ascii_lowercase()) }
+            if ns.is_empty() {
+                None
+            } else {
+                Some(ns.to_ascii_lowercase())
+            }
         })
         .collect()
 }

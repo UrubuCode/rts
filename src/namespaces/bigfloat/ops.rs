@@ -8,7 +8,7 @@ use super::fixed::FixedDecimal;
 // `super::super` resolves to the crate root in the standalone runtime
 // staticlib build (`rt_all.rs`) and to `namespaces` in the main `rts`
 // crate; both expose the `gc` submodule at that level.
-use super::super::gc::handles::{table, Entry};
+use super::super::gc::handles::{Entry, table};
 
 // Forward-declared extern so we can intern the decimal string without
 // hard-coding the `gc::string_pool::...` path (which differs between
