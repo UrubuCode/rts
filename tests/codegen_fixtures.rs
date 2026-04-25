@@ -216,3 +216,35 @@ fn fixture_class_extras() {
 fn fixture_ui_window() {
     run_fixture("ui_window");
 }
+
+// Closure capturando `this`/`super` em callback de classe.
+// Disparam o trampolim diretamente via `__class_C_lifted_arrow_N()` em
+// vez de depender de evento UI — o nome mangled é estável porque o
+// counter de arrows é resetado a cada compile (cada fixture é
+// compilado isoladamente).
+//
+// Marcadas `#[ignore]` porque registrar callbacks via FLTK requer um
+// display backend disponível (mesmo padrão de `fixture_ui_window`).
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_this_field() {
+    run_fixture("closure_this_field");
+}
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_this_method() {
+    run_fixture("closure_this_method");
+}
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_super() {
+    run_fixture("closure_super");
+}
+
+#[test]
+#[ignore = "requires a display; run manually with: cargo test closure_ -- --ignored"]
+fn fixture_closure_nested() {
+    run_fixture("closure_nested");
+}
