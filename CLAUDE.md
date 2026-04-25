@@ -82,9 +82,10 @@ Regras:
 - Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
 - Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-Namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`.
-Demais (net, process, crypto, buffer, thread, etc) serao reintroduzidos sobre o contrato
-atual a medida que o pipeline estabiliza. Ver issues #12-#39 para o backlog.
+Namespaces ativos (16): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
+`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`.
+Demais (net, thread, sync, atomic, etc) serao reintroduzidos sobre o contrato
+atual a medida que o pipeline estabiliza. Ver issues #16-#39 para o backlog.
 
 ### Namespaces existentes
 
@@ -121,6 +122,25 @@ atual a medida que o pipeline estabiliza. Ver issues #12-#39 para o backlog.
   Windows)
 - `collections/` — HashMap<string, i64> (`map_*`) e Vec<i64> (`vec_*`) via
   HandleTable. Valor sempre i64 — caller interpreta como int/handle/bool
+- `hash/` — SipHash-2-4 deterministico para str/i64/bytes (hash_str,
+  hash_i64, hash_bytes)
+- `fmt/` — parse_i64/f64 (tolerante), fmt_hex/oct/bin/f64_prec
+- `crypto/` — SHA-256 inline (FIPS 180-4), base64/hex encode+decode,
+  CSPRNG via BCryptGenRandom (Windows) / /dev/urandom (Unix)
+
+### Capacidades de linguagem ativas (codegen)
+
+- Object/array literals: `{k: v}` e `[1,2,3]` via `collections.map_*`/`vec_*`.
+- Classes: constructor, method, this, extends, super(args), super.method(args),
+  static methods, getters/setters. Instance armazena `__rts_class` para
+  dispatch virtual real (override em subclasse roteado via comparacao de
+  string sobre o tag de runtime).
+- Operator overload Rust-style: `a + b` vira `a.add(b)` em compile-time
+  quando classe define o metodo (`add`/`sub`/`mul`/.../`eq`/`lt`/`bit_*`).
+- for...of em arrays; bind herda classe quando array tem anotacao `: C[]`.
+- try/catch/finally fase 1: slot de erro thread-local, sem unwind real
+  (#128 rastreia fase 2).
+- String equality: `s1 == s2` compara conteudo via `gc.string_eq`.
 
 ## Convencoes
 
