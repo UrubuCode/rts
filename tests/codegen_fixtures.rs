@@ -242,6 +242,41 @@ fn fixture_property_init_expr() {
     run_fixture("property_init_expr");
 }
 
+#[test]
+fn fixture_property_init_self_ref() {
+    run_fixture("property_init_self_ref");
+}
+
+#[test]
+fn fixture_property_init_types() {
+    run_fixture("property_init_types");
+}
+
+#[test]
+fn fixture_property_init_many() {
+    run_fixture("property_init_many");
+}
+
+#[test]
+fn fixture_property_init_fn_call() {
+    run_fixture("property_init_fn_call");
+}
+
+#[test]
+fn fixture_property_init_multi_instance() {
+    run_fixture("property_init_multi_instance");
+}
+
+#[test]
+fn fixture_property_init_inherited_access() {
+    run_fixture("property_init_inherited_access");
+}
+
+#[test]
+fn fixture_property_init_no_super_call() {
+    run_fixture("property_init_no_super_call");
+}
+
 // Closure capturando `this`/`super` em callback de classe.
 // Disparam o trampolim diretamente via `__class_C_lifted_arrow_N()` em
 // vez de depender de evento UI — o nome mangled é estável porque o
