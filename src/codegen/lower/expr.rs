@@ -77,12 +77,48 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
             use swc_ecma_ast::{AssignOp, AssignTarget};
 
             // Member assignment: obj.field = v / obj[key] = v
-            // Suportado apenas para `=` simples (sem compound) no MVP.
+            // Compound (+=, -=, etc) desugar para `obj.field op= rhs`
+            // -> `obj.field = (obj.field) op rhs`. NOTA: avalia `obj`
+            // duas vezes — em MVP aceitavel (obj geralmente e ident).
             if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
-                if !matches!(a.op, AssignOp::Assign) {
-                    return Err(anyhow!("compound assign em member access nao suportado"));
-                }
-                let rhs = lower_expr(ctx, &a.right)?;
+                let final_rhs_expr: Box<Expr> = if matches!(a.op, AssignOp::Assign) {
+                    a.right.clone()
+                } else {
+                    let binop = match a.op {
+                        AssignOp::AddAssign => BinaryOp::Add,
+                        AssignOp::SubAssign => BinaryOp::Sub,
+                        AssignOp::MulAssign => BinaryOp::Mul,
+                        AssignOp::DivAssign => BinaryOp::Div,
+                        AssignOp::ModAssign => BinaryOp::Mod,
+                        AssignOp::LShiftAssign => BinaryOp::LShift,
+                        AssignOp::RShiftAssign => BinaryOp::RShift,
+                        AssignOp::ZeroFillRShiftAssign => BinaryOp::ZeroFillRShift,
+                        AssignOp::BitOrAssign => BinaryOp::BitOr,
+                        AssignOp::BitXorAssign => BinaryOp::BitXor,
+                        AssignOp::BitAndAssign => BinaryOp::BitAnd,
+                        AssignOp::ExpAssign => BinaryOp::Exp,
+                        AssignOp::AndAssign
+                        | AssignOp::OrAssign
+                        | AssignOp::NullishAssign => {
+                            return Err(anyhow!(
+                                "logical compound em member access nao suportado"
+                            ));
+                        }
+                        AssignOp::Assign => unreachable!(),
+                    };
+                    let read_lhs = Expr::Member(swc_ecma_ast::MemberExpr {
+                        span: a.span,
+                        obj: m.obj.clone(),
+                        prop: m.prop.clone(),
+                    });
+                    Box::new(Expr::Bin(BinExpr {
+                        span: a.span,
+                        op: binop,
+                        left: Box::new(read_lhs),
+                        right: a.right.clone(),
+                    }))
+                };
+                let rhs = lower_expr(ctx, &final_rhs_expr)?;
                 let rhs_i64 = ctx.coerce_to_i64(rhs).val;
                 let obj_tv = lower_expr(ctx, &m.obj)?;
                 let obj_h = ctx.coerce_to_i64(obj_tv).val;
@@ -557,6 +593,17 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
                 .get(name)
                 .or_else(|| ctx.global_class_ty.get(name))
                 .cloned()
+        }
+        // `new C(...)` retorna instancia de C — habilita chains
+        // inline como `new Builder().add(x).build()`.
+        Expr::New(ne) => {
+            if let Expr::Ident(id) = ne.callee.as_ref() {
+                let cn = id.sym.as_str();
+                if ctx.classes.contains_key(cn) {
+                    return Some(cn.to_string());
+                }
+            }
+            None
         }
         Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
         // Encadeamento: `a + b - c`. Pressupomos que metodos de
@@ -1267,6 +1314,43 @@ fn resolve_init_owner(ctx: &FnCtx, class: &str) -> Option<String> {
     }
 }
 
+/// Retorna true se `child` descende de `ancestor` (inclui igualdade).
+fn is_subclass_of(ctx: &FnCtx, child: &str, ancestor: &str) -> bool {
+    let mut cur = child.to_string();
+    loop {
+        if cur == ancestor {
+            return true;
+        }
+        let Some(meta) = ctx.classes.get(&cur) else {
+            return false;
+        };
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return false,
+        }
+    }
+}
+
+/// Coleta classes que descendem de `base` e definem `method` direto
+/// (override). Retorna pares `(nome_da_classe, owner_efetivo)` onde
+/// owner_efetivo e a classe que provê o metodo (resolvido pela cadeia).
+fn collect_method_overrides(
+    ctx: &FnCtx,
+    base: &str,
+    method: &str,
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (cname, _meta) in ctx.classes.iter() {
+        if !is_subclass_of(ctx, cname, base) {
+            continue;
+        }
+        if let Some(owner) = resolve_method_owner(ctx, cname, method) {
+            out.push((cname.clone(), owner));
+        }
+    }
+    out
+}
+
 fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedVal> {
     let class_name = match new_expr.callee.as_ref() {
         Expr::Ident(id) => id.sym.as_str().to_string(),
@@ -1282,6 +1366,27 @@ fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedV
     let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
     let inst = ctx.builder.ins().call(new_fn, &[]);
     let handle = ctx.builder.inst_results(inst)[0];
+
+    // Grava o tipo dinamico em `__rts_class` — handle de string com o
+    // nome da classe. Permite dispatch virtual quando o caller so
+    // conhece a classe base.
+    let (class_ptr, class_len) = ctx.emit_str_literal(class_name.as_bytes())?;
+    let from_static = ctx.get_extern(
+        "__RTS_FN_NS_GC_STRING_FROM_STATIC",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(from_static, &[class_ptr, class_len]);
+    let class_str_handle = ctx.builder.inst_results(inst)[0];
+    let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
+    let map_set = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+        &[cl::I64, cl::I64, cl::I64, cl::I64],
+        None,
+    )?;
+    ctx.builder
+        .ins()
+        .call(map_set, &[handle, key_ptr, key_len, class_str_handle]);
 
     // Chama o constructor (se a classe ou algum ancestral definir).
     if let Some(init_owner) = resolve_init_owner(ctx, &class_name) {
@@ -1342,7 +1447,19 @@ fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         .get(&class_name)
         .and_then(|m| m.super_class.clone())
         .ok_or_else(|| anyhow!("`super(...)` em classe sem extends"))?;
-    let init_owner = resolve_init_owner(ctx, &parent).unwrap_or(parent);
+
+    // Se nenhuma classe da cadeia ancestrais define constructor,
+    // `super(...)` vira no-op — match TS para classes sem ctor.
+    let Some(init_owner) = resolve_init_owner(ctx, &parent) else {
+        // Avalia args para preservar side effects, descarta resultado.
+        for a in &call.args {
+            if a.spread.is_some() {
+                return Err(anyhow!("spread em super(...) nao suportado"));
+            }
+            let _ = lower_expr(ctx, &a.expr)?;
+        }
+        return Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64));
+    };
 
     let init_fn_name = format!("__class_{init_owner}__init");
     let abi = ctx
@@ -1392,10 +1509,83 @@ fn lower_class_method_call_with_recv(
     recv_i64: cranelift_codegen::ir::Value,
     call: &CallExpr,
 ) -> Result<TypedVal> {
-    let owner = resolve_method_owner(ctx, class_name, method_name).ok_or_else(|| {
+    let static_owner = resolve_method_owner(ctx, class_name, method_name).ok_or_else(|| {
         anyhow!("metodo `{method_name}` nao encontrado em `{class_name}` ou ancestrais")
     })?;
 
+    // Coleta todos os owners distintos entre as subclasses da classe
+    // estatica que tem o metodo. Se so existe um (ninguem override),
+    // dispatch direto. Se ha multiplos, dispatch virtual via leitura
+    // do `__rts_class` na instancia.
+    let overrides = collect_method_overrides(ctx, class_name, method_name);
+    let mut distinct_owners: Vec<String> = Vec::new();
+    for (_c, o) in &overrides {
+        if !distinct_owners.contains(o) {
+            distinct_owners.push(o.clone());
+        }
+    }
+    // Garante que static_owner esta na lista (caso nao haja subclasses).
+    if !distinct_owners.contains(&static_owner) {
+        distinct_owners.insert(0, static_owner.clone());
+    }
+
+    // Avalia args uma vez antes do branch — IR limpo independente do
+    // dispatch escolhido.
+    let abi_static = ctx
+        .user_fns
+        .get(&format!("__class_{static_owner}_{method_name}"))
+        .ok_or_else(|| anyhow!("metodo estatico `{static_owner}.{method_name}` nao registrado"))?
+        .clone();
+    let expected = abi_static.params.len().saturating_sub(1);
+    if call.args.len() != expected {
+        return Err(anyhow!(
+            "metodo `{static_owner}.{method_name}` espera {} argumento(s), recebeu {}",
+            expected,
+            call.args.len()
+        ));
+    }
+    let mut arg_values: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(expected);
+    for (a, expected_ty) in call.args.iter().zip(abi_static.params.iter().skip(1).copied()) {
+        if a.spread.is_some() {
+            return Err(anyhow!("spread em chamada de metodo nao suportado"));
+        }
+        let tv = lower_expr(ctx, &a.expr)?;
+        let value = match expected_ty {
+            ValTy::I32 => ctx.coerce_to_i32(tv).val,
+            ValTy::F64 => to_f64(ctx, tv),
+            _ => ctx.coerce_to_i64(tv).val,
+        };
+        arg_values.push(value);
+    }
+
+    // Dispatch direto quando so um owner.
+    if distinct_owners.len() == 1 {
+        return emit_method_call(ctx, &static_owner, method_name, recv_i64, &arg_values);
+    }
+
+    // Dispatch virtual: le `__rts_class` da instancia, compara com cada
+    // class_name das subclasses (em ordem mais-derivada -> base) e
+    // chama o owner certo. Fallback no static_owner.
+    emit_virtual_dispatch(
+        ctx,
+        class_name,
+        method_name,
+        &static_owner,
+        recv_i64,
+        &arg_values,
+        &overrides,
+    )
+}
+
+/// Emite a chamada direta a `__class_<owner>_<method>(this, ...args)`
+/// usando os arg values ja avaliados.
+fn emit_method_call(
+    ctx: &mut FnCtx,
+    owner: &str,
+    method_name: &str,
+    recv_i64: cranelift_codegen::ir::Value,
+    arg_values: &[cranelift_codegen::ir::Value],
+) -> Result<TypedVal> {
     let fn_name = format!("__class_{owner}_{method_name}");
     let abi = ctx
         .user_fns
@@ -1409,27 +1599,9 @@ fn lower_class_method_call_with_recv(
         .ok_or_else(|| anyhow!("metodo mangled `{mangled}` faltando"))?;
     let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
 
-    let mut args = vec![recv_i64];
-    let expected = abi.params.len().saturating_sub(1);
-    if call.args.len() != expected {
-        return Err(anyhow!(
-            "metodo `{owner}.{method_name}` espera {} argumento(s), recebeu {}",
-            expected,
-            call.args.len()
-        ));
-    }
-    for (a, expected_ty) in call.args.iter().zip(abi.params.iter().skip(1).copied()) {
-        if a.spread.is_some() {
-            return Err(anyhow!("spread em chamada de metodo nao suportado"));
-        }
-        let tv = lower_expr(ctx, &a.expr)?;
-        let value = match expected_ty {
-            ValTy::I32 => ctx.coerce_to_i32(tv).val,
-            ValTy::F64 => to_f64(ctx, tv),
-            _ => ctx.coerce_to_i64(tv).val,
-        };
-        args.push(value);
-    }
+    let mut args = Vec::with_capacity(arg_values.len() + 1);
+    args.push(recv_i64);
+    args.extend_from_slice(arg_values);
     let inst = ctx.builder.ins().call(fref, &args);
     let results = ctx.builder.inst_results(inst);
     if let Some(&v) = results.first() {
@@ -1438,6 +1610,113 @@ fn lower_class_method_call_with_recv(
     } else {
         Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
     }
+}
+
+/// Dispatch virtual: le `__rts_class` da instancia, compara com cada
+/// class de subclasse (mais-derivada → base), chama o owner do metodo.
+fn emit_virtual_dispatch(
+    ctx: &mut FnCtx,
+    class_name: &str,
+    method_name: &str,
+    static_owner: &str,
+    recv_i64: cranelift_codegen::ir::Value,
+    arg_values: &[cranelift_codegen::ir::Value],
+    overrides: &[(String, String)],
+) -> Result<TypedVal> {
+    // Le o handle do `__rts_class` da instancia.
+    let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
+    let map_get = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(map_get, &[recv_i64, key_ptr, key_len]);
+    let class_handle = ctx.builder.inst_results(inst)[0];
+
+    // Determina tipo de retorno via owner estatico.
+    let ret_ty = ctx
+        .user_fns
+        .get(&format!("__class_{static_owner}_{method_name}"))
+        .and_then(|abi| abi.ret)
+        .unwrap_or(ValTy::I64);
+
+    // Ordena overrides: mais derivado primeiro (BFS reverso simples).
+    // Pra simplificar: ordena por profundidade descendente.
+    let mut ordered: Vec<(String, String)> = overrides.to_vec();
+    ordered.sort_by_key(|(c, _)| {
+        // Profundidade da hierarquia
+        let mut depth = 0;
+        let mut cur = c.clone();
+        while let Some(meta) = ctx.classes.get(&cur) {
+            match &meta.super_class {
+                Some(p) => {
+                    depth += 1;
+                    cur = p.clone();
+                }
+                None => break,
+            }
+        }
+        std::cmp::Reverse(depth)
+    });
+
+    // Bloco merge para colher resultado
+    let merge_block = ctx.builder.create_block();
+    let result_param = ctx.builder.append_block_param(merge_block, ret_ty.cl_type());
+
+    let str_eq = ctx.get_extern(
+        "__RTS_FN_NS_GC_STRING_EQ",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+
+    // Para cada (subclass, owner): emit comparison e chamada se igual.
+    let _ = class_name;
+    for (cname, owner) in &ordered {
+        let (cn_ptr, cn_len) = ctx.emit_str_literal(cname.as_bytes())?;
+        let from_static = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_FROM_STATIC",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(from_static, &[cn_ptr, cn_len]);
+        let target_handle = ctx.builder.inst_results(inst)[0];
+
+        let inst = ctx.builder.ins().call(str_eq, &[class_handle, target_handle]);
+        let cmp = ctx.builder.inst_results(inst)[0];
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        let is_eq = ctx.builder.ins().icmp(IntCC::NotEqual, cmp, zero);
+
+        let then_block = ctx.builder.create_block();
+        let else_block = ctx.builder.create_block();
+        ctx.builder.ins().brif(is_eq, then_block, &[], else_block, &[]);
+
+        ctx.builder.switch_to_block(then_block);
+        ctx.builder.seal_block(then_block);
+        let result = emit_method_call(ctx, owner, method_name, recv_i64, arg_values)?;
+        let coerced = match ret_ty {
+            ValTy::I32 => ctx.coerce_to_i32(result).val,
+            ValTy::F64 => to_f64(ctx, result),
+            _ => ctx.coerce_to_i64(result).val,
+        };
+        ctx.builder.ins().jump(merge_block, &[coerced.into()]);
+
+        ctx.builder.switch_to_block(else_block);
+        ctx.builder.seal_block(else_block);
+    }
+
+    // Fallback: chama static_owner (cobre instances sem __rts_class
+    // setado, ou classes nao listadas).
+    let result = emit_method_call(ctx, static_owner, method_name, recv_i64, arg_values)?;
+    let coerced = match ret_ty {
+        ValTy::I32 => ctx.coerce_to_i32(result).val,
+        ValTy::F64 => to_f64(ctx, result),
+        _ => ctx.coerce_to_i64(result).val,
+    };
+    ctx.builder.ins().jump(merge_block, &[coerced.into()]);
+
+    ctx.builder.switch_to_block(merge_block);
+    ctx.builder.seal_block(merge_block);
+    Ok(TypedVal::new(result_param, ret_ty))
 }
 
 /// Materialises the address of a user-defined function as an i64 value.

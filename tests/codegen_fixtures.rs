@@ -199,3 +199,8 @@ fn fixture_class_inheritance() {
 fn fixture_operator_overload() {
     run_fixture("operator_overload");
 }
+
+#[test]
+fn fixture_class_virtual_dispatch() {
+    run_fixture("class_virtual_dispatch");
+}

@@ -46,6 +46,14 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                                 ctx.local_class_ty.insert(name.clone(), cn);
                             }
                         }
+                        // Anotacao `C[]` → array de instancias de C
+                        if let swc_ecma_ast::TsType::TsArrayType(arr) = ann.type_ann.as_ref() {
+                            if let Some(cn) = class_name_from_annotation(&arr.elem_type) {
+                                if ctx.classes.contains_key(&cn) {
+                                    ctx.local_array_class_ty.insert(name.clone(), cn);
+                                }
+                            }
+                        }
                     }
                 }
                 // Heuristica: quando o init e `new C(...)`, a var herda
@@ -578,6 +586,16 @@ fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) -> Result<boo
     let zero = ctx.builder.ins().iconst(cl::I64, 0);
     if matches!(&for_of.left, ForHead::VarDecl(_)) {
         ctx.declare_local(&bind_name, bind_ty, zero);
+    }
+
+    // Inferencia de classe: se o iter e local com array tipado
+    // `: C[]`, popula local_class_ty para o bind, habilitando
+    // dispatch de metodo no body do for-of.
+    if let swc_ecma_ast::Expr::Ident(id) = for_of.right.as_ref() {
+        let arr_name = id.sym.as_str();
+        if let Some(elem_cls) = ctx.local_array_class_ty.get(arr_name).cloned() {
+            ctx.local_class_ty.insert(bind_name.clone(), elem_cls);
+        }
     }
 
     // Counter local em i64 (handle/index sao i64). Nome unico via

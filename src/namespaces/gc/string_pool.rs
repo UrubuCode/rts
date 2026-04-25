@@ -78,21 +78,23 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_F64(value: f64) -> u64 {
 }
 
 /// Concatenates two string handles and returns a new handle.
-/// Returns `0` if either handle is invalid.
+/// Handles invalidos sao tratados como string vazia — match ergonomia
+/// JS de `${undefined}` (que vira "undefined") e evita propagar handle
+/// 0 que silenciaria o resto do template.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
     let mut bytes = {
         let t = table().lock().expect("handle table poisoned");
         match t.get(a) {
             Some(Entry::String(s)) => s.clone(),
-            _ => return 0,
+            _ => Vec::new(),
         }
     };
     {
         let t = table().lock().expect("handle table poisoned");
         match t.get(b) {
             Some(Entry::String(s)) => bytes.extend_from_slice(s),
-            _ => return 0,
+            _ => {}
         }
     }
     let mut t = table().lock().expect("handle table poisoned");
