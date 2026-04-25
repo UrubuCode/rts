@@ -76,6 +76,16 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
     match decl {
         Decl::Class(class_decl) => {
             out.push(Item::Class(lower_class_decl(cm, class_decl)));
+            // Decorators TC39: emite chamada a cada decorator com target=0
+            // (handle nominal). Resultado eh descartado (registration-style
+            // decorators tem efeito por side-effect). Decoradores de
+            // metodo/param sao parseados mas tambem ignorados ate ter
+            // metadata real.
+            // Decorators TS executam bottom-up (do mais perto da classe
+            // para o mais distante).
+            for dec in class_decl.class.decorators.iter().rev() {
+                emit_decorator_call_stmt(cm, &dec.expr, dec.span, out);
+            }
         }
         Decl::Fn(fn_decl) => {
             out.push(Item::Function(lower_fn_decl(cm, fn_decl)));
@@ -490,6 +500,43 @@ fn process_namespace_member(
         }
         _ => {}
     }
+}
+
+/// Emite a chamada do decorator como statement de side-effect:
+/// `decoratorExpr(0);`. Resultado descartado (decorators TC39 com
+/// retorno modificando target nao sao suportados em runtime).
+fn emit_decorator_call_stmt(
+    cm: &Lrc<SourceMap>,
+    decorator_expr: &Expr,
+    span: SwcSpan,
+    out: &mut Vec<Item>,
+) {
+    use swc_ecma_ast::*;
+    // Se o decorator ja e uma chamada (factory: @tag("x")), executa direto.
+    // Caso contrario (@log), envolve com (target=0).
+    let call_expr = if let Expr::Call(_) = decorator_expr {
+        decorator_expr.clone()
+    } else {
+        Expr::Call(CallExpr {
+            span,
+            ctxt: Default::default(),
+            callee: Callee::Expr(Box::new(decorator_expr.clone())),
+            args: vec![ExprOrSpread {
+                spread: None,
+                expr: Box::new(Expr::Lit(Lit::Num(Number {
+                    span,
+                    value: 0.0,
+                    raw: Some("0".into()),
+                }))),
+            }],
+            type_args: None,
+        })
+    };
+    let stmt = Stmt::Expr(ExprStmt {
+        span,
+        expr: Box::new(call_expr),
+    });
+    push_raw_statement_with_stmt(cm, span, Some(&stmt), out);
 }
 
 fn lower_class_decl(cm: &Lrc<SourceMap>, class_decl: &SwcClassDecl) -> ClassDecl {
