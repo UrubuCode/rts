@@ -517,3 +517,23 @@ fn fixture_default_param_expr() {
 fn fixture_default_param_string() {
     run_fixture("default_param_string");
 }
+
+#[test]
+fn fixture_type_assertion_basic() {
+    run_fixture("type_assertion_basic");
+}
+
+#[test]
+fn fixture_type_assertion_class() {
+    run_fixture("type_assertion_class");
+}
+
+#[test]
+fn fixture_type_assertion_misc() {
+    run_fixture("type_assertion_misc");
+}
+
+#[test]
+fn fixture_type_assertion_member() {
+    run_fixture("type_assertion_member");
+}

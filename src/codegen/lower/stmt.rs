@@ -79,6 +79,22 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
                                 }
                             }
                         }
+                        // `let c = expr as ClassName` ou `<ClassName>expr` —
+                        // type assertion vira hint pra local_class_ty.
+                        let asserted_class: Option<String> = match init.as_ref() {
+                            swc_ecma_ast::Expr::TsAs(a) => {
+                                class_name_from_annotation(&a.type_ann)
+                            }
+                            swc_ecma_ast::Expr::TsTypeAssertion(a) => {
+                                class_name_from_annotation(&a.type_ann)
+                            }
+                            _ => None,
+                        };
+                        if let Some(cn) = asserted_class {
+                            if ctx.classes.contains_key(&cn) {
+                                ctx.local_class_ty.insert(name.clone(), cn);
+                            }
+                        }
                     }
                 }
 
