@@ -194,3 +194,8 @@ fn fixture_class_basic() {
 fn fixture_class_inheritance() {
     run_fixture("class_inheritance");
 }
+
+#[test]
+fn fixture_operator_overload() {
+    run_fixture("operator_overload");
+}
