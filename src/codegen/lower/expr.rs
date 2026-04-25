@@ -693,6 +693,16 @@ fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
         // `obj.field` quando o field tem tipo declarado de outra classe,
         // ou quando o membro e um getter cujo return type bate com classe.
         Expr::Member(m) => {
+            // Subscript numerico em array tipado `: C[]` → elemento e
+            // instancia de C. Cobre `arr[0].method()`, `arr[i].x`.
+            if let Expr::Ident(arr_id) = m.obj.as_ref() {
+                if let MemberProp::Computed(_) = &m.prop {
+                    let arr_name = arr_id.sym.as_str();
+                    if let Some(elem_cls) = ctx.local_array_class_ty.get(arr_name).cloned() {
+                        return Some(elem_cls);
+                    }
+                }
+            }
             let recv_cls = lhs_static_class(ctx, &m.obj)?;
             let field_name = match &m.prop {
                 MemberProp::Ident(id) => id.sym.as_str().to_string(),
