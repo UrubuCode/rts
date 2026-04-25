@@ -204,3 +204,8 @@ fn fixture_operator_overload() {
 fn fixture_class_virtual_dispatch() {
     run_fixture("class_virtual_dispatch");
 }
+
+#[test]
+fn fixture_class_extras() {
+    run_fixture("class_extras");
+}

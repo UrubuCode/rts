@@ -62,6 +62,13 @@ pub struct ConstructorDecl {
     pub span: Span,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodRole {
+    Method,
+    Getter,
+    Setter,
+}
+
 #[derive(Debug, Clone)]
 pub struct MethodDecl {
     pub name: String,
@@ -69,6 +76,7 @@ pub struct MethodDecl {
     pub parameters: Vec<Parameter>,
     pub return_type: Option<String>,
     pub body: Vec<Statement>,
+    pub role: MethodRole,
     pub span: Span,
 }
 

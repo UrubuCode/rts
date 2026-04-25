@@ -1,0 +1,11 @@
+base
+mid
+top
+---
+double=14
+add=7
+init=10
+set50=50
+clamped=0
+area=12
+empty-method-ok

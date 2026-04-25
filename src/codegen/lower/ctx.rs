@@ -102,7 +102,7 @@ pub struct UserFnAbi {
 pub struct ClassMeta {
     pub name: String,
     pub super_class: Option<String>,
-    /// Nomes de metodos definidos diretamente nesta classe.
+    /// Nomes de metodos definidos diretamente nesta classe (instance).
     pub methods: Vec<String>,
     /// Tipo declarado de cada field (via `class { x: string }`). Usado
     /// para tipar o resultado de `obj.field` quando a classe da var e
@@ -112,6 +112,16 @@ pub struct ClassMeta {
     /// Permite descobrir quando o field e instancia de outra classe
     /// registrada — habilita overload em `this.field + x`.
     pub field_class_names: HashMap<String, String>,
+    /// Nomes de static methods (chamados via `C.method()`).
+    pub static_methods: Vec<String>,
+    /// Nomes de static fields (acessados via `C.field`).
+    pub static_fields: Vec<String>,
+    /// Nomes de getters definidos diretamente — ler `obj.x` chama
+    /// __class_C_get_x(this).
+    pub getters: Vec<String>,
+    /// Nomes de setters definidos diretamente — `obj.x = v` chama
+    /// __class_C_set_x(this, v).
+    pub setters: Vec<String>,
     /// True quando a classe tem constructor proprio (mesmo se vazio).
     pub has_constructor: bool,
 }
