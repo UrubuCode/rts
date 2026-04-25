@@ -720,6 +720,217 @@ fn pack_rest_args(args: &mut Vec<swc_ecma_ast::ExprOrSpread>, rest_idx: usize) {
     });
 }
 
+/// Expande argumentos com spread literal em callsites: \`fn(...[1,2,3])\`
+/// vira \`fn(1, 2, 3)\` em compile-time. Trabalha sobre toda a árvore.
+///
+/// Cobertura nesta fase: spread de \`Expr::Array\` literal inline.
+/// Spread de variável (\`fn(...arr)\`) ainda é rejeitado pelo codegen
+/// — exige geração de loop ou copy dinâmico que fica como follow-up.
+fn expand_spread_args(program: &mut Program) {
+    for item in program.items.iter_mut() {
+        match item {
+            Item::Function(f) => {
+                for s in f.body.iter_mut() {
+                    let Statement::Raw(raw) = s;
+                    if let Some(stmt) = raw.stmt.as_mut() {
+                        spread_in_stmt(stmt);
+                    }
+                }
+            }
+            Item::Class(c) => {
+                for m in c.members.iter_mut() {
+                    match m {
+                        ClassMember::Constructor(ctor) => {
+                            for s in ctor.body.iter_mut() {
+                                let Statement::Raw(raw) = s;
+                                if let Some(stmt) = raw.stmt.as_mut() {
+                                    spread_in_stmt(stmt);
+                                }
+                            }
+                        }
+                        ClassMember::Method(method) => {
+                            for s in method.body.iter_mut() {
+                                let Statement::Raw(raw) = s;
+                                if let Some(stmt) = raw.stmt.as_mut() {
+                                    spread_in_stmt(stmt);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Item::Statement(Statement::Raw(raw)) => {
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    spread_in_stmt(stmt);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn spread_in_stmt(stmt: &mut Stmt) {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Expr(e) => spread_in_expr(&mut e.expr),
+        Return(r) => {
+            if let Some(a) = r.arg.as_deref_mut() {
+                spread_in_expr(a);
+            }
+        }
+        If(i) => {
+            spread_in_expr(&mut i.test);
+            spread_in_stmt(&mut i.cons);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                spread_in_stmt(alt);
+            }
+        }
+        Block(b) => {
+            for s in &mut b.stmts {
+                spread_in_stmt(s);
+            }
+        }
+        While(w) => {
+            spread_in_expr(&mut w.test);
+            spread_in_stmt(&mut w.body);
+        }
+        DoWhile(w) => {
+            spread_in_expr(&mut w.test);
+            spread_in_stmt(&mut w.body);
+        }
+        For(f) => {
+            if let Some(init) = f.init.as_mut() {
+                if let swc_ecma_ast::VarDeclOrExpr::VarDecl(vd) = init {
+                    for d in &mut vd.decls {
+                        if let Some(e) = d.init.as_deref_mut() {
+                            spread_in_expr(e);
+                        }
+                    }
+                }
+            }
+            if let Some(t) = f.test.as_deref_mut() {
+                spread_in_expr(t);
+            }
+            if let Some(u) = f.update.as_deref_mut() {
+                spread_in_expr(u);
+            }
+            spread_in_stmt(&mut f.body);
+        }
+        ForOf(f) => {
+            spread_in_expr(&mut f.right);
+            spread_in_stmt(&mut f.body);
+        }
+        Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in &mut v.decls {
+                if let Some(e) = d.init.as_deref_mut() {
+                    spread_in_expr(e);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn spread_in_expr(expr: &mut Expr) {
+    match expr {
+        Expr::Call(call) => {
+            // Recurse primeiro nos args.
+            for a in call.args.iter_mut() {
+                spread_in_expr(&mut a.expr);
+            }
+            if let Callee::Expr(e) = &mut call.callee {
+                spread_in_expr(e);
+            }
+            expand_spread_in_args(&mut call.args);
+        }
+        Expr::New(n) => {
+            if let Some(args) = n.args.as_mut() {
+                for a in args.iter_mut() {
+                    spread_in_expr(&mut a.expr);
+                }
+                expand_spread_in_args(args);
+            }
+        }
+        Expr::Member(m) => spread_in_expr(&mut m.obj),
+        Expr::Bin(b) => {
+            spread_in_expr(&mut b.left);
+            spread_in_expr(&mut b.right);
+        }
+        Expr::Unary(u) => spread_in_expr(&mut u.arg),
+        Expr::Update(u) => spread_in_expr(&mut u.arg),
+        Expr::Assign(a) => {
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(m),
+            ) = &mut a.left
+            {
+                spread_in_expr(&mut m.obj);
+            }
+            spread_in_expr(&mut a.right);
+        }
+        Expr::Cond(c) => {
+            spread_in_expr(&mut c.test);
+            spread_in_expr(&mut c.cons);
+            spread_in_expr(&mut c.alt);
+        }
+        Expr::Paren(p) => spread_in_expr(&mut p.expr),
+        Expr::Tpl(t) => {
+            for e in &mut t.exprs {
+                spread_in_expr(e);
+            }
+        }
+        Expr::Array(a) => {
+            for el in a.elems.iter_mut().flatten() {
+                spread_in_expr(&mut el.expr);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Substitui args com spread de array literal pelos elementos do array.
+/// `f(a, ...[b, c], d)` → `f(a, b, c, d)`.
+fn expand_spread_in_args(args: &mut Vec<swc_ecma_ast::ExprOrSpread>) {
+    if !args.iter().any(|a| a.spread.is_some()) {
+        return;
+    }
+    let original = std::mem::take(args);
+    for arg in original {
+        if arg.spread.is_some() {
+            // Spread de literal array: expande inline.
+            if let Expr::Array(arr) = arg.expr.as_ref() {
+                for elem in &arr.elems {
+                    if let Some(el) = elem {
+                        // Spread de array com hole (sparse) → push literal 0.
+                        // Mas mantemos ExprOrSpread interno (suporta nested
+                        // spread? não, simplificação: aplaina um nível).
+                        args.push(swc_ecma_ast::ExprOrSpread {
+                            spread: el.spread,
+                            expr: el.expr.clone(),
+                        });
+                    } else {
+                        // Hole — vira literal 0 (matching JS undefined → 0 here).
+                        args.push(swc_ecma_ast::ExprOrSpread {
+                            spread: None,
+                            expr: Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                                span: Default::default(),
+                                value: 0.0,
+                                raw: Some("0".into()),
+                            }))),
+                        });
+                    }
+                }
+                continue;
+            }
+            // Spread de não-literal: deixamos como está. Codegen vai
+            // rejeitar com erro claro em runtime.
+            args.push(arg);
+        } else {
+            args.push(arg);
+        }
+    }
+}
+
 impl LiftAcc {
     /// Processa uma função user (não-classe, não-lifted). Detecta locais
     /// capturadas em arrows passados a callbacks ABI, promove cada local
@@ -1685,6 +1896,10 @@ pub fn compile_program(
 ) -> Result<Vec<String>> {
     lift_arrow_callbacks(program);
     expand_default_args(program);
+    // Spread antes de rest: spread aplaina array literal nos call sites
+    // (`f(...[1,2,3])` → `f(1,2,3)`); rest depois empacota argumentos
+    // extras conforme o callee é variadic.
+    expand_spread_args(program);
     expand_rest_args(program);
 
     let mut warnings = Vec::new();

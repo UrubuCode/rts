@@ -627,3 +627,18 @@ fn fixture_rest_param_mixed() {
 fn fixture_rest_param_empty() {
     run_fixture("rest_param_empty");
 }
+
+#[test]
+fn fixture_spread_call_basic() {
+    run_fixture("spread_call_basic");
+}
+
+#[test]
+fn fixture_spread_call_mixed() {
+    run_fixture("spread_call_mixed");
+}
+
+#[test]
+fn fixture_spread_with_rest() {
+    run_fixture("spread_with_rest");
+}
