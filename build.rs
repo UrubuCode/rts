@@ -23,6 +23,12 @@ fn main() {
             deps_dir.display()
         )
     });
+    let regex_rlib = find_rlib_named(&deps_dir, "libregex-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate regex rlib under {} (required for regex runtime symbols)",
+            deps_dir.display()
+        )
+    });
 
     let mut cmd = Command::new(&rustc);
     cmd.args([
@@ -44,6 +50,8 @@ fn main() {
         .arg(format!("dependency={}", deps_dir.display()));
     cmd.arg("--extern")
         .arg(format!("fltk={}", fltk_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("regex={}", regex_rlib.display()));
 
     let status = cmd
         .status()
@@ -70,6 +78,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/hash/");
     println!("cargo:rerun-if-changed=src/namespaces/fmt/");
     println!("cargo:rerun-if-changed=src/namespaces/crypto/");
+    println!("cargo:rerun-if-changed=src/namespaces/regex/");
     println!("cargo:rerun-if-changed=src/namespaces/ui/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
@@ -90,6 +99,10 @@ fn deps_dir_from_out_dir(out_dir: &Path) -> Option<PathBuf> {
 }
 
 fn find_fltk_rlib(deps_dir: &Path) -> Option<PathBuf> {
+    find_rlib_named(deps_dir, "libfltk-")
+}
+
+fn find_rlib_named(deps_dir: &Path, prefix: &str) -> Option<PathBuf> {
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     let entries = std::fs::read_dir(deps_dir).ok()?;
     for entry in entries.flatten() {
@@ -101,7 +114,7 @@ fn find_fltk_rlib(deps_dir: &Path) -> Option<PathBuf> {
             Some(name) => name,
             None => continue,
         };
-        if !file_name.starts_with("libfltk-") {
+        if !file_name.starts_with(prefix) {
             continue;
         }
 

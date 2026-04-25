@@ -35,6 +35,23 @@ pub(super) fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
             let tv = ctx.emit_str_handle(s.value.as_bytes())?;
             Ok(TypedVal::new(tv.val, ValTy::Handle))
         }
+        Lit::Regex(r) => {
+            // /pattern/flags  →  regex.compile(pattern, flags)
+            let pat_bytes = r.exp.as_bytes();
+            let flag_bytes = r.flags.as_bytes();
+            let (pp, pl) = ctx.emit_str_literal(pat_bytes)?;
+            let (fp, fl) = ctx.emit_str_literal(flag_bytes)?;
+            let compile = ctx.get_extern(
+                "__RTS_FN_NS_REGEX_COMPILE",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(compile, &[pp, pl, fp, fl]);
+            Ok(TypedVal::new(
+                ctx.builder.inst_results(inst)[0],
+                ValTy::Handle,
+            ))
+        }
         other => Err(anyhow!("unsupported literal: {other:?}")),
     }
 }

@@ -60,6 +60,26 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
         }
         if let Some(qualified) = qualified_member_name(callee) {
+            if lookup(&qualified).is_some() {
+                return lower_ns_call(ctx, &qualified, call);
+            }
+            // Fallback: ident.fn(...) onde ident e var (ex: namespace TS
+            // desugared para const Foo = { ... }). Faz map_get pela key
+            // e despacha via call_indirect.
+            if let Expr::Member(m) = callee.as_ref() {
+                if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                    if ctx.var_ty(obj_id.sym.as_str()).is_some() {
+                        if let MemberProp::Ident(prop) = &m.prop {
+                            return lower_var_member_call(
+                                ctx,
+                                obj_id.sym.as_str(),
+                                prop.sym.as_str(),
+                                call,
+                            );
+                        }
+                    }
+                }
+            }
             return lower_ns_call(ctx, &qualified, call);
         }
         if let Expr::Ident(id) = callee.as_ref() {
@@ -939,6 +959,55 @@ pub(super) fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal>
     let ptr_ty = ctx.module.isa().pointer_type();
     let addr = ctx.builder.ins().func_addr(ptr_ty, fref);
     Ok(TypedVal::new(addr, ValTy::I64))
+}
+
+/// `obj.fn(...)` onde `obj` e uma var local (HashMap-like, ex: namespace
+/// TS desugared). Faz map_get(obj, "fn") -> i64 (funcptr) e
+/// call_indirect com signature i64-only.
+fn lower_var_member_call(
+    ctx: &mut FnCtx,
+    obj_name: &str,
+    prop: &str,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    use cranelift_codegen::isa::CallConv;
+
+    let obj_tv = ctx
+        .read_local(obj_name)
+        .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
+    let obj_h = ctx.coerce_to_i64(obj_tv).val;
+    let (kp, kl) = ctx.emit_str_literal(prop.as_bytes())?;
+    let map_get = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(map_get, &[obj_h, kp, kl]);
+    let callee_val = ctx.builder.inst_results(inst)[0];
+
+    let mut sig = Signature::new(CallConv::Tail);
+    for _ in &call.args {
+        sig.params.push(AbiParam::new(cl::I64));
+    }
+    sig.returns.push(AbiParam::new(cl::I64));
+    let sig_ref = ctx.builder.import_signature(sig);
+
+    let mut args = Vec::with_capacity(call.args.len());
+    for arg in &call.args {
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in var.member call"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        args.push(ctx.coerce_to_i64(tv).val);
+    }
+
+    let inst = ctx.builder.ins().call_indirect(sig_ref, callee_val, &args);
+    let results = ctx.builder.inst_results(inst);
+    let v = results
+        .first()
+        .copied()
+        .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
+    Ok(TypedVal::new(v, ValTy::I64))
 }
 
 fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> Result<TypedVal> {

@@ -1,0 +1,92 @@
+//! `regex` namespace — ABI registration.
+
+use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+
+pub const MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "compile",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_COMPILE",
+        args: &[AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Compila um pattern com flags (ex: \"i\", \"gm\"). Retorna handle ou 0 se invalido.",
+        ts_signature: "compile(pattern: string, flags: string): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "free",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_FREE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Void,
+        doc: "Libera regex compilada.",
+        ts_signature: "free(handle: number): void",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "test",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_TEST",
+        args: &[AbiType::Handle, AbiType::StrPtr],
+        returns: AbiType::Bool,
+        doc: "True se a regex casa em qualquer posicao da string.",
+        ts_signature: "test(handle: number, s: string): boolean",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "find",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_FIND",
+        args: &[AbiType::Handle, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Primeira ocorrencia. Retorna handle de string com o match (free pelo caller) ou 0.",
+        ts_signature: "find(handle: number, s: string): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "find_at",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_FIND_AT",
+        args: &[AbiType::Handle, AbiType::StrPtr],
+        returns: AbiType::I64,
+        doc: "Indice (em bytes) da primeira ocorrencia, -1 se nao casa.",
+        ts_signature: "find_at(handle: number, s: string): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "replace",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_REPLACE",
+        args: &[AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Substitui primeira ocorrencia. Retorna handle de string nova.",
+        ts_signature: "replace(handle: number, s: string, replacement: string): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "replace_all",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_REPLACE_ALL",
+        args: &[AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Substitui todas as ocorrencias. Retorna handle de string nova.",
+        ts_signature: "replace_all(handle: number, s: string, replacement: string): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "match_count",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_REGEX_MATCH_COUNT",
+        args: &[AbiType::Handle, AbiType::StrPtr],
+        returns: AbiType::I64,
+        doc: "Numero de matches (overlapping=false).",
+        ts_signature: "match_count(handle: number, s: string): number",
+        intrinsic: None,
+    },
+];
+
+pub const SPEC: NamespaceSpec = NamespaceSpec {
+    name: "regex",
+    doc: "Expressoes regulares via crate `regex` (sintaxe RE2-like, sem backreferences).",
+    members: MEMBERS,
+};

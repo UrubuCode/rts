@@ -1792,6 +1792,7 @@ dependencies = [
  "notify",
  "object 0.39.0",
  "rayon",
+ "regex",
  "rustc-hash 1.1.0",
  "serde",
  "serde_json",

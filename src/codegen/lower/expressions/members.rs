@@ -253,17 +253,17 @@ pub(super) fn validate_visibility(ctx: &FnCtx, receiver_class: &str, member: &st
                     if ctx.current_class.as_deref() == Some(&cur) {
                         return Ok(());
                     }
-                    return Err(anyhow!("membro `{member}` e private em `{cur}`"));
+                    return Err(anyhow!("membro `{member}` é private em `{cur}`"));
                 }
                 Visibility::Protected => {
                     let Some(current) = ctx.current_class.as_deref() else {
-                        return Err(anyhow!("membro `{member}` e protected em `{cur}`"));
+                        return Err(anyhow!("membro `{member}` é protected em `{cur}`"));
                     };
                     if is_descendant_of(ctx, current, &cur) {
                         return Ok(());
                     }
                     return Err(anyhow!(
-                        "membro `{member}` e protected em `{cur}` — `{current}` nao estende `{cur}`"
+                        "membro `{member}` é protected em `{cur}` — `{current}` nao estende `{cur}`"
                     ));
                 }
             }
@@ -350,8 +350,23 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
         Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
-        Expr::TsAs(a) => class_name_from_ts_type(&a.type_ann),
-        Expr::TsTypeAssertion(a) => class_name_from_ts_type(&a.type_ann),
+        Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
+        Expr::TsAs(a) => class_name_from_ts_type(&a.type_ann)
+            .or_else(|| lhs_static_class(ctx, &a.expr)),
+        Expr::TsTypeAssertion(a) => class_name_from_ts_type(&a.type_ann)
+            .or_else(|| lhs_static_class(ctx, &a.expr)),
+        Expr::TsConstAssertion(a) => lhs_static_class(ctx, &a.expr),
+        Expr::TsSatisfies(a) => lhs_static_class(ctx, &a.expr),
+        Expr::TsNonNull(n) => lhs_static_class(ctx, &n.expr),
+        Expr::New(n) => {
+            if let Expr::Ident(id) = n.callee.as_ref() {
+                let name = id.sym.as_str();
+                if ctx.classes.contains_key(name) {
+                    return Some(name.to_string());
+                }
+            }
+            None
+        }
         Expr::Member(m) => {
             let owner = lhs_static_class(ctx, &m.obj)?;
             let prop = match &m.prop {

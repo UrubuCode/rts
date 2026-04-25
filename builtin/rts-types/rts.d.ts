@@ -879,6 +879,28 @@ declare module "rts" {
     /**
      * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
+    /**
+     * Expressoes regulares via crate `regex` (sintaxe RE2-like, sem backreferences).
+     */
+    export namespace regex {
+      /** Compila um pattern com flags (ex: "i", "gm"). Retorna handle ou 0 se invalido. */
+      export function compile(pattern: string, flags: string): number;
+      /** Libera regex compilada. */
+      export function free(handle: number): void;
+      /** True se a regex casa em qualquer posicao da string. */
+      export function test(handle: number, s: string): boolean;
+      /** Primeira ocorrencia. Retorna handle de string com o match (free pelo caller) ou 0. */
+      export function find(handle: number, s: string): number;
+      /** Indice (em bytes) da primeira ocorrencia, -1 se nao casa. */
+      export function find_at(handle: number, s: string): number;
+      /** Substitui primeira ocorrencia. Retorna handle de string nova. */
+      export function replace(handle: number, s: string, replacement: string): number;
+      /** Substitui todas as ocorrencias. Retorna handle de string nova. */
+      export function replace_all(handle: number, s: string, replacement: string): number;
+      /** Numero de matches. */
+      export function match_count(handle: number, s: string): number;
+    }
+
     export namespace debug {
       /**
        * Carrega arquivo .ometa, retorna handle numérico.
