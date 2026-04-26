@@ -917,3 +917,13 @@ fn fixture_num_bits() {
 fn fixture_hint_basic() {
     run_fixture("hint_basic");
 }
+
+#[test]
+fn fixture_mem_layout() {
+    run_fixture("mem_layout");
+}
+
+#[test]
+fn fixture_mem_handles() {
+    run_fixture("mem_handles");
+}

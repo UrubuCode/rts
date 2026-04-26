@@ -880,6 +880,22 @@ declare module "rts" {
      * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
     /**
+     * std::mem: layout (size_of/align_of), swap, drop, forget.
+     */
+    export namespace mem {
+      export const size_of_i64: number;
+      export const size_of_f64: number;
+      export const size_of_i32: number;
+      export const size_of_bool: number;
+      export const align_of_i64: number;
+      export const align_of_f64: number;
+      export function swap_i64(a: number, b: number): number;
+      export function drop_handle(h: number): void;
+      export function forget_handle(h: number): void;
+      export function replace_i64(slot: number, new_val: number): number;
+    }
+
+    /**
      * Performance hints (std::hint).
      */
     export namespace hint {
