@@ -696,6 +696,45 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         buf::__RTS_FN_NS_BUFFER_TO_STRING
     );
 
+    // ── namespaces::ffi ───────────────────────────────────────────────
+    use crate::namespaces::ffi::{cstr as ffi_cstr, cstring as ffi_cstring, osstr as ffi_osstr};
+    add_fn!(
+        "__RTS_FN_NS_FFI_CSTR_FROM_PTR",
+        ffi_cstr::__RTS_FN_NS_FFI_CSTR_FROM_PTR
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_CSTR_LEN",
+        ffi_cstr::__RTS_FN_NS_FFI_CSTR_LEN
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_CSTR_TO_STR",
+        ffi_cstr::__RTS_FN_NS_FFI_CSTR_TO_STR
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_CSTRING_NEW",
+        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_CSTRING_PTR",
+        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_PTR
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_CSTRING_FREE",
+        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_FREE
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_OSSTR_FROM_STR",
+        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_FROM_STR
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_OSSTR_TO_STR",
+        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_TO_STR
+    );
+    add_fn!(
+        "__RTS_FN_NS_FFI_OSSTR_FREE",
+        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_FREE
+    );
+
     // ── namespaces::path ──────────────────────────────────────────────
     use crate::namespaces::path::*;
     add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);

@@ -42,6 +42,11 @@ pub enum Entry {
     Regex(Box<regex::Regex>),
     /// Stack trace capturada — namespace `backtrace`.
     Backtrace(Box<std::backtrace::Backtrace>),
+    /// CString owned — namespace `ffi` (cstring_*). Box pra estabilizar
+    /// o ponteiro retornado por `cstring_ptr` enquanto o slot vive.
+    CString(Box<std::ffi::CString>),
+    /// OsString owned — namespace `ffi` (osstr_*).
+    OsString(Box<std::ffi::OsString>),
     /// Environment record para closures — Vec<i64> com slots por captura.
     /// Usado por `gc.env_*` para implementar capturas reais sem promote-
     /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).

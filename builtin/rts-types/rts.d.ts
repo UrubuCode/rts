@@ -733,6 +733,48 @@ declare module "rts" {
   }
 
   /**
+   * C-string and OS-string interop via std::ffi (CStr/CString/OsStr/OsString).
+   */
+  export namespace ffi {
+    /**
+     * Reads a nul-terminated C string from `ptr` and returns a string handle (UTF-8 lossy).
+     */
+    export function cstr_from_ptr(ptr: number): number;
+    /**
+     * Length in bytes of the C string at `ptr`, excluding the nul terminator. -1 if ptr is null.
+     */
+    export function cstr_len(ptr: number): number;
+    /**
+     * Validates the C string at `ptr` as UTF-8 and returns a string handle. 0 if invalid.
+     */
+    export function cstr_to_str(ptr: number): number;
+    /**
+     * Builds a nul-terminated CString from `s` and returns a handle. 0 if `s` contains an interior nul.
+     */
+    export function cstring_new(s: string): number;
+    /**
+     * Raw pointer to the CString bytes (nul-terminated). 0 if handle invalid. Unsafe — must not outlive handle.
+     */
+    export function cstring_ptr(handle: number): number;
+    /**
+     * Releases the CString handle.
+     */
+    export function cstring_free(handle: number): void;
+    /**
+     * Builds an OsString from a UTF-8 source and returns a handle.
+     */
+    export function osstr_from_str(s: string): number;
+    /**
+     * Converts the OsString handle to a UTF-8 string handle. 0 if not valid UTF-8.
+     */
+    export function osstr_to_str(handle: number): number;
+    /**
+     * Releases the OsString handle.
+     */
+    export function osstr_free(handle: number): void;
+  }
+
+  /**
    * Rich string operations beyond the basic gc pool.
    */
   export namespace string {
@@ -1564,6 +1606,22 @@ declare module "rts:gc" {
    * Frees the string handle. Returns 1 on success, 0 if already invalid.
    */
   export function string_free(handle: number): number;
+  /**
+   * Aloca um environment record para closures com `slot_count` slots i64 inicializados em 0. Retorna o handle.
+   */
+  export function env_alloc(slot_count: number): number;
+  /**
+   * Lê o slot `slot` do env record. Retorna 0 em handle inválido ou slot fora do range.
+   */
+  export function env_get(env: number, slot: number): number;
+  /**
+   * Escreve `value` no slot `slot` do env record. Retorna 1 em sucesso, 0 em erro.
+   */
+  export function env_set(env: number, slot: number, value: number): number;
+  /**
+   * Libera o env record. Retorna 1 em sucesso, 0 se handle já inválido.
+   */
+  export function env_free(env: number): number;
   const _default: {
     string_from_i64: (typeof import("rts"))["gc"]["string_from_i64"];
     string_from_f64: (typeof import("rts"))["gc"]["string_from_f64"];
@@ -1574,6 +1632,10 @@ declare module "rts:gc" {
     string_len: (typeof import("rts"))["gc"]["string_len"];
     string_ptr: (typeof import("rts"))["gc"]["string_ptr"];
     string_free: (typeof import("rts"))["gc"]["string_free"];
+    env_alloc: (typeof import("rts"))["gc"]["env_alloc"];
+    env_get: (typeof import("rts"))["gc"]["env_get"];
+    env_set: (typeof import("rts"))["gc"]["env_set"];
+    env_free: (typeof import("rts"))["gc"]["env_free"];
   };
   export default _default;
 }
@@ -2417,6 +2479,60 @@ declare module "rts:buffer" {
     copy: (typeof import("rts"))["buffer"]["copy"];
     fill: (typeof import("rts"))["buffer"]["fill"];
     to_string: (typeof import("rts"))["buffer"]["to_string"];
+  };
+  export default _default;
+}
+
+declare module "rts:ffi" {
+  /**
+   * C-string and OS-string interop via std::ffi (CStr/CString/OsStr/OsString).
+   */
+  /**
+   * Reads a nul-terminated C string from `ptr` and returns a string handle (UTF-8 lossy).
+   */
+  export function cstr_from_ptr(ptr: number): number;
+  /**
+   * Length in bytes of the C string at `ptr`, excluding the nul terminator. -1 if ptr is null.
+   */
+  export function cstr_len(ptr: number): number;
+  /**
+   * Validates the C string at `ptr` as UTF-8 and returns a string handle. 0 if invalid.
+   */
+  export function cstr_to_str(ptr: number): number;
+  /**
+   * Builds a nul-terminated CString from `s` and returns a handle. 0 if `s` contains an interior nul.
+   */
+  export function cstring_new(s: string): number;
+  /**
+   * Raw pointer to the CString bytes (nul-terminated). 0 if handle invalid. Unsafe — must not outlive handle.
+   */
+  export function cstring_ptr(handle: number): number;
+  /**
+   * Releases the CString handle.
+   */
+  export function cstring_free(handle: number): void;
+  /**
+   * Builds an OsString from a UTF-8 source and returns a handle.
+   */
+  export function osstr_from_str(s: string): number;
+  /**
+   * Converts the OsString handle to a UTF-8 string handle. 0 if not valid UTF-8.
+   */
+  export function osstr_to_str(handle: number): number;
+  /**
+   * Releases the OsString handle.
+   */
+  export function osstr_free(handle: number): void;
+  const _default: {
+    cstr_from_ptr: (typeof import("rts"))["ffi"]["cstr_from_ptr"];
+    cstr_len: (typeof import("rts"))["ffi"]["cstr_len"];
+    cstr_to_str: (typeof import("rts"))["ffi"]["cstr_to_str"];
+    cstring_new: (typeof import("rts"))["ffi"]["cstring_new"];
+    cstring_ptr: (typeof import("rts"))["ffi"]["cstring_ptr"];
+    cstring_free: (typeof import("rts"))["ffi"]["cstring_free"];
+    osstr_from_str: (typeof import("rts"))["ffi"]["osstr_from_str"];
+    osstr_to_str: (typeof import("rts"))["ffi"]["osstr_to_str"];
+    osstr_free: (typeof import("rts"))["ffi"]["osstr_free"];
   };
   export default _default;
 }
