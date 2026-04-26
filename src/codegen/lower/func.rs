@@ -39,12 +39,20 @@ struct UserFn {
 /// The arrow in the raw SWC statement is replaced with an `Ident` naming
 /// the synthetic function. Runs before Phase 1 (declaration) so the lifted
 /// functions go through the normal declare → compile path.
-fn lift_arrow_callbacks(program: &mut Program) {
+fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
     let mut user_fn_names: HashSet<String> = program
         .items
         .iter()
         .filter_map(|item| match item {
             Item::Function(f) => Some(f.name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut user_fn_arities: HashMap<String, usize> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(f) => Some((f.name.clone(), f.parameters.len())),
             _ => None,
         })
         .collect();
@@ -62,6 +70,7 @@ fn lift_arrow_callbacks(program: &mut Program) {
         }
     }
     let snapshot = user_fn_names.clone();
+    let mut alias_to_real: HashMap<String, String> = HashMap::new();
     for item in program.items.iter() {
         let Item::Statement(Statement::Raw(raw)) = item else { continue };
         let Some(Stmt::Decl(swc_ecma_ast::Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
@@ -70,7 +79,12 @@ fn lift_arrow_callbacks(program: &mut Program) {
             let Expr::Ident(id) = peel_for_alias(init) else { continue };
             if !snapshot.contains(id.sym.as_str()) { continue; }
             let swc_ecma_ast::Pat::Ident(name) = &d.name else { continue };
-            user_fn_names.insert(name.id.sym.to_string());
+            let alias = name.id.sym.to_string();
+            user_fn_names.insert(alias.clone());
+            if let Some(&arity) = user_fn_arities.get(id.sym.as_str()) {
+                user_fn_arities.insert(alias.clone(), arity);
+            }
+            alias_to_real.insert(alias, id.sym.to_string());
         }
     }
 
@@ -79,6 +93,9 @@ fn lift_arrow_callbacks(program: &mut Program) {
         new_fns: Vec::new(),
         new_globals: Vec::new(),
         user_fn_names,
+        user_fn_arities,
+        alias_to_real,
+        needs_c_callconv: HashSet::new(),
     };
 
     // Pass 1: dentro de classes (constructors e métodos). Arrows que usam
@@ -205,6 +222,7 @@ fn lift_arrow_callbacks(program: &mut Program) {
     for global_item in prepend.into_iter().rev() {
         program.items.insert(0, global_item);
     }
+    acc.needs_c_callconv
 }
 
 struct LiftAcc {
@@ -213,6 +231,18 @@ struct LiftAcc {
     /// Nomes de globais `__cb_this_N` a declarar como `let` top-level.
     new_globals: Vec<String>,
     user_fn_names: HashSet<String>,
+    /// Aridade declarada de cada user fn / alias top-level — usada
+    /// para que trampolins de `thread.spawn(fp, arg)` repassem o `arg`
+    /// quando a worker fn aceita 1+ parâmetros (#206).
+    user_fn_arities: HashMap<String, usize>,
+    /// Mapa alias → user fn real para `const fp = worker as ...`. O
+    /// trampolim deve invocar a fn real, não o alias (que vira const
+    /// global e cai em call_indirect com sig errada).
+    alias_to_real: HashMap<String, String>,
+    /// User fns chamadas a partir de trampolins C-callconv (lifted)
+    /// — devem ser declaradas com C callconv também para evitar
+    /// corrupção de stack na fronteira (#206).
+    needs_c_callconv: HashSet<String>,
 }
 
 /// Expande callsites \`f(args)\` que omitem parâmetros com default,
@@ -1719,13 +1749,50 @@ impl LiftAcc {
                             .collect();
                     }
                     Expr::Ident(id) if self.user_fn_names.contains(id.sym.as_str()) => {
+                        // Resolve alias → fn real. Sem isso, trampolim
+                        // chamaria o alias (const global i64), caindo em
+                        // call_indirect com sig padrão divergente da fn
+                        // real (#206).
+                        let real_name = self
+                            .alias_to_real
+                            .get(id.sym.as_str())
+                            .cloned()
+                            .unwrap_or_else(|| id.sym.to_string());
+                        let target_id = swc_ecma_ast::Ident {
+                            span: id.span,
+                            ctxt: id.ctxt,
+                            sym: real_name.clone().into(),
+                            optional: false,
+                        };
+                        let arity = self
+                            .user_fn_arities
+                            .get(real_name.as_str())
+                            .copied()
+                            .unwrap_or(0);
+                        let pass_arg = is_thread_spawn && arity >= 1;
+                        if is_thread_spawn {
+                            self.needs_c_callconv.insert(real_name.clone());
+                        }
+                        let args: Vec<swc_ecma_ast::ExprOrSpread> = if pass_arg {
+                            vec![swc_ecma_ast::ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                                    span: Default::default(),
+                                    ctxt: Default::default(),
+                                    sym: "__rts_spawn_arg".into(),
+                                    optional: false,
+                                })),
+                            }]
+                        } else {
+                            Vec::new()
+                        };
                         let call_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
                             span: id.span,
                             expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
                                 span: id.span,
                                 ctxt: id.ctxt,
-                                callee: Callee::Expr(Box::new(Expr::Ident(id.clone()))),
-                                args: Vec::new(),
+                                callee: Callee::Expr(Box::new(Expr::Ident(target_id))),
+                                args,
                                 type_args: None,
                             })),
                         });
@@ -1754,12 +1821,35 @@ impl LiftAcc {
                 self.lift_in_body(class_name, &mut body_stmts, in_class);
 
                 // Trampolim recebe `this: ClassName` como parâmetro
-                // quando vamos passar `this` por userdata. Caso contrário,
-                // sem parâmetros (path antigo).
+                // quando vamos passar `this` por userdata. Para
+                // `thread.spawn(fp, arg)` com worker arity≥1, recebe
+                // `__rts_spawn_arg: number`. Caso contrário, sem
+                // parâmetros (UI callbacks tradicionais).
                 let parameters: Vec<Parameter> = if use_userdata_callback {
                     vec![Parameter {
                         name: "this".to_string(),
                         type_annotation: Some(class_name.to_string()),
+                        modifiers: MemberModifiers::default(),
+                        variadic: false,
+                        default: None,
+                        span: Span::default(),
+                    }]
+                } else if is_thread_spawn
+                    && matches!(peel_ts(arg.expr.as_ref()), Expr::Ident(id) if {
+                        let real = self.alias_to_real.get(id.sym.as_str()).cloned()
+                            .unwrap_or_else(|| id.sym.to_string());
+                        self.user_fn_arities.get(real.as_str()).copied().unwrap_or(0) >= 1
+                    })
+                {
+                    // Tipo `i64` — `thread.spawn` ABI passa o arg como
+                    // U64; o trampolim recebe como i64 inteiro e o
+                    // codegen converte para f64 quando worker declara
+                    // `arg: number`. Sem isso, Win64 procura o arg no
+                    // registrador XMM0 (float) em vez de RCX (int) e
+                    // pega lixo (#206).
+                    vec![Parameter {
+                        name: "__rts_spawn_arg".to_string(),
+                        type_annotation: Some("i64".to_string()),
                         modifiers: MemberModifiers::default(),
                         variadic: false,
                         default: None,
@@ -2501,7 +2591,7 @@ pub fn compile_program(
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
-    lift_arrow_callbacks(program);
+    let lifted_needs_c_callconv = lift_arrow_callbacks(program);
     expand_destructuring(program);
     expand_default_args(program);
     // Spread antes de rest: spread aplaina array literal nos call sites
@@ -2603,10 +2693,20 @@ pub fn compile_program(
         fn_decls.push(f);
     }
 
+    // Coleta nomes de fns cujo endereço é tomado (`f as unknown as
+    // number`, ou ident em posição de valor — ex: arg de `thread.spawn`).
+    // Essas fns precisam de C-callconv para serem chamáveis via FFI/
+    // thread entrypoint sem corrupção de stack (#206).
+    let mut address_taken_fns =
+        collect_address_taken_fns(&fn_decls, program, &synthetic_fns);
+    // União com fns chamadas de trampolins lifted C-callconv (#206).
+    address_taken_fns.extend(lifted_needs_c_callconv.iter().cloned());
+
     // Phase 1: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     for fn_decl in &fn_decls {
-        let info = declare_user_fn(module, fn_decl)?;
+        let address_taken = address_taken_fns.contains(&fn_decl.name);
+        let info = declare_user_fn(module, fn_decl, address_taken)?;
         let mangled: &'static str = Box::leak(format!("__user_{}", fn_decl.name).into_boxed_str());
         extern_cache.insert(mangled, info.id);
         user_fns.insert(fn_decl.name.clone(), info);
@@ -2697,6 +2797,7 @@ pub fn compile_program(
         // `__class_<C>_*` ou `__class_<C>__init`) — usado para resolver
         // `super` no body do metodo.
         let owner_class = extract_class_owner(&fn_decl.name);
+        let address_taken = address_taken_fns.contains(&fn_decl.name);
         compile_user_fn(
             module,
             extern_cache,
@@ -2709,6 +2810,7 @@ pub fn compile_program(
             fn_decl,
             info,
             owner_class,
+            address_taken,
         )
         .with_context(|| format!("in function `{}`", fn_decl.name))?;
     }
@@ -3000,18 +3102,24 @@ fn is_lifted_callback(name: &str) -> bool {
 
 /// User-defined functions generally use the Tail calling convention so codegen
 /// can emit `return_call` for tail-position invocations (#93). Lifted UI
-/// callbacks are the exception: they cross a native C ABI boundary.
-fn user_call_conv(module: &dyn Module, fn_name: &str) -> CallConv {
-    if is_lifted_callback(fn_name) {
+/// callbacks are the exception: they cross a native C ABI boundary, e
+/// fns cujo endereço é tomado (passadas a APIs nativas como
+/// `thread.spawn`, FFI, etc — #206).
+fn user_call_conv(module: &dyn Module, fn_name: &str, address_taken: bool) -> CallConv {
+    if is_lifted_callback(fn_name) || address_taken {
         module.isa().default_call_conv()
     } else {
         CallConv::Tail
     }
 }
 
-fn declare_user_fn(module: &mut dyn Module, fn_decl: &FunctionDecl) -> Result<UserFn> {
+fn declare_user_fn(
+    module: &mut dyn Module,
+    fn_decl: &FunctionDecl,
+    address_taken: bool,
+) -> Result<UserFn> {
     let (params, ret) = fn_signature(fn_decl);
-    let mut sig = Signature::new(user_call_conv(module, &fn_decl.name));
+    let mut sig = Signature::new(user_call_conv(module, &fn_decl.name, address_taken));
     for &ty in &params {
         sig.params.push(AbiParam::new(ty.cl_type()));
     }
@@ -3029,6 +3137,232 @@ fn declare_user_fn(module: &mut dyn Module, fn_decl: &FunctionDecl) -> Result<Us
 
 fn user_symbol_name(name: &str) -> String {
     format!("__RTS_USER_{}", sanitize_symbol(name))
+}
+
+/// Coleta nomes de user fns cujo endereço é potencialmente tomado: idents
+/// usados em qualquer posição que não seja callee de `CallExpr` nem `obj`/
+/// `prop` de `MemberExpr`. Conservador: pode marcar fns que jamais cruzam
+/// fronteira FFI, mas o custo é só perder TCO nessas (usabilidade > pure
+/// optimization). Sem isso, `thread.spawn(f, ...)` segfaulta (#206).
+fn collect_address_taken_fns(
+    fn_decls: &[&FunctionDecl],
+    program: &Program,
+    synthetic_fns: &[FunctionDecl],
+) -> HashSet<String> {
+    let known: HashSet<String> = fn_decls.iter().map(|f| f.name.clone()).collect();
+    let mut taken: HashSet<String> = HashSet::new();
+
+    for item in &program.items {
+        match item {
+            Item::Function(f) => {
+                for stmt in &f.body {
+                    let Statement::Raw(raw) = stmt;
+                    if let Some(s) = raw.stmt.as_ref() {
+                        scan_stmt(s, &known, &mut taken);
+                    }
+                }
+            }
+            Item::Statement(Statement::Raw(raw)) => {
+                if let Some(s) = raw.stmt.as_ref() {
+                    scan_stmt(s, &known, &mut taken);
+                }
+            }
+            _ => {}
+        }
+    }
+    for f in synthetic_fns {
+        for stmt in &f.body {
+            let Statement::Raw(raw) = stmt;
+            if let Some(s) = raw.stmt.as_ref() {
+                scan_stmt(s, &known, &mut taken);
+            }
+        }
+    }
+    taken
+}
+
+fn scan_stmt(stmt: &Stmt, known: &HashSet<String>, taken: &mut HashSet<String>) {
+    use swc_ecma_ast::*;
+    match stmt {
+        Stmt::Block(b) => b.stmts.iter().for_each(|s| scan_stmt(s, known, taken)),
+        Stmt::Expr(e) => scan_expr(&e.expr, known, taken),
+        Stmt::Return(r) => {
+            if let Some(arg) = &r.arg {
+                scan_expr(arg, known, taken);
+            }
+        }
+        Stmt::If(i) => {
+            scan_expr(&i.test, known, taken);
+            scan_stmt(&i.cons, known, taken);
+            if let Some(alt) = &i.alt {
+                scan_stmt(alt, known, taken);
+            }
+        }
+        Stmt::While(w) => {
+            scan_expr(&w.test, known, taken);
+            scan_stmt(&w.body, known, taken);
+        }
+        Stmt::DoWhile(w) => {
+            scan_expr(&w.test, known, taken);
+            scan_stmt(&w.body, known, taken);
+        }
+        Stmt::For(f) => {
+            if let Some(init) = &f.init {
+                match init {
+                    VarDeclOrExpr::VarDecl(v) => {
+                        for d in &v.decls {
+                            if let Some(init) = &d.init {
+                                scan_expr(init, known, taken);
+                            }
+                        }
+                    }
+                    VarDeclOrExpr::Expr(e) => scan_expr(e, known, taken),
+                }
+            }
+            if let Some(t) = &f.test {
+                scan_expr(t, known, taken);
+            }
+            if let Some(u) = &f.update {
+                scan_expr(u, known, taken);
+            }
+            scan_stmt(&f.body, known, taken);
+        }
+        Stmt::ForIn(f) => {
+            scan_expr(&f.right, known, taken);
+            scan_stmt(&f.body, known, taken);
+        }
+        Stmt::ForOf(f) => {
+            scan_expr(&f.right, known, taken);
+            scan_stmt(&f.body, known, taken);
+        }
+        Stmt::Decl(Decl::Var(v)) => {
+            for d in &v.decls {
+                if let Some(init) = &d.init {
+                    scan_expr(init, known, taken);
+                }
+            }
+        }
+        Stmt::Try(t) => {
+            for s in &t.block.stmts {
+                scan_stmt(s, known, taken);
+            }
+            if let Some(h) = &t.handler {
+                for s in &h.body.stmts {
+                    scan_stmt(s, known, taken);
+                }
+            }
+            if let Some(f) = &t.finalizer {
+                for s in &f.stmts {
+                    scan_stmt(s, known, taken);
+                }
+            }
+        }
+        Stmt::Switch(sw) => {
+            scan_expr(&sw.discriminant, known, taken);
+            for case in &sw.cases {
+                if let Some(t) = &case.test {
+                    scan_expr(t, known, taken);
+                }
+                for s in &case.cons {
+                    scan_stmt(s, known, taken);
+                }
+            }
+        }
+        Stmt::Throw(t) => scan_expr(&t.arg, known, taken),
+        Stmt::Labeled(l) => scan_stmt(&l.body, known, taken),
+        _ => {}
+    }
+}
+
+fn scan_expr(expr: &Expr, known: &HashSet<String>, taken: &mut HashSet<String>) {
+    use swc_ecma_ast::*;
+    match expr {
+        Expr::Ident(id) => {
+            let name = id.sym.as_ref();
+            if known.contains(name) {
+                taken.insert(name.to_string());
+            }
+        }
+        Expr::Call(c) => {
+            // O callee NAO marca address-taken (chamada normal).
+            // Mas precisamos descer no callee se for member.fn(...) etc.
+            match &c.callee {
+                Callee::Expr(e) => match e.as_ref() {
+                    Expr::Ident(_) => { /* chamada direta — não marca */ }
+                    Expr::Member(m) => {
+                        scan_expr(&m.obj, known, taken);
+                    }
+                    other => scan_expr(other, known, taken),
+                },
+                _ => {}
+            }
+            for arg in &c.args {
+                scan_expr(&arg.expr, known, taken);
+            }
+        }
+        Expr::New(n) => {
+            scan_expr(&n.callee, known, taken);
+            if let Some(args) = &n.args {
+                for a in args {
+                    scan_expr(&a.expr, known, taken);
+                }
+            }
+        }
+        Expr::Bin(b) => {
+            scan_expr(&b.left, known, taken);
+            scan_expr(&b.right, known, taken);
+        }
+        Expr::Unary(u) => scan_expr(&u.arg, known, taken),
+        Expr::Update(u) => scan_expr(&u.arg, known, taken),
+        Expr::Assign(a) => {
+            scan_expr(&a.right, known, taken);
+        }
+        Expr::Cond(c) => {
+            scan_expr(&c.test, known, taken);
+            scan_expr(&c.cons, known, taken);
+            scan_expr(&c.alt, known, taken);
+        }
+        Expr::Member(m) => {
+            scan_expr(&m.obj, known, taken);
+        }
+        Expr::Paren(p) => scan_expr(&p.expr, known, taken),
+        Expr::TsAs(a) => scan_expr(&a.expr, known, taken),
+        Expr::TsConstAssertion(a) => scan_expr(&a.expr, known, taken),
+        Expr::TsTypeAssertion(a) => scan_expr(&a.expr, known, taken),
+        Expr::TsSatisfies(a) => scan_expr(&a.expr, known, taken),
+        Expr::TsNonNull(n) => scan_expr(&n.expr, known, taken),
+        Expr::Array(a) => {
+            for el in a.elems.iter().flatten() {
+                scan_expr(&el.expr, known, taken);
+            }
+        }
+        Expr::Object(o) => {
+            for p in &o.props {
+                if let PropOrSpread::Prop(prop) = p {
+                    if let Prop::KeyValue(kv) = prop.as_ref() {
+                        scan_expr(&kv.value, known, taken);
+                    }
+                }
+            }
+        }
+        Expr::Seq(s) => {
+            for e in &s.exprs {
+                scan_expr(e, known, taken);
+            }
+        }
+        Expr::Tpl(t) => {
+            for e in &t.exprs {
+                scan_expr(e, known, taken);
+            }
+        }
+        Expr::Await(a) => scan_expr(&a.arg, known, taken),
+        Expr::Yield(y) => {
+            if let Some(arg) = &y.arg {
+                scan_expr(arg, known, taken);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
@@ -3066,9 +3400,10 @@ fn compile_user_fn(
     fn_decl: &FunctionDecl,
     info: &UserFn,
     current_class: Option<String>,
+    address_taken: bool,
 ) -> Result<()> {
     let mut ctx = ClContext::new();
-    let call_conv = user_call_conv(module, &fn_decl.name);
+    let call_conv = user_call_conv(module, &fn_decl.name, address_taken);
     ctx.func.signature = {
         let mut sig = Signature::new(call_conv);
         for &ty in &info.params {

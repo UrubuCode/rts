@@ -980,6 +980,9 @@ fn emit_virtual_dispatch(
 }
 
 pub(super) fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
+    // User fns cujo endereço é tomado são declaradas com C callconv
+    // (ver `address_taken_fns` em compile_program / #206) — seguro para
+    // `thread.spawn` e FFI.
     let mangled: &'static str = Box::leak(format!("__user_{name}").into_boxed_str());
     let func_id = *ctx
         .extern_cache
