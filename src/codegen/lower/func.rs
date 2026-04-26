@@ -39,7 +39,13 @@ struct UserFn {
 /// The arrow in the raw SWC statement is replaced with an `Ident` naming
 /// the synthetic function. Runs before Phase 1 (declaration) so the lifted
 /// functions go through the normal declare → compile path.
-fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
+/// Output do lift: c-callconv set + warnings emitidos pelo auto-locking.
+struct LiftOutput {
+    needs_c_callconv: HashSet<String>,
+    warnings: Vec<String>,
+}
+
+fn lift_arrow_callbacks(program: &mut Program) -> LiftOutput {
     let mut user_fn_names: HashSet<String> = program
         .items
         .iter()
@@ -92,6 +98,7 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         counter: 0,
         new_fns: Vec::new(),
         new_globals: Vec::new(),
+        warnings: Vec::new(),
         user_fn_names,
         user_fn_arities,
         alias_to_real,
@@ -232,7 +239,10 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
     for global_item in prepend.into_iter().rev() {
         program.items.insert(0, global_item);
     }
-    acc.needs_c_callconv
+    LiftOutput {
+        needs_c_callconv: acc.needs_c_callconv,
+        warnings: acc.warnings,
+    }
 }
 
 struct LiftAcc {
@@ -240,6 +250,9 @@ struct LiftAcc {
     new_fns: Vec<Item>,
     /// Nomes de globais `__cb_this_N` a declarar como `let` top-level.
     new_globals: Vec<String>,
+    /// Warnings emitidos durante o lift (#229 fase 4): capturas em
+    /// `thread.spawn` de tipos não-promovíveis pelo auto-locking.
+    warnings: Vec<String>,
     user_fn_names: HashSet<String>,
     /// Aridade declarada de cada user fn / alias top-level — usada
     /// para que trampolins de `thread.spawn(fp, arg)` repassem o `arg`
@@ -1314,6 +1327,12 @@ impl LiftAcc {
         let atomic_promotes = collect_thread_spawn_captures(body, &locals);
         for var in &atomic_promotes {
             let kind = detect_atomic_kind(body, var);
+            if kind == AtomicKind::Unsupported {
+                self.warnings.push(format!(
+                    "auto-locking: captura `{}` em thread.spawn de método de `{}` é tipo complexo (string/array/Map/object). Operações ainda passam pelo lock global do HandleTable, mas considere `sync.mutex_*` explícito para granularidade fina.",
+                    var, class_name
+                ));
+            }
             promote_local_to_atomic(body, var, kind);
         }
 
@@ -1363,6 +1382,12 @@ impl LiftAcc {
         let atomic_promotes = collect_thread_spawn_captures(&f.body, &locals);
         for var in &atomic_promotes {
             let kind = detect_atomic_kind(&f.body, var);
+            if kind == AtomicKind::Unsupported {
+                self.warnings.push(format!(
+                    "auto-locking: captura `{}` em thread.spawn de fn `{}` é tipo complexo (string/array/Map/object). Operações ainda passam pelo lock global do HandleTable, mas considere `sync.mutex_*` explícito para granularidade fina.",
+                    var, f.name
+                ));
+            }
             promote_local_to_atomic(&mut f.body, var, kind);
         }
 
@@ -2775,7 +2800,9 @@ pub fn compile_program(
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
-    let lifted_needs_c_callconv = lift_arrow_callbacks(program);
+    let lift_out = lift_arrow_callbacks(program);
+    let lifted_needs_c_callconv = lift_out.needs_c_callconv;
+    let lift_warnings = lift_out.warnings;
     expand_destructuring(program);
     expand_default_args(program);
     // Spread antes de rest: spread aplaina array literal nos call sites
@@ -2785,6 +2812,7 @@ pub fn compile_program(
     expand_rest_args(program);
 
     let mut warnings = Vec::new();
+    warnings.extend(lift_warnings);
 
     let globals = collect_module_globals(program, module)?;
 
@@ -5074,12 +5102,18 @@ fn scan_expr_for_spawn(
     }
 }
 
-/// Tipo da promoção atômica: i64 (default, suporta arith) ou bool
-/// (apenas load/store).
+/// Tipo da promoção atômica: i64 (default, suporta arith), bool
+/// (apenas load/store), ou Unsupported (tipo complexo — emite warning,
+/// não tenta promover).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AtomicKind {
     I64,
     Bool,
+    /// Tipo capturado mas não-promovível pelo compilador. Captura ainda
+    /// funciona via lock global do HandleTable (collections, buffer)
+    /// mas o dev é avisado pra considerar `sync.mutex_*` em casos onde
+    /// a granularidade global limita a escalabilidade.
+    Unsupported,
 }
 
 /// Detecta tipo de uma variável local para promoção atômica.
@@ -5101,18 +5135,43 @@ fn detect_kind_in_stmt(stmt: &Stmt, var: &str) -> Option<AtomicKind> {
         for d in &v.decls {
             if let Pat::Ident(id) = &d.name {
                 if id.id.sym.as_ref() == var {
-                    // Anotação?
+                    // Anotação explícita?
                     if let Some(ann) = &id.type_ann {
-                        if let TsType::TsKeywordType(k) = ann.type_ann.as_ref() {
-                            if k.kind == swc_ecma_ast::TsKeywordTypeKind::TsBooleanKeyword {
-                                return Some(AtomicKind::Bool);
+                        match ann.type_ann.as_ref() {
+                            TsType::TsKeywordType(k) => {
+                                use swc_ecma_ast::TsKeywordTypeKind::*;
+                                return match k.kind {
+                                    TsBooleanKeyword => Some(AtomicKind::Bool),
+                                    TsNumberKeyword
+                                    | TsBigIntKeyword => Some(AtomicKind::I64),
+                                    TsStringKeyword
+                                    | TsObjectKeyword => Some(AtomicKind::Unsupported),
+                                    _ => Some(AtomicKind::I64),
+                                };
                             }
+                            // Array type: `number[]`, `T[]` etc — Unsupported
+                            TsType::TsArrayType(_) => {
+                                return Some(AtomicKind::Unsupported);
+                            }
+                            // Type ref: `Map<K,V>`, classes — Unsupported
+                            TsType::TsTypeRef(_) => {
+                                return Some(AtomicKind::Unsupported);
+                            }
+                            _ => {}
                         }
                     }
                     // Init literal?
                     if let Some(init) = &d.init {
-                        if matches!(init.as_ref(), Expr::Lit(Lit::Bool(_))) {
-                            return Some(AtomicKind::Bool);
+                        match init.as_ref() {
+                            Expr::Lit(Lit::Bool(_)) => return Some(AtomicKind::Bool),
+                            Expr::Lit(Lit::Num(_)) => return Some(AtomicKind::I64),
+                            Expr::Lit(Lit::Str(_)) => return Some(AtomicKind::Unsupported),
+                            Expr::Array(_) | Expr::Object(_) => {
+                                return Some(AtomicKind::Unsupported)
+                            }
+                            // `new Map()`, `new SomeClass()` — Unsupported
+                            Expr::New(_) => return Some(AtomicKind::Unsupported),
+                            _ => {}
                         }
                     }
                 }
@@ -5127,6 +5186,12 @@ fn detect_kind_in_stmt(stmt: &Stmt, var: &str) -> Option<AtomicKind> {
 /// `var = var + e` → `atomic.i64_fetch_add(var, e)` (apenas i64),
 /// `var++` / `var--` (apenas i64), leituras → `atomic.<kind>_load(var)`.
 fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str, kind: AtomicKind) {
+    // Tipos não-suportados: caímos no fallback do HandleTable (lock global).
+    // Avisar o dev sai daqui — codegen vai emitir warning estruturado em
+    // compile_program. Não fazemos reescrita.
+    if kind == AtomicKind::Unsupported {
+        return;
+    }
     // Pass 1: reescreve a declaração.
     for s in body.iter_mut() {
         let Statement::Raw(raw) = s;
@@ -5164,11 +5229,13 @@ fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
                                 value: false,
                             },
                         ))),
+                        AtomicKind::Unsupported => return,
                     };
                     let init = d.init.clone().unwrap_or(default_init);
                     let fn_name = match kind {
                         AtomicKind::I64 => "i64_new",
                         AtomicKind::Bool => "bool_new",
+                        AtomicKind::Unsupported => return,
                     };
                     let new_init = make_call(
                         "atomic",
@@ -5268,10 +5335,12 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: AtomicKind) {
     let load_fn = match kind {
         AtomicKind::I64 => "i64_load",
         AtomicKind::Bool => "bool_load",
+        AtomicKind::Unsupported => return,
     };
     let store_fn = match kind {
         AtomicKind::I64 => "i64_store",
         AtomicKind::Bool => "bool_store",
+        AtomicKind::Unsupported => return,
     };
 
     // Caso 1: `var = expr` — store ou fetch_add (i64)

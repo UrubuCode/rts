@@ -16,10 +16,8 @@ pub fn command(input: Option<String>, options: CompileOptions) -> Result<()> {
 
     let (exit_code, warnings) = pipeline::run_jit(&input_path, options)
         .with_context(|| format!("JIT run of {} failed", input_path.display()))?;
-    if options.debug {
-        for warning in &warnings {
-            eprintln!("warning: {warning}");
-        }
+    for warning in &warnings {
+        eprintln!("warning: {warning}");
     }
     std::process::exit(exit_code);
 }

@@ -96,6 +96,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/runtime/");
     println!("cargo:rerun-if-changed=src/namespaces/thread/");
     println!("cargo:rerun-if-changed=src/namespaces/atomic/");
+    println!("cargo:rerun-if-changed=src/namespaces/sync/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

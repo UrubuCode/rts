@@ -52,6 +52,8 @@ pub mod runtime;
 pub mod thread;
 #[path = "atomic/rt.rs"]
 pub mod atomic;
+#[path = "sync/rt.rs"]
+pub mod sync;
 
 // rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
 // modules reference `crate::namespaces::...`, so we expose a compatibility
