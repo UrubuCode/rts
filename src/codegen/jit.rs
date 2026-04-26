@@ -289,6 +289,28 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_MEM_REPLACE_I64", m::__RTS_FN_NS_MEM_REPLACE_I64);
     }
 
+    // ── namespaces::backtrace ─────────────────────────────────────────
+    {
+        use crate::namespaces::backtrace::ops as bt;
+        add_fn!(
+            "__RTS_FN_NS_BACKTRACE_CAPTURE",
+            bt::__RTS_FN_NS_BACKTRACE_CAPTURE
+        );
+        add_fn!(
+            "__RTS_FN_NS_BACKTRACE_CAPTURE_IF_ENABLED",
+            bt::__RTS_FN_NS_BACKTRACE_CAPTURE_IF_ENABLED
+        );
+        add_fn!(
+            "__RTS_FN_NS_BACKTRACE_IS_ENABLED",
+            bt::__RTS_FN_NS_BACKTRACE_IS_ENABLED
+        );
+        add_fn!(
+            "__RTS_FN_NS_BACKTRACE_TO_STRING",
+            bt::__RTS_FN_NS_BACKTRACE_TO_STRING
+        );
+        add_fn!("__RTS_FN_NS_BACKTRACE_FREE", bt::__RTS_FN_NS_BACKTRACE_FREE);
+    }
+
     // ── namespaces::crypto ────────────────────────────────────────────
     {
         use crate::namespaces::crypto::*;

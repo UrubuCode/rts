@@ -10,6 +10,8 @@ pub mod math;
 pub mod num;
 #[path = "mem/rt.rs"]
 pub mod mem;
+#[path = "backtrace/rt.rs"]
+pub mod backtrace;
 #[path = "bigfloat/rt.rs"]
 pub mod bigfloat;
 #[path = "time/rt.rs"]

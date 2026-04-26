@@ -880,6 +880,17 @@ declare module "rts" {
      * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
     /**
+     * Captura de stack traces via std::backtrace::Backtrace.
+     */
+    export namespace backtrace {
+      export function capture(): number;
+      export function capture_if_enabled(): number;
+      export function is_enabled(): boolean;
+      export function to_string(handle: number): number;
+      export function free(handle: number): void;
+    }
+
+    /**
      * std::mem: layout (size_of/align_of), swap, drop, forget.
      */
     export namespace mem {
