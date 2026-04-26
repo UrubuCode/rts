@@ -145,18 +145,18 @@ pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {
         return Ok(ResolvedLinker { path });
     }
 
+    for candidate in candidates {
+        if let Some(path) = find_binary_in_path(candidate) {
+            return Ok(ResolvedLinker { path });
+        }
+    }
+
     if let Some(path) = rustup_rust_lld() {
         return Ok(ResolvedLinker { path });
     }
 
     if let Some(path) = rustc_sysroot_rust_lld(layout) {
         return Ok(ResolvedLinker { path });
-    }
-
-    for candidate in candidates {
-        if let Some(path) = find_binary_in_path(candidate) {
-            return Ok(ResolvedLinker { path });
-        }
     }
 
     if let Some(primary) = candidates.first().copied() {
@@ -203,8 +203,10 @@ fn find_linker_near_current_exe(candidates: &[&str]) -> Option<PathBuf> {
 fn preferred_linker_names(flavor: TargetFlavor) -> &'static [&'static str] {
     match flavor {
         TargetFlavor::Coff => &["lld-link", "rust-lld", "link"],
-        TargetFlavor::Elf => &["ld.lld", "rust-lld", "lld", "clang", "cc"],
-        TargetFlavor::MachO => &["ld64.lld", "rust-lld", "ld", "clang", "cc"],
+        // Prefer system linker drivers over rust-lld: rust-lld is a raw linker
+        // that doesn't add implicit libc/libstdc++ and can crash on ObjC stubs.
+        TargetFlavor::Elf => &["ld.lld", "clang", "cc", "lld", "rust-lld"],
+        TargetFlavor::MachO => &["ld64.lld", "ld", "clang", "cc", "rust-lld"],
     }
 }
 
