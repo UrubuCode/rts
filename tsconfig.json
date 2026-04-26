@@ -1,11 +1,5 @@
 {
     "compilerOptions": {
-        "module": "es2022",
-        "types": [
-            "builtin/*/main.ts",
-            "builtin/rts-types/rts.d.ts"
-        ],
-        "emitDecoratorMetadata": true,
-        "experimentalDecorators": true
+        "types": ["builtin/rts-types/rts.d.ts"]
     }
 }

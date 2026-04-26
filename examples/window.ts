@@ -41,12 +41,12 @@ const out = ui.output_new(260, 130, 220, 25, "Output:");
 
 // ── Checkbox ─────────────────────────────────────────────────────────────
 const chk = ui.check_new(260, 165, 150, 25, "Enable feature");
-ui.check_set_value(chk, 1);
+ui.check_set_value(chk, true);
 
 // ── Radio buttons ────────────────────────────────────────────────────────
 const r1 = ui.radio_new(260, 195, 100, 20, "Option A");
 const r2 = ui.radio_new(370, 195, 100, 20, "Option B");
-ui.radio_set_value(r1, 1);
+ui.radio_set_value(r1, true);
 
 // ── Slider ───────────────────────────────────────────────────────────────
 const slider = ui.slider_new(10, 240, 230, 20, "");

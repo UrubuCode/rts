@@ -144,6 +144,13 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     let main_ptr = module.get_finalized_function(main_id);
     let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
     let exit_code = main_fn();
+    if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
+        if let Some(stack) = report.stack {
+            anyhow::bail!("Uncaught StackError: {}\n{}", report.message, stack);
+        } else {
+            anyhow::bail!("Uncaught Error: {}", report.message);
+        }
+    }
     std::mem::forget(module);
 
     Ok((exit_code, warnings))
@@ -181,6 +188,13 @@ pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String
     // SAFETY: codegen guarantees __RTS_MAIN matches this signature.
     let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
     let exit_code = main_fn();
+    if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
+        if let Some(stack) = report.stack {
+            anyhow::bail!("Uncaught StackError: {}\n{}", report.message, stack);
+        } else {
+            anyhow::bail!("Uncaught Error: {}", report.message);
+        }
+    }
 
     // JITModule owns the executable pages — keep it alive until the
     // call returns. Leaking is fine for one-shot `rts run`: the process

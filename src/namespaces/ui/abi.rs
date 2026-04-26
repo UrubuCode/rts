@@ -800,8 +800,8 @@ pub const MEMBERS: &[NamespaceMember] = &[
         symbol: "__RTS_FN_NS_UI_DIALOG_INPUT",
         args: &[AbiType::StrPtr, AbiType::StrPtr],
         returns: AbiType::Handle,
-        doc: "Shows an input dialog (label, default). Returns GC string handle, or 0 on cancel.",
-        ts_signature: "dialog_input(label: string, default: string): number",
+        doc: "Shows an input dialog (label, def). Returns GC string handle, or 0 on cancel.",
+        ts_signature: "dialog_input(label: string, def: string): number",
         intrinsic: None,
     },
 ];

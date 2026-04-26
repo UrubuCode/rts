@@ -49,6 +49,13 @@ fn run_source(src: &str) -> anyhow::Result<i32> {
     let main_ptr = module.get_finalized_function(main_id);
     let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
     let exit_code = main_fn();
+    if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
+        if let Some(stack) = report.stack {
+            anyhow::bail!("Uncaught StackError: {}\n{}", report.message, stack);
+        } else {
+            anyhow::bail!("Uncaught Error: {}", report.message);
+        }
+    }
     std::mem::forget(module);
     Ok(exit_code)
 }

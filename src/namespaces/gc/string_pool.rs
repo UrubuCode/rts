@@ -7,6 +7,16 @@
 
 use super::handles::{Entry, table};
 
+/// Reads a string handle into an owned Rust `String`.
+/// Returns `None` for invalid/non-string handles.
+pub fn read_string_handle(handle: u64) -> Option<String> {
+    let t = table().lock().expect("handle table poisoned");
+    match t.get(handle) {
+        Some(Entry::String(bytes)) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        _ => None,
+    }
+}
+
 /// Allocates a new string by copying `len` bytes from `ptr`.
 /// Returns a handle, or `0` on invalid input.
 ///

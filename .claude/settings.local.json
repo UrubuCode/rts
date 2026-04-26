@@ -94,7 +94,12 @@
       "Bash(echo \"---exit: $?\")",
       "Bash(xargs grep *)",
       "Bash(target/debug/rts.exe run *)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(gh repo *)",
+      "Bash(git merge feat/runtime-namespace --no-ff -m ' *)",
+      "Bash(cargo run *)",
+      "Bash(git pull *)",
+      "Bash(target/debug/rts.exe test *)"
     ]
   }
 }

@@ -311,7 +311,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         args: &[],
         returns: AbiType::F64,
         doc: "Archimedes' constant.",
-        ts_signature: "readonly PI: number",
+        ts_signature: "PI: number",
         intrinsic: None,
     },
     NamespaceMember {
@@ -321,7 +321,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         args: &[],
         returns: AbiType::F64,
         doc: "Euler's number.",
-        ts_signature: "readonly E: number",
+        ts_signature: "E: number",
         intrinsic: None,
     },
     NamespaceMember {
@@ -331,7 +331,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         args: &[],
         returns: AbiType::F64,
         doc: "Positive infinity.",
-        ts_signature: "readonly INFINITY: number",
+        ts_signature: "INFINITY: number",
         intrinsic: None,
     },
     NamespaceMember {
@@ -341,7 +341,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         args: &[],
         returns: AbiType::F64,
         doc: "Quiet NaN.",
-        ts_signature: "readonly NAN: number",
+        ts_signature: "NAN: number",
         intrinsic: None,
     },
 ];

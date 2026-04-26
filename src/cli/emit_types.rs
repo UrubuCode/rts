@@ -25,7 +25,7 @@ fn resolve_output(arg: Option<String>) -> Result<PathBuf> {
 }
 
 pub fn generate() -> String {
-    let mut out = String::with_capacity(8192);
+    let mut out = String::with_capacity(16384);
 
     out.push_str("declare module \"rts\" {\n");
     push_primitive_aliases(&mut out);
@@ -36,6 +36,12 @@ pub fn generate() -> String {
     }
 
     out.push_str("}\n");
+
+    for spec in SPECS {
+        out.push('\n');
+        push_namespace_module(&mut out, spec.name, spec.doc, spec.members);
+    }
+
     out
 }
 
@@ -88,9 +94,55 @@ fn push_namespace(
     out.push_str(&format!("{indent}}}\n"));
 }
 
+fn push_namespace_module(
+    out: &mut String,
+    name: &str,
+    doc: &str,
+    members: &[crate::abi::NamespaceMember],
+) {
+    out.push_str(&format!("declare module \"rts:{name}\" {{\n"));
+    out.push_str("  /**\n");
+    out.push_str(&format!("   * {doc}\n"));
+    out.push_str("   */\n");
+
+    for member in members {
+        out.push_str("  /**\n");
+        out.push_str(&format!("   * {}\n", member.doc));
+        out.push_str("   */\n");
+        match member.kind {
+            MemberKind::Function => {
+                out.push_str(&format!("  export function {};\n", member.ts_signature));
+            }
+            MemberKind::Constant => {
+                out.push_str(&format!("  export const {};\n", member.ts_signature));
+            }
+        }
+    }
+
+    out.push_str("  const _default: {\n");
+    for member in members {
+        out.push_str(&format!(
+            "    {}: (typeof import(\"rts\"))[\"{}\"][\"{}\"];\n",
+            member.name, name, member.name
+        ));
+    }
+    out.push_str("  };\n");
+    out.push_str("  export default _default;\n");
+    out.push_str("}\n");
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+
+    #[test]
+    fn generate_includes_rts_namespace_modules() {
+        let dts = super::generate();
+        assert!(dts.contains("declare module \"rts:process\""));
+        assert!(dts.contains("declare module \"rts:ui\""));
+        assert!(dts.contains("export default _default;"));
+        assert!(!dts.contains("export const readonly "));
+    }
 
     #[test]
     fn rts_dts_in_sync_with_specs() {

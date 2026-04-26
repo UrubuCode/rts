@@ -95,6 +95,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         use crate::namespaces::gc::error::*;
         add_fn!("__RTS_FN_RT_ERROR_SET", __RTS_FN_RT_ERROR_SET);
         add_fn!("__RTS_FN_RT_ERROR_GET", __RTS_FN_RT_ERROR_GET);
+        add_fn!("__RTS_FN_RT_ERROR_GET_STACK", __RTS_FN_RT_ERROR_GET_STACK);
         add_fn!("__RTS_FN_RT_ERROR_CLEAR", __RTS_FN_RT_ERROR_CLEAR);
     }
 
