@@ -211,10 +211,7 @@ fn build_linker_args(
             for object_path in object_paths {
                 let is_archive =
                     object_path.extension().and_then(|e| e.to_str()) == Some("a");
-                if is_archive {
-                    // Always force-include all objects from Rust staticlibs to prevent
-                    // COMDAT weak symbol loss (e.g. Arc::drop_slow). --gc-sections below
-                    // still removes truly dead sections, so binary size is not inflated.
+                if keep_all_runtime_symbols && is_archive {
                     if linker.is_compiler_driver() {
                         args.push("-Wl,--whole-archive".to_string());
                         args.push(object_path.display().to_string());
@@ -293,8 +290,8 @@ fn build_linker_args(
                 args.push(min_ver);
                 args.push(sdk_ver);
             }
-            // Raw linkers need explicit SDK lib path and -lSystem; compiler drivers add it
-            // automatically via their built-in sysroot knowledge.
+            // Raw linkers need explicit SDK lib path, framework search paths, and -lSystem;
+            // compiler drivers add these automatically via their built-in sysroot knowledge.
             if linker.is_raw_linker() {
                 if let Some(sdk_lib) = macos_sdk_lib_path() {
                     args.push(format!("-L{}", sdk_lib.display()));
@@ -302,6 +299,11 @@ fn build_linker_args(
                     args.push("-L/usr/lib".to_string());
                 }
                 args.push("-lSystem".to_string());
+                // Framework search paths: SDK first (authoritative), then system fallback.
+                if let Some(sdk_fw) = macos_sdk_frameworks_path() {
+                    args.push(format!("-F{}", sdk_fw.display()));
+                }
+                args.push("-F/System/Library/Frameworks".to_string());
             }
             // runtime_support.a embeds FLTK which requires these macOS frameworks.
             // Both raw linkers and compiler drivers need them explicitly listed.
@@ -378,9 +380,7 @@ fn find_crt_object(lib_paths: &[PathBuf], name: &str) -> Option<PathBuf> {
     })
 }
 
-/// Returns the `usr/lib` directory inside the active macOS SDK, used by raw linkers
-/// (ld64.lld, rust-lld) that don't have built-in sysroot knowledge.
-fn macos_sdk_lib_path() -> Option<PathBuf> {
+fn macos_sdk_path() -> Option<PathBuf> {
     let output = Command::new("xcrun")
         .args(["--sdk", "macosx", "--show-sdk-path"])
         .output()
@@ -389,8 +389,23 @@ fn macos_sdk_lib_path() -> Option<PathBuf> {
         return None;
     }
     let sdk = String::from_utf8(output.stdout).ok()?;
-    let lib = PathBuf::from(sdk.trim()).join("usr").join("lib");
+    let p = PathBuf::from(sdk.trim().to_string());
+    p.is_dir().then_some(p)
+}
+
+/// Returns `<SDK>/usr/lib` for raw linker `-L` search.
+fn macos_sdk_lib_path() -> Option<PathBuf> {
+    let lib = macos_sdk_path()?.join("usr").join("lib");
     lib.is_dir().then_some(lib)
+}
+
+/// Returns `<SDK>/System/Library/Frameworks` for raw linker `-F` search.
+fn macos_sdk_frameworks_path() -> Option<PathBuf> {
+    let fw = macos_sdk_path()?
+        .join("System")
+        .join("Library")
+        .join("Frameworks");
+    fw.is_dir().then_some(fw)
 }
 
 fn macos_fltk_frameworks() -> &'static [&'static str] {
