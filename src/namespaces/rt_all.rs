@@ -6,6 +6,8 @@ pub mod io;
 pub mod fs;
 #[path = "math/rt.rs"]
 pub mod math;
+#[path = "num/rt.rs"]
+pub mod num;
 #[path = "bigfloat/rt.rs"]
 pub mod bigfloat;
 #[path = "time/rt.rs"]

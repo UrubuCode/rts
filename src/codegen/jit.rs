@@ -218,6 +218,50 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
 
+    // ── namespaces::num ───────────────────────────────────────────────
+    {
+        use crate::namespaces::num::ops as n;
+        add_fn!("__RTS_FN_NS_NUM_CHECKED_ADD", n::__RTS_FN_NS_NUM_CHECKED_ADD);
+        add_fn!("__RTS_FN_NS_NUM_CHECKED_SUB", n::__RTS_FN_NS_NUM_CHECKED_SUB);
+        add_fn!("__RTS_FN_NS_NUM_CHECKED_MUL", n::__RTS_FN_NS_NUM_CHECKED_MUL);
+        add_fn!("__RTS_FN_NS_NUM_CHECKED_DIV", n::__RTS_FN_NS_NUM_CHECKED_DIV);
+        add_fn!(
+            "__RTS_FN_NS_NUM_SATURATING_ADD",
+            n::__RTS_FN_NS_NUM_SATURATING_ADD
+        );
+        add_fn!(
+            "__RTS_FN_NS_NUM_SATURATING_SUB",
+            n::__RTS_FN_NS_NUM_SATURATING_SUB
+        );
+        add_fn!(
+            "__RTS_FN_NS_NUM_SATURATING_MUL",
+            n::__RTS_FN_NS_NUM_SATURATING_MUL
+        );
+        add_fn!("__RTS_FN_NS_NUM_WRAPPING_ADD", n::__RTS_FN_NS_NUM_WRAPPING_ADD);
+        add_fn!("__RTS_FN_NS_NUM_WRAPPING_SUB", n::__RTS_FN_NS_NUM_WRAPPING_SUB);
+        add_fn!("__RTS_FN_NS_NUM_WRAPPING_MUL", n::__RTS_FN_NS_NUM_WRAPPING_MUL);
+        add_fn!("__RTS_FN_NS_NUM_WRAPPING_NEG", n::__RTS_FN_NS_NUM_WRAPPING_NEG);
+        add_fn!("__RTS_FN_NS_NUM_WRAPPING_SHL", n::__RTS_FN_NS_NUM_WRAPPING_SHL);
+        add_fn!("__RTS_FN_NS_NUM_WRAPPING_SHR", n::__RTS_FN_NS_NUM_WRAPPING_SHR);
+        add_fn!("__RTS_FN_NS_NUM_COUNT_ONES", n::__RTS_FN_NS_NUM_COUNT_ONES);
+        add_fn!("__RTS_FN_NS_NUM_COUNT_ZEROS", n::__RTS_FN_NS_NUM_COUNT_ZEROS);
+        add_fn!(
+            "__RTS_FN_NS_NUM_LEADING_ZEROS",
+            n::__RTS_FN_NS_NUM_LEADING_ZEROS
+        );
+        add_fn!(
+            "__RTS_FN_NS_NUM_TRAILING_ZEROS",
+            n::__RTS_FN_NS_NUM_TRAILING_ZEROS
+        );
+        add_fn!("__RTS_FN_NS_NUM_ROTATE_LEFT", n::__RTS_FN_NS_NUM_ROTATE_LEFT);
+        add_fn!(
+            "__RTS_FN_NS_NUM_ROTATE_RIGHT",
+            n::__RTS_FN_NS_NUM_ROTATE_RIGHT
+        );
+        add_fn!("__RTS_FN_NS_NUM_REVERSE_BITS", n::__RTS_FN_NS_NUM_REVERSE_BITS);
+        add_fn!("__RTS_FN_NS_NUM_SWAP_BYTES", n::__RTS_FN_NS_NUM_SWAP_BYTES);
+    }
+
     // ── namespaces::crypto ────────────────────────────────────────────
     {
         use crate::namespaces::crypto::*;

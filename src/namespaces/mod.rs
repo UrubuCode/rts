@@ -15,6 +15,7 @@ pub mod gc;
 pub mod hash;
 pub mod io;
 pub mod math;
+pub mod num;
 pub mod os;
 pub mod path;
 pub mod process;

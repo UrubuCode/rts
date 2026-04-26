@@ -880,6 +880,33 @@ declare module "rts" {
      * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
     /**
+     * Aritmetica com overflow explicito (checked/saturating/wrapping) e bit ops.
+     */
+    export namespace num {
+      export function checked_add(a: number, b: number): number;
+      export function checked_sub(a: number, b: number): number;
+      export function checked_mul(a: number, b: number): number;
+      export function checked_div(a: number, b: number): number;
+      export function saturating_add(a: number, b: number): number;
+      export function saturating_sub(a: number, b: number): number;
+      export function saturating_mul(a: number, b: number): number;
+      export function wrapping_add(a: number, b: number): number;
+      export function wrapping_sub(a: number, b: number): number;
+      export function wrapping_mul(a: number, b: number): number;
+      export function wrapping_neg(a: number): number;
+      export function wrapping_shl(a: number, n: number): number;
+      export function wrapping_shr(a: number, n: number): number;
+      export function count_ones(a: number): number;
+      export function count_zeros(a: number): number;
+      export function leading_zeros(a: number): number;
+      export function trailing_zeros(a: number): number;
+      export function rotate_left(a: number, n: number): number;
+      export function rotate_right(a: number, n: number): number;
+      export function reverse_bits(a: number): number;
+      export function swap_bytes(a: number): number;
+    }
+
+    /**
      * Expressoes regulares via crate `regex` (sintaxe RE2-like, sem backreferences).
      */
     export namespace regex {
