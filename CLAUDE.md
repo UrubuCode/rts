@@ -151,6 +151,39 @@ atual a medida que o pipeline estabiliza. Ver issues #16-#39 para o backlog.
 - O `rts.d.ts` e gerado a partir de `abi::SPECS` — CI lintao committed file contra o gerador
 - Build e via `cargo` direto — `xtask` foi removido
 
+## Progress bar em tarefas longas
+
+Quando o usuario pede um trabalho com varias etapas (ex: novo namespace,
+feature feat:js/feat:ts, fix multi-arquivo) mostra uma barra de progresso
+ASCII a cada modificacao significativa, ancorando a percepcao do usuario
+do quanto falta.
+
+Formato:
+
+```
+[▰▰▰▱▱▱▱▱▱▱] 30% — descricao curta da etapa atual
+```
+
+Regras:
+- 10 segmentos: `▰` preenchido, `▱` vazio. Percentual eh o valor real,
+  nao o numero de segmentos (ex: 25% = 2 segmentos cheios + 50% do 3o
+  arredondado pra cheio).
+- Atualizar a cada modificacao concreta: arquivo criado, build passou,
+  test rodou, commit feito.
+- Em caso de erro: prefixar `❌ erro:` e voltar a percentagem para o
+  ponto onde a confianca caiu. Continuar a partir dali.
+- Marco final: `[▰▰▰▰▰▰▰▰▰▰] 100% ✅ — resumo (PR #N, X/Y testes)`.
+
+Exemplos de etapas tipicas (namespace novo):
+- 10% mod.rs criado
+- 25% abi.rs definido
+- 45% ops.rs implementado
+- 55% rt.rs criado
+- 70% registrado em SPECS + mod.rs + rt_all
+- 80% JIT registrado + build.rs atualizado
+- 90% build passou + fixture basico ok
+- 100% PR aberto/merged
+
 ## Como testar
 
 ```bash
