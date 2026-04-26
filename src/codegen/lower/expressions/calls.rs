@@ -20,6 +20,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     if matches!(&call.callee, Callee::Super(_)) {
         return lower_super_call(ctx, call);
     }
+    // Dynamic import(expr) — lowers to runtime.eval_file(path).
+    if matches!(&call.callee, Callee::Import(_)) {
+        return lower_dynamic_import(ctx, call);
+    }
     if let Callee::Expr(callee) = &call.callee {
         if let Expr::SuperProp(sp) = callee.as_ref() {
             return lower_super_method_call(ctx, sp, call);
@@ -94,6 +98,30 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         }
     }
     Err(anyhow!("unsupported call expression form"))
+}
+
+/// Lowers `import(expr)` to `runtime.eval_file(path)`.
+///
+/// The path expression is evaluated and passed as a string handle to
+/// `__RTS_FN_NS_RUNTIME_EVAL_FILE`. The return value is an i64 exit code for
+/// now — full module-namespace handles are a follow-up (dynamic exports require
+/// a map of heterogeneous values).
+fn lower_dynamic_import(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
+    use crate::codegen::lower::ctx::ValTy;
+
+    let path_arg = call
+        .args
+        .first()
+        .ok_or_else(|| anyhow!("import() requires exactly one argument"))?;
+
+    lower_ns_call(ctx, "runtime.eval_file", &CallExpr {
+        span: call.span,
+        callee: call.callee.clone(),
+        args: vec![path_arg.clone()],
+        type_args: None,
+        ctxt: Default::default(),
+    })
+    .map(|tv| crate::codegen::lower::ctx::TypedVal { val: tv.val, ty: ValTy::I64 })
 }
 
 fn resolve_method_owner(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {

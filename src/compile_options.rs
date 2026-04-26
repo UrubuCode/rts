@@ -119,6 +119,9 @@ pub struct CompileOptions {
     pub debug: bool,
     pub frontend_mode: FrontendMode,
     pub emit_module_progress: bool,
+    /// Link all namespace symbols regardless of usage (disables linker DCE on
+    /// the runtime archive). Required when the binary uses `import(variable)`.
+    pub all_namespaces: bool,
 }
 
 impl CompileOptions {
@@ -138,6 +141,7 @@ impl Default for CompileOptions {
             debug: false,
             frontend_mode: FrontendMode::Native,
             emit_module_progress: false,
+            all_namespaces: false,
         }
     }
 }

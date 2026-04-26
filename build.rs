@@ -84,6 +84,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/crypto/");
     println!("cargo:rerun-if-changed=src/namespaces/regex/");
     println!("cargo:rerun-if-changed=src/namespaces/ui/");
+    println!("cargo:rerun-if-changed=src/namespaces/runtime/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

@@ -23,6 +23,7 @@ pub mod os;
 pub mod path;
 pub mod process;
 pub mod regex;
+pub mod runtime;
 pub mod string;
 pub mod time;
 pub mod ui;

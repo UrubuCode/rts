@@ -64,12 +64,9 @@ pub fn build_executable(
     output_binary: &Path,
     options: CompileOptions,
 ) -> Result<LinkOutcome> {
-    build_executable_with_request(
-        input,
-        output_binary,
-        options,
-        linker::LinkRequest::from_env(),
-    )
+    let mut req = linker::LinkRequest::from_env();
+    req.keep_all_runtime_symbols = options.all_namespaces;
+    build_executable_with_request(input, output_binary, options, req)
 }
 
 /// Full compile + link with an explicit link request.
