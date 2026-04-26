@@ -892,3 +892,23 @@ fn fixture_generic_constraint() {
 fn fixture_generic_stack() {
     run_fixture("generic_stack");
 }
+
+#[test]
+fn fixture_num_checked() {
+    run_fixture("num_checked");
+}
+
+#[test]
+fn fixture_num_saturating() {
+    run_fixture("num_saturating");
+}
+
+#[test]
+fn fixture_num_wrapping() {
+    run_fixture("num_wrapping");
+}
+
+#[test]
+fn fixture_num_bits() {
+    run_fixture("num_bits");
+}
