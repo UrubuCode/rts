@@ -67,6 +67,10 @@ pub struct LinkRequest {
     pub backend: Option<LinkBackendPreference>,
     pub target_triple: Option<String>,
     pub windows_subsystem: Option<WindowsSubsystem>,
+    /// Wrap the runtime archive with `--whole-archive` (ELF/MachO) or
+    /// `/WHOLEARCHIVE` (COFF) so all namespace symbols survive linker DCE.
+    /// Set by `--all-namespaces` / `CompileOptions::all_namespaces`.
+    pub keep_all_runtime_symbols: bool,
 }
 
 impl LinkRequest {
@@ -80,6 +84,7 @@ impl LinkRequest {
             backend: Some(LinkBackendPreference::from_env()),
             target_triple,
             windows_subsystem: WindowsSubsystem::from_env(),
+            keep_all_runtime_symbols: false,
         }
     }
 
@@ -173,6 +178,7 @@ fn link_with_system_backend(
         output_path,
         request.target_triple.as_deref(),
         request.windows_subsystem,
+        request.keep_all_runtime_symbols,
     )?;
     Ok(LinkedBinary {
         path: artifact.path,

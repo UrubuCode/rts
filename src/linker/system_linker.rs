@@ -21,6 +21,7 @@ pub fn link(
     output_path: &Path,
     explicit_target: Option<&str>,
     windows_subsystem: Option<WindowsSubsystem>,
+    keep_all_runtime_symbols: bool,
 ) -> Result<LinkedArtifact> {
     if object_paths.is_empty() {
         bail!("system linker received no object files to link");
@@ -41,6 +42,7 @@ pub fn link(
         &final_path,
         &linker,
         windows_subsystem,
+        keep_all_runtime_symbols,
     )?;
     let (invocation_args, rsp_file) = prepare_invocation_args(&linker, &args)?;
     let output = Command::new(&linker.path)
@@ -131,6 +133,7 @@ fn build_linker_args(
     output_path: &Path,
     linker: &ResolvedLinker,
     windows_subsystem: Option<WindowsSubsystem>,
+    keep_all_runtime_symbols: bool,
 ) -> Result<Vec<String>> {
     match target.flavor {
         TargetFlavor::Coff => {
@@ -156,12 +159,20 @@ fn build_linker_args(
                 WindowsSubsystem::Console => args.push("/subsystem:console".to_string()),
                 WindowsSubsystem::Windows => args.push("/subsystem:windows".to_string()),
             }
-            // Dead code / COMDAT elimination — strips unused namespace functions.
-            args.push("/OPT:REF".to_string());
-            args.push("/OPT:ICF".to_string());
+            if !keep_all_runtime_symbols {
+                // Dead code / COMDAT elimination — strips unused namespace functions.
+                args.push("/OPT:REF".to_string());
+                args.push("/OPT:ICF".to_string());
+            }
             args.push(format!("/out:{}", output_path.display()));
             for object_path in object_paths {
-                args.push(object_path.display().to_string());
+                if keep_all_runtime_symbols
+                    && object_path.extension().and_then(|e| e.to_str()) == Some("a")
+                {
+                    args.push(format!("/WHOLEARCHIVE:{}", object_path.display()));
+                } else {
+                    args.push(object_path.display().to_string());
+                }
             }
 
             if requires_runtime {
@@ -180,10 +191,20 @@ fn build_linker_args(
             args.push("-o".to_string());
             args.push(output_path.display().to_string());
             for object_path in object_paths {
-                args.push(object_path.display().to_string());
+                let is_archive =
+                    object_path.extension().and_then(|e| e.to_str()) == Some("a");
+                if keep_all_runtime_symbols && is_archive {
+                    args.push("--whole-archive".to_string());
+                    args.push(object_path.display().to_string());
+                    args.push("--no-whole-archive".to_string());
+                } else {
+                    args.push(object_path.display().to_string());
+                }
             }
-            // Strip unreferenced sections — removes unused namespace functions.
-            args.push("--gc-sections".to_string());
+            if !keep_all_runtime_symbols {
+                // Strip unreferenced sections — removes unused namespace functions.
+                args.push("--gc-sections".to_string());
+            }
             Ok(args)
         }
         TargetFlavor::MachO => {
@@ -195,10 +216,19 @@ fn build_linker_args(
             args.push("-o".to_string());
             args.push(output_path.display().to_string());
             for object_path in object_paths {
-                args.push(object_path.display().to_string());
+                let is_archive =
+                    object_path.extension().and_then(|e| e.to_str()) == Some("a");
+                if keep_all_runtime_symbols && is_archive {
+                    args.push("-force_load".to_string());
+                    args.push(object_path.display().to_string());
+                } else {
+                    args.push(object_path.display().to_string());
+                }
             }
-            // Strip unreferenced symbols — removes unused namespace functions.
-            args.push("-dead_strip".to_string());
+            if !keep_all_runtime_symbols {
+                // Strip unreferenced symbols — removes unused namespace functions.
+                args.push("-dead_strip".to_string());
+            }
             Ok(args)
         }
     }

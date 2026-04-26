@@ -33,6 +33,7 @@ pub fn command(
     if let Some(subsystem) = windows_subsystem {
         link_request.windows_subsystem = Some(subsystem);
     }
+    link_request.keep_all_runtime_symbols = options.all_namespaces;
 
     let outcome =
         pipeline::build_executable_with_request(&input_path, &output_path, options, link_request)

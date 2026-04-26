@@ -18,6 +18,7 @@ struct CliFlags {
     debug: bool,
     frontend_mode: FrontendMode,
     windows_subsystem: Option<WindowsSubsystem>,
+    all_namespaces: bool,
 }
 
 impl Default for CliFlags {
@@ -27,6 +28,7 @@ impl Default for CliFlags {
             debug: false,
             frontend_mode: FrontendMode::Native,
             windows_subsystem: None,
+            all_namespaces: false,
         }
     }
 }
@@ -38,6 +40,7 @@ impl CliFlags {
             debug: self.debug,
             frontend_mode: self.frontend_mode,
             emit_module_progress: false,
+            all_namespaces: self.all_namespaces,
         }
     }
 }
@@ -96,6 +99,7 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--native" => flags.frontend_mode = FrontendMode::Native,
             "--compat" => flags.frontend_mode = FrontendMode::Compat,
+            "--all-namespaces" => flags.all_namespaces = true,
             "--windows-subsystem" => {
                 let value = raw
                     .get(idx + 1)
@@ -150,4 +154,5 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} help");
     println!("Options:");
     println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");
+    println!("  --all-namespaces                        (compile) keep all runtime symbols (needed for import(variable))");
 }

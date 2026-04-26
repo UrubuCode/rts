@@ -34,6 +34,8 @@ pub mod crypto;
 pub mod regex;
 #[path = "ui/rt.rs"]
 pub mod ui;
+#[path = "runtime/rt.rs"]
+pub mod runtime;
 
 // rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
 // modules reference `crate::namespaces::...`, so we expose a compatibility

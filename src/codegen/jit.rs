@@ -891,6 +891,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
     }
 
+    // ── namespaces::runtime ───────────────────────────────────────────
+    // JIT fast path: inline pipeline instead of subprocess spawn.
+    {
+        use crate::namespaces::runtime::eval_jit::*;
+        add_fn!("__RTS_FN_NS_RUNTIME_EVAL", runtime_eval_src_jit);
+        add_fn!("__RTS_FN_NS_RUNTIME_EVAL_FILE", runtime_eval_file_jit);
+    }
+
     // ── Data symbols ──────────────────────────────────────────────────
     // Xorshift PRNG state (mutable u64 global).
     {
