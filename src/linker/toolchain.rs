@@ -160,6 +160,20 @@ pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {
         return Ok(ResolvedLinker { path });
     }
 
+    // For COFF/MachO, check rust-lld from the local Rust toolchain BEFORE PATH.
+    // Apple ld ships LLVM 17 and VS lld-link ships LLVM 19; both reject LLVM 22
+    // bitcode embedded in pre-compiled dependency rlibs (regex, memchr, …).
+    // rust-lld from rustup shares the same LLVM version as the compiler, so it
+    // handles the bitcode cleanly.
+    if matches!(layout.target.flavor, TargetFlavor::Coff | TargetFlavor::MachO) {
+        if let Some(path) = rustup_rust_lld() {
+            return Ok(ResolvedLinker { path });
+        }
+        if let Some(path) = rustc_sysroot_rust_lld(layout) {
+            return Ok(ResolvedLinker { path });
+        }
+    }
+
     for candidate in candidates {
         if let Some(path) = find_binary_in_path(candidate) {
             return Ok(ResolvedLinker { path });

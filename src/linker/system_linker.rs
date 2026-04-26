@@ -211,10 +211,19 @@ fn build_linker_args(
             for object_path in object_paths {
                 let is_archive =
                     object_path.extension().and_then(|e| e.to_str()) == Some("a");
-                if keep_all_runtime_symbols && is_archive {
-                    args.push("--whole-archive".to_string());
-                    args.push(object_path.display().to_string());
-                    args.push("--no-whole-archive".to_string());
+                if is_archive {
+                    // Always force-include all objects from Rust staticlibs to prevent
+                    // COMDAT weak symbol loss (e.g. Arc::drop_slow). --gc-sections below
+                    // still removes truly dead sections, so binary size is not inflated.
+                    if linker.is_compiler_driver() {
+                        args.push("-Wl,--whole-archive".to_string());
+                        args.push(object_path.display().to_string());
+                        args.push("-Wl,--no-whole-archive".to_string());
+                    } else {
+                        args.push("--whole-archive".to_string());
+                        args.push(object_path.display().to_string());
+                        args.push("--no-whole-archive".to_string());
+                    }
                 } else {
                     args.push(object_path.display().to_string());
                 }
@@ -293,6 +302,12 @@ fn build_linker_args(
                     args.push("-L/usr/lib".to_string());
                 }
                 args.push("-lSystem".to_string());
+            }
+            // runtime_support.a embeds FLTK which requires these macOS frameworks.
+            // Both raw linkers and compiler drivers need them explicitly listed.
+            for framework in macos_fltk_frameworks() {
+                args.push("-framework".to_string());
+                args.push((*framework).to_string());
             }
             Ok(args)
         }
@@ -376,6 +391,20 @@ fn macos_sdk_lib_path() -> Option<PathBuf> {
     let sdk = String::from_utf8(output.stdout).ok()?;
     let lib = PathBuf::from(sdk.trim()).join("usr").join("lib");
     lib.is_dir().then_some(lib)
+}
+
+fn macos_fltk_frameworks() -> &'static [&'static str] {
+    &[
+        "Cocoa",
+        "CoreFoundation",
+        "CoreGraphics",
+        "ApplicationServices",
+        "Accessibility",
+        "OpenGL",
+        "AGL",
+        "IOKit",
+        "Carbon",
+    ]
 }
 
 fn macho_arch_for_target(triple: &str) -> &'static str {
