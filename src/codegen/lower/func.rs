@@ -1276,6 +1276,125 @@ impl LiftAcc {
         self.lift_in_body("", &mut f.body, /*in_class=*/ false);
     }
 
+    /// Lift de uma arrow anônima (sem captura) para uma user fn sintética
+    /// `__lifted_arrow_N`. Retorna o `Ident` que substitui a arrow no AST.
+    /// Não trata captura de `this` — caller é responsável por garantir que
+    /// a arrow não usa `this` (ou está fora de classe).
+    fn lift_arrow_to_ident(
+        &mut self,
+        class_name: &str,
+        arrow: &swc_ecma_ast::ArrowExpr,
+        in_class: bool,
+    ) -> swc_ecma_ast::Ident {
+        let raw_stmts = arrow_body_to_stmts(arrow);
+        let mut body_stmts: Vec<Statement> = raw_stmts
+            .into_iter()
+            .map(|s| {
+                Statement::Raw(
+                    RawStmt::new("<lifted>".to_string(), Span::default()).with_stmt(s),
+                )
+            })
+            .collect();
+
+        let syn_name = format!("__lifted_arrow_{}", self.counter);
+        self.counter += 1;
+
+        // Recurse para arrows aninhadas.
+        self.lift_in_body(class_name, &mut body_stmts, in_class);
+
+        self.new_fns.push(Item::Function(FunctionDecl {
+            name: syn_name.clone(),
+            parameters: Vec::new(),
+            return_type: Some("void".to_string()),
+            body: body_stmts,
+            span: Span::default(),
+        }));
+
+        swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: syn_name.into(),
+            optional: false,
+        }
+    }
+
+    /// Recursa em sub-blocos (if/while/for/block/try) procurando `return arrow`
+    /// e substitui a arrow por um `Ident` lifted.
+    fn lift_return_arrows_in_stmt(
+        &mut self,
+        class_name: &str,
+        stmt: &mut Stmt,
+        in_class: bool,
+    ) {
+        match stmt {
+            Stmt::Return(ret) => {
+                if let Some(arg) = ret.arg.as_mut() {
+                    if matches!(arg.as_ref(), Expr::Arrow(_)) {
+                        if let Expr::Arrow(arrow) = std::mem::replace(
+                            arg.as_mut(),
+                            Expr::Invalid(swc_ecma_ast::Invalid { span: Default::default() }),
+                        ) {
+                            let ident = self.lift_arrow_to_ident(class_name, &arrow, in_class);
+                            **arg = Expr::Ident(ident);
+                        }
+                    }
+                }
+            }
+            Stmt::If(i) => {
+                self.lift_return_arrows_in_stmt(class_name, &mut i.cons, in_class);
+                if let Some(alt) = i.alt.as_mut() {
+                    self.lift_return_arrows_in_stmt(class_name, alt, in_class);
+                }
+            }
+            Stmt::Block(b) => {
+                for s in b.stmts.iter_mut() {
+                    self.lift_return_arrows_in_stmt(class_name, s, in_class);
+                }
+            }
+            Stmt::While(w) => {
+                self.lift_return_arrows_in_stmt(class_name, &mut w.body, in_class);
+            }
+            Stmt::DoWhile(w) => {
+                self.lift_return_arrows_in_stmt(class_name, &mut w.body, in_class);
+            }
+            Stmt::For(f) => {
+                self.lift_return_arrows_in_stmt(class_name, &mut f.body, in_class);
+            }
+            Stmt::ForIn(f) => {
+                self.lift_return_arrows_in_stmt(class_name, &mut f.body, in_class);
+            }
+            Stmt::ForOf(f) => {
+                self.lift_return_arrows_in_stmt(class_name, &mut f.body, in_class);
+            }
+            Stmt::Try(t) => {
+                for s in t.block.stmts.iter_mut() {
+                    self.lift_return_arrows_in_stmt(class_name, s, in_class);
+                }
+                if let Some(handler) = t.handler.as_mut() {
+                    for s in handler.body.stmts.iter_mut() {
+                        self.lift_return_arrows_in_stmt(class_name, s, in_class);
+                    }
+                }
+                if let Some(finalizer) = t.finalizer.as_mut() {
+                    for s in finalizer.stmts.iter_mut() {
+                        self.lift_return_arrows_in_stmt(class_name, s, in_class);
+                    }
+                }
+            }
+            Stmt::Labeled(l) => {
+                self.lift_return_arrows_in_stmt(class_name, &mut l.body, in_class);
+            }
+            Stmt::Switch(sw) => {
+                for case in sw.cases.iter_mut() {
+                    for s in case.cons.iter_mut() {
+                        self.lift_return_arrows_in_stmt(class_name, s, in_class);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Varre `body` em busca de chamadas a funções do namespace ABI cujo arg
     /// I64 é um `ArrowExpr` ou `Ident` apontando pra user fn. Substitui in
     /// place pelo `Ident` da fn lifted, e injeta statements/fns de suporte.
@@ -1284,6 +1403,19 @@ impl LiftAcc {
 
         let mut idx = 0usize;
         while idx < body.len() {
+            // Lift de arrow em posição de `return` — codegen direto não
+            // suporta `Expr::Arrow` em ReturnStmt. Recursa em sub-blocos
+            // (if/while/for/block) para cobrir `return (...) => ...`
+            // dentro de control flow. Substitui pela `Ident` da fn
+            // sintética; o codegen materializa como `func_addr` (i64).
+            // VarDecl initializer já é tratado pelo codegen direto.
+            {
+                let Statement::Raw(raw) = &mut body[idx];
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    self.lift_return_arrows_in_stmt(class_name, stmt, in_class);
+                }
+            }
+
             // Pega CallExpr do statement atual, se houver. Coletamos as
             // mutações separadas: substituições de args + statements a
             // injetar antes deste.

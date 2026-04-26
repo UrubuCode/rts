@@ -184,6 +184,26 @@ Exemplos de etapas tipicas (namespace novo):
 - 90% build passou + fixture basico ok
 - 100% PR aberto/merged
 
+## Criatividade ao testar
+
+Ao adicionar/modificar features, nao basta um teste happy-path. Seja
+criativo e cubra varias variacoes de codigo na pasta `tests/`:
+
+- Caminho normal **e** caminhos atipicos (vazio, condicional, aninhado,
+  dentro de loop, dentro de try/catch, em member call, etc).
+- Combinar a feature com features adjacentes (ex: arrow + classe,
+  arrow + generics, arrow + spread).
+- Casos de borda do TS/JS — undefined, null, recursao, tail call,
+  identificadores comuns (`__rts*`, `this`, palavras reservadas).
+- Quando uma variacao falhar e estiver fora do escopo da PR atual,
+  abrir issue com o snippet minimo que reproduz e remover do teste
+  ate o follow-up.
+
+Os testes vivem em `tests/*.test.ts` (formato `rts:test`). Reaproveite
+o template padrao: `__rtsCapturedOutput`, `print()` shim, `describe()`
+com 1 ou mais `test()`/`expect().toBe()`. Multiplos `test()` por arquivo
+sao bem-vindos pra cobrir variacoes sem inflar o numero de arquivos.
+
 ## Como testar
 
 ```bash
