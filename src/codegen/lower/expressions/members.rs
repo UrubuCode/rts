@@ -6,7 +6,7 @@ use crate::abi::lookup;
 
 use super::calls::{AccessorKind, emit_namespace_constant, emit_virtual_accessor_dispatch};
 use super::lower_expr;
-use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
+use crate::codegen::lower::ctx::{FieldSlot, FnCtx, TypedVal, ValTy, is_class_flat_enabled};
 
 pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> Result<TypedVal> {
     let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
@@ -138,6 +138,14 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             if let Some(cls) = receiver_class.as_deref() {
                 validate_visibility(ctx, cls, key)?;
             }
+            // Dual-path #147 passo 6: leitura tipada via gc.instance_*
+            // quando classe e flat e field tem slot conhecido. Caso
+            // contrario cai no caminho HashMap atual.
+            if let Some(cls) = receiver_class.as_deref() {
+                if class_field_uses_flat(ctx, cls, key) {
+                    return emit_flat_field_read(ctx, obj_handle, cls, key);
+                }
+            }
             let mut field_ty = receiver_class
                 .as_deref()
                 .and_then(|c| field_type_in_hierarchy(ctx, c, key));
@@ -195,6 +203,140 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
     }
+}
+
+/// Resolve o `FieldSlot` para `field` percorrendo a hierarquia de
+/// `class`. Retorna `None` se a classe (ou ancestrais ate o que declarou
+/// o campo) nao tem layout nativo computado.
+pub(crate) fn field_slot_in_hierarchy(
+    ctx: &FnCtx,
+    class: &str,
+    field: &str,
+) -> Option<FieldSlot> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if let Some(layout) = meta.layout.as_ref() {
+            if let Some(slot) = layout.fields.iter().find(|s| s.name == field) {
+                return Some(slot.clone());
+            }
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
+/// True quando a classe `class` (e a hierarquia ancestral relevante)
+/// pode usar o caminho flat para acessar `field`.
+pub(crate) fn class_field_uses_flat(ctx: &FnCtx, class: &str, field: &str) -> bool {
+    if !is_class_flat_enabled(class) {
+        return false;
+    }
+    // Bloqueio conservador: se a propria classe tem getter/setter dinamico
+    // pra qualquer prop, nao desviamos para flat — mantemos hashmap como
+    // escape hatch (passo 8 ira tratar dispatch virtual de getters).
+    if let Some(meta) = ctx.classes.get(class) {
+        if !meta.getters.is_empty() || !meta.setters.is_empty() {
+            return false;
+        }
+    }
+    field_slot_in_hierarchy(ctx, class, field).is_some()
+}
+
+/// Emite leitura tipada de um campo flat em `class.field`. Pre-condicao:
+/// `class_field_uses_flat(ctx, class, field) == true`.
+pub(crate) fn emit_flat_field_read(
+    ctx: &mut FnCtx,
+    recv_handle: cranelift_codegen::ir::Value,
+    class: &str,
+    field: &str,
+) -> Result<TypedVal> {
+    let slot = field_slot_in_hierarchy(ctx, class, field)
+        .ok_or_else(|| anyhow!("flat field `{class}.{field}` sem slot"))?;
+    let off = ctx
+        .builder
+        .ins()
+        .iconst(cl::I32, slot.offset as i64);
+    let (sym, ret_ty, ret_kind): (&'static str, _, ValTy) = match slot.ty {
+        ValTy::F64 => (
+            "__RTS_FN_NS_GC_INSTANCE_LOAD_F64",
+            cl::F64,
+            ValTy::F64,
+        ),
+        ValTy::I32 => (
+            "__RTS_FN_NS_GC_INSTANCE_LOAD_I32",
+            cl::I32,
+            ValTy::I32,
+        ),
+        ValTy::Bool => (
+            "__RTS_FN_NS_GC_INSTANCE_LOAD_I64",
+            cl::I64,
+            ValTy::Bool,
+        ),
+        ValTy::Handle => (
+            "__RTS_FN_NS_GC_INSTANCE_LOAD_I64",
+            cl::I64,
+            ValTy::Handle,
+        ),
+        ValTy::I64 => (
+            "__RTS_FN_NS_GC_INSTANCE_LOAD_I64",
+            cl::I64,
+            ValTy::I64,
+        ),
+    };
+    let fref = ctx.get_extern(sym, &[cl::I64, cl::I32], Some(ret_ty))?;
+    let inst = ctx.builder.ins().call(fref, &[recv_handle, off]);
+    let v = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(v, ret_kind))
+}
+
+/// Emite escrita tipada de um campo flat. Coage `value` para o ValTy do
+/// slot antes de chamar a primitiva.
+pub(crate) fn emit_flat_field_write(
+    ctx: &mut FnCtx,
+    recv_handle: cranelift_codegen::ir::Value,
+    class: &str,
+    field: &str,
+    value: TypedVal,
+) -> Result<()> {
+    let slot = field_slot_in_hierarchy(ctx, class, field)
+        .ok_or_else(|| anyhow!("flat field `{class}.{field}` sem slot"))?;
+    let off = ctx
+        .builder
+        .ins()
+        .iconst(cl::I32, slot.offset as i64);
+    match slot.ty {
+        ValTy::F64 => {
+            let coerced = ctx.coerce_to_f64(value).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_GC_INSTANCE_STORE_F64",
+                &[cl::I64, cl::I32, cl::F64],
+                Some(cl::I64),
+            )?;
+            ctx.builder.ins().call(fref, &[recv_handle, off, coerced]);
+        }
+        ValTy::I32 => {
+            let coerced = ctx.coerce_to_i32(value).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_GC_INSTANCE_STORE_I32",
+                &[cl::I64, cl::I32, cl::I32],
+                Some(cl::I64),
+            )?;
+            ctx.builder.ins().call(fref, &[recv_handle, off, coerced]);
+        }
+        ValTy::I64 | ValTy::Bool | ValTy::Handle => {
+            let coerced = ctx.coerce_to_i64(value).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_GC_INSTANCE_STORE_I64",
+                &[cl::I64, cl::I32, cl::I64],
+                Some(cl::I64),
+            )?;
+            ctx.builder.ins().call(fref, &[recv_handle, off, coerced]);
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn map_get_static(

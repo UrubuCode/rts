@@ -131,6 +131,29 @@ pub struct UserFnAbi {
     pub ret_class: Option<String>,
 }
 
+/// Decide se o codegen deve usar layout nativo (flat) para uma classe.
+///
+/// Mecanismo opt-in para a fase de coexistencia da #147 — fora dos casos
+/// abaixo o codegen continua bit-identico ao caminho `Map`-based.
+///
+/// Gatilhos (qualquer um ativa):
+/// - Nome da classe comeca com `__Flat` — permite teste sem env vars
+///   (`rts:test` nao propaga env). Documentado no helper para que classes
+///   de proucao nao sejam afetadas acidentalmente.
+/// - Variavel de ambiente `RTS_FLAT_CLASSES` lista o nome (csv).
+///
+/// `RTS_FLAT_CLASSES=Point,Color cargo run -- run x.ts` ativa flat para
+/// `Point` e `Color`. Vazio/ausente = nenhuma classe flat por env.
+pub fn is_class_flat_enabled(name: &str) -> bool {
+    if name.starts_with("__Flat") {
+        return true;
+    }
+    let Ok(list) = std::env::var("RTS_FLAT_CLASSES") else {
+        return false;
+    };
+    list.split(',').any(|n| n.trim() == name)
+}
+
 /// Slot de um campo numa classe com layout nativo.
 ///
 /// Cada campo ocupa 8 bytes (alinhamento simples). `is_handle` marca os

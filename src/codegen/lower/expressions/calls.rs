@@ -448,9 +448,11 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         ));
     }
 
-    let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
-    let inst = ctx.builder.ins().call(new_fn, &[]);
-    let handle = ctx.builder.inst_results(inst)[0];
+    // Dual-path #147 passos 5-7: classes opt-in alocam via `gc.instance_*`
+    // com layout nativo computado em compile-time. Caminho default
+    // (HashMap-based) preservado intacto para todas as outras classes.
+    let use_flat = meta.layout.is_some()
+        && crate::codegen::lower::ctx::is_class_flat_enabled(&class_name);
 
     let (class_ptr, class_len) = ctx.emit_str_literal(class_name.as_bytes())?;
     let from_static = ctx.get_extern(
@@ -460,15 +462,36 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
     )?;
     let inst = ctx.builder.ins().call(from_static, &[class_ptr, class_len]);
     let class_str_handle = ctx.builder.inst_results(inst)[0];
-    let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
-    let map_set = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_MAP_SET",
-        &[cl::I64, cl::I64, cl::I64, cl::I64],
-        None,
-    )?;
-    ctx.builder
-        .ins()
-        .call(map_set, &[handle, key_ptr, key_len, class_str_handle]);
+
+    let handle = if use_flat {
+        let layout = meta.layout.as_ref().expect("layout checado acima");
+        let size_val = ctx
+            .builder
+            .ins()
+            .iconst(cl::I32, layout.size_bytes as i64);
+        let new_fn = ctx.get_extern(
+            "__RTS_FN_NS_GC_INSTANCE_NEW",
+            &[cl::I32, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(new_fn, &[size_val, class_str_handle]);
+        ctx.builder.inst_results(inst)[0]
+    } else {
+        let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(new_fn, &[]);
+        let handle = ctx.builder.inst_results(inst)[0];
+
+        let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
+        let map_set = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+            &[cl::I64, cl::I64, cl::I64, cl::I64],
+            None,
+        )?;
+        ctx.builder
+            .ins()
+            .call(map_set, &[handle, key_ptr, key_len, class_str_handle]);
+        handle
+    };
 
     if let Some(init_owner) = resolve_init_owner(ctx, &class_name) {
         let init_fn_name = format!("__class_{init_owner}__init");

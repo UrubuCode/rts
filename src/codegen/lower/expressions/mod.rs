@@ -17,8 +17,9 @@ use self::calls::{
     lower_super_prop_assign, lower_super_prop_read, resolve_setter_owner,
 };
 use self::members::{
-    field_is_readonly_in_hierarchy, lhs_static_class, lower_array_lit, lower_member_expr,
-    lower_object_lit, validate_private_scope, validate_visibility,
+    class_field_uses_flat, emit_flat_field_write, field_is_readonly_in_hierarchy, lhs_static_class,
+    lower_array_lit, lower_member_expr, lower_object_lit, validate_private_scope,
+    validate_visibility,
 };
 use self::operators::{lower_bin, lower_cond, lower_opt_chain, lower_update_expr, to_f64};
 
@@ -121,6 +122,24 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         }
 
         let rhs = lower_expr(ctx, &final_rhs_expr)?;
+
+        // Dual-path #147 passo 7: escrita tipada em campo flat. Preserva
+        // o tipo do RHS para coercao no slot exato (i32/f64/i64/handle).
+        if let MemberProp::Ident(id) = &m.prop {
+            if let Some(cls) = lhs_static_class(ctx, &m.obj) {
+                let prop_name = id.sym.as_str();
+                if class_field_uses_flat(ctx, &cls, prop_name) {
+                    // Setters dinamicos ja descartam o flat path em
+                    // `class_field_uses_flat`, entao chegando aqui e seguro
+                    // emitir store direto.
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                    emit_flat_field_write(ctx, obj_h, &cls, prop_name, rhs)?;
+                    return Ok(rhs);
+                }
+            }
+        }
+
         let rhs_i64 = ctx.coerce_to_i64(rhs).val;
 
         if let MemberProp::Ident(id) = &m.prop {
