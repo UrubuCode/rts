@@ -123,9 +123,7 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL(
         let name = r.case_name.clone().unwrap_or_default();
 
         if !r.case_failed {
-            // Print the ✗ line only on first failure of this case.
             eprintln!("{indent}{} {}", red("✗"), bold(&name));
-            r.failed += 1;
         }
         r.case_failed = true;
         eprintln!("{indent}  {msg}");
@@ -149,7 +147,6 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF(
 
         if !r.case_failed {
             eprintln!("{indent}{} {}", red("✗"), bold(&name));
-            r.failed += 1;
         }
         r.case_failed = true;
 
@@ -198,6 +195,28 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY() {
         }
         eprintln!();
     });
+}
+
+// ── Public Rust API (for rts test command) ────────────────────────────────────
+
+/// Resets runner state between test files. Called by `rts test` before each file.
+pub fn reset_runner() {
+    RUNNER.with(|r| {
+        let mut r = r.borrow_mut();
+        r.suite_stack.clear();
+        r.case_name = None;
+        r.case_failed = false;
+        r.passed = 0;
+        r.failed = 0;
+    });
+}
+
+pub fn runner_failed() -> usize {
+    RUNNER.with(|r| r.borrow().failed)
+}
+
+pub fn runner_passed() -> usize {
+    RUNNER.with(|r| r.borrow().passed)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

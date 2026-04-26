@@ -126,6 +126,9 @@ pub struct GlobalVar {
 pub struct UserFnAbi {
     pub params: Vec<ValTy>,
     pub ret: Option<ValTy>,
+    /// Class name when the function's declared return type is a known class.
+    /// Populated by `compile_program` after class declarations are collected.
+    pub ret_class: Option<String>,
 }
 
 /// Metadata estatica de uma classe TS/JS, consumida pelo codegen para

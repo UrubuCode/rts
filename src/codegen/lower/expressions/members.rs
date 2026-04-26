@@ -384,6 +384,18 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
             };
             field_class_in_hierarchy(ctx, &owner, prop)
         }
+        Expr::Call(call) => {
+            // Resolve method chains like `expect(...).toBe(...)`:
+            // if the callee is a user fn with a known class return type, use it.
+            if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
+                if let Expr::Ident(id) = callee.as_ref() {
+                    if let Some(abi) = ctx.user_fns.get(id.sym.as_str()) {
+                        return abi.ret_class.clone();
+                    }
+                }
+            }
+            None
+        }
         _ => None,
     }
 }

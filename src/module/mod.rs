@@ -268,6 +268,51 @@ impl ModuleGraph {
         format!("{:x}", hasher.finalize())
     }
 
+    /// Flattens the entire module graph into a single `Program` for JIT execution.
+    ///
+    /// Traverses modules in DFS post-order (dependencies before their consumers),
+    /// strips all `Item::Import` declarations, and concatenates every item. The
+    /// result can be compiled directly by `compile_program_to_jit` without any
+    /// module-resolution infrastructure — builtin namespace calls already resolve
+    /// via the ABI symbol table registered in the JIT builder.
+    pub fn flatten_for_jit(&self) -> Program {
+        let mut visited = std::collections::HashSet::new();
+        let mut order: Vec<String> = Vec::new();
+        self.dfs_post(&self.entry_key, &mut visited, &mut order);
+
+        let mut merged = Program::default();
+        for key in &order {
+            let Some(module) = self.modules.get(key) else { continue };
+            if module.kind == ModuleKind::Builtin {
+                continue;
+            }
+            for item in &module.program.items {
+                if matches!(item, Item::Import(_)) {
+                    continue;
+                }
+                merged.items.push(item.clone());
+            }
+        }
+        merged
+    }
+
+    fn dfs_post(
+        &self,
+        key: &str,
+        visited: &mut std::collections::HashSet<String>,
+        order: &mut Vec<String>,
+    ) {
+        if !visited.insert(key.to_string()) {
+            return;
+        }
+        if let Some(module) = self.modules.get(key) {
+            for import in &module.imports {
+                self.dfs_post(&import.resolved_key, visited, order);
+            }
+        }
+        order.push(key.to_string());
+    }
+
     /// Retorna todos os paths (absolutos) dos modulos do grafo que sao
     /// arquivos em disco — util para registrar watchers e para `rts clean`.
     pub fn disk_paths(&self) -> Vec<PathBuf> {

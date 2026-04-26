@@ -6,6 +6,7 @@ pub mod compile;
 pub mod emit_types;
 pub mod init;
 pub mod run;
+pub mod test_cmd;
 
 use anyhow::{Result, anyhow, bail};
 
@@ -74,6 +75,7 @@ where
         "apis" | "api" => apis::command(),
         "init" => init::command(positional.get(1).cloned()),
         "clean" => clean::command(),
+        "test" => test_cmd::command(positional.get(1).cloned()),
         "emit-types" => emit_types::command(positional.get(1).cloned()),
         "help" => {
             print_help(&bin_name);
@@ -153,6 +155,7 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} apis");
     println!("  {bin_name} init [name]");
     println!("  {bin_name} clean");
+    println!("  {bin_name} test [path]");
     println!("  {bin_name} emit-types [output.d.ts]");
     println!("  {bin_name} help");
     println!("Options:");

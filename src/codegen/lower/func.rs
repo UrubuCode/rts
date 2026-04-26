@@ -2287,7 +2287,8 @@ pub fn compile_program(
         user_fns.insert(fn_decl.name.clone(), info);
     }
 
-    let user_fn_abis: HashMap<String, UserFnAbi> = user_fns
+    // Built after fn_class_returns is populated below; placeholder here.
+    let mut user_fn_abis: HashMap<String, UserFnAbi> = user_fns
         .iter()
         .map(|(name, info)| {
             (
@@ -2295,6 +2296,7 @@ pub fn compile_program(
                 UserFnAbi {
                     params: info.params.clone(),
                     ret: info.ret,
+                    ret_class: None,
                 },
             )
         })
@@ -2310,6 +2312,13 @@ pub fn compile_program(
             if classes.contains_key(ret_trim) {
                 fn_class_returns.insert(fn_decl.name.clone(), ret_trim.to_string());
             }
+        }
+    }
+    // Wire class return info into UserFnAbi so lhs_static_class can resolve
+    // method chains like `expect(...).toBe(...)`.
+    for (name, class_name) in &fn_class_returns {
+        if let Some(abi) = user_fn_abis.get_mut(name) {
+            abi.ret_class = Some(class_name.clone());
         }
     }
 

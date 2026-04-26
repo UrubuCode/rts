@@ -125,6 +125,30 @@ pub fn build_executable_with_request(
     })
 }
 
+/// Like [`run_jit`] but resolves imports and flattens the full module graph
+/// into a single program before JIT compilation. Used by `rts test`.
+pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String>)> {
+    let graph = crate::module::ModuleGraph::load(input, options)
+        .with_context(|| format!("failed to load module graph for {}", input.display()))?;
+    let mut program = graph.flatten_for_jit();
+
+    let (module, warnings) =
+        crate::codegen::compile_program_to_jit(&mut program).context("JIT compile failed")?;
+
+    use cranelift_module::Module;
+    let name = "__RTS_MAIN";
+    let main_id = match module.get_name(name) {
+        Some(cranelift_module::FuncOrDataId::Func(id)) => id,
+        _ => anyhow::bail!("JIT: `{name}` not found in module"),
+    };
+    let main_ptr = module.get_finalized_function(main_id);
+    let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
+    let exit_code = main_fn();
+    std::mem::forget(module);
+
+    Ok((exit_code, warnings))
+}
+
 /// Parses `input` and runs it directly in memory via Cranelift JIT.
 ///
 /// Skips the object-file + system-linker cycle entirely: the program is
