@@ -64,6 +64,13 @@ fn main() {
         "rustc failed to compile runtime_support (exit: {status})"
     );
 
+    // Strip LLVM bitcode sections from the archive so platform linkers (Apple ld,
+    // lld-link) don't try LTO with bitcode produced by a newer LLVM than they have.
+    // embed-bitcode=no above removes bitcode from our own crate objects; this strips
+    // it from pre-compiled dependency rlibs (regex, memchr, fltk, …) that were built
+    // with bitcode already embedded.
+    strip_bitcode_from_archive(&output, &rustc);
+
     println!("cargo:rerun-if-changed=src/namespaces/gc/");
     println!("cargo:rerun-if-changed=src/namespaces/io/");
     println!("cargo:rerun-if-changed=src/namespaces/fs/");
@@ -91,6 +98,89 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/runtime/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+fn strip_bitcode_from_archive(archive: &Path, rustc: &str) {
+    // macOS: xcrun bitcode_strip is always available and handles Mach-O archives natively.
+    #[cfg(target_os = "macos")]
+    {
+        let tmp = archive.with_extension("tmp");
+        let ok = Command::new("xcrun")
+            .args(["bitcode_strip", "-r"])
+            .arg(archive)
+            .arg("-o")
+            .arg(&tmp)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            let _ = std::fs::rename(&tmp, archive);
+        } else {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        return;
+    }
+
+    // Other platforms: use llvm-objcopy from Rust's llvm-tools-preview component
+    // (same LLVM version as the compiler, guaranteed to understand the bitcode format).
+    // Falls back to llvm-objcopy found in PATH (e.g. LLVM installation on Windows CI).
+    #[allow(unreachable_code)]
+    if let Some(objcopy) = find_llvm_objcopy(rustc) {
+        let _ = Command::new(objcopy)
+            .arg("--strip-section=.llvmbc")
+            .arg("--strip-section=.llvmcmd")
+            .arg(archive)
+            .status();
+    }
+}
+
+fn find_llvm_objcopy(rustc: &str) -> Option<PathBuf> {
+    let binary = if cfg!(windows) {
+        "llvm-objcopy.exe"
+    } else {
+        "llvm-objcopy"
+    };
+
+    // Prefer the copy bundled with the Rust toolchain (llvm-tools-preview component).
+    if let Some(path) = rustc_sysroot_tool(rustc, binary) {
+        return Some(path);
+    }
+
+    // Fallback: any llvm-objcopy visible in PATH.
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .map(|dir| dir.join(binary))
+        .find(|p| p.is_file())
+}
+
+fn rustc_sysroot_tool(rustc: &str, binary: &str) -> Option<PathBuf> {
+    let sysroot_out = Command::new(rustc)
+        .args(["--print", "sysroot"])
+        .output()
+        .ok()?;
+    if !sysroot_out.status.success() {
+        return None;
+    }
+    let sysroot = String::from_utf8_lossy(&sysroot_out.stdout)
+        .trim()
+        .to_string();
+
+    let host_out = Command::new(rustc).arg("-vV").output().ok()?;
+    if !host_out.status.success() {
+        return None;
+    }
+    let host = String::from_utf8_lossy(&host_out.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("host: ").map(|s| s.trim().to_string()))?;
+
+    let path = PathBuf::from(sysroot)
+        .join("lib")
+        .join("rustlib")
+        .join(host)
+        .join("bin")
+        .join(binary);
+    path.is_file().then_some(path)
 }
 
 fn deps_dir_from_out_dir(out_dir: &Path) -> Option<PathBuf> {

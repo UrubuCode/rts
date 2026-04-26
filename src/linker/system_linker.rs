@@ -206,8 +206,12 @@ fn build_linker_args(
                 }
             }
             if !keep_all_runtime_symbols {
-                // Strip unreferenced sections — removes unused namespace functions.
-                args.push("--gc-sections".to_string());
+                // Compiler drivers (cc/clang) require -Wl, prefix for raw linker flags.
+                if linker.is_compiler_driver() {
+                    args.push("-Wl,--gc-sections".to_string());
+                } else {
+                    args.push("--gc-sections".to_string());
+                }
             }
             Ok(args)
         }

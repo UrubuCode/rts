@@ -22,6 +22,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
 
       - name: Install FLTK system deps (Linux)
         if: runner.os == 'Linux'

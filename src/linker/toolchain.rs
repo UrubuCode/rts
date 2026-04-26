@@ -107,6 +107,15 @@ impl ResolvedLinker {
         let lower = lowercase_stem(&self.path);
         lower == "lld-link" || lower == "link"
     }
+
+    pub fn is_compiler_driver(&self) -> bool {
+        let lower = lowercase_stem(&self.path);
+        lower == "cc"
+            || lower == "gcc"
+            || lower == "clang"
+            || lower.starts_with("clang-")
+            || lower.starts_with("gcc-")
+    }
 }
 
 pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {
