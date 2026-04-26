@@ -42,6 +42,8 @@ fn main() {
         "opt-level=3",
         "-C",
         "panic=abort",
+        "-C",
+        "embed-bitcode=no",
         "-o",
         output.to_str().unwrap(),
         entry.to_str().unwrap(),
