@@ -7,17 +7,19 @@ function print(value: string): void {
 }
 
 // Captura de local em arrow callback dentro de função user.
+// Padrão natural via VarDecl — substitui gambiarra `__lifted_arrow_0()`
+// que existia antes do lift de VarDecl arrow funcionar (#97 fase 3).
 
 function setup(): void {
     let count: number = 0;
     const btn = ui.button_new(0, 0, 1, 1, "");
-    ui.widget_set_callback(btn, () => {
+    const cb = () => {
         count = count + 1;
-    });
-    // Dispara o callback diretamente pra simular cliques.
-    __lifted_arrow_0();
-    __lifted_arrow_0();
-    __lifted_arrow_0();
+    };
+    ui.widget_set_callback(btn, cb);
+    cb();
+    cb();
+    cb();
     const h = gc.string_from_i64(count);
     print(h); gc.string_free(h); // 3
 }

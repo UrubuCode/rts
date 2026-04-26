@@ -12,12 +12,13 @@ function setup(): void {
     let a: number = 100;
     let b: number = 200;
     const btn = ui.button_new(0, 0, 1, 1, "");
-    ui.widget_set_callback(btn, () => {
+    const cb = () => {
         a = a + 1;
         b = b + 10;
-    });
-    __lifted_arrow_0();
-    __lifted_arrow_0();
+    };
+    ui.widget_set_callback(btn, cb);
+    cb();
+    cb();
     const ha = gc.string_from_i64(a);
     print(ha); gc.string_free(ha); // 102
     const hb = gc.string_from_i64(b);
