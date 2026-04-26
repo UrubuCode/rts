@@ -8,7 +8,12 @@ on:
 
 jobs:
   rust-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,6 +22,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install FLTK system deps (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxext-dev libxft-dev libxinerama-dev \
@@ -28,3 +34,17 @@ jobs:
 
       - name: Run RTS test runner
         run: cargo run -- test
+
+      - name: Smoke test rts compile (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo 'import { io } from "rts"; io.print("smoke ok");' > /tmp/smoke.ts
+          cargo run --quiet -- compile /tmp/smoke.ts /tmp/smoke_bin
+          /tmp/smoke_bin
+
+      - name: Smoke test rts compile (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo 'import { io } from "rts"; io.print("smoke ok");' > /tmp/smoke.ts
+          cargo run --quiet -- compile /tmp/smoke.ts /tmp/smoke_bin
+          /tmp/smoke_bin

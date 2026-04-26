@@ -116,6 +116,12 @@ impl ResolvedLinker {
             || lower.starts_with("clang-")
             || lower.starts_with("gcc-")
     }
+
+    /// Raw linkers (ld.lld, rust-lld, ld64.lld) don't add CRT objects or system libs
+    /// automatically — unlike compiler drivers (cc, clang) that wrap the linker with those.
+    pub fn is_raw_linker(&self) -> bool {
+        !self.is_compiler_driver() && !self.is_link_style()
+    }
 }
 
 pub fn resolve_linker(layout: &ToolchainLayout) -> Result<ResolvedLinker> {

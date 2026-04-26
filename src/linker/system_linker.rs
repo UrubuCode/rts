@@ -194,6 +194,20 @@ fn build_linker_args(
             }
             args.push("-o".to_string());
             args.push(output_path.display().to_string());
+
+            // Raw linkers (ld.lld, rust-lld) don't add CRT startup code automatically.
+            // Probe system lib paths and prepend crt1.o + crti.o before user objects.
+            let syslib_paths = if linker.is_raw_linker() {
+                elf_sysroot_lib_paths(&target.triple)
+            } else {
+                Vec::new()
+            };
+            for crt in ["crt1.o", "crti.o"] {
+                if let Some(p) = find_crt_object(&syslib_paths, crt) {
+                    args.push(p.display().to_string());
+                }
+            }
+
             for object_path in object_paths {
                 let is_archive =
                     object_path.extension().and_then(|e| e.to_str()) == Some("a");
@@ -205,6 +219,24 @@ fn build_linker_args(
                     args.push(object_path.display().to_string());
                 }
             }
+
+            // Library search paths and system libs for raw linkers.
+            for path in &syslib_paths {
+                args.push(format!("-L{}", path.display()));
+            }
+            if !syslib_paths.is_empty() {
+                for lib in ["-lc", "-lpthread", "-ldl", "-lm"] {
+                    args.push(lib.to_string());
+                }
+                // libgcc_s provides stack unwinding; only link if present on this system.
+                if syslib_paths
+                    .iter()
+                    .any(|p| p.join("libgcc_s.so.1").is_file() || p.join("libgcc_s.so").is_file())
+                {
+                    args.push("-lgcc_s".to_string());
+                }
+            }
+
             if !keep_all_runtime_symbols {
                 // Compiler drivers (cc/clang) require -Wl, prefix for raw linker flags.
                 if linker.is_compiler_driver() {
@@ -213,6 +245,12 @@ fn build_linker_args(
                     args.push("--gc-sections".to_string());
                 }
             }
+
+            // crtn.o must follow all objects and libraries.
+            if let Some(p) = find_crt_object(&syslib_paths, "crtn.o") {
+                args.push(p.display().to_string());
+            }
+
             Ok(args)
         }
         TargetFlavor::MachO => {
@@ -238,14 +276,106 @@ fn build_linker_args(
             if !keep_all_runtime_symbols {
                 args.push("-dead_strip".to_string());
             }
-            let (min_ver, sdk_ver) = macos_platform_versions(&target.triple);
-            args.push("-platform_version".to_string());
-            args.push("macos".to_string());
-            args.push(min_ver);
-            args.push(sdk_ver);
+            // Compiler drivers deduce platform version from MACOSX_DEPLOYMENT_TARGET.
+            if !linker.is_compiler_driver() {
+                let (min_ver, sdk_ver) = macos_platform_versions(&target.triple);
+                args.push("-platform_version".to_string());
+                args.push("macos".to_string());
+                args.push(min_ver);
+                args.push(sdk_ver);
+            }
+            // Raw linkers need explicit SDK lib path and -lSystem; compiler drivers add it
+            // automatically via their built-in sysroot knowledge.
+            if linker.is_raw_linker() {
+                if let Some(sdk_lib) = macos_sdk_lib_path() {
+                    args.push(format!("-L{}", sdk_lib.display()));
+                } else {
+                    args.push("-L/usr/lib".to_string());
+                }
+                args.push("-lSystem".to_string());
+            }
             Ok(args)
         }
     }
+}
+
+/// Probe standard library search paths on the current Linux system.
+/// Covers Debian/Ubuntu (multiarch), Fedora/RHEL (/usr/lib64), and generic layouts.
+fn elf_sysroot_lib_paths(triple: &str) -> Vec<PathBuf> {
+    let mut paths = Vec::<PathBuf>::new();
+    let multiarch = elf_multiarch_triplet(triple);
+
+    if !multiarch.is_empty() {
+        for base in ["/usr/lib", "/lib"] {
+            let p = PathBuf::from(format!("{base}/{multiarch}"));
+            if p.is_dir() {
+                paths.push(p);
+            }
+        }
+    }
+
+    for candidate in ["/usr/lib64", "/lib64", "/usr/lib", "/lib"] {
+        let p = PathBuf::from(candidate);
+        if p.is_dir() && !paths.contains(&p) {
+            paths.push(p);
+        }
+    }
+
+    // GCC lib dir provides libgcc_s.so and extra CRT objects on some distros.
+    if !multiarch.is_empty() {
+        if let Ok(entries) = std::fs::read_dir(format!("/usr/lib/gcc/{multiarch}")) {
+            let mut versions: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            versions.sort();
+            if let Some(latest) = versions.last() {
+                if !paths.contains(latest) {
+                    paths.push(latest.clone());
+                }
+            }
+        }
+    }
+
+    paths
+}
+
+fn elf_multiarch_triplet(triple: &str) -> &'static str {
+    let lower = triple.to_ascii_lowercase();
+    if lower.starts_with("x86_64-") {
+        "x86_64-linux-gnu"
+    } else if lower.starts_with("aarch64-") {
+        "aarch64-linux-gnu"
+    } else if lower.starts_with("i686-") || lower.starts_with("i386-") {
+        "i386-linux-gnu"
+    } else if lower.starts_with("armv7") {
+        "arm-linux-gnueabihf"
+    } else {
+        ""
+    }
+}
+
+fn find_crt_object(lib_paths: &[PathBuf], name: &str) -> Option<PathBuf> {
+    lib_paths.iter().find_map(|dir| {
+        let p = dir.join(name);
+        p.is_file().then_some(p)
+    })
+}
+
+/// Returns the `usr/lib` directory inside the active macOS SDK, used by raw linkers
+/// (ld64.lld, rust-lld) that don't have built-in sysroot knowledge.
+fn macos_sdk_lib_path() -> Option<PathBuf> {
+    let output = Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let sdk = String::from_utf8(output.stdout).ok()?;
+    let lib = PathBuf::from(sdk.trim()).join("usr").join("lib");
+    lib.is_dir().then_some(lib)
 }
 
 fn macho_arch_for_target(triple: &str) -> &'static str {
