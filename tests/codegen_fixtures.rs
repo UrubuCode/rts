@@ -912,3 +912,8 @@ fn fixture_num_wrapping() {
 fn fixture_num_bits() {
     run_fixture("num_bits");
 }
+
+#[test]
+fn fixture_hint_basic() {
+    run_fixture("hint_basic");
+}

@@ -13,6 +13,7 @@ pub mod fmt;
 pub mod fs;
 pub mod gc;
 pub mod hash;
+pub mod hint;
 pub mod io;
 pub mod math;
 pub mod num;
