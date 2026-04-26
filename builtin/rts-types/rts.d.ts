@@ -1692,6 +1692,32 @@ declare module "rts" {
     export function print_summary(): void;
   }
 
+  /**
+   * Primitivas de threads (spawn/join/detach/id/sleep) baseadas em std::thread.
+   */
+  export namespace thread {
+    /**
+     * Cria uma nova thread executando `fn_ptr(arg)`. `fn_ptr` e um ponteiro para `extern "C" fn(u64) -> u64`. Retorna handle do JoinHandle, 0 em falha.
+     */
+    export function spawn(fn_ptr: number, arg: number): number;
+    /**
+     * Aguarda a thread terminar e retorna o valor retornado por ela. Consome o handle. 0 se handle invalido ou a thread fez panic.
+     */
+    export function join(thread: number): number;
+    /**
+     * Libera o JoinHandle sem aguardar. A thread continua rodando ate completar.
+     */
+    export function detach(thread: number): void;
+    /**
+     * Id da thread atual (estavel por thread, atribuido na primeira chamada). Sempre != 0.
+     */
+    export function id(): number;
+    /**
+     * Pausa a thread atual por `ms` milissegundos. Valores negativos sao tratados como 0.
+     */
+    export function sleep_ms(ms: number): void;
+  }
+
 }
 
 declare module "rts:gc" {
@@ -3831,6 +3857,40 @@ declare module "rts:test_core" {
     case_fail: (typeof import("rts"))["test_core"]["case_fail"];
     case_fail_diff: (typeof import("rts"))["test_core"]["case_fail_diff"];
     print_summary: (typeof import("rts"))["test_core"]["print_summary"];
+  };
+  export default _default;
+}
+
+declare module "rts:thread" {
+  /**
+   * Primitivas de threads (spawn/join/detach/id/sleep) baseadas em std::thread.
+   */
+  /**
+   * Cria uma nova thread executando `fn_ptr(arg)`. `fn_ptr` e um ponteiro para `extern "C" fn(u64) -> u64`. Retorna handle do JoinHandle, 0 em falha.
+   */
+  export function spawn(fn_ptr: number, arg: number): number;
+  /**
+   * Aguarda a thread terminar e retorna o valor retornado por ela. Consome o handle. 0 se handle invalido ou a thread fez panic.
+   */
+  export function join(thread: number): number;
+  /**
+   * Libera o JoinHandle sem aguardar. A thread continua rodando ate completar.
+   */
+  export function detach(thread: number): void;
+  /**
+   * Id da thread atual (estavel por thread, atribuido na primeira chamada). Sempre != 0.
+   */
+  export function id(): number;
+  /**
+   * Pausa a thread atual por `ms` milissegundos. Valores negativos sao tratados como 0.
+   */
+  export function sleep_ms(ms: number): void;
+  const _default: {
+    spawn: (typeof import("rts"))["thread"]["spawn"];
+    join: (typeof import("rts"))["thread"]["join"];
+    detach: (typeof import("rts"))["thread"]["detach"];
+    id: (typeof import("rts"))["thread"]["id"];
+    sleep_ms: (typeof import("rts"))["thread"]["sleep_ms"];
   };
   export default _default;
 }

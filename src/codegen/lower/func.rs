@@ -40,7 +40,7 @@ struct UserFn {
 /// the synthetic function. Runs before Phase 1 (declaration) so the lifted
 /// functions go through the normal declare → compile path.
 fn lift_arrow_callbacks(program: &mut Program) {
-    let user_fn_names: HashSet<String> = program
+    let mut user_fn_names: HashSet<String> = program
         .items
         .iter()
         .filter_map(|item| match item {
@@ -48,6 +48,31 @@ fn lift_arrow_callbacks(program: &mut Program) {
             _ => None,
         })
         .collect();
+
+    // Top-level aliases: `const fp = worker as unknown as number;`
+    // Marca `fp` como alias da user fn para o lifter detectar idents
+    // wrappados (necessario p/ thread.spawn, sync.once_call etc).
+    fn peel_for_alias<'a>(e: &'a Expr) -> &'a Expr {
+        match e {
+            Expr::TsAs(a) => peel_for_alias(&a.expr),
+            Expr::TsTypeAssertion(a) => peel_for_alias(&a.expr),
+            Expr::TsConstAssertion(a) => peel_for_alias(&a.expr),
+            Expr::Paren(p) => peel_for_alias(&p.expr),
+            _ => e,
+        }
+    }
+    let snapshot = user_fn_names.clone();
+    for item in program.items.iter() {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::Decl(swc_ecma_ast::Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
+        for d in var_decl.decls.iter() {
+            let Some(init) = d.init.as_deref() else { continue };
+            let Expr::Ident(id) = peel_for_alias(init) else { continue };
+            if !snapshot.contains(id.sym.as_str()) { continue; }
+            let swc_ecma_ast::Pat::Ident(name) = &d.name else { continue };
+            user_fn_names.insert(name.id.sym.to_string());
+        }
+    }
 
     let mut acc = LiftAcc {
         counter: 0,
@@ -1504,13 +1529,34 @@ impl LiftAcc {
             // mutações separadas: substituições de args + statements a
             // injetar antes deste.
             let Statement::Raw(raw) = &mut body[idx];
-            let Some(Stmt::Expr(expr_stmt)) = raw.stmt.as_mut() else {
-                idx += 1;
-                continue;
-            };
-            let Expr::Call(call) = expr_stmt.expr.as_mut() else {
-                idx += 1;
-                continue;
+            // Aceita tanto `expr_stmt.expr` quanto VarDecl initializer
+            // como sede do CallExpr a inspecionar — assim const decls
+            // do tipo `const t = thread.spawn(fp, 0)` tambem entram.
+            let call: &mut swc_ecma_ast::CallExpr = match raw.stmt.as_mut() {
+                Some(Stmt::Expr(expr_stmt)) => match expr_stmt.expr.as_mut() {
+                    Expr::Call(c) => c,
+                    _ => { idx += 1; continue; }
+                },
+                Some(Stmt::Decl(swc_ecma_ast::Decl::Var(var_decl))) => {
+                    let mut found: Option<*mut swc_ecma_ast::CallExpr> = None;
+                    for d in var_decl.decls.iter_mut() {
+                        if let Some(init) = d.init.as_deref_mut() {
+                            if let Expr::Call(c) = init {
+                                found = Some(c as *mut _);
+                                break;
+                            }
+                        }
+                    }
+                    match found {
+                        // SAFETY: o ponteiro vem de um borrow vivo deste
+                        // mesmo `var_decl` que persiste pela duracao do
+                        // bloco; nenhuma realocacao acontece entre obter
+                        // o ptr e usar.
+                        Some(p) => unsafe { &mut *p },
+                        None => { idx += 1; continue; }
+                    }
+                }
+                _ => { idx += 1; continue; }
             };
 
             let ns_method = match &call.callee {
@@ -1577,8 +1623,17 @@ impl LiftAcc {
             // `widget_set_callback`, adicionando `this` como 3º arg.
             let mut pending_userdata_rewrite = false;
 
-            for (arg, &abi_ty) in call.args.iter_mut().zip(member.args.iter()) {
-                if abi_ty != AbiType::I64 {
+            // thread.spawn (U64, U64): so o primeiro arg (fn_ptr) deve ser
+            // tratado como callback candidato. Demais membros de ABI seguem
+            // a regra padrao (apenas args I64).
+            let is_thread_spawn = qualified == "thread.spawn";
+            for (arg_idx, (arg, &abi_ty)) in call.args.iter_mut().zip(member.args.iter()).enumerate() {
+                let is_callback_slot = if is_thread_spawn {
+                    arg_idx == 0
+                } else {
+                    abi_ty == AbiType::I64
+                };
+                if !is_callback_slot {
                     continue;
                 }
 
@@ -1602,7 +1657,19 @@ impl LiftAcc {
                 let mut use_userdata_callback = false;
                 let is_widget_set_callback = qualified == "ui.widget_set_callback";
 
-                match arg.expr.as_ref() {
+                // Peel TsAs/TsTypeAssertion/TsConstAssertion/Paren para
+                // detectar idents wrappados por type assertions (ex:
+                // `worker as unknown as number` em thread.spawn).
+                fn peel_ts<'a>(e: &'a Expr) -> &'a Expr {
+                    match e {
+                        Expr::TsAs(a) => peel_ts(&a.expr),
+                        Expr::TsTypeAssertion(a) => peel_ts(&a.expr),
+                        Expr::TsConstAssertion(a) => peel_ts(&a.expr),
+                        Expr::Paren(p) => peel_ts(&p.expr),
+                        _ => e,
+                    }
+                }
+                match peel_ts(arg.expr.as_ref()) {
                     Expr::Arrow(arrow) if arrow_uses_this && is_widget_set_callback => {
                         // Path NOVO (#148): trampolim recebe `this` por
                         // parâmetro. O callsite é reescrito abaixo.

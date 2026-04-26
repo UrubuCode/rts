@@ -31,5 +31,6 @@ pub mod runtime;
 pub mod string;
 pub mod sync;
 pub mod test;
+pub mod thread;
 pub mod time;
 pub mod ui;

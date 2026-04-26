@@ -859,6 +859,28 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         sync_once::__RTS_FN_NS_SYNC_ONCE_CALL
     );
 
+    // ── namespaces::thread ────────────────────────────────────────────
+    {
+        use crate::namespaces::thread::{info as thread_info, join as thread_join, spawn as thread_spawn};
+        add_fn!(
+            "__RTS_FN_NS_THREAD_SPAWN",
+            thread_spawn::__RTS_FN_NS_THREAD_SPAWN
+        );
+        add_fn!(
+            "__RTS_FN_NS_THREAD_JOIN",
+            thread_join::__RTS_FN_NS_THREAD_JOIN
+        );
+        add_fn!(
+            "__RTS_FN_NS_THREAD_DETACH",
+            thread_join::__RTS_FN_NS_THREAD_DETACH
+        );
+        add_fn!("__RTS_FN_NS_THREAD_ID", thread_info::__RTS_FN_NS_THREAD_ID);
+        add_fn!(
+            "__RTS_FN_NS_THREAD_SLEEP_MS",
+            thread_info::__RTS_FN_NS_THREAD_SLEEP_MS
+        );
+    }
+
     // ── namespaces::path ──────────────────────────────────────────────
     use crate::namespaces::path::*;
     add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);

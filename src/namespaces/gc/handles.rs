@@ -62,6 +62,10 @@ pub enum Entry {
     /// OnceLock owned — namespace `sync` (once_*). Usa `std::sync::Once`
     /// internamente para executar fn_ptr exatamente uma vez.
     SyncOnce(Box<std::sync::Once>),
+    /// JoinHandle<u64> owned — namespace `thread` (spawn/join/detach).
+    /// Box pra estabilizar o endereco. Consumido por `join`/`detach`
+    /// (substituido por `Free`).
+    JoinHandle(Box<std::thread::JoinHandle<u64>>),
     /// Environment record para closures — Vec<i64> com slots por captura.
     /// Usado por `gc.env_*` para implementar capturas reais sem promote-
     /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).
