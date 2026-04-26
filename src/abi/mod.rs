@@ -40,6 +40,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::buffer::abi::SPEC,
     &crate::namespaces::string::abi::SPEC,
     &crate::namespaces::process::abi::SPEC,
+    &crate::namespaces::ptr::abi::SPEC,
     &crate::namespaces::os::abi::SPEC,
     &crate::namespaces::collections::abi::SPEC,
     &crate::namespaces::hash::abi::SPEC,

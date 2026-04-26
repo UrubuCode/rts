@@ -22,6 +22,7 @@ pub mod num;
 pub mod os;
 pub mod path;
 pub mod process;
+pub mod ptr;
 pub mod regex;
 pub mod runtime;
 pub mod string;

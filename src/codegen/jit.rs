@@ -311,6 +311,28 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_BACKTRACE_FREE", bt::__RTS_FN_NS_BACKTRACE_FREE);
     }
 
+    // ── namespaces::ptr ───────────────────────────────────────────────
+    {
+        use crate::namespaces::ptr::ops as p;
+        add_fn!("__RTS_FN_NS_PTR_NULL", p::__RTS_FN_NS_PTR_NULL);
+        add_fn!("__RTS_FN_NS_PTR_IS_NULL", p::__RTS_FN_NS_PTR_IS_NULL);
+        add_fn!("__RTS_FN_NS_PTR_READ_I64", p::__RTS_FN_NS_PTR_READ_I64);
+        add_fn!("__RTS_FN_NS_PTR_READ_I32", p::__RTS_FN_NS_PTR_READ_I32);
+        add_fn!("__RTS_FN_NS_PTR_READ_U8", p::__RTS_FN_NS_PTR_READ_U8);
+        add_fn!("__RTS_FN_NS_PTR_READ_F64", p::__RTS_FN_NS_PTR_READ_F64);
+        add_fn!("__RTS_FN_NS_PTR_WRITE_I64", p::__RTS_FN_NS_PTR_WRITE_I64);
+        add_fn!("__RTS_FN_NS_PTR_WRITE_I32", p::__RTS_FN_NS_PTR_WRITE_I32);
+        add_fn!("__RTS_FN_NS_PTR_WRITE_U8", p::__RTS_FN_NS_PTR_WRITE_U8);
+        add_fn!("__RTS_FN_NS_PTR_WRITE_F64", p::__RTS_FN_NS_PTR_WRITE_F64);
+        add_fn!("__RTS_FN_NS_PTR_COPY", p::__RTS_FN_NS_PTR_COPY);
+        add_fn!(
+            "__RTS_FN_NS_PTR_COPY_NONOVERLAPPING",
+            p::__RTS_FN_NS_PTR_COPY_NONOVERLAPPING
+        );
+        add_fn!("__RTS_FN_NS_PTR_WRITE_BYTES", p::__RTS_FN_NS_PTR_WRITE_BYTES);
+        add_fn!("__RTS_FN_NS_PTR_OFFSET", p::__RTS_FN_NS_PTR_OFFSET);
+    }
+
     // ── namespaces::crypto ────────────────────────────────────────────
     {
         use crate::namespaces::crypto::*;
