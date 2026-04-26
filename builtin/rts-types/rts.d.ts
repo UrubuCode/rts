@@ -775,6 +775,80 @@ declare module "rts" {
   }
 
   /**
+   * Primitivas atomicas (AtomicI64, AtomicBool, fences) baseadas em std::sync::atomic.
+   */
+  export namespace atomic {
+    /**
+     * Aloca um AtomicI64 inicializado com `value` e retorna o handle.
+     */
+    export function i64_new(value: number): number;
+    /**
+     * Le o valor atual do AtomicI64 (SeqCst). 0 se handle invalido.
+     */
+    export function i64_load(handle: number): number;
+    /**
+     * Escreve `value` no AtomicI64 (SeqCst). No-op se handle invalido.
+     */
+    export function i64_store(handle: number, value: number): void;
+    /**
+     * Soma `delta` e retorna o valor anterior. 0 se handle invalido.
+     */
+    export function i64_fetch_add(handle: number, delta: number): number;
+    /**
+     * Subtrai `delta` e retorna o valor anterior. 0 se handle invalido.
+     */
+    export function i64_fetch_sub(handle: number, delta: number): number;
+    /**
+     * AND bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
+     */
+    export function i64_fetch_and(handle: number, mask: number): number;
+    /**
+     * OR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
+     */
+    export function i64_fetch_or(handle: number, mask: number): number;
+    /**
+     * XOR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
+     */
+    export function i64_fetch_xor(handle: number, mask: number): number;
+    /**
+     * Troca o valor por `value` e retorna o valor anterior. 0 se handle invalido.
+     */
+    export function i64_swap(handle: number, value: number): number;
+    /**
+     * Compare-and-swap. Se valor atual == `expected`, escreve `new`. Retorna o valor anterior.
+     */
+    export function i64_cas(handle: number, expected: number, new_value: number): number;
+    /**
+     * Aloca um AtomicBool inicializado com `value` e retorna o handle.
+     */
+    export function bool_new(value: boolean): number;
+    /**
+     * Le o valor atual do AtomicBool (SeqCst). false se handle invalido.
+     */
+    export function bool_load(handle: number): boolean;
+    /**
+     * Escreve `value` no AtomicBool (SeqCst). No-op se handle invalido.
+     */
+    export function bool_store(handle: number, value: boolean): void;
+    /**
+     * Troca o valor por `value` e retorna o valor anterior. false se handle invalido.
+     */
+    export function bool_swap(handle: number, value: boolean): boolean;
+    /**
+     * Memory fence Acquire.
+     */
+    export function fence_acquire(): void;
+    /**
+     * Memory fence Release.
+     */
+    export function fence_release(): void;
+    /**
+     * Memory fence SeqCst.
+     */
+    export function fence_seq_cst(): void;
+  }
+
+  /**
    * Rich string operations beyond the basic gc pool.
    */
   export namespace string {
@@ -2533,6 +2607,100 @@ declare module "rts:ffi" {
     osstr_from_str: (typeof import("rts"))["ffi"]["osstr_from_str"];
     osstr_to_str: (typeof import("rts"))["ffi"]["osstr_to_str"];
     osstr_free: (typeof import("rts"))["ffi"]["osstr_free"];
+  };
+  export default _default;
+}
+
+declare module "rts:atomic" {
+  /**
+   * Primitivas atomicas (AtomicI64, AtomicBool, fences) baseadas em std::sync::atomic.
+   */
+  /**
+   * Aloca um AtomicI64 inicializado com `value` e retorna o handle.
+   */
+  export function i64_new(value: number): number;
+  /**
+   * Le o valor atual do AtomicI64 (SeqCst). 0 se handle invalido.
+   */
+  export function i64_load(handle: number): number;
+  /**
+   * Escreve `value` no AtomicI64 (SeqCst). No-op se handle invalido.
+   */
+  export function i64_store(handle: number, value: number): void;
+  /**
+   * Soma `delta` e retorna o valor anterior. 0 se handle invalido.
+   */
+  export function i64_fetch_add(handle: number, delta: number): number;
+  /**
+   * Subtrai `delta` e retorna o valor anterior. 0 se handle invalido.
+   */
+  export function i64_fetch_sub(handle: number, delta: number): number;
+  /**
+   * AND bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
+   */
+  export function i64_fetch_and(handle: number, mask: number): number;
+  /**
+   * OR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
+   */
+  export function i64_fetch_or(handle: number, mask: number): number;
+  /**
+   * XOR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
+   */
+  export function i64_fetch_xor(handle: number, mask: number): number;
+  /**
+   * Troca o valor por `value` e retorna o valor anterior. 0 se handle invalido.
+   */
+  export function i64_swap(handle: number, value: number): number;
+  /**
+   * Compare-and-swap. Se valor atual == `expected`, escreve `new`. Retorna o valor anterior.
+   */
+  export function i64_cas(handle: number, expected: number, new_value: number): number;
+  /**
+   * Aloca um AtomicBool inicializado com `value` e retorna o handle.
+   */
+  export function bool_new(value: boolean): number;
+  /**
+   * Le o valor atual do AtomicBool (SeqCst). false se handle invalido.
+   */
+  export function bool_load(handle: number): boolean;
+  /**
+   * Escreve `value` no AtomicBool (SeqCst). No-op se handle invalido.
+   */
+  export function bool_store(handle: number, value: boolean): void;
+  /**
+   * Troca o valor por `value` e retorna o valor anterior. false se handle invalido.
+   */
+  export function bool_swap(handle: number, value: boolean): boolean;
+  /**
+   * Memory fence Acquire.
+   */
+  export function fence_acquire(): void;
+  /**
+   * Memory fence Release.
+   */
+  export function fence_release(): void;
+  /**
+   * Memory fence SeqCst.
+   */
+  export function fence_seq_cst(): void;
+  const _default: {
+    i64_new: (typeof import("rts"))["atomic"]["i64_new"];
+    i64_load: (typeof import("rts"))["atomic"]["i64_load"];
+    i64_store: (typeof import("rts"))["atomic"]["i64_store"];
+    i64_fetch_add: (typeof import("rts"))["atomic"]["i64_fetch_add"];
+    i64_fetch_sub: (typeof import("rts"))["atomic"]["i64_fetch_sub"];
+    i64_fetch_and: (typeof import("rts"))["atomic"]["i64_fetch_and"];
+    i64_fetch_or: (typeof import("rts"))["atomic"]["i64_fetch_or"];
+    i64_fetch_xor: (typeof import("rts"))["atomic"]["i64_fetch_xor"];
+    i64_swap: (typeof import("rts"))["atomic"]["i64_swap"];
+    i64_cas: (typeof import("rts"))["atomic"]["i64_cas"];
+    bool_new: (typeof import("rts"))["atomic"]["bool_new"];
+    bool_load: (typeof import("rts"))["atomic"]["bool_load"];
+    bool_store: (typeof import("rts"))["atomic"]["bool_store"];
+    bool_swap: (typeof import("rts"))["atomic"]["bool_swap"];
+    fence_acquire: (typeof import("rts"))["atomic"]["fence_acquire"];
+    fence_release: (typeof import("rts"))["atomic"]["fence_release"];
+    fence_seq_cst: (typeof import("rts"))["atomic"]["fence_seq_cst"];
   };
   export default _default;
 }

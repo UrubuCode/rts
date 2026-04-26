@@ -47,6 +47,11 @@ pub enum Entry {
     CString(Box<std::ffi::CString>),
     /// OsString owned — namespace `ffi` (osstr_*).
     OsString(Box<std::ffi::OsString>),
+    /// AtomicI64 owned — namespace `atomic` (i64_*). Box pra estabilizar
+    /// o endereco enquanto o slot vive.
+    AtomicI64(Box<std::sync::atomic::AtomicI64>),
+    /// AtomicBool owned — namespace `atomic` (bool_*).
+    AtomicBool(Box<std::sync::atomic::AtomicBool>),
     /// Environment record para closures — Vec<i64> com slots por captura.
     /// Usado por `gc.env_*` para implementar capturas reais sem promote-
     /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).

@@ -735,6 +735,79 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         ffi_osstr::__RTS_FN_NS_FFI_OSSTR_FREE
     );
 
+    // ── namespaces::atomic ────────────────────────────────────────────
+    use crate::namespaces::atomic::{
+        bool as atomic_bool, fence as atomic_fence, int as atomic_int,
+    };
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_NEW",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_LOAD",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_LOAD
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_STORE",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_STORE
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_FETCH_ADD",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_ADD
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_FETCH_SUB",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_SUB
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_FETCH_AND",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_AND
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_FETCH_OR",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_OR
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_FETCH_XOR",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_XOR
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_SWAP",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_SWAP
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_I64_CAS",
+        atomic_int::__RTS_FN_NS_ATOMIC_I64_CAS
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_BOOL_NEW",
+        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_BOOL_LOAD",
+        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_LOAD
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_BOOL_STORE",
+        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_STORE
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_BOOL_SWAP",
+        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_SWAP
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_FENCE_ACQUIRE",
+        atomic_fence::__RTS_FN_NS_ATOMIC_FENCE_ACQUIRE
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_FENCE_RELEASE",
+        atomic_fence::__RTS_FN_NS_ATOMIC_FENCE_RELEASE
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_FENCE_SEQ_CST",
+        atomic_fence::__RTS_FN_NS_ATOMIC_FENCE_SEQ_CST
+    );
+
     // ── namespaces::path ──────────────────────────────────────────────
     use crate::namespaces::path::*;
     add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);

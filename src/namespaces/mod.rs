@@ -5,6 +5,7 @@
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
 pub mod alloc;
+pub mod atomic;
 pub mod backtrace;
 pub mod bigfloat;
 pub mod buffer;
