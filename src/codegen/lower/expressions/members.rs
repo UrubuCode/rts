@@ -339,6 +339,49 @@ pub(crate) fn emit_flat_field_write(
     Ok(())
 }
 
+/// Le o handle do tag `__rts_class` de uma instancia. Centraliza o
+/// dual-path do dispatch virtual (#147 passo 8): quando a classe estatica
+/// e flat E tem layout, emite `gc.instance_class(recv)` (leitura direta
+/// do struct Instance); caso contrario cai no `MAP_GET("__rts_class")`
+/// legacy. Retorna i64 com o handle de string.
+pub(crate) fn emit_class_tag_read(
+    ctx: &mut FnCtx,
+    recv_handle: cranelift_codegen::ir::Value,
+    class_name: &str,
+) -> Result<cranelift_codegen::ir::Value> {
+    // Pre-condicao do dual-path: a classe estatica precisa ser flat
+    // (env var ou prefixo `__Flat`). Se a hierarquia mistura
+    // flat/HashMap, o usuario e responsavel por habilitar TODA a
+    // hierarquia — instancias HashMap polimorficas sob receiver flat
+    // retornariam 0 em `instance_class` e cairiam no metodo da base.
+    // Mesma simetria reversa: instancias flat sob receiver HashMap nao
+    // tem `__rts_class` no map. Nao tem como cobrir mistura sem
+    // inspecao runtime do tipo de Entry.
+    let is_flat = is_class_flat_enabled(class_name)
+        && ctx
+            .classes
+            .get(class_name)
+            .map(|m| m.layout.is_some())
+            .unwrap_or(false);
+    if is_flat {
+        let fref = ctx.get_extern(
+            "__RTS_FN_NS_GC_INSTANCE_CLASS",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[recv_handle]);
+        return Ok(ctx.builder.inst_results(inst)[0]);
+    }
+    let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
+    let map_get = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(map_get, &[recv_handle, key_ptr, key_len]);
+    Ok(ctx.builder.inst_results(inst)[0])
+}
+
 pub(super) fn map_get_static(
     ctx: &mut FnCtx,
     obj_handle: cranelift_codegen::ir::Value,

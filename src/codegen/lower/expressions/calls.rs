@@ -9,8 +9,8 @@ use crate::abi::types::AbiType;
 
 use super::lower_expr;
 use super::members::{
-    field_type_in_hierarchy, lhs_static_class, map_get_static_typed, qualified_member_name,
-    validate_visibility,
+    emit_class_tag_read, field_type_in_hierarchy, lhs_static_class, map_get_static_typed,
+    qualified_member_name, validate_visibility,
 };
 use super::operators::to_f64;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
@@ -275,17 +275,7 @@ pub(super) fn emit_virtual_accessor_dispatch(
         .and_then(|abi| abi.ret)
         .unwrap_or(ValTy::I64);
 
-    let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
-    let map_get = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
-        &[cl::I64, cl::I64, cl::I64],
-        Some(cl::I64),
-    )?;
-    let inst = ctx
-        .builder
-        .ins()
-        .call(map_get, &[recv_i64, key_ptr, key_len]);
-    let class_handle = ctx.builder.inst_results(inst)[0];
+    let class_handle = emit_class_tag_read(ctx, recv_i64, static_class)?;
 
     let mut ordered: Vec<(String, String)> = overrides
         .iter()
@@ -902,17 +892,7 @@ fn emit_virtual_dispatch(
     arg_values: &[cranelift_codegen::ir::Value],
     overrides: &[(String, String)],
 ) -> Result<TypedVal> {
-    let (key_ptr, key_len) = ctx.emit_str_literal(b"__rts_class")?;
-    let map_get = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
-        &[cl::I64, cl::I64, cl::I64],
-        Some(cl::I64),
-    )?;
-    let inst = ctx
-        .builder
-        .ins()
-        .call(map_get, &[recv_i64, key_ptr, key_len]);
-    let class_handle = ctx.builder.inst_results(inst)[0];
+    let class_handle = emit_class_tag_read(ctx, recv_i64, class_name)?;
 
     let ret_ty = ctx
         .user_fns
@@ -946,7 +926,6 @@ fn emit_virtual_dispatch(
         Some(cl::I64),
     )?;
 
-    let _ = class_name;
     for (cname, owner) in &ordered {
         let (cn_ptr, cn_len) = ctx.emit_str_literal(cname.as_bytes())?;
         let from_static = ctx.get_extern(
