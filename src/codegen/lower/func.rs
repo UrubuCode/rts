@@ -1830,8 +1830,9 @@ impl LiftAcc {
             // tratado como callback candidato. Demais membros de ABI seguem
             // a regra padrao (apenas args I64).
             let is_thread_spawn = qualified == "thread.spawn";
+            let is_thread_scope = qualified == "thread.scope";
             for (arg_idx, (arg, &abi_ty)) in call.args.iter_mut().zip(member.args.iter()).enumerate() {
-                let is_callback_slot = if is_thread_spawn {
+                let is_callback_slot = if is_thread_spawn || is_thread_scope {
                     arg_idx == 0
                 } else {
                     abi_ty == AbiType::I64
@@ -1873,7 +1874,7 @@ impl LiftAcc {
                     }
                 }
                 match peel_ts(arg.expr.as_ref()) {
-                    Expr::Arrow(arrow) if arrow_uses_this && (is_widget_set_callback || is_thread_spawn) => {
+                    Expr::Arrow(arrow) if arrow_uses_this && (is_widget_set_callback || is_thread_spawn || is_thread_scope) => {
                         // Path NOVO (#148/#227): trampolim recebe `this`
                         // por parâmetro (em thread.spawn, `this` é passado
                         // via `userdata`). O callsite é reescrito abaixo.
@@ -2101,6 +2102,8 @@ impl LiftAcc {
                         if let MemberProp::Ident(prop_id) = &mut m.prop {
                             let new_name = if is_thread_spawn {
                                 "spawn_with_ud"
+                            } else if is_thread_scope {
+                                "scope_with_ud"
                             } else {
                                 "widget_set_callback_with_ud"
                             };
@@ -5028,7 +5031,9 @@ fn scan_expr_for_spawn(
         if let Callee::Expr(callee) = &c.callee {
             if let Expr::Member(m) = callee.as_ref() {
                 if let (Expr::Ident(obj), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
-                    if obj.sym.as_ref() == "thread" && prop.sym.as_ref() == "spawn" {
+                    let is_thread_call = obj.sym.as_ref() == "thread"
+                        && (prop.sym.as_ref() == "spawn" || prop.sym.as_ref() == "scope");
+                    if is_thread_call {
                         // Primeiro arg: o callback. Coleta capturas.
                         if let Some(first) = c.args.first() {
                             let mut arrow_locals: std::collections::HashSet<String> =

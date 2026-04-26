@@ -894,6 +894,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             thread_spawn::__RTS_FN_NS_THREAD_SPAWN_WITH_UD
         );
         add_fn!(
+            "__RTS_FN_NS_THREAD_SCOPE",
+            thread_spawn::__RTS_FN_NS_THREAD_SCOPE
+        );
+        add_fn!(
+            "__RTS_FN_NS_THREAD_SCOPE_WITH_UD",
+            thread_spawn::__RTS_FN_NS_THREAD_SCOPE_WITH_UD
+        );
+        add_fn!(
             "__RTS_FN_NS_THREAD_JOIN",
             thread_join::__RTS_FN_NS_THREAD_JOIN
         );
