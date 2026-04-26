@@ -927,3 +927,13 @@ fn fixture_mem_layout() {
 fn fixture_mem_handles() {
     run_fixture("mem_handles");
 }
+
+#[test]
+fn fixture_backtrace_basic() {
+    run_fixture("backtrace_basic");
+}
+
+#[test]
+fn fixture_backtrace_disabled() {
+    run_fixture("backtrace_disabled");
+}

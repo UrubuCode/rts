@@ -40,6 +40,8 @@ pub enum Entry {
     Vec(Box<Vec<i64>>),
     /// Regex compilada — namespace `regex`.
     Regex(Box<regex::Regex>),
+    /// Stack trace capturada — namespace `backtrace`.
+    Backtrace(Box<std::backtrace::Backtrace>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

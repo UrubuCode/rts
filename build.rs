@@ -68,6 +68,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/math/");
     println!("cargo:rerun-if-changed=src/namespaces/num/");
     println!("cargo:rerun-if-changed=src/namespaces/mem/");
+    println!("cargo:rerun-if-changed=src/namespaces/backtrace/");
     println!("cargo:rerun-if-changed=src/namespaces/bigfloat/");
     println!("cargo:rerun-if-changed=src/namespaces/time/");
     println!("cargo:rerun-if-changed=src/namespaces/env/");
