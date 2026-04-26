@@ -880,6 +880,16 @@ declare module "rts" {
      * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
     /**
+     * Allocator raw via std::alloc. UNSAFE — pareie alloc/dealloc com mesmo size/align.
+     */
+    export namespace alloc {
+      export function alloc(size: number, align: number): number;
+      export function alloc_zeroed(size: number, align: number): number;
+      export function dealloc(ptr: number, size: number, align: number): void;
+      export function realloc(ptr: number, size_old: number, align: number, new_size: number): number;
+    }
+
+    /**
      * Operacoes raw sobre ponteiros (std::ptr). UNSAFE — caller verifica validez.
      */
     export namespace ptr {

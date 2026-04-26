@@ -311,6 +311,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_BACKTRACE_FREE", bt::__RTS_FN_NS_BACKTRACE_FREE);
     }
 
+    // ── namespaces::alloc ─────────────────────────────────────────────
+    {
+        use crate::namespaces::alloc::ops as a;
+        add_fn!("__RTS_FN_NS_ALLOC_ALLOC", a::__RTS_FN_NS_ALLOC_ALLOC);
+        add_fn!(
+            "__RTS_FN_NS_ALLOC_ALLOC_ZEROED",
+            a::__RTS_FN_NS_ALLOC_ALLOC_ZEROED
+        );
+        add_fn!("__RTS_FN_NS_ALLOC_DEALLOC", a::__RTS_FN_NS_ALLOC_DEALLOC);
+        add_fn!("__RTS_FN_NS_ALLOC_REALLOC", a::__RTS_FN_NS_ALLOC_REALLOC);
+    }
+
     // ── namespaces::ptr ───────────────────────────────────────────────
     {
         use crate::namespaces::ptr::ops as p;
