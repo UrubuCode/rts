@@ -37,6 +37,27 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+      - name: Setup MSVC env (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Smoke test — rts run (JIT)
+        run: target/release/rts run bench/pi_machin.ts
+        shell: bash
+
+      - name: Smoke test — rts compile (AOT)
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            RTS=target/release/rts.exe
+            OUT=smoke_pi.exe
+          else
+            RTS=target/release/rts
+            OUT=smoke_pi
+          fi
+          $RTS compile bench/pi_machin.ts smoke_pi
+          ./$OUT
+        shell: bash
+
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
