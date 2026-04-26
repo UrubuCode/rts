@@ -937,3 +937,18 @@ fn fixture_backtrace_basic() {
 fn fixture_backtrace_disabled() {
     run_fixture("backtrace_disabled");
 }
+
+#[test]
+fn fixture_ptr_basic() {
+    run_fixture("ptr_basic");
+}
+
+#[test]
+fn fixture_ptr_buffer_rw() {
+    run_fixture("ptr_buffer_rw");
+}
+
+#[test]
+fn fixture_ptr_copy() {
+    run_fixture("ptr_copy");
+}

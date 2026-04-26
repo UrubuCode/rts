@@ -76,6 +76,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/buffer/");
     println!("cargo:rerun-if-changed=src/namespaces/string/");
     println!("cargo:rerun-if-changed=src/namespaces/process/");
+    println!("cargo:rerun-if-changed=src/namespaces/ptr/");
     println!("cargo:rerun-if-changed=src/namespaces/os/");
     println!("cargo:rerun-if-changed=src/namespaces/collections/");
     println!("cargo:rerun-if-changed=src/namespaces/hash/");

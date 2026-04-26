@@ -880,6 +880,26 @@ declare module "rts" {
      * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
     /**
+     * Operacoes raw sobre ponteiros (std::ptr). UNSAFE — caller verifica validez.
+     */
+    export namespace ptr {
+      export function null(): number;
+      export function is_null(p: number): boolean;
+      export function read_i64(p: number): number;
+      export function read_i32(p: number): number;
+      export function read_u8(p: number): number;
+      export function read_f64(p: number): number;
+      export function write_i64(p: number, value: number): void;
+      export function write_i32(p: number, value: number): void;
+      export function write_u8(p: number, value: number): void;
+      export function write_f64(p: number, value: number): void;
+      export function copy(dst: number, src: number, n: number): void;
+      export function copy_nonoverlapping(dst: number, src: number, n: number): void;
+      export function write_bytes(dst: number, value: number, n: number): void;
+      export function offset(p: number, n: number): number;
+    }
+
+    /**
      * Captura de stack traces via std::backtrace::Backtrace.
      */
     export namespace backtrace {
