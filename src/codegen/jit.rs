@@ -345,6 +345,28 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
     }
 
+    // ── namespaces::hint ──────────────────────────────────────────────
+    {
+        use crate::namespaces::hint::ops as ht;
+        add_fn!("__RTS_FN_NS_HINT_SPIN_LOOP", ht::__RTS_FN_NS_HINT_SPIN_LOOP);
+        add_fn!(
+            "__RTS_FN_NS_HINT_BLACK_BOX_I64",
+            ht::__RTS_FN_NS_HINT_BLACK_BOX_I64
+        );
+        add_fn!(
+            "__RTS_FN_NS_HINT_BLACK_BOX_F64",
+            ht::__RTS_FN_NS_HINT_BLACK_BOX_F64
+        );
+        add_fn!(
+            "__RTS_FN_NS_HINT_UNREACHABLE",
+            ht::__RTS_FN_NS_HINT_UNREACHABLE
+        );
+        add_fn!(
+            "__RTS_FN_NS_HINT_ASSERT_UNCHECKED",
+            ht::__RTS_FN_NS_HINT_ASSERT_UNCHECKED
+        );
+    }
+
     // ── namespaces::regex ─────────────────────────────────────────────
     {
         use crate::namespaces::regex::ops as rx;

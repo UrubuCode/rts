@@ -880,6 +880,17 @@ declare module "rts" {
      * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
      */
     /**
+     * Performance hints (std::hint).
+     */
+    export namespace hint {
+      export function spin_loop(): void;
+      export function black_box_i64(value: number): number;
+      export function black_box_f64(value: number): number;
+      export function unreachable(): never;
+      export function assert_unchecked(cond: boolean): void;
+    }
+
+    /**
      * Aritmetica com overflow explicito (checked/saturating/wrapping) e bit ops.
      */
     export namespace num {
