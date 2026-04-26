@@ -4,6 +4,10 @@ import { process, fs } from "rts";
 const SOURCE = "throw \"boom\";\n";
 const TEMP_PATH = "tests/__tmp_unhandled_throw_runtime.ts";
 
+// CI invoca `cargo run -- test` (build debug), entao debug e o canon.
+// Localmente, se `target/debug/rts.exe` ficou stale apos mudancas em
+// codegen/runtime, este teste pode reportar um exit code de bug antigo.
+// Solucao: rebuild com `cargo build` antes de rodar localmente.
 function resolveRtsExe(): string {
   if (fs.exists("target/debug/rts.exe") === 1) return "target/debug/rts.exe";
   if (fs.exists("target/release/rts.exe") === 1) return "target/release/rts.exe";
