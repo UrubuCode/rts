@@ -1,52 +1,52 @@
-import test from "rts:test";
+import { describe, test, expect } from "rts:test";
 
-// Self-referential: uses rts:test to test rts:test primitives.
-
-test.describe("rts:test — assert");
-
-test.it("assert passes on true");
-test.assert(true);
-test.pass();
-
-test.it("assert passes with truthy number");
-test.assert(1, "non-zero should be truthy");
-test.pass();
-
-test.it("assert passes with non-empty string");
-test.assert("hello", "non-empty string is truthy");
-test.pass();
-
-test.describe("rts:test — assert_eq");
-
-test.it("assert_eq passes for equal strings");
-test.assert_eq("foo", "foo");
-test.pass();
-
-test.it("assert_eq passes with message on equal strings");
-test.assert_eq("bar", "bar", "strings should be equal");
-test.pass();
-
-test.describe("rts:test — assert_ne");
-
-test.it("assert_ne passes for different strings");
-test.assert_ne("foo", "bar");
-test.pass();
-
-test.it("assert_ne passes with message for different strings");
-test.assert_ne("a", "b", "strings should differ");
-test.pass();
-
-test.describe("rts:test — pass / describe / it");
-
-test.it("describe and it are callable");
-test.describe("nested suite");
-test.it("nested case");
-test.pass("nested pass works");
-
-// Named-function callback style
-function suite_with_callback() {
-  test.it("callback body ran");
-  test.pass("named callback works");
+function t_eq_string() {
+  expect("foo").toBe("foo");
 }
 
-test.describe("rts:test — describe with callback", suite_with_callback);
+function t_eq_number_as_string() {
+  const n = 21 + 21;
+  expect(`${n}`).toBe("42");
+}
+
+function t_contains() {
+  expect("hello-rts").toContain("rts");
+}
+
+function t_prefix() {
+  expect("namespace:rts").toStartWith("namespace:");
+}
+
+function t_suffix() {
+  expect("fixtures.test.ts").toEndWith(".ts");
+}
+
+function t_greater_than() {
+  expect(`${10}`).toBeGreaterThan(5);
+}
+
+function t_less_than_or_equal() {
+  expect(`${5}`).toBeLessThanOrEqual(5);
+}
+
+function t_truthy() {
+  expect("ok").toBeTruthy();
+}
+
+function t_falsy() {
+  expect("0").toBeFalsy();
+}
+
+function suite_matchers() {
+  test("toBe with string", t_eq_string);
+  test("toBe with numeric interpolation", t_eq_number_as_string);
+  test("toContain", t_contains);
+  test("toStartWith", t_prefix);
+  test("toEndWith", t_suffix);
+  test("toBeGreaterThan", t_greater_than);
+  test("toBeLessThanOrEqual", t_less_than_or_equal);
+  test("toBeTruthy", t_truthy);
+  test("toBeFalsy", t_falsy);
+}
+
+describe("rts:test matchers", suite_matchers);

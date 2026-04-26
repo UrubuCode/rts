@@ -19,5 +19,5 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Run cargo test
-        run: cargo test
+      - name: Run RTS test runner
+        run: cargo run -- test

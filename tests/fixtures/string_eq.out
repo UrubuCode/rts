@@ -1,6 +1,0 @@
-a == b: 1
-a == c: 0
-a != c: 1
-ch == "b": 1
-ch == "x": 0
-empty == empty: 1
