@@ -54,6 +54,22 @@ declare module "rts" {
      * Frees the string handle. Returns 1 on success, 0 if already invalid.
      */
     export function string_free(handle: number): number;
+    /**
+     * Aloca um environment record para closures com `slot_count` slots i64 inicializados em 0. Retorna o handle.
+     */
+    export function env_alloc(slot_count: number): number;
+    /**
+     * Lê o slot `slot` do env record. Retorna 0 em handle inválido ou slot fora do range.
+     */
+    export function env_get(env: number, slot: number): number;
+    /**
+     * Escreve `value` no slot `slot` do env record. Retorna 1 em sucesso, 0 em erro.
+     */
+    export function env_set(env: number, slot: number, value: number): number;
+    /**
+     * Libera o env record. Retorna 1 em sucesso, 0 se handle já inválido.
+     */
+    export function env_free(env: number): number;
   }
 
   /**

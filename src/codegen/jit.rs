@@ -119,6 +119,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         __RTS_FN_NS_GC_STRING_FROM_STATIC
     );
     add_fn!("__RTS_FN_NS_GC_STRING_EQ", __RTS_FN_NS_GC_STRING_EQ);
+    use crate::namespaces::gc::env::*;
+    add_fn!("__RTS_FN_NS_GC_ENV_ALLOC", __RTS_FN_NS_GC_ENV_ALLOC);
+    add_fn!("__RTS_FN_NS_GC_ENV_GET", __RTS_FN_NS_GC_ENV_GET);
+    add_fn!("__RTS_FN_NS_GC_ENV_SET", __RTS_FN_NS_GC_ENV_SET);
+    add_fn!("__RTS_FN_NS_GC_ENV_FREE", __RTS_FN_NS_GC_ENV_FREE);
 
     // ── namespaces::io ────────────────────────────────────────────────
     use crate::namespaces::io::print::*;

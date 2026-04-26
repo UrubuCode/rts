@@ -184,6 +184,25 @@ Exemplos de etapas tipicas (namespace novo):
 - 90% build passou + fixture basico ok
 - 100% PR aberto/merged
 
+## Assumindo issues do GitHub
+
+Quando comecar a trabalhar em uma issue (ex: usuario diz "vamos fazer
+a #97"), antes de codar marca a issue como assumida via `gh issue edit`
+ou comentando — para que outros contribuintes saibam que ja tem alguem
+trabalhando.
+
+Forma minima: comentar na issue indicando inicio de trabalho.
+
+```bash
+gh issue comment <num> --body "Assumindo essa issue. Trabalho em andamento."
+```
+
+Quando possivel, atribuir a si mesmo via `gh issue edit <num> --add-assignee @me`
+(funciona se a conta autenticada e collaborator do repo).
+
+Ao terminar (PR mergeado), comentar de novo com link do PR e fechar
+quando apropriado.
+
 ## Criatividade ao testar
 
 Ao adicionar/modificar features, nao basta um teste happy-path. Seja

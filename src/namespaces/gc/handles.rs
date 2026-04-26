@@ -42,6 +42,10 @@ pub enum Entry {
     Regex(Box<regex::Regex>),
     /// Stack trace capturada — namespace `backtrace`.
     Backtrace(Box<std::backtrace::Backtrace>),
+    /// Environment record para closures — Vec<i64> com slots por captura.
+    /// Usado por `gc.env_*` para implementar capturas reais sem promote-
+    /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).
+    Env(Vec<i64>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
