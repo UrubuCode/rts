@@ -1313,7 +1313,8 @@ impl LiftAcc {
         // Auto-promote para atomic (mesmo que top-level).
         let atomic_promotes = collect_thread_spawn_captures(body, &locals);
         for var in &atomic_promotes {
-            promote_local_to_atomic(body, var);
+            let kind = detect_atomic_kind(body, var);
+            promote_local_to_atomic(body, var, kind);
         }
 
         // Captura-to-global: idents capturados por arrows precisam virar
@@ -1361,7 +1362,8 @@ impl LiftAcc {
         // declaração local e todos os usos (leitura/escrita) no body.
         let atomic_promotes = collect_thread_spawn_captures(&f.body, &locals);
         for var in &atomic_promotes {
-            promote_local_to_atomic(&mut f.body, var);
+            let kind = detect_atomic_kind(&f.body, var);
+            promote_local_to_atomic(&mut f.body, var, kind);
         }
 
         // Para cada arrow nos statements (recursivamente), descobre
@@ -2026,6 +2028,16 @@ impl LiftAcc {
                 } else {
                     Vec::new()
                 };
+
+                let mut body_stmts = body_stmts;
+                // (#229 fase 3) Thread-local accumulation: em trampolins
+                // de thread.spawn, transforma loops apertados de
+                // atomic.i64_fetch_add(x, expr_sem_x) num acumulador
+                // local + UM fetch_add no fim. Reduz contention em ~Nx
+                // quando hot loops escrevem em counter compartilhado.
+                if is_thread_spawn {
+                    optimize_thread_local_accum(&mut body_stmts);
+                }
 
                 self.new_fns.push(Item::Function(FunctionDecl {
                     name: syn_name.clone(),
@@ -4719,6 +4731,11 @@ fn rename_ident_in_expr(expr: &mut Expr, old: &str, new: &str) {
             rename_ident_in_expr(&mut c.alt, old, new);
         }
         Expr::Paren(p) => rename_ident_in_expr(&mut p.expr, old, new),
+        Expr::TsAs(a) => rename_ident_in_expr(&mut a.expr, old, new),
+        Expr::TsConstAssertion(a) => rename_ident_in_expr(&mut a.expr, old, new),
+        Expr::TsTypeAssertion(a) => rename_ident_in_expr(&mut a.expr, old, new),
+        Expr::TsSatisfies(a) => rename_ident_in_expr(&mut a.expr, old, new),
+        Expr::TsNonNull(n) => rename_ident_in_expr(&mut n.expr, old, new),
         Expr::Tpl(t) => {
             for e in &mut t.exprs {
                 rename_ident_in_expr(e, old, new);
@@ -5057,19 +5074,66 @@ fn scan_expr_for_spawn(
     }
 }
 
-/// Reescreve `let <var> = N` (no body) por `const <var> = atomic.i64_new(N)`,
-/// e todos os usos: `var = e` → `atomic.i64_store(var, e)`,
-/// `var = var + e` → `atomic.i64_fetch_add(var, e)`, `var++` →
-/// `atomic.i64_fetch_add(var, 1)`, `var--` → fetch_add(var, -1),
-/// leituras `var` → `atomic.i64_load(var)`.
-fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str) {
+/// Tipo da promoção atômica: i64 (default, suporta arith) ou bool
+/// (apenas load/store).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AtomicKind {
+    I64,
+    Bool,
+}
+
+/// Detecta tipo de uma variável local para promoção atômica.
+/// Heurística: anotação `: boolean` ou init literal `true`/`false` →
+/// Bool. Default: I64.
+fn detect_atomic_kind(body: &[Statement], var: &str) -> AtomicKind {
+    for s in body {
+        let Statement::Raw(raw) = s;
+        let Some(stmt) = raw.stmt.as_ref() else { continue };
+        if let Some(k) = detect_kind_in_stmt(stmt, var) {
+            return k;
+        }
+    }
+    AtomicKind::I64
+}
+
+fn detect_kind_in_stmt(stmt: &Stmt, var: &str) -> Option<AtomicKind> {
+    if let Stmt::Decl(swc_ecma_ast::Decl::Var(v)) = stmt {
+        for d in &v.decls {
+            if let Pat::Ident(id) = &d.name {
+                if id.id.sym.as_ref() == var {
+                    // Anotação?
+                    if let Some(ann) = &id.type_ann {
+                        if let TsType::TsKeywordType(k) = ann.type_ann.as_ref() {
+                            if k.kind == swc_ecma_ast::TsKeywordTypeKind::TsBooleanKeyword {
+                                return Some(AtomicKind::Bool);
+                            }
+                        }
+                    }
+                    // Init literal?
+                    if let Some(init) = &d.init {
+                        if matches!(init.as_ref(), Expr::Lit(Lit::Bool(_))) {
+                            return Some(AtomicKind::Bool);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Reescreve `let <var> = N` (no body) por `const <var> = atomic.<kind>_new(N)`,
+/// e todos os usos: `var = e` → `atomic.<kind>_store(var, e)`,
+/// `var = var + e` → `atomic.i64_fetch_add(var, e)` (apenas i64),
+/// `var++` / `var--` (apenas i64), leituras → `atomic.<kind>_load(var)`.
+fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str, kind: AtomicKind) {
     // Pass 1: reescreve a declaração.
     for s in body.iter_mut() {
         let Statement::Raw(raw) = s;
         let Some(stmt) = raw.stmt.as_mut() else {
             continue;
         };
-        rewrite_decl_to_atomic(stmt, var);
+        rewrite_decl_to_atomic(stmt, var, kind);
     }
     // Pass 2: reescreve usos no body do método (todos os stmts).
     for s in body.iter_mut() {
@@ -5077,26 +5141,38 @@ fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str) {
         let Some(stmt) = raw.stmt.as_mut() else {
             continue;
         };
-        rewrite_uses_atomic_in_stmt(stmt, var);
+        rewrite_uses_atomic_in_stmt(stmt, var, kind);
     }
 }
 
-fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str) {
+fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
     if let Stmt::Decl(swc_ecma_ast::Decl::Var(v)) = stmt {
         for d in v.decls.iter_mut() {
             if let Pat::Ident(id) = &d.name {
                 if id.id.sym.as_ref() == var {
-                    let init = d.init.clone().unwrap_or_else(|| {
-                        Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
-                            span: Default::default(),
-                            value: 0.0,
-                            raw: Some("0".into()),
-                        })))
-                    });
-                    // const var = atomic.i64_new(<init>)
+                    let default_init: Box<Expr> = match kind {
+                        AtomicKind::I64 => Box::new(Expr::Lit(Lit::Num(
+                            swc_ecma_ast::Number {
+                                span: Default::default(),
+                                value: 0.0,
+                                raw: Some("0".into()),
+                            },
+                        ))),
+                        AtomicKind::Bool => Box::new(Expr::Lit(Lit::Bool(
+                            swc_ecma_ast::Bool {
+                                span: Default::default(),
+                                value: false,
+                            },
+                        ))),
+                    };
+                    let init = d.init.clone().unwrap_or(default_init);
+                    let fn_name = match kind {
+                        AtomicKind::I64 => "i64_new",
+                        AtomicKind::Bool => "bool_new",
+                    };
                     let new_init = make_call(
                         "atomic",
-                        "i64_new",
+                        fn_name,
                         vec![swc_ecma_ast::ExprOrSpread {
                             spread: None,
                             expr: init,
@@ -5106,83 +5182,81 @@ fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str) {
                 }
             }
         }
-        // Já era let — vira const semanticamente, mas mantemos o flag para
-        // não exigir refator do parser.
     }
     // Recursa em sub-blocks.
-    walk_stmt_mut(stmt, &mut |s| rewrite_decl_to_atomic(s, var));
+    walk_stmt_mut(stmt, &mut |s| rewrite_decl_to_atomic(s, var, kind));
 }
 
-fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str) {
+fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
-        Expr(e) => rewrite_uses_atomic_in_expr(&mut e.expr, var),
+        Expr(e) => rewrite_uses_atomic_in_expr(&mut e.expr, var, kind),
         Return(r) => {
             if let Some(a) = r.arg.as_deref_mut() {
-                rewrite_uses_atomic_in_expr(a, var);
+                rewrite_uses_atomic_in_expr(a, var, kind);
             }
         }
         If(i) => {
-            rewrite_uses_atomic_in_expr(&mut i.test, var);
-            rewrite_uses_atomic_in_stmt(&mut i.cons, var);
+            rewrite_uses_atomic_in_expr(&mut i.test, var, kind);
+            rewrite_uses_atomic_in_stmt(&mut i.cons, var, kind);
             if let Some(alt) = i.alt.as_deref_mut() {
-                rewrite_uses_atomic_in_stmt(alt, var);
+                rewrite_uses_atomic_in_stmt(alt, var, kind);
             }
         }
         Block(b) => {
             for s in b.stmts.iter_mut() {
-                rewrite_uses_atomic_in_stmt(s, var);
+                rewrite_uses_atomic_in_stmt(s, var, kind);
             }
         }
         While(w) => {
-            rewrite_uses_atomic_in_expr(&mut w.test, var);
-            rewrite_uses_atomic_in_stmt(&mut w.body, var);
+            rewrite_uses_atomic_in_expr(&mut w.test, var, kind);
+            rewrite_uses_atomic_in_stmt(&mut w.body, var, kind);
         }
         DoWhile(w) => {
-            rewrite_uses_atomic_in_expr(&mut w.test, var);
-            rewrite_uses_atomic_in_stmt(&mut w.body, var);
+            rewrite_uses_atomic_in_expr(&mut w.test, var, kind);
+            rewrite_uses_atomic_in_stmt(&mut w.body, var, kind);
         }
         For(f) => {
             if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_mut() {
                 for d in vd.decls.iter_mut() {
                     if let Some(e) = d.init.as_deref_mut() {
-                        rewrite_uses_atomic_in_expr(e, var);
+                        rewrite_uses_atomic_in_expr(e, var, kind);
                     }
                 }
             } else if let Some(swc_ecma_ast::VarDeclOrExpr::Expr(e)) = f.init.as_mut() {
-                rewrite_uses_atomic_in_expr(e, var);
+                rewrite_uses_atomic_in_expr(e, var, kind);
             }
             if let Some(t) = f.test.as_deref_mut() {
-                rewrite_uses_atomic_in_expr(t, var);
+                rewrite_uses_atomic_in_expr(t, var, kind);
             }
             if let Some(u) = f.update.as_deref_mut() {
-                rewrite_uses_atomic_in_expr(u, var);
+                rewrite_uses_atomic_in_expr(u, var, kind);
             }
-            rewrite_uses_atomic_in_stmt(&mut f.body, var);
+            rewrite_uses_atomic_in_stmt(&mut f.body, var, kind);
         }
         ForOf(f) => {
-            rewrite_uses_atomic_in_expr(&mut f.right, var);
-            rewrite_uses_atomic_in_stmt(&mut f.body, var);
+            rewrite_uses_atomic_in_expr(&mut f.right, var, kind);
+            rewrite_uses_atomic_in_stmt(&mut f.body, var, kind);
         }
         Decl(swc_ecma_ast::Decl::Var(v)) => {
             for d in v.decls.iter_mut() {
                 if let Some(e) = d.init.as_deref_mut() {
-                    rewrite_uses_atomic_in_expr(e, var);
+                    rewrite_uses_atomic_in_expr(e, var, kind);
                 }
             }
         }
         Try(t) => {
             for s in t.block.stmts.iter_mut() {
-                rewrite_uses_atomic_in_stmt(s, var);
+                rewrite_uses_atomic_in_stmt(s, var, kind);
             }
             if let Some(h) = t.handler.as_mut() {
                 for s in h.body.stmts.iter_mut() {
-                    rewrite_uses_atomic_in_stmt(s, var);
+                    rewrite_uses_atomic_in_stmt(s, var, kind);
                 }
             }
             if let Some(f) = t.finalizer.as_mut() {
                 for s in f.stmts.iter_mut() {
-                    rewrite_uses_atomic_in_stmt(s, var);
+                    rewrite_uses_atomic_in_stmt(s, var, kind);
                 }
             }
         }
@@ -5190,8 +5264,17 @@ fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str) {
     }
 }
 
-fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str) {
-    // Caso 1: `var = expr` — mas precisa decidir entre store e fetch_add
+fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: AtomicKind) {
+    let load_fn = match kind {
+        AtomicKind::I64 => "i64_load",
+        AtomicKind::Bool => "bool_load",
+    };
+    let store_fn = match kind {
+        AtomicKind::I64 => "i64_store",
+        AtomicKind::Bool => "bool_store",
+    };
+
+    // Caso 1: `var = expr` — store ou fetch_add (i64)
     if let Expr::Assign(a) = expr {
         if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) =
             &a.left
@@ -5199,51 +5282,54 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str) {
             if id.id.sym.as_ref() == var {
                 let op = a.op;
                 let mut rhs = (*a.right).clone();
-                rewrite_uses_atomic_in_expr(&mut rhs, var);
-                // `var = var + N` → fetch_add(var, N)
+                rewrite_uses_atomic_in_expr(&mut rhs, var, kind);
                 if op == swc_ecma_ast::AssignOp::Assign {
-                    if let Some(delta) = match_self_add_pattern(&rhs, var) {
+                    if kind == AtomicKind::I64 {
+                        if let Some(delta) = match_self_add_pattern(&rhs, var) {
+                            *expr = make_call(
+                                "atomic",
+                                "i64_fetch_add",
+                                vec![ident_arg(var), expr_arg(delta)],
+                            );
+                            return;
+                        }
+                    }
+                    *expr =
+                        make_call("atomic", store_fn, vec![ident_arg(var), expr_arg(rhs)]);
+                    return;
+                }
+                if kind == AtomicKind::I64 {
+                    if op == swc_ecma_ast::AssignOp::AddAssign {
                         *expr = make_call(
                             "atomic",
                             "i64_fetch_add",
-                            vec![ident_arg(var), expr_arg(delta)],
+                            vec![ident_arg(var), expr_arg(rhs)],
                         );
                         return;
                     }
-                    *expr =
-                        make_call("atomic", "i64_store", vec![ident_arg(var), expr_arg(rhs)]);
-                    return;
+                    if op == swc_ecma_ast::AssignOp::SubAssign {
+                        let neg = Expr::Unary(swc_ecma_ast::UnaryExpr {
+                            span: Default::default(),
+                            op: swc_ecma_ast::UnaryOp::Minus,
+                            arg: Box::new(rhs),
+                        });
+                        *expr = make_call(
+                            "atomic",
+                            "i64_fetch_add",
+                            vec![ident_arg(var), expr_arg(neg)],
+                        );
+                        return;
+                    }
                 }
-                if op == swc_ecma_ast::AssignOp::AddAssign {
-                    *expr = make_call(
-                        "atomic",
-                        "i64_fetch_add",
-                        vec![ident_arg(var), expr_arg(rhs)],
-                    );
-                    return;
-                }
-                if op == swc_ecma_ast::AssignOp::SubAssign {
-                    let neg = Expr::Unary(swc_ecma_ast::UnaryExpr {
-                        span: Default::default(),
-                        op: swc_ecma_ast::UnaryOp::Minus,
-                        arg: Box::new(rhs),
-                    });
-                    *expr = make_call(
-                        "atomic",
-                        "i64_fetch_add",
-                        vec![ident_arg(var), expr_arg(neg)],
-                    );
-                    return;
-                }
-                // Outros ops (*=, /=, etc) não suportados pra atomic;
-                // deixa erro no codegen mais à frente.
+                // Outros ops não suportados — codegen vai falhar com erro
+                // claro se chegarem aqui.
             }
         }
     }
-    // Caso 2: `var++` / `var--`
+    // Caso 2: `var++` / `var--` (apenas i64)
     if let Expr::Update(u) = expr {
         if let Expr::Ident(id) = u.arg.as_ref() {
-            if id.sym.as_ref() == var {
+            if id.sym.as_ref() == var && kind == AtomicKind::I64 {
                 let delta = match u.op {
                     swc_ecma_ast::UpdateOp::PlusPlus => 1.0,
                     swc_ecma_ast::UpdateOp::MinusMinus => -1.0,
@@ -5262,49 +5348,51 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str) {
             }
         }
     }
-    // Caso 3: leitura `var` — só substitui se for ident standalone
+    // Caso 3: leitura `var` — substitui só se for ident standalone
     if let Expr::Ident(id) = expr {
         if id.sym.as_ref() == var {
-            *expr = make_call("atomic", "i64_load", vec![ident_arg(var)]);
+            *expr = make_call("atomic", load_fn, vec![ident_arg(var)]);
             return;
         }
     }
-    // Recursa em sub-exprs (sem entrar em arrows — esses tem seu próprio lift).
+    // Recursa em sub-exprs.
     match expr {
         Expr::Bin(b) => {
-            rewrite_uses_atomic_in_expr(&mut b.left, var);
-            rewrite_uses_atomic_in_expr(&mut b.right, var);
+            rewrite_uses_atomic_in_expr(&mut b.left, var, kind);
+            rewrite_uses_atomic_in_expr(&mut b.right, var, kind);
         }
-        Expr::Unary(u) => rewrite_uses_atomic_in_expr(&mut u.arg, var),
+        Expr::Unary(u) => rewrite_uses_atomic_in_expr(&mut u.arg, var, kind),
         Expr::Cond(c) => {
-            rewrite_uses_atomic_in_expr(&mut c.test, var);
-            rewrite_uses_atomic_in_expr(&mut c.cons, var);
-            rewrite_uses_atomic_in_expr(&mut c.alt, var);
+            rewrite_uses_atomic_in_expr(&mut c.test, var, kind);
+            rewrite_uses_atomic_in_expr(&mut c.cons, var, kind);
+            rewrite_uses_atomic_in_expr(&mut c.alt, var, kind);
         }
         Expr::Call(c) => {
             for a in c.args.iter_mut() {
-                rewrite_uses_atomic_in_expr(&mut a.expr, var);
+                rewrite_uses_atomic_in_expr(&mut a.expr, var, kind);
             }
             if let Callee::Expr(ce) = &mut c.callee {
-                rewrite_uses_atomic_in_expr(ce, var);
+                rewrite_uses_atomic_in_expr(ce, var, kind);
             }
         }
-        Expr::Member(m) => rewrite_uses_atomic_in_expr(&mut m.obj, var),
-        Expr::Paren(p) => rewrite_uses_atomic_in_expr(&mut p.expr, var),
-        Expr::Assign(a) => rewrite_uses_atomic_in_expr(&mut a.right, var),
-        Expr::Arrow(arrow) => {
-            // entra em arrow body — fase 2 promove em ambos lados
-            match arrow.body.as_mut() {
-                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
-                    for s in b.stmts.iter_mut() {
-                        rewrite_uses_atomic_in_stmt(s, var);
-                    }
-                }
-                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
-                    rewrite_uses_atomic_in_expr(e, var);
+        Expr::Member(m) => rewrite_uses_atomic_in_expr(&mut m.obj, var, kind),
+        Expr::Paren(p) => rewrite_uses_atomic_in_expr(&mut p.expr, var, kind),
+        Expr::Assign(a) => rewrite_uses_atomic_in_expr(&mut a.right, var, kind),
+        Expr::TsAs(a) => rewrite_uses_atomic_in_expr(&mut a.expr, var, kind),
+        Expr::TsConstAssertion(a) => rewrite_uses_atomic_in_expr(&mut a.expr, var, kind),
+        Expr::TsTypeAssertion(a) => rewrite_uses_atomic_in_expr(&mut a.expr, var, kind),
+        Expr::TsSatisfies(a) => rewrite_uses_atomic_in_expr(&mut a.expr, var, kind),
+        Expr::TsNonNull(n) => rewrite_uses_atomic_in_expr(&mut n.expr, var, kind),
+        Expr::Arrow(arrow) => match arrow.body.as_mut() {
+            swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+                for s in b.stmts.iter_mut() {
+                    rewrite_uses_atomic_in_stmt(s, var, kind);
                 }
             }
-        }
+            swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                rewrite_uses_atomic_in_expr(e, var, kind);
+            }
+        },
         _ => {}
     }
 }
@@ -5398,6 +5486,357 @@ fn expr_arg(e: Expr) -> swc_ecma_ast::ExprOrSpread {
         spread: None,
         expr: Box::new(e),
     }
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// #229 Fase 3: Thread-local accumulation. Em trampolins de thread.spawn,
+// loops apertados que fazem `atomic.i64_fetch_add(x, lit)` repetidamente
+// pagam contention de cache N vezes. Transformamos em acumulador local
+// + 1 fetch_add no fim, reduzindo contention drasticamente.
+// ───────────────────────────────────────────────────────────────────────
+
+/// Aplica thread-local accumulation no body de um trampolim. Itera todos
+/// os stmts; para cada `Stmt::While` / `Stmt::For` cujo body só
+/// referencia uma variável atomic via `fetch_add` com literal,
+/// transforma. Conservador: pula loop se há leitura ou outra escrita.
+fn optimize_thread_local_accum(body: &mut Vec<Statement>) {
+    let mut i = 0;
+    while i < body.len() {
+        let Statement::Raw(raw) = &mut body[i];
+        let Some(stmt) = raw.stmt.as_mut() else {
+            i += 1;
+            continue;
+        };
+        if let Some((var, accum_init, post)) = try_extract_local_accum(stmt) {
+            // Inserir antes do loop: `let __ta_<var> = 0;`
+            let ta_name = format!("__ta_{}", var);
+            let init_stmt = make_let_stmt(&ta_name, 0.0);
+            // Inserir após loop: `atomic.i64_fetch_add(<var>, __ta_<var>);`
+            let post_stmt = post;
+
+            // Mantém o stmt do loop em si modificado (já está mutado in-place
+            // por try_extract_local_accum).
+            // Insere init_stmt antes, post_stmt depois.
+            body.insert(
+                i,
+                Statement::Raw(
+                    RawStmt::new("<ta-init>".to_string(), Span::default()).with_stmt(init_stmt),
+                ),
+            );
+            body.insert(
+                i + 2,
+                Statement::Raw(
+                    RawStmt::new("<ta-flush>".to_string(), Span::default()).with_stmt(post_stmt),
+                ),
+            );
+            i += 3;
+            // Suprimir warning de variável não usada (accum_init é só o
+            // valor inicial — sempre 0 nessa otim).
+            let _ = accum_init;
+            continue;
+        }
+        i += 1;
+    }
+}
+
+/// Tenta detectar o padrão thread-local em `stmt`. Se aplicável,
+/// **modifica `stmt`** trocando cada `atomic.i64_fetch_add(var, lit)`
+/// por `__ta_var = __ta_var + lit;` e retorna `(var, init_value,
+/// post_stmt)`. Retorna None se padrão não bate.
+fn try_extract_local_accum(stmt: &mut Stmt) -> Option<(String, f64, Stmt)> {
+    use swc_ecma_ast::Stmt as S;
+    let body: &mut Stmt = match stmt {
+        S::While(w) => &mut w.body,
+        S::DoWhile(w) => &mut w.body,
+        S::For(f) => &mut f.body,
+        _ => return None,
+    };
+
+    // Coleta todos os fetch_add no body do loop. Tem que ser:
+    //  - mesmo `var` em todos
+    //  - segundo arg = literal numérico
+    //  - sem outras leituras/escritas de `var` no loop
+    let mut accum_var: Option<String> = None;
+    let mut sites: Vec<*mut Expr> = Vec::new();
+    let mut violation = false;
+
+    fn scan(
+        stmt: &mut Stmt,
+        accum_var: &mut Option<String>,
+        sites: &mut Vec<*mut Expr>,
+        violation: &mut bool,
+    ) {
+        use swc_ecma_ast::Stmt::*;
+        if *violation {
+            return;
+        }
+        match stmt {
+            Expr(e) => scan_expr(&mut e.expr, accum_var, sites, violation),
+            Block(b) => {
+                for s in b.stmts.iter_mut() {
+                    scan(s, accum_var, sites, violation);
+                }
+            }
+            If(i) => {
+                scan_expr(&mut i.test, accum_var, sites, violation);
+                scan(&mut i.cons, accum_var, sites, violation);
+                if let Some(alt) = i.alt.as_deref_mut() {
+                    scan(alt, accum_var, sites, violation);
+                }
+            }
+            While(w) => {
+                scan_expr(&mut w.test, accum_var, sites, violation);
+                scan(&mut w.body, accum_var, sites, violation);
+            }
+            DoWhile(w) => {
+                scan_expr(&mut w.test, accum_var, sites, violation);
+                scan(&mut w.body, accum_var, sites, violation);
+            }
+            For(f) => {
+                if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_mut() {
+                    for d in vd.decls.iter_mut() {
+                        if let Some(e) = d.init.as_deref_mut() {
+                            scan_expr(e, accum_var, sites, violation);
+                        }
+                    }
+                }
+                if let Some(t) = f.test.as_deref_mut() {
+                    scan_expr(t, accum_var, sites, violation);
+                }
+                if let Some(u) = f.update.as_deref_mut() {
+                    scan_expr(u, accum_var, sites, violation);
+                }
+                scan(&mut f.body, accum_var, sites, violation);
+            }
+            Decl(swc_ecma_ast::Decl::Var(v)) => {
+                for d in v.decls.iter_mut() {
+                    if let Some(e) = d.init.as_deref_mut() {
+                        scan_expr(e, accum_var, sites, violation);
+                    }
+                }
+            }
+            _ => {
+                // Outros stmts (return, throw, etc) — nada a recolher.
+            }
+        }
+    }
+
+    fn scan_expr(
+        expr: &mut Expr,
+        accum_var: &mut Option<String>,
+        sites: &mut Vec<*mut Expr>,
+        violation: &mut bool,
+    ) {
+        if *violation {
+            return;
+        }
+        // Caso desejado: `atomic.i64_fetch_add(var, lit)` ou ...add(var, -lit)
+        if let Some((v, _delta)) = match_atomic_fetch_add_lit(expr) {
+            match accum_var.as_deref() {
+                None => *accum_var = Some(v),
+                Some(prev) if prev == v => {}
+                _ => {
+                    // Mais de uma variável atomic no loop — abort.
+                    *violation = true;
+                    return;
+                }
+            }
+            sites.push(expr as *mut _);
+            return;
+        }
+        // Outras chamadas atomic.* sobre a mesma var → violação
+        if is_atomic_op_on(expr, accum_var.as_deref()) {
+            *violation = true;
+            return;
+        }
+        // Recursa nos sub-exprs
+        match expr {
+            Expr::Bin(b) => {
+                scan_expr(&mut b.left, accum_var, sites, violation);
+                scan_expr(&mut b.right, accum_var, sites, violation);
+            }
+            Expr::Unary(u) => scan_expr(&mut u.arg, accum_var, sites, violation),
+            Expr::Cond(c) => {
+                scan_expr(&mut c.test, accum_var, sites, violation);
+                scan_expr(&mut c.cons, accum_var, sites, violation);
+                scan_expr(&mut c.alt, accum_var, sites, violation);
+            }
+            Expr::Call(c) => {
+                for a in c.args.iter_mut() {
+                    scan_expr(&mut a.expr, accum_var, sites, violation);
+                }
+                if let Callee::Expr(ce) = &mut c.callee {
+                    scan_expr(ce, accum_var, sites, violation);
+                }
+            }
+            Expr::Member(m) => scan_expr(&mut m.obj, accum_var, sites, violation),
+            Expr::Paren(p) => scan_expr(&mut p.expr, accum_var, sites, violation),
+            Expr::Assign(a) => scan_expr(&mut a.right, accum_var, sites, violation),
+            _ => {}
+        }
+    }
+
+    scan(body, &mut accum_var, &mut sites, &mut violation);
+
+    if violation {
+        return None;
+    }
+    let var = accum_var?;
+    if sites.is_empty() {
+        return None;
+    }
+
+    // Reescreve cada site `atomic.i64_fetch_add(var, lit)` para
+    // `__ta_<var> = __ta_<var> + lit`.
+    let ta_name = format!("__ta_{}", var);
+    for site_ptr in sites {
+        // SAFETY: ponteiros vêm de borrow vivo do mesmo body que ainda
+        // existe; sem realocação entre a coleta e o uso.
+        let e = unsafe { &mut *site_ptr };
+        if let Some((_, delta)) = match_atomic_fetch_add_lit(e) {
+            // accum = accum + delta
+            let lhs = Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: ta_name.clone().into(),
+                optional: false,
+            });
+            let rhs = Expr::Bin(swc_ecma_ast::BinExpr {
+                span: Default::default(),
+                op: swc_ecma_ast::BinaryOp::Add,
+                left: Box::new(lhs.clone()),
+                right: Box::new(delta),
+            });
+            let assign = Expr::Assign(swc_ecma_ast::AssignExpr {
+                span: Default::default(),
+                op: swc_ecma_ast::AssignOp::Assign,
+                left: swc_ecma_ast::AssignTarget::Simple(
+                    swc_ecma_ast::SimpleAssignTarget::Ident(swc_ecma_ast::BindingIdent {
+                        id: swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: ta_name.clone().into(),
+                            optional: false,
+                        },
+                        type_ann: None,
+                    }),
+                ),
+                right: Box::new(rhs),
+            });
+            *e = assign;
+        }
+    }
+
+    // Constrói o post_stmt: `atomic.i64_fetch_add(var, __ta_<var>);`
+    let flush_call = make_call(
+        "atomic",
+        "i64_fetch_add",
+        vec![ident_arg(&var), ident_arg(&ta_name)],
+    );
+    let post_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+        span: Default::default(),
+        expr: Box::new(flush_call),
+    });
+
+    Some((var, 0.0, post_stmt))
+}
+
+/// Detecta `atomic.i64_fetch_add(var, expr)` onde `var` é um Ident
+/// simples. Retorna (nome do var, expr de delta).
+fn match_atomic_fetch_add_lit(expr: &Expr) -> Option<(String, Expr)> {
+    let c = if let Expr::Call(c) = expr { c } else { return None };
+    let Callee::Expr(ce) = &c.callee else { return None };
+    let Expr::Member(m) = ce.as_ref() else { return None };
+    let (Expr::Ident(obj), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) else {
+        return None;
+    };
+    if obj.sym.as_ref() != "atomic" || prop.sym.as_ref() != "i64_fetch_add" {
+        return None;
+    }
+    if c.args.len() != 2 {
+        return None;
+    }
+    let Expr::Ident(var_id) = c.args[0].expr.as_ref() else {
+        return None;
+    };
+    // Aceita literal (Num) ou Unary(Minus, lit). Suficiente pra MVP.
+    let delta = c.args[1].expr.as_ref().clone();
+    if !is_constant_delta(&delta) {
+        return None;
+    }
+    Some((var_id.sym.to_string(), delta))
+}
+
+fn is_constant_delta(e: &Expr) -> bool {
+    match e {
+        Expr::Lit(Lit::Num(_)) => true,
+        Expr::Unary(u) => {
+            matches!(u.op, swc_ecma_ast::UnaryOp::Minus | swc_ecma_ast::UnaryOp::Plus)
+                && is_constant_delta(&u.arg)
+        }
+        Expr::Paren(p) => is_constant_delta(&p.expr),
+        _ => false,
+    }
+}
+
+/// Detecta uso de `var` em **qualquer** call atomic.* que NÃO seja o
+/// fetch_add já tratado. Usado pra abortar otim quando há leitura
+/// (`atomic.i64_load(var)`) ou outra escrita no loop.
+fn is_atomic_op_on(expr: &Expr, var: Option<&str>) -> bool {
+    let Some(v) = var else { return false };
+    let Expr::Call(c) = expr else { return false };
+    let Callee::Expr(ce) = &c.callee else { return false };
+    let Expr::Member(m) = ce.as_ref() else { return false };
+    let (Expr::Ident(obj), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) else {
+        return false;
+    };
+    if obj.sym.as_ref() != "atomic" {
+        return false;
+    }
+    // se for fetch_add, já é tratado em outro path
+    if prop.sym.as_ref() == "i64_fetch_add" {
+        return false;
+    }
+    // qualquer outra atomic op com primeiro arg = var conta como uso
+    if let Some(arg) = c.args.first() {
+        if let Expr::Ident(id) = arg.expr.as_ref() {
+            return id.sym.as_ref() == v;
+        }
+    }
+    false
+}
+
+fn make_let_stmt(name: &str, value: f64) -> Stmt {
+    Stmt::Decl(swc_ecma_ast::Decl::Var(Box::new(swc_ecma_ast::VarDecl {
+        span: Default::default(),
+        ctxt: Default::default(),
+        kind: swc_ecma_ast::VarDeclKind::Let,
+        declare: false,
+        decls: vec![swc_ecma_ast::VarDeclarator {
+            span: Default::default(),
+            name: Pat::Ident(swc_ecma_ast::BindingIdent {
+                id: swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: name.into(),
+                    optional: false,
+                },
+                type_ann: Some(Box::new(swc_ecma_ast::TsTypeAnn {
+                    span: Default::default(),
+                    type_ann: Box::new(TsType::TsKeywordType(swc_ecma_ast::TsKeywordType {
+                        span: Default::default(),
+                        kind: swc_ecma_ast::TsKeywordTypeKind::TsNumberKeyword,
+                    })),
+                })),
+            }),
+            init: Some(Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                span: Default::default(),
+                value,
+                raw: None,
+            })))),
+            definite: false,
+        }],
+    })))
 }
 
 /// Helper genérico para descer em sub-blocks de um Stmt SWC.
