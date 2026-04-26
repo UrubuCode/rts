@@ -952,3 +952,13 @@ fn fixture_ptr_buffer_rw() {
 fn fixture_ptr_copy() {
     run_fixture("ptr_copy");
 }
+
+#[test]
+fn fixture_alloc_basic() {
+    run_fixture("alloc_basic");
+}
+
+#[test]
+fn fixture_alloc_realloc() {
+    run_fixture("alloc_realloc");
+}

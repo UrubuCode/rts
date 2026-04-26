@@ -12,6 +12,8 @@ pub mod num;
 pub mod mem;
 #[path = "backtrace/rt.rs"]
 pub mod backtrace;
+#[path = "alloc/rt.rs"]
+pub mod alloc;
 #[path = "bigfloat/rt.rs"]
 pub mod bigfloat;
 #[path = "time/rt.rs"]
