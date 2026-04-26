@@ -188,6 +188,10 @@ fn build_linker_args(
         }
         TargetFlavor::Elf => {
             let mut args = Vec::new();
+            if linker.is_rust_lld() {
+                args.push("-flavor".to_string());
+                args.push("gnu".to_string());
+            }
             args.push("-o".to_string());
             args.push(output_path.display().to_string());
             for object_path in object_paths {
@@ -212,6 +216,8 @@ fn build_linker_args(
             if linker.is_rust_lld() {
                 args.push("-flavor".to_string());
                 args.push("darwin".to_string());
+                args.push("-arch".to_string());
+                args.push(macho_arch_for_target(&target.triple).to_string());
             }
             args.push("-o".to_string());
             args.push(output_path.display().to_string());
@@ -235,6 +241,14 @@ fn build_linker_args(
             args.push(sdk_ver);
             Ok(args)
         }
+    }
+}
+
+fn macho_arch_for_target(triple: &str) -> &'static str {
+    if triple.starts_with("aarch64-") {
+        "arm64"
+    } else {
+        "x86_64"
     }
 }
 
