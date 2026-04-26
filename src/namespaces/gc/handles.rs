@@ -70,9 +70,27 @@ pub enum Entry {
     /// Usado por `gc.env_*` para implementar capturas reais sem promote-
     /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).
     Env(Vec<i64>),
+    /// Instancia de classe com layout nativo (#147 — passo 4).
+    /// `class` aponta pro handle do tag string `__rts_class`; `bytes`
+    /// armazena os fields conforme o `ClassLayout` calculado em
+    /// compile-time. Slot 0 é reservado para o tag mas armazenamos o
+    /// class handle redundantemente em `class` para acesso O(1) sem
+    /// decodificar o slot 0.
+    Instance(Box<Instance>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
+}
+
+/// Instancia com layout nativo (#147). Armazenada em `Entry::Instance`.
+#[derive(Debug)]
+pub struct Instance {
+    /// Handle do tag string `__rts_class` para a classe desta instancia.
+    pub class: u64,
+    /// Bytes do layout — tamanho determinado em compile-time pelo
+    /// `ClassLayout`. Slot 0 (offset 0) reservado para o tag, demais
+    /// slots para fields conforme `ClassLayout::fields`.
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug)]

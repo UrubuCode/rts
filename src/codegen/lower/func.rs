@@ -2540,6 +2540,48 @@ pub fn compile_program(
         synthetic_fns.extend(fns);
     }
 
+    // Segundo pass: computa layout nativo das classes elegiveis em ordem
+    // topologica (pais antes de filhos), de forma que filhos vejam o
+    // layout do parent ao herdarem offsets. Aditivo: o codegen ainda
+    // nao consome este campo — preserva os 187/187 testes.
+    {
+        use super::class_layout::compute_layout;
+        let mut remaining: Vec<String> = classes.keys().cloned().collect();
+        let mut progress = true;
+        while progress && !remaining.is_empty() {
+            progress = false;
+            let mut still: Vec<String> = Vec::new();
+            for name in remaining.drain(..) {
+                let parent_name = classes.get(&name).and_then(|m| m.super_class.clone());
+                let parent_ready = match &parent_name {
+                    None => true,
+                    Some(p) => classes
+                        .get(p)
+                        .map(|pm| pm.layout.is_some())
+                        .unwrap_or(true), // parent ausente: trata como "pronto"
+                                          // — compute_layout vai retornar None
+                };
+                if !parent_ready {
+                    still.push(name);
+                    continue;
+                }
+                let parent_layout = parent_name
+                    .as_ref()
+                    .and_then(|p| classes.get(p))
+                    .and_then(|pm| pm.layout.clone());
+                let layout = {
+                    let meta = classes.get(&name).expect("present");
+                    compute_layout(meta, parent_layout.as_ref())
+                };
+                if let Some(meta) = classes.get_mut(&name) {
+                    meta.layout = layout;
+                }
+                progress = true;
+            }
+            remaining = still;
+        }
+    }
+
     // Valida que toda classe concreta implementa todos os abstract methods
     // herdados. Coleta os abstract de toda a hierarquia, descontando os
     // que a classe (ou descendentes diretos) implementam.
@@ -3518,6 +3560,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         is_abstract: class.is_abstract,
         abstract_methods,
         member_visibility,
+        layout: None,
     };
     (meta, fns)
 }

@@ -131,6 +131,32 @@ pub struct UserFnAbi {
     pub ret_class: Option<String>,
 }
 
+/// Slot de um campo numa classe com layout nativo.
+///
+/// Cada campo ocupa 8 bytes (alinhamento simples). `is_handle` marca os
+/// slots que carregam GC handles (strings, instancias) — necessario para
+/// trace futuro do GC.
+#[derive(Debug, Clone)]
+pub struct FieldSlot {
+    pub name: String,
+    pub offset: u32,
+    pub ty: ValTy,
+    pub is_handle: bool,
+}
+
+/// Layout nativo computado para uma classe elegivel.
+///
+/// Slot 0 (`offset=0`) sempre reservado para o tag `__rts_class` (handle
+/// de string), por isso `parent_size` minimo é 8 quando nao ha super.
+/// Quando ha super, os campos desta classe comecam em `parent_size`
+/// (que ja inclui o slot do tag).
+#[derive(Debug, Clone)]
+pub struct ClassLayout {
+    pub fields: Vec<FieldSlot>,
+    pub size_bytes: u32,
+    pub parent_size: u32,
+}
+
 /// Metadata estatica de uma classe TS/JS, consumida pelo codegen para
 /// resolver `new C(...)`, `obj.method(...)` e dispatch de `super`.
 ///
@@ -176,6 +202,11 @@ pub struct ClassMeta {
     /// Subclasses concretas devem implementar todos os abstract methods
     /// herdados (incluindo de ancestrais).
     pub abstract_methods: std::collections::HashSet<String>,
+    /// Layout nativo computado, quando a classe é elegível (todos os
+    /// fields anotados, sem getters/setters). `None` para classes que
+    /// continuam usando o caminho `Map`-based atual. Populado em segundo
+    /// pass de `compile_program` apos coletar todas as ClassMeta.
+    pub layout: Option<ClassLayout>,
 }
 
 /// Per-function compilation context.

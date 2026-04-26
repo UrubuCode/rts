@@ -4,6 +4,7 @@
 //! handles variables, arithmetic, control flow, user functions, and
 //! string operations.
 
+pub mod class_layout;
 pub mod ctx;
 pub mod expressions;
 pub mod func;

@@ -67,6 +67,42 @@ declare module "rts" {
      */
     export function env_set(env: number, slot: number, value: number): number;
     /**
+     * Aloca uma instancia com `size` bytes zerados e tag de classe `class_handle`. Retorna o handle ou 0 em erro.
+     */
+    export function instance_new(size: number, class_handle: number): number;
+    /**
+     * Retorna o handle da classe (tag string `__rts_class`) da instancia. 0 em handle invalido.
+     */
+    export function instance_class(handle: number): number;
+    /**
+     * Libera a instancia. Retorna 1 em sucesso, 0 se ja invalido.
+     */
+    export function instance_free(handle: number): number;
+    /**
+     * Le um i64 little-endian no offset (em bytes). 0 em handle invalido ou offset fora do range.
+     */
+    export function instance_load_i64(handle: number, offset: number): number;
+    /**
+     * Escreve um i64 little-endian no offset. Retorna 1 em sucesso, 0 em erro.
+     */
+    export function instance_store_i64(handle: number, offset: number, value: number): number;
+    /**
+     * Le um i32 little-endian no offset. 0 em handle invalido ou offset fora do range.
+     */
+    export function instance_load_i32(handle: number, offset: number): number;
+    /**
+     * Escreve um i32 little-endian no offset. Retorna 1 em sucesso, 0 em erro.
+     */
+    export function instance_store_i32(handle: number, offset: number, value: number): number;
+    /**
+     * Le um f64 little-endian no offset. 0.0 em handle invalido ou offset fora do range.
+     */
+    export function instance_load_f64(handle: number, offset: number): number;
+    /**
+     * Escreve um f64 little-endian no offset. Retorna 1 em sucesso, 0 em erro.
+     */
+    export function instance_store_f64(handle: number, offset: number, value: number): number;
+    /**
      * Libera o env record. Retorna 1 em sucesso, 0 se handle já inválido.
      */
     export function env_free(env: number): number;
@@ -1773,6 +1809,42 @@ declare module "rts:gc" {
    */
   export function env_set(env: number, slot: number, value: number): number;
   /**
+   * Aloca uma instancia com `size` bytes zerados e tag de classe `class_handle`. Retorna o handle ou 0 em erro.
+   */
+  export function instance_new(size: number, class_handle: number): number;
+  /**
+   * Retorna o handle da classe (tag string `__rts_class`) da instancia. 0 em handle invalido.
+   */
+  export function instance_class(handle: number): number;
+  /**
+   * Libera a instancia. Retorna 1 em sucesso, 0 se ja invalido.
+   */
+  export function instance_free(handle: number): number;
+  /**
+   * Le um i64 little-endian no offset (em bytes). 0 em handle invalido ou offset fora do range.
+   */
+  export function instance_load_i64(handle: number, offset: number): number;
+  /**
+   * Escreve um i64 little-endian no offset. Retorna 1 em sucesso, 0 em erro.
+   */
+  export function instance_store_i64(handle: number, offset: number, value: number): number;
+  /**
+   * Le um i32 little-endian no offset. 0 em handle invalido ou offset fora do range.
+   */
+  export function instance_load_i32(handle: number, offset: number): number;
+  /**
+   * Escreve um i32 little-endian no offset. Retorna 1 em sucesso, 0 em erro.
+   */
+  export function instance_store_i32(handle: number, offset: number, value: number): number;
+  /**
+   * Le um f64 little-endian no offset. 0.0 em handle invalido ou offset fora do range.
+   */
+  export function instance_load_f64(handle: number, offset: number): number;
+  /**
+   * Escreve um f64 little-endian no offset. Retorna 1 em sucesso, 0 em erro.
+   */
+  export function instance_store_f64(handle: number, offset: number, value: number): number;
+  /**
    * Libera o env record. Retorna 1 em sucesso, 0 se handle já inválido.
    */
   export function env_free(env: number): number;
@@ -1789,6 +1861,15 @@ declare module "rts:gc" {
     env_alloc: (typeof import("rts"))["gc"]["env_alloc"];
     env_get: (typeof import("rts"))["gc"]["env_get"];
     env_set: (typeof import("rts"))["gc"]["env_set"];
+    instance_new: (typeof import("rts"))["gc"]["instance_new"];
+    instance_class: (typeof import("rts"))["gc"]["instance_class"];
+    instance_free: (typeof import("rts"))["gc"]["instance_free"];
+    instance_load_i64: (typeof import("rts"))["gc"]["instance_load_i64"];
+    instance_store_i64: (typeof import("rts"))["gc"]["instance_store_i64"];
+    instance_load_i32: (typeof import("rts"))["gc"]["instance_load_i32"];
+    instance_store_i32: (typeof import("rts"))["gc"]["instance_store_i32"];
+    instance_load_f64: (typeof import("rts"))["gc"]["instance_load_f64"];
+    instance_store_f64: (typeof import("rts"))["gc"]["instance_store_f64"];
     env_free: (typeof import("rts"))["gc"]["env_free"];
   };
   export default _default;

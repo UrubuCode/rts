@@ -124,6 +124,37 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_ENV_GET", __RTS_FN_NS_GC_ENV_GET);
     add_fn!("__RTS_FN_NS_GC_ENV_SET", __RTS_FN_NS_GC_ENV_SET);
     add_fn!("__RTS_FN_NS_GC_ENV_FREE", __RTS_FN_NS_GC_ENV_FREE);
+    use crate::namespaces::gc::instance::*;
+    add_fn!("__RTS_FN_NS_GC_INSTANCE_NEW", __RTS_FN_NS_GC_INSTANCE_NEW);
+    add_fn!(
+        "__RTS_FN_NS_GC_INSTANCE_CLASS",
+        __RTS_FN_NS_GC_INSTANCE_CLASS
+    );
+    add_fn!("__RTS_FN_NS_GC_INSTANCE_FREE", __RTS_FN_NS_GC_INSTANCE_FREE);
+    add_fn!(
+        "__RTS_FN_NS_GC_INSTANCE_LOAD_I64",
+        __RTS_FN_NS_GC_INSTANCE_LOAD_I64
+    );
+    add_fn!(
+        "__RTS_FN_NS_GC_INSTANCE_STORE_I64",
+        __RTS_FN_NS_GC_INSTANCE_STORE_I64
+    );
+    add_fn!(
+        "__RTS_FN_NS_GC_INSTANCE_LOAD_I32",
+        __RTS_FN_NS_GC_INSTANCE_LOAD_I32
+    );
+    add_fn!(
+        "__RTS_FN_NS_GC_INSTANCE_STORE_I32",
+        __RTS_FN_NS_GC_INSTANCE_STORE_I32
+    );
+    add_fn!(
+        "__RTS_FN_NS_GC_INSTANCE_LOAD_F64",
+        __RTS_FN_NS_GC_INSTANCE_LOAD_F64
+    );
+    add_fn!(
+        "__RTS_FN_NS_GC_INSTANCE_STORE_F64",
+        __RTS_FN_NS_GC_INSTANCE_STORE_F64
+    );
 
     // ── namespaces::io ────────────────────────────────────────────────
     use crate::namespaces::io::print::*;
