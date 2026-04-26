@@ -52,6 +52,16 @@ pub enum Entry {
     AtomicI64(Box<std::sync::atomic::AtomicI64>),
     /// AtomicBool owned — namespace `atomic` (bool_*).
     AtomicBool(Box<std::sync::atomic::AtomicBool>),
+    /// Mutex<i64> owned — namespace `sync` (mutex_*). Box estabiliza o
+    /// endereco; guards sao armazenados em mapa thread-local para
+    /// permitir lock/unlock atravessando chamadas extern "C".
+    SyncMutex(Box<std::sync::Mutex<i64>>),
+    /// RwLock<i64> owned — namespace `sync` (rwlock_*). Mesma logica de
+    /// guards thread-local que `SyncMutex`.
+    SyncRwLock(Box<std::sync::RwLock<i64>>),
+    /// OnceLock owned — namespace `sync` (once_*). Usa `std::sync::Once`
+    /// internamente para executar fn_ptr exatamente uma vez.
+    SyncOnce(Box<std::sync::Once>),
     /// Environment record para closures — Vec<i64> com slots por captura.
     /// Usado por `gc.env_*` para implementar capturas reais sem promote-
     /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).

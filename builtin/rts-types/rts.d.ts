@@ -849,6 +849,60 @@ declare module "rts" {
   }
 
   /**
+   * Primitivas de sincronizacao (Mutex, RwLock, OnceLock) baseadas em std::sync.
+   */
+  export namespace sync {
+    /**
+     * Aloca um Mutex protegendo um valor i64 inicializado com `initial`.
+     */
+    export function mutex_new(initial: number): number;
+    /**
+     * Bloqueia ate adquirir o Mutex e retorna o valor interno protegido. 0 se handle invalido.
+     */
+    export function mutex_lock(mutex: number): number;
+    /**
+     * Tenta adquirir o Mutex sem bloquear. Retorna o valor interno em caso de sucesso, 0 se ja estava lockado ou handle invalido.
+     */
+    export function mutex_try_lock(mutex: number): number;
+    /**
+     * Escreve `value` no Mutex. Caller deve ter chamado lock/try_lock antes (responsabilidade do caller).
+     */
+    export function mutex_set(mutex: number, value: number): void;
+    /**
+     * Libera o Mutex previamente adquirido por lock/try_lock. No-op se nao havia guard ativo.
+     */
+    export function mutex_unlock(mutex: number): void;
+    /**
+     * Libera o Mutex e seu slot na HandleTable.
+     */
+    export function mutex_free(mutex: number): void;
+    /**
+     * Aloca um RwLock protegendo um valor i64 inicializado com `initial`.
+     */
+    export function rwlock_new(initial: number): number;
+    /**
+     * Adquire um read guard (compartilhado) e retorna um handle de guard. Liberar via rwlock_unlock(guard). 0 se handle invalido.
+     */
+    export function rwlock_read(rwlock: number): number;
+    /**
+     * Adquire um write guard (exclusivo) e retorna um handle de guard. Liberar via rwlock_unlock(guard). 0 se handle invalido.
+     */
+    export function rwlock_write(rwlock: number): number;
+    /**
+     * Libera um guard previamente adquirido via rwlock_read/rwlock_write.
+     */
+    export function rwlock_unlock(guard: number): void;
+    /**
+     * Aloca um OnceLock e retorna o handle.
+     */
+    export function once_new(): number;
+    /**
+     * Executa `fn_ptr` (ponteiro para `extern "C" fn()`) exatamente uma vez por OnceLock. Chamadas subsequentes sao no-op.
+     */
+    export function once_call(once: number, fn_ptr: number): void;
+  }
+
+  /**
    * Rich string operations beyond the basic gc pool.
    */
   export namespace string {
@@ -2701,6 +2755,75 @@ declare module "rts:atomic" {
     fence_acquire: (typeof import("rts"))["atomic"]["fence_acquire"];
     fence_release: (typeof import("rts"))["atomic"]["fence_release"];
     fence_seq_cst: (typeof import("rts"))["atomic"]["fence_seq_cst"];
+  };
+  export default _default;
+}
+
+declare module "rts:sync" {
+  /**
+   * Primitivas de sincronizacao (Mutex, RwLock, OnceLock) baseadas em std::sync.
+   */
+  /**
+   * Aloca um Mutex protegendo um valor i64 inicializado com `initial`.
+   */
+  export function mutex_new(initial: number): number;
+  /**
+   * Bloqueia ate adquirir o Mutex e retorna o valor interno protegido. 0 se handle invalido.
+   */
+  export function mutex_lock(mutex: number): number;
+  /**
+   * Tenta adquirir o Mutex sem bloquear. Retorna o valor interno em caso de sucesso, 0 se ja estava lockado ou handle invalido.
+   */
+  export function mutex_try_lock(mutex: number): number;
+  /**
+   * Escreve `value` no Mutex. Caller deve ter chamado lock/try_lock antes (responsabilidade do caller).
+   */
+  export function mutex_set(mutex: number, value: number): void;
+  /**
+   * Libera o Mutex previamente adquirido por lock/try_lock. No-op se nao havia guard ativo.
+   */
+  export function mutex_unlock(mutex: number): void;
+  /**
+   * Libera o Mutex e seu slot na HandleTable.
+   */
+  export function mutex_free(mutex: number): void;
+  /**
+   * Aloca um RwLock protegendo um valor i64 inicializado com `initial`.
+   */
+  export function rwlock_new(initial: number): number;
+  /**
+   * Adquire um read guard (compartilhado) e retorna um handle de guard. Liberar via rwlock_unlock(guard). 0 se handle invalido.
+   */
+  export function rwlock_read(rwlock: number): number;
+  /**
+   * Adquire um write guard (exclusivo) e retorna um handle de guard. Liberar via rwlock_unlock(guard). 0 se handle invalido.
+   */
+  export function rwlock_write(rwlock: number): number;
+  /**
+   * Libera um guard previamente adquirido via rwlock_read/rwlock_write.
+   */
+  export function rwlock_unlock(guard: number): void;
+  /**
+   * Aloca um OnceLock e retorna o handle.
+   */
+  export function once_new(): number;
+  /**
+   * Executa `fn_ptr` (ponteiro para `extern "C" fn()`) exatamente uma vez por OnceLock. Chamadas subsequentes sao no-op.
+   */
+  export function once_call(once: number, fn_ptr: number): void;
+  const _default: {
+    mutex_new: (typeof import("rts"))["sync"]["mutex_new"];
+    mutex_lock: (typeof import("rts"))["sync"]["mutex_lock"];
+    mutex_try_lock: (typeof import("rts"))["sync"]["mutex_try_lock"];
+    mutex_set: (typeof import("rts"))["sync"]["mutex_set"];
+    mutex_unlock: (typeof import("rts"))["sync"]["mutex_unlock"];
+    mutex_free: (typeof import("rts"))["sync"]["mutex_free"];
+    rwlock_new: (typeof import("rts"))["sync"]["rwlock_new"];
+    rwlock_read: (typeof import("rts"))["sync"]["rwlock_read"];
+    rwlock_write: (typeof import("rts"))["sync"]["rwlock_write"];
+    rwlock_unlock: (typeof import("rts"))["sync"]["rwlock_unlock"];
+    once_new: (typeof import("rts"))["sync"]["once_new"];
+    once_call: (typeof import("rts"))["sync"]["once_call"];
   };
   export default _default;
 }

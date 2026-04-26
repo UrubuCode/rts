@@ -808,6 +808,57 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         atomic_fence::__RTS_FN_NS_ATOMIC_FENCE_SEQ_CST
     );
 
+    // ── namespaces::sync ──────────────────────────────────────────────
+    use crate::namespaces::sync::{mutex as sync_mutex, once as sync_once, rwlock as sync_rwlock};
+    add_fn!(
+        "__RTS_FN_NS_SYNC_MUTEX_NEW",
+        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_MUTEX_LOCK",
+        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_LOCK
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_MUTEX_TRY_LOCK",
+        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_TRY_LOCK
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_MUTEX_SET",
+        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_SET
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_MUTEX_UNLOCK",
+        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_UNLOCK
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_MUTEX_FREE",
+        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_FREE
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_RWLOCK_NEW",
+        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_RWLOCK_READ",
+        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_READ
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_RWLOCK_WRITE",
+        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_WRITE
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_RWLOCK_UNLOCK",
+        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_UNLOCK
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_ONCE_NEW",
+        sync_once::__RTS_FN_NS_SYNC_ONCE_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_SYNC_ONCE_CALL",
+        sync_once::__RTS_FN_NS_SYNC_ONCE_CALL
+    );
+
     // ── namespaces::path ──────────────────────────────────────────────
     use crate::namespaces::path::*;
     add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);
