@@ -1,0 +1,70 @@
+use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+
+pub const MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "push_frame",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_TRACE_PUSH_FRAME",
+        args: &[AbiType::StrPtr, AbiType::StrPtr, AbiType::I64, AbiType::I64],
+        returns: AbiType::Void,
+        doc: "Push a TS call frame onto the trace stack.",
+        ts_signature: "push_frame(file: string, fn_name: string, line: number, col: number): void",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "pop_frame",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_TRACE_POP_FRAME",
+        args: &[],
+        returns: AbiType::Void,
+        doc: "Pop the top TS call frame from the trace stack.",
+        ts_signature: "pop_frame(): void",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "capture",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_TRACE_CAPTURE",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Capture current trace as a GC string handle. Returns 0 if stack is empty.",
+        ts_signature: "capture(): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "print",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_TRACE_PRINT",
+        args: &[],
+        returns: AbiType::Void,
+        doc: "Print current trace stack to stderr.",
+        ts_signature: "print(): void",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "depth",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_TRACE_DEPTH",
+        args: &[],
+        returns: AbiType::I64,
+        doc: "Returns current trace stack depth.",
+        ts_signature: "depth(): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
+        name: "free",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_TRACE_FREE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Void,
+        doc: "Free a captured trace handle.",
+        ts_signature: "free(handle: number): void",
+        intrinsic: None,
+    },
+];
+
+pub const SPEC: NamespaceSpec = NamespaceSpec {
+    name: "trace",
+    doc: "RTS stack trace and debug tooling. Push/pop TS call frames; capture trace without error.",
+    members: MEMBERS,
+};

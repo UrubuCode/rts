@@ -7,6 +7,8 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use anyhow::Error as AnyhowError;
+
 use crate::diagnostics::source_store::{self, FileId};
 use crate::parser::span::Span;
 
@@ -139,10 +141,24 @@ impl DiagnosticEngine {
     /// Renderiza todos os diagnosticos acumulados. `use_color` ativa ANSI.
     pub fn render_all(&self, use_color: bool) -> String {
         let guard = self.inner.lock().expect("diagnostic engine poisoned");
+        let bold = if use_color { "\x1b[1m" } else { "" };
+        let red = if use_color { "\x1b[1;31m" } else { "" };
+        let reset = if use_color { "\x1b[0m" } else { "" };
         let mut output = String::new();
         for diag in &guard.diagnostics {
             output.push_str(&render_one(diag, use_color));
             output.push('\n');
+        }
+        let errors = guard.diagnostics.iter().filter(|d| d.severity == Severity::Error).count();
+        let warnings = guard.diagnostics.iter().filter(|d| d.severity == Severity::Warning).count();
+        if errors > 0 {
+            let _ = write!(output, "{red}{bold}{errors} error(s){reset}");
+            if warnings > 0 {
+                let _ = write!(output, ", {warnings} warning(s)");
+            }
+            output.push('\n');
+        } else if warnings > 0 {
+            let _ = write!(output, "{bold}{warnings} warning(s){reset}\n");
         }
         output
     }
@@ -159,15 +175,40 @@ fn render_one(diag: &RichDiagnostic, use_color: bool) -> String {
     let reset = if use_color { "\x1b[0m" } else { "" };
     let bold = if use_color { "\x1b[1m" } else { "" };
     let dim = if use_color { "\x1b[2m" } else { "" };
-    let color = if use_color {
-        diag.severity.ansi_color()
-    } else {
-        ""
-    };
+    let cyan = if use_color { "\x1b[2;36m" } else { "" };
+    let color = if use_color { diag.severity.ansi_color() } else { "" };
 
     let mut out = String::new();
 
-    // Header: "error[E001]: mensagem"
+    // 1) Location: "path:line:col"  (Bun puts this first)
+    if let Some(span) = diag.primary_span {
+        if let Some(file_id) = span.file {
+            let path_str = source_store::path_of(file_id)
+                .map(|p| display_path(&p))
+                .unwrap_or_else(|| "<unknown>".to_owned());
+            let _ = write!(
+                out,
+                "{cyan}{path}:{line}:{col}{reset}\n",
+                cyan = cyan,
+                reset = reset,
+                path = path_str,
+                line = span.start.line,
+                col = span.start.column,
+            );
+            render_snippet(&mut out, file_id, span, use_color);
+        } else {
+            let _ = write!(
+                out,
+                "{cyan}<no file>:{line}:{col}{reset}\n",
+                cyan = cyan,
+                reset = reset,
+                line = span.start.line,
+                col = span.start.column,
+            );
+        }
+    }
+
+    // 2) Error header: "error[E001]: message"
     let _ = write!(
         out,
         "{color}{label}[{code}]{reset}{bold}: {msg}{reset}\n",
@@ -179,45 +220,7 @@ fn render_one(diag: &RichDiagnostic, use_color: bool) -> String {
         msg = diag.message,
     );
 
-    // Span header: "  --> path:line:col"
-    if let Some(span) = diag.primary_span {
-        if let Some(file_id) = span.file {
-            if let Some(path) = source_store::path_of(file_id) {
-                let _ = write!(
-                    out,
-                    "{dim}  --> {reset}{path}:{line}:{col}\n",
-                    dim = dim,
-                    reset = reset,
-                    path = display_path(&path),
-                    line = span.start.line,
-                    col = span.start.column,
-                );
-
-                // Snippet: "  N | <linha>"
-                render_snippet(&mut out, file_id, span, use_color);
-            } else {
-                let _ = write!(
-                    out,
-                    "{dim}  --> {reset}<unknown>:{line}:{col}\n",
-                    dim = dim,
-                    reset = reset,
-                    line = span.start.line,
-                    col = span.start.column,
-                );
-            }
-        } else {
-            let _ = write!(
-                out,
-                "{dim}  --> {reset}<no file>:{line}:{col}\n",
-                dim = dim,
-                reset = reset,
-                line = span.start.line,
-                col = span.start.column,
-            );
-        }
-    }
-
-    // Notes: "  = nota"
+    // 3) Notes
     for note in &diag.notes {
         let _ = write!(
             out,
@@ -229,16 +232,57 @@ fn render_one(diag: &RichDiagnostic, use_color: bool) -> String {
         );
     }
 
-    // Suggestion: "  = sugestao: ..."
+    // 4) Suggestion
     if let Some(suggestion) = &diag.suggestion {
         let _ = write!(
             out,
-            "{dim}  = {reset}{bold}sugestao{reset}: {suggestion}\n",
+            "{dim}  = {reset}{bold}suggestion{reset}: {suggestion}\n",
             dim = dim,
             reset = reset,
             bold = bold,
             suggestion = suggestion,
         );
+    }
+
+    out
+}
+
+/// Format an `anyhow` error chain in Bun/Node style.
+///
+/// Root cause becomes the headline; context frames appear as `at` lines.
+/// Boilerplate wrappers ("JIT run of X failed", "JIT compile failed") are
+/// stripped so only the actionable message reaches the user.
+pub fn format_anyhow_error(e: &AnyhowError, use_color: bool) -> String {
+    let red = if use_color { "\x1b[1;31m" } else { "" };
+    let reset = if use_color { "\x1b[0m" } else { "" };
+    let bold = if use_color { "\x1b[1m" } else { "" };
+    let dim = if use_color { "\x1b[2m" } else { "" };
+
+    let chain: Vec<String> = e.chain().map(|c| c.to_string()).collect();
+
+    let meaningful: Vec<&str> = chain
+        .iter()
+        .map(String::as_str)
+        .filter(|s| {
+            !s.starts_with("JIT run of")
+                && !s.starts_with("failed to parse")
+                && !s.starts_with("failed to read")
+                && *s != "JIT compile failed"
+                && *s != "compile failed"
+        })
+        .collect();
+
+    if meaningful.is_empty() {
+        return format!("{red}error{reset}{bold}: {e}{reset}\n", e = e);
+    }
+
+    // Primary = deepest (most specific) cause
+    let primary = *meaningful.last().unwrap();
+    let mut out = format!("{red}error{reset}{bold}: {primary}{reset}\n");
+
+    // Context frames from deepest+1 toward outermost, shown dim
+    for &frame in meaningful.iter().rev().skip(1) {
+        let _ = write!(out, "{dim}      at {frame}{reset}\n");
     }
 
     out

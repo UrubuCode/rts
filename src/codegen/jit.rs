@@ -326,26 +326,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_MEM_REPLACE_I64", m::__RTS_FN_NS_MEM_REPLACE_I64);
     }
 
-    // ── namespaces::backtrace ─────────────────────────────────────────
+    // ── namespaces::trace ─────────────────────────────────────────────
     {
-        use crate::namespaces::backtrace::ops as bt;
+        use crate::namespaces::trace::ops as tr;
         add_fn!(
-            "__RTS_FN_NS_BACKTRACE_CAPTURE",
-            bt::__RTS_FN_NS_BACKTRACE_CAPTURE
+            "__RTS_FN_NS_TRACE_PUSH_FRAME",
+            tr::__RTS_FN_NS_TRACE_PUSH_FRAME
         );
-        add_fn!(
-            "__RTS_FN_NS_BACKTRACE_CAPTURE_IF_ENABLED",
-            bt::__RTS_FN_NS_BACKTRACE_CAPTURE_IF_ENABLED
-        );
-        add_fn!(
-            "__RTS_FN_NS_BACKTRACE_IS_ENABLED",
-            bt::__RTS_FN_NS_BACKTRACE_IS_ENABLED
-        );
-        add_fn!(
-            "__RTS_FN_NS_BACKTRACE_TO_STRING",
-            bt::__RTS_FN_NS_BACKTRACE_TO_STRING
-        );
-        add_fn!("__RTS_FN_NS_BACKTRACE_FREE", bt::__RTS_FN_NS_BACKTRACE_FREE);
+        add_fn!("__RTS_FN_NS_TRACE_POP_FRAME", tr::__RTS_FN_NS_TRACE_POP_FRAME);
+        add_fn!("__RTS_FN_NS_TRACE_CAPTURE", tr::__RTS_FN_NS_TRACE_CAPTURE);
+        add_fn!("__RTS_FN_NS_TRACE_PRINT", tr::__RTS_FN_NS_TRACE_PRINT);
+        add_fn!("__RTS_FN_NS_TRACE_DEPTH", tr::__RTS_FN_NS_TRACE_DEPTH);
+        add_fn!("__RTS_FN_NS_TRACE_FREE", tr::__RTS_FN_NS_TRACE_FREE);
     }
 
     // ── namespaces::alloc ─────────────────────────────────────────────

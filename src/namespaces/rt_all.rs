@@ -10,8 +10,8 @@ pub mod math;
 pub mod num;
 #[path = "mem/rt.rs"]
 pub mod mem;
-#[path = "backtrace/rt.rs"]
-pub mod backtrace;
+#[path = "trace/rt.rs"]
+pub mod trace;
 #[path = "alloc/rt.rs"]
 pub mod alloc;
 #[path = "bigfloat/rt.rs"]
@@ -54,4 +54,5 @@ pub mod runtime;
 // shim with the subset they need in runtime_support.
 pub mod namespaces {
     pub use crate::gc;
+    pub use crate::trace;
 }

@@ -1,10 +1,9 @@
 //! Thread-local runtime error slot for `throw` / `try-catch`.
 //!
-//! Besides the thrown value handle, we also capture a Rust backtrace and
-//! expose it as a GC string handle so uncaught throws can be reported as a
-//! `StackError` (message + stack) similarly to JS/TS `Error.stack`.
+//! When a value is thrown, the current TS call frame stack is captured
+//! (from `trace::frame_stack`) and stored as a GC string handle so uncaught
+//! throws can be reported with a formatted stack trace.
 
-use std::backtrace::Backtrace;
 use std::cell::RefCell;
 
 use super::handles::{Entry, table};
@@ -27,8 +26,10 @@ thread_local! {
 }
 
 fn capture_stack_handle() -> u64 {
-    let bt = Backtrace::force_capture();
-    let text = format!("{bt}");
+    let text = crate::namespaces::trace::frame_stack::capture_string();
+    if text.is_empty() {
+        return 0;
+    }
     table()
         .lock()
         .expect("handle table poisoned")

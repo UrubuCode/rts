@@ -59,8 +59,18 @@ pub fn command(path: Option<String>) -> Result<()> {
 
         if run_result.is_err() || file_failed > 0 {
             failed_files += 1;
-            if let Err(e) = run_result {
-                eprintln!("  error: {e:#}");
+            if let Err(ref e) = run_result {
+                let use_color = crate::diagnostics::reporter::stderr_supports_color();
+                let engine = crate::diagnostics::reporter::global_engine();
+                let msg = if engine.has_errors() {
+                    engine.render_all(use_color)
+                } else {
+                    crate::diagnostics::reporter::format_anyhow_error(e, use_color)
+                };
+                // Indent each line by 2 spaces to align with test output
+                for line in msg.lines() {
+                    eprintln!("  {line}");
+                }
             }
         }
     }

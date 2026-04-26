@@ -40,8 +40,6 @@ pub enum Entry {
     Vec(Box<Vec<i64>>),
     /// Regex compilada — namespace `regex`.
     Regex(Box<regex::Regex>),
-    /// Stack trace capturada — namespace `backtrace`.
-    Backtrace(Box<std::backtrace::Backtrace>),
     /// CString owned — namespace `ffi` (cstring_*). Box pra estabilizar
     /// o ponteiro retornado por `cstring_ptr` enquanto o slot vive.
     CString(Box<std::ffi::CString>),

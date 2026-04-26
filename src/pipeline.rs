@@ -145,11 +145,9 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
     let exit_code = main_fn();
     if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
-        if let Some(stack) = report.stack {
-            anyhow::bail!("Uncaught StackError: {}\n{}", report.message, stack);
-        } else {
-            anyhow::bail!("Uncaught Error: {}", report.message);
-        }
+        let use_color = crate::diagnostics::reporter::stderr_supports_color();
+        eprint!("{}", format_runtime_error(&report, use_color));
+        return Ok((1, warnings));
     }
     std::mem::forget(module);
 
@@ -189,11 +187,9 @@ pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String
     let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
     let exit_code = main_fn();
     if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
-        if let Some(stack) = report.stack {
-            anyhow::bail!("Uncaught StackError: {}\n{}", report.message, stack);
-        } else {
-            anyhow::bail!("Uncaught Error: {}", report.message);
-        }
+        let use_color = crate::diagnostics::reporter::stderr_supports_color();
+        eprint!("{}", format_runtime_error(&report, use_color));
+        return Ok((1, warnings));
     }
 
     // JITModule owns the executable pages — keep it alive until the
@@ -202,6 +198,24 @@ pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String
     std::mem::forget(module);
 
     Ok((exit_code, warnings))
+}
+
+fn format_runtime_error(
+    report: &crate::namespaces::gc::error::RuntimeErrorReport,
+    use_color: bool,
+) -> String {
+    let red = if use_color { "\x1b[1;31m" } else { "" };
+    let reset = if use_color { "\x1b[0m" } else { "" };
+    let bold = if use_color { "\x1b[1m" } else { "" };
+
+    let mut out = format!("{red}error{reset}{bold}: {}{reset}\n", report.message);
+    if let Some(stack) = &report.stack {
+        if !stack.trim().is_empty() {
+            out.push_str(stack.trim_end());
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Returns the set of namespaces inferred from a pre-compiled object's

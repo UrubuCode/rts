@@ -6,7 +6,7 @@
 
 pub mod alloc;
 pub mod atomic;
-pub mod backtrace;
+pub mod trace;
 pub mod bigfloat;
 pub mod buffer;
 pub mod collections;
