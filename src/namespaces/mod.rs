@@ -27,5 +27,6 @@ pub mod ptr;
 pub mod regex;
 pub mod runtime;
 pub mod string;
+pub mod test;
 pub mod time;
 pub mod ui;

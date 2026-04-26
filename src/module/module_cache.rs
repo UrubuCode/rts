@@ -43,6 +43,23 @@ impl ModuleCache {
         resolve_cached_module_entry(&root)
     }
 
+    /// Writes an embedded TypeScript builtin module to the cache and returns
+    /// its path. Uses a content-hash subdirectory so new versions auto-invalidate.
+    pub(crate) fn write_builtin_ts(&self, name: &str, content: &str) -> Result<PathBuf> {
+        let version = format!("{:016x}", fnv1a64(content.as_bytes()));
+        let root = self.base_dir.join("builtin").join(name).join(version);
+        let entry = root.join("index.ts");
+        if !entry.exists() {
+            std::fs::create_dir_all(&root).with_context(|| {
+                format!("failed to create builtin cache dir {}", root.display())
+            })?;
+            std::fs::write(&entry, content).with_context(|| {
+                format!("failed to write builtin module {}", entry.display())
+            })?;
+        }
+        resolve_source_candidate(&entry)
+    }
+
     pub(crate) fn fetch_remote_import(&self, alias: Option<&str>, url: &str) -> Result<PathBuf> {
         let name = alias
             .map(sanitize_segment)

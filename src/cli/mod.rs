@@ -3,6 +3,7 @@
 pub mod apis;
 pub mod clean;
 pub mod compile;
+pub mod emit_types;
 pub mod init;
 pub mod run;
 
@@ -73,6 +74,7 @@ where
         "apis" | "api" => apis::command(),
         "init" => init::command(positional.get(1).cloned()),
         "clean" => clean::command(),
+        "emit-types" => emit_types::command(positional.get(1).cloned()),
         "help" => {
             print_help(&bin_name);
             Ok(())
@@ -151,6 +153,7 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} apis");
     println!("  {bin_name} init [name]");
     println!("  {bin_name} clean");
+    println!("  {bin_name} emit-types [output.d.ts]");
     println!("  {bin_name} help");
     println!("Options:");
     println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");

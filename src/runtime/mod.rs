@@ -46,7 +46,7 @@ pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
 /// Returns every known builtin module key so diagnostics can suggest
 /// corrections ("did you mean 'rts:fs'?").
 pub fn builtin_module_keys() -> Vec<&'static str> {
-    let mut keys = vec!["rts"];
+    let mut keys = vec!["rts", "rts:test"];
     for spec in SPECS {
         keys.push(spec.name);
     }

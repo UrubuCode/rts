@@ -127,6 +127,18 @@ pub(crate) fn resolve_import_target(
         });
     }
 
+    // Embedded TypeScript builtins served under the "rts:<name>" scheme but
+    // NOT backed by a SPECS entry (they are full TS source modules).
+    if specifier == "rts:test" {
+        let path = module_cache
+            .write_builtin_ts("test", crate::namespaces::test::BUNDLE_TS)
+            .with_context(|| "failed to cache rts:test bundle")?;
+        return Ok(ImportTarget {
+            path,
+            kind: ModuleKind::Source,
+        });
+    }
+
     // Nao encontramos o modulo em nenhum lugar — tentamos sugestao via
     // distancia de Levenshtein contra os modulos builtin e dependencias
     // declaradas no manifest.

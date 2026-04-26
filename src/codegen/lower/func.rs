@@ -1310,6 +1310,39 @@ impl LiftAcc {
                 _ => None,
             };
             let Some((ns_name, method_name)) = ns_method else {
+                // Direct function calls (user fns like describe/test) also need
+                // arrow args lifted so codegen can emit a func_addr pointer.
+                let is_direct = matches!(&call.callee, Callee::Expr(ce) if matches!(ce.as_ref(), Expr::Ident(_)));
+                if is_direct {
+                    for arg in call.args.iter_mut() {
+                        let body_stmts: Vec<Statement> = match arg.expr.as_ref() {
+                            Expr::Arrow(arrow) => arrow_body_to_stmts(arrow)
+                                .into_iter()
+                                .map(|s| Statement::Raw(
+                                    RawStmt::new("<lifted>".to_string(), Span::default()).with_stmt(s),
+                                ))
+                                .collect(),
+                            _ => continue,
+                        };
+                        let syn_name = format!("__lifted_arrow_{}", self.counter);
+                        self.counter += 1;
+                        let mut body_stmts = body_stmts;
+                        self.lift_in_body(class_name, &mut body_stmts, in_class);
+                        self.new_fns.push(Item::Function(FunctionDecl {
+                            name: syn_name.clone(),
+                            parameters: Vec::new(),
+                            return_type: Some("void".to_string()),
+                            body: body_stmts,
+                            span: Span::default(),
+                        }));
+                        *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: syn_name.into(),
+                            optional: false,
+                        });
+                    }
+                }
                 idx += 1;
                 continue;
             };

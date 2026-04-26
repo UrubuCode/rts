@@ -14,73 +14,84 @@ declare module "rts" {
   export type bool = boolean;
   export type str = string;
 
-  export interface WritableStream {
-    write(message: str): void;
-  }
-
-  export interface ReadableStream {
-    read(maxBytes?: usize): str;
-  }
-
-  export interface FileHandle {
-    close(): void;
-  }
   /**
-   * Input/output utilities and Result helpers.
+   * Runtime-managed handle table and string pool.
+   */
+  export namespace gc {
+    /**
+     * Converts an i64 to its decimal string and returns a handle.
+     */
+    export function string_from_i64(value: number): number;
+    /**
+     * Converts an f64 to its decimal string and returns a handle.
+     */
+    export function string_from_f64(value: number): number;
+    /**
+     * Concatenates two string handles and returns a new handle.
+     */
+    export function string_concat(a: number, b: number): number;
+    /**
+     * Compara dois string handles por conteudo (memcmp). 1 se iguais, 0 caso contrario.
+     */
+    export function string_eq(a: number, b: number): number;
+    /**
+     * Promotes a static (ptr, len) string to a GC handle.
+     */
+    export function string_from_static(data: string): number;
+    /**
+     * Allocates a string handle from a (ptr, len) pair. Returns 0 on error.
+     */
+    export function string_new(data: string): number;
+    /**
+     * Returns the byte length of the string, or -1 on invalid handle.
+     */
+    export function string_len(handle: number): number;
+    /**
+     * Returns the raw pointer to the string buffer, or 0 on invalid handle.
+     */
+    export function string_ptr(handle: number): number;
+    /**
+     * Frees the string handle. Returns 1 on success, 0 if already invalid.
+     */
+    export function string_free(handle: number): number;
+  }
+
+  /**
+   * Standard input/output primitives backed by std::io.
    */
   export namespace io {
-    export interface Error {
-      message: str;
-    }
-
-    export interface Ok<T> {
-      ok: true;
-      tag: "ok";
-      value: T;
-      error: undefined;
-    }
-
-    export interface Err {
-      ok: false;
-      tag: "err";
-      value: undefined;
-      error: Error;
-    }
-
-    export type Result<T> = Ok<T> | Err;
-
     /**
-     * Writes a message to stdout.
+     * Writes a UTF-8 message followed by newline to stdout.
      */
-    export function print(message: str): void;
+    export function print(message: string): void;
     /**
-     * Aborts execution with a runtime panic message.
+     * Writes a UTF-8 message followed by newline to stderr.
      */
-    export function panic(message?: str): never;
+    export function eprint(message: string): void;
     /**
-     * Reads a line or payload from stdin.
+     * Writes raw bytes to stdout, returns bytes written or -1 on error.
      */
-    export function stdin_read(maxBytes?: usize): str;
+    export function stdout_write(data: string): number;
     /**
-     * Writes raw text to stdout.
+     * Flushes stdout buffer. Returns 0 on success, -1 on error.
      */
-    export function stdout_write(message: str): void;
+    export function stdout_flush(): number;
     /**
-     * Writes raw text to stderr.
+     * Writes raw bytes to stderr, returns bytes written or -1 on error.
      */
-    export function stderr_write(message: str): void;
+    export function stderr_write(data: string): number;
     /**
-     * Returns true when an io.Result is successful.
+     * Flushes stderr buffer. Returns 0 on success, -1 on error.
      */
-    export function is_ok<T>(result: Result<T>): bool;
+    export function stderr_flush(): number;
     /**
-     * Returns true when an io.Result is an error.
+     * Reads up to `len` bytes from stdin into buffer. Returns byte count or -1.
      */
-    export function is_err<T>(result: Result<T>): bool;
+    export function stdin_read(bufPtr: number, bufLen: number): number;
     /**
-     * Returns the inner value or a fallback when the result is an error.
+     * Reads a single line from stdin (no terminator) into buffer.
      */
-    export function unwrap_or<T>(result: Result<T>, fallback: T): T;
+    export function stdin_read_line(bufPtr: number, bufLen: number): number;
   }
 
   /**
@@ -88,929 +99,1411 @@ declare module "rts" {
    */
   export namespace fs {
     /**
-     * Reads an UTF-8 file and returns io.Result<string>.
+     * Reads up to `bufLen` bytes from `path` into buffer. Returns byte count or -1.
      */
-    export function read_to_string<P extends str>(path: P): io.Result<str>;
+    export function read(path: string, bufPtr: number, bufLen: number): number;
     /**
-     * Reads a file as bytes encoded as a hex payload string in io.Result.
+     * Reads entire file into buffer, truncating if needed. Returns bytes written or -1.
      */
-    export function read<P extends str>(path: P): io.Result<str>;
+    export function read_all(path: string, bufPtr: number, bufLen: number): number;
     /**
-     * Writes text or hex payload bytes to a file path.
+     * Writes data to `path`, truncating existing contents. Returns bytes written or -1.
      */
-    export function write<P extends str>(path: P, data: str): io.Result<void>;
+    export function write(path: string, data: string): number;
+    /**
+     * Appends data to `path`, creating it when missing. Returns bytes written or -1.
+     */
+    export function append(path: string, data: string): number;
+    /**
+     * Returns 1 if the path exists, 0 otherwise.
+     */
+    export function exists(path: string): number;
+    /**
+     * Returns 1 if `path` is a regular file.
+     */
+    export function is_file(path: string): number;
+    /**
+     * Returns 1 if `path` is a directory.
+     */
+    export function is_dir(path: string): number;
+    /**
+     * Returns file size in bytes, or -1 on error.
+     */
+    export function size(path: string): number;
+    /**
+     * Returns last-modified milliseconds since UNIX epoch, or -1 on error.
+     */
+    export function modified_ms(path: string): number;
+    /**
+     * Creates the directory at `path`. Returns 0 on success, -1 on error.
+     */
+    export function create_dir(path: string): number;
+    /**
+     * Creates the directory and any missing parents.
+     */
+    export function create_dir_all(path: string): number;
+    /**
+     * Removes an empty directory.
+     */
+    export function remove_dir(path: string): number;
+    /**
+     * Removes a directory and all of its contents.
+     */
+    export function remove_dir_all(path: string): number;
+    /**
+     * Removes a file.
+     */
+    export function remove_file(path: string): number;
+    /**
+     * Renames `from` to `to`. Returns 0 on success, -1 on error.
+     */
+    export function rename(from: string, to: string): number;
+    /**
+     * Copies file contents. Returns bytes copied or -1.
+     */
+    export function copy(from: string, to: string): number;
   }
 
   /**
-   * Network utilities backed by std::net with TCP, UDP and IP address support.
+   * Floating-point / integer intrinsics and a seeded xorshift PRNG.
    */
-  export namespace net {
-    export interface TcpConnection {
-          stream: u64;
-          peer_addr: str;
-        }
-
-    export interface UdpMessage {
-          data: str;
-          addr: str;
-        }
-
-    export interface IpAddr {
-          version: "v4" | "v6";
-          addr: str;
-          is_loopback: bool;
-          is_multicast: bool;
-          is_unspecified: bool;
-        }
-
-    export interface Ipv4Addr {
-          octets: str;
-          addr: str;
-          is_loopback: bool;
-          is_multicast: bool;
-          is_broadcast: bool;
-          is_private: bool;
-          is_link_local: bool;
-        }
-
-    export interface Ipv6Addr {
-          segments: str;
-          addr: str;
-          is_loopback: bool;
-          is_multicast: bool;
-          is_unspecified: bool;
-        }
-
-    export interface SocketAddr {
-          ip: str;
-          port: u16;
-          addr: str;
-        }
-
-    export type ShutdownHow = "Read" | "Write" | "Both";
-
+  export namespace math {
     /**
-     * Creates a TCP listener bound to the specified address.
+     * Largest integer <= x.
      */
-    export function tcp_listen(addr: str): io.Result<u64>;
+    export function floor(x: number): number;
     /**
-     * Accepts a new TCP connection on this listener.
+     * Smallest integer >= x.
      */
-    export function tcp_accept(listener: u64): io.Result<TcpConnection>;
+    export function ceil(x: number): number;
     /**
-     * Returns the local socket address of this listener.
+     * Rounds to nearest; ties go to +Infinity to match JS semantics.
      */
-    export function tcp_local_addr(listener: u64): io.Result<str>;
+    export function round(x: number): number;
     /**
-     * Opens a TCP connection to a remote host.
+     * Truncates fractional part (rounds toward zero).
      */
-    export function tcp_connect(addr: str): io.Result<u64>;
+    export function trunc(x: number): number;
     /**
-     * Reads data from a TCP stream.
+     * Square root.
      */
-    export function tcp_read(stream: u64, max_bytes?: usize): io.Result<str>;
+    export function sqrt(x: number): number;
     /**
-     * Writes data to a TCP stream.
+     * Cube root.
      */
-    export function tcp_write(stream: u64, data: str): io.Result<usize>;
+    export function cbrt(x: number): number;
     /**
-     * Flushes the TCP stream output buffer.
+     * base raised to exp.
      */
-    export function tcp_flush(stream: u64): io.Result<void>;
+    export function pow(base: number, exp: number): number;
     /**
-     * Shuts down the read, write, or both halves of this connection.
+     * e^x.
      */
-    export function tcp_shutdown(stream: u64, how: ShutdownHow): io.Result<void>;
+    export function exp(x: number): number;
     /**
-     * Returns the socket address of the remote peer.
+     * Natural logarithm (base e).
      */
-    export function tcp_peer_addr(stream: u64): io.Result<str>;
+    export function ln(x: number): number;
     /**
-     * Sets the read timeout for TCP operations.
+     * Base-2 logarithm.
      */
-    export function tcp_set_read_timeout(stream: u64, timeout_ms?: u64): io.Result<void>;
+    export function log2(x: number): number;
     /**
-     * Sets the write timeout for TCP operations.
+     * Base-10 logarithm.
      */
-    export function tcp_set_write_timeout(stream: u64, timeout_ms?: u64): io.Result<void>;
+    export function log10(x: number): number;
     /**
-     * Sets the value of the TCP_NODELAY option on this socket.
+     * Absolute value (f64).
      */
-    export function tcp_set_nodelay(stream: u64, nodelay: bool): io.Result<void>;
+    export function abs_f64(x: number): number;
     /**
-     * Gets the value of the TCP_NODELAY option on this socket.
+     * Absolute value (i64); i64::MIN maps to itself (wrapping).
      */
-    export function tcp_nodelay(stream: u64): io.Result<bool>;
+    export function abs_i64(x: number): number;
     /**
-     * Sets the value for the IP_TTL option on this socket.
+     * Sine (radians).
      */
-    export function tcp_set_ttl(stream: u64, ttl: u32): io.Result<void>;
+    export function sin(x: number): number;
     /**
-     * Gets the value of the IP_TTL option for this socket.
+     * Cosine (radians).
      */
-    export function tcp_ttl(stream: u64): io.Result<u32>;
+    export function cos(x: number): number;
     /**
-     * Creates a UDP socket bound to the specified address.
+     * Tangent (radians).
      */
-    export function udp_bind(addr: str): io.Result<u64>;
+    export function tan(x: number): number;
     /**
-     * Connects this UDP socket to a remote address.
+     * Arc sine (returns radians).
      */
-    export function udp_connect(socket: u64, addr: str): io.Result<void>;
+    export function asin(x: number): number;
     /**
-     * Sends data on the socket to the connected address.
+     * Arc cosine (returns radians).
      */
-    export function udp_send(socket: u64, data: str): io.Result<usize>;
+    export function acos(x: number): number;
     /**
-     * Receives data from the socket.
+     * Arc tangent (returns radians).
      */
-    export function udp_recv(socket: u64, max_bytes?: usize): io.Result<str>;
+    export function atan(x: number): number;
     /**
-     * Sends data on the socket to the given address.
+     * atan2(y, x) — angle (radians) of the 2D vector (x, y).
      */
-    export function udp_send_to(socket: u64, data: str, addr: str): io.Result<usize>;
+    export function atan2(y: number, x: number): number;
     /**
-     * Receives data from the socket.
+     * Minimum of two f64 values (NaN-aware).
      */
-    export function udp_recv_from(socket: u64, max_bytes?: usize): io.Result<UdpMessage>;
+    export function min_f64(a: number, b: number): number;
     /**
-     * Returns the socket address that this socket was created from.
+     * Maximum of two f64 values (NaN-aware).
      */
-    export function udp_local_addr(socket: u64): io.Result<str>;
+    export function max_f64(a: number, b: number): number;
     /**
-     * Returns the socket address of the remote peer this socket was connected to.
+     * Minimum of two i64 values.
      */
-    export function udp_peer_addr(socket: u64): io.Result<str>;
+    export function min_i64(a: number, b: number): number;
     /**
-     * Sets the read timeout for UDP operations.
+     * Maximum of two i64 values.
      */
-    export function udp_set_read_timeout(socket: u64, timeout_ms?: u64): io.Result<void>;
+    export function max_i64(a: number, b: number): number;
     /**
-     * Sets the write timeout for UDP operations.
+     * Clamps x into [lo, hi]. NaN propagates.
      */
-    export function udp_set_write_timeout(socket: u64, timeout_ms?: u64): io.Result<void>;
+    export function clamp_f64(x: number, lo: number, hi: number): number;
     /**
-     * Sets the value of the SO_BROADCAST option for this socket.
+     * Clamps x into [lo, hi].
      */
-    export function udp_set_broadcast(socket: u64, broadcast: bool): io.Result<void>;
+    export function clamp_i64(x: number, lo: number, hi: number): number;
     /**
-     * Gets the value of the SO_BROADCAST option for this socket.
+     * Uniform f64 in [0, 1) from a thread-local xorshift64 PRNG.
      */
-    export function udp_broadcast(socket: u64): io.Result<bool>;
+    export function random_f64(): number;
     /**
-     * Sets the value of the IP_MULTICAST_LOOP option for this socket.
+     * Uniform i64 in [lo, hi). Returns lo when lo >= hi.
      */
-    export function udp_set_multicast_loop_v4(socket: u64, multicast_loop_v4: bool): io.Result<void>;
+    export function random_i64_range(lo: number, hi: number): number;
     /**
-     * Gets the value of the IP_MULTICAST_LOOP option for this socket.
+     * Seeds the PRNG. Zero is replaced by the default seed.
      */
-    export function udp_multicast_loop_v4(socket: u64): io.Result<bool>;
+    export function seed(s: number): void;
     /**
-     * Sets the value of the IP_MULTICAST_TTL option for this socket.
+     * Archimedes' constant.
      */
-    export function udp_set_multicast_ttl_v4(socket: u64, multicast_ttl_v4: u32): io.Result<void>;
+    export const readonly PI: number;
     /**
-     * Gets the value of the IP_MULTICAST_TTL option for this socket.
+     * Euler's number.
      */
-    export function udp_multicast_ttl_v4(socket: u64): io.Result<u32>;
+    export const readonly E: number;
     /**
-     * Sets the value for the IP_TTL option on this socket.
+     * Positive infinity.
      */
-    export function udp_set_ttl(socket: u64, ttl: u32): io.Result<void>;
+    export const readonly INFINITY: number;
     /**
-     * Gets the value of the IP_TTL option for this socket.
+     * Quiet NaN.
      */
-    export function udp_ttl(socket: u64): io.Result<u32>;
-    /**
-     * Executes an operation to join a multicast group.
-     */
-    export function udp_join_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>;
-    /**
-     * Executes an operation to leave a multicast group.
-     */
-    export function udp_leave_multicast_v4(socket: u64, multiaddr: str, interface: str): io.Result<void>;
-    /**
-     * Reads a complete HTTP/1.1 request from a TCP stream and returns a handle.
-     */
-    export function http_read_request(stream: u64): io.Result<u64>;
-    /**
-     * Returns the HTTP method (GET, POST, ...) of a parsed request.
-     */
-    export function http_request_method(request: u64): io.Result<str>;
-    /**
-     * Returns the request path (with query string) of a parsed request.
-     */
-    export function http_request_path(request: u64): io.Result<str>;
-    /**
-     * Returns the value of a header by case-insensitive name. Empty string if absent.
-     */
-    export function http_request_header(request: u64, name: str): io.Result<str>;
-    /**
-     * Returns the body of a parsed request as a UTF-8 string.
-     */
-    export function http_request_body(request: u64): io.Result<str>;
-    /**
-     * Releases the memory for a parsed request handle.
-     */
-    export function http_request_free(request: u64): io.Result<bool>;
-    /**
-     * Writes a simple HTTP/1.1 response to a stream with status, body and optional content-type.
-     */
-    export function http_response_write(stream: u64, status: u32, body: str, content_type?: str): io.Result<usize>;
-    /**
-     * Parses a string as an IP address.
-     */
-    export function parse_ip_addr(addr: str): io.Result<IpAddr>;
-    /**
-     * Parses a string as an IPv4 address.
-     */
-    export function parse_ipv4_addr(addr: str): io.Result<Ipv4Addr>;
-    /**
-     * Parses a string as an IPv6 address.
-     */
-    export function parse_ipv6_addr(addr: str): io.Result<Ipv6Addr>;
-    /**
-     * Parses a string as a socket address.
-     */
-    export function parse_socket_addr(addr: str): io.Result<SocketAddr>;
-    /**
-     * Resolves a string to socket addresses.
-     */
-    export function to_socket_addrs(addr: str): io.Result<str>;
-    /**
-     * Closes a network resource handle.
-     */
-    export function close(handle: u64): bool;
+    export const readonly NAN: number;
   }
 
   /**
-   * Process utilities such as env, cwd, pid and time.
+   * Aritmetica com overflow explicito (checked/saturating/wrapping) e bit ops.
    */
-  export namespace process {
+  export namespace num {
     /**
-     * Returns process CLI arguments.
+     * a + b com overflow; retorna i64::MIN como sentinela em overflow.
      */
-    export function args(): Array<str> | str;
+    export function checked_add(a: number, b: number): number;
     /**
-     * Returns current working directory.
+     * a - b com overflow; retorna i64::MIN como sentinela em overflow.
      */
-    export function cwd(): str;
+    export function checked_sub(a: number, b: number): number;
     /**
-     * Changes process working directory.
+     * a * b com overflow; retorna i64::MIN como sentinela em overflow.
      */
-    export function chdir(path: str): void;
+    export function checked_mul(a: number, b: number): number;
     /**
-     * Reads an environment variable.
+     * a / b; retorna i64::MIN se b == 0 ou overflow (i64::MIN / -1).
      */
-    export function env_get(name: str): str | undefined;
+    export function checked_div(a: number, b: number): number;
+    /**
+     * a + b com saturation em i64::MIN/MAX.
+     */
+    export function saturating_add(a: number, b: number): number;
+    /**
+     * a - b com saturation em i64::MIN/MAX.
+     */
+    export function saturating_sub(a: number, b: number): number;
+    /**
+     * a * b com saturation em i64::MIN/MAX.
+     */
+    export function saturating_mul(a: number, b: number): number;
+    /**
+     * a + b modulo 2^64.
+     */
+    export function wrapping_add(a: number, b: number): number;
+    /**
+     * a - b modulo 2^64.
+     */
+    export function wrapping_sub(a: number, b: number): number;
+    /**
+     * a * b modulo 2^64.
+     */
+    export function wrapping_mul(a: number, b: number): number;
+    /**
+     * -a modulo 2^64 (i64::MIN.wrapping_neg() == i64::MIN).
+     */
+    export function wrapping_neg(a: number): number;
+    /**
+     * a << (n & 63) — shift count masked.
+     */
+    export function wrapping_shl(a: number, n: number): number;
+    /**
+     * a >> (n & 63) (arithmetic shift).
+     */
+    export function wrapping_shr(a: number, n: number): number;
+    /**
+     * Numero de bits 1 em a.
+     */
+    export function count_ones(a: number): number;
+    /**
+     * Numero de bits 0 em a.
+     */
+    export function count_zeros(a: number): number;
+    /**
+     * Numero de zeros leading em a.
+     */
+    export function leading_zeros(a: number): number;
+    /**
+     * Numero de zeros trailing em a.
+     */
+    export function trailing_zeros(a: number): number;
+    /**
+     * a rotacionado n bits para a esquerda.
+     */
+    export function rotate_left(a: number, n: number): number;
+    /**
+     * a rotacionado n bits para a direita.
+     */
+    export function rotate_right(a: number, n: number): number;
+    /**
+     * Bits invertidos (LSB->MSB).
+     */
+    export function reverse_bits(a: number): number;
+    /**
+     * Bytes invertidos (endianness flip).
+     */
+    export function swap_bytes(a: number): number;
+  }
+
+  /**
+   * std::mem: layout (size_of/align_of), swap, drop, forget.
+   */
+  export namespace mem {
+    /**
+     * Tamanho em bytes de um i64 (= 8).
+     */
+    export const size_of_i64: number;
+    /**
+     * Tamanho em bytes de um f64 (= 8).
+     */
+    export const size_of_f64: number;
+    /**
+     * Tamanho em bytes de um i32 (= 4).
+     */
+    export const size_of_i32: number;
+    /**
+     * Tamanho em bytes de um bool (= 1).
+     */
+    export const size_of_bool: number;
+    /**
+     * Alinhamento de i64 (= 8).
+     */
+    export const align_of_i64: number;
+    /**
+     * Alinhamento de f64 (= 8).
+     */
+    export const align_of_f64: number;
+    /**
+     * Retorna `b` (use idiom: `let old = mem.swap_i64(a, b)`).
+     */
+    export function swap_i64(a: number, b: number): number;
+    /**
+     * Forca free de um handle GC. Equivalente a gc.string_free / etc.
+     */
+    export function drop_handle(h: number): void;
+    /**
+     * Esquece handle sem rodar drop — vaza memoria intencionalmente.
+     */
+    export function forget_handle(h: number): void;
+    /**
+     * Idiom: `mem.replace_i64(slot, new)` — retorna slot e usa caller pra escrever.
+     */
+    export function replace_i64(slot: number, new_val: number): number;
+  }
+
+  /**
+   * Captura de stack traces via std::backtrace::Backtrace.
+   */
+  export namespace backtrace {
+    /**
+     * Captura backtrace do call stack atual. Retorna handle.
+     */
+    export function capture(): number;
+    /**
+     * Captura backtrace se RUST_BACKTRACE estiver set; retorna 0 caso contrario.
+     */
+    export function capture_if_enabled(): number;
+    /**
+     * True se RUST_BACKTRACE=1 (ou full) esta no env.
+     */
+    export function is_enabled(): boolean;
+    /**
+     * Formata o backtrace em string. Retorna handle de string GC.
+     */
+    export function to_string(handle: number): number;
+    /**
+     * Libera a backtrace.
+     */
+    export function free(handle: number): void;
+  }
+
+  /**
+   * Allocator raw via std::alloc. UNSAFE — pareie alloc/dealloc com mesmo size/align.
+   */
+  export namespace alloc {
+    /**
+     * Aloca size bytes alinhados a `align`. Retorna ponteiro ou 0 em falha.
+     */
+    export function alloc(size: number, align: number): number;
+    /**
+     * Aloca size bytes zerados, alinhados a `align`.
+     */
+    export function alloc_zeroed(size: number, align: number): number;
+    /**
+     * Libera ptr previamente alocado com mesmo size/align.
+     */
+    export function dealloc(ptr: number, size: number, align: number): void;
+    /**
+     * Realoca ptr (size_old, align) para new_size. Retorna novo ptr ou 0.
+     */
+    export function realloc(ptr: number, size_old: number, align: number, new_size: number): number;
+  }
+
+  /**
+   * Arbitrary-precision decimal floating-point via handle table.
+   */
+  export namespace bigfloat {
+    /**
+     * Allocates a zero big float with the given decimal precision.
+     */
+    export function zero(precision: number): number;
+    /**
+     * Converts an f64 into a big float rounded to `precision` digits.
+     */
+    export function from_f64(x: number, precision: number): number;
+    /**
+     * Parses a decimal string into a big float with `precision` digits.
+     */
+    export function from_str(s: string, precision: number): number;
+    /**
+     * Creates a big float from an integer with `precision` digits.
+     */
+    export function from_i64(x: number, precision: number): number;
+    /**
+     * Lossy conversion back to f64.
+     */
+    export function to_f64(h: number): number;
+    /**
+     * Renders as a decimal string at full precision.
+     */
+    export function to_string(h: number): string;
+    /**
+     * a + b.
+     */
+    export function add(a: number, b: number): number;
+    /**
+     * a - b.
+     */
+    export function sub(a: number, b: number): number;
+    /**
+     * a * b.
+     */
+    export function mul(a: number, b: number): number;
+    /**
+     * a / b.
+     */
+    export function div(a: number, b: number): number;
+    /**
+     * -a.
+     */
+    export function neg(a: number): number;
+    /**
+     * Square root. Returns 0 for negative input.
+     */
+    export function sqrt(a: number): number;
+    /**
+     * Releases the handle.
+     */
+    export function free(h: number): void;
+  }
+
+  /**
+   * Monotonic and wall-clock timestamps, plus blocking sleeps.
+   */
+  export namespace time {
+    /**
+     * Monotonic milliseconds since process start.
+     */
+    export function now_ms(): number;
+    /**
+     * Monotonic nanoseconds since process start.
+     */
+    export function now_ns(): number;
+    /**
+     * Wall-clock milliseconds since the UNIX epoch.
+     */
+    export function unix_ms(): number;
+    /**
+     * Wall-clock nanoseconds since the UNIX epoch.
+     */
+    export function unix_ns(): number;
+    /**
+     * Sleeps the current thread for `ms` milliseconds.
+     */
+    export function sleep_ms(ms: number): void;
+    /**
+     * Sleeps the current thread for `ns` nanoseconds.
+     */
+    export function sleep_ns(ns: number): void;
+  }
+
+  /**
+   * Environment variables, process argv, and current working directory.
+   */
+  export namespace env {
+    /**
+     * Returns a string handle with the environment variable's value, or 0 when absent.
+     */
+    export function get_var(name: string): string;
     /**
      * Sets an environment variable.
      */
-    export function env_set(name: str, value: str): void;
+    export function set_var(name: string, value: string): void;
     /**
-     * Returns target OS name.
+     * Removes an environment variable.
      */
-    export function platform(): str;
+    export function remove_var(name: string): void;
     /**
-     * Returns target architecture.
+     * Number of command-line arguments (including argv[0]).
      */
-    export function arch(): str;
+    export function args_count(): number;
     /**
-     * Returns current process id.
+     * Returns the argv entry at `index` as a string handle; 0 when out of range.
      */
-    export function pid(): i32;
+    export function arg_at(index: number): string;
     /**
-     * Sleeps current thread for milliseconds.
+     * Returns the current working directory as a string handle.
      */
-    export function sleep(ms: f64): void;
+    export function cwd(): string;
     /**
-     * Aborts execution with an exit code signal.
+     * Changes the current working directory. Returns 0 on success, -1 on error.
      */
-    export function exit(code?: i32): never;
-    /**
-     * Returns wall clock time in milliseconds.
-     */
-    export function clock_now(): f64;
+    export function set_cwd(path: string): number;
   }
 
   /**
-   * Cryptographic helpers backed by Rust implementations.
+   * Pure path manipulation — no filesystem calls.
+   */
+  export namespace path {
+    /**
+     * Joins a base path with a relative fragment.
+     */
+    export function join(base: string, part: string): string;
+    /**
+     * Parent directory; 0 when path has no parent (e.g. root or bare filename).
+     */
+    export function parent(path: string): string;
+    /**
+     * Final component of the path (file name with extension).
+     */
+    export function file_name(path: string): string;
+    /**
+     * File name without extension.
+     */
+    export function stem(path: string): string;
+    /**
+     * File extension without leading dot; 0 when absent.
+     */
+    export function ext(path: string): string;
+    /**
+     * True when path is absolute for the current target.
+     */
+    export function is_absolute(path: string): boolean;
+    /**
+     * Removes `.` and collapses `..` without touching the filesystem.
+     */
+    export function normalize(path: string): string;
+    /**
+     * Returns the path with the extension replaced (or added).
+     */
+    export function with_ext(path: string, ext: string): string;
+  }
+
+  /**
+   * Binary buffers backed by Vec<u8> in the handle table.
+   */
+  export namespace buffer {
+    /**
+     * Allocates a zero-initialised byte buffer of `size` bytes.
+     */
+    export function alloc(size: number): number;
+    /**
+     * Alias for alloc — Rust Vec::new already zeroes.
+     */
+    export function alloc_zeroed(size: number): number;
+    /**
+     * Releases the buffer handle. Subsequent reads/writes are no-ops.
+     */
+    export function free(handle: number): void;
+    /**
+     * Buffer length in bytes, or -1 if the handle is invalid.
+     */
+    export function len(handle: number): number;
+    /**
+     * Raw pointer to the buffer start, or 0 when invalid. Unsafe — callers must not outlive the handle.
+     */
+    export function ptr(handle: number): number;
+    /**
+     * Reads the byte at `offset`. Returns 0 out of bounds.
+     */
+    export function read_u8(handle: number, offset: number): number;
+    /**
+     * Reads a little-endian i32 at `offset`.
+     */
+    export function read_i32(handle: number, offset: number): number;
+    /**
+     * Reads a little-endian i64 at `offset`.
+     */
+    export function read_i64(handle: number, offset: number): number;
+    /**
+     * Reads a little-endian f64 at `offset`. NaN out of bounds.
+     */
+    export function read_f64(handle: number, offset: number): number;
+    /**
+     * Writes `val` as u8 at `offset`. No-op out of bounds.
+     */
+    export function write_u8(handle: number, offset: number, val: number): void;
+    /**
+     * Writes a little-endian i32 at `offset`.
+     */
+    export function write_i32(handle: number, offset: number, val: number): void;
+    /**
+     * Writes a little-endian i64 at `offset`.
+     */
+    export function write_i64(handle: number, offset: number, val: number): void;
+    /**
+     * Writes a little-endian f64 at `offset`.
+     */
+    export function write_f64(handle: number, offset: number, val: number): void;
+    /**
+     * Copies `len` bytes from src+srcOff to dst+dstOff. Safe with overlapping src/dst.
+     */
+    export function copy(dst: number, dstOff: number, src: number, srcOff: number, len: number): void;
+    /**
+     * Fills the first `len` bytes with `byte`.
+     */
+    export function fill(handle: number, byte: number, len: number): void;
+    /**
+     * Interprets buffer contents as UTF-8 and returns a string handle.
+     */
+    export function to_string(handle: number): string;
+  }
+
+  /**
+   * Rich string operations beyond the basic gc pool.
+   */
+  export namespace string {
+    /**
+     * True when `haystack` contains `needle`.
+     */
+    export function contains(haystack: string, needle: string): boolean;
+    /**
+     * True when `s` starts with `prefix`.
+     */
+    export function starts_with(s: string, prefix: string): boolean;
+    /**
+     * True when `s` ends with `suffix`.
+     */
+    export function ends_with(s: string, suffix: string): boolean;
+    /**
+     * Byte index of first occurrence of `needle`, or -1 when absent.
+     */
+    export function find(s: string, needle: string): number;
+    /**
+     * Uppercase copy (Unicode-aware).
+     */
+    export function to_upper(s: string): string;
+    /**
+     * Lowercase copy (Unicode-aware).
+     */
+    export function to_lower(s: string): string;
+    /**
+     * Removes ASCII + Unicode whitespace from both ends.
+     */
+    export function trim(s: string): string;
+    /**
+     * Removes whitespace from the start.
+     */
+    export function trim_start(s: string): string;
+    /**
+     * Removes whitespace from the end.
+     */
+    export function trim_end(s: string): string;
+    /**
+     * Concatenates `s` with itself `n` times.
+     */
+    export function repeat(s: string, n: number): string;
+    /**
+     * Replaces every occurrence of `from` with `to`.
+     */
+    export function replace(s: string, from: string, to: string): string;
+    /**
+     * Replaces the first `n` occurrences of `from` with `to`.
+     */
+    export function replacen(s: string, from: string, to: string, n: number): string;
+    /**
+     * Unicode codepoint count (chars).
+     */
+    export function char_count(s: string): number;
+    /**
+     * Length in UTF-8 bytes.
+     */
+    export function byte_len(s: string): number;
+    /**
+     * Character at Unicode index `idx` as a single-char string handle, or 0 out of range.
+     */
+    export function char_at(s: string, idx: number): string;
+    /**
+     * Unicode code point at `idx`, or -1 out of range.
+     */
+    export function char_code_at(s: string, idx: number): number;
+  }
+
+  /**
+   * Process control: exit/abort, pid, spawn/wait/kill children.
+   */
+  export namespace process {
+    /**
+     * Termina o processo corrente com o exit code dado.
+     */
+    export function exit(code: number): void;
+    /**
+     * Aborta o processo imediatamente (sem unwind).
+     */
+    export function abort(): void;
+    /**
+     * PID do processo corrente.
+     */
+    export function pid(): number;
+    /**
+     * Number of command-line arguments (inclui argv[0]).
+     */
+    export function args_count(): number;
+    /**
+     * Argumento em `index` como string handle; 0 fora do range.
+     */
+    export function arg_at(index: number): string;
+    /**
+     * Dispara `cmd` com argumentos separados por \n. Retorna handle do filho, ou 0 em falha.
+     */
+    export function spawn(cmd: string, args_newline_separated: string): number;
+    /**
+     * Aguarda o filho terminar e retorna o exit code. Consome o handle.
+     */
+    export function wait(child: number): number;
+    /**
+     * Mata o processo filho. 0 em sucesso, -1 em erro.
+     */
+    export function kill(child: number): number;
+  }
+
+  /**
+   * Operacoes raw sobre ponteiros (std::ptr). UNSAFE — caller verifica validez.
+   */
+  export namespace ptr {
+    /**
+     * Retorna ponteiro nulo (0).
+     */
+    export function null(): number;
+    /**
+     * True se ptr == 0.
+     */
+    export function is_null(p: number): boolean;
+    /**
+     * Le i64 do endereco. UNSAFE: caller garante validade/alinhamento.
+     */
+    export function read_i64(p: number): number;
+    /**
+     * Le i32 do endereco e estende para i64.
+     */
+    export function read_i32(p: number): number;
+    /**
+     * Le u8 do endereco e estende para i64 (0..255).
+     */
+    export function read_u8(p: number): number;
+    /**
+     * Le f64 do endereco.
+     */
+    export function read_f64(p: number): number;
+    /**
+     * Escreve i64 no endereco.
+     */
+    export function write_i64(p: number, value: number): void;
+    /**
+     * Escreve i32 (low 32 bits) no endereco.
+     */
+    export function write_i32(p: number, value: number): void;
+    /**
+     * Escreve u8 (low 8 bits) no endereco.
+     */
+    export function write_u8(p: number, value: number): void;
+    /**
+     * Escreve f64 no endereco.
+     */
+    export function write_f64(p: number, value: number): void;
+    /**
+     * memmove: copia n bytes de src para dst (overlapping ok).
+     */
+    export function copy(dst: number, src: number, n: number): void;
+    /**
+     * memcpy: copia n bytes (regioes nao podem se sobrepor).
+     */
+    export function copy_nonoverlapping(dst: number, src: number, n: number): void;
+    /**
+     * memset: preenche n bytes com value (low 8 bits).
+     */
+    export function write_bytes(dst: number, value: number, n: number): void;
+    /**
+     * Adiciona n bytes ao ptr.
+     */
+    export function offset(p: number, n: number): number;
+  }
+
+  /**
+   * OS and environment info: platform, arch, special directories.
+   */
+  export namespace os {
+    /**
+     * Canonical OS name: 'windows', 'linux', 'macos', 'ios', 'android', ...
+     */
+    export function platform(): string;
+    /**
+     * CPU architecture: 'x86_64', 'aarch64', 'x86', ...
+     */
+    export function arch(): string;
+    /**
+     * OS family: 'unix' or 'windows'.
+     */
+    export function family(): string;
+    /**
+     * Native line ending: '\r\n' on Windows, '\n' elsewhere.
+     */
+    export function eol(): string;
+    /**
+     * User home directory. Empty string if unresolvable.
+     */
+    export function home_dir(): string;
+    /**
+     * System temporary directory.
+     */
+    export function temp_dir(): string;
+    /**
+     * Per-user config dir (%APPDATA% / XDG_CONFIG_HOME / ~/.config).
+     */
+    export function config_dir(): string;
+    /**
+     * Per-user cache dir (%LOCALAPPDATA% / XDG_CACHE_HOME / ~/.cache).
+     */
+    export function cache_dir(): string;
+  }
+
+  /**
+   * Handle-based HashMap and Vec backed by std::collections.
+   */
+  export namespace collections {
+    /**
+     * Creates an empty HashMap<string, number> and returns its handle.
+     */
+    export function map_new(): number;
+    /**
+     * Releases the map handle.
+     */
+    export function map_free(h: number): void;
+    /**
+     * Number of entries; -1 if the handle is invalid.
+     */
+    export function map_len(h: number): number;
+    /**
+     * True when the map contains `key`.
+     */
+    export function map_has(h: number, key: string): boolean;
+    /**
+     * Value for `key`, or 0 when absent. Use map_has to distinguish.
+     */
+    export function map_get(h: number, key: string): number;
+    /**
+     * Inserts/overwrites `key` with `value`.
+     */
+    export function map_set(h: number, key: string, value: number): void;
+    /**
+     * Removes `key`. Returns 1 if removed, 0 if absent.
+     */
+    export function map_delete(h: number, key: string): number;
+    /**
+     * Removes all entries.
+     */
+    export function map_clear(h: number): void;
+    /**
+     * Returns the key at index in deterministic order (sorted). 0 if out of range.
+     */
+    export function map_key_at(h: number, idx: number): number;
+    /**
+     * Creates an empty Vec<number>.
+     */
+    export function vec_new(): number;
+    /**
+     * Releases the vec handle.
+     */
+    export function vec_free(h: number): void;
+    /**
+     * Number of elements; -1 if the handle is invalid.
+     */
+    export function vec_len(h: number): number;
+    /**
+     * Appends `value` to the end.
+     */
+    export function vec_push(h: number, value: number): void;
+    /**
+     * Removes and returns the last element; 0 when empty.
+     */
+    export function vec_pop(h: number): number;
+    /**
+     * Element at `index`, or 0 out of range.
+     */
+    export function vec_get(h: number, index: number): number;
+    /**
+     * Writes `value` at `index`. No-op out of range.
+     */
+    export function vec_set(h: number, index: number, value: number): void;
+    /**
+     * Removes all elements.
+     */
+    export function vec_clear(h: number): void;
+  }
+
+  /**
+   * Non-cryptographic hashing via std::hash::DefaultHasher (SipHash-1-3).
+   */
+  export namespace hash {
+    /**
+     * SipHash de uma string UTF-8.
+     */
+    export function hash_str(s: string): number;
+    /**
+     * SipHash de uma regiao de memoria (ptr + len). Use com buffer.ptr(handle).
+     */
+    export function hash_bytes(ptr: number, len: number): number;
+    /**
+     * SipHash de um inteiro de 64 bits.
+     */
+    export function hash_i64(value: number): number;
+    /**
+     * Combina dois hashes preservando entropia (estilo boost::hash_combine).
+     */
+    export function hash_combine(h1: number, h2: number): number;
+  }
+
+  /**
+   * Performance hints (std::hint): spin_loop, black_box, unreachable, assert_unchecked.
+   */
+  export namespace hint {
+    /**
+     * Hint para spin-wait loop (PAUSE em x86, YIELD em ARM).
+     */
+    export function spin_loop(): void;
+    /**
+     * Opaque pra otimizador — impede que o valor seja eliminado.
+     */
+    export function black_box_i64(value: number): number;
+    /**
+     * Opaque pra otimizador (variante f64).
+     */
+    export function black_box_f64(value: number): number;
+    /**
+     * Marca codigo inalcancavel — em debug aborta, em release eh UB.
+     */
+    export function unreachable(): never;
+    /**
+     * Assume cond=true sem verificar. Cond falsa = UB em release.
+     */
+    export function assert_unchecked(cond: boolean): void;
+  }
+
+  /**
+   * Parse and format primitives (string <-> number).
+   */
+  export namespace fmt {
+    /**
+     * Parses an integer. Returns i64::MIN on error.
+     */
+    export function parse_i64(s: string): number;
+    /**
+     * Parses a float. Returns NaN on error.
+     */
+    export function parse_f64(s: string): number;
+    /**
+     * Parses 'true'/'false'/'1'/'0' (case-insensitive). Returns -1 on error.
+     */
+    export function parse_bool(s: string): number;
+    /**
+     * Decimal string of an integer.
+     */
+    export function fmt_i64(value: number): string;
+    /**
+     * Shortest round-trippable decimal of a float.
+     */
+    export function fmt_f64(value: number): string;
+    /**
+     * 'true' when value is non-zero, 'false' otherwise.
+     */
+    export function fmt_bool(value: number): string;
+    /**
+     * Lowercase hex with `0x` prefix (bits as u64).
+     */
+    export function fmt_hex(value: number): string;
+    /**
+     * Binary with `0b` prefix.
+     */
+    export function fmt_bin(value: number): string;
+    /**
+     * Octal with `0o` prefix.
+     */
+    export function fmt_oct(value: number): string;
+    /**
+     * Float formatted with a fixed number of decimal places.
+     */
+    export function fmt_f64_prec(value: number, precision: number): string;
+  }
+
+  /**
+   * Cryptographic primitives: SHA-256, CSPRNG, hex, base64.
    */
   export namespace crypto {
     /**
-     * Computes SHA-256 digest and returns hex string.
+     * Fills ptr..ptr+len with CSPRNG bytes. 0 ok, -1 err.
      */
-    export function sha256(data: str): str;
+    export function random_bytes(ptr: number, len: number): number;
+    /**
+     * Cryptographically secure i64.
+     */
+    export function random_i64(): number;
+    /**
+     * Allocates a buffer of `len` random bytes. Handle 0 on error.
+     */
+    export function random_buffer(len: number): number;
+    /**
+     * SHA-256 of a UTF-8 string, returned as a 64-char hex string handle.
+     */
+    export function sha256_str(s: string): string;
+    /**
+     * SHA-256 of a raw memory region. Use with buffer.ptr(h).
+     */
+    export function sha256_bytes(ptr: number, len: number): string;
+    /**
+     * Lowercase hex of a memory region.
+     */
+    export function hex_encode(ptr: number, len: number): string;
+    /**
+     * Decodes hex into a buffer handle. 0 on malformed input.
+     */
+    export function hex_decode(s: string): number;
+    /**
+     * Base64 (RFC 4648 padded) of a memory region.
+     */
+    export function base64_encode(ptr: number, len: number): string;
+    /**
+     * Decodes base64 into a buffer handle. 0 on malformed input.
+     */
+    export function base64_decode(s: string): number;
   }
 
   /**
-   * Global key-value registry shared by all modules in the runtime.
+   * Expressoes regulares via crate `regex` (sintaxe RE2-like, sem backreferences).
    */
-  export namespace globals {
+  export namespace regex {
     /**
-     * Defines a global variable accessible from anywhere in the program.
+     * Compila um pattern com flags (ex: "i", "gm"). Retorna handle ou 0 se invalido.
      */
-    export function set(name: str, value: any): void;
+    export function compile(pattern: string, flags: string): number;
     /**
-     * Reads a global variable by name.
+     * Libera regex compilada.
      */
-    export function get(name: str): any;
+    export function free(handle: number): void;
     /**
-     * Returns true when a global variable is defined.
+     * True se a regex casa em qualquer posicao da string.
      */
-    export function has(name: str): bool;
+    export function test(handle: number, s: string): boolean;
     /**
-     * Removes a global variable by name.
+     * Primeira ocorrencia. Retorna handle de string com o match (free pelo caller) ou 0.
      */
-    export function remove(name: str): bool;
+    export function find(handle: number, s: string): number;
     /**
-     * Returns a comma-separated list with every global key.
+     * Indice (em bytes) da primeira ocorrencia, -1 se nao casa.
      */
-    export function keys(): str;
+    export function find_at(handle: number, s: string): number;
+    /**
+     * Substitui primeira ocorrencia. Retorna handle de string nova.
+     */
+    export function replace(handle: number, s: string, replacement: string): number;
+    /**
+     * Substitui todas as ocorrencias. Retorna handle de string nova.
+     */
+    export function replace_all(handle: number, s: string, replacement: string): number;
+    /**
+     * Numero de matches (overlapping=false).
+     */
+    export function match_count(handle: number, s: string): number;
   }
 
   /**
-   * Low-level byte buffer API with explicit handles.
+   * FLTK GUI: windows, widgets, menus, text, drawing, and dialogs.
    */
-  export namespace buffer {
-    export type Handle = usize;
-
+  export namespace ui {
     /**
-     * Allocates a runtime buffer and returns its handle.
+     * Creates the FLTK application. Call once before any widget.
      */
-    export function alloc(size: usize): Handle;
+    export function app_new(): number;
     /**
-     * Releases a runtime buffer handle.
+     * Enters the FLTK event loop. Blocks until all windows are closed.
      */
-    export function free(handle: Handle): bool;
+    export function app_run(app: number): void;
     /**
-     * Returns current buffer length.
+     * Frees the app handle.
      */
-    export function len(handle: Handle): usize | undefined;
+    export function app_free(app: number): void;
     /**
-     * Reads an unsigned byte from offset.
+     * Creates a window (w, h, title). Returns a window handle.
      */
-    export function read_u8(handle: Handle, offset: usize): u8 | undefined;
+    export function window_new(w: number, h: number, title: string): number;
     /**
-     * Writes an unsigned byte at offset.
+     * Makes the window visible.
      */
-    export function write_u8(handle: Handle, offset: usize, value: u8): bool;
+    export function window_show(win: number): void;
     /**
-     * Fills entire buffer with a byte value.
+     * Ends the window widget group. Call after adding all child widgets.
      */
-    export function fill(handle: Handle, value: u8): bool;
+    export function window_end(win: number): void;
     /**
-     * Writes UTF-8 text into a buffer from optional offset.
+     * Frees the window handle.
      */
-    export function write_text(handle: Handle, content: str, offset?: usize): usize | undefined;
+    export function window_free(win: number): void;
     /**
-     * Reads UTF-8 text from buffer range.
+     * Sets a callback invoked when the window close button is pressed.
      */
-    export function read_text(handle: Handle, offset: usize, length?: usize): str | undefined;
+    export function window_set_callback(win: number, fn: () => void): void;
     /**
-     * Copies bytes between two runtime buffers.
+     * Sets the background color of the window (r, g, b in 0–255).
      */
-    export function copy(source: Handle, target: Handle, sourceOffset?: usize, targetOffset?: usize, length?: usize): usize | undefined;
+    export function window_set_color(win: number, r: number, g: number, b: number): void;
+    /**
+     * Moves and resizes the window (x, y, w, h).
+     */
+    export function window_resize(win: number, x: number, y: number, w: number, h: number): void;
+    /**
+     * Sets the label text of any widget.
+     */
+    export function widget_set_label(widget: number, text: string): void;
+    /**
+     * Returns the widget label as a GC string handle.
+     */
+    export function widget_label(widget: number): number;
+    /**
+     * Registers a callback invoked when the widget is activated (click, change, etc).
+     */
+    export function widget_set_callback(widget: number, fn: () => void): void;
+    /**
+     * Variante de set_callback que passa userdata (ex: handle de `this`) ao callback.
+     */
+    export function widget_set_callback_with_ud(widget: number, fn: (this: number) => void, userdata: number): void;
+    /**
+     * Sets the background color of a widget (r, g, b in 0–255).
+     */
+    export function widget_set_color(widget: number, r: number, g: number, b: number): void;
+    /**
+     * Sets the label text color of a widget (r, g, b in 0–255).
+     */
+    export function widget_set_label_color(widget: number, r: number, g: number, b: number): void;
+    /**
+     * Moves and resizes a widget (x, y, w, h).
+     */
+    export function widget_resize(widget: number, x: number, y: number, w: number, h: number): void;
+    /**
+     * Marks the widget as needing a redraw.
+     */
+    export function widget_redraw(widget: number): void;
+    /**
+     * Hides the widget.
+     */
+    export function widget_hide(widget: number): void;
+    /**
+     * Shows the widget.
+     */
+    export function widget_show(widget: number): void;
+    /**
+     * Sets a custom draw callback. Use draw_* functions inside to paint the widget.
+     */
+    export function widget_set_draw(widget: number, fn: () => void): void;
+    /**
+     * Creates a push button at (x, y) with size (w, h) and label.
+     */
+    export function button_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Creates a text frame (static label) at (x, y) with size (w, h) and text.
+     */
+    export function frame_new(x: number, y: number, w: number, h: number, text: string): number;
+    /**
+     * Creates a checkbox widget.
+     */
+    export function check_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Returns true if the checkbox is checked.
+     */
+    export function check_value(handle: number): boolean;
+    /**
+     * Sets the checked state of a checkbox.
+     */
+    export function check_set_value(handle: number, val: boolean): void;
+    /**
+     * Creates a radio button widget.
+     */
+    export function radio_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Returns true if the radio button is selected.
+     */
+    export function radio_value(handle: number): boolean;
+    /**
+     * Sets the selected state of a radio button.
+     */
+    export function radio_set_value(handle: number, val: boolean): void;
+    /**
+     * Creates a single-line text input field.
+     */
+    export function input_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Returns the current text of the input field as a GC string handle.
+     */
+    export function input_value(handle: number): number;
+    /**
+     * Sets the text content of an input field.
+     */
+    export function input_set_value(handle: number, text: string): void;
+    /**
+     * Creates a read-only output widget.
+     */
+    export function output_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Sets the text displayed in an output widget.
+     */
+    export function output_set_value(handle: number, text: string): void;
+    /**
+     * Creates a horizontal slider.
+     */
+    export function slider_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Returns the current value of a slider.
+     */
+    export function slider_value(handle: number): number;
+    /**
+     * Sets the current value of a slider.
+     */
+    export function slider_set_value(handle: number, val: number): void;
+    /**
+     * Sets the minimum and maximum bounds of a slider.
+     */
+    export function slider_set_bounds(handle: number, min: number, max: number): void;
+    /**
+     * Creates a progress bar widget.
+     */
+    export function progress_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Returns the current value of a progress bar.
+     */
+    export function progress_value(handle: number): number;
+    /**
+     * Sets the current value of a progress bar.
+     */
+    export function progress_set_value(handle: number, val: number): void;
+    /**
+     * Creates a numeric spinner widget.
+     */
+    export function spinner_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Returns the current numeric value of a spinner.
+     */
+    export function spinner_value(handle: number): number;
+    /**
+     * Sets the numeric value of a spinner.
+     */
+    export function spinner_set_value(handle: number, val: number): void;
+    /**
+     * Sets the min/max range of a spinner.
+     */
+    export function spinner_set_bounds(handle: number, min: number, max: number): void;
+    /**
+     * Creates a menu bar at (x, y) with size (w, h).
+     */
+    export function menubar_new(x: number, y: number, w: number, h: number): number;
+    /**
+     * Adds a menu item. Path uses '/' for submenus (e.g. 'File/Open'). fn_ptr=0 for separators.
+     */
+    export function menubar_add(handle: number, path: string, fn: () => void): void;
+    /**
+     * Frees a menu bar handle.
+     */
+    export function menubar_free(handle: number): void;
+    /**
+     * Creates a text buffer.
+     */
+    export function textbuf_new(): number;
+    /**
+     * Replaces the entire text buffer contents.
+     */
+    export function textbuf_set_text(handle: number, text: string): void;
+    /**
+     * Returns the text buffer contents as a GC string handle.
+     */
+    export function textbuf_text(handle: number): number;
+    /**
+     * Appends text to the end of the buffer.
+     */
+    export function textbuf_append(handle: number, text: string): void;
+    /**
+     * Frees the text buffer handle.
+     */
+    export function textbuf_free(handle: number): void;
+    /**
+     * Creates a read-only text display widget.
+     */
+    export function textdisplay_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Associates a TextBuffer with the display.
+     */
+    export function textdisplay_set_buffer(display: number, buf: number): void;
+    /**
+     * Creates an editable text editor widget.
+     */
+    export function texteditor_new(x: number, y: number, w: number, h: number, label: string): number;
+    /**
+     * Associates a TextBuffer with the editor.
+     */
+    export function texteditor_set_buffer(editor: number, buf: number): void;
+    /**
+     * Draws a rectangle outline at (x, y) with size (w, h).
+     */
+    export function draw_rect(x: number, y: number, w: number, h: number): void;
+    /**
+     * Draws a filled rectangle at (x, y) with size (w, h).
+     */
+    export function draw_rect_fill(x: number, y: number, w: number, h: number): void;
+    /**
+     * Draws a line from (x1, y1) to (x2, y2).
+     */
+    export function draw_line(x1: number, y1: number, x2: number, y2: number): void;
+    /**
+     * Draws a circle centered at (x, y) with radius r.
+     */
+    export function draw_circle(x: number, y: number, r: number): void;
+    /**
+     * Draws an arc/pie within bounding box (x, y, w, h) from angle a1 to a2 (degrees).
+     */
+    export function draw_arc(x: number, y: number, w: number, h: number, a1: number, a2: number): void;
+    /**
+     * Draws text at (x, y) using the current font and color.
+     */
+    export function draw_text(text: string, x: number, y: number): void;
+    /**
+     * Sets the current drawing color (r, g, b in 0–255).
+     */
+    export function set_draw_color(r: number, g: number, b: number): void;
+    /**
+     * Sets the current font (font_id: 0=Helvetica..14, size in pixels).
+     */
+    export function set_font(font_id: number, size: number): void;
+    /**
+     * Sets line style (style: 0=solid,1=dash,2=dot) and width in pixels.
+     */
+    export function set_line_style(style: number, width: number): void;
+    /**
+     * Returns the pixel width of a string in the current font.
+     */
+    export function measure_width(text: string): number;
+    /**
+     * Shows a blocking alert dialog with a message.
+     */
+    export function alert(msg: string): void;
+    /**
+     * Shows a yes/no dialog. Returns true if user clicks Yes.
+     */
+    export function dialog_ask(msg: string): boolean;
+    /**
+     * Shows an input dialog (label, default). Returns GC string handle, or 0 on cancel.
+     */
+    export function dialog_input(label: string, default: string): number;
   }
 
   /**
-   * Promise handles and synchronous await bridge.
+   * Dynamic TS/JS evaluation. JIT path uses inline compilation; AOT path spawns rts.
    */
-  export namespace promise {
-    export type Handle = usize;
-
-    export type State = "pending" | "fulfilled" | "rejected";
-
+  export namespace runtime {
     /**
-     * Creates a fulfilled promise handle.
+     * Evaluates a TS/JS source string. Returns the program exit code.
      */
-    export function resolve(value: str): Handle;
+    export function eval(src: string): number;
     /**
-     * Creates a rejected promise handle.
+     * Loads and evaluates a TS/JS file at the given path. Returns the program exit code.
      */
-    export function reject(reason: str): Handle;
-    /**
-     * Returns current state of a promise handle.
-     */
-    export function status(handle: Handle): State | undefined;
-    /**
-     * Checks whether promise is fulfilled or rejected.
-     */
-    export function is_settled(handle: Handle): bool;
-    /**
-     * Waits for promise completion and returns its payload.
-     */
-    export function await(handle: Handle): str | undefined;
+    export function eval_file(path: string): number;
   }
 
   /**
-   * Async task scheduler helpers that resolve into promise handles.
+   * Low-level test runner primitives. Use rts:test for the high-level API.
    */
-  export namespace task {
+  export namespace test_core {
     /**
-     * Spawns an async sleep task resolved as a promise handle.
+     * Opens a named test suite block. Nested calls increase indent.
      */
-    export function sleep(ms: f64, value?: str): promise.Handle;
+    export function suite_begin(name: string): void;
     /**
-     * Spawns an async SHA-256 task resolved as a promise handle.
+     * Closes the innermost test suite block.
      */
-    export function hash_sha256(data: str): promise.Handle;
+    export function suite_end(): void;
     /**
-     * Spawns async text file read task.
+     * Starts a named test case and resets the failure flag.
      */
-    export function read_text_file(path: str): promise.Handle;
+    export function case_begin(name: string): void;
     /**
-     * Spawns async text file write task.
+     * Ends the current case. Prints ✓ if no failures, updates counters.
      */
-    export function write_text_file(path: str, content: str): promise.Handle;
+    export function case_end(): void;
     /**
-     * Spawns async text file append task.
+     * Marks current case as failed and emits message in red.
      */
-    export function append_text_file(path: str, content: str): promise.Handle;
-  }
-
-  /**
-   * Deterministic garbage collector (gc-arena). Arena-based allocation with safe collection at quiescence points after function/class/closure execution.
-   */
-  export namespace gc {
+    export function case_fail(msg: string): void;
     /**
-     * Allocate a tagged blob into the GC arena. Returns a u64 handle.
+     * Marks current case as failed and prints an expected/received diff.
      */
-    export function alloc(kind: u8, payload: str): u64;
+    export function case_fail_diff(expected: string, actual: string): void;
     /**
-     * Release a handle, making the blob eligible for collection. Returns true if the handle was live.
+     * Prints pass/fail counts. Call once at the end of the test file.
      */
-    export function free(handle: u64): bool;
-    /**
-     * Full GC collection. Only call at a safe quiescence point (no live handles on stack).
-     */
-    export function collect(): void;
-    /**
-     * Amortised GC — collect proportional to allocation debt. Safe to call at any time.
-     */
-    export function collect_debt(): void;
-    /**
-     * Returns a JSON string with GC diagnostics: allocated_bytes, generation, live_slots.
-     */
-    export function stats(): str;
-    /**
-     * Compacta o ValueStore (abi), liberando slots nao referenciados por nenhum binding ativo. Chamar apenas em pontos de quiescencia, ex: entre requisicoes de um servidor HTTP. Retorna o numero de slots liberados.
-     */
-    export function compact(): i64;
-  }
-
-  /**
-   * Assertion helpers and test output utilities for rts:test.
-   */
-  export namespace test {
-    /**
-     * Panics if condition is false. Optional message is shown on failure.
-     */
-    export function assert(condition: bool, message?: str): void;
-    /**
-     * Panics if a and b are not equal (string comparison). Optional message shown on failure.
-     */
-    export function assert_eq(a: str, b: str, message?: str): void;
-    /**
-     * Panics if a and b are equal (string comparison). Optional message shown on failure.
-     */
-    export function assert_ne(a: str, b: str, message?: str): void;
-    /**
-     * Emits a passing test message to stdout.
-     */
-    export function pass(message?: str): void;
-    /**
-     * Unconditionally panics with an optional message.
-     */
-    export function fail(message?: str): never;
-    /**
-     * Emits a test suite header to stdout.
-     */
-    export function describe(name: str): void;
-    /**
-     * Emits a test case header to stdout.
-     */
-    export function it(name: str): void;
-  }
-
-  /**
-   * JavaScript Object Notation helpers backed by serde_json.
-   */
-  export namespace JSON {
-    /**
-     * Serializa um valor para string JSON. Retorna "null" para undefined ou funcoes.
-     */
-    export function stringify(value: any): string;
-    /**
-     * Desserializa uma string JSON em um valor. Retorna undefined em caso de erro.
-     */
-    export function parse(text: string): any;
-  }
-
-  /**
-   * Raw UTF-8 string primitives. These are the machine-level building blocks for the TS String class.
-   */
-  export namespace str {
-    /**
-     * Returns the byte length of a string.
-     */
-    export function len(s: str): u64;
-    /**
-     * Concatenates two strings.
-     */
-    export function concat(a: str, b: str): str;
-    /**
-     * Returns a substring from start (inclusive) to end (exclusive). Negative indices count from end.
-     */
-    export function slice(s: str, start: i64, end?: i64): str;
-    /**
-     * Returns the string converted to uppercase.
-     */
-    export function to_upper(s: str): str;
-    /**
-     * Returns the string converted to lowercase.
-     */
-    export function to_lower(s: str): str;
-    /**
-     * Removes leading and trailing whitespace.
-     */
-    export function trim(s: str): str;
-    /**
-     * Removes leading whitespace.
-     */
-    export function trim_start(s: str): str;
-    /**
-     * Removes trailing whitespace.
-     */
-    export function trim_end(s: str): str;
-    /**
-     * Replaces the first occurrence of `from` with `to`.
-     */
-    export function replace(s: str, from: str, to: str): str;
-    /**
-     * Replaces all occurrences of `from` with `to`.
-     */
-    export function replace_all(s: str, from: str, to: str): str;
-    /**
-     * Returns true if the string contains the given substring.
-     */
-    export function includes(s: str, needle: str): bool;
-    /**
-     * Returns true if the string starts with the given prefix.
-     */
-    export function starts_with(s: str, prefix: str): bool;
-    /**
-     * Returns true if the string ends with the given suffix.
-     */
-    export function ends_with(s: str, suffix: str): bool;
-    /**
-     * Returns the byte index of the first occurrence of needle, or -1 if not found.
-     */
-    export function index_of(s: str, needle: str): i64;
-    /**
-     * Returns the byte index of the last occurrence of needle, or -1 if not found.
-     */
-    export function last_index_of(s: str, needle: str): i64;
-    /**
-     * Returns the UTF-8 character at the given char index as a str.
-     */
-    export function char_at(s: str, index: u64): str;
-    /**
-     * Splits the string by separator and returns parts joined by newline (use str.split_nth to access each part).
-     */
-    export function split(s: str, sep: str): str;
-    /**
-     * Returns the Nth part after splitting s by sep.
-     */
-    export function split_nth(s: str, sep: str, n: u64): str;
-    /**
-     * Returns the string repeated n times.
-     */
-    export function repeat(s: str, n: u64): str;
-    /**
-     * Pads the string at the start to reach target length.
-     */
-    export function pad_start(s: str, target_len: u64, fill?: str): str;
-    /**
-     * Pads the string at the end to reach target length.
-     */
-    export function pad_end(s: str, target_len: u64, fill?: str): str;
-    /**
-     * Returns the number of Unicode scalar values (chars) in the string.
-     */
-    export function char_count(s: str): u64;
-    /**
-     * Returns true if the string has zero length.
-     */
-    export function is_empty(s: str): bool;
-    /**
-     * Converts a number to its string representation.
-     */
-    export function from_number(n: f64): str;
-    /**
-     * Parses the string as an integer. Returns NaN (as f64) on failure.
-     */
-    export function parse_int(s: str, radix?: u64): f64;
-    /**
-     * Parses the string as a floating-point number. Returns NaN on failure.
-     */
-    export function parse_float(s: str): f64;
-  }
-
-  /**
-   * Primitivas brutas de máquina: memória, escopo, funções e constantes. Rust expõe apenas tipos de máquina (i64, f64, u64, bool) — sem semântica JS.
-   */
-  export namespace rts {
-    /**
-     * Declara uma função no registry de runtime.
-     */
-    export function declare_fn(name_ptr: u64, arity: u64, body_ptr: u64): void;
-    /**
-     * Invoca função pelo ponteiro de nome, retorna ponteiro do corpo.
-     */
-    export function call_fn(name_ptr: u64, args_ptr: u64, args_len: u64): u64;
-    /**
-     * Retorna um valor do escopo atual.
-     */
-    export function return_val(value: u64): u64;
-    /**
-     * Empilha novo escopo de variáveis.
-     */
-    export function scope_push(): void;
-    /**
-     * Desempilha o escopo atual.
-     */
-    export function scope_pop(): void;
-    /**
-     * Define variável no escopo atual pelo hash do nome.
-     */
-    export function set_var(name_hash: u64, value: u64): void;
-    /**
-     * Lê variável percorrendo o stack de escopos.
-     */
-    export function get_var(name_hash: u64): u64;
-    /**
-     * Declara constante global imutável.
-     */
-    export function declare_const(name_hash: u64, value: u64): void;
-    /**
-     * Lê constante global pelo hash do nome.
-     */
-    export function get_const(name_hash: u64): u64;
-    /**
-     * Aloca `size` bytes zerados, retorna ponteiro.
-     */
-    export function alloc(size: u64): u64;
-    /**
-     * Libera bloco de memória.
-     */
-    export function free(ptr: u64, size: u64): void;
-    /**
-     * Copia `len` bytes de src para dst sem overlap.
-     */
-    export function mem_copy(dst: u64, src: u64, len: u64): void;
-    /**
-     * Soma dois inteiros i64 sem overhead JS.
-     */
-    export function i64_add(a: i64, b: i64): i64;
-    /**
-     * Multiplica dois floats f64.
-     */
-    export function f64_mul(a: f64, b: f64): f64;
-    /**
-     * Cria handle de string a partir de ponteiro e comprimento.
-     */
-    export function str_new(ptr: u64, len: u64): u64;
-  }
-
-  export namespace rts {
-    /**
-     * Extensões C nativas para coerção de tipos mistos. Injetadas pelo HIR quando operandos têm tipos incompatíveis.
-     */
-    export namespace natives {
-      /**
-       * Converte qualquer valor para string (semântica JS).
-       */
-      export function to_string(value: u64): u64;
-      /**
-       * Converte qualquer valor para número (semântica JS).
-       */
-      export function to_number(value: u64): f64;
-      /**
-       * Converte qualquer valor para bool (truthy/falsy JS).
-       */
-      export function to_bool(value: u64): bool;
-      /**
-       * Merge genérico de dois valores com coerção (string ou número).
-       */
-      export function merge(a: u64, b: u64): u64;
-      /**
-       * Operador `+` com coerção: string+qualquer=concat, número+número=soma.
-       */
-      export function add_mixed(a: u64, b: u64): u64;
-      /**
-       * Igualdade fraca `==` com coerção de tipos JS.
-       */
-      export function eq_loose(a: u64, b: u64): bool;
-      /**
-       * Comparação com coerção JS, retorna -1, 0 ou 1.
-       */
-      export function compare(a: u64, b: u64): i64;
-    }
-
-    /**
-     * Operações inline com tipos já conhecidos pelo MIR. Sem overhead de coerção — tipos são garantidos pelo compilador.
-     */
-    export namespace hotops {
-      /**
-       * Subtração i64.
-       */
-      export function i64_sub(a: i64, b: i64): i64;
-      /**
-       * Divisão i64.
-       */
-      export function i64_div(a: i64, b: i64): i64;
-      /**
-       * Módulo i64.
-       */
-      export function i64_mod(a: i64, b: i64): i64;
-      /**
-       * Igualdade i64.
-       */
-      export function i64_eq(a: i64, b: i64): bool;
-      /**
-       * Menor que i64.
-       */
-      export function i64_lt(a: i64, b: i64): bool;
-      /**
-       * Menor ou igual i64.
-       */
-      export function i64_le(a: i64, b: i64): bool;
-      /**
-       * Adição f64.
-       */
-      export function f64_add(a: f64, b: f64): f64;
-      /**
-       * Subtração f64.
-       */
-      export function f64_sub(a: f64, b: f64): f64;
-      /**
-       * Divisão f64.
-       */
-      export function f64_div(a: f64, b: f64): f64;
-      /**
-       * Igualdade f64.
-       */
-      export function f64_eq(a: f64, b: f64): bool;
-      /**
-       * Menor que f64.
-       */
-      export function f64_lt(a: f64, b: f64): bool;
-      /**
-       * i64 para string (tabela pré-computada para 0..=255).
-       */
-      export function i64_to_string(n: i64): u64;
-      /**
-       * f64 para string.
-       */
-      export function f64_to_string(n: f64): u64;
-    }
-
-    /**
-     * Debug info em runtime: carrega .ometa, resolve PC → source location, formata erros.
-     */
-    /**
-     * Allocator raw via std::alloc. UNSAFE — pareie alloc/dealloc com mesmo size/align.
-     */
-    export namespace alloc {
-      export function alloc(size: number, align: number): number;
-      export function alloc_zeroed(size: number, align: number): number;
-      export function dealloc(ptr: number, size: number, align: number): void;
-      export function realloc(ptr: number, size_old: number, align: number, new_size: number): number;
-    }
-
-    /**
-     * Operacoes raw sobre ponteiros (std::ptr). UNSAFE — caller verifica validez.
-     */
-    export namespace ptr {
-      export function null(): number;
-      export function is_null(p: number): boolean;
-      export function read_i64(p: number): number;
-      export function read_i32(p: number): number;
-      export function read_u8(p: number): number;
-      export function read_f64(p: number): number;
-      export function write_i64(p: number, value: number): void;
-      export function write_i32(p: number, value: number): void;
-      export function write_u8(p: number, value: number): void;
-      export function write_f64(p: number, value: number): void;
-      export function copy(dst: number, src: number, n: number): void;
-      export function copy_nonoverlapping(dst: number, src: number, n: number): void;
-      export function write_bytes(dst: number, value: number, n: number): void;
-      export function offset(p: number, n: number): number;
-    }
-
-    /**
-     * Captura de stack traces via std::backtrace::Backtrace.
-     */
-    export namespace backtrace {
-      export function capture(): number;
-      export function capture_if_enabled(): number;
-      export function is_enabled(): boolean;
-      export function to_string(handle: number): number;
-      export function free(handle: number): void;
-    }
-
-    /**
-     * std::mem: layout (size_of/align_of), swap, drop, forget.
-     */
-    export namespace mem {
-      export const size_of_i64: number;
-      export const size_of_f64: number;
-      export const size_of_i32: number;
-      export const size_of_bool: number;
-      export const align_of_i64: number;
-      export const align_of_f64: number;
-      export function swap_i64(a: number, b: number): number;
-      export function drop_handle(h: number): void;
-      export function forget_handle(h: number): void;
-      export function replace_i64(slot: number, new_val: number): number;
-    }
-
-    /**
-     * Performance hints (std::hint).
-     */
-    export namespace hint {
-      export function spin_loop(): void;
-      export function black_box_i64(value: number): number;
-      export function black_box_f64(value: number): number;
-      export function unreachable(): never;
-      export function assert_unchecked(cond: boolean): void;
-    }
-
-    /**
-     * Aritmetica com overflow explicito (checked/saturating/wrapping) e bit ops.
-     */
-    export namespace num {
-      export function checked_add(a: number, b: number): number;
-      export function checked_sub(a: number, b: number): number;
-      export function checked_mul(a: number, b: number): number;
-      export function checked_div(a: number, b: number): number;
-      export function saturating_add(a: number, b: number): number;
-      export function saturating_sub(a: number, b: number): number;
-      export function saturating_mul(a: number, b: number): number;
-      export function wrapping_add(a: number, b: number): number;
-      export function wrapping_sub(a: number, b: number): number;
-      export function wrapping_mul(a: number, b: number): number;
-      export function wrapping_neg(a: number): number;
-      export function wrapping_shl(a: number, n: number): number;
-      export function wrapping_shr(a: number, n: number): number;
-      export function count_ones(a: number): number;
-      export function count_zeros(a: number): number;
-      export function leading_zeros(a: number): number;
-      export function trailing_zeros(a: number): number;
-      export function rotate_left(a: number, n: number): number;
-      export function rotate_right(a: number, n: number): number;
-      export function reverse_bits(a: number): number;
-      export function swap_bytes(a: number): number;
-    }
-
-    /**
-     * Expressoes regulares via crate `regex` (sintaxe RE2-like, sem backreferences).
-     */
-    export namespace regex {
-      /** Compila um pattern com flags (ex: "i", "gm"). Retorna handle ou 0 se invalido. */
-      export function compile(pattern: string, flags: string): number;
-      /** Libera regex compilada. */
-      export function free(handle: number): void;
-      /** True se a regex casa em qualquer posicao da string. */
-      export function test(handle: number, s: string): boolean;
-      /** Primeira ocorrencia. Retorna handle de string com o match (free pelo caller) ou 0. */
-      export function find(handle: number, s: string): number;
-      /** Indice (em bytes) da primeira ocorrencia, -1 se nao casa. */
-      export function find_at(handle: number, s: string): number;
-      /** Substitui primeira ocorrencia. Retorna handle de string nova. */
-      export function replace(handle: number, s: string, replacement: string): number;
-      /** Substitui todas as ocorrencias. Retorna handle de string nova. */
-      export function replace_all(handle: number, s: string, replacement: string): number;
-      /** Numero de matches. */
-      export function match_count(handle: number, s: string): number;
-    }
-
-    export namespace debug {
-      /**
-       * Carrega arquivo .ometa, retorna handle numérico.
-       */
-      export function load_metadata(path_ptr: u64): u64;
-      /**
-       * Resolve offset de PC para localização no arquivo fonte.
-       */
-      export function resolve_location(handle: u64, pc_offset: u64): str;
-      /**
-       * Formata mensagem de erro com localização fonte (modo dev).
-       */
-      export function format_error(message_ptr: u64, pc_offset: u64): str;
-    }
-
+    export function print_summary(): void;
   }
 
 }

@@ -1048,6 +1048,39 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_RUNTIME_EVAL_FILE", runtime_eval_file_jit);
     }
 
+    // ── namespaces::test ─────────────────────────────────────────────
+    {
+        use crate::namespaces::test::runner::*;
+        add_fn!(
+            "__RTS_FN_NS_TEST_CORE_SUITE_BEGIN",
+            __RTS_FN_NS_TEST_CORE_SUITE_BEGIN
+        );
+        add_fn!(
+            "__RTS_FN_NS_TEST_CORE_SUITE_END",
+            __RTS_FN_NS_TEST_CORE_SUITE_END
+        );
+        add_fn!(
+            "__RTS_FN_NS_TEST_CORE_CASE_BEGIN",
+            __RTS_FN_NS_TEST_CORE_CASE_BEGIN
+        );
+        add_fn!(
+            "__RTS_FN_NS_TEST_CORE_CASE_END",
+            __RTS_FN_NS_TEST_CORE_CASE_END
+        );
+        add_fn!(
+            "__RTS_FN_NS_TEST_CORE_CASE_FAIL",
+            __RTS_FN_NS_TEST_CORE_CASE_FAIL
+        );
+        add_fn!(
+            "__RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF",
+            __RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF
+        );
+        add_fn!(
+            "__RTS_FN_NS_TEST_CORE_PRINT_SUMMARY",
+            __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY
+        );
+    }
+
     // ── Data symbols ──────────────────────────────────────────────────
     // Xorshift PRNG state (mutable u64 global).
     {
