@@ -262,6 +262,33 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_NUM_SWAP_BYTES", n::__RTS_FN_NS_NUM_SWAP_BYTES);
     }
 
+    // ── namespaces::mem ───────────────────────────────────────────────
+    {
+        use crate::namespaces::mem::ops as m;
+        add_fn!("__RTS_FN_NS_MEM_SIZE_OF_I64", m::__RTS_FN_NS_MEM_SIZE_OF_I64);
+        add_fn!("__RTS_FN_NS_MEM_SIZE_OF_F64", m::__RTS_FN_NS_MEM_SIZE_OF_F64);
+        add_fn!("__RTS_FN_NS_MEM_SIZE_OF_I32", m::__RTS_FN_NS_MEM_SIZE_OF_I32);
+        add_fn!(
+            "__RTS_FN_NS_MEM_SIZE_OF_BOOL",
+            m::__RTS_FN_NS_MEM_SIZE_OF_BOOL
+        );
+        add_fn!(
+            "__RTS_FN_NS_MEM_ALIGN_OF_I64",
+            m::__RTS_FN_NS_MEM_ALIGN_OF_I64
+        );
+        add_fn!(
+            "__RTS_FN_NS_MEM_ALIGN_OF_F64",
+            m::__RTS_FN_NS_MEM_ALIGN_OF_F64
+        );
+        add_fn!("__RTS_FN_NS_MEM_SWAP_I64", m::__RTS_FN_NS_MEM_SWAP_I64);
+        add_fn!("__RTS_FN_NS_MEM_DROP_HANDLE", m::__RTS_FN_NS_MEM_DROP_HANDLE);
+        add_fn!(
+            "__RTS_FN_NS_MEM_FORGET_HANDLE",
+            m::__RTS_FN_NS_MEM_FORGET_HANDLE
+        );
+        add_fn!("__RTS_FN_NS_MEM_REPLACE_I64", m::__RTS_FN_NS_MEM_REPLACE_I64);
+    }
+
     // ── namespaces::crypto ────────────────────────────────────────────
     {
         use crate::namespaces::crypto::*;

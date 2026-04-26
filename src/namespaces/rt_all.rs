@@ -8,6 +8,8 @@ pub mod fs;
 pub mod math;
 #[path = "num/rt.rs"]
 pub mod num;
+#[path = "mem/rt.rs"]
+pub mod mem;
 #[path = "bigfloat/rt.rs"]
 pub mod bigfloat;
 #[path = "time/rt.rs"]
