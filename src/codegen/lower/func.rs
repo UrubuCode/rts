@@ -1318,6 +1318,88 @@ impl LiftAcc {
         }
     }
 
+    /// Recursa em sub-blocos procurando `const/let/var x = () => ...` e
+    /// substitui o initializer por um `Ident` lifted. Permite que arrow
+    /// em VarDecl dentro de fn user funcione (codegen direto só trata
+    /// top-level). Capturas já estão promovidas pra global por
+    /// `lift_in_user_fn` antes desta passagem.
+    fn lift_vardecl_arrows_in_stmt(
+        &mut self,
+        class_name: &str,
+        stmt: &mut Stmt,
+        in_class: bool,
+    ) {
+        match stmt {
+            Stmt::Decl(swc_ecma_ast::Decl::Var(var_decl)) => {
+                for declr in var_decl.decls.iter_mut() {
+                    if let Some(init) = declr.init.as_mut() {
+                        if matches!(init.as_ref(), Expr::Arrow(_)) {
+                            if let Expr::Arrow(arrow) = std::mem::replace(
+                                init.as_mut(),
+                                Expr::Invalid(swc_ecma_ast::Invalid { span: Default::default() }),
+                            ) {
+                                let ident = self.lift_arrow_to_ident(class_name, &arrow, in_class);
+                                **init = Expr::Ident(ident);
+                            }
+                        }
+                    }
+                }
+            }
+            Stmt::If(i) => {
+                self.lift_vardecl_arrows_in_stmt(class_name, &mut i.cons, in_class);
+                if let Some(alt) = i.alt.as_mut() {
+                    self.lift_vardecl_arrows_in_stmt(class_name, alt, in_class);
+                }
+            }
+            Stmt::Block(b) => {
+                for s in b.stmts.iter_mut() {
+                    self.lift_vardecl_arrows_in_stmt(class_name, s, in_class);
+                }
+            }
+            Stmt::While(w) => {
+                self.lift_vardecl_arrows_in_stmt(class_name, &mut w.body, in_class);
+            }
+            Stmt::DoWhile(w) => {
+                self.lift_vardecl_arrows_in_stmt(class_name, &mut w.body, in_class);
+            }
+            Stmt::For(f) => {
+                self.lift_vardecl_arrows_in_stmt(class_name, &mut f.body, in_class);
+            }
+            Stmt::ForIn(f) => {
+                self.lift_vardecl_arrows_in_stmt(class_name, &mut f.body, in_class);
+            }
+            Stmt::ForOf(f) => {
+                self.lift_vardecl_arrows_in_stmt(class_name, &mut f.body, in_class);
+            }
+            Stmt::Try(t) => {
+                for s in t.block.stmts.iter_mut() {
+                    self.lift_vardecl_arrows_in_stmt(class_name, s, in_class);
+                }
+                if let Some(handler) = t.handler.as_mut() {
+                    for s in handler.body.stmts.iter_mut() {
+                        self.lift_vardecl_arrows_in_stmt(class_name, s, in_class);
+                    }
+                }
+                if let Some(finalizer) = t.finalizer.as_mut() {
+                    for s in finalizer.stmts.iter_mut() {
+                        self.lift_vardecl_arrows_in_stmt(class_name, s, in_class);
+                    }
+                }
+            }
+            Stmt::Labeled(l) => {
+                self.lift_vardecl_arrows_in_stmt(class_name, &mut l.body, in_class);
+            }
+            Stmt::Switch(sw) => {
+                for case in sw.cases.iter_mut() {
+                    for s in case.cons.iter_mut() {
+                        self.lift_vardecl_arrows_in_stmt(class_name, s, in_class);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Recursa em sub-blocos (if/while/for/block/try) procurando `return arrow`
     /// e substitui a arrow por um `Ident` lifted.
     fn lift_return_arrows_in_stmt(
@@ -1403,16 +1485,18 @@ impl LiftAcc {
 
         let mut idx = 0usize;
         while idx < body.len() {
-            // Lift de arrow em posição de `return` — codegen direto não
-            // suporta `Expr::Arrow` em ReturnStmt. Recursa em sub-blocos
-            // (if/while/for/block) para cobrir `return (...) => ...`
-            // dentro de control flow. Substitui pela `Ident` da fn
-            // sintética; o codegen materializa como `func_addr` (i64).
-            // VarDecl initializer já é tratado pelo codegen direto.
+            // Lift de arrow em posições não-call: `return arrow` e
+            // `const x = arrow`. Recursa em sub-blocos para cobrir
+            // ocorrências dentro de control flow. Substitui pela
+            // `Ident` da fn sintética; codegen materializa como
+            // `func_addr` (i64). Capturas já estão promovidas pra
+            // global por `lift_in_user_fn` antes desta passagem,
+            // então a fn lifted lê/escreve via global.
             {
                 let Statement::Raw(raw) = &mut body[idx];
                 if let Some(stmt) = raw.stmt.as_mut() {
                     self.lift_return_arrows_in_stmt(class_name, stmt, in_class);
+                    self.lift_vardecl_arrows_in_stmt(class_name, stmt, in_class);
                 }
             }
 
