@@ -14,6 +14,16 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
     },
     NamespaceMember {
+        name: "spawn_with_ud",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_THREAD_SPAWN_WITH_UD",
+        args: &[AbiType::U64, AbiType::U64, AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "Variante de `spawn` que passa um `userdata` (ex: handle de `this`) como primeiro argumento da fn. `fn_ptr` aponta para `extern \"C\" fn(u64, u64) -> u64` (ud, arg). Usado pelo lifter quando arrow captura `this` (#227).",
+        ts_signature: "spawn_with_ud(fn_ptr: number, arg: number, userdata: number): number",
+        intrinsic: None,
+    },
+    NamespaceMember {
         name: "join",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_THREAD_JOIN",

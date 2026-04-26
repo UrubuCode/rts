@@ -24,3 +24,21 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: u64, arg: u64) -> u64 {
         .unwrap()
         .alloc(Entry::JoinHandle(Box::new(handle)))
 }
+
+/// Variante com userdata (#227): trampolim recebe `(ud, arg)`. Usado
+/// quando arrow capturada por `thread.spawn` referencia `this` — o
+/// lifter passa o handle do `this` como `ud`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_WITH_UD(fn_ptr: u64, arg: u64, ud: u64) -> u64 {
+    if fn_ptr == 0 {
+        return 0;
+    }
+    // SAFETY: contrato com o codegen — `fn_ptr` aponta para
+    // `extern "C" fn(u64, u64) -> u64`.
+    let f: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let handle = thread::spawn(move || f(ud, arg));
+    table()
+        .lock()
+        .unwrap()
+        .alloc(Entry::JoinHandle(Box::new(handle)))
+}

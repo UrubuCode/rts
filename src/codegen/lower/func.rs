@@ -1535,11 +1535,83 @@ impl LiftAcc {
     /// Varre `body` em busca de chamadas a funções do namespace ABI cujo arg
     /// I64 é um `ArrowExpr` ou `Ident` apontando pra user fn. Substitui in
     /// place pelo `Ident` da fn lifted, e injeta statements/fns de suporte.
+    /// Recursa em sub-blocks (while/for/if/try/block) extraindo o body
+    /// como `Vec<Statement>`, chamando `lift_in_body` e devolvendo. Sem
+    /// isso, arrow em `thread.spawn` dentro de loop não é capturada.
+    fn lift_in_substmts(
+        &mut self,
+        class_name: &str,
+        stmt: &mut swc_ecma_ast::Stmt,
+        in_class: bool,
+    ) {
+        use swc_ecma_ast::Stmt;
+        let lift_block = |this: &mut Self, stmts: &mut Vec<swc_ecma_ast::Stmt>| {
+            let taken = std::mem::take(stmts);
+            let mut wrapped: Vec<Statement> = taken
+                .into_iter()
+                .map(|s| {
+                    Statement::Raw(
+                        RawStmt::new(String::new(), Span::default()).with_stmt(s),
+                    )
+                })
+                .collect();
+            this.lift_in_body(class_name, &mut wrapped, in_class);
+            *stmts = wrapped
+                .into_iter()
+                .filter_map(|s| {
+                    let Statement::Raw(raw) = s;
+                    raw.stmt
+                })
+                .collect();
+        };
+        match stmt {
+            Stmt::Block(b) => lift_block(self, &mut b.stmts),
+            Stmt::While(w) => self.lift_in_substmts(class_name, &mut w.body, in_class),
+            Stmt::DoWhile(w) => self.lift_in_substmts(class_name, &mut w.body, in_class),
+            Stmt::For(f) => self.lift_in_substmts(class_name, &mut f.body, in_class),
+            Stmt::ForIn(f) => self.lift_in_substmts(class_name, &mut f.body, in_class),
+            Stmt::ForOf(f) => self.lift_in_substmts(class_name, &mut f.body, in_class),
+            Stmt::If(i) => {
+                self.lift_in_substmts(class_name, &mut i.cons, in_class);
+                if let Some(alt) = i.alt.as_deref_mut() {
+                    self.lift_in_substmts(class_name, alt, in_class);
+                }
+            }
+            Stmt::Try(t) => {
+                lift_block(self, &mut t.block.stmts);
+                if let Some(h) = t.handler.as_mut() {
+                    lift_block(self, &mut h.body.stmts);
+                }
+                if let Some(f) = t.finalizer.as_mut() {
+                    lift_block(self, &mut f.stmts);
+                }
+            }
+            Stmt::Labeled(l) => self.lift_in_substmts(class_name, &mut l.body, in_class),
+            Stmt::Switch(sw) => {
+                for case in sw.cases.iter_mut() {
+                    lift_block(self, &mut case.cons);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn lift_in_body(&mut self, class_name: &str, body: &mut Vec<Statement>, in_class: bool) {
         use crate::abi::AbiType;
 
         let mut idx = 0usize;
         while idx < body.len() {
+            // Recursão em sub-blocks: while/for/if/try/block precisam
+            // do lift propagado pra dentro pra que arrows em
+            // `thread.spawn` aninhados (ex: dentro de loop) sejam
+            // capturados (#227).
+            {
+                let Statement::Raw(raw) = &mut body[idx];
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    self.lift_in_substmts(class_name, stmt, in_class);
+                }
+            }
+
             // Lift de arrow em posições não-call: `return arrow` e
             // `const x = arrow`. Recursa em sub-blocos para cobrir
             // ocorrências dentro de control flow. Substitui pela
@@ -1700,9 +1772,10 @@ impl LiftAcc {
                     }
                 }
                 match peel_ts(arg.expr.as_ref()) {
-                    Expr::Arrow(arrow) if arrow_uses_this && is_widget_set_callback => {
-                        // Path NOVO (#148): trampolim recebe `this` por
-                        // parâmetro. O callsite é reescrito abaixo.
+                    Expr::Arrow(arrow) if arrow_uses_this && (is_widget_set_callback || is_thread_spawn) => {
+                        // Path NOVO (#148/#227): trampolim recebe `this`
+                        // por parâmetro (em thread.spawn, `this` é passado
+                        // via `userdata`). O callsite é reescrito abaixo.
                         use_userdata_callback = true;
                         let raw_stmts = arrow_body_to_stmts(arrow);
                         body_stmts = raw_stmts
@@ -1825,7 +1898,28 @@ impl LiftAcc {
                 // `thread.spawn(fp, arg)` com worker arity≥1, recebe
                 // `__rts_spawn_arg: number`. Caso contrário, sem
                 // parâmetros (UI callbacks tradicionais).
-                let parameters: Vec<Parameter> = if use_userdata_callback {
+                let parameters: Vec<Parameter> = if use_userdata_callback && is_thread_spawn {
+                    // thread.spawn_with_ud: trampolim assina (ud, arg)
+                    // → primeiro `this`, depois `__rts_spawn_arg` (i64).
+                    vec![
+                        Parameter {
+                            name: "this".to_string(),
+                            type_annotation: Some(class_name.to_string()),
+                            modifiers: MemberModifiers::default(),
+                            variadic: false,
+                            default: None,
+                            span: Span::default(),
+                        },
+                        Parameter {
+                            name: "__rts_spawn_arg".to_string(),
+                            type_annotation: Some("i64".to_string()),
+                            modifiers: MemberModifiers::default(),
+                            variadic: false,
+                            default: None,
+                            span: Span::default(),
+                        },
+                    ]
+                } else if use_userdata_callback {
                     vec![Parameter {
                         name: "this".to_string(),
                         type_annotation: Some(class_name.to_string()),
@@ -1888,18 +1982,22 @@ impl LiftAcc {
             }
 
             // Reescrita do callsite quando o trampolim captura `this`
-            // via parâmetro (path novo de #148). Substitui o callee
-            // `ui.widget_set_callback` por `ui.widget_set_callback_with_ud`
-            // e anexa `this` como 3º argumento.
+            // via parâmetro (#148/#227). Troca o método pela variante
+            // `_with_ud` e anexa `this` como argumento extra.
             if pending_userdata_rewrite {
                 if let Callee::Expr(callee_expr) = &mut call.callee {
                     if let Expr::Member(m) = callee_expr.as_mut() {
                         if let MemberProp::Ident(prop_id) = &mut m.prop {
-                            prop_id.sym = "widget_set_callback_with_ud".into();
+                            let new_name = if is_thread_spawn {
+                                "spawn_with_ud"
+                            } else {
+                                "widget_set_callback_with_ud"
+                            };
+                            prop_id.sym = new_name.into();
                         }
                     }
                 }
-                // Adiciona `this` como 3º arg.
+                // Adiciona `this` como último arg (3º em ambos casos).
                 call.args.push(swc_ecma_ast::ExprOrSpread {
                     spread: None,
                     expr: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
