@@ -107,10 +107,20 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         for member in class.members.iter_mut() {
             match member {
                 ClassMember::Constructor(ctor) => {
-                    acc.lift_in_body(&class_name, &mut ctor.body, /*in_class=*/ true);
+                    acc.lift_in_method_body(
+                        &class_name,
+                        &mut ctor.body,
+                        &ctor.parameters,
+                        /*in_class=*/ true,
+                    );
                 }
-                ClassMember::Method(method) if !method.modifiers.is_static => {
-                    acc.lift_in_body(&class_name, &mut method.body, /*in_class=*/ true);
+                ClassMember::Method(method) => {
+                    acc.lift_in_method_body(
+                        &class_name,
+                        &mut method.body,
+                        &method.parameters,
+                        /*in_class=*/ !method.modifiers.is_static,
+                    );
                 }
                 _ => {}
             }
@@ -1281,6 +1291,60 @@ impl LiftAcc {
     /// pra global, e reescreve referências na fn inteira. Depois delega
     /// pra `lift_in_body` que faz o lift normal — nesse momento os idents
     /// capturados já apontam pra globais que existem em escopo do trampolim.
+    /// Variante de `lift_in_user_fn` para constructors e métodos de
+    /// classe. Roda auto_promote (#229 fase 2) e captura-to-global no
+    /// body antes do lift normal, igual ao caminho top-level. Sem isso,
+    /// arrow em `thread.spawn` dentro de método não vê locais.
+    fn lift_in_method_body(
+        &mut self,
+        class_name: &str,
+        body: &mut Vec<Statement>,
+        parameters: &[Parameter],
+        in_class: bool,
+    ) {
+        // Coleta locais + params.
+        let mut locals: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for p in parameters {
+            locals.insert(p.name.clone());
+        }
+        collect_local_decls(body, &mut locals);
+
+        // Auto-promote para atomic (mesmo que top-level).
+        let atomic_promotes = collect_thread_spawn_captures(body, &locals);
+        for var in &atomic_promotes {
+            promote_local_to_atomic(body, var);
+        }
+
+        // Captura-to-global: idents capturados por arrows precisam virar
+        // globais para que o trampolim os acesse.
+        let captured = collect_captures_in_body(body, &locals);
+        let param_names: std::collections::HashSet<String> =
+            parameters.iter().map(|p| p.name.clone()).collect();
+
+        let owner_tag = format!("__class_{}", sanitize_for_symbol(class_name));
+        let mut param_syncs: Vec<(String, String)> = Vec::new();
+        for var in &captured {
+            // Pula `this` — já tratado por userdata path.
+            if var == "this" {
+                continue;
+            }
+            let global = format!("__cb_local_{}_{}", owner_tag, var);
+            self.new_globals.push(global.clone());
+            if param_names.contains(var) {
+                param_syncs.push((global.clone(), var.clone()));
+                rename_uses_in_body(body, var, &global);
+            } else {
+                promote_local_to_global(body, var, &global);
+            }
+        }
+        for (global, param) in param_syncs.iter().rev() {
+            body.insert(0, make_sync_param_to_global(global, param));
+        }
+
+        self.lift_in_body(class_name, body, in_class);
+    }
+
     fn lift_in_user_fn(&mut self, f: &mut FunctionDecl) {
         // Coleta locais declaradas e parâmetros — qualquer ident que
         // referencie um desses *dentro de um arrow* é uma captura.
@@ -1289,6 +1353,16 @@ impl LiftAcc {
             locals.insert(p.name.clone());
         }
         collect_local_decls(&f.body, &mut locals);
+
+        // (#229 Fase 2 / auto-locking) Identifica capturas usadas por
+        // arrows em `thread.spawn` e auto-promove pra `atomic.i64`.
+        // Sem isso, escritas concorrentes em variável capturada
+        // perdem updates silenciosamente. A promoção reescreve a
+        // declaração local e todos os usos (leitura/escrita) no body.
+        let atomic_promotes = collect_thread_spawn_captures(&f.body, &locals);
+        for var in &atomic_promotes {
+            promote_local_to_atomic(&mut f.body, var);
+        }
 
         // Para cada arrow nos statements (recursivamente), descobre
         // quais idents da fn são capturados.
@@ -4796,4 +4870,571 @@ fn extract_class_owner(fn_name: &str) -> Option<String> {
         return Some(rest[..idx].to_string());
     }
     None
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// #229 Fase 2: auto-promote de variável local capturada por arrow em
+// thread.spawn pra `atomic.i64`. Sem isso, escritas concorrentes a
+// uma local capturada perdem updates silenciosamente.
+// ───────────────────────────────────────────────────────────────────────
+
+/// Coleta nomes de locals capturados por arrows em `thread.spawn`.
+/// Outras chamadas (ui.widget_set_callback, etc) não disparam promoção
+/// — só `thread.spawn` indica execução paralela real.
+fn collect_thread_spawn_captures(
+    body: &[Statement],
+    locals: &std::collections::HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for s in body {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = raw.stmt.as_ref() {
+            scan_stmt_for_spawn(stmt, locals, &mut out);
+        }
+    }
+    out
+}
+
+fn scan_stmt_for_spawn(
+    stmt: &Stmt,
+    locals: &std::collections::HashSet<String>,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Expr(e) => scan_expr_for_spawn(&e.expr, locals, out),
+        Return(r) => {
+            if let Some(a) = r.arg.as_deref() {
+                scan_expr_for_spawn(a, locals, out);
+            }
+        }
+        If(i) => {
+            scan_expr_for_spawn(&i.test, locals, out);
+            scan_stmt_for_spawn(&i.cons, locals, out);
+            if let Some(alt) = i.alt.as_deref() {
+                scan_stmt_for_spawn(alt, locals, out);
+            }
+        }
+        Block(b) => {
+            for s in &b.stmts {
+                scan_stmt_for_spawn(s, locals, out);
+            }
+        }
+        While(w) => {
+            scan_expr_for_spawn(&w.test, locals, out);
+            scan_stmt_for_spawn(&w.body, locals, out);
+        }
+        DoWhile(w) => {
+            scan_expr_for_spawn(&w.test, locals, out);
+            scan_stmt_for_spawn(&w.body, locals, out);
+        }
+        For(f) => {
+            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_ref() {
+                for d in &vd.decls {
+                    if let Some(e) = d.init.as_deref() {
+                        scan_expr_for_spawn(e, locals, out);
+                    }
+                }
+            }
+            if let Some(t) = f.test.as_deref() {
+                scan_expr_for_spawn(t, locals, out);
+            }
+            if let Some(u) = f.update.as_deref() {
+                scan_expr_for_spawn(u, locals, out);
+            }
+            scan_stmt_for_spawn(&f.body, locals, out);
+        }
+        ForOf(f) => {
+            scan_expr_for_spawn(&f.right, locals, out);
+            scan_stmt_for_spawn(&f.body, locals, out);
+        }
+        Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in &v.decls {
+                if let Some(e) = d.init.as_deref() {
+                    scan_expr_for_spawn(e, locals, out);
+                }
+            }
+        }
+        Try(t) => {
+            for s in &t.block.stmts {
+                scan_stmt_for_spawn(s, locals, out);
+            }
+            if let Some(h) = &t.handler {
+                for s in &h.body.stmts {
+                    scan_stmt_for_spawn(s, locals, out);
+                }
+            }
+            if let Some(f) = &t.finalizer {
+                for s in &f.stmts {
+                    scan_stmt_for_spawn(s, locals, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_expr_for_spawn(
+    expr: &Expr,
+    locals: &std::collections::HashSet<String>,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    if let Expr::Call(c) = expr {
+        if let Callee::Expr(callee) = &c.callee {
+            if let Expr::Member(m) = callee.as_ref() {
+                if let (Expr::Ident(obj), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
+                    if obj.sym.as_ref() == "thread" && prop.sym.as_ref() == "spawn" {
+                        // Primeiro arg: o callback. Coleta capturas.
+                        if let Some(first) = c.args.first() {
+                            let mut arrow_locals: std::collections::HashSet<String> =
+                                std::collections::HashSet::new();
+                            // peel TsAs etc
+                            let mut cur = first.expr.as_ref();
+                            loop {
+                                match cur {
+                                    Expr::TsAs(a) => cur = &a.expr,
+                                    Expr::TsConstAssertion(a) => cur = &a.expr,
+                                    Expr::TsTypeAssertion(a) => cur = &a.expr,
+                                    Expr::Paren(p) => cur = &p.expr,
+                                    _ => break,
+                                }
+                            }
+                            if let Expr::Arrow(arrow) = cur {
+                                for p in &arrow.params {
+                                    if let Pat::Ident(id) = p {
+                                        arrow_locals.insert(id.id.sym.to_string());
+                                    }
+                                }
+                                let stmts: Vec<Stmt> = match arrow.body.as_ref() {
+                                    swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+                                        b.stmts.clone()
+                                    }
+                                    swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                                        vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+                                            span: Default::default(),
+                                            arg: Some(e.clone()),
+                                        })]
+                                    }
+                                };
+                                for s in &stmts {
+                                    collect_decls_in_stmt(s, &mut arrow_locals);
+                                }
+                                for s in &stmts {
+                                    collect_idents_used_in_stmt(s, locals, &arrow_locals, out);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // recursa nos args (caso spawn esteja aninhado)
+        for a in &c.args {
+            scan_expr_for_spawn(&a.expr, locals, out);
+        }
+        if let Callee::Expr(e) = &c.callee {
+            scan_expr_for_spawn(e, locals, out);
+        }
+    } else {
+        // descer em expressions normais
+        match expr {
+            Expr::Bin(b) => {
+                scan_expr_for_spawn(&b.left, locals, out);
+                scan_expr_for_spawn(&b.right, locals, out);
+            }
+            Expr::Unary(u) => scan_expr_for_spawn(&u.arg, locals, out),
+            Expr::Update(u) => scan_expr_for_spawn(&u.arg, locals, out),
+            Expr::Assign(a) => scan_expr_for_spawn(&a.right, locals, out),
+            Expr::Cond(c) => {
+                scan_expr_for_spawn(&c.test, locals, out);
+                scan_expr_for_spawn(&c.cons, locals, out);
+                scan_expr_for_spawn(&c.alt, locals, out);
+            }
+            Expr::Member(m) => scan_expr_for_spawn(&m.obj, locals, out),
+            Expr::Paren(p) => scan_expr_for_spawn(&p.expr, locals, out),
+            _ => {}
+        }
+    }
+}
+
+/// Reescreve `let <var> = N` (no body) por `const <var> = atomic.i64_new(N)`,
+/// e todos os usos: `var = e` → `atomic.i64_store(var, e)`,
+/// `var = var + e` → `atomic.i64_fetch_add(var, e)`, `var++` →
+/// `atomic.i64_fetch_add(var, 1)`, `var--` → fetch_add(var, -1),
+/// leituras `var` → `atomic.i64_load(var)`.
+fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str) {
+    // Pass 1: reescreve a declaração.
+    for s in body.iter_mut() {
+        let Statement::Raw(raw) = s;
+        let Some(stmt) = raw.stmt.as_mut() else {
+            continue;
+        };
+        rewrite_decl_to_atomic(stmt, var);
+    }
+    // Pass 2: reescreve usos no body do método (todos os stmts).
+    for s in body.iter_mut() {
+        let Statement::Raw(raw) = s;
+        let Some(stmt) = raw.stmt.as_mut() else {
+            continue;
+        };
+        rewrite_uses_atomic_in_stmt(stmt, var);
+    }
+}
+
+fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str) {
+    if let Stmt::Decl(swc_ecma_ast::Decl::Var(v)) = stmt {
+        for d in v.decls.iter_mut() {
+            if let Pat::Ident(id) = &d.name {
+                if id.id.sym.as_ref() == var {
+                    let init = d.init.clone().unwrap_or_else(|| {
+                        Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                            span: Default::default(),
+                            value: 0.0,
+                            raw: Some("0".into()),
+                        })))
+                    });
+                    // const var = atomic.i64_new(<init>)
+                    let new_init = make_call(
+                        "atomic",
+                        "i64_new",
+                        vec![swc_ecma_ast::ExprOrSpread {
+                            spread: None,
+                            expr: init,
+                        }],
+                    );
+                    d.init = Some(Box::new(new_init));
+                }
+            }
+        }
+        // Já era let — vira const semanticamente, mas mantemos o flag para
+        // não exigir refator do parser.
+    }
+    // Recursa em sub-blocks.
+    walk_stmt_mut(stmt, &mut |s| rewrite_decl_to_atomic(s, var));
+}
+
+fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str) {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Expr(e) => rewrite_uses_atomic_in_expr(&mut e.expr, var),
+        Return(r) => {
+            if let Some(a) = r.arg.as_deref_mut() {
+                rewrite_uses_atomic_in_expr(a, var);
+            }
+        }
+        If(i) => {
+            rewrite_uses_atomic_in_expr(&mut i.test, var);
+            rewrite_uses_atomic_in_stmt(&mut i.cons, var);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                rewrite_uses_atomic_in_stmt(alt, var);
+            }
+        }
+        Block(b) => {
+            for s in b.stmts.iter_mut() {
+                rewrite_uses_atomic_in_stmt(s, var);
+            }
+        }
+        While(w) => {
+            rewrite_uses_atomic_in_expr(&mut w.test, var);
+            rewrite_uses_atomic_in_stmt(&mut w.body, var);
+        }
+        DoWhile(w) => {
+            rewrite_uses_atomic_in_expr(&mut w.test, var);
+            rewrite_uses_atomic_in_stmt(&mut w.body, var);
+        }
+        For(f) => {
+            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_mut() {
+                for d in vd.decls.iter_mut() {
+                    if let Some(e) = d.init.as_deref_mut() {
+                        rewrite_uses_atomic_in_expr(e, var);
+                    }
+                }
+            } else if let Some(swc_ecma_ast::VarDeclOrExpr::Expr(e)) = f.init.as_mut() {
+                rewrite_uses_atomic_in_expr(e, var);
+            }
+            if let Some(t) = f.test.as_deref_mut() {
+                rewrite_uses_atomic_in_expr(t, var);
+            }
+            if let Some(u) = f.update.as_deref_mut() {
+                rewrite_uses_atomic_in_expr(u, var);
+            }
+            rewrite_uses_atomic_in_stmt(&mut f.body, var);
+        }
+        ForOf(f) => {
+            rewrite_uses_atomic_in_expr(&mut f.right, var);
+            rewrite_uses_atomic_in_stmt(&mut f.body, var);
+        }
+        Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in v.decls.iter_mut() {
+                if let Some(e) = d.init.as_deref_mut() {
+                    rewrite_uses_atomic_in_expr(e, var);
+                }
+            }
+        }
+        Try(t) => {
+            for s in t.block.stmts.iter_mut() {
+                rewrite_uses_atomic_in_stmt(s, var);
+            }
+            if let Some(h) = t.handler.as_mut() {
+                for s in h.body.stmts.iter_mut() {
+                    rewrite_uses_atomic_in_stmt(s, var);
+                }
+            }
+            if let Some(f) = t.finalizer.as_mut() {
+                for s in f.stmts.iter_mut() {
+                    rewrite_uses_atomic_in_stmt(s, var);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str) {
+    // Caso 1: `var = expr` — mas precisa decidir entre store e fetch_add
+    if let Expr::Assign(a) = expr {
+        if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) =
+            &a.left
+        {
+            if id.id.sym.as_ref() == var {
+                let op = a.op;
+                let mut rhs = (*a.right).clone();
+                rewrite_uses_atomic_in_expr(&mut rhs, var);
+                // `var = var + N` → fetch_add(var, N)
+                if op == swc_ecma_ast::AssignOp::Assign {
+                    if let Some(delta) = match_self_add_pattern(&rhs, var) {
+                        *expr = make_call(
+                            "atomic",
+                            "i64_fetch_add",
+                            vec![ident_arg(var), expr_arg(delta)],
+                        );
+                        return;
+                    }
+                    *expr =
+                        make_call("atomic", "i64_store", vec![ident_arg(var), expr_arg(rhs)]);
+                    return;
+                }
+                if op == swc_ecma_ast::AssignOp::AddAssign {
+                    *expr = make_call(
+                        "atomic",
+                        "i64_fetch_add",
+                        vec![ident_arg(var), expr_arg(rhs)],
+                    );
+                    return;
+                }
+                if op == swc_ecma_ast::AssignOp::SubAssign {
+                    let neg = Expr::Unary(swc_ecma_ast::UnaryExpr {
+                        span: Default::default(),
+                        op: swc_ecma_ast::UnaryOp::Minus,
+                        arg: Box::new(rhs),
+                    });
+                    *expr = make_call(
+                        "atomic",
+                        "i64_fetch_add",
+                        vec![ident_arg(var), expr_arg(neg)],
+                    );
+                    return;
+                }
+                // Outros ops (*=, /=, etc) não suportados pra atomic;
+                // deixa erro no codegen mais à frente.
+            }
+        }
+    }
+    // Caso 2: `var++` / `var--`
+    if let Expr::Update(u) = expr {
+        if let Expr::Ident(id) = u.arg.as_ref() {
+            if id.sym.as_ref() == var {
+                let delta = match u.op {
+                    swc_ecma_ast::UpdateOp::PlusPlus => 1.0,
+                    swc_ecma_ast::UpdateOp::MinusMinus => -1.0,
+                };
+                let lit = Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                    span: Default::default(),
+                    value: delta,
+                    raw: None,
+                }));
+                *expr = make_call(
+                    "atomic",
+                    "i64_fetch_add",
+                    vec![ident_arg(var), expr_arg(lit)],
+                );
+                return;
+            }
+        }
+    }
+    // Caso 3: leitura `var` — só substitui se for ident standalone
+    if let Expr::Ident(id) = expr {
+        if id.sym.as_ref() == var {
+            *expr = make_call("atomic", "i64_load", vec![ident_arg(var)]);
+            return;
+        }
+    }
+    // Recursa em sub-exprs (sem entrar em arrows — esses tem seu próprio lift).
+    match expr {
+        Expr::Bin(b) => {
+            rewrite_uses_atomic_in_expr(&mut b.left, var);
+            rewrite_uses_atomic_in_expr(&mut b.right, var);
+        }
+        Expr::Unary(u) => rewrite_uses_atomic_in_expr(&mut u.arg, var),
+        Expr::Cond(c) => {
+            rewrite_uses_atomic_in_expr(&mut c.test, var);
+            rewrite_uses_atomic_in_expr(&mut c.cons, var);
+            rewrite_uses_atomic_in_expr(&mut c.alt, var);
+        }
+        Expr::Call(c) => {
+            for a in c.args.iter_mut() {
+                rewrite_uses_atomic_in_expr(&mut a.expr, var);
+            }
+            if let Callee::Expr(ce) = &mut c.callee {
+                rewrite_uses_atomic_in_expr(ce, var);
+            }
+        }
+        Expr::Member(m) => rewrite_uses_atomic_in_expr(&mut m.obj, var),
+        Expr::Paren(p) => rewrite_uses_atomic_in_expr(&mut p.expr, var),
+        Expr::Assign(a) => rewrite_uses_atomic_in_expr(&mut a.right, var),
+        Expr::Arrow(arrow) => {
+            // entra em arrow body — fase 2 promove em ambos lados
+            match arrow.body.as_mut() {
+                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+                    for s in b.stmts.iter_mut() {
+                        rewrite_uses_atomic_in_stmt(s, var);
+                    }
+                }
+                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                    rewrite_uses_atomic_in_expr(e, var);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Detecta padrão `var + delta` ou `delta + var` em RHS de `var = ...`.
+fn match_self_add_pattern(rhs: &Expr, var: &str) -> Option<Expr> {
+    if let Expr::Bin(b) = rhs {
+        if b.op == swc_ecma_ast::BinaryOp::Add {
+            // `var + N`
+            if let Expr::Call(c) = b.left.as_ref() {
+                if is_atomic_load_of(c, var) {
+                    return Some((*b.right).clone());
+                }
+            }
+            // `N + var`
+            if let Expr::Call(c) = b.right.as_ref() {
+                if is_atomic_load_of(c, var) {
+                    return Some((*b.left).clone());
+                }
+            }
+        }
+        if b.op == swc_ecma_ast::BinaryOp::Sub {
+            if let Expr::Call(c) = b.left.as_ref() {
+                if is_atomic_load_of(c, var) {
+                    let neg = Expr::Unary(swc_ecma_ast::UnaryExpr {
+                        span: Default::default(),
+                        op: swc_ecma_ast::UnaryOp::Minus,
+                        arg: Box::new((*b.right).clone()),
+                    });
+                    return Some(neg);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_atomic_load_of(call: &swc_ecma_ast::CallExpr, var: &str) -> bool {
+    if let Callee::Expr(ce) = &call.callee {
+        if let Expr::Member(m) = ce.as_ref() {
+            if let (Expr::Ident(obj), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
+                if obj.sym.as_ref() == "atomic" && prop.sym.as_ref() == "i64_load" {
+                    if let Some(arg) = call.args.first() {
+                        if let Expr::Ident(id) = arg.expr.as_ref() {
+                            return id.sym.as_ref() == var;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn make_call(ns: &str, fn_name: &str, args: Vec<swc_ecma_ast::ExprOrSpread>) -> Expr {
+    Expr::Call(swc_ecma_ast::CallExpr {
+        span: Default::default(),
+        ctxt: Default::default(),
+        callee: Callee::Expr(Box::new(Expr::Member(swc_ecma_ast::MemberExpr {
+            span: Default::default(),
+            obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: ns.into(),
+                optional: false,
+            })),
+            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                span: Default::default(),
+                sym: fn_name.into(),
+            }),
+        }))),
+        args,
+        type_args: None,
+    })
+}
+
+fn ident_arg(name: &str) -> swc_ecma_ast::ExprOrSpread {
+    swc_ecma_ast::ExprOrSpread {
+        spread: None,
+        expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: name.into(),
+            optional: false,
+        })),
+    }
+}
+
+fn expr_arg(e: Expr) -> swc_ecma_ast::ExprOrSpread {
+    swc_ecma_ast::ExprOrSpread {
+        spread: None,
+        expr: Box::new(e),
+    }
+}
+
+/// Helper genérico para descer em sub-blocks de um Stmt SWC.
+fn walk_stmt_mut(stmt: &mut Stmt, f: &mut dyn FnMut(&mut Stmt)) {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Block(b) => {
+            for s in b.stmts.iter_mut() {
+                f(s);
+            }
+        }
+        If(i) => {
+            f(&mut i.cons);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                f(alt);
+            }
+        }
+        While(w) => f(&mut w.body),
+        DoWhile(w) => f(&mut w.body),
+        For(fo) => f(&mut fo.body),
+        ForOf(fo) => f(&mut fo.body),
+        Try(t) => {
+            for s in t.block.stmts.iter_mut() {
+                f(s);
+            }
+            if let Some(h) = t.handler.as_mut() {
+                for s in h.body.stmts.iter_mut() {
+                    f(s);
+                }
+            }
+            if let Some(fi) = t.finalizer.as_mut() {
+                for s in fi.stmts.iter_mut() {
+                    f(s);
+                }
+            }
+        }
+        Labeled(l) => f(&mut l.body),
+        _ => {}
+    }
 }
