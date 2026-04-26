@@ -226,12 +226,39 @@ fn build_linker_args(
                 }
             }
             if !keep_all_runtime_symbols {
-                // Strip unreferenced symbols — removes unused namespace functions.
                 args.push("-dead_strip".to_string());
             }
+            let (min_ver, sdk_ver) = macos_platform_versions(&target.triple);
+            args.push("-platform_version".to_string());
+            args.push("macos".to_string());
+            args.push(min_ver);
+            args.push(sdk_ver);
             Ok(args)
         }
     }
+}
+
+fn macos_platform_versions(triple: &str) -> (String, String) {
+    let min = std::env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| {
+        if triple.starts_with("aarch64-") {
+            "11.0".to_string()
+        } else {
+            "10.13".to_string()
+        }
+    });
+    let sdk = Command::new("xcrun")
+        .args(["--show-sdk-version"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| min.clone());
+    (min, sdk)
 }
 
 fn windows_runtime_default_libs() -> &'static [&'static str] {
