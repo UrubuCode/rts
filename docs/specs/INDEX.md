@@ -9,6 +9,10 @@ arquiteturais. Para direcao de alto nivel do projeto consulte
 - [Como criar um namespace](namespace-creation-guide.md) — Processo atual
   baseado em `src/abi/` (SPECS centralizado, simbolos `__RTS_FN_NS_*`,
   `AbiType`). Reflete a branch `feat/remake-namespaces`.
+- [Multi-thread implícito](multi-thread-implicito.md) — Modelo de
+  paralelismo do RTS: auto-promote de capturas mutáveis pra atomic,
+  thread-local accumulation, status por tipo, limitações. Diferencial
+  central do projeto vs Node/Bun/Deno (#229).
 
 ## Historico / pendente de reescrita
 

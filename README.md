@@ -10,8 +10,43 @@ os namespaces builtin. Ha dois caminhos de execucao:
 - **AOT** (`rts compile`) — emite object file, linka com o linker do sistema,
   produz executavel standalone.
 
-Namespaces ativos (16): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
-`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`.
+Namespaces ativos (18): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
+`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
+`thread`, `atomic`.
+
+## Multi-thread implícito (diferencial)
+
+RTS é o único runtime de TS que entrega **paralelismo real com semântica
+single-thread observável**. O dev escreve código JS-like normal; o compilador
+detecta capturas mutáveis e injeta primitivas atômicas / locks
+automaticamente.
+
+```ts
+let counter = 0;
+
+const handles: number[] = [];
+for (let i = 0; i < 8; i++) {
+    handles.push(thread.spawn(() => {
+        for (let k = 0; k < 1_000_000; k++) {
+            counter = counter + 1;  // ← compilador injeta atomic.i64_fetch_add
+        }
+    }, 0));
+}
+for (const h of handles) thread.join(h);
+console.log(counter);  // 8000000 exato — sem race condition
+```
+
+**Sem** o compilador, esse código teria race em qualquer outra runtime —
+em Node/Bun/Deno, `let counter` simplesmente **não pode ser compartilhado**
+entre Worker threads (precisa `SharedArrayBuffer` + `Atomics`).
+
+**Otimização thread-local accumulation** detecta loops apertados de
+`fetch_add(x, lit)` e transforma em acumulador local + 1 fetch_add no fim,
+eliminando contention de cache. Em bench medido (8 threads × 50M iter),
+speedup vs atomic puro: **~684×**.
+
+Veja [`docs/specs/multi-thread-implicito.md`](docs/specs/multi-thread-implicito.md)
+para o modelo completo, garantias e limitações.
 
 **Observação de perf (Windows, `rts_simple.ts`, 10 runs):**
 

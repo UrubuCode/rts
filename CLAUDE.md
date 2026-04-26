@@ -82,10 +82,10 @@ Regras:
 - Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
 - Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-Namespaces ativos (16): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
-`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`.
-Demais (net, thread, sync, atomic, etc) serao reintroduzidos sobre o contrato
-atual a medida que o pipeline estabiliza. Ver issues #16-#39 para o backlog.
+Namespaces ativos (18): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
+`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
+`thread`, `atomic`. Demais (net, channel, sync, task, etc) serao reintroduzidos
+sobre o contrato atual. Ver issues #16-#39 para o backlog.
 
 ### Namespaces existentes
 
@@ -141,6 +141,13 @@ atual a medida que o pipeline estabiliza. Ver issues #16-#39 para o backlog.
 - try/catch/finally fase 1: slot de erro thread-local, sem unwind real
   (#128 rastreia fase 2).
 - String equality: `s1 == s2` compara conteudo via `gc.string_eq`.
+- **Multi-thread implícito** (#229): `thread.spawn` com arrow capturando
+  `this` ou locais primitivos (`number`, `bool`) — compilador detecta
+  capturas mutáveis e auto-promove pra `atomic.i64`/`atomic.bool`
+  reescrevendo todos os usos no caller e na arrow. Otimização
+  thread-local accumulation: loops apertados de `fetch_add(x, lit)`
+  viram acumulador local + 1 fetch_add no fim. Ver
+  `docs/specs/multi-thread-implicito.md`.
 
 ## Convencoes
 
