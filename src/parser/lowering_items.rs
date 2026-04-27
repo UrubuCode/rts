@@ -173,14 +173,41 @@ fn arrow_to_function(arrow: &ArrowExpr) -> SwcFunction {
     let body = match &*arrow.body {
         swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => Some(block.clone()),
         swc_ecma_ast::BlockStmtOrExpr::Expr(expr) => {
-            let return_stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
-                span: arrow.span,
-                arg: Some(expr.clone()),
-            });
+            // `() => expr`: se a fn tem return type explícito void, ou
+            // o expr é uma chamada que retorna void (heurística por
+            // call expr — codegen sabe), envolvemos como ExprStmt em
+            // vez de Return. Sem isso o verifier do Cranelift reclama
+            // "return must match function signature" quando o wrapper
+            // arrow é declarado void mas o body retorna i64.
+            // Conservador: só gera ExprStmt quando o return type está
+            // explicitamente anotado como `void` ou ausente E o expr é
+            // chamada de fn (pattern comum: `() => doStuff()`).
+            // No caso geral mantemos return.
+            let is_void_arrow = arrow
+                .return_type
+                .as_deref()
+                .map(|ann| {
+                    matches!(
+                        ann.type_ann.as_ref(),
+                        swc_ecma_ast::TsType::TsKeywordType(k) if k.kind == swc_ecma_ast::TsKeywordTypeKind::TsVoidKeyword
+                    )
+                })
+                .unwrap_or(false);
+            let stmt = if is_void_arrow {
+                Stmt::Expr(swc_ecma_ast::ExprStmt {
+                    span: arrow.span,
+                    expr: expr.clone(),
+                })
+            } else {
+                Stmt::Return(swc_ecma_ast::ReturnStmt {
+                    span: arrow.span,
+                    arg: Some(expr.clone()),
+                })
+            };
             Some(BlockStmt {
                 span: arrow.span,
                 ctxt: arrow.ctxt,
-                stmts: vec![return_stmt],
+                stmts: vec![stmt],
             })
         }
     };

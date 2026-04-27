@@ -2279,9 +2279,17 @@ fn arrow_body_to_stmts(arrow: &swc_ecma_ast::ArrowExpr) -> Vec<Stmt> {
     match arrow.body.as_ref() {
         BlockStmtOrExpr::BlockStmt(block) => block.stmts.clone(),
         BlockStmtOrExpr::Expr(expr) => {
-            vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+            // Trampolins gerados a partir de arrow expression body
+            // (`() => doStuff()`) são declarados como `void`. Gerar
+            // ExprStmt em vez de Return evita Cranelift verifier
+            // reclamando "arguments of return must match function
+            // signature" quando o callee retorna i64 mas o trampolim
+            // não retorna. Se o usuário quer o valor, escreve
+            // `() => { return doStuff(); }` — mas trampolins de
+            // thread.spawn / UI callback são sempre void.
+            vec![Stmt::Expr(swc_ecma_ast::ExprStmt {
                 span: Default::default(),
-                arg: Some(expr.clone()),
+                expr: expr.clone(),
             })]
         }
     }
