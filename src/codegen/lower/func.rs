@@ -43,6 +43,9 @@ struct UserFn {
 struct LiftOutput {
     needs_c_callconv: HashSet<String>,
     warnings: Vec<String>,
+    /// Erros de captura insegura. Compile_program propaga como
+    /// failure, não como warning silente.
+    errors: Vec<String>,
     /// Globais sintéticas (`__cb_local_*`) que sao instâncias de
     /// classes registradas. Mescla em `global_class_ty` no
     /// `compile_program` pra dispatch de método em trampolins.
@@ -50,6 +53,14 @@ struct LiftOutput {
 }
 
 fn lift_arrow_callbacks(program: &mut Program) -> LiftOutput {
+    let class_names: HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Class(c) => Some(c.name.clone()),
+            _ => None,
+        })
+        .collect();
     let mut user_fn_names: HashSet<String> = program
         .items
         .iter()
@@ -103,6 +114,8 @@ fn lift_arrow_callbacks(program: &mut Program) -> LiftOutput {
         new_fns: Vec::new(),
         new_globals: Vec::new(),
         warnings: Vec::new(),
+        errors: Vec::new(),
+        class_names,
         promoted_class_ty: HashMap::new(),
         user_fn_names,
         user_fn_arities,
@@ -247,6 +260,7 @@ fn lift_arrow_callbacks(program: &mut Program) -> LiftOutput {
     LiftOutput {
         needs_c_callconv: acc.needs_c_callconv,
         warnings: acc.warnings,
+        errors: acc.errors,
         promoted_class_ty: acc.promoted_class_ty,
     }
 }
@@ -256,9 +270,15 @@ struct LiftAcc {
     new_fns: Vec<Item>,
     /// Nomes de globais `__cb_this_N` a declarar como `let` top-level.
     new_globals: Vec<String>,
-    /// Warnings emitidos durante o lift (#229 fase 4): capturas em
-    /// `thread.spawn` de tipos não-promovíveis pelo auto-locking.
+    /// Warnings emitidos durante o lift.
     warnings: Vec<String>,
+    /// Erros de capturas inseguras (Rust soft model): tipos sem path
+    /// race-free claro disparam erro de compilação.
+    errors: Vec<String>,
+    /// Nomes de classes registradas no programa. Usado para distinguir
+    /// `: Cache` (instance, permitida) de `: Map<K,V>` (Unsupported,
+    /// erro) na detecção de captura.
+    class_names: HashSet<String>,
     /// Mapa global_name → class_name pra capturas que são instâncias
     /// de classe registrada. Permite que dispatch de método dentro de
     /// trampolim funcione (ex: `cache.bump()` na arrow de thread.spawn).
@@ -1342,10 +1362,10 @@ impl LiftAcc {
             if param_set.contains(var) {
                 continue;
             }
-            let kind = detect_atomic_kind(body, var);
+            let kind = detect_atomic_kind(body, var, parameters, &self.class_names);
             if kind == AtomicKind::Unsupported {
-                self.warnings.push(format!(
-                    "auto-locking: captura `{}` em thread.spawn de método de `{}` é tipo complexo (string/array/Map/object). Operações ainda passam pelo lock global do HandleTable, mas considere `sync.mutex_*` explícito para granularidade fina.",
+                self.errors.push(format!(
+                    "captura inseguro: `{}` em thread.spawn de método de `{}` é tipo complexo (string/array/Map/object) sem garantia de race-safety. Use `sync.mutex_*`/`sync.rwlock_*` explícito para mutação compartilhada, ou `atomic.*` para primitivos. Tipos Map/array compartilhados ainda não têm auto-Mutex (#229 fase 4).",
                     var, class_name
                 ));
             }
@@ -1408,10 +1428,10 @@ impl LiftAcc {
             if param_set.contains(var) {
                 continue;
             }
-            let kind = detect_atomic_kind(&f.body, var);
+            let kind = detect_atomic_kind(&f.body, var, &f.parameters, &self.class_names);
             if kind == AtomicKind::Unsupported {
-                self.warnings.push(format!(
-                    "auto-locking: captura `{}` em thread.spawn de fn `{}` é tipo complexo (string/array/Map/object). Operações ainda passam pelo lock global do HandleTable, mas considere `sync.mutex_*` explícito para granularidade fina.",
+                self.errors.push(format!(
+                    "captura inseguro: `{}` em thread.spawn de fn `{}` é tipo complexo (string/array/Map/object) sem garantia de race-safety. Use `sync.mutex_*`/`sync.rwlock_*` explícito para mutação compartilhada, ou `atomic.*` para primitivos. Tipos Map/array compartilhados ainda não têm auto-Mutex (#229 fase 4).",
                     var, f.name
                 ));
             }
@@ -2847,7 +2867,14 @@ pub fn compile_program(
     let lift_out = lift_arrow_callbacks(program);
     let lifted_needs_c_callconv = lift_out.needs_c_callconv;
     let lift_warnings = lift_out.warnings;
+    let lift_errors = lift_out.errors;
     let lift_promoted_class_ty = lift_out.promoted_class_ty;
+    if !lift_errors.is_empty() {
+        anyhow::bail!(
+            "compilação interrompida — capturas inseguras detectadas:\n  - {}",
+            lift_errors.join("\n  - ")
+        );
+    }
     expand_destructuring(program);
     expand_default_args(program);
     // Spread antes de rest: spread aplaina array literal nos call sites
@@ -5247,35 +5274,81 @@ fn scan_expr_for_spawn(
     }
 }
 
-/// Tipo da promoção atômica: i64 (default, suporta arith), bool
-/// (apenas load/store), ou Unsupported (tipo complexo — emite warning,
-/// não tenta promover).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Tipo da promoção atômica.
+///
+/// Filosofia (Rust soft): default é safe by construction. Tipos
+/// primitivos viram atomic. Instâncias de classe são consideradas
+/// "compartilháveis pelo dev" (responsabilidade dele de usar atomic
+/// interno se necessário). Tipos complexos sem path safe viram erro.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum AtomicKind {
+    /// `let x: number = N` mutável. Reescrita: atomic.i64_*
     I64,
+    /// `let x: boolean = true` mutável. Reescrita: atomic.bool_*
     Bool,
-    /// Tipo capturado mas não-promovível pelo compilador. Captura ainda
-    /// funciona via lock global do HandleTable (collections, buffer)
-    /// mas o dev é avisado pra considerar `sync.mutex_*` em casos onde
-    /// a granularidade global limita a escalabilidade.
+    /// Instância de classe registrada. Não reescreve — dev é
+    /// responsável por usar atomic.* interno nos métodos. Permitido
+    /// porque é o caso comum de "shared instance" em multi-thread.
+    ClassInstance(String),
+    /// Tipo complexo sem path safe (string mutável, array, Map, object
+    /// literal). Emite ERRO de compilação — dev tem que usar
+    /// `sync.mutex_*` explícito ou refator.
     Unsupported,
 }
 
 /// Detecta tipo de uma variável local para promoção atômica.
 /// Heurística: anotação `: boolean` ou init literal `true`/`false` →
 /// Bool. Default: I64.
-fn detect_atomic_kind(body: &[Statement], var: &str) -> AtomicKind {
+fn detect_atomic_kind(
+    body: &[Statement],
+    var: &str,
+    params: &[Parameter],
+    classes: &HashSet<String>,
+) -> AtomicKind {
+    // Param: olha anotação direto.
+    for p in params {
+        if p.name == var {
+            if let Some(ann) = p.type_annotation.as_deref() {
+                let ann = ann.trim();
+                if !ann.is_empty() {
+                    if let Some(k) = ts_keyword_to_kind(ann) {
+                        return k;
+                    }
+                    if classes.contains(ann) {
+                        return AtomicKind::ClassInstance(ann.to_string());
+                    }
+                    // anotação não-primitiva e não-classe (ex: `T[]`,
+                    // `Map<K,V>`) — Unsupported.
+                    return AtomicKind::Unsupported;
+                }
+            }
+            return AtomicKind::I64;
+        }
+    }
     for s in body {
         let Statement::Raw(raw) = s;
         let Some(stmt) = raw.stmt.as_ref() else { continue };
-        if let Some(k) = detect_kind_in_stmt(stmt, var) {
+        if let Some(k) = detect_kind_in_stmt(stmt, var, classes) {
             return k;
         }
     }
     AtomicKind::I64
 }
 
-fn detect_kind_in_stmt(stmt: &Stmt, var: &str) -> Option<AtomicKind> {
+fn ts_keyword_to_kind(ann: &str) -> Option<AtomicKind> {
+    match ann {
+        "boolean" | "bool" => Some(AtomicKind::Bool),
+        "number" | "i64" | "f64" | "i32" | "u64" | "u32" => Some(AtomicKind::I64),
+        "string" => Some(AtomicKind::Unsupported),
+        _ => None,
+    }
+}
+
+fn detect_kind_in_stmt(
+    stmt: &Stmt,
+    var: &str,
+    classes: &HashSet<String>,
+) -> Option<AtomicKind> {
     if let Stmt::Decl(swc_ecma_ast::Decl::Var(v)) = stmt {
         for d in &v.decls {
             if let Pat::Ident(id) = &d.name {
@@ -5298,8 +5371,17 @@ fn detect_kind_in_stmt(stmt: &Stmt, var: &str) -> Option<AtomicKind> {
                             TsType::TsArrayType(_) => {
                                 return Some(AtomicKind::Unsupported);
                             }
-                            // Type ref: `Map<K,V>`, classes — Unsupported
-                            TsType::TsTypeRef(_) => {
+                            TsType::TsTypeRef(r) => {
+                                // `Cache` (classe) → ClassInstance.
+                                // `Map<K,V>` etc → Unsupported.
+                                if let swc_ecma_ast::TsEntityName::Ident(t) = &r.type_name {
+                                    let name = t.sym.as_ref();
+                                    if classes.contains(name) {
+                                        return Some(AtomicKind::ClassInstance(
+                                            name.to_string(),
+                                        ));
+                                    }
+                                }
                                 return Some(AtomicKind::Unsupported);
                             }
                             _ => {}
@@ -5314,8 +5396,20 @@ fn detect_kind_in_stmt(stmt: &Stmt, var: &str) -> Option<AtomicKind> {
                             Expr::Array(_) | Expr::Object(_) => {
                                 return Some(AtomicKind::Unsupported)
                             }
-                            // `new Map()`, `new SomeClass()` — Unsupported
-                            Expr::New(_) => return Some(AtomicKind::Unsupported),
+                            // `new Cache()` ou `new SomeClass()` —
+                            // ClassInstance se classe registrada,
+                            // senão Unsupported.
+                            Expr::New(ne) => {
+                                if let Expr::Ident(cid) = ne.callee.as_ref() {
+                                    let cn = cid.sym.as_ref();
+                                    if classes.contains(cn) {
+                                        return Some(AtomicKind::ClassInstance(
+                                            cn.to_string(),
+                                        ));
+                                    }
+                                }
+                                return Some(AtomicKind::Unsupported);
+                            }
                             _ => {}
                         }
                     }
@@ -5331,10 +5425,10 @@ fn detect_kind_in_stmt(stmt: &Stmt, var: &str) -> Option<AtomicKind> {
 /// `var = var + e` → `atomic.i64_fetch_add(var, e)` (apenas i64),
 /// `var++` / `var--` (apenas i64), leituras → `atomic.<kind>_load(var)`.
 fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str, kind: AtomicKind) {
-    // Tipos não-suportados: caímos no fallback do HandleTable (lock global).
-    // Avisar o dev sai daqui — codegen vai emitir warning estruturado em
-    // compile_program. Não fazemos reescrita.
-    if kind == AtomicKind::Unsupported {
+    // Tipos não-promovíveis: ClassInstance e Unsupported saem aqui sem
+    // reescrita. ClassInstance é safe (responsabilidade do dev de usar
+    // atomic interno); Unsupported vai disparar erro no caller.
+    if !matches!(kind, AtomicKind::I64 | AtomicKind::Bool) {
         return;
     }
     // Pass 1: reescreve a declaração.
@@ -5343,7 +5437,7 @@ fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str, kind: AtomicKin
         let Some(stmt) = raw.stmt.as_mut() else {
             continue;
         };
-        rewrite_decl_to_atomic(stmt, var, kind);
+        rewrite_decl_to_atomic(stmt, var, &kind);
     }
     // Pass 2: reescreve usos no body do método (todos os stmts).
     for s in body.iter_mut() {
@@ -5351,11 +5445,11 @@ fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str, kind: AtomicKin
         let Some(stmt) = raw.stmt.as_mut() else {
             continue;
         };
-        rewrite_uses_atomic_in_stmt(stmt, var, kind);
+        rewrite_uses_atomic_in_stmt(stmt, var, &kind);
     }
 }
 
-fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
+fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: &AtomicKind) {
     if let Stmt::Decl(swc_ecma_ast::Decl::Var(v)) = stmt {
         for d in v.decls.iter_mut() {
             if let Pat::Ident(id) = &d.name {
@@ -5374,13 +5468,13 @@ fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
                                 value: false,
                             },
                         ))),
-                        AtomicKind::Unsupported => return,
+                        _ => return,
                     };
                     let init = d.init.clone().unwrap_or(default_init);
-                    let fn_name = match kind {
+                    let fn_name = match &kind {
                         AtomicKind::I64 => "i64_new",
                         AtomicKind::Bool => "bool_new",
-                        AtomicKind::Unsupported => return,
+                        _ => return,
                     };
                     let new_init = make_call(
                         "atomic",
@@ -5399,7 +5493,7 @@ fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
     walk_stmt_mut(stmt, &mut |s| rewrite_decl_to_atomic(s, var, kind));
 }
 
-fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
+fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str, kind: &AtomicKind) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
         Expr(e) => rewrite_uses_atomic_in_expr(&mut e.expr, var, kind),
@@ -5476,16 +5570,16 @@ fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str, kind: AtomicKind) {
     }
 }
 
-fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: AtomicKind) {
-    let load_fn = match kind {
+fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: &AtomicKind) {
+    let load_fn = match &kind {
         AtomicKind::I64 => "i64_load",
         AtomicKind::Bool => "bool_load",
-        AtomicKind::Unsupported => return,
+        _ => return,
     };
-    let store_fn = match kind {
+    let store_fn = match &kind {
         AtomicKind::I64 => "i64_store",
         AtomicKind::Bool => "bool_store",
-        AtomicKind::Unsupported => return,
+        _ => return,
     };
 
     // Caso 1: `var = expr` — store ou fetch_add (i64)
@@ -5498,7 +5592,7 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: AtomicKind) {
                 let mut rhs = (*a.right).clone();
                 rewrite_uses_atomic_in_expr(&mut rhs, var, kind);
                 if op == swc_ecma_ast::AssignOp::Assign {
-                    if kind == AtomicKind::I64 {
+                    if *kind == AtomicKind::I64 {
                         if let Some(delta) = match_self_add_pattern(&rhs, var) {
                             *expr = make_call(
                                 "atomic",
@@ -5512,7 +5606,7 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: AtomicKind) {
                         make_call("atomic", store_fn, vec![ident_arg(var), expr_arg(rhs)]);
                     return;
                 }
-                if kind == AtomicKind::I64 {
+                if *kind == AtomicKind::I64 {
                     if op == swc_ecma_ast::AssignOp::AddAssign {
                         *expr = make_call(
                             "atomic",
@@ -5543,7 +5637,7 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: AtomicKind) {
     // Caso 2: `var++` / `var--` (apenas i64)
     if let Expr::Update(u) = expr {
         if let Expr::Ident(id) = u.arg.as_ref() {
-            if id.sym.as_ref() == var && kind == AtomicKind::I64 {
+            if id.sym.as_ref() == var && *kind == AtomicKind::I64 {
                 let delta = match u.op {
                     swc_ecma_ast::UpdateOp::PlusPlus => 1.0,
                     swc_ecma_ast::UpdateOp::MinusMinus => -1.0,
