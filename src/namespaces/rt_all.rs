@@ -10,6 +10,8 @@ pub mod math;
 pub mod num;
 #[path = "mem/rt.rs"]
 pub mod mem;
+#[path = "net/rt.rs"]
+pub mod net;
 #[path = "trace/rt.rs"]
 pub mod trace;
 #[path = "alloc/rt.rs"]

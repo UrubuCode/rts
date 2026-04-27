@@ -72,6 +72,13 @@ pub enum Entry {
     /// OnceLock owned — namespace `sync` (once_*). Usa `std::sync::Once`
     /// internamente para executar fn_ptr exatamente uma vez.
     SyncOnce(Box<std::sync::Once>),
+    /// TcpListener bound — namespace `net` (tcp_listen).
+    TcpListener(Box<std::net::TcpListener>),
+    /// TcpStream conectado — namespace `net` (tcp_accept/connect).
+    TcpStream(Box<std::net::TcpStream>),
+    /// UdpSocket bound — namespace `net` (udp_bind). Inclui slot pro
+    /// ultimo peer observado em recv (udp_last_peer).
+    UdpSocket(Box<UdpEntry>),
     /// JoinHandle<u64> owned — namespace `thread` (spawn/join/detach).
     /// Box pra estabilizar o endereco. Consumido por `join`/`detach`
     /// (substituido por `Free`).
@@ -90,6 +97,14 @@ pub enum Entry {
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
+}
+
+/// UDP socket + ultimo peer observado em recv. Box estabiliza o
+/// endereco. `last_peer` e None ate a primeira recv bem-sucedida.
+#[derive(Debug)]
+pub struct UdpEntry {
+    pub socket: std::net::UdpSocket,
+    pub last_peer: Option<std::net::SocketAddr>,
 }
 
 /// Instancia com layout nativo (#147). Armazenada em `Entry::Instance`.

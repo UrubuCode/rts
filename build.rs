@@ -114,6 +114,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/sync/");
     println!("cargo:rerun-if-changed=src/namespaces/thread/");
     println!("cargo:rerun-if-changed=src/namespaces/parallel/");
+    println!("cargo:rerun-if-changed=src/namespaces/net/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

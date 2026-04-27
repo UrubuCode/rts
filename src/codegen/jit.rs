@@ -606,6 +606,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROCESS_KILL", spawn::__RTS_FN_NS_PROCESS_KILL);
     }
 
+    // ── namespaces::net ───────────────────────────────────────────────
+    {
+        use crate::namespaces::net::{addr, tcp, udp};
+        add_fn!("__RTS_FN_NS_NET_TCP_LISTEN", tcp::__RTS_FN_NS_NET_TCP_LISTEN);
+        add_fn!("__RTS_FN_NS_NET_TCP_ACCEPT", tcp::__RTS_FN_NS_NET_TCP_ACCEPT);
+        add_fn!("__RTS_FN_NS_NET_TCP_CONNECT", tcp::__RTS_FN_NS_NET_TCP_CONNECT);
+        add_fn!("__RTS_FN_NS_NET_TCP_SEND", tcp::__RTS_FN_NS_NET_TCP_SEND);
+        add_fn!("__RTS_FN_NS_NET_TCP_RECV", tcp::__RTS_FN_NS_NET_TCP_RECV);
+        add_fn!("__RTS_FN_NS_NET_TCP_LOCAL_ADDR", tcp::__RTS_FN_NS_NET_TCP_LOCAL_ADDR);
+        add_fn!("__RTS_FN_NS_NET_TCP_CLOSE", tcp::__RTS_FN_NS_NET_TCP_CLOSE);
+        add_fn!("__RTS_FN_NS_NET_UDP_BIND", udp::__RTS_FN_NS_NET_UDP_BIND);
+        add_fn!("__RTS_FN_NS_NET_UDP_SEND_TO", udp::__RTS_FN_NS_NET_UDP_SEND_TO);
+        add_fn!("__RTS_FN_NS_NET_UDP_RECV_FROM", udp::__RTS_FN_NS_NET_UDP_RECV_FROM);
+        add_fn!("__RTS_FN_NS_NET_UDP_LAST_PEER", udp::__RTS_FN_NS_NET_UDP_LAST_PEER);
+        add_fn!("__RTS_FN_NS_NET_UDP_LOCAL_ADDR", udp::__RTS_FN_NS_NET_UDP_LOCAL_ADDR);
+        add_fn!("__RTS_FN_NS_NET_UDP_CLOSE", udp::__RTS_FN_NS_NET_UDP_CLOSE);
+        add_fn!("__RTS_FN_NS_NET_RESOLVE", addr::__RTS_FN_NS_NET_RESOLVE);
+    }
+
     // ── namespaces::string ────────────────────────────────────────────
     use crate::namespaces::string::*;
     add_fn!(
