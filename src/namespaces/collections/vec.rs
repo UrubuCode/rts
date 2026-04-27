@@ -1,12 +1,12 @@
 //! Vec<i64> — lista ordenada de valores i64.
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&Vec<i64>) -> R,
 {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     match guard.get(handle) {
         Some(Entry::Vec(v)) => f(v.as_ref()),
         _ => default,
@@ -17,8 +17,7 @@ fn with_vec_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut Vec<i64>) -> R,
 {
-    let t = table();
-    let mut guard = t.lock().unwrap();
+    let mut guard = shard_for_handle(handle).lock().unwrap();
     match guard.get_mut(handle) {
         Some(Entry::Vec(v)) => f(v.as_mut()),
         _ => default,
@@ -27,15 +26,12 @@ where
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::Vec(Box::new(Vec::new())))
+    alloc_entry(Entry::Vec(Box::new(Vec::new())))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FREE(handle: u64) {
-    table().lock().unwrap().free(handle);
+    free_handle(handle);
 }
 
 #[unsafe(no_mangle)]
