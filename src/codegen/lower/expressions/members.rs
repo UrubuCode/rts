@@ -542,7 +542,16 @@ fn class_name_from_ts_type(ty: &swc_ecma_ast::TsType) -> Option<String> {
 pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
-        Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        Expr::Ident(id) => {
+            let name = id.sym.as_str();
+            // Locais têm precedência (shadowing). Cai pra globals quando
+            // não é local — necessário pra trampolins de thread.spawn /
+            // UI callback que veem capturas como globais sintéticas.
+            ctx.local_class_ty
+                .get(name)
+                .cloned()
+                .or_else(|| ctx.global_class_ty.get(name).cloned())
+        }
         Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
         Expr::TsAs(a) => class_name_from_ts_type(&a.type_ann)
             .or_else(|| lhs_static_class(ctx, &a.expr)),

@@ -43,6 +43,10 @@ struct UserFn {
 struct LiftOutput {
     needs_c_callconv: HashSet<String>,
     warnings: Vec<String>,
+    /// Globais sintéticas (`__cb_local_*`) que sao instâncias de
+    /// classes registradas. Mescla em `global_class_ty` no
+    /// `compile_program` pra dispatch de método em trampolins.
+    promoted_class_ty: HashMap<String, String>,
 }
 
 fn lift_arrow_callbacks(program: &mut Program) -> LiftOutput {
@@ -99,6 +103,7 @@ fn lift_arrow_callbacks(program: &mut Program) -> LiftOutput {
         new_fns: Vec::new(),
         new_globals: Vec::new(),
         warnings: Vec::new(),
+        promoted_class_ty: HashMap::new(),
         user_fn_names,
         user_fn_arities,
         alias_to_real,
@@ -242,6 +247,7 @@ fn lift_arrow_callbacks(program: &mut Program) -> LiftOutput {
     LiftOutput {
         needs_c_callconv: acc.needs_c_callconv,
         warnings: acc.warnings,
+        promoted_class_ty: acc.promoted_class_ty,
     }
 }
 
@@ -253,6 +259,10 @@ struct LiftAcc {
     /// Warnings emitidos durante o lift (#229 fase 4): capturas em
     /// `thread.spawn` de tipos não-promovíveis pelo auto-locking.
     warnings: Vec<String>,
+    /// Mapa global_name → class_name pra capturas que são instâncias
+    /// de classe registrada. Permite que dispatch de método dentro de
+    /// trampolim funcione (ex: `cache.bump()` na arrow de thread.spawn).
+    promoted_class_ty: HashMap<String, String>,
     user_fn_names: HashSet<String>,
     /// Aridade declarada de cada user fn / alias top-level — usada
     /// para que trampolins de `thread.spawn(fp, arg)` repassem o `arg`
@@ -1351,6 +1361,9 @@ impl LiftAcc {
             }
             let global = format!("__cb_local_{}_{}", owner_tag, var);
             self.new_globals.push(global.clone());
+            if let Some(cls) = detect_capture_class(body, var, parameters) {
+                self.promoted_class_ty.insert(global.clone(), cls);
+            }
             if param_names.contains(var) {
                 param_syncs.push((global.clone(), var.clone()));
                 rename_uses_in_body(body, var, &global);
@@ -1406,6 +1419,12 @@ impl LiftAcc {
         for var in &captured {
             let global = format!("__cb_local_{}_{}", sanitize_for_symbol(&f.name), var);
             self.new_globals.push(global.clone());
+            // Detecta se a captura é instância de classe registrada.
+            // Permite dispatch de método em trampolim (ex:
+            // `cache.bump()` dentro de arrow em thread.spawn).
+            if let Some(cls) = detect_capture_class(&f.body, var, &f.parameters) {
+                self.promoted_class_ty.insert(global.clone(), cls);
+            }
             if param_names.contains(var) {
                 // Parâmetro: precisa sincronizar valor inicial. A reescrita
                 // não toca o param em si (continua recebendo o valor do
@@ -2806,6 +2825,7 @@ pub fn compile_program(
     let lift_out = lift_arrow_callbacks(program);
     let lifted_needs_c_callconv = lift_out.needs_c_callconv;
     let lift_warnings = lift_out.warnings;
+    let lift_promoted_class_ty = lift_out.promoted_class_ty;
     expand_destructuring(program);
     expand_default_args(program);
     // Spread antes de rest: spread aplaina array literal nos call sites
@@ -3000,6 +3020,15 @@ pub fn compile_program(
                     }
                 }
             }
+        }
+    }
+
+    // Mescla globais sintéticas vindas do lift (`__cb_local_*` que são
+    // instâncias de classe). Permite dispatch de método em trampolins
+    // de thread.spawn — ex: `cache.bump()` na arrow.
+    for (name, cls) in lift_promoted_class_ty {
+        if classes.contains_key(&cls) {
+            global_class_ty.entry(name).or_insert(cls);
         }
     }
 
@@ -4840,6 +4869,95 @@ fn make_sync_param_to_global(global: &str, param: &str) -> Statement {
 /// Promove uma local da fn pra global. Substitui `let <var> = expr` por
 /// `<var-renomeado> = expr` (assignment ao global) e reescreve todas as
 /// outras referências.
+/// Detecta se uma captura local é instância de classe via:
+/// - Anotação explícita: `let x: Cache` ou `function f(x: Cache)`
+/// - Heurística: `let x = new Cache()` no body
+/// Retorna o nome da classe quando detecta. Usado pra propagar
+/// tipo no `global_class_ty` quando a local vira global por captura.
+fn detect_capture_class(
+    body: &[Statement],
+    var: &str,
+    params: &[Parameter],
+) -> Option<String> {
+    // 1) Parâmetro com anotação: `function run(cache: Cache)`
+    for p in params {
+        if p.name == var {
+            if let Some(ann) = p.type_annotation.as_deref() {
+                let ann = ann.trim();
+                if !ann.is_empty()
+                    && ann.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                {
+                    return Some(ann.to_string());
+                }
+            }
+            return None;
+        }
+    }
+    // 2) Local declarada no body
+    for s in body {
+        let Statement::Raw(raw) = s;
+        let Some(stmt) = raw.stmt.as_ref() else { continue };
+        if let Some(cls) = scan_decl_for_class(stmt, var) {
+            return Some(cls);
+        }
+    }
+    None
+}
+
+fn scan_decl_for_class(stmt: &Stmt, var: &str) -> Option<String> {
+    match stmt {
+        Stmt::Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in &v.decls {
+                if let Pat::Ident(id) = &d.name {
+                    if id.id.sym.as_ref() == var {
+                        // Anotação: `let cache: Cache = ...`
+                        if let Some(ann) = id.type_ann.as_deref() {
+                            if let TsType::TsTypeRef(r) = ann.type_ann.as_ref() {
+                                if let swc_ecma_ast::TsEntityName::Ident(t) = &r.type_name {
+                                    return Some(t.sym.to_string());
+                                }
+                            }
+                        }
+                        // Heurística: `= new Cache(...)`
+                        if let Some(init) = &d.init {
+                            if let Expr::New(ne) = init.as_ref() {
+                                if let Expr::Ident(cid) = ne.callee.as_ref() {
+                                    return Some(cid.sym.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        }
+        Stmt::Block(b) => {
+            for s in &b.stmts {
+                if let Some(c) = scan_decl_for_class(s, var) {
+                    return Some(c);
+                }
+            }
+            None
+        }
+        Stmt::If(i) => scan_decl_for_class(&i.cons, var)
+            .or_else(|| i.alt.as_deref().and_then(|a| scan_decl_for_class(a, var))),
+        Stmt::While(w) => scan_decl_for_class(&w.body, var),
+        Stmt::DoWhile(w) => scan_decl_for_class(&w.body, var),
+        Stmt::For(f) => scan_decl_for_class(&f.body, var),
+        Stmt::ForIn(f) => scan_decl_for_class(&f.body, var),
+        Stmt::ForOf(f) => scan_decl_for_class(&f.body, var),
+        Stmt::Try(t) => {
+            for s in &t.block.stmts {
+                if let Some(c) = scan_decl_for_class(s, var) {
+                    return Some(c);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn promote_local_to_global(body: &mut Vec<Statement>, old: &str, new: &str) {
     for s in body.iter_mut() {
         let Statement::Raw(raw) = s;
