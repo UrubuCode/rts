@@ -1003,8 +1003,6 @@ fn lower_var_member_call(
     prop: &str,
     call: &CallExpr,
 ) -> Result<TypedVal> {
-    use cranelift_codegen::isa::CallConv;
-
     let obj_tv = ctx
         .read_local(obj_name)
         .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
@@ -1024,7 +1022,11 @@ fn lower_var_member_call(
     let inst = ctx.builder.ins().call(map_get, &[obj_h, kp, kl]);
     let callee_val = ctx.builder.inst_results(inst)[0];
 
-    let mut sig = Signature::new(CallConv::Tail);
+    // namespace fns address-taken sao SystemV/Win64 (ver
+    // user_call_conv). call_indirect tem que casar a callconv da
+    // target ou args/return chegam corrompidos.
+    let cc = ctx.module.isa().default_call_conv();
+    let mut sig = Signature::new(cc);
     for _ in &call.args {
         sig.params.push(AbiParam::new(cl::I64));
     }
@@ -1084,12 +1086,16 @@ fn lower_array_builtin(
 }
 
 fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> Result<TypedVal> {
-    use cranelift_codegen::isa::CallConv;
-
     let callee = lower_expr(ctx, callee_expr)?;
     let callee_val = ctx.coerce_to_i64(callee).val;
 
-    let mut sig = Signature::new(CallConv::Tail);
+    // User fns address-taken (apply(double, ...), thread.spawn) sao
+    // declaradas com platform default callconv (SystemV/Win64) — ver
+    // user_call_conv. call_indirect precisa casar isso ou o argumento
+    // chega no registrador errado (#206 era stack corruption; o caso
+    // first_class_functions e arg_in_wrong_register).
+    let cc = ctx.module.isa().default_call_conv();
+    let mut sig = Signature::new(cc);
     for _ in &call.args {
         sig.params.push(AbiParam::new(cl::I64));
     }
