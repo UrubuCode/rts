@@ -379,6 +379,10 @@ declare module "rts" {
      */
     export function tcp_recv(stream: number, bufPtr: number, len: number): number;
     /**
+     * Endereco local do socket (listener ou stream) como string handle. 0 em erro.
+     */
+    export function tcp_local_addr(handle: number): string;
+    /**
      * Fecha o socket TCP (listener ou stream) e libera o handle.
      */
     export function tcp_close(handle: number): void;
@@ -398,6 +402,10 @@ declare module "rts" {
      * Endereco do peer da ultima recv_from neste socket. String handle ou 0.
      */
     export function udp_last_peer(sock: number): string;
+    /**
+     * Endereco local do socket UDP como string handle. 0 em erro.
+     */
+    export function udp_local_addr(sock: number): string;
     /**
      * Fecha o socket UDP e libera o handle.
      */
@@ -1846,6 +1854,28 @@ declare module "rts" {
     export function num_threads(): number;
   }
 
+  /**
+   * TLS 1.2/1.3 client sync via rustls (HTTPS support).
+   */
+  export namespace tls {
+    /**
+     * Wraps tcp_handle numa conexao TLS client. Consome o tcp_handle. SNI = sni_hostname. Retorna stream handle ou 0 (handshake falhou).
+     */
+    export function client(tcp: number, sniHostname: string): number;
+    /**
+     * Envia bytes encriptados pelo TLS stream. Retorna bytes plain enviados ou -1.
+     */
+    export function send(stream: number, data: string): number;
+    /**
+     * Le ate `len` bytes plain do TLS stream. Retorna bytes lidos (0 = EOF, -1 = erro).
+     */
+    export function recv(stream: number, bufPtr: number, len: number): number;
+    /**
+     * Fecha o stream TLS (close_notify) e libera o handle.
+     */
+    export function close(stream: number): void;
+  }
+
 }
 
 declare module "rts:gc" {
@@ -2304,6 +2334,10 @@ declare module "rts:net" {
    */
   export function tcp_recv(stream: number, bufPtr: number, len: number): number;
   /**
+   * Endereco local do socket (listener ou stream) como string handle. 0 em erro.
+   */
+  export function tcp_local_addr(handle: number): string;
+  /**
    * Fecha o socket TCP (listener ou stream) e libera o handle.
    */
   export function tcp_close(handle: number): void;
@@ -2324,6 +2358,10 @@ declare module "rts:net" {
    */
   export function udp_last_peer(sock: number): string;
   /**
+   * Endereco local do socket UDP como string handle. 0 em erro.
+   */
+  export function udp_local_addr(sock: number): string;
+  /**
    * Fecha o socket UDP e libera o handle.
    */
   export function udp_close(sock: number): void;
@@ -2337,11 +2375,13 @@ declare module "rts:net" {
     tcp_connect: (typeof import("rts"))["net"]["tcp_connect"];
     tcp_send: (typeof import("rts"))["net"]["tcp_send"];
     tcp_recv: (typeof import("rts"))["net"]["tcp_recv"];
+    tcp_local_addr: (typeof import("rts"))["net"]["tcp_local_addr"];
     tcp_close: (typeof import("rts"))["net"]["tcp_close"];
     udp_bind: (typeof import("rts"))["net"]["udp_bind"];
     udp_send_to: (typeof import("rts"))["net"]["udp_send_to"];
     udp_recv_from: (typeof import("rts"))["net"]["udp_recv_from"];
     udp_last_peer: (typeof import("rts"))["net"]["udp_last_peer"];
+    udp_local_addr: (typeof import("rts"))["net"]["udp_local_addr"];
     udp_close: (typeof import("rts"))["net"]["udp_close"];
     resolve: (typeof import("rts"))["net"]["resolve"];
   };
@@ -4182,6 +4222,35 @@ declare module "rts:parallel" {
     for_each: (typeof import("rts"))["parallel"]["for_each"];
     reduce: (typeof import("rts"))["parallel"]["reduce"];
     num_threads: (typeof import("rts"))["parallel"]["num_threads"];
+  };
+  export default _default;
+}
+
+declare module "rts:tls" {
+  /**
+   * TLS 1.2/1.3 client sync via rustls (HTTPS support).
+   */
+  /**
+   * Wraps tcp_handle numa conexao TLS client. Consome o tcp_handle. SNI = sni_hostname. Retorna stream handle ou 0 (handshake falhou).
+   */
+  export function client(tcp: number, sniHostname: string): number;
+  /**
+   * Envia bytes encriptados pelo TLS stream. Retorna bytes plain enviados ou -1.
+   */
+  export function send(stream: number, data: string): number;
+  /**
+   * Le ate `len` bytes plain do TLS stream. Retorna bytes lidos (0 = EOF, -1 = erro).
+   */
+  export function recv(stream: number, bufPtr: number, len: number): number;
+  /**
+   * Fecha o stream TLS (close_notify) e libera o handle.
+   */
+  export function close(stream: number): void;
+  const _default: {
+    client: (typeof import("rts"))["tls"]["client"];
+    send: (typeof import("rts"))["tls"]["send"];
+    recv: (typeof import("rts"))["tls"]["recv"];
+    close: (typeof import("rts"))["tls"]["close"];
   };
   export default _default;
 }

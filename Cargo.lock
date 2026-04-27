@@ -1794,6 +1794,7 @@ dependencies = [
  "rayon",
  "regex",
  "rustc-hash 1.1.0",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1803,6 +1804,7 @@ dependencies = [
  "tar",
  "target-lexicon",
  "ureq 2.12.1",
+ "webpki-roots 0.26.11",
  "xwin",
 ]
 

@@ -79,6 +79,10 @@ pub enum Entry {
     /// UdpSocket bound — namespace `net` (udp_bind). Inclui slot pro
     /// ultimo peer observado em recv (udp_last_peer).
     UdpSocket(Box<UdpEntry>),
+    /// TLS client stream — namespace `tls`. Wraps um TcpStream com
+    /// rustls::ClientConnection. Criado por `tls.client(tcp_handle, sni)`
+    /// que consome o handle do tcp.
+    TlsClient(Box<super::super::tls::client::TlsClientStream>),
     /// JoinHandle<u64> owned — namespace `thread` (spawn/join/detach).
     /// Box pra estabilizar o endereco. Consumido por `join`/`detach`
     /// (substituido por `Free`).

@@ -41,6 +41,18 @@ fn main() {
             deps_dir.display()
         )
     });
+    let rustls_rlib = find_rlib_named(&deps_dir, "librustls-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate rustls rlib under {} (required for tls runtime symbols)",
+            deps_dir.display()
+        )
+    });
+    let webpki_roots_rlib = find_rlib_named(&deps_dir, "libwebpki_roots-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate webpki_roots rlib under {} (required for tls runtime symbols)",
+            deps_dir.display()
+        )
+    });
 
     let mut cmd = Command::new(&rustc);
     cmd.args([
@@ -70,6 +82,10 @@ fn main() {
         .arg(format!("rayon={}", rayon_rlib.display()));
     cmd.arg("--extern")
         .arg(format!("rayon_core={}", rayon_core_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("rustls={}", rustls_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("webpki_roots={}", webpki_roots_rlib.display()));
 
     let status = cmd
         .status()
@@ -115,6 +131,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/thread/");
     println!("cargo:rerun-if-changed=src/namespaces/parallel/");
     println!("cargo:rerun-if-changed=src/namespaces/net/");
+    println!("cargo:rerun-if-changed=src/namespaces/tls/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }
