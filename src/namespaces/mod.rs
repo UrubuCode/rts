@@ -21,6 +21,7 @@ pub mod hint;
 pub mod io;
 pub mod math;
 pub mod mem;
+pub mod net;
 pub mod num;
 pub mod os;
 pub mod path;

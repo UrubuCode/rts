@@ -355,6 +355,60 @@ declare module "rts" {
   }
 
   /**
+   * TCP/UDP sync sockets backed by std::net.
+   */
+  export namespace net {
+    /**
+     * Bind TCP em `addr` ("host:port"). Retorna handle do listener ou 0.
+     */
+    export function tcp_listen(addr: string): number;
+    /**
+     * Aceita conexao do listener. Bloqueia. Retorna stream handle ou 0.
+     */
+    export function tcp_accept(listener: number): number;
+    /**
+     * Conecta TCP em `addr`. Retorna stream handle ou 0.
+     */
+    export function tcp_connect(addr: string): number;
+    /**
+     * Envia bytes da string no stream. Retorna bytes escritos ou -1.
+     */
+    export function tcp_send(stream: number, data: string): number;
+    /**
+     * Le ate `len` bytes em `bufPtr`. Retorna bytes lidos (0 = EOF, -1 = erro).
+     */
+    export function tcp_recv(stream: number, bufPtr: number, len: number): number;
+    /**
+     * Fecha o socket TCP (listener ou stream) e libera o handle.
+     */
+    export function tcp_close(handle: number): void;
+    /**
+     * Bind UDP em `addr`. Retorna socket handle ou 0.
+     */
+    export function udp_bind(addr: string): number;
+    /**
+     * Envia bytes da string em `data` para `dest`. Retorna bytes enviados ou -1.
+     */
+    export function udp_send_to(sock: number, dest: string, data: string): number;
+    /**
+     * Le ate `len` bytes em `bufPtr`. Peer endereco fica disponivel via udp_last_peer. Retorna bytes lidos ou -1.
+     */
+    export function udp_recv_from(sock: number, bufPtr: number, len: number): number;
+    /**
+     * Endereco do peer da ultima recv_from neste socket. String handle ou 0.
+     */
+    export function udp_last_peer(sock: number): string;
+    /**
+     * Fecha o socket UDP e libera o handle.
+     */
+    export function udp_close(sock: number): void;
+    /**
+     * DNS lookup de `host`. Retorna primeiro IP como string handle, ou 0.
+     */
+    export function resolve(host: string): string;
+  }
+
+  /**
    * Aritmetica com overflow explicito (checked/saturating/wrapping) e bit ops.
    */
   export namespace num {
@@ -2221,6 +2275,75 @@ declare module "rts:math" {
     E: (typeof import("rts"))["math"]["E"];
     INFINITY: (typeof import("rts"))["math"]["INFINITY"];
     NAN: (typeof import("rts"))["math"]["NAN"];
+  };
+  export default _default;
+}
+
+declare module "rts:net" {
+  /**
+   * TCP/UDP sync sockets backed by std::net.
+   */
+  /**
+   * Bind TCP em `addr` ("host:port"). Retorna handle do listener ou 0.
+   */
+  export function tcp_listen(addr: string): number;
+  /**
+   * Aceita conexao do listener. Bloqueia. Retorna stream handle ou 0.
+   */
+  export function tcp_accept(listener: number): number;
+  /**
+   * Conecta TCP em `addr`. Retorna stream handle ou 0.
+   */
+  export function tcp_connect(addr: string): number;
+  /**
+   * Envia bytes da string no stream. Retorna bytes escritos ou -1.
+   */
+  export function tcp_send(stream: number, data: string): number;
+  /**
+   * Le ate `len` bytes em `bufPtr`. Retorna bytes lidos (0 = EOF, -1 = erro).
+   */
+  export function tcp_recv(stream: number, bufPtr: number, len: number): number;
+  /**
+   * Fecha o socket TCP (listener ou stream) e libera o handle.
+   */
+  export function tcp_close(handle: number): void;
+  /**
+   * Bind UDP em `addr`. Retorna socket handle ou 0.
+   */
+  export function udp_bind(addr: string): number;
+  /**
+   * Envia bytes da string em `data` para `dest`. Retorna bytes enviados ou -1.
+   */
+  export function udp_send_to(sock: number, dest: string, data: string): number;
+  /**
+   * Le ate `len` bytes em `bufPtr`. Peer endereco fica disponivel via udp_last_peer. Retorna bytes lidos ou -1.
+   */
+  export function udp_recv_from(sock: number, bufPtr: number, len: number): number;
+  /**
+   * Endereco do peer da ultima recv_from neste socket. String handle ou 0.
+   */
+  export function udp_last_peer(sock: number): string;
+  /**
+   * Fecha o socket UDP e libera o handle.
+   */
+  export function udp_close(sock: number): void;
+  /**
+   * DNS lookup de `host`. Retorna primeiro IP como string handle, ou 0.
+   */
+  export function resolve(host: string): string;
+  const _default: {
+    tcp_listen: (typeof import("rts"))["net"]["tcp_listen"];
+    tcp_accept: (typeof import("rts"))["net"]["tcp_accept"];
+    tcp_connect: (typeof import("rts"))["net"]["tcp_connect"];
+    tcp_send: (typeof import("rts"))["net"]["tcp_send"];
+    tcp_recv: (typeof import("rts"))["net"]["tcp_recv"];
+    tcp_close: (typeof import("rts"))["net"]["tcp_close"];
+    udp_bind: (typeof import("rts"))["net"]["udp_bind"];
+    udp_send_to: (typeof import("rts"))["net"]["udp_send_to"];
+    udp_recv_from: (typeof import("rts"))["net"]["udp_recv_from"];
+    udp_last_peer: (typeof import("rts"))["net"]["udp_last_peer"];
+    udp_close: (typeof import("rts"))["net"]["udp_close"];
+    resolve: (typeof import("rts"))["net"]["resolve"];
   };
   export default _default;
 }
