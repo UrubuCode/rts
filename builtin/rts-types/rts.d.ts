@@ -937,6 +937,26 @@ declare module "rts" {
      */
     export function bool_swap(handle: number, value: boolean): boolean;
     /**
+     * Aloca um AtomicF64 inicializado com `value` e retorna o handle.
+     */
+    export function f64_new(value: number): number;
+    /**
+     * Le o valor atual do AtomicF64 (SeqCst). 0.0 se handle invalido.
+     */
+    export function f64_load(handle: number): number;
+    /**
+     * Escreve `value` no AtomicF64 (SeqCst). No-op se handle invalido.
+     */
+    export function f64_store(handle: number, value: number): void;
+    /**
+     * Soma `delta` e retorna o valor anterior (loop CAS internamente). 0.0 se handle invalido.
+     */
+    export function f64_fetch_add(handle: number, delta: number): number;
+    /**
+     * Troca o valor por `value` e retorna o valor anterior. 0.0 se handle invalido.
+     */
+    export function f64_swap(handle: number, value: number): number;
+    /**
      * Memory fence Acquire.
      */
     export function fence_acquire(): void;
@@ -3039,6 +3059,26 @@ declare module "rts:atomic" {
    */
   export function bool_swap(handle: number, value: boolean): boolean;
   /**
+   * Aloca um AtomicF64 inicializado com `value` e retorna o handle.
+   */
+  export function f64_new(value: number): number;
+  /**
+   * Le o valor atual do AtomicF64 (SeqCst). 0.0 se handle invalido.
+   */
+  export function f64_load(handle: number): number;
+  /**
+   * Escreve `value` no AtomicF64 (SeqCst). No-op se handle invalido.
+   */
+  export function f64_store(handle: number, value: number): void;
+  /**
+   * Soma `delta` e retorna o valor anterior (loop CAS internamente). 0.0 se handle invalido.
+   */
+  export function f64_fetch_add(handle: number, delta: number): number;
+  /**
+   * Troca o valor por `value` e retorna o valor anterior. 0.0 se handle invalido.
+   */
+  export function f64_swap(handle: number, value: number): number;
+  /**
    * Memory fence Acquire.
    */
   export function fence_acquire(): void;
@@ -3065,6 +3105,11 @@ declare module "rts:atomic" {
     bool_load: (typeof import("rts"))["atomic"]["bool_load"];
     bool_store: (typeof import("rts"))["atomic"]["bool_store"];
     bool_swap: (typeof import("rts"))["atomic"]["bool_swap"];
+    f64_new: (typeof import("rts"))["atomic"]["f64_new"];
+    f64_load: (typeof import("rts"))["atomic"]["f64_load"];
+    f64_store: (typeof import("rts"))["atomic"]["f64_store"];
+    f64_fetch_add: (typeof import("rts"))["atomic"]["f64_fetch_add"];
+    f64_swap: (typeof import("rts"))["atomic"]["f64_swap"];
     fence_acquire: (typeof import("rts"))["atomic"]["fence_acquire"];
     fence_release: (typeof import("rts"))["atomic"]["fence_release"];
     fence_seq_cst: (typeof import("rts"))["atomic"]["fence_seq_cst"];
