@@ -27,6 +27,7 @@ pub mod path;
 pub mod process;
 pub mod ptr;
 pub mod regex;
+pub mod parallel;
 pub mod runtime;
 pub mod string;
 pub mod sync;

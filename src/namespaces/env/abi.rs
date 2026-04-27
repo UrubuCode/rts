@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns a string handle with the environment variable's value, or 0 when absent.",
         ts_signature: "get_var(name: string): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "set_var",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets an environment variable.",
         ts_signature: "set_var(name: string, value: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "remove_var",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes an environment variable.",
         ts_signature: "remove_var(name: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "args_count",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Number of command-line arguments (including argv[0]).",
         ts_signature: "args_count(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "arg_at",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the argv entry at `index` as a string handle; 0 when out of range.",
         ts_signature: "arg_at(index: number): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "cwd",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the current working directory as a string handle.",
         ts_signature: "cwd(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "set_cwd",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Changes the current working directory. Returns 0 on success, -1 on error.",
         ts_signature: "set_cwd(path: string): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

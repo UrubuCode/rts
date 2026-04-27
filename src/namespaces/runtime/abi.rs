@@ -10,6 +10,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Evaluates a TS/JS source string. Returns the program exit code.",
         ts_signature: "eval(src: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "eval_file",
@@ -20,6 +21,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Loads and evaluates a TS/JS file at the given path. Returns the program exit code.",
         ts_signature: "eval_file(path: string): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

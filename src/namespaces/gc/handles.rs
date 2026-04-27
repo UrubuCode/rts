@@ -1,20 +1,28 @@
 //! Slab-based handle table for runtime-managed values.
 //!
-//! Handles are opaque `u64` values returned from allocator functions
-//! (`__RTS_FN_NS_GC_STRING_NEW`, future object/array/buffer equivalents).
-//! The layout encodes a 16-bit generation and a 48-bit slot index so stale
-//! handles can be detected cheaply — a handle becomes invalid once its slot
-//! is reused with a bumped generation.
+//! Handles are opaque `u64` values. Layout:
 //!
-//! Threading model: a single global table behind a `Mutex`. Performance is
-//! acceptable for the current stage; a per-thread pool is a later concern.
+//! ```text
+//! [63..48] generation (16 bits)
+//! [47.. 5] per-shard table slot (43 bits)
+//! [ 4.. 0] shard index (5 bits, log2(N_SHARDS))
+//! ```
+//!
+//! Encoding the shard index in the low 5 bits of the slot field means
+//! `shard_for_handle` is O(1) and allocation round-robin always routes
+//! correctly: shard N only ever emits handles whose low bits equal N.
 
+use std::cell::Cell;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
 const GEN_SHIFT: u32 = 48;
 const SLOT_MASK: u64 = (1u64 << GEN_SHIFT) - 1;
 const SENTINEL_INVALID: u64 = 0;
+
+const N_SHARDS: usize = 32;
+const SHARD_BITS: u32 = 5; // log2(N_SHARDS)
+const SHARD_MASK: u64 = (N_SHARDS as u64) - 1;
 
 /// Value kinds stored behind a handle. Extensible as namespaces grow.
 #[derive(Debug)]
@@ -50,6 +58,10 @@ pub enum Entry {
     AtomicI64(Box<std::sync::atomic::AtomicI64>),
     /// AtomicBool owned — namespace `atomic` (bool_*).
     AtomicBool(Box<std::sync::atomic::AtomicBool>),
+    /// AtomicU64 backing an f64 via bit-transmute — namespace `atomic` (f64_*).
+    /// Stored as AtomicU64 because Rust has no AtomicF64; ops use
+    /// f64::to_bits / f64::from_bits.
+    AtomicF64(Box<std::sync::atomic::AtomicU64>),
     /// Mutex<i64> owned — namespace `sync` (mutex_*). Box estabiliza o
     /// endereco; guards sao armazenados em mapa thread-local para
     /// permitir lock/unlock atravessando chamadas extern "C".
@@ -105,50 +117,58 @@ pub struct HandleTable {
 }
 
 impl HandleTable {
+    /// Legacy: allocates in shard 0. Used by callers that still go through
+    /// `table().lock().unwrap().alloc(...)`. Prefer `alloc_entry` instead.
+    #[deprecated(note = "use alloc_entry")]
     pub fn alloc(&mut self, entry: Entry) -> u64 {
-        if let Some(idx) = self.free_list.pop() {
-            let slot = &mut self.slots[idx as usize];
+        self.alloc_in_shard(entry, 0)
+    }
+
+    /// Allocate `entry` in this shard. `shard_idx` is encoded in the low
+    /// SHARD_BITS of the slot field so `shard_for_handle` can route back
+    /// without extra metadata.
+    pub fn alloc_in_shard(&mut self, entry: Entry, shard_idx: usize) -> u64 {
+        if let Some(table_slot) = self.free_list.pop() {
+            let slot = &mut self.slots[table_slot as usize];
             slot.generation = slot.generation.wrapping_add(1);
             slot.entry = entry;
-            return encode(slot.generation, idx);
+            return encode(slot.generation, shard_idx, table_slot);
         }
-        let idx = self.slots.len() as u32;
+        let table_slot = self.slots.len() as u32;
         self.slots.push(Slot {
             generation: 1,
             entry,
         });
-        encode(1, idx)
+        encode(1, shard_idx, table_slot)
     }
 
     pub fn free(&mut self, handle: u64) -> bool {
-        let Some((expected_gen, idx)) = decode(handle) else {
+        let Some((expected_gen, _, table_slot)) = decode(handle) else {
             return false;
         };
-        let Some(slot) = self.slots.get_mut(idx as usize) else {
+        let Some(slot) = self.slots.get_mut(table_slot as usize) else {
             return false;
         };
         if slot.generation != expected_gen {
             return false;
         }
         slot.entry = Entry::Free;
-        self.free_list.push(idx);
+        self.free_list.push(table_slot);
         true
     }
 
     pub fn get(&self, handle: u64) -> Option<&Entry> {
-        let (expected_gen, idx) = decode(handle)?;
-        let slot = self.slots.get(idx as usize)?;
+        let (expected_gen, _, table_slot) = decode(handle)?;
+        let slot = self.slots.get(table_slot as usize)?;
         if slot.generation != expected_gen || matches!(slot.entry, Entry::Free) {
             return None;
         }
         Some(&slot.entry)
     }
 
-    /// Mutable variant of [`get`], used by namespaces that need in-place
-    /// edits (e.g. `buffer.write_u8`). Same validity checks apply.
     pub fn get_mut(&mut self, handle: u64) -> Option<&mut Entry> {
-        let (expected_gen, idx) = decode(handle)?;
-        let slot = self.slots.get_mut(idx as usize)?;
+        let (expected_gen, _, table_slot) = decode(handle)?;
+        let slot = self.slots.get_mut(table_slot as usize)?;
         if slot.generation != expected_gen || matches!(slot.entry, Entry::Free) {
             return None;
         }
@@ -156,24 +176,67 @@ impl HandleTable {
     }
 }
 
-fn encode(generation: u16, slot: u32) -> u64 {
-    ((generation as u64) << GEN_SHIFT) | (slot as u64 & SLOT_MASK)
+/// Encodes generation + shard_idx + per-shard table_slot into a u64 handle.
+fn encode(generation: u16, shard_idx: usize, table_slot: u32) -> u64 {
+    let slot_field = ((table_slot as u64) << SHARD_BITS) | (shard_idx as u64 & SHARD_MASK);
+    ((generation as u64) << GEN_SHIFT) | (slot_field & SLOT_MASK)
 }
 
-fn decode(handle: u64) -> Option<(u16, u32)> {
+/// Decodes a handle into (generation, shard_idx, per-shard table_slot).
+pub fn decode(handle: u64) -> Option<(u16, usize, u32)> {
     if handle == SENTINEL_INVALID {
         return None;
     }
     let generation = ((handle >> GEN_SHIFT) & 0xFFFF) as u16;
-    let slot = (handle & SLOT_MASK) as u32;
-    Some((generation, slot))
+    let slot_field = handle & SLOT_MASK;
+    let shard_idx = (slot_field & SHARD_MASK) as usize;
+    let table_slot = (slot_field >> SHARD_BITS) as u32;
+    Some((generation, shard_idx, table_slot))
 }
 
-/// Global table instance. Exposed to the rest of the runtime so sibling
-/// namespaces (bigfloat, etc) can allocate/query handles uniformly.
+// ── Sharded table ────────────────────────────────────────────────────────────
+
+fn shards() -> &'static [Mutex<HandleTable>; N_SHARDS] {
+    static SHARDS: OnceLock<[Mutex<HandleTable>; N_SHARDS]> = OnceLock::new();
+    SHARDS.get_or_init(|| std::array::from_fn(|_| Mutex::new(HandleTable::default())))
+}
+
+/// Returns the shard that owns `handle`. O(1) via the shard_idx encoded
+/// in the low SHARD_BITS of the slot field.
+pub fn shard_for_handle(handle: u64) -> &'static Mutex<HandleTable> {
+    let shard_idx = ((handle & SLOT_MASK) & SHARD_MASK) as usize;
+    &shards()[shard_idx]
+}
+
+thread_local! {
+    static ALLOC_SHARD: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Allocates `entry` in the next shard (round-robin per thread).
+/// The shard index is encoded in the returned handle so `shard_for_handle`
+/// routes correctly without any extra lookup.
+pub fn alloc_entry(entry: Entry) -> u64 {
+    let shard_idx = ALLOC_SHARD.with(|s| {
+        let v = s.get();
+        s.set((v + 1) % N_SHARDS);
+        v
+    });
+    shards()[shard_idx].lock().unwrap().alloc_in_shard(entry, shard_idx)
+}
+
+/// Frees a handle. Returns false if the handle is invalid or already freed.
+pub fn free_handle(handle: u64) -> bool {
+    shard_for_handle(handle).lock().unwrap().free(handle)
+}
+
+/// Legacy single-table accessor kept for call sites that have not been
+/// migrated to the sharded API yet. Points to shard 0.
+///
+/// Deprecated: migrate callers to `alloc_entry` / `free_handle` /
+/// `shard_for_handle`. This will be removed once all namespaces are updated.
+#[deprecated(note = "use alloc_entry / free_handle / shard_for_handle")]
 pub fn table() -> &'static Mutex<HandleTable> {
-    static TABLE: OnceLock<Mutex<HandleTable>> = OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HandleTable::default()))
+    &shards()[0]
 }
 
 #[cfg(test)]
@@ -182,20 +245,56 @@ mod tests {
 
     #[test]
     fn roundtrip_string_entry() {
-        let mut t = HandleTable::default();
-        let h = t.alloc(Entry::String(b"hello".to_vec()));
-        assert!(matches!(t.get(h), Some(Entry::String(b)) if b == b"hello"));
-        assert!(t.free(h));
-        assert!(t.get(h).is_none());
+        let h = alloc_entry(Entry::String(b"hello".to_vec()));
+        let guard = shard_for_handle(h).lock().unwrap();
+        assert!(matches!(guard.get(h), Some(Entry::String(b)) if b == b"hello"));
+        drop(guard);
+        assert!(free_handle(h));
+        let guard2 = shard_for_handle(h).lock().unwrap();
+        assert!(guard2.get(h).is_none());
     }
 
     #[test]
     fn stale_handle_rejected_after_reuse() {
-        let mut t = HandleTable::default();
-        let h1 = t.alloc(Entry::String(b"first".to_vec()));
-        t.free(h1);
-        let h2 = t.alloc(Entry::String(b"second".to_vec()));
-        assert!(t.get(h1).is_none(), "stale handle must not resolve");
-        assert!(matches!(t.get(h2), Some(Entry::String(_))));
+        let h1 = alloc_entry(Entry::String(b"first".to_vec()));
+        free_handle(h1);
+        let h2 = alloc_entry(Entry::String(b"second".to_vec()));
+        let g1 = shard_for_handle(h1).lock().unwrap();
+        assert!(g1.get(h1).is_none(), "stale handle must not resolve");
+        drop(g1);
+        let g2 = shard_for_handle(h2).lock().unwrap();
+        assert!(matches!(g2.get(h2), Some(Entry::String(_))));
+    }
+
+    #[test]
+    fn shard_encoding_is_consistent() {
+        // Every handle allocated in shard N must route back to shard N.
+        for expected_shard in 0..N_SHARDS {
+            let h = shards()[expected_shard]
+                .lock()
+                .unwrap()
+                .alloc_in_shard(Entry::Free, expected_shard);
+            let actual_shard = ((h & SLOT_MASK) & SHARD_MASK) as usize;
+            assert_eq!(actual_shard, expected_shard);
+            free_handle(h);
+        }
+    }
+
+    #[test]
+    fn alloc_distributes_across_shards() {
+        // alloc_entry round-robins shards; N_SHARDS consecutive allocs
+        // from the same thread should hit all shards.
+        let mut shard_indices = std::collections::HashSet::new();
+        for _ in 0..N_SHARDS {
+            let h = alloc_entry(Entry::Free);
+            let shard = ((h & SLOT_MASK) & SHARD_MASK) as usize;
+            shard_indices.insert(shard);
+            free_handle(h);
+        }
+        assert_eq!(
+            shard_indices.len(),
+            N_SHARDS,
+            "alloc should visit every shard in one round"
+        );
     }
 }

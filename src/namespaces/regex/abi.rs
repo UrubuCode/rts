@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Compila um pattern com flags (ex: \"i\", \"gm\"). Retorna handle ou 0 se invalido.",
         ts_signature: "compile(pattern: string, flags: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "free",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera regex compilada.",
         ts_signature: "free(handle: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "test",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "True se a regex casa em qualquer posicao da string.",
         ts_signature: "test(handle: number, s: string): boolean",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "find",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Primeira ocorrencia. Retorna handle de string com o match (free pelo caller) ou 0.",
         ts_signature: "find(handle: number, s: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "find_at",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Indice (em bytes) da primeira ocorrencia, -1 se nao casa.",
         ts_signature: "find_at(handle: number, s: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "replace",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Substitui primeira ocorrencia. Retorna handle de string nova.",
         ts_signature: "replace(handle: number, s: string, replacement: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "replace_all",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Substitui todas as ocorrencias. Retorna handle de string nova.",
         ts_signature: "replace_all(handle: number, s: string, replacement: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "match_count",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Numero de matches (overlapping=false).",
         ts_signature: "match_count(handle: number, s: string): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

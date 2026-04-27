@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Reads up to `bufLen` bytes from `path` into buffer. Returns byte count or -1.",
         ts_signature: "read(path: string, bufPtr: number, bufLen: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_all",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Reads entire file into buffer, truncating if needed. Returns bytes written or -1.",
         ts_signature: "read_all(path: string, bufPtr: number, bufLen: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Writes data to `path`, truncating existing contents. Returns bytes written or -1.",
         ts_signature: "write(path: string, data: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "append",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Appends data to `path`, creating it when missing. Returns bytes written or -1.",
         ts_signature: "append(path: string, data: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "exists",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns 1 if the path exists, 0 otherwise.",
         ts_signature: "exists(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "is_file",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns 1 if `path` is a regular file.",
         ts_signature: "is_file(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "is_dir",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns 1 if `path` is a directory.",
         ts_signature: "is_dir(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "size",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns file size in bytes, or -1 on error.",
         ts_signature: "size(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "modified_ms",
@@ -92,6 +100,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns last-modified milliseconds since UNIX epoch, or -1 on error.",
         ts_signature: "modified_ms(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "create_dir",
@@ -102,6 +111,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates the directory at `path`. Returns 0 on success, -1 on error.",
         ts_signature: "create_dir(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "create_dir_all",
@@ -112,6 +122,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates the directory and any missing parents.",
         ts_signature: "create_dir_all(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "remove_dir",
@@ -122,6 +133,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes an empty directory.",
         ts_signature: "remove_dir(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "remove_dir_all",
@@ -132,6 +144,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes a directory and all of its contents.",
         ts_signature: "remove_dir_all(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "remove_file",
@@ -142,6 +155,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes a file.",
         ts_signature: "remove_file(path: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "rename",
@@ -152,6 +166,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Renames `from` to `to`. Returns 0 on success, -1 on error.",
         ts_signature: "rename(from: string, to: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "copy",
@@ -162,6 +177,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Copies file contents. Returns bytes copied or -1.",
         ts_signature: "copy(from: string, to: string): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

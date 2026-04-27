@@ -13,6 +13,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a + b com overflow; retorna i64::MIN como sentinela em overflow.",
         ts_signature: "checked_add(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "checked_sub",
@@ -23,6 +24,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a - b com overflow; retorna i64::MIN como sentinela em overflow.",
         ts_signature: "checked_sub(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "checked_mul",
@@ -33,6 +35,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a * b com overflow; retorna i64::MIN como sentinela em overflow.",
         ts_signature: "checked_mul(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "checked_div",
@@ -43,6 +46,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a / b; retorna i64::MIN se b == 0 ou overflow (i64::MIN / -1).",
         ts_signature: "checked_div(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     // ── saturating: clamp em i64::MIN/MAX ─────────────────────────────
     NamespaceMember {
@@ -54,6 +58,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a + b com saturation em i64::MIN/MAX.",
         ts_signature: "saturating_add(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "saturating_sub",
@@ -64,6 +69,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a - b com saturation em i64::MIN/MAX.",
         ts_signature: "saturating_sub(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "saturating_mul",
@@ -74,6 +80,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a * b com saturation em i64::MIN/MAX.",
         ts_signature: "saturating_mul(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     // ── wrapping: comportamento modular ───────────────────────────────
     NamespaceMember {
@@ -85,6 +92,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a + b modulo 2^64.",
         ts_signature: "wrapping_add(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "wrapping_sub",
@@ -95,6 +103,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a - b modulo 2^64.",
         ts_signature: "wrapping_sub(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "wrapping_mul",
@@ -105,6 +114,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a * b modulo 2^64.",
         ts_signature: "wrapping_mul(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "wrapping_neg",
@@ -115,6 +125,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "-a modulo 2^64 (i64::MIN.wrapping_neg() == i64::MIN).",
         ts_signature: "wrapping_neg(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "wrapping_shl",
@@ -125,6 +136,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a << (n & 63) — shift count masked.",
         ts_signature: "wrapping_shl(a: number, n: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "wrapping_shr",
@@ -135,6 +147,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a >> (n & 63) (arithmetic shift).",
         ts_signature: "wrapping_shr(a: number, n: number): number",
         intrinsic: None,
+        pure: false,
     },
     // ── bits ──────────────────────────────────────────────────────────
     NamespaceMember {
@@ -146,6 +159,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Numero de bits 1 em a.",
         ts_signature: "count_ones(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "count_zeros",
@@ -156,6 +170,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Numero de bits 0 em a.",
         ts_signature: "count_zeros(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "leading_zeros",
@@ -166,6 +181,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Numero de zeros leading em a.",
         ts_signature: "leading_zeros(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "trailing_zeros",
@@ -176,6 +192,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Numero de zeros trailing em a.",
         ts_signature: "trailing_zeros(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "rotate_left",
@@ -186,6 +203,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a rotacionado n bits para a esquerda.",
         ts_signature: "rotate_left(a: number, n: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "rotate_right",
@@ -196,6 +214,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a rotacionado n bits para a direita.",
         ts_signature: "rotate_right(a: number, n: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "reverse_bits",
@@ -206,6 +225,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Bits invertidos (LSB->MSB).",
         ts_signature: "reverse_bits(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "swap_bytes",
@@ -216,6 +236,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Bytes invertidos (endianness flip).",
         ts_signature: "swap_bytes(a: number): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

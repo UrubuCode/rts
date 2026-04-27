@@ -17,6 +17,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Allocates a zero big float with the given decimal precision.",
         ts_signature: "zero(precision: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "from_f64",
@@ -27,6 +28,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Converts an f64 into a big float rounded to `precision` digits.",
         ts_signature: "from_f64(x: number, precision: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "from_str",
@@ -37,6 +39,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Parses a decimal string into a big float with `precision` digits.",
         ts_signature: "from_str(s: string, precision: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "from_i64",
@@ -47,6 +50,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a big float from an integer with `precision` digits.",
         ts_signature: "from_i64(x: number, precision: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "to_f64",
@@ -57,6 +61,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Lossy conversion back to f64.",
         ts_signature: "to_f64(h: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "to_string",
@@ -67,6 +72,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Renders as a decimal string at full precision.",
         ts_signature: "to_string(h: number): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "add",
@@ -77,6 +83,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a + b.",
         ts_signature: "add(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "sub",
@@ -87,6 +94,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a - b.",
         ts_signature: "sub(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "mul",
@@ -97,6 +105,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a * b.",
         ts_signature: "mul(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "div",
@@ -107,6 +116,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "a / b.",
         ts_signature: "div(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "neg",
@@ -117,6 +127,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "-a.",
         ts_signature: "neg(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "sqrt",
@@ -127,6 +138,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Square root. Returns 0 for negative input.",
         ts_signature: "sqrt(a: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "free",
@@ -137,6 +149,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Releases the handle.",
         ts_signature: "free(h: number): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

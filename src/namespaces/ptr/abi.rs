@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Retorna ponteiro nulo (0).",
         ts_signature: "null(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "is_null",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "True se ptr == 0.",
         ts_signature: "is_null(p: number): boolean",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_i64",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le i64 do endereco. UNSAFE: caller garante validade/alinhamento.",
         ts_signature: "read_i64(p: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_i32",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le i32 do endereco e estende para i64.",
         ts_signature: "read_i32(p: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_u8",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le u8 do endereco e estende para i64 (0..255).",
         ts_signature: "read_u8(p: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_f64",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le f64 do endereco.",
         ts_signature: "read_f64(p: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_i64",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve i64 no endereco.",
         ts_signature: "write_i64(p: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_i32",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve i32 (low 32 bits) no endereco.",
         ts_signature: "write_i32(p: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_u8",
@@ -92,6 +100,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve u8 (low 8 bits) no endereco.",
         ts_signature: "write_u8(p: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_f64",
@@ -102,6 +111,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve f64 no endereco.",
         ts_signature: "write_f64(p: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "copy",
@@ -112,6 +122,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "memmove: copia n bytes de src para dst (overlapping ok).",
         ts_signature: "copy(dst: number, src: number, n: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "copy_nonoverlapping",
@@ -122,6 +133,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "memcpy: copia n bytes (regioes nao podem se sobrepor).",
         ts_signature: "copy_nonoverlapping(dst: number, src: number, n: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_bytes",
@@ -132,6 +144,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "memset: preenche n bytes com value (low 8 bits).",
         ts_signature: "write_bytes(dst: number, value: number, n: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "offset",
@@ -142,6 +155,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Adiciona n bytes ao ptr.",
         ts_signature: "offset(p: number, n: number): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

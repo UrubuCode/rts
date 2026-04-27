@@ -15,6 +15,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Converts an i64 to its decimal string and returns a handle.",
         ts_signature: "string_from_i64(value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_from_f64",
@@ -25,6 +26,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Converts an f64 to its decimal string and returns a handle.",
         ts_signature: "string_from_f64(value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_concat",
@@ -35,6 +37,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Concatenates two string handles and returns a new handle.",
         ts_signature: "string_concat(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_eq",
@@ -45,6 +48,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Compara dois string handles por conteudo (memcmp). 1 se iguais, 0 caso contrario.",
         ts_signature: "string_eq(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_from_static",
@@ -55,6 +59,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Promotes a static (ptr, len) string to a GC handle.",
         ts_signature: "string_from_static(data: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_new",
@@ -65,6 +70,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Allocates a string handle from a (ptr, len) pair. Returns 0 on error.",
         ts_signature: "string_new(data: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_len",
@@ -75,6 +81,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the byte length of the string, or -1 on invalid handle.",
         ts_signature: "string_len(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_ptr",
@@ -85,6 +92,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the raw pointer to the string buffer, or 0 on invalid handle.",
         ts_signature: "string_ptr(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "string_free",
@@ -95,6 +103,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Frees the string handle. Returns 1 on success, 0 if already invalid.",
         ts_signature: "string_free(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "env_alloc",
@@ -105,6 +114,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca um environment record para closures com `slot_count` slots i64 inicializados em 0. Retorna o handle.",
         ts_signature: "env_alloc(slot_count: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "env_get",
@@ -115,6 +125,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Lê o slot `slot` do env record. Retorna 0 em handle inválido ou slot fora do range.",
         ts_signature: "env_get(env: number, slot: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "env_set",
@@ -125,6 +136,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve `value` no slot `slot` do env record. Retorna 1 em sucesso, 0 em erro.",
         ts_signature: "env_set(env: number, slot: number, value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_new",
@@ -135,6 +147,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca uma instancia com `size` bytes zerados e tag de classe `class_handle`. Retorna o handle ou 0 em erro.",
         ts_signature: "instance_new(size: number, class_handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_class",
@@ -145,6 +158,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Retorna o handle da classe (tag string `__rts_class`) da instancia. 0 em handle invalido.",
         ts_signature: "instance_class(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_free",
@@ -155,6 +169,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera a instancia. Retorna 1 em sucesso, 0 se ja invalido.",
         ts_signature: "instance_free(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_load_i64",
@@ -165,6 +180,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le um i64 little-endian no offset (em bytes). 0 em handle invalido ou offset fora do range.",
         ts_signature: "instance_load_i64(handle: number, offset: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_store_i64",
@@ -175,6 +191,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve um i64 little-endian no offset. Retorna 1 em sucesso, 0 em erro.",
         ts_signature: "instance_store_i64(handle: number, offset: number, value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_load_i32",
@@ -185,6 +202,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le um i32 little-endian no offset. 0 em handle invalido ou offset fora do range.",
         ts_signature: "instance_load_i32(handle: number, offset: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_store_i32",
@@ -195,6 +213,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve um i32 little-endian no offset. Retorna 1 em sucesso, 0 em erro.",
         ts_signature: "instance_store_i32(handle: number, offset: number, value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_load_f64",
@@ -205,6 +224,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le um f64 little-endian no offset. 0.0 em handle invalido ou offset fora do range.",
         ts_signature: "instance_load_f64(handle: number, offset: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "instance_store_f64",
@@ -215,6 +235,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve um f64 little-endian no offset. Retorna 1 em sucesso, 0 em erro.",
         ts_signature: "instance_store_f64(handle: number, offset: number, value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "env_free",
@@ -225,6 +246,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera o env record. Retorna 1 em sucesso, 0 se handle já inválido.",
         ts_signature: "env_free(env: number): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

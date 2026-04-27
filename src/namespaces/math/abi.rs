@@ -17,6 +17,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Largest integer <= x.",
         ts_signature: "floor(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "ceil",
@@ -27,6 +28,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Smallest integer >= x.",
         ts_signature: "ceil(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "round",
@@ -37,6 +39,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Rounds to nearest; ties go to +Infinity to match JS semantics.",
         ts_signature: "round(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "trunc",
@@ -47,6 +50,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Truncates fractional part (rounds toward zero).",
         ts_signature: "trunc(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "sqrt",
@@ -57,6 +61,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Square root.",
         ts_signature: "sqrt(x: number): number",
         intrinsic: Some(Intrinsic::Sqrt),
+        pure: true,
     },
     NamespaceMember {
         name: "cbrt",
@@ -67,6 +72,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Cube root.",
         ts_signature: "cbrt(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "pow",
@@ -77,6 +83,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "base raised to exp.",
         ts_signature: "pow(base: number, exp: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "exp",
@@ -87,6 +94,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "e^x.",
         ts_signature: "exp(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "ln",
@@ -97,6 +105,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Natural logarithm (base e).",
         ts_signature: "ln(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "log2",
@@ -107,6 +116,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Base-2 logarithm.",
         ts_signature: "log2(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "log10",
@@ -117,6 +127,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Base-10 logarithm.",
         ts_signature: "log10(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "abs_f64",
@@ -127,6 +138,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Absolute value (f64).",
         ts_signature: "abs_f64(x: number): number",
         intrinsic: Some(Intrinsic::AbsF64),
+        pure: true,
     },
     NamespaceMember {
         name: "abs_i64",
@@ -137,6 +149,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Absolute value (i64); i64::MIN maps to itself (wrapping).",
         ts_signature: "abs_i64(x: number): number",
         intrinsic: Some(Intrinsic::AbsI64),
+        pure: true,
     },
     // ── Trig ──────────────────────────────────────────────────────────────
     NamespaceMember {
@@ -148,6 +161,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sine (radians).",
         ts_signature: "sin(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "cos",
@@ -158,6 +172,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Cosine (radians).",
         ts_signature: "cos(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "tan",
@@ -168,6 +183,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tangent (radians).",
         ts_signature: "tan(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "asin",
@@ -178,6 +194,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Arc sine (returns radians).",
         ts_signature: "asin(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "acos",
@@ -188,6 +205,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Arc cosine (returns radians).",
         ts_signature: "acos(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "atan",
@@ -198,6 +216,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Arc tangent (returns radians).",
         ts_signature: "atan(x: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "atan2",
@@ -208,6 +227,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "atan2(y, x) — angle (radians) of the 2D vector (x, y).",
         ts_signature: "atan2(y: number, x: number): number",
         intrinsic: None,
+        pure: true,
     },
     // ── Min / max / clamp ─────────────────────────────────────────────────
     NamespaceMember {
@@ -219,6 +239,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Minimum of two f64 values (NaN-aware).",
         ts_signature: "min_f64(a: number, b: number): number",
         intrinsic: Some(Intrinsic::MinF64),
+        pure: true,
     },
     NamespaceMember {
         name: "max_f64",
@@ -229,6 +250,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Maximum of two f64 values (NaN-aware).",
         ts_signature: "max_f64(a: number, b: number): number",
         intrinsic: Some(Intrinsic::MaxF64),
+        pure: true,
     },
     NamespaceMember {
         name: "min_i64",
@@ -239,6 +261,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Minimum of two i64 values.",
         ts_signature: "min_i64(a: number, b: number): number",
         intrinsic: Some(Intrinsic::MinI64),
+        pure: true,
     },
     NamespaceMember {
         name: "max_i64",
@@ -249,6 +272,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Maximum of two i64 values.",
         ts_signature: "max_i64(a: number, b: number): number",
         intrinsic: Some(Intrinsic::MaxI64),
+        pure: true,
     },
     NamespaceMember {
         name: "clamp_f64",
@@ -259,6 +283,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Clamps x into [lo, hi]. NaN propagates.",
         ts_signature: "clamp_f64(x: number, lo: number, hi: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "clamp_i64",
@@ -269,6 +294,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Clamps x into [lo, hi].",
         ts_signature: "clamp_i64(x: number, lo: number, hi: number): number",
         intrinsic: None,
+        pure: true,
     },
     // ── Random ────────────────────────────────────────────────────────────
     NamespaceMember {
@@ -280,6 +306,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Uniform f64 in [0, 1) from a thread-local xorshift64 PRNG.",
         ts_signature: "random_f64(): number",
         intrinsic: Some(Intrinsic::RandomF64),
+        pure: false, // mutates global RNG state
     },
     NamespaceMember {
         name: "random_i64_range",
@@ -290,6 +317,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Uniform i64 in [lo, hi). Returns lo when lo >= hi.",
         ts_signature: "random_i64_range(lo: number, hi: number): number",
         intrinsic: None,
+        pure: false, // mutates global RNG state
     },
     NamespaceMember {
         name: "seed",
@@ -300,6 +328,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Seeds the PRNG. Zero is replaced by the default seed.",
         ts_signature: "seed(s: number): void",
         intrinsic: None,
+        pure: false, // mutates global RNG state
     },
     // ── Constants ─────────────────────────────────────────────────────────
     // Backed by zero-arg extern "C" fns in consts.rs; codegen resolves
@@ -313,6 +342,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Archimedes' constant.",
         ts_signature: "PI: number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "E",
@@ -323,6 +353,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Euler's number.",
         ts_signature: "E: number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "INFINITY",
@@ -333,6 +364,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Positive infinity.",
         ts_signature: "INFINITY: number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "NAN",
@@ -343,6 +375,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Quiet NaN.",
         ts_signature: "NAN: number",
         intrinsic: None,
+        pure: true,
     },
 ];
 

@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Hint para spin-wait loop (PAUSE em x86, YIELD em ARM).",
         ts_signature: "spin_loop(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "black_box_i64",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Opaque pra otimizador — impede que o valor seja eliminado.",
         ts_signature: "black_box_i64(value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "black_box_f64",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Opaque pra otimizador (variante f64).",
         ts_signature: "black_box_f64(value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "unreachable",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Marca codigo inalcancavel — em debug aborta, em release eh UB.",
         ts_signature: "unreachable(): never",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "assert_unchecked",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Assume cond=true sem verificar. Cond falsa = UB em release.",
         ts_signature: "assert_unchecked(cond: boolean): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

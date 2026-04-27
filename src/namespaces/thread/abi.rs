@@ -12,6 +12,40 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Cria uma nova thread executando `fn_ptr(arg)`. `fn_ptr` e um ponteiro para `extern \"C\" fn(u64) -> u64`. Retorna handle do JoinHandle, 0 em falha.",
         ts_signature: "spawn(fn_ptr: number, arg: number): number",
         intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "spawn_with_ud",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_THREAD_SPAWN_WITH_UD",
+        args: &[AbiType::U64, AbiType::U64, AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "Variante de `spawn` que passa um `userdata` (ex: handle de `this`) como primeiro argumento da fn. `fn_ptr` aponta para `extern \"C\" fn(u64, u64) -> u64` (ud, arg).",
+        ts_signature: "spawn_with_ud(fn_ptr: number, arg: number, userdata: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "scope",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_THREAD_SCOPE",
+        args: &[AbiType::U64],
+        returns: AbiType::Void,
+        doc: "Roda `body()` num escopo que aguarda automaticamente todas as threads spawnadas durante sua execucao. Analogo a `std::thread::scope`.",
+        ts_signature: "scope(body: () => void): void",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "scope_with_ud",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_THREAD_SCOPE_WITH_UD",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::Void,
+        doc: "Variante com userdata para `thread.scope` quando o body captura `this`.",
+        ts_signature: "scope_with_ud(body: number, userdata: number): void",
+        intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "join",
@@ -22,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aguarda a thread terminar e retorna o valor retornado por ela. Consome o handle. 0 se handle invalido ou a thread fez panic.",
         ts_signature: "join(thread: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "detach",
@@ -32,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera o JoinHandle sem aguardar. A thread continua rodando ate completar.",
         ts_signature: "detach(thread: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "id",
@@ -42,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Id da thread atual (estavel por thread, atribuido na primeira chamada). Sempre != 0.",
         ts_signature: "id(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "sleep_ms",
@@ -52,11 +89,12 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Pausa a thread atual por `ms` milissegundos. Valores negativos sao tratados como 0.",
         ts_signature: "sleep_ms(ms: number): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {
     name: "thread",
-    doc: "Primitivas de threads (spawn/join/detach/id/sleep) baseadas em std::thread.",
+    doc: "Primitivas de threads (spawn/join/detach/scope/id/sleep) baseadas em std::thread.",
     members: MEMBERS,
 };

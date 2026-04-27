@@ -13,6 +13,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca um Mutex protegendo um valor i64 inicializado com `initial`.",
         ts_signature: "mutex_new(initial: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "mutex_lock",
@@ -23,6 +24,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Bloqueia ate adquirir o Mutex e retorna o valor interno protegido. 0 se handle invalido.",
         ts_signature: "mutex_lock(mutex: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "mutex_try_lock",
@@ -33,6 +35,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tenta adquirir o Mutex sem bloquear. Retorna o valor interno em caso de sucesso, 0 se ja estava lockado ou handle invalido.",
         ts_signature: "mutex_try_lock(mutex: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "mutex_set",
@@ -43,6 +46,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve `value` no Mutex. Caller deve ter chamado lock/try_lock antes (responsabilidade do caller).",
         ts_signature: "mutex_set(mutex: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "mutex_unlock",
@@ -53,6 +57,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera o Mutex previamente adquirido por lock/try_lock. No-op se nao havia guard ativo.",
         ts_signature: "mutex_unlock(mutex: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "mutex_free",
@@ -63,6 +68,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera o Mutex e seu slot na HandleTable.",
         ts_signature: "mutex_free(mutex: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── RwLock ─────────────────────────────────────────────────────
     NamespaceMember {
@@ -74,6 +80,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca um RwLock protegendo um valor i64 inicializado com `initial`.",
         ts_signature: "rwlock_new(initial: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "rwlock_read",
@@ -84,6 +91,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Adquire um read guard (compartilhado) e retorna um handle de guard. Liberar via rwlock_unlock(guard). 0 se handle invalido.",
         ts_signature: "rwlock_read(rwlock: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "rwlock_write",
@@ -94,6 +102,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Adquire um write guard (exclusivo) e retorna um handle de guard. Liberar via rwlock_unlock(guard). 0 se handle invalido.",
         ts_signature: "rwlock_write(rwlock: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "rwlock_unlock",
@@ -104,6 +113,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera um guard previamente adquirido via rwlock_read/rwlock_write.",
         ts_signature: "rwlock_unlock(guard: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── OnceLock ───────────────────────────────────────────────────
     NamespaceMember {
@@ -115,6 +125,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca um OnceLock e retorna o handle.",
         ts_signature: "once_new(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "once_call",
@@ -125,6 +136,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Executa `fn_ptr` (ponteiro para `extern \"C\" fn()`) exatamente uma vez por OnceLock. Chamadas subsequentes sao no-op.",
         ts_signature: "once_call(once: number, fn_ptr: number): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

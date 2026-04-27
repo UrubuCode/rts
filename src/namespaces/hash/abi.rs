@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "SipHash de uma string UTF-8.",
         ts_signature: "hash_str(s: string): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "hash_bytes",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "SipHash de uma regiao de memoria (ptr + len). Use com buffer.ptr(handle).",
         ts_signature: "hash_bytes(ptr: number, len: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "hash_i64",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "SipHash de um inteiro de 64 bits.",
         ts_signature: "hash_i64(value: number): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "hash_combine",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Combina dois hashes preservando entropia (estilo boost::hash_combine).",
         ts_signature: "hash_combine(h1: number, h2: number): number",
         intrinsic: None,
+        pure: true,
     },
 ];
 

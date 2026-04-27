@@ -10,6 +10,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Opens a named test suite block. Nested calls increase indent.",
         ts_signature: "suite_begin(name: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "suite_end",
@@ -20,6 +21,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Closes the innermost test suite block.",
         ts_signature: "suite_end(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "case_begin",
@@ -30,6 +32,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Starts a named test case and resets the failure flag.",
         ts_signature: "case_begin(name: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "case_end",
@@ -40,6 +43,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Ends the current case. Prints ✓ if no failures, updates counters.",
         ts_signature: "case_end(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "case_fail",
@@ -50,6 +54,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Marks current case as failed and emits message in red.",
         ts_signature: "case_fail(msg: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "case_fail_diff",
@@ -60,6 +65,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Marks current case as failed and prints an expected/received diff.",
         ts_signature: "case_fail_diff(expected: string, actual: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "print_summary",
@@ -70,6 +76,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Prints pass/fail counts. Call once at the end of the test file.",
         ts_signature: "print_summary(): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

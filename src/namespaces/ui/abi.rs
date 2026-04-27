@@ -11,6 +11,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates the FLTK application. Call once before any widget.",
         ts_signature: "app_new(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "app_run",
@@ -21,6 +22,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Enters the FLTK event loop. Blocks until all windows are closed.",
         ts_signature: "app_run(app: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "app_free",
@@ -31,6 +33,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Frees the app handle.",
         ts_signature: "app_free(app: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Window ───────────────────────────────────────────────────────────
     NamespaceMember {
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a window (w, h, title). Returns a window handle.",
         ts_signature: "window_new(w: number, h: number, title: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "window_show",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Makes the window visible.",
         ts_signature: "window_show(win: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "window_end",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Ends the window widget group. Call after adding all child widgets.",
         ts_signature: "window_end(win: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "window_free",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Frees the window handle.",
         ts_signature: "window_free(win: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "window_set_callback",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets a callback invoked when the window close button is pressed.",
         ts_signature: "window_set_callback(win: number, fn: () => void): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "window_set_color",
@@ -92,6 +100,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the background color of the window (r, g, b in 0–255).",
         ts_signature: "window_set_color(win: number, r: number, g: number, b: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "window_resize",
@@ -108,6 +117,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Moves and resizes the window (x, y, w, h).",
         ts_signature: "window_resize(win: number, x: number, y: number, w: number, h: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Generic widget ops ───────────────────────────────────────────────
     NamespaceMember {
@@ -119,6 +129,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the label text of any widget.",
         ts_signature: "widget_set_label(widget: number, text: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_label",
@@ -129,6 +140,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the widget label as a GC string handle.",
         ts_signature: "widget_label(widget: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_set_callback",
@@ -139,6 +151,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Registers a callback invoked when the widget is activated (click, change, etc).",
         ts_signature: "widget_set_callback(widget: number, fn: () => void): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_set_callback_with_ud",
@@ -149,6 +162,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Variante de set_callback que passa userdata (ex: handle de `this`) ao callback.",
         ts_signature: "widget_set_callback_with_ud(widget: number, fn: (this: number) => void, userdata: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_set_color",
@@ -159,6 +173,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the background color of a widget (r, g, b in 0–255).",
         ts_signature: "widget_set_color(widget: number, r: number, g: number, b: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_set_label_color",
@@ -169,6 +184,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the label text color of a widget (r, g, b in 0–255).",
         ts_signature: "widget_set_label_color(widget: number, r: number, g: number, b: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_resize",
@@ -185,6 +201,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Moves and resizes a widget (x, y, w, h).",
         ts_signature: "widget_resize(widget: number, x: number, y: number, w: number, h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_redraw",
@@ -195,6 +212,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Marks the widget as needing a redraw.",
         ts_signature: "widget_redraw(widget: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_hide",
@@ -205,6 +223,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Hides the widget.",
         ts_signature: "widget_hide(widget: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_show",
@@ -215,6 +234,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Shows the widget.",
         ts_signature: "widget_show(widget: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "widget_set_draw",
@@ -225,6 +245,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets a custom draw callback. Use draw_* functions inside to paint the widget.",
         ts_signature: "widget_set_draw(widget: number, fn: () => void): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Button ───────────────────────────────────────────────────────────
     NamespaceMember {
@@ -242,6 +263,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a push button at (x, y) with size (w, h) and label.",
         ts_signature: "button_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     // ── Frame ────────────────────────────────────────────────────────────
     NamespaceMember {
@@ -259,6 +281,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a text frame (static label) at (x, y) with size (w, h) and text.",
         ts_signature: "frame_new(x: number, y: number, w: number, h: number, text: string): number",
         intrinsic: None,
+        pure: false,
     },
     // ── CheckButton ──────────────────────────────────────────────────────
     NamespaceMember {
@@ -276,6 +299,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a checkbox widget.",
         ts_signature: "check_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "check_value",
@@ -286,6 +310,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns true if the checkbox is checked.",
         ts_signature: "check_value(handle: number): boolean",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "check_set_value",
@@ -296,6 +321,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the checked state of a checkbox.",
         ts_signature: "check_set_value(handle: number, val: boolean): void",
         intrinsic: None,
+        pure: false,
     },
     // ── RadioButton ──────────────────────────────────────────────────────
     NamespaceMember {
@@ -313,6 +339,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a radio button widget.",
         ts_signature: "radio_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "radio_value",
@@ -323,6 +350,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns true if the radio button is selected.",
         ts_signature: "radio_value(handle: number): boolean",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "radio_set_value",
@@ -333,6 +361,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the selected state of a radio button.",
         ts_signature: "radio_set_value(handle: number, val: boolean): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Input ────────────────────────────────────────────────────────────
     NamespaceMember {
@@ -350,6 +379,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a single-line text input field.",
         ts_signature: "input_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "input_value",
@@ -360,6 +390,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the current text of the input field as a GC string handle.",
         ts_signature: "input_value(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "input_set_value",
@@ -370,6 +401,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the text content of an input field.",
         ts_signature: "input_set_value(handle: number, text: string): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Output ───────────────────────────────────────────────────────────
     NamespaceMember {
@@ -387,6 +419,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a read-only output widget.",
         ts_signature: "output_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "output_set_value",
@@ -397,6 +430,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the text displayed in an output widget.",
         ts_signature: "output_set_value(handle: number, text: string): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Slider ───────────────────────────────────────────────────────────
     NamespaceMember {
@@ -414,6 +448,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a horizontal slider.",
         ts_signature: "slider_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "slider_value",
@@ -424,6 +459,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the current value of a slider.",
         ts_signature: "slider_value(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "slider_set_value",
@@ -434,6 +470,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the current value of a slider.",
         ts_signature: "slider_set_value(handle: number, val: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "slider_set_bounds",
@@ -444,6 +481,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the minimum and maximum bounds of a slider.",
         ts_signature: "slider_set_bounds(handle: number, min: number, max: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Progress ─────────────────────────────────────────────────────────
     NamespaceMember {
@@ -461,6 +499,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a progress bar widget.",
         ts_signature: "progress_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "progress_value",
@@ -471,6 +510,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the current value of a progress bar.",
         ts_signature: "progress_value(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "progress_set_value",
@@ -481,6 +521,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the current value of a progress bar.",
         ts_signature: "progress_set_value(handle: number, val: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Spinner ──────────────────────────────────────────────────────────
     NamespaceMember {
@@ -498,6 +539,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a numeric spinner widget.",
         ts_signature: "spinner_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "spinner_value",
@@ -508,6 +550,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the current numeric value of a spinner.",
         ts_signature: "spinner_value(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "spinner_set_value",
@@ -518,6 +561,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the numeric value of a spinner.",
         ts_signature: "spinner_set_value(handle: number, val: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "spinner_set_bounds",
@@ -528,6 +572,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the min/max range of a spinner.",
         ts_signature: "spinner_set_bounds(handle: number, min: number, max: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── MenuBar ──────────────────────────────────────────────────────────
     NamespaceMember {
@@ -539,6 +584,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a menu bar at (x, y) with size (w, h).",
         ts_signature: "menubar_new(x: number, y: number, w: number, h: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "menubar_add",
@@ -549,6 +595,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Adds a menu item. Path uses '/' for submenus (e.g. 'File/Open'). fn_ptr=0 for separators.",
         ts_signature: "menubar_add(handle: number, path: string, fn: () => void): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "menubar_free",
@@ -559,6 +606,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Frees a menu bar handle.",
         ts_signature: "menubar_free(handle: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── TextBuffer ───────────────────────────────────────────────────────
     NamespaceMember {
@@ -570,6 +618,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a text buffer.",
         ts_signature: "textbuf_new(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "textbuf_set_text",
@@ -580,6 +629,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Replaces the entire text buffer contents.",
         ts_signature: "textbuf_set_text(handle: number, text: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "textbuf_text",
@@ -590,6 +640,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the text buffer contents as a GC string handle.",
         ts_signature: "textbuf_text(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "textbuf_append",
@@ -600,6 +651,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Appends text to the end of the buffer.",
         ts_signature: "textbuf_append(handle: number, text: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "textbuf_free",
@@ -610,6 +662,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Frees the text buffer handle.",
         ts_signature: "textbuf_free(handle: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── TextDisplay ──────────────────────────────────────────────────────
     NamespaceMember {
@@ -627,6 +680,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates a read-only text display widget.",
         ts_signature: "textdisplay_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "textdisplay_set_buffer",
@@ -637,6 +691,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Associates a TextBuffer with the display.",
         ts_signature: "textdisplay_set_buffer(display: number, buf: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── TextEditor ───────────────────────────────────────────────────────
     NamespaceMember {
@@ -654,6 +709,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates an editable text editor widget.",
         ts_signature: "texteditor_new(x: number, y: number, w: number, h: number, label: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "texteditor_set_buffer",
@@ -664,6 +720,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Associates a TextBuffer with the editor.",
         ts_signature: "texteditor_set_buffer(editor: number, buf: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── Draw ─────────────────────────────────────────────────────────────
     NamespaceMember {
@@ -675,6 +732,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Draws a rectangle outline at (x, y) with size (w, h).",
         ts_signature: "draw_rect(x: number, y: number, w: number, h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "draw_rect_fill",
@@ -685,6 +743,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Draws a filled rectangle at (x, y) with size (w, h).",
         ts_signature: "draw_rect_fill(x: number, y: number, w: number, h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "draw_line",
@@ -695,6 +754,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Draws a line from (x1, y1) to (x2, y2).",
         ts_signature: "draw_line(x1: number, y1: number, x2: number, y2: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "draw_circle",
@@ -705,6 +765,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Draws a circle centered at (x, y) with radius r.",
         ts_signature: "draw_circle(x: number, y: number, r: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "draw_arc",
@@ -722,6 +783,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Draws an arc/pie within bounding box (x, y, w, h) from angle a1 to a2 (degrees).",
         ts_signature: "draw_arc(x: number, y: number, w: number, h: number, a1: number, a2: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "draw_text",
@@ -732,6 +794,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Draws text at (x, y) using the current font and color.",
         ts_signature: "draw_text(text: string, x: number, y: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "set_draw_color",
@@ -742,6 +805,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the current drawing color (r, g, b in 0–255).",
         ts_signature: "set_draw_color(r: number, g: number, b: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "set_font",
@@ -752,6 +816,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets the current font (font_id: 0=Helvetica..14, size in pixels).",
         ts_signature: "set_font(font_id: number, size: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "set_line_style",
@@ -762,6 +827,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sets line style (style: 0=solid,1=dash,2=dot) and width in pixels.",
         ts_signature: "set_line_style(style: number, width: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "measure_width",
@@ -772,6 +838,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the pixel width of a string in the current font.",
         ts_signature: "measure_width(text: string): number",
         intrinsic: None,
+        pure: false,
     },
     // ── Dialog ───────────────────────────────────────────────────────────
     NamespaceMember {
@@ -783,6 +850,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Shows a blocking alert dialog with a message.",
         ts_signature: "alert(msg: string): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "dialog_ask",
@@ -793,6 +861,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Shows a yes/no dialog. Returns true if user clicks Yes.",
         ts_signature: "dialog_ask(msg: string): boolean",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "dialog_input",
@@ -803,6 +872,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Shows an input dialog (label, def). Returns GC string handle, or 0 on cancel.",
         ts_signature: "dialog_input(label: string, def: string): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

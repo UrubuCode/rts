@@ -13,6 +13,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca um AtomicI64 inicializado com `value` e retorna o handle.",
         ts_signature: "i64_new(value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_load",
@@ -23,6 +24,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le o valor atual do AtomicI64 (SeqCst). 0 se handle invalido.",
         ts_signature: "i64_load(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_store",
@@ -33,6 +35,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve `value` no AtomicI64 (SeqCst). No-op se handle invalido.",
         ts_signature: "i64_store(handle: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_fetch_add",
@@ -43,6 +46,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Soma `delta` e retorna o valor anterior. 0 se handle invalido.",
         ts_signature: "i64_fetch_add(handle: number, delta: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_fetch_sub",
@@ -53,6 +57,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Subtrai `delta` e retorna o valor anterior. 0 se handle invalido.",
         ts_signature: "i64_fetch_sub(handle: number, delta: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_fetch_and",
@@ -63,6 +68,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "AND bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.",
         ts_signature: "i64_fetch_and(handle: number, mask: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_fetch_or",
@@ -73,6 +79,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "OR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.",
         ts_signature: "i64_fetch_or(handle: number, mask: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_fetch_xor",
@@ -83,6 +90,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "XOR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.",
         ts_signature: "i64_fetch_xor(handle: number, mask: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_swap",
@@ -93,6 +101,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Troca o valor por `value` e retorna o valor anterior. 0 se handle invalido.",
         ts_signature: "i64_swap(handle: number, value: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "i64_cas",
@@ -103,6 +112,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Compare-and-swap. Se valor atual == `expected`, escreve `new`. Retorna o valor anterior.",
         ts_signature: "i64_cas(handle: number, expected: number, new_value: number): number",
         intrinsic: None,
+        pure: false,
     },
     // ── AtomicBool ─────────────────────────────────────────────────
     NamespaceMember {
@@ -114,6 +124,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca um AtomicBool inicializado com `value` e retorna o handle.",
         ts_signature: "bool_new(value: boolean): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "bool_load",
@@ -124,6 +135,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Le o valor atual do AtomicBool (SeqCst). false se handle invalido.",
         ts_signature: "bool_load(handle: number): boolean",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "bool_store",
@@ -134,6 +146,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Escreve `value` no AtomicBool (SeqCst). No-op se handle invalido.",
         ts_signature: "bool_store(handle: number, value: boolean): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "bool_swap",
@@ -144,6 +157,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Troca o valor por `value` e retorna o valor anterior. false se handle invalido.",
         ts_signature: "bool_swap(handle: number, value: boolean): boolean",
         intrinsic: None,
+        pure: false,
     },
     // ── Fences ─────────────────────────────────────────────────────
     NamespaceMember {
@@ -155,6 +169,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Memory fence Acquire.",
         ts_signature: "fence_acquire(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "fence_release",
@@ -165,6 +180,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Memory fence Release.",
         ts_signature: "fence_release(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "fence_seq_cst",
@@ -175,6 +191,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Memory fence SeqCst.",
         ts_signature: "fence_seq_cst(): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

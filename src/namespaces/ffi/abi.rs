@@ -13,6 +13,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Reads a nul-terminated C string from `ptr` and returns a string handle (UTF-8 lossy).",
         ts_signature: "cstr_from_ptr(ptr: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "cstr_len",
@@ -23,6 +24,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Length in bytes of the C string at `ptr`, excluding the nul terminator. -1 if ptr is null.",
         ts_signature: "cstr_len(ptr: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "cstr_to_str",
@@ -33,6 +35,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Validates the C string at `ptr` as UTF-8 and returns a string handle. 0 if invalid.",
         ts_signature: "cstr_to_str(ptr: number): number",
         intrinsic: None,
+        pure: false,
     },
     // ── CString (owned nul-terminated buffer) ───────────────────────
     NamespaceMember {
@@ -44,6 +47,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Builds a nul-terminated CString from `s` and returns a handle. 0 if `s` contains an interior nul.",
         ts_signature: "cstring_new(s: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "cstring_ptr",
@@ -54,6 +58,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Raw pointer to the CString bytes (nul-terminated). 0 if handle invalid. Unsafe — must not outlive handle.",
         ts_signature: "cstring_ptr(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "cstring_free",
@@ -64,6 +69,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Releases the CString handle.",
         ts_signature: "cstring_free(handle: number): void",
         intrinsic: None,
+        pure: false,
     },
     // ── OsString (platform-native string) ───────────────────────────
     NamespaceMember {
@@ -75,6 +81,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Builds an OsString from a UTF-8 source and returns a handle.",
         ts_signature: "osstr_from_str(s: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "osstr_to_str",
@@ -85,6 +92,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Converts the OsString handle to a UTF-8 string handle. 0 if not valid UTF-8.",
         ts_signature: "osstr_to_str(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "osstr_free",
@@ -95,6 +103,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Releases the OsString handle.",
         ts_signature: "osstr_free(handle: number): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

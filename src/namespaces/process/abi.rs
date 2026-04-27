@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Termina o processo corrente com o exit code dado.",
         ts_signature: "exit(code: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "abort",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aborta o processo imediatamente (sem unwind).",
         ts_signature: "abort(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "pid",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "PID do processo corrente.",
         ts_signature: "pid(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "args_count",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Number of command-line arguments (inclui argv[0]).",
         ts_signature: "args_count(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "arg_at",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Argumento em `index` como string handle; 0 fora do range.",
         ts_signature: "arg_at(index: number): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "spawn",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Dispara `cmd` com argumentos separados por \\n. Retorna handle do filho, ou 0 em falha.",
         ts_signature: "spawn(cmd: string, args_newline_separated: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "wait",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aguarda o filho terminar e retorna o exit code. Consome o handle.",
         ts_signature: "wait(child: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "kill",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Mata o processo filho. 0 em sucesso, -1 em erro.",
         ts_signature: "kill(child: number): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 
