@@ -54,6 +54,8 @@ pub mod sync;
 pub mod thread;
 #[path = "parallel/rt.rs"]
 pub mod parallel;
+#[path = "tls/rt.rs"]
+pub mod tls;
 #[path = "ui/rt.rs"]
 pub mod ui;
 #[path = "runtime/rt.rs"]

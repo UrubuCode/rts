@@ -625,6 +625,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_NET_RESOLVE", addr::__RTS_FN_NS_NET_RESOLVE);
     }
 
+    // ── namespaces::tls ───────────────────────────────────────────────
+    {
+        use crate::namespaces::tls::{client, io};
+        add_fn!("__RTS_FN_NS_TLS_CLIENT", client::__RTS_FN_NS_TLS_CLIENT);
+        add_fn!("__RTS_FN_NS_TLS_CLOSE", client::__RTS_FN_NS_TLS_CLOSE);
+        add_fn!("__RTS_FN_NS_TLS_SEND", io::__RTS_FN_NS_TLS_SEND);
+        add_fn!("__RTS_FN_NS_TLS_RECV", io::__RTS_FN_NS_TLS_RECV);
+    }
+
     // ── namespaces::string ────────────────────────────────────────────
     use crate::namespaces::string::*;
     add_fn!(
