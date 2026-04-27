@@ -491,27 +491,31 @@ declare module "rts" {
   }
 
   /**
-   * Captura de stack traces via std::backtrace::Backtrace.
+   * RTS stack trace and debug tooling. Push/pop TS call frames; capture trace without error.
    */
-  export namespace backtrace {
+  export namespace trace {
     /**
-     * Captura backtrace do call stack atual. Retorna handle.
+     * Push a TS call frame onto the trace stack.
+     */
+    export function push_frame(file: string, fn_name: string, line: number, col: number): void;
+    /**
+     * Pop the top TS call frame from the trace stack.
+     */
+    export function pop_frame(): void;
+    /**
+     * Capture current trace as a GC string handle. Returns 0 if stack is empty.
      */
     export function capture(): number;
     /**
-     * Captura backtrace se RUST_BACKTRACE estiver set; retorna 0 caso contrario.
+     * Print current trace stack to stderr.
      */
-    export function capture_if_enabled(): number;
+    export function print(): void;
     /**
-     * True se RUST_BACKTRACE=1 (ou full) esta no env.
+     * Returns current trace stack depth.
      */
-    export function is_enabled(): boolean;
+    export function depth(): number;
     /**
-     * Formata o backtrace em string. Retorna handle de string GC.
-     */
-    export function to_string(handle: number): number;
-    /**
-     * Libera a backtrace.
+     * Free a captured trace handle.
      */
     export function free(handle: number): void;
   }
@@ -1729,13 +1733,25 @@ declare module "rts" {
   }
 
   /**
-   * Primitivas de threads (spawn/join/detach/id/sleep) baseadas em std::thread.
+   * Primitivas de threads (spawn/join/detach/scope/id/sleep) baseadas em std::thread.
    */
   export namespace thread {
     /**
      * Cria uma nova thread executando `fn_ptr(arg)`. `fn_ptr` e um ponteiro para `extern "C" fn(u64) -> u64`. Retorna handle do JoinHandle, 0 em falha.
      */
     export function spawn(fn_ptr: number, arg: number): number;
+    /**
+     * Variante de `spawn` que passa um `userdata` (ex: handle de `this`) como primeiro argumento da fn. `fn_ptr` aponta para `extern "C" fn(u64, u64) -> u64` (ud, arg).
+     */
+    export function spawn_with_ud(fn_ptr: number, arg: number, userdata: number): number;
+    /**
+     * Roda `body()` num escopo que aguarda automaticamente todas as threads spawnadas durante sua execucao. Analogo a `std::thread::scope`.
+     */
+    export function scope(body: () => void): void;
+    /**
+     * Variante com userdata para `thread.scope` quando o body captura `this`.
+     */
+    export function scope_with_ud(body: number, userdata: number): void;
     /**
      * Aguarda a thread terminar e retorna o valor retornado por ela. Consome o handle. 0 se handle invalido ou a thread fez panic.
      */
@@ -1752,6 +1768,28 @@ declare module "rts" {
      * Pausa a thread atual por `ms` milissegundos. Valores negativos sao tratados como 0.
      */
     export function sleep_ms(ms: number): void;
+  }
+
+  /**
+   * Paralelismo de dados via Rayon (map/for_each/reduce sobre Vec<i64>).
+   */
+  export namespace parallel {
+    /**
+     * Aplica `fn_ptr(x)` em paralelo sobre cada elemento do Vec<i64> `vec_handle`. Retorna novo Vec<i64> com os resultados. `fn_ptr` e `extern "C" fn(i64) -> i64`.
+     */
+    export function map(vec_handle: number, fn_ptr: number): number;
+    /**
+     * Executa `fn_ptr(x)` em paralelo para cada elemento do Vec<i64> `vec_handle`. `fn_ptr` e `extern "C" fn(i64)`.
+     */
+    export function for_each(vec_handle: number, fn_ptr: number): void;
+    /**
+     * Reduz Vec<i64> `vec_handle` com `fn_ptr(acc, x) -> acc` em paralelo (divide-e-conquista). `identity` e o elemento neutro da operacao (0 para soma, 1 para produto). `fn_ptr` deve ser associativo.
+     */
+    export function reduce(vec_handle: number, identity: number, fn_ptr: number): number;
+    /**
+     * Retorna o numero de threads no pool Rayon global.
+     */
+    export function num_threads(): number;
   }
 
 }
@@ -2360,36 +2398,41 @@ declare module "rts:mem" {
   export default _default;
 }
 
-declare module "rts:backtrace" {
+declare module "rts:trace" {
   /**
-   * Captura de stack traces via std::backtrace::Backtrace.
+   * RTS stack trace and debug tooling. Push/pop TS call frames; capture trace without error.
    */
   /**
-   * Captura backtrace do call stack atual. Retorna handle.
+   * Push a TS call frame onto the trace stack.
+   */
+  export function push_frame(file: string, fn_name: string, line: number, col: number): void;
+  /**
+   * Pop the top TS call frame from the trace stack.
+   */
+  export function pop_frame(): void;
+  /**
+   * Capture current trace as a GC string handle. Returns 0 if stack is empty.
    */
   export function capture(): number;
   /**
-   * Captura backtrace se RUST_BACKTRACE estiver set; retorna 0 caso contrario.
+   * Print current trace stack to stderr.
    */
-  export function capture_if_enabled(): number;
+  export function print(): void;
   /**
-   * True se RUST_BACKTRACE=1 (ou full) esta no env.
+   * Returns current trace stack depth.
    */
-  export function is_enabled(): boolean;
+  export function depth(): number;
   /**
-   * Formata o backtrace em string. Retorna handle de string GC.
-   */
-  export function to_string(handle: number): number;
-  /**
-   * Libera a backtrace.
+   * Free a captured trace handle.
    */
   export function free(handle: number): void;
   const _default: {
-    capture: (typeof import("rts"))["backtrace"]["capture"];
-    capture_if_enabled: (typeof import("rts"))["backtrace"]["capture_if_enabled"];
-    is_enabled: (typeof import("rts"))["backtrace"]["is_enabled"];
-    to_string: (typeof import("rts"))["backtrace"]["to_string"];
-    free: (typeof import("rts"))["backtrace"]["free"];
+    push_frame: (typeof import("rts"))["trace"]["push_frame"];
+    pop_frame: (typeof import("rts"))["trace"]["pop_frame"];
+    capture: (typeof import("rts"))["trace"]["capture"];
+    print: (typeof import("rts"))["trace"]["print"];
+    depth: (typeof import("rts"))["trace"]["depth"];
+    free: (typeof import("rts"))["trace"]["free"];
   };
   export default _default;
 }
@@ -3944,12 +3987,24 @@ declare module "rts:test_core" {
 
 declare module "rts:thread" {
   /**
-   * Primitivas de threads (spawn/join/detach/id/sleep) baseadas em std::thread.
+   * Primitivas de threads (spawn/join/detach/scope/id/sleep) baseadas em std::thread.
    */
   /**
    * Cria uma nova thread executando `fn_ptr(arg)`. `fn_ptr` e um ponteiro para `extern "C" fn(u64) -> u64`. Retorna handle do JoinHandle, 0 em falha.
    */
   export function spawn(fn_ptr: number, arg: number): number;
+  /**
+   * Variante de `spawn` que passa um `userdata` (ex: handle de `this`) como primeiro argumento da fn. `fn_ptr` aponta para `extern "C" fn(u64, u64) -> u64` (ud, arg).
+   */
+  export function spawn_with_ud(fn_ptr: number, arg: number, userdata: number): number;
+  /**
+   * Roda `body()` num escopo que aguarda automaticamente todas as threads spawnadas durante sua execucao. Analogo a `std::thread::scope`.
+   */
+  export function scope(body: () => void): void;
+  /**
+   * Variante com userdata para `thread.scope` quando o body captura `this`.
+   */
+  export function scope_with_ud(body: number, userdata: number): void;
   /**
    * Aguarda a thread terminar e retorna o valor retornado por ela. Consome o handle. 0 se handle invalido ou a thread fez panic.
    */
@@ -3968,10 +4023,42 @@ declare module "rts:thread" {
   export function sleep_ms(ms: number): void;
   const _default: {
     spawn: (typeof import("rts"))["thread"]["spawn"];
+    spawn_with_ud: (typeof import("rts"))["thread"]["spawn_with_ud"];
+    scope: (typeof import("rts"))["thread"]["scope"];
+    scope_with_ud: (typeof import("rts"))["thread"]["scope_with_ud"];
     join: (typeof import("rts"))["thread"]["join"];
     detach: (typeof import("rts"))["thread"]["detach"];
     id: (typeof import("rts"))["thread"]["id"];
     sleep_ms: (typeof import("rts"))["thread"]["sleep_ms"];
+  };
+  export default _default;
+}
+
+declare module "rts:parallel" {
+  /**
+   * Paralelismo de dados via Rayon (map/for_each/reduce sobre Vec<i64>).
+   */
+  /**
+   * Aplica `fn_ptr(x)` em paralelo sobre cada elemento do Vec<i64> `vec_handle`. Retorna novo Vec<i64> com os resultados. `fn_ptr` e `extern "C" fn(i64) -> i64`.
+   */
+  export function map(vec_handle: number, fn_ptr: number): number;
+  /**
+   * Executa `fn_ptr(x)` em paralelo para cada elemento do Vec<i64> `vec_handle`. `fn_ptr` e `extern "C" fn(i64)`.
+   */
+  export function for_each(vec_handle: number, fn_ptr: number): void;
+  /**
+   * Reduz Vec<i64> `vec_handle` com `fn_ptr(acc, x) -> acc` em paralelo (divide-e-conquista). `identity` e o elemento neutro da operacao (0 para soma, 1 para produto). `fn_ptr` deve ser associativo.
+   */
+  export function reduce(vec_handle: number, identity: number, fn_ptr: number): number;
+  /**
+   * Retorna o numero de threads no pool Rayon global.
+   */
+  export function num_threads(): number;
+  const _default: {
+    map: (typeof import("rts"))["parallel"]["map"];
+    for_each: (typeof import("rts"))["parallel"]["for_each"];
+    reduce: (typeof import("rts"))["parallel"]["reduce"];
+    num_threads: (typeof import("rts"))["parallel"]["num_threads"];
   };
   export default _default;
 }

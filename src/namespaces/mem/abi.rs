@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um i64 (= 8).",
         ts_signature: "size_of_i64: number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "size_of_f64",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um f64 (= 8).",
         ts_signature: "size_of_f64: number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "size_of_i32",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um i32 (= 4).",
         ts_signature: "size_of_i32: number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "size_of_bool",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um bool (= 1).",
         ts_signature: "size_of_bool: number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "align_of_i64",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Alinhamento de i64 (= 8).",
         ts_signature: "align_of_i64: number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "align_of_f64",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Alinhamento de f64 (= 8).",
         ts_signature: "align_of_f64: number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "swap_i64",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Retorna `b` (use idiom: `let old = mem.swap_i64(a, b)`).",
         ts_signature: "swap_i64(a: number, b: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "drop_handle",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Forca free de um handle GC. Equivalente a gc.string_free / etc.",
         ts_signature: "drop_handle(h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "forget_handle",
@@ -92,6 +100,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Esquece handle sem rodar drop — vaza memoria intencionalmente.",
         ts_signature: "forget_handle(h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "replace_i64",
@@ -102,6 +111,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Idiom: `mem.replace_i64(slot, new)` — retorna slot e usa caller pra escrever.",
         ts_signature: "replace_i64(slot: number, new_val: number): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

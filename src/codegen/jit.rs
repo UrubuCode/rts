@@ -760,7 +760,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::atomic ────────────────────────────────────────────
     use crate::namespaces::atomic::{
-        bool as atomic_bool, fence as atomic_fence, int as atomic_int,
+        bool as atomic_bool, fence as atomic_fence, float as atomic_float, int as atomic_int,
     };
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_NEW",
@@ -817,6 +817,26 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!(
         "__RTS_FN_NS_ATOMIC_BOOL_SWAP",
         atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_SWAP
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_NEW",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_LOAD",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_LOAD
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_STORE",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_STORE
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_FETCH_ADD",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_FETCH_ADD
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_SWAP",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_SWAP
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_FENCE_ACQUIRE",
@@ -890,6 +910,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             thread_spawn::__RTS_FN_NS_THREAD_SPAWN
         );
         add_fn!(
+            "__RTS_FN_NS_THREAD_SPAWN_WITH_UD",
+            thread_spawn::__RTS_FN_NS_THREAD_SPAWN_WITH_UD
+        );
+        add_fn!(
+            "__RTS_FN_NS_THREAD_SCOPE",
+            thread_spawn::__RTS_FN_NS_THREAD_SCOPE
+        );
+        add_fn!(
+            "__RTS_FN_NS_THREAD_SCOPE_WITH_UD",
+            thread_spawn::__RTS_FN_NS_THREAD_SCOPE_WITH_UD
+        );
+        add_fn!(
             "__RTS_FN_NS_THREAD_JOIN",
             thread_join::__RTS_FN_NS_THREAD_JOIN
         );
@@ -901,6 +933,27 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!(
             "__RTS_FN_NS_THREAD_SLEEP_MS",
             thread_info::__RTS_FN_NS_THREAD_SLEEP_MS
+        );
+    }
+
+    // ── namespaces::parallel ──────────────────────────────────────────
+    {
+        use crate::namespaces::parallel::ops as parallel_ops;
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_MAP",
+            parallel_ops::__RTS_FN_NS_PARALLEL_MAP
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FOR_EACH",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FOR_EACH
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_REDUCE",
+            parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_NUM_THREADS",
+            parallel_ops::__RTS_FN_NS_PARALLEL_NUM_THREADS
         );
     }
 

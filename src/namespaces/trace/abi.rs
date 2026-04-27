@@ -10,6 +10,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Push a TS call frame onto the trace stack.",
         ts_signature: "push_frame(file: string, fn_name: string, line: number, col: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "pop_frame",
@@ -20,6 +21,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Pop the top TS call frame from the trace stack.",
         ts_signature: "pop_frame(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "capture",
@@ -30,6 +32,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Capture current trace as a GC string handle. Returns 0 if stack is empty.",
         ts_signature: "capture(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "print",
@@ -40,6 +43,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Print current trace stack to stderr.",
         ts_signature: "print(): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "depth",
@@ -50,6 +54,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns current trace stack depth.",
         ts_signature: "depth(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "free",
@@ -60,6 +65,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Free a captured trace handle.",
         ts_signature: "free(handle: number): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

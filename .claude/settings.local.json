@@ -99,7 +99,8 @@
       "Bash(git merge feat/runtime-namespace --no-ff -m ' *)",
       "Bash(cargo run *)",
       "Bash(git pull *)",
-      "Bash(target/debug/rts.exe test *)"
+      "Bash(target/debug/rts.exe test *)",
+      "Bash(git log *)"
     ]
   }
 }

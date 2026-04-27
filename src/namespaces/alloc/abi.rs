@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca size bytes alinhados a `align`. Retorna ponteiro ou 0 em falha.",
         ts_signature: "alloc(size: number, align: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "alloc_zeroed",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Aloca size bytes zerados, alinhados a `align`.",
         ts_signature: "alloc_zeroed(size: number, align: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "dealloc",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Libera ptr previamente alocado com mesmo size/align.",
         ts_signature: "dealloc(ptr: number, size: number, align: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "realloc",
@@ -43,6 +46,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         ts_signature:
             "realloc(ptr: number, size_old: number, align: number, new_size: number): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

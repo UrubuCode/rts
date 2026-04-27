@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Allocates a zero-initialised byte buffer of `size` bytes.",
         ts_signature: "alloc(size: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "alloc_zeroed",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Alias for alloc — Rust Vec::new already zeroes.",
         ts_signature: "alloc_zeroed(size: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "free",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Releases the buffer handle. Subsequent reads/writes are no-ops.",
         ts_signature: "free(handle: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "len",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Buffer length in bytes, or -1 if the handle is invalid.",
         ts_signature: "len(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "ptr",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Raw pointer to the buffer start, or 0 when invalid. Unsafe — callers must not outlive the handle.",
         ts_signature: "ptr(handle: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_u8",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Reads the byte at `offset`. Returns 0 out of bounds.",
         ts_signature: "read_u8(handle: number, offset: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_i32",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Reads a little-endian i32 at `offset`.",
         ts_signature: "read_i32(handle: number, offset: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_i64",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Reads a little-endian i64 at `offset`.",
         ts_signature: "read_i64(handle: number, offset: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "read_f64",
@@ -92,6 +100,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Reads a little-endian f64 at `offset`. NaN out of bounds.",
         ts_signature: "read_f64(handle: number, offset: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_u8",
@@ -102,6 +111,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Writes `val` as u8 at `offset`. No-op out of bounds.",
         ts_signature: "write_u8(handle: number, offset: number, val: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_i32",
@@ -112,6 +122,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Writes a little-endian i32 at `offset`.",
         ts_signature: "write_i32(handle: number, offset: number, val: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_i64",
@@ -122,6 +133,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Writes a little-endian i64 at `offset`.",
         ts_signature: "write_i64(handle: number, offset: number, val: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "write_f64",
@@ -132,6 +144,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Writes a little-endian f64 at `offset`.",
         ts_signature: "write_f64(handle: number, offset: number, val: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "copy",
@@ -148,6 +161,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Copies `len` bytes from src+srcOff to dst+dstOff. Safe with overlapping src/dst.",
         ts_signature: "copy(dst: number, dstOff: number, src: number, srcOff: number, len: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "fill",
@@ -158,6 +172,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Fills the first `len` bytes with `byte`.",
         ts_signature: "fill(handle: number, byte: number, len: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "to_string",
@@ -168,6 +183,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Interprets buffer contents as UTF-8 and returns a string handle.",
         ts_signature: "to_string(handle: number): string",
         intrinsic: None,
+        pure: false,
     },
 ];
 

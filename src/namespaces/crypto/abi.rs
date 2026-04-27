@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Fills ptr..ptr+len with CSPRNG bytes. 0 ok, -1 err.",
         ts_signature: "random_bytes(ptr: number, len: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "random_i64",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Cryptographically secure i64.",
         ts_signature: "random_i64(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "random_buffer",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Allocates a buffer of `len` random bytes. Handle 0 on error.",
         ts_signature: "random_buffer(len: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "sha256_str",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "SHA-256 of a UTF-8 string, returned as a 64-char hex string handle.",
         ts_signature: "sha256_str(s: string): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "sha256_bytes",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "SHA-256 of a raw memory region. Use with buffer.ptr(h).",
         ts_signature: "sha256_bytes(ptr: number, len: number): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "hex_encode",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Lowercase hex of a memory region.",
         ts_signature: "hex_encode(ptr: number, len: number): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "hex_decode",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Decodes hex into a buffer handle. 0 on malformed input.",
         ts_signature: "hex_decode(s: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "base64_encode",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Base64 (RFC 4648 padded) of a memory region.",
         ts_signature: "base64_encode(ptr: number, len: number): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "base64_decode",
@@ -92,6 +100,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Decodes base64 into a buffer handle. 0 on malformed input.",
         ts_signature: "base64_decode(s: string): number",
         intrinsic: None,
+        pure: false,
     },
 ];
 

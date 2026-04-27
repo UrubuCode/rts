@@ -11,7 +11,7 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, Linkage, Module};
-use swc_ecma_ast::{Callee, Decl, Expr, Lit, MemberProp, Pat, Stmt, TsType, TsTypeRef};
+use swc_ecma_ast::{Callee, Decl, Expr, ForHead, Lit, MemberProp, Pat, Stmt, TsType, TsTypeRef};
 
 use crate::parser::ast::{
     ClassDecl, ClassMember, FunctionDecl, Item, MemberModifiers, MethodRole, Parameter, Program,
@@ -30,6 +30,243 @@ struct UserFn {
     id: cranelift_module::FuncId,
     params: Vec<ValTy>,
     ret: Option<ValTy>,
+}
+
+/// Builds the set of (namespace, member) pairs marked `pure: true` in SPECS.
+fn build_pure_ns_set() -> HashSet<(&'static str, &'static str)> {
+    let mut s = HashSet::new();
+    for spec in crate::abi::SPECS {
+        for member in spec.members {
+            if member.pure {
+                s.insert((spec.name, member.name));
+            }
+        }
+    }
+    s
+}
+
+/// Returns true if `e` is a pure expression in the context of a ForOf body.
+/// Pure: literals, the loop variable, inner-declared idents, arithmetic on
+/// pure sub-expressions, and calls to pure namespace members.
+fn is_pure_expr_for_parallel(
+    e: &Expr,
+    loop_var: &str,
+    inner: &HashSet<String>,
+    pure_ns: &HashSet<(&'static str, &'static str)>,
+) -> bool {
+    match e {
+        Expr::Lit(_) => true,
+        Expr::Ident(id) => {
+            let n = id.sym.as_str();
+            n == loop_var || inner.contains(n)
+        }
+        Expr::Bin(b) => {
+            is_pure_expr_for_parallel(&b.left, loop_var, inner, pure_ns)
+                && is_pure_expr_for_parallel(&b.right, loop_var, inner, pure_ns)
+        }
+        Expr::Unary(u) => is_pure_expr_for_parallel(&u.arg, loop_var, inner, pure_ns),
+        Expr::Paren(p) => is_pure_expr_for_parallel(&p.expr, loop_var, inner, pure_ns),
+        Expr::TsAs(a) => is_pure_expr_for_parallel(&a.expr, loop_var, inner, pure_ns),
+        Expr::TsTypeAssertion(a) => is_pure_expr_for_parallel(&a.expr, loop_var, inner, pure_ns),
+        Expr::TsNonNull(a) => is_pure_expr_for_parallel(&a.expr, loop_var, inner, pure_ns),
+        Expr::TsConstAssertion(a) => is_pure_expr_for_parallel(&a.expr, loop_var, inner, pure_ns),
+        Expr::Call(call) => {
+            let Callee::Expr(ce) = &call.callee else { return false };
+            let Expr::Member(m) = ce.as_ref() else { return false };
+            let Expr::Ident(ns_id) = m.obj.as_ref() else { return false };
+            let MemberProp::Ident(prop_id) = &m.prop else { return false };
+            if !pure_ns.contains(&(ns_id.sym.as_str(), prop_id.sym.as_str())) {
+                return false;
+            }
+            call.args.iter().all(|a| {
+                a.spread.is_none()
+                    && is_pure_expr_for_parallel(&a.expr, loop_var, inner, pure_ns)
+            })
+        }
+        _ => false,
+    }
+}
+
+/// Returns true if the ForOf body is parallelisable: no assignments, no
+/// control flow escapes, only pure namespace calls, all idents are either
+/// the loop variable or declared within the body.
+fn analyze_for_of_body_pure(
+    body: &Stmt,
+    loop_var: &str,
+    pure_ns: &HashSet<(&'static str, &'static str)>,
+) -> bool {
+    let stmts: &[Stmt] = match body {
+        Stmt::Block(b) => &b.stmts,
+        Stmt::Expr(e) => {
+            return is_pure_expr_for_parallel(&e.expr, loop_var, &HashSet::new(), pure_ns);
+        }
+        _ => return false,
+    };
+    let mut inner: HashSet<String> = HashSet::new();
+    for stmt in stmts {
+        match stmt {
+            Stmt::Decl(Decl::Var(vd)) => {
+                for d in &vd.decls {
+                    let Pat::Ident(id) = &d.name else { return false };
+                    if let Some(init) = &d.init {
+                        if !is_pure_expr_for_parallel(init, loop_var, &inner, pure_ns) {
+                            return false;
+                        }
+                    }
+                    inner.insert(id.sym.as_str().to_string());
+                }
+            }
+            Stmt::Expr(e) => {
+                if !is_pure_expr_for_parallel(&e.expr, loop_var, &inner, pure_ns) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Builds a `parallel.for_each(arr_expr, fn_ident)` expression statement.
+fn make_par_foreach_stmt(arr_expr: &Expr, fn_name: &str) -> Stmt {
+    Stmt::Expr(swc_ecma_ast::ExprStmt {
+        span: Default::default(),
+        expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
+            span: Default::default(),
+            ctxt: Default::default(),
+            callee: Callee::Expr(Box::new(Expr::Member(swc_ecma_ast::MemberExpr {
+                span: Default::default(),
+                obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: "parallel".into(),
+                    optional: false,
+                })),
+                prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                    span: Default::default(),
+                    sym: "for_each".into(),
+                }),
+            }))),
+            args: vec![
+                swc_ecma_ast::ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(arr_expr.clone()),
+                },
+                swc_ecma_ast::ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                        span: Default::default(),
+                        ctxt: Default::default(),
+                        sym: fn_name.to_string().into(),
+                        optional: false,
+                    })),
+                },
+            ],
+            type_args: None,
+        })),
+    })
+}
+
+/// Level-1 silent parallelism: rewrites pure top-level `for...of` loops into
+/// `parallel.for_each(arr, __par_forof_N)` calls backed by a Rayon thread
+/// pool. A ForOf is eligible when:
+///   - no assignments in the body
+///   - all function calls are to pure namespace members
+///   - all idents in the body are either the loop variable or inner decls
+///   - no break / continue / return / throw
+///
+/// For each eligible loop a synthetic `FunctionDecl` is prepended to the
+/// program, and the loop statement is replaced with the `for_each` call.
+/// Returns the set of synthetic function names so `compile_program` can give
+/// them C calling convention (required for Rayon worker invocations).
+fn purity_pass(program: &mut Program) -> HashSet<String> {
+    let pure_ns = build_pure_ns_set();
+    let mut counter = 0u32;
+    let mut par_fn_names: HashSet<String> = HashSet::new();
+
+    struct Transform {
+        idx: usize,
+        arr_expr: Expr,
+        body_stmt: Stmt,
+        loop_var: String,
+        fn_name: String,
+    }
+    let mut transforms: Vec<Transform> = Vec::new();
+
+    for (idx, item) in program.items.iter().enumerate() {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::ForOf(for_of)) = raw.stmt.as_ref() else { continue };
+        if for_of.is_await {
+            continue;
+        }
+        let loop_var = match &for_of.left {
+            ForHead::VarDecl(vd) => {
+                if vd.decls.len() != 1 {
+                    continue;
+                }
+                match &vd.decls[0].name {
+                    Pat::Ident(id) => id.sym.as_str().to_string(),
+                    _ => continue,
+                }
+            }
+            _ => continue,
+        };
+        if !analyze_for_of_body_pure(&for_of.body, &loop_var, &pure_ns) {
+            continue;
+        }
+        let fn_name = format!("__par_forof_{counter}");
+        counter += 1;
+        transforms.push(Transform {
+            idx,
+            arr_expr: for_of.right.as_ref().clone(),
+            body_stmt: for_of.body.as_ref().clone(),
+            loop_var,
+            fn_name,
+        });
+    }
+
+    if transforms.is_empty() {
+        return par_fn_names;
+    }
+
+    let mut new_fn_items: Vec<Item> = Vec::new();
+    for t in &transforms {
+        let body_stmts = vec![Statement::Raw(
+            RawStmt::new("<par-forof>".to_string(), Span::default())
+                .with_stmt(t.body_stmt.clone()),
+        )];
+        // Loop variable declared as i64: Rayon passes Vec<i64> elements as
+        // i64 via integer registers. Using "number" (f64) would mismatch.
+        new_fn_items.push(Item::Function(FunctionDecl {
+            name: t.fn_name.clone(),
+            parameters: vec![Parameter {
+                name: t.loop_var.clone(),
+                type_annotation: Some("i64".to_string()),
+                modifiers: MemberModifiers::default(),
+                variadic: false,
+                default: None,
+                span: Span::default(),
+            }],
+            return_type: Some("void".to_string()),
+            body: body_stmts,
+            span: Span::default(),
+        }));
+        par_fn_names.insert(t.fn_name.clone());
+    }
+
+    // Apply replacements before prepending (t.idx still valid for original positions).
+    for t in &transforms {
+        if let Item::Statement(Statement::Raw(raw)) = &mut program.items[t.idx] {
+            raw.stmt = Some(make_par_foreach_stmt(&t.arr_expr, &t.fn_name));
+        }
+    }
+
+    // Prepend synthetic functions in declaration order.
+    for fn_item in new_fn_items.into_iter().rev() {
+        program.items.insert(0, fn_item);
+    }
+
+    par_fn_names
 }
 
 /// Lifts inline `() => { ... }` arrow expressions that appear as `I64`-typed
@@ -1657,9 +1894,16 @@ impl LiftAcc {
             // tratado como callback candidato. Demais membros de ABI seguem
             // a regra padrao (apenas args I64).
             let is_thread_spawn = qualified == "thread.spawn";
+            let is_parallel_map = qualified == "parallel.map";
+            let is_parallel_for_each = qualified == "parallel.for_each";
+            let is_parallel_reduce = qualified == "parallel.reduce";
+            let is_parallel_op = is_parallel_map || is_parallel_for_each || is_parallel_reduce;
             for (arg_idx, (arg, &abi_ty)) in call.args.iter_mut().zip(member.args.iter()).enumerate() {
                 let is_callback_slot = if is_thread_spawn {
                     arg_idx == 0
+                } else if is_parallel_op {
+                    // fn_ptr slot is U64 in parallel.* ABIs
+                    abi_ty == AbiType::U64
                 } else {
                     abi_ty == AbiType::I64
                 };
@@ -1773,33 +2017,84 @@ impl LiftAcc {
                         if is_thread_spawn {
                             self.needs_c_callconv.insert(real_name.clone());
                         }
-                        let args: Vec<swc_ecma_ast::ExprOrSpread> = if pass_arg {
-                            vec![swc_ecma_ast::ExprOrSpread {
-                                spread: None,
-                                expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+
+                        // parallel.* trampolim: adapts i64 ABI to user fn.
+                        // Rayon passes Vec<i64> elements as i64 (integer
+                        // registers). User fns may declare `number` (f64)
+                        // params — codegen coerces automatically via
+                        // `lower_user_call`. Trampolim bridges the gap.
+                        if is_parallel_op {
+                            fn par_ident(sym: &str) -> Expr {
+                                Expr::Ident(swc_ecma_ast::Ident {
                                     span: Default::default(),
                                     ctxt: Default::default(),
-                                    sym: "__rts_spawn_arg".into(),
+                                    sym: sym.to_string().into(),
                                     optional: false,
-                                })),
-                            }]
-                        } else {
-                            Vec::new()
-                        };
-                        let call_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
-                            span: id.span,
-                            expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
-                                span: id.span,
-                                ctxt: id.ctxt,
+                                })
+                            }
+                            fn par_arg(sym: &str) -> swc_ecma_ast::ExprOrSpread {
+                                swc_ecma_ast::ExprOrSpread {
+                                    spread: None,
+                                    expr: Box::new(par_ident(sym)),
+                                }
+                            }
+                            let call_args: Vec<swc_ecma_ast::ExprOrSpread> =
+                                if is_parallel_reduce {
+                                    vec![par_arg("__par_acc"), par_arg("__par_x")]
+                                } else {
+                                    vec![par_arg("__par_x")]
+                                };
+                            let call_expr = Expr::Call(swc_ecma_ast::CallExpr {
+                                span: Default::default(),
+                                ctxt: Default::default(),
                                 callee: Callee::Expr(Box::new(Expr::Ident(target_id))),
-                                args,
+                                args: call_args,
                                 type_args: None,
-                            })),
-                        });
-                        body_stmts = vec![Statement::Raw(
-                            RawStmt::new("<lifted>".to_string(), Span::default())
-                                .with_stmt(call_stmt),
-                        )];
+                            });
+                            let body_stmt = if is_parallel_for_each {
+                                Stmt::Expr(swc_ecma_ast::ExprStmt {
+                                    span: Default::default(),
+                                    expr: Box::new(call_expr),
+                                })
+                            } else {
+                                Stmt::Return(swc_ecma_ast::ReturnStmt {
+                                    span: Default::default(),
+                                    arg: Some(Box::new(call_expr)),
+                                })
+                            };
+                            body_stmts = vec![Statement::Raw(
+                                RawStmt::new("<par-tramp>".to_string(), Span::default())
+                                    .with_stmt(body_stmt),
+                            )];
+                        } else {
+                            let args: Vec<swc_ecma_ast::ExprOrSpread> = if pass_arg {
+                                vec![swc_ecma_ast::ExprOrSpread {
+                                    spread: None,
+                                    expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                                        span: Default::default(),
+                                        ctxt: Default::default(),
+                                        sym: "__rts_spawn_arg".into(),
+                                        optional: false,
+                                    })),
+                                }]
+                            } else {
+                                Vec::new()
+                            };
+                            let call_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+                                span: id.span,
+                                expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
+                                    span: id.span,
+                                    ctxt: id.ctxt,
+                                    callee: Callee::Expr(Box::new(Expr::Ident(target_id))),
+                                    args,
+                                    type_args: None,
+                                })),
+                            });
+                            body_stmts = vec![Statement::Raw(
+                                RawStmt::new("<lifted>".to_string(), Span::default())
+                                    .with_stmt(call_stmt),
+                            )];
+                        }
                     }
                     _ => continue,
                 };
@@ -1823,46 +2118,70 @@ impl LiftAcc {
                 // Trampolim recebe `this: ClassName` como parâmetro
                 // quando vamos passar `this` por userdata. Para
                 // `thread.spawn(fp, arg)` com worker arity≥1, recebe
-                // `__rts_spawn_arg: number`. Caso contrário, sem
-                // parâmetros (UI callbacks tradicionais).
-                let parameters: Vec<Parameter> = if use_userdata_callback {
-                    vec![Parameter {
-                        name: "this".to_string(),
-                        type_annotation: Some(class_name.to_string()),
-                        modifiers: MemberModifiers::default(),
-                        variadic: false,
-                        default: None,
-                        span: Span::default(),
-                    }]
-                } else if is_thread_spawn
-                    && matches!(peel_ts(arg.expr.as_ref()), Expr::Ident(id) if {
-                        let real = self.alias_to_real.get(id.sym.as_str()).cloned()
-                            .unwrap_or_else(|| id.sym.to_string());
-                        self.user_fn_arities.get(real.as_str()).copied().unwrap_or(0) >= 1
-                    })
-                {
-                    // Tipo `i64` — `thread.spawn` ABI passa o arg como
-                    // U64; o trampolim recebe como i64 inteiro e o
-                    // codegen converte para f64 quando worker declara
-                    // `arg: number`. Sem isso, Win64 procura o arg no
-                    // registrador XMM0 (float) em vez de RCX (int) e
-                    // pega lixo (#206).
-                    vec![Parameter {
-                        name: "__rts_spawn_arg".to_string(),
+                // `__rts_spawn_arg: number`. Parallel ops recebem
+                // parâmetros i64 (Rayon passa Vec<i64> elements).
+                // Caso contrário: sem parâmetros (UI callbacks tradicionais).
+                fn mk_i64_param(name: &str) -> Parameter {
+                    Parameter {
+                        name: name.to_string(),
                         type_annotation: Some("i64".to_string()),
                         modifiers: MemberModifiers::default(),
                         variadic: false,
                         default: None,
                         span: Span::default(),
-                    }]
-                } else {
-                    Vec::new()
-                };
+                    }
+                }
+                let (parameters, tramp_return_type): (Vec<Parameter>, &'static str) =
+                    if use_userdata_callback {
+                        (
+                            vec![Parameter {
+                                name: "this".to_string(),
+                                type_annotation: Some(class_name.to_string()),
+                                modifiers: MemberModifiers::default(),
+                                variadic: false,
+                                default: None,
+                                span: Span::default(),
+                            }],
+                            "void",
+                        )
+                    } else if is_parallel_reduce {
+                        (vec![mk_i64_param("__par_acc"), mk_i64_param("__par_x")], "i64")
+                    } else if is_parallel_map {
+                        (vec![mk_i64_param("__par_x")], "i64")
+                    } else if is_parallel_for_each {
+                        (vec![mk_i64_param("__par_x")], "void")
+                    } else if is_thread_spawn
+                        && matches!(peel_ts(arg.expr.as_ref()), Expr::Ident(id) if {
+                            let real = self.alias_to_real.get(id.sym.as_str()).cloned()
+                                .unwrap_or_else(|| id.sym.to_string());
+                            self.user_fn_arities.get(real.as_str()).copied().unwrap_or(0) >= 1
+                        })
+                    {
+                        // Tipo `i64` — `thread.spawn` ABI passa o arg como
+                        // U64; o trampolim recebe como i64 inteiro e o
+                        // codegen converte para f64 quando worker declara
+                        // `arg: number`. Sem isso, Win64 procura o arg no
+                        // registrador XMM0 (float) em vez de RCX (int) e
+                        // pega lixo (#206).
+                        (
+                            vec![Parameter {
+                                name: "__rts_spawn_arg".to_string(),
+                                type_annotation: Some("i64".to_string()),
+                                modifiers: MemberModifiers::default(),
+                                variadic: false,
+                                default: None,
+                                span: Span::default(),
+                            }],
+                            "void",
+                        )
+                    } else {
+                        (Vec::new(), "void")
+                    };
 
                 self.new_fns.push(Item::Function(FunctionDecl {
                     name: syn_name.clone(),
                     parameters,
-                    return_type: Some("void".to_string()),
+                    return_type: Some(tramp_return_type.to_string()),
                     body: body_stmts,
                     span: Span::default(),
                 }));
@@ -2591,6 +2910,7 @@ pub fn compile_program(
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
+    let par_fn_names = purity_pass(program);
     let lifted_needs_c_callconv = lift_arrow_callbacks(program);
     expand_destructuring(program);
     expand_default_args(program);
@@ -2701,6 +3021,8 @@ pub fn compile_program(
         collect_address_taken_fns(&fn_decls, program, &synthetic_fns);
     // União com fns chamadas de trampolins lifted C-callconv (#206).
     address_taken_fns.extend(lifted_needs_c_callconv.iter().cloned());
+    // Funções sintéticas do purity_pass (Level-1 parallel ForOf).
+    address_taken_fns.extend(par_fn_names.iter().cloned());
 
     // Phase 1: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();

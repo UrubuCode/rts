@@ -2,22 +2,25 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
 
 fn with_atomic_i64<R>(handle: u64, default: R, f: impl FnOnce(&AtomicI64) -> R) -> R {
-    let guard = table().lock().unwrap();
-    match guard.get(handle) {
-        Some(Entry::AtomicI64(a)) => f(a.as_ref()),
-        _ => default,
-    }
+    let ptr: *const AtomicI64 = {
+        let guard = shard_for_handle(handle).lock().unwrap();
+        match guard.get(handle) {
+            Some(Entry::AtomicI64(a)) => a.as_ref() as *const _,
+            _ => return default,
+        }
+    }; // shard lock released here — atomic op runs lock-free
+    // SAFETY: Box<AtomicI64> is heap-allocated and stable. The slot lives as
+    // long as the handle is valid; caller must not free the handle concurrently
+    // with this call (same contract as all handle-based ops).
+    f(unsafe { &*ptr })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_NEW(value: i64) -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::AtomicI64(Box::new(AtomicI64::new(value))))
+    alloc_entry(Entry::AtomicI64(Box::new(AtomicI64::new(value))))
 }
 
 #[unsafe(no_mangle)]
@@ -60,14 +63,11 @@ pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_SWAP(handle: u64, value: i64) -> i64 {
     with_atomic_i64(handle, 0, |a| a.swap(value, Ordering::SeqCst))
 }
 
-/// Compare-and-swap. Retorna o valor anterior — caller decide sucesso
-/// comparando com `expected`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_CAS(handle: u64, expected: i64, new_value: i64) -> i64 {
+pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_CAS(handle: u64, expected: i64, new: i64) -> i64 {
     with_atomic_i64(handle, 0, |a| {
-        match a.compare_exchange(expected, new_value, Ordering::SeqCst, Ordering::SeqCst) {
-            Ok(prev) => prev,
-            Err(actual) => actual,
+        match a.compare_exchange(expected, new, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(prev) | Err(prev) => prev,
         }
     })
 }

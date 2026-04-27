@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Monotonic milliseconds since process start.",
         ts_signature: "now_ms(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "now_ns",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Monotonic nanoseconds since process start.",
         ts_signature: "now_ns(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "unix_ms",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Wall-clock milliseconds since the UNIX epoch.",
         ts_signature: "unix_ms(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "unix_ns",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Wall-clock nanoseconds since the UNIX epoch.",
         ts_signature: "unix_ns(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "sleep_ms",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sleeps the current thread for `ms` milliseconds.",
         ts_signature: "sleep_ms(ms: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "sleep_ns",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Sleeps the current thread for `ns` nanoseconds.",
         ts_signature: "sleep_ns(ns: number): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

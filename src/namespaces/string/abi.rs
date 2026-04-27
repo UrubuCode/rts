@@ -13,6 +13,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "True when `haystack` contains `needle`.",
         ts_signature: "contains(haystack: string, needle: string): boolean",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "starts_with",
@@ -23,6 +24,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "True when `s` starts with `prefix`.",
         ts_signature: "starts_with(s: string, prefix: string): boolean",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "ends_with",
@@ -33,6 +35,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "True when `s` ends with `suffix`.",
         ts_signature: "ends_with(s: string, suffix: string): boolean",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "find",
@@ -43,6 +46,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Byte index of first occurrence of `needle`, or -1 when absent.",
         ts_signature: "find(s: string, needle: string): number",
         intrinsic: None,
+        pure: true,
     },
     // ── Transform ─────────────────────────────────────────────────────
     NamespaceMember {
@@ -54,6 +58,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Uppercase copy (Unicode-aware).",
         ts_signature: "to_upper(s: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "to_lower",
@@ -64,6 +69,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Lowercase copy (Unicode-aware).",
         ts_signature: "to_lower(s: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "trim",
@@ -74,6 +80,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes ASCII + Unicode whitespace from both ends.",
         ts_signature: "trim(s: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "trim_start",
@@ -84,6 +91,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes whitespace from the start.",
         ts_signature: "trim_start(s: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "trim_end",
@@ -94,6 +102,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes whitespace from the end.",
         ts_signature: "trim_end(s: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "repeat",
@@ -104,6 +113,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Concatenates `s` with itself `n` times.",
         ts_signature: "repeat(s: string, n: number): string",
         intrinsic: None,
+        pure: true,
     },
     // ── Replace ───────────────────────────────────────────────────────
     NamespaceMember {
@@ -115,6 +125,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Replaces every occurrence of `from` with `to`.",
         ts_signature: "replace(s: string, from: string, to: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "replacen",
@@ -130,6 +141,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Replaces the first `n` occurrences of `from` with `to`.",
         ts_signature: "replacen(s: string, from: string, to: string, n: number): string",
         intrinsic: None,
+        pure: true,
     },
     // ── Split / count / indexing ──────────────────────────────────────
     NamespaceMember {
@@ -141,6 +153,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Unicode codepoint count (chars).",
         ts_signature: "char_count(s: string): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "byte_len",
@@ -151,6 +164,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Length in UTF-8 bytes.",
         ts_signature: "byte_len(s: string): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "char_at",
@@ -161,6 +175,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Character at Unicode index `idx` as a single-char string handle, or 0 out of range.",
         ts_signature: "char_at(s: string, idx: number): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "char_code_at",
@@ -171,6 +186,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Unicode code point at `idx`, or -1 out of range.",
         ts_signature: "char_code_at(s: string, idx: number): number",
         intrinsic: None,
+        pure: true,
     },
 ];
 

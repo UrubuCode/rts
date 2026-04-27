@@ -41,6 +41,12 @@ pub struct NamespaceMember {
     /// is still exported so callers that do not know the member statically
     /// (e.g. reflection, FFI) keep working.
     pub intrinsic: Option<Intrinsic>,
+
+    /// True if this member is pure: no I/O, no shared mutable state, no
+    /// non-determinism. Pure members are eligible for automatic parallelisation
+    /// (e.g. `for...of` body analysis in the purity pass). Conservative:
+    /// false-negative is safe (falls back to sequential path).
+    pub pure: bool,
 }
 
 /// Inlinable operations recognised by codegen.

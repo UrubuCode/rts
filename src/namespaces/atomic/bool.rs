@@ -5,22 +5,23 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
 
 fn with_atomic_bool<R>(handle: u64, default: R, f: impl FnOnce(&AtomicBool) -> R) -> R {
-    let guard = table().lock().unwrap();
-    match guard.get(handle) {
-        Some(Entry::AtomicBool(a)) => f(a.as_ref()),
-        _ => default,
-    }
+    let ptr: *const AtomicBool = {
+        let guard = shard_for_handle(handle).lock().unwrap();
+        match guard.get(handle) {
+            Some(Entry::AtomicBool(a)) => a.as_ref() as *const _,
+            _ => return default,
+        }
+    }; // shard lock released — atomic op runs lock-free
+    // SAFETY: Box<AtomicBool> is heap-stable; same handle contract as AtomicI64.
+    f(unsafe { &*ptr })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_ATOMIC_BOOL_NEW(value: i64) -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::AtomicBool(Box::new(AtomicBool::new(value != 0))))
+    alloc_entry(Entry::AtomicBool(Box::new(AtomicBool::new(value != 0))))
 }
 
 #[unsafe(no_mangle)]

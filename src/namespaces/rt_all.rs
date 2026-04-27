@@ -44,6 +44,14 @@ pub mod fmt;
 pub mod crypto;
 #[path = "regex/rt.rs"]
 pub mod regex;
+#[path = "atomic/rt.rs"]
+pub mod atomic;
+#[path = "sync/rt.rs"]
+pub mod sync;
+#[path = "thread/rt.rs"]
+pub mod thread;
+#[path = "parallel/rt.rs"]
+pub mod parallel;
 #[path = "ui/rt.rs"]
 pub mod ui;
 #[path = "runtime/rt.rs"]

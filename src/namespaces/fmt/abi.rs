@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Parses an integer. Returns i64::MIN on error.",
         ts_signature: "parse_i64(s: string): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "parse_f64",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Parses a float. Returns NaN on error.",
         ts_signature: "parse_f64(s: string): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "parse_bool",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Parses 'true'/'false'/'1'/'0' (case-insensitive). Returns -1 on error.",
         ts_signature: "parse_bool(s: string): number",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "fmt_i64",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Decimal string of an integer.",
         ts_signature: "fmt_i64(value: number): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "fmt_f64",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Shortest round-trippable decimal of a float.",
         ts_signature: "fmt_f64(value: number): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "fmt_bool",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "'true' when value is non-zero, 'false' otherwise.",
         ts_signature: "fmt_bool(value: number): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "fmt_hex",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Lowercase hex with `0x` prefix (bits as u64).",
         ts_signature: "fmt_hex(value: number): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "fmt_bin",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Binary with `0b` prefix.",
         ts_signature: "fmt_bin(value: number): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "fmt_oct",
@@ -92,6 +100,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Octal with `0o` prefix.",
         ts_signature: "fmt_oct(value: number): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "fmt_f64_prec",
@@ -102,6 +111,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Float formatted with a fixed number of decimal places.",
         ts_signature: "fmt_f64_prec(value: number, precision: number): string",
         intrinsic: None,
+        pure: true,
     },
 ];
 

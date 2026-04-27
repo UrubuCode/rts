@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Joins a base path with a relative fragment.",
         ts_signature: "join(base: string, part: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "parent",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Parent directory; 0 when path has no parent (e.g. root or bare filename).",
         ts_signature: "parent(path: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "file_name",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Final component of the path (file name with extension).",
         ts_signature: "file_name(path: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "stem",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "File name without extension.",
         ts_signature: "stem(path: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "ext",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "File extension without leading dot; 0 when absent.",
         ts_signature: "ext(path: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "is_absolute",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "True when path is absolute for the current target.",
         ts_signature: "is_absolute(path: string): boolean",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "normalize",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes `.` and collapses `..` without touching the filesystem.",
         ts_signature: "normalize(path: string): string",
         intrinsic: None,
+        pure: true,
     },
     NamespaceMember {
         name: "with_ext",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the path with the extension replaced (or added).",
         ts_signature: "with_ext(path: string, ext: string): string",
         intrinsic: None,
+        pure: true,
     },
 ];
 

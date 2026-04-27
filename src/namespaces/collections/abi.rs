@@ -13,6 +13,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates an empty HashMap<string, number> and returns its handle.",
         ts_signature: "map_new(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_free",
@@ -23,6 +24,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Releases the map handle.",
         ts_signature: "map_free(h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_len",
@@ -33,6 +35,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Number of entries; -1 if the handle is invalid.",
         ts_signature: "map_len(h: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_has",
@@ -43,6 +46,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "True when the map contains `key`.",
         ts_signature: "map_has(h: number, key: string): boolean",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_get",
@@ -53,6 +57,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Value for `key`, or 0 when absent. Use map_has to distinguish.",
         ts_signature: "map_get(h: number, key: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_set",
@@ -63,6 +68,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Inserts/overwrites `key` with `value`.",
         ts_signature: "map_set(h: number, key: string, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_delete",
@@ -73,6 +79,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes `key`. Returns 1 if removed, 0 if absent.",
         ts_signature: "map_delete(h: number, key: string): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_clear",
@@ -83,6 +90,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes all entries.",
         ts_signature: "map_clear(h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "map_key_at",
@@ -93,6 +101,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Returns the key at index in deterministic order (sorted). 0 if out of range.",
         ts_signature: "map_key_at(h: number, idx: number): number",
         intrinsic: None,
+        pure: false,
     },
     // ── Vec ───────────────────────────────────────────────────────────
     NamespaceMember {
@@ -104,6 +113,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Creates an empty Vec<number>.",
         ts_signature: "vec_new(): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "vec_free",
@@ -114,6 +124,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Releases the vec handle.",
         ts_signature: "vec_free(h: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "vec_len",
@@ -124,6 +135,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Number of elements; -1 if the handle is invalid.",
         ts_signature: "vec_len(h: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "vec_push",
@@ -134,6 +146,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Appends `value` to the end.",
         ts_signature: "vec_push(h: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "vec_pop",
@@ -144,6 +157,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes and returns the last element; 0 when empty.",
         ts_signature: "vec_pop(h: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "vec_get",
@@ -154,6 +168,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Element at `index`, or 0 out of range.",
         ts_signature: "vec_get(h: number, index: number): number",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "vec_set",
@@ -164,6 +179,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Writes `value` at `index`. No-op out of range.",
         ts_signature: "vec_set(h: number, index: number, value: number): void",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "vec_clear",
@@ -174,6 +190,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Removes all elements.",
         ts_signature: "vec_clear(h: number): void",
         intrinsic: None,
+        pure: false,
     },
 ];
 

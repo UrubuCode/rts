@@ -29,6 +29,18 @@ fn main() {
             deps_dir.display()
         )
     });
+    let rayon_rlib = find_rlib_named(&deps_dir, "librayon-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate rayon rlib under {} (required for parallel runtime symbols)",
+            deps_dir.display()
+        )
+    });
+    let rayon_core_rlib = find_rlib_named(&deps_dir, "librayon_core-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate rayon_core rlib under {} (required for parallel runtime symbols)",
+            deps_dir.display()
+        )
+    });
 
     let mut cmd = Command::new(&rustc);
     cmd.args([
@@ -54,6 +66,10 @@ fn main() {
         .arg(format!("fltk={}", fltk_rlib.display()));
     cmd.arg("--extern")
         .arg(format!("regex={}", regex_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("rayon={}", rayon_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("rayon_core={}", rayon_core_rlib.display()));
 
     let status = cmd
         .status()
@@ -94,6 +110,10 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/regex/");
     println!("cargo:rerun-if-changed=src/namespaces/ui/");
     println!("cargo:rerun-if-changed=src/namespaces/runtime/");
+    println!("cargo:rerun-if-changed=src/namespaces/atomic/");
+    println!("cargo:rerun-if-changed=src/namespaces/sync/");
+    println!("cargo:rerun-if-changed=src/namespaces/thread/");
+    println!("cargo:rerun-if-changed=src/namespaces/parallel/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

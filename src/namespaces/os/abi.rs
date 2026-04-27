@@ -12,6 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Canonical OS name: 'windows', 'linux', 'macos', 'ios', 'android', ...",
         ts_signature: "platform(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "arch",
@@ -22,6 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "CPU architecture: 'x86_64', 'aarch64', 'x86', ...",
         ts_signature: "arch(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "family",
@@ -32,6 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "OS family: 'unix' or 'windows'.",
         ts_signature: "family(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "eol",
@@ -42,6 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Native line ending: '\\r\\n' on Windows, '\\n' elsewhere.",
         ts_signature: "eol(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "home_dir",
@@ -52,6 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "User home directory. Empty string if unresolvable.",
         ts_signature: "home_dir(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "temp_dir",
@@ -62,6 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "System temporary directory.",
         ts_signature: "temp_dir(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "config_dir",
@@ -72,6 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Per-user config dir (%APPDATA% / XDG_CONFIG_HOME / ~/.config).",
         ts_signature: "config_dir(): string",
         intrinsic: None,
+        pure: false,
     },
     NamespaceMember {
         name: "cache_dir",
@@ -82,6 +89,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Per-user cache dir (%LOCALAPPDATA% / XDG_CACHE_HOME / ~/.cache).",
         ts_signature: "cache_dir(): string",
         intrinsic: None,
+        pure: false,
     },
 ];
 
