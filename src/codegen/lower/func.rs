@@ -5314,8 +5314,11 @@ fn scan_expr_for_spawn(
 /// interno se necessário). Tipos complexos sem path safe viram erro.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AtomicKind {
-    /// `let x: number = N` mutável. Reescrita: atomic.i64_*
+    /// `let x: i64 = N` mutável. Reescrita: atomic.i64_*
     I64,
+    /// `let x: f64 = N.M` ou `let x: number` com init f64 literal.
+    /// Reescrita: atomic.f64_*
+    F64,
     /// `let x: boolean = true` mutável. Reescrita: atomic.bool_*
     Bool,
     /// Instância de classe registrada. Não reescreve — dev é
@@ -5370,7 +5373,11 @@ fn detect_atomic_kind(
 fn ts_keyword_to_kind(ann: &str) -> Option<AtomicKind> {
     match ann {
         "boolean" | "bool" => Some(AtomicKind::Bool),
-        "number" | "i64" | "f64" | "i32" | "u64" | "u32" => Some(AtomicKind::I64),
+        // `f64` explícito → F64. `number` ambíguo: padrão I64 para
+        // compat com counters. Init literal sobrescreve via
+        // detect_kind_in_stmt quando tem ponto decimal.
+        "f64" => Some(AtomicKind::F64),
+        "number" | "i64" | "i32" | "u64" | "u32" => Some(AtomicKind::I64),
         "string" => Some(AtomicKind::Unsupported),
         _ => None,
     }
@@ -5423,7 +5430,26 @@ fn detect_kind_in_stmt(
                     if let Some(init) = &d.init {
                         match init.as_ref() {
                             Expr::Lit(Lit::Bool(_)) => return Some(AtomicKind::Bool),
-                            Expr::Lit(Lit::Num(_)) => return Some(AtomicKind::I64),
+                            Expr::Lit(Lit::Num(n)) => {
+                                // Fracionário → F64.
+                                // Source com ponto/expo (ex: "0.0", "1e5")
+                                // → F64 mesmo se valor é inteiro.
+                                // Caso contrário → I64.
+                                let v = n.value;
+                                if v.fract() != 0.0 || v.is_nan() || v.is_infinite() {
+                                    return Some(AtomicKind::F64);
+                                }
+                                if let Some(raw) = n.raw.as_ref() {
+                                    let raw_str = raw.as_ref();
+                                    if raw_str.contains('.')
+                                        || raw_str.contains('e')
+                                        || raw_str.contains('E')
+                                    {
+                                        return Some(AtomicKind::F64);
+                                    }
+                                }
+                                return Some(AtomicKind::I64);
+                            }
                             Expr::Lit(Lit::Str(_)) => return Some(AtomicKind::Unsupported),
                             Expr::Array(_) | Expr::Object(_) => {
                                 return Some(AtomicKind::Unsupported)
@@ -5460,7 +5486,10 @@ fn promote_local_to_atomic(body: &mut Vec<Statement>, var: &str, kind: AtomicKin
     // Tipos não-promovíveis: ClassInstance e Unsupported saem aqui sem
     // reescrita. ClassInstance é safe (responsabilidade do dev de usar
     // atomic interno); Unsupported vai disparar erro no caller.
-    if !matches!(kind, AtomicKind::I64 | AtomicKind::Bool) {
+    if !matches!(
+        kind,
+        AtomicKind::I64 | AtomicKind::Bool | AtomicKind::F64
+    ) {
         return;
     }
     // Pass 1: reescreve a declaração.
@@ -5487,13 +5516,13 @@ fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: &AtomicKind) {
             if let Pat::Ident(id) = &d.name {
                 if id.id.sym.as_ref() == var {
                     let default_init: Box<Expr> = match kind {
-                        AtomicKind::I64 => Box::new(Expr::Lit(Lit::Num(
-                            swc_ecma_ast::Number {
+                        AtomicKind::I64 | AtomicKind::F64 => {
+                            Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
                                 span: Default::default(),
                                 value: 0.0,
                                 raw: Some("0".into()),
-                            },
-                        ))),
+                            })))
+                        }
                         AtomicKind::Bool => Box::new(Expr::Lit(Lit::Bool(
                             swc_ecma_ast::Bool {
                                 span: Default::default(),
@@ -5505,6 +5534,7 @@ fn rewrite_decl_to_atomic(stmt: &mut Stmt, var: &str, kind: &AtomicKind) {
                     let init = d.init.clone().unwrap_or(default_init);
                     let fn_name = match &kind {
                         AtomicKind::I64 => "i64_new",
+                        AtomicKind::F64 => "f64_new",
                         AtomicKind::Bool => "bool_new",
                         _ => return,
                     };
@@ -5605,16 +5635,26 @@ fn rewrite_uses_atomic_in_stmt(stmt: &mut Stmt, var: &str, kind: &AtomicKind) {
 fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: &AtomicKind) {
     let load_fn = match &kind {
         AtomicKind::I64 => "i64_load",
+        AtomicKind::F64 => "f64_load",
         AtomicKind::Bool => "bool_load",
         _ => return,
     };
     let store_fn = match &kind {
         AtomicKind::I64 => "i64_store",
+        AtomicKind::F64 => "f64_store",
         AtomicKind::Bool => "bool_store",
         _ => return,
     };
 
-    // Caso 1: `var = expr` — store ou fetch_add (i64)
+    // Nome da fn fetch_add por kind. Pra F64 também usamos fetch_add
+    // (CAS-loop no runtime).
+    let fetch_add_fn = match &kind {
+        AtomicKind::I64 => Some("i64_fetch_add"),
+        AtomicKind::F64 => Some("f64_fetch_add"),
+        _ => None,
+    };
+
+    // Caso 1: `var = expr` — store ou fetch_add (i64/f64)
     if let Expr::Assign(a) = expr {
         if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) =
             &a.left
@@ -5624,11 +5664,11 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: &AtomicKind) {
                 let mut rhs = (*a.right).clone();
                 rewrite_uses_atomic_in_expr(&mut rhs, var, kind);
                 if op == swc_ecma_ast::AssignOp::Assign {
-                    if *kind == AtomicKind::I64 {
+                    if let Some(fa) = fetch_add_fn {
                         if let Some(delta) = match_self_add_pattern(&rhs, var) {
                             *expr = make_call(
                                 "atomic",
-                                "i64_fetch_add",
+                                fa,
                                 vec![ident_arg(var), expr_arg(delta)],
                             );
                             return;
@@ -5638,11 +5678,11 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: &AtomicKind) {
                         make_call("atomic", store_fn, vec![ident_arg(var), expr_arg(rhs)]);
                     return;
                 }
-                if *kind == AtomicKind::I64 {
+                if let Some(fa) = fetch_add_fn {
                     if op == swc_ecma_ast::AssignOp::AddAssign {
                         *expr = make_call(
                             "atomic",
-                            "i64_fetch_add",
+                            fa,
                             vec![ident_arg(var), expr_arg(rhs)],
                         );
                         return;
@@ -5655,36 +5695,37 @@ fn rewrite_uses_atomic_in_expr(expr: &mut Expr, var: &str, kind: &AtomicKind) {
                         });
                         *expr = make_call(
                             "atomic",
-                            "i64_fetch_add",
+                            fa,
                             vec![ident_arg(var), expr_arg(neg)],
                         );
                         return;
                     }
                 }
-                // Outros ops não suportados — codegen vai falhar com erro
-                // claro se chegarem aqui.
+                // Outros ops não suportados.
             }
         }
     }
-    // Caso 2: `var++` / `var--` (apenas i64)
+    // Caso 2: `var++` / `var--` (i64 e f64)
     if let Expr::Update(u) = expr {
         if let Expr::Ident(id) = u.arg.as_ref() {
-            if id.sym.as_ref() == var && *kind == AtomicKind::I64 {
-                let delta = match u.op {
-                    swc_ecma_ast::UpdateOp::PlusPlus => 1.0,
-                    swc_ecma_ast::UpdateOp::MinusMinus => -1.0,
-                };
-                let lit = Expr::Lit(Lit::Num(swc_ecma_ast::Number {
-                    span: Default::default(),
-                    value: delta,
-                    raw: None,
-                }));
-                *expr = make_call(
-                    "atomic",
-                    "i64_fetch_add",
-                    vec![ident_arg(var), expr_arg(lit)],
-                );
-                return;
+            if id.sym.as_ref() == var {
+                if let Some(fa) = fetch_add_fn {
+                    let delta = match u.op {
+                        swc_ecma_ast::UpdateOp::PlusPlus => 1.0,
+                        swc_ecma_ast::UpdateOp::MinusMinus => -1.0,
+                    };
+                    let lit = Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                        span: Default::default(),
+                        value: delta,
+                        raw: None,
+                    }));
+                    *expr = make_call(
+                        "atomic",
+                        fa,
+                        vec![ident_arg(var), expr_arg(lit)],
+                    );
+                    return;
+                }
             }
         }
     }
@@ -5774,7 +5815,9 @@ fn is_atomic_load_of(call: &swc_ecma_ast::CallExpr, var: &str) -> bool {
     if let Callee::Expr(ce) = &call.callee {
         if let Expr::Member(m) = ce.as_ref() {
             if let (Expr::Ident(obj), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
-                if obj.sym.as_ref() == "atomic" && prop.sym.as_ref() == "i64_load" {
+                if obj.sym.as_ref() == "atomic"
+                    && (prop.sym.as_ref() == "i64_load" || prop.sym.as_ref() == "f64_load")
+                {
                     if let Some(arg) = call.args.first() {
                         if let Expr::Ident(id) = arg.expr.as_ref() {
                             return id.sym.as_ref() == var;

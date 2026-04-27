@@ -50,6 +50,9 @@ pub enum Entry {
     AtomicI64(Box<std::sync::atomic::AtomicI64>),
     /// AtomicBool owned — namespace `atomic` (bool_*).
     AtomicBool(Box<std::sync::atomic::AtomicBool>),
+    /// AtomicF64 emulado via AtomicU64 + transmute. Rust não tem
+    /// AtomicF64 nativo; usamos as bits.
+    AtomicF64(Box<std::sync::atomic::AtomicU64>),
     /// Mutex<i64> owned — namespace `sync` (mutex_*). Box estabiliza o
     /// endereco; guards sao armazenados em mapa thread-local para
     /// permitir lock/unlock atravessando chamadas extern "C".

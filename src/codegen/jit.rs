@@ -760,7 +760,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::atomic ────────────────────────────────────────────
     use crate::namespaces::atomic::{
-        bool as atomic_bool, fence as atomic_fence, int as atomic_int,
+        bool as atomic_bool, fence as atomic_fence, float as atomic_float, int as atomic_int,
     };
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_NEW",
@@ -817,6 +817,26 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!(
         "__RTS_FN_NS_ATOMIC_BOOL_SWAP",
         atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_SWAP
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_NEW",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_NEW
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_LOAD",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_LOAD
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_STORE",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_STORE
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_FETCH_ADD",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_FETCH_ADD
+    );
+    add_fn!(
+        "__RTS_FN_NS_ATOMIC_F64_SWAP",
+        atomic_float::__RTS_FN_NS_ATOMIC_F64_SWAP
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_FENCE_ACQUIRE",
