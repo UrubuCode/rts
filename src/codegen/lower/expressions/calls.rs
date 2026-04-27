@@ -1003,8 +1003,6 @@ fn lower_var_member_call(
     prop: &str,
     call: &CallExpr,
 ) -> Result<TypedVal> {
-    use cranelift_codegen::isa::CallConv;
-
     let obj_tv = ctx
         .read_local(obj_name)
         .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
@@ -1024,7 +1022,10 @@ fn lower_var_member_call(
     let inst = ctx.builder.ins().call(map_get, &[obj_h, kp, kl]);
     let callee_val = ctx.builder.inst_results(inst)[0];
 
-    let mut sig = Signature::new(CallConv::Tail);
+    // Mesma razão do `lower_indirect_call` (#206): user fns
+    // address-taken são C-callconv, então o sig do call_indirect tem
+    // que bater.
+    let mut sig = Signature::new(ctx.module.isa().default_call_conv());
     for _ in &call.args {
         sig.params.push(AbiParam::new(cl::I64));
     }
@@ -1084,12 +1085,14 @@ fn lower_array_builtin(
 }
 
 fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> Result<TypedVal> {
-    use cranelift_codegen::isa::CallConv;
-
     let callee = lower_expr(ctx, callee_expr)?;
     let callee_val = ctx.coerce_to_i64(callee).val;
 
-    let mut sig = Signature::new(CallConv::Tail);
+    // Address-taken user fns são declaradas com C callconv (#206), então
+    // `call_indirect` sobre ponteiro de fn precisa usar a mesma convenção.
+    // Usar Tail aqui dava lixo porque apply(fn, x, y) lia args dos regs
+    // errados.
+    let mut sig = Signature::new(ctx.module.isa().default_call_conv());
     for _ in &call.args {
         sig.params.push(AbiParam::new(cl::I64));
     }
