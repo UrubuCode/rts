@@ -14,7 +14,7 @@ pub fn command(input: Option<String>, options: CompileOptions) -> Result<()> {
         return Err(anyhow!("input file not found: {}", input_path.display()));
     }
 
-    let (exit_code, warnings) = pipeline::run_jit(&input_path, options)
+    let (exit_code, warnings) = pipeline::run_jit_with_imports(&input_path, options)
         .with_context(|| format!("JIT run of {} failed", input_path.display()))?;
     for warning in &warnings {
         eprintln!("warning: {warning}");
