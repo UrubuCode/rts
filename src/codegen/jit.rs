@@ -1391,23 +1391,56 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     }
     add_fn!("fmod", fmod);
 
-    // Sanity: warn (nao panic) se houver fns ABI sem entrada JIT.
-    // Algumas fns sao puramente AOT-only (nao usadas pelo JIT) ou
-    // sao registradas via `cranelift_module::default_libcall_names()`.
-    // Em runtime, se uma fn missing for de fato chamada, o JIT
-    // emite erro claro de symbol unresolved.
+    // Sanity: compara o conjunto de fns registradas no JIT com o
+    // conjunto declarado em `abi::SPECS`. Em debug, alerta sobre
+    // descompassos:
+    //
+    //   - missing: fn esta em SPECS mas nao no JIT — chamada via
+    //     `rts run` vai falhar com symbol unresolved. Erro real,
+    //     embora alguns SPECS sejam intencionalmente AOT-only.
+    //
+    //   - extra: fn registrada no JIT alem do contrato ABI publico.
+    //     Esperado para helpers internos chamados direto pelo
+    //     codegen (ex: __RTS_FN_RT_ERROR_* do try/catch). Nao e
+    //     erro, so informativo.
     #[cfg(debug_assertions)]
     {
-        let expected_fn_count: usize = SPECS.iter().map(|s| s.members.len()).sum();
-        let registered = out
+        use std::collections::HashSet;
+        let spec_syms: HashSet<&str> = SPECS
             .iter()
-            .filter(|(name, _)| name.starts_with("__RTS_FN_NS_"))
-            .count();
-        if registered != expected_fn_count {
+            .flat_map(|s| s.members.iter().map(|m| m.symbol))
+            .collect();
+        let jit_syms: HashSet<&str> = out
+            .iter()
+            .filter(|(name, _)| name.starts_with("__RTS_FN_"))
+            .map(|(name, _)| *name)
+            .collect();
+        let missing: Vec<&str> = spec_syms
+            .iter()
+            .copied()
+            .filter(|s| !jit_syms.contains(s))
+            .collect();
+        let extras: Vec<&str> = jit_syms
+            .iter()
+            .copied()
+            .filter(|s| !spec_syms.contains(s))
+            .collect();
+        if !missing.is_empty() {
             eprintln!(
-                "[warn] runtime_symbol_table tem {} fns mas abi::SPECS expoem {} — \
-                 fns nao-registradas vao falhar em runtime se chamadas via JIT",
-                registered, expected_fn_count
+                "[warn] {} fns declaradas em abi::SPECS sem entrada no JIT \
+                 (chamadas via `rts run` vao falhar com symbol unresolved). \
+                 Primeiras: {:?}",
+                missing.len(),
+                &missing.iter().take(3).collect::<Vec<_>>()
+            );
+        }
+        if !extras.is_empty() {
+            eprintln!(
+                "[info] {} fns registradas no JIT alem do contrato ABI \
+                 (helpers internos do codegen, ex: try/catch slots). \
+                 Primeiras: {:?}",
+                extras.len(),
+                &extras.iter().take(3).collect::<Vec<_>>()
             );
         }
     }
