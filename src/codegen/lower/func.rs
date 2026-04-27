@@ -1965,7 +1965,9 @@ impl LiftAcc {
                             .collect();
                     }
                     Expr::Arrow(arrow) => {
-                        let raw_stmts = arrow_body_to_stmts(arrow);
+                        // Trampolim de thread.spawn retorna i64 pro
+                        // join; demais (UI) são void.
+                        let raw_stmts = arrow_body_to_stmts_typed(arrow, is_thread_spawn);
                         body_stmts = raw_stmts
                             .into_iter()
                             .map(|s| {
@@ -2014,16 +2016,27 @@ impl LiftAcc {
                         } else {
                             Vec::new()
                         };
-                        let call_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+                        let call_expr = Expr::Call(swc_ecma_ast::CallExpr {
                             span: id.span,
-                            expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
-                                span: id.span,
-                                ctxt: id.ctxt,
-                                callee: Callee::Expr(Box::new(Expr::Ident(target_id))),
-                                args,
-                                type_args: None,
-                            })),
+                            ctxt: id.ctxt,
+                            callee: Callee::Expr(Box::new(Expr::Ident(target_id))),
+                            args,
+                            type_args: None,
                         });
+                        // Trampolim de thread.spawn devolve i64 pro
+                        // join (a runtime ABI espera u64). Outros sites
+                        // (UI callbacks) descartam — ExprStmt.
+                        let call_stmt = if is_thread_spawn {
+                            Stmt::Return(swc_ecma_ast::ReturnStmt {
+                                span: id.span,
+                                arg: Some(Box::new(call_expr)),
+                            })
+                        } else {
+                            Stmt::Expr(swc_ecma_ast::ExprStmt {
+                                span: id.span,
+                                expr: Box::new(call_expr),
+                            })
+                        };
                         body_stmts = vec![Statement::Raw(
                             RawStmt::new("<lifted>".to_string(), Span::default())
                                 .with_stmt(call_stmt),
@@ -2118,10 +2131,19 @@ impl LiftAcc {
                     optimize_thread_local_accum(&mut body_stmts);
                 }
 
+                // Trampolim de thread.spawn retorna i64 (espelha
+                // assinatura `extern "C" fn(u64) -> u64` do runtime —
+                // valor é recuperado por thread.join). UI callbacks e
+                // outros sites continuam void.
+                let trampolim_return = if is_thread_spawn {
+                    "i64"
+                } else {
+                    "void"
+                };
                 self.new_fns.push(Item::Function(FunctionDecl {
                     name: syn_name.clone(),
                     parameters,
-                    return_type: Some("void".to_string()),
+                    return_type: Some(trampolim_return.to_string()),
                     body: body_stmts,
                     span: Span::default(),
                 }));
@@ -2295,22 +2317,32 @@ fn expr_uses_this(expr: &Expr) -> bool {
 }
 
 fn arrow_body_to_stmts(arrow: &swc_ecma_ast::ArrowExpr) -> Vec<Stmt> {
+    arrow_body_to_stmts_typed(arrow, /*returns_value=*/ false)
+}
+
+/// Variante que considera se o trampolim retorna valor. Quando
+/// `returns_value=true` (ex: trampolim de thread.spawn devolvendo i64
+/// pro join), expression body vira `Return(expr)`. Caso contrário
+/// (UI callbacks void), vira `ExprStmt` pra evitar mismatch de tipo.
+fn arrow_body_to_stmts_typed(
+    arrow: &swc_ecma_ast::ArrowExpr,
+    returns_value: bool,
+) -> Vec<Stmt> {
     use swc_ecma_ast::BlockStmtOrExpr;
     match arrow.body.as_ref() {
         BlockStmtOrExpr::BlockStmt(block) => block.stmts.clone(),
         BlockStmtOrExpr::Expr(expr) => {
-            // Trampolins gerados a partir de arrow expression body
-            // (`() => doStuff()`) são declarados como `void`. Gerar
-            // ExprStmt em vez de Return evita Cranelift verifier
-            // reclamando "arguments of return must match function
-            // signature" quando o callee retorna i64 mas o trampolim
-            // não retorna. Se o usuário quer o valor, escreve
-            // `() => { return doStuff(); }` — mas trampolins de
-            // thread.spawn / UI callback são sempre void.
-            vec![Stmt::Expr(swc_ecma_ast::ExprStmt {
-                span: Default::default(),
-                expr: expr.clone(),
-            })]
+            if returns_value {
+                vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+                    span: Default::default(),
+                    arg: Some(expr.clone()),
+                })]
+            } else {
+                vec![Stmt::Expr(swc_ecma_ast::ExprStmt {
+                    span: Default::default(),
+                    expr: expr.clone(),
+                })]
+            }
         }
     }
 }

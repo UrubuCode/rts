@@ -48,8 +48,12 @@ pub const MEMBERS: &[NamespaceMember] = &[
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_THREAD_JOIN",
         args: &[AbiType::U64],
-        returns: AbiType::U64,
-        doc: "Aguarda a thread terminar e retorna o valor retornado por ela. Consome o handle. 0 se handle invalido ou a thread fez panic.",
+        // I64 (não U64) para que o valor retornado seja tratado como
+        // inteiro normal pelo codegen — `r1 + r2` funciona sem coerção
+        // manual. U64 mapearia ValTy::Handle e operações aritméticas
+        // não fariam sentido sobre handle.
+        returns: AbiType::I64,
+        doc: "Aguarda a thread terminar e retorna o valor retornado por ela (i64). Consome o handle. 0 se handle invalido ou a thread fez panic.",
         ts_signature: "join(thread: number): number",
         intrinsic: None,
     },
