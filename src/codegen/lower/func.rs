@@ -1333,9 +1333,15 @@ impl LiftAcc {
         }
         collect_local_decls(body, &mut locals);
 
-        // Auto-promote para atomic (mesmo que top-level).
+        // Auto-promote para atomic (mesmo que top-level). Pula params
+        // — caller já passou cópia, não há local a promover.
+        let param_set: std::collections::HashSet<String> =
+            parameters.iter().map(|p| p.name.clone()).collect();
         let atomic_promotes = collect_thread_spawn_captures(body, &locals);
         for var in &atomic_promotes {
+            if param_set.contains(var) {
+                continue;
+            }
             let kind = detect_atomic_kind(body, var);
             if kind == AtomicKind::Unsupported {
                 self.warnings.push(format!(
@@ -1392,8 +1398,16 @@ impl LiftAcc {
         // Sem isso, escritas concorrentes em variável capturada
         // perdem updates silenciosamente. A promoção reescreve a
         // declaração local e todos os usos (leitura/escrita) no body.
+        // Pula params: o caller já passou o valor por cópia, não tem
+        // local a "promover" — só locais declaradas dentro da fn fazem
+        // sentido virarem atomic (handle compartilhado entre threads).
+        let param_set: std::collections::HashSet<String> =
+            f.parameters.iter().map(|p| p.name.clone()).collect();
         let atomic_promotes = collect_thread_spawn_captures(&f.body, &locals);
         for var in &atomic_promotes {
+            if param_set.contains(var) {
+                continue;
+            }
             let kind = detect_atomic_kind(&f.body, var);
             if kind == AtomicKind::Unsupported {
                 self.warnings.push(format!(
