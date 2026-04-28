@@ -66,6 +66,17 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                     ctx.local_obj_field_types.insert(name.clone(), field_types);
                 }
             }
+            // #210 destructuring — `const __destruct_N = obj` ou
+            // `const x = obj` com obj sendo var local que tem tipos
+            // de campo registrados: propaga os tipos. Sem isso a leitura
+            // subsequente de \`__destruct_N.field\` retorna I64 e strings
+            // saem como handles brutos.
+            if let swc_ecma_ast::Expr::Ident(src_id) = init.as_ref() {
+                let src_name = src_id.sym.as_str();
+                if let Some(types) = ctx.local_obj_field_types.get(src_name).cloned() {
+                    ctx.local_obj_field_types.insert(name.clone(), types);
+                }
+            }
         }
 
         if !ctx.local_class_ty.contains_key(&name) {
