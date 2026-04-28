@@ -167,6 +167,297 @@ fn make_par_foreach_stmt(arr_expr: &Expr, fn_name: &str) -> Stmt {
     })
 }
 
+/// Level-1 silent reduce: detecta padrao
+///
+///     let acc = INIT;
+///     for (const x of arr) {
+///         acc = acc + EXPR;     // ou acc += EXPR
+///     }
+///
+/// e reescreve para:
+///
+///     let acc = parallel.reduce(arr, INIT, __par_reduce_N);
+///
+/// Onde `__par_reduce_N(a: i64, x: i64) -> i64` retorna `a + EXPR` com
+/// `x` substituido pelo loop var. So aceita operacoes associativas
+/// (+, *, max via Math.max) — chunks paralelos podem ser combinados em
+/// qualquer ordem. EXPR precisa ser puro (so usa loop var, lits, ou
+/// fns pure de namespaces).
+///
+/// Nota: roda antes do purity_pass. Quando este passa nao casa, o
+/// purity_pass tenta a versao for_each (sem reduce), e se nao casar
+/// nem isso, o for...of fica serial.
+fn reduce_pass(program: &mut Program) -> HashSet<String> {
+    let pure_ns = build_pure_ns_set();
+    let mut counter = 0u32;
+    let mut par_fn_names: HashSet<String> = HashSet::new();
+
+    struct Match {
+        decl_idx: usize,        // index do `let acc = INIT`
+        for_idx: usize,         // index do `for...of` (decl_idx + 1)
+        acc_name: String,
+        init_expr: Expr,
+        arr_expr: Expr,
+        loop_var: String,
+        rhs_expr: Expr,         // o EXPR que vira `acc + EXPR`
+        fn_name: String,
+        op: AssocOp,
+    }
+
+    let mut matches: Vec<Match> = Vec::new();
+
+    let n_items = program.items.len();
+    for i in 0..n_items.saturating_sub(1) {
+        // Item[i] precisa ser `let acc = INIT;`
+        let Item::Statement(Statement::Raw(decl_raw)) = &program.items[i] else { continue };
+        let Some(Stmt::Decl(Decl::Var(vd))) = decl_raw.stmt.as_ref() else { continue };
+        if vd.decls.len() != 1 {
+            continue;
+        }
+        let Pat::Ident(acc_pat) = &vd.decls[0].name else { continue };
+        let acc_name = acc_pat.id.sym.as_str().to_string();
+        let Some(init) = vd.decls[0].init.as_deref() else { continue };
+        // Init precisa ser literal (0, 1, etc)
+        if !matches!(init, Expr::Lit(Lit::Num(_))) {
+            continue;
+        }
+
+        // Item[i+1] precisa ser `for (const x of arr) { ... }`
+        let Item::Statement(Statement::Raw(for_raw)) = &program.items[i + 1] else { continue };
+        let Some(Stmt::ForOf(for_of)) = for_raw.stmt.as_ref() else { continue };
+        if for_of.is_await { continue; }
+
+        let loop_var = match &for_of.left {
+            ForHead::VarDecl(lvd) if lvd.decls.len() == 1 => match &lvd.decls[0].name {
+                Pat::Ident(id) => id.sym.as_str().to_string(),
+                _ => continue,
+            },
+            _ => continue,
+        };
+
+        // Body precisa ter UMA stmt: `acc = acc OP EXPR` ou `acc OP= EXPR`.
+        let stmts: &[Stmt] = match for_of.body.as_ref() {
+            Stmt::Block(b) => &b.stmts,
+            other => std::slice::from_ref(other),
+        };
+        if stmts.len() != 1 {
+            continue;
+        }
+        let Stmt::Expr(expr_stmt) = &stmts[0] else { continue };
+        let Expr::Assign(assign) = expr_stmt.expr.as_ref() else { continue };
+
+        // LHS deve ser o ident `acc`.
+        let lhs_ok = matches!(
+            &assign.left,
+            swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id))
+                if id.id.sym.as_str() == acc_name
+        );
+        if !lhs_ok { continue; }
+
+        // Detecta op + extrai rhs_expr.
+        let (op, rhs_expr): (AssocOp, Expr) = match assign.op {
+            swc_ecma_ast::AssignOp::AddAssign => {
+                // acc += EXPR
+                (AssocOp::Add, (*assign.right).clone())
+            }
+            swc_ecma_ast::AssignOp::MulAssign => {
+                (AssocOp::Mul, (*assign.right).clone())
+            }
+            swc_ecma_ast::AssignOp::Assign => {
+                // acc = acc OP EXPR (procurar bin com acc do lado esquerdo)
+                let Expr::Bin(bin) = assign.right.as_ref() else { continue };
+                let acc_lhs_ok = matches!(
+                    bin.left.as_ref(),
+                    Expr::Ident(i) if i.sym.as_str() == acc_name
+                );
+                if !acc_lhs_ok { continue; }
+                let op = match bin.op {
+                    swc_ecma_ast::BinaryOp::Add => AssocOp::Add,
+                    swc_ecma_ast::BinaryOp::Mul => AssocOp::Mul,
+                    _ => continue,
+                };
+                (op, (*bin.right).clone())
+            }
+            _ => continue,
+        };
+
+        // EXPR deve ser puro (so usa loop_var, lits, fns pure).
+        if !is_pure_expr_for_parallel(&rhs_expr, &loop_var, &HashSet::new(), &pure_ns) {
+            continue;
+        }
+
+        let fn_name = format!("__par_reduce_{counter}");
+        counter += 1;
+        matches.push(Match {
+            decl_idx: i,
+            for_idx: i + 1,
+            acc_name,
+            init_expr: init.clone(),
+            arr_expr: for_of.right.as_ref().clone(),
+            loop_var,
+            rhs_expr,
+            fn_name,
+            op,
+        });
+    }
+
+    if matches.is_empty() {
+        return par_fn_names;
+    }
+
+    // Para cada match, substitui o for...of por NOOP (um stmt vazio
+    // expr `0`) e o decl pelo `let acc = parallel.reduce(...)`.
+    // Aplicamos de tras pra frente pra nao invalidar indices.
+    let mut new_fns: Vec<Item> = Vec::new();
+    for m in &matches {
+        // Sintetiza fn `(acc: i64, x: i64) -> i64 { return acc OP rhs_expr; }`
+        let bin_op = match m.op {
+            AssocOp::Add => swc_ecma_ast::BinaryOp::Add,
+            AssocOp::Mul => swc_ecma_ast::BinaryOp::Mul,
+        };
+        let body_expr = Expr::Bin(swc_ecma_ast::BinExpr {
+            span: Default::default(),
+            op: bin_op,
+            left: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: m.acc_name.clone().into(),
+                optional: false,
+            })),
+            right: Box::new(m.rhs_expr.clone()),
+        });
+        let return_stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
+            span: Default::default(),
+            arg: Some(Box::new(body_expr)),
+        });
+        let body_stmts = vec![Statement::Raw(
+            RawStmt::new("<par-reduce>".to_string(), Span::default()).with_stmt(return_stmt),
+        )];
+
+        // Params: (acc, x) — usamos o nome `acc_name` pra que o body
+        // possa referenciar diretamente, e `loop_var` igualmente.
+        new_fns.push(Item::Function(FunctionDecl {
+            name: m.fn_name.clone(),
+            parameters: vec![
+                Parameter {
+                    name: m.acc_name.clone(),
+                    type_annotation: Some("i64".to_string()),
+                    modifiers: MemberModifiers::default(),
+                    variadic: false,
+                    default: None,
+                    span: Span::default(),
+                },
+                Parameter {
+                    name: m.loop_var.clone(),
+                    type_annotation: Some("i64".to_string()),
+                    modifiers: MemberModifiers::default(),
+                    variadic: false,
+                    default: None,
+                    span: Span::default(),
+                },
+            ],
+            return_type: Some("i64".to_string()),
+            body: body_stmts,
+            span: Span::default(),
+        }));
+        par_fn_names.insert(m.fn_name.clone());
+    }
+
+    // Aplica replacements: decl vira `let acc = parallel.reduce(arr, init, fn)`,
+    // for...of vira no-op (`0;`).
+    for m in &matches {
+        // Substitui o for_idx por no-op (Expr `0`).
+        if let Item::Statement(Statement::Raw(raw)) = &mut program.items[m.for_idx] {
+            raw.stmt = Some(Stmt::Expr(swc_ecma_ast::ExprStmt {
+                span: Default::default(),
+                expr: Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                    span: Default::default(),
+                    value: 0.0,
+                    raw: None,
+                }))),
+            }));
+        }
+
+        // Substitui o decl pelo `let acc = parallel.reduce(...)`.
+        if let Item::Statement(Statement::Raw(raw)) = &mut program.items[m.decl_idx] {
+            let reduce_call = make_par_reduce_expr(&m.arr_expr, &m.init_expr, &m.fn_name);
+            raw.stmt = Some(Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
+                span: Default::default(),
+                ctxt: Default::default(),
+                kind: swc_ecma_ast::VarDeclKind::Let,
+                declare: false,
+                decls: vec![swc_ecma_ast::VarDeclarator {
+                    span: Default::default(),
+                    name: Pat::Ident(swc_ecma_ast::BindingIdent {
+                        id: swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: m.acc_name.clone().into(),
+                            optional: false,
+                        },
+                        type_ann: None,
+                    }),
+                    init: Some(Box::new(reduce_call)),
+                    definite: false,
+                }],
+            }))));
+        }
+    }
+
+    // Prepend new fns
+    for fn_item in new_fns.into_iter().rev() {
+        program.items.insert(0, fn_item);
+    }
+
+    par_fn_names
+}
+
+#[derive(Clone, Copy)]
+enum AssocOp {
+    Add,
+    Mul,
+}
+
+fn make_par_reduce_expr(arr_expr: &Expr, init_expr: &Expr, fn_name: &str) -> Expr {
+    Expr::Call(swc_ecma_ast::CallExpr {
+        span: Default::default(),
+        ctxt: Default::default(),
+        callee: Callee::Expr(Box::new(Expr::Member(swc_ecma_ast::MemberExpr {
+            span: Default::default(),
+            obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: "parallel".into(),
+                optional: false,
+            })),
+            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                span: Default::default(),
+                sym: "reduce".into(),
+            }),
+        }))),
+        args: vec![
+            swc_ecma_ast::ExprOrSpread {
+                spread: None,
+                expr: Box::new(arr_expr.clone()),
+            },
+            swc_ecma_ast::ExprOrSpread {
+                spread: None,
+                expr: Box::new(init_expr.clone()),
+            },
+            swc_ecma_ast::ExprOrSpread {
+                spread: None,
+                expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: fn_name.to_string().into(),
+                    optional: false,
+                })),
+            },
+        ],
+        type_args: None,
+    })
+}
+
 /// Level-1 silent parallelism: rewrites pure top-level `for...of` loops into
 /// `parallel.for_each(arr, __par_forof_N)` calls backed by a Rayon thread
 /// pool. A ForOf is eligible when:
@@ -2962,7 +3253,8 @@ pub fn compile_program(
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
-    let par_fn_names = purity_pass(program);
+    let mut par_fn_names = reduce_pass(program);
+    par_fn_names.extend(purity_pass(program));
     let lifted_needs_c_callconv = lift_arrow_callbacks(program);
     expand_destructuring(program);
     expand_default_args(program);
