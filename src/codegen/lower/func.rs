@@ -4054,6 +4054,11 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
             }
             ValTy::I64
         }
+        // `new X(...)` sempre produz uma instancia (handle GC). Cobre
+        // classes do usuario E Map/Set v0 (#222) em top-level — sem
+        // isso o global eh declarado como I64 e member calls em
+        // receiver Handle nao disparam.
+        Expr::New(_) => ValTy::Handle,
         _ => ValTy::I64,
     }
 }

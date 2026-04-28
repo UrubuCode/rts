@@ -458,6 +458,22 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             ));
         }
     };
+
+    // #222 Map/Set v0 — `new Map()` e `new Set()` mapeiam para
+    // collections.map_new (mesmo backing store HashMap<string, i64>).
+    // Set usa value=1 sentinel; metodos respectivos sao lower em
+    // lower_var_member_call. v0 nao suporta entries iniciais
+    // (`new Map([["a",1]])`) nem iteradores.
+    if class_name == "Map" || class_name == "Set" {
+        if !ctx.classes.contains_key(&class_name) {
+            let new_fn =
+                ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(new_fn, &[]);
+            let h = ctx.builder.inst_results(inst)[0];
+            return Ok(TypedVal::new(h, ValTy::Handle));
+        }
+    }
+
     let meta = ctx
         .classes
         .get(&class_name)
@@ -1047,6 +1063,14 @@ fn lower_var_member_call(
         if let Some(tv) = lower_string_builtin(ctx, prop, obj_h, call)? {
             return Ok(tv);
         }
+        // #222 — Map/Set methods em receiver Handle. Heuristica conservadora:
+        // so age quando o nome do metodo eh tipico de Map/Set e nao colide
+        // com classes do usuario. Ergonomia v0 — usuario que tem classe
+        // chamada `set()` em var Handle precisa anotar tipo da var pra
+        // resolver dispatch antes do builtin.
+        if let Some(tv) = lower_map_set_builtin(ctx, prop, obj_h, call)? {
+            return Ok(tv);
+        }
     }
 
     // Builtins de array/map: arr.push(x), arr.length() etc.
@@ -1290,6 +1314,139 @@ fn lower_string_builtin(
             let inst = ctx.builder.ins().call(fref, &[sp, sl, idx]);
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Map/Set methods (#222) em receiver Handle. v0 mapeia direto pra
+/// collections.map_* (mesmo backing store). Set usa Map<key, 1> com
+/// key sempre string — limitacao aceita de v0.
+///
+/// Reconhecidos: set/get/has/delete/clear/add/size. Para `m.size`
+/// (sem parens) ainda nao tem caminho — usuario chama `m.size()` em v0.
+fn lower_map_set_builtin(
+    ctx: &mut FnCtx,
+    method: &str,
+    recv_h: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    fn arg_strptr(
+        ctx: &mut FnCtx,
+        call: &CallExpr,
+        idx: usize,
+    ) -> Result<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
+        let arg = call
+            .args
+            .get(idx)
+            .ok_or_else(|| anyhow!("missing arg #{idx}"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        // Coerce qualquer valor a string handle (string_from_i64 / passthrough).
+        let h = ctx.coerce_to_handle(tv)?.val;
+        let ptr_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let len_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let pi = ctx.builder.ins().call(ptr_fref, &[h]);
+        let p = ctx.builder.inst_results(pi)[0];
+        let li = ctx.builder.ins().call(len_fref, &[h]);
+        let l = ctx.builder.inst_results(li)[0];
+        Ok((p, l))
+    }
+
+    match method {
+        "set" => {
+            // Map.set(key, value) — value pode ser handle ou number.
+            let (kp, kl) = arg_strptr(ctx, call, 0)?;
+            let val_arg = call
+                .args
+                .get(1)
+                .ok_or_else(|| anyhow!("Map.set requires value"))?;
+            let val_tv = lower_expr(ctx, &val_arg.expr)?;
+            let val_i64 = ctx.coerce_to_i64(val_tv).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                None,
+            )?;
+            ctx.builder.ins().call(fref, &[recv_h, kp, kl, val_i64]);
+            // Map.set retorna o proprio map (chainable em JS).
+            Ok(Some(TypedVal::new(recv_h, ValTy::Handle)))
+        }
+        "add" => {
+            // Set.add(value) → map_set(h, value, 1).
+            let (kp, kl) = arg_strptr(ctx, call, 0)?;
+            let one = ctx.builder.ins().iconst(cl::I64, 1);
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                None,
+            )?;
+            ctx.builder.ins().call(fref, &[recv_h, kp, kl, one]);
+            Ok(Some(TypedVal::new(recv_h, ValTy::Handle)))
+        }
+        "get" => {
+            let (kp, kl) = arg_strptr(ctx, call, 0)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "has" => {
+            let (kp, kl) = arg_strptr(ctx, call, 0)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_HAS",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Bool)))
+        }
+        "delete" => {
+            let (kp, kl) = arg_strptr(ctx, call, 0)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_DELETE",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Bool)))
+        }
+        "clear" => {
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR",
+                &[cl::I64],
+                None,
+            )?;
+            ctx.builder.ins().call(fref, &[recv_h]);
+            Ok(Some(TypedVal::new(
+                ctx.builder.ins().iconst(cl::I64, 0),
+                ValTy::I64,
+            )))
+        }
+        "size" => {
+            // Em JS `m.size` eh property; v0 aceita `m.size()` como method
+            // call ate ter property access em handles.
+            if !call.args.is_empty() {
+                return Ok(None);
+            }
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_LEN",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         _ => Ok(None),
     }
