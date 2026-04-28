@@ -329,6 +329,11 @@ pub struct FnCtx<'m, 'fb> {
     /// calls do mesmo intrinsic isso emite \`global_value\` e \`load\`
     /// redundantes.
     pub gv_cache: HashMap<&'static str, cranelift_codegen::ir::GlobalValue>,
+    /// Cache de GlobalValue por DataId — usado em read_local/write_local
+    /// pra dedup quando o mesmo global e' lido/escrito multiplas vezes
+    /// na mesma fn (caso tipico: contador top-level usado em hot loop).
+    pub gv_data_cache:
+        HashMap<cranelift_module::DataId, cranelift_codegen::ir::GlobalValue>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -370,7 +375,20 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             warnings: Vec::new(),
             data_cache: HashMap::new(),
             gv_cache: HashMap::new(),
+            gv_data_cache: HashMap::new(),
         }
+    }
+
+    /// Resolve `data_id` a um GlobalValue na fn atual, cacheando o
+    /// resultado. Sem o cache, leituras/escritas repetidas do mesmo
+    /// global em hot loop emitiam `global_value` distintos.
+    fn gv_for_data(&mut self, data_id: cranelift_module::DataId) -> cranelift_codegen::ir::GlobalValue {
+        if let Some(g) = self.gv_data_cache.get(&data_id).copied() {
+            return g;
+        }
+        let g = self.module.declare_data_in_func(data_id, self.builder.func);
+        self.gv_data_cache.insert(data_id, g);
+        g
     }
 
     /// Allocates a new Cranelift variable slot.
@@ -482,9 +500,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         }
 
         let global = self.globals.get(name).cloned()?;
-        let gv = self
-            .module
-            .declare_data_in_func(global.data_id, self.builder.func);
+        let gv = self.gv_for_data(global.data_id);
         let ptr = self
             .builder
             .ins()
@@ -512,9 +528,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         }
 
         if let Some(global) = self.globals.get(name).cloned() {
-            let gv = self
-                .module
-                .declare_data_in_func(global.data_id, self.builder.func);
+            let gv = self.gv_for_data(global.data_id);
             let ptr = self
                 .builder
                 .ins()
