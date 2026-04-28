@@ -26,3 +26,19 @@ pub fn command(input: Option<String>, options: CompileOptions) -> Result<()> {
     }
     std::process::exit(exit_code);
 }
+
+/// `rts eval "<source>"` ou `rts -e "<source>"` — compila + executa
+/// TS inline via JIT, sem precisar criar arquivo temp. Uso tipico:
+/// debug rapido de snippet, ou em pipelines/scripts shell.
+///
+/// Imports relativos (\`./mod\`) nao sao resolvidos — so' builtins
+/// (\`import { io } from \"rts\"\`).
+pub fn eval_command(input: Option<String>, options: CompileOptions) -> Result<()> {
+    let source = input.ok_or_else(|| anyhow!("usage: rts eval \"<source>\" ou rts -e \"<source>\""))?;
+    let (exit_code, warnings) = pipeline::run_jit_inline(&source, options)
+        .with_context(|| "JIT eval falhou")?;
+    for warning in &warnings {
+        eprintln!("{warning}");
+    }
+    std::process::exit(exit_code);
+}

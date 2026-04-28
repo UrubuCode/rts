@@ -311,8 +311,18 @@ do define+compile, basta exportar `RTS_DUMP_IR=1` e rodar via JIT:
 RTS_DUMP_IR=1 target/release/rts.exe run file.ts 2>&1 | head -100
 ```
 
+Para snippets curtos sem precisar criar arquivo temp, use `-e` ou `eval`:
+
+```bash
+RTS_DUMP_IR=1 target/release/rts.exe -e 'import { io } from "rts"; let i: i64 = 0; while (i < 10) i = i + 1; io.print(i);' 2>&1 | head -30
+```
+
 Imprime o IR completo de cada `user fn` mais o `__RTS_MAIN`
 (top-level). Saida vai para stderr.
+
+**Use sempre `-e`/`eval` para snippets de teste/debug** — evita
+criar arquivos temporários soltos no projeto. Imports relativos
+(`./mod`) nao funcionam em eval (so' builtins `import { x } from "rts"`).
 
 **Quando o Claude deve usar isso:** sempre que estiver debugando
 desempenho ou suspeitando de codegen ineficiente. Ler o IR mostra

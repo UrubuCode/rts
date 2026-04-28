@@ -165,6 +165,31 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
 /// This is the hot path for `rts run` — no disk I/O after parse, no
 /// linker spawn. AOT (`rts compile`) keeps going through
 /// [`build_executable`].
+/// JIT direto a partir de uma string TS — sem disco, sem resolucao
+/// de imports relativos. Usa-se em `rts eval -e "<source>"` e em
+/// testes inline. Imports de modulos relativos falham (so' builtins).
+pub fn run_jit_inline(source: &str, options: CompileOptions) -> Result<(i32, Vec<String>)> {
+    let mut program = parser::parse_source_with_mode(source, options.frontend_mode)
+        .context("failed to parse inline source")?;
+    let (module, warnings) =
+        crate::codegen::compile_program_to_jit(&mut program).context("JIT compile failed")?;
+    use cranelift_module::Module;
+    let main_id = match module.get_name("__RTS_MAIN") {
+        Some(cranelift_module::FuncOrDataId::Func(id)) => id,
+        _ => anyhow::bail!("JIT: `__RTS_MAIN` not found in module"),
+    };
+    let main_ptr = module.get_finalized_function(main_id);
+    let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
+    let exit_code = main_fn();
+    if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
+        let use_color = crate::diagnostics::reporter::stderr_supports_color();
+        eprint!("{}", format_runtime_error(&report, use_color));
+        return Ok((1, warnings));
+    }
+    std::mem::forget(module);
+    Ok((exit_code, warnings))
+}
+
 pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String>)> {
     let source = std::fs::read_to_string(input)
         .with_context(|| format!("failed to read {}", input.display()))?;

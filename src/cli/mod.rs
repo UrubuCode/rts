@@ -55,6 +55,16 @@ where
     let mut args = args.into_iter().map(Into::into);
     let bin_name = args.next().unwrap_or_else(|| "rts".to_string());
     let raw: Vec<String> = args.collect();
+    // Hack: `-e <source>` e `--eval <source>` viram positional pra que
+    // parse_flags nao rejeite o ponto inicial `-` do source (snippet TS
+    // nao deveria comecar com `-` mas o flag parser nao distingue).
+    // Alternativa: dispatcher dedicado pra eval ANTES de parse_flags.
+    if raw.first().map(|s| s.as_str()) == Some("-e")
+        || raw.first().map(|s| s.as_str()) == Some("--eval")
+    {
+        let source = raw.get(1).cloned();
+        return run::eval_command(source, CompileOptions::default());
+    }
     let (flags, positional) = parse_flags(raw)?;
 
     reporter::reset_global_engine();
@@ -72,6 +82,10 @@ where
             flags.windows_subsystem,
         ),
         "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
+        "eval" | "-e" | "--eval" => run::eval_command(
+            positional.get(1).cloned(),
+            flags.as_compile_options(),
+        ),
         "apis" | "api" => apis::command(),
         "init" => init::command(positional.get(1).cloned()),
         "clean" => clean::command(),
