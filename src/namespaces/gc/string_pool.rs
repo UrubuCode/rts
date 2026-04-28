@@ -65,6 +65,22 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FREE(handle: u64) -> i64 {
     if free_handle(handle) { 1 } else { 0 }
 }
 
+/// Tamanho generico de um handle. Despachado por tipo do Entry.
+/// Backing pra `.size`/`.length` em codegen — caller nao precisa
+/// saber se eh String/Map/Vec/Buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
+    let t = shard_for_handle(handle).lock().expect("handle table poisoned");
+    match t.get(handle) {
+        Some(Entry::String(b)) => b.len() as i64,
+        Some(Entry::Map(m)) => m.len() as i64,
+        Some(Entry::Vec(v)) => v.len() as i64,
+        Some(Entry::Buffer(b)) => b.len() as i64,
+        Some(Entry::Env(s)) => s.len() as i64,
+        _ => -1,
+    }
+}
+
 /// Converts an `i64` to its decimal string representation and returns a handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {

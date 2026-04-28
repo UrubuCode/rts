@@ -47,6 +47,20 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
     Ok(TypedVal::new(handle, ValTy::Handle))
 }
 
+/// Quando o objeto eh uma var local registrada com object literal que
+/// tem o campo `key`, retorna seu ValTy. Usado pra distinguir Map/Set
+/// (sem campos) de objects literais (\`{ size: 5 }\`) — no segundo caso
+/// queremos cair no map_get tipado, nao em map_len.
+fn lhs_object_field_known(ctx: &FnCtx, obj: &Expr, key: &str) -> Option<ValTy> {
+    if let Expr::Ident(id) = obj {
+        let name = id.sym.as_str();
+        if let Some(types) = ctx.local_obj_field_types.get(name) {
+            return types.get(key).copied();
+        }
+    }
+    None
+}
+
 /// Para cada key em src (ordem deterministica), faz dst[key] = src[key].
 /// Usa map_key_at + map_get + map_set — todos do namespace collections.
 fn emit_map_extend(
@@ -285,6 +299,38 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
 
     let obj_tv = lower_expr(ctx, &m.obj)?;
     let obj_handle = ctx.coerce_to_i64(obj_tv).val;
+
+    // #222: \`.size\` e \`.length\` em receiver Handle redirecionam pra
+    // collections.map_len/vec_len. Antes do caminho map_get porque
+    // \`size\`/\`length\` em Map/Set/Array sao properties (nao keys).
+    // Para object literals (\`{ size: 5 }\`), o receiver_class eh None
+    // e o local_obj_field_types tem registro — esse caso ainda cai
+    // no map_get abaixo via field_ty.
+    // .size/.length em receiver Handle redireciona pra map_len/vec_len
+    // (#222 Map/Set, #208 Array). Limita a Handle pra nao confundir
+    // com object literal { size: 5 } cujo storage de campo eh I64.
+    // Em top-level com globais I64 fixo, propriedade nao funciona
+    // sem two-pass scan — usuario chama m.size() como method em v0.
+    if matches!(obj_tv.ty, ValTy::Handle) && receiver_class.is_none() {
+        if let MemberProp::Ident(id) = &m.prop {
+            let key = id.sym.as_str();
+            if (key == "size" || key == "length")
+                && lhs_object_field_known(ctx, &m.obj, key).is_none()
+            {
+                // gc.handle_len despacha pelo tipo do Entry — funciona
+                // para String/Map/Vec/Buffer/Env. Caller nao precisa
+                // saber se receiver eh Map vs Set vs Array.
+                let len_fn = ctx.get_extern(
+                    "__RTS_FN_NS_GC_HANDLE_LEN",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(len_fn, &[obj_handle]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(v, ValTy::I64));
+            }
+        }
+    }
 
     match &m.prop {
         MemberProp::Ident(id) => {

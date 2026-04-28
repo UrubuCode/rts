@@ -54,10 +54,20 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 _ => continue,
                             };
                             // Strings literais armazenam Handle.
-                            if let swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) =
-                                kv.value.as_ref()
-                            {
-                                field_types.insert(key, ValTy::Handle);
+                            // Numeros literais armazenam I64 (suficiente
+                            // pra distinguir Map/Set/Array vs object com
+                            // campo `size`/`length` no #222 lookup).
+                            match kv.value.as_ref() {
+                                swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) => {
+                                    field_types.insert(key, ValTy::Handle);
+                                }
+                                swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(_)) => {
+                                    field_types.insert(key, ValTy::I64);
+                                }
+                                swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => {
+                                    field_types.insert(key, ValTy::Bool);
+                                }
+                                _ => {}
                             }
                         }
                     }

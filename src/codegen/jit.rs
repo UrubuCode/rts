@@ -105,6 +105,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_STRING_LEN", __RTS_FN_NS_GC_STRING_LEN);
     add_fn!("__RTS_FN_NS_GC_STRING_PTR", __RTS_FN_NS_GC_STRING_PTR);
     add_fn!("__RTS_FN_NS_GC_STRING_FREE", __RTS_FN_NS_GC_STRING_FREE);
+    add_fn!("__RTS_FN_NS_GC_HANDLE_LEN", __RTS_FN_NS_GC_HANDLE_LEN);
     add_fn!(
         "__RTS_FN_NS_GC_STRING_FROM_I64",
         __RTS_FN_NS_GC_STRING_FROM_I64

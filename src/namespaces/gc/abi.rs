@@ -106,6 +106,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "handle_len",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_HANDLE_LEN",
+        args: &[AbiType::U64],
+        returns: AbiType::I64,
+        doc: "Tamanho do recurso identificado pelo handle (string bytes, map entries, vec elements, buffer bytes). -1 em handle invalido. Backing pra .size/.length em codegen.",
+        ts_signature: "handle_len(h: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
         name: "env_alloc",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_GC_ENV_ALLOC",

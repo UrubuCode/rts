@@ -55,6 +55,10 @@ declare module "rts" {
      */
     export function string_free(handle: number): number;
     /**
+     * Tamanho do recurso identificado pelo handle (string bytes, map entries, vec elements, buffer bytes). -1 em handle invalido. Backing pra .size/.length em codegen.
+     */
+    export function handle_len(h: number): number;
+    /**
      * Aloca um environment record para closures com `slot_count` slots i64 inicializados em 0. Retorna o handle.
      */
     export function env_alloc(slot_count: number): number;
@@ -2059,6 +2063,10 @@ declare module "rts:gc" {
    */
   export function string_free(handle: number): number;
   /**
+   * Tamanho do recurso identificado pelo handle (string bytes, map entries, vec elements, buffer bytes). -1 em handle invalido. Backing pra .size/.length em codegen.
+   */
+  export function handle_len(h: number): number;
+  /**
    * Aloca um environment record para closures com `slot_count` slots i64 inicializados em 0. Retorna o handle.
    */
   export function env_alloc(slot_count: number): number;
@@ -2120,6 +2128,7 @@ declare module "rts:gc" {
     string_len: (typeof import("rts"))["gc"]["string_len"];
     string_ptr: (typeof import("rts"))["gc"]["string_ptr"];
     string_free: (typeof import("rts"))["gc"]["string_free"];
+    handle_len: (typeof import("rts"))["gc"]["handle_len"];
     env_alloc: (typeof import("rts"))["gc"]["env_alloc"];
     env_get: (typeof import("rts"))["gc"]["env_get"];
     env_set: (typeof import("rts"))["gc"]["env_set"];
