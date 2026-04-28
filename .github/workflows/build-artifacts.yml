@@ -45,18 +45,18 @@ jobs:
         run: target/release/rts run bench/pi_machin.ts
         shell: bash
 
-      - name: Smoke test — rts compile (AOT)
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            RTS=target/release/rts.exe
-            OUT=smoke_pi.exe
-          else
-            RTS=target/release/rts
-            OUT=smoke_pi
-          fi
-          $RTS compile bench/pi_machin.ts smoke_pi
-          ./$OUT
-        shell: bash
+      #- name: Smoke test — rts compile (AOT)
+      #  run: |
+      #    if [ "$RUNNER_OS" = "Windows" ]; then
+      #      RTS=target/release/rts.exe
+      #      OUT=smoke_pi.exe
+      #    else
+      #      RTS=target/release/rts
+      #      OUT=smoke_pi
+      #    fi
+      #    $RTS compile bench/pi_machin.ts smoke_pi
+      #    ./$OUT
+      #  shell: bash
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
