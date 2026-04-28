@@ -16,9 +16,7 @@ pub(super) fn lower_while_stmt(ctx: &mut FnCtx, wh: &swc_ecma_ast::WhileStmt) ->
     ctx.builder.switch_to_block(header);
 
     let cond = lower_expr(ctx, &wh.test)?;
-    let cond_i64 = ctx.coerce_to_i64(cond);
-    let zero = ctx.builder.ins().iconst(cl::I64, 0);
-    let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
+    let is_true = ctx.to_branch_cond(cond);
     ctx.builder.ins().brif(is_true, body, &[], exit, &[]);
 
     ctx.builder.switch_to_block(body);
@@ -55,9 +53,7 @@ pub(super) fn lower_do_while_stmt(ctx: &mut FnCtx, dw: &swc_ecma_ast::DoWhileStm
 
     ctx.builder.switch_to_block(cond_block);
     let cond = lower_expr(ctx, &dw.test)?;
-    let cond_i64 = ctx.coerce_to_i64(cond);
-    let zero = ctx.builder.ins().iconst(cl::I64, 0);
-    let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
+    let is_true = ctx.to_branch_cond(cond);
     ctx.builder.ins().brif(is_true, body, &[], exit, &[]);
     ctx.builder.seal_block(body);
     ctx.builder.seal_block(cond_block);
@@ -89,9 +85,7 @@ pub(super) fn lower_for_stmt(ctx: &mut FnCtx, for_stmt: &swc_ecma_ast::ForStmt) 
 
     if let Some(test) = &for_stmt.test {
         let cond = lower_expr(ctx, test)?;
-        let cond_i64 = ctx.coerce_to_i64(cond);
-        let zero = ctx.builder.ins().iconst(cl::I64, 0);
-        let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
+        let is_true = ctx.to_branch_cond(cond);
         ctx.builder.ins().brif(is_true, body, &[], exit, &[]);
     } else {
         ctx.builder.ins().jump(body, &[]);

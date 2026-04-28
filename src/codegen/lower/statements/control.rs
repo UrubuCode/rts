@@ -8,9 +8,7 @@ use super::{lower_block, lower_stmt};
 
 pub(super) fn lower_if_stmt(ctx: &mut FnCtx, if_stmt: &swc_ecma_ast::IfStmt) -> Result<bool> {
     let cond = lower_expr(ctx, &if_stmt.test)?;
-    let cond_i64 = ctx.coerce_to_i64(cond);
-    let zero = ctx.builder.ins().iconst(cl::I64, 0);
-    let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, cond_i64.val, zero);
+    let is_true = ctx.to_branch_cond(cond);
 
     let then_block = ctx.builder.create_block();
     let merge_block = ctx.builder.create_block();

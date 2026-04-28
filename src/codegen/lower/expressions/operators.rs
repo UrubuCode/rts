@@ -494,8 +494,12 @@ fn lower_icmp(ctx: &mut FnCtx, cc: IntCC, lhs: TypedVal, rhs: TypedVal) -> Typed
         let rhs = ctx.coerce_to_i64(rhs).val;
         ctx.builder.ins().icmp(cc, lhs, rhs)
     };
-    let ext = ctx.builder.ins().uextend(cl::I64, cmp);
-    TypedVal::new(ext, ValTy::Bool)
+    // Mantem cmp como i8 (Bool nativo Cranelift). Quando precisar i64
+    // (ex: \`const flag = a < b\`), coerce_to_i64(Bool) faz uextend
+    // explicito. Em brif (loop/if), to_branch_cond passa direto sem
+    // re-extender — elimina \`uextend + iconst 0 + icmp ne\` que era
+    // emitido em todos os hot loops.
+    TypedVal::new(cmp, ValTy::Bool)
 }
 
 fn ident_name(expr: &Expr) -> Option<&str> {

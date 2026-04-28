@@ -423,6 +423,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         function_scope: bool,
     ) {
         let var = self.new_var(ty);
+        // Bool agora pode ser i8 (resultado direto de icmp). Variable
+        // de Bool tem cl_type i64 — precisa uextend antes de def_var.
+        let init = self.normalize_to_var_ty(init, ty);
         self.builder.def_var(var, init);
         let slot = LocalVar { var, ty, is_const };
         let idx = if function_scope {
@@ -431,6 +434,19 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             self.locals.len() - 1
         };
         self.locals[idx].insert(name.to_string(), slot);
+    }
+
+    /// Garante que `val` tem o cl_type esperado pela Variable de tipo `ty`.
+    /// Hoje so' Bool precisa: pode chegar como i8 (icmp result) e variable
+    /// e' i64 — uextend implicito.
+    fn normalize_to_var_ty(&mut self, val: Value, ty: ValTy) -> Value {
+        if matches!(ty, ValTy::Bool) {
+            let v_ty = self.builder.func.dfg.value_type(val);
+            if v_ty == cl::I8 {
+                return self.builder.ins().uextend(cl::I64, val);
+            }
+        }
+        val
     }
 
     fn find_local(&self, name: &str) -> Option<LocalVar> {
@@ -474,6 +490,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             if local.is_const {
                 return Err(anyhow!("assignment to const variable `{name}`"));
             }
+            let val = self.normalize_to_var_ty(val, local.ty);
             self.builder.def_var(local.var, val);
             return Ok(());
         }
@@ -623,10 +640,47 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         }
     }
 
+    /// Reduz um valor a uma condicao branch-ready (i8 ou i64 != 0).
+    /// Quando o valor ja eh resultado de icmp (i.e., um Bool i64 produzido
+    /// por lower_icmp), evita re-comparar contra zero — passa direto.
+    /// Reduz emissao de \`uextend + iconst 0 + icmp ne\` em loops/ifs.
+    pub fn to_branch_cond(
+        &mut self,
+        tv: TypedVal,
+    ) -> cranelift_codegen::ir::Value {
+        match tv.ty {
+            // Bool ja tem semantica de "branch on non-zero" — Cranelift
+            // brif aceita qualquer valor inteiro != 0.
+            ValTy::Bool => tv.val,
+            _ => {
+                let i64v = self.coerce_to_i64(tv).val;
+                let zero = self.builder.ins().iconst(cl::I64, 0);
+                self.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    i64v,
+                    zero,
+                )
+            }
+        }
+    }
+
     /// Coerces a value to I64.
     pub fn coerce_to_i64(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
-            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => tv,
+            ValTy::I64 | ValTy::Handle | ValTy::U64 => tv,
+            ValTy::Bool => {
+                // Bool e' i8 nativo Cranelift (resultado de icmp). Quando
+                // precisar i64 (ex: `const flag = (x < y)`), faz uextend.
+                // Se ja estiver em i64 (vindo de outro lugar — ex: literal
+                // boolean), passa direto. cl_type(Bool) retorna i64 entao
+                // o tipo do Value pode ser qualquer um — checamos em runtime.
+                let v_ty = self.builder.func.dfg.value_type(tv.val);
+                if v_ty == cl::I8 {
+                    TypedVal::new(self.builder.ins().uextend(cl::I64, tv.val), ValTy::I64)
+                } else {
+                    tv
+                }
+            }
             ValTy::I32 => TypedVal::new(self.builder.ins().sextend(cl::I64, tv.val), ValTy::I64),
             ValTy::F64 => TypedVal::new(
                 self.builder.ins().fcvt_to_sint_sat(cl::I64, tv.val),
@@ -639,8 +693,17 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn coerce_to_i32(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
             ValTy::I32 => tv,
-            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => {
+            ValTy::I64 | ValTy::Handle | ValTy::U64 => {
                 TypedVal::new(self.builder.ins().ireduce(cl::I32, tv.val), ValTy::I32)
+            }
+            ValTy::Bool => {
+                let v_ty = self.builder.func.dfg.value_type(tv.val);
+                let as_i64 = if v_ty == cl::I8 {
+                    self.builder.ins().uextend(cl::I64, tv.val)
+                } else {
+                    tv.val
+                };
+                TypedVal::new(self.builder.ins().ireduce(cl::I32, as_i64), ValTy::I32)
             }
             ValTy::F64 => {
                 let as_i64 = self.builder.ins().fcvt_to_sint_sat(cl::I64, tv.val);
@@ -657,10 +720,22 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
                 ValTy::F64,
             ),
-            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => TypedVal::new(
+            ValTy::I64 | ValTy::Handle | ValTy::U64 => TypedVal::new(
                 self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
                 ValTy::F64,
             ),
+            ValTy::Bool => {
+                let v_ty = self.builder.func.dfg.value_type(tv.val);
+                let as_i64 = if v_ty == cl::I8 {
+                    self.builder.ins().uextend(cl::I64, tv.val)
+                } else {
+                    tv.val
+                };
+                TypedVal::new(
+                    self.builder.ins().fcvt_from_sint(cl::F64, as_i64),
+                    ValTy::F64,
+                )
+            }
         }
     }
 
