@@ -297,10 +297,53 @@ Fixtures de codegen vivem em `tests/fixtures/*.{ts,out}`. O teste
 `codegen_fixtures` compila o `.ts` e compara stdout com o `.out`
 byte-a-byte. Para adicionar nova fixture:
 
-1. `tests/fixtures/<name>.ts` — programa
-2. `tests/fixtures/<name>.out` — saida esperada (LF, sem CRLF)
+1. `tests/fixtures/`<name>`.ts` — programa
+2. `tests/fixtures/`<name>`.out` — saida esperada (LF, sem CRLF)
 3. `#[test] fn fixture_<name>() { run_fixture("<name>") }` em
    `tests/codegen_fixtures.rs`
+
+## Debug do codegen — `RTS_DUMP_IR=1`
+
+Para inspecionar o IR Cranelift gerado de qualquer programa antes
+do define+compile, basta exportar `RTS_DUMP_IR=1` e rodar via JIT:
+
+```bash
+RTS_DUMP_IR=1 target/release/rts.exe run file.ts 2>&1 | head -100
+```
+
+Imprime o IR completo de cada `user fn` mais o `__RTS_MAIN`
+(top-level). Saida vai para stderr.
+
+**Quando o Claude deve usar isso:** sempre que estiver debugando
+desempenho ou suspeitando de codegen ineficiente. Ler o IR mostra
+imediatamente:
+
+- loops com `load`/`store` redundantes (vars nao promovidas a
+  Cranelift Variable, sites sem cache de `gv`);
+- subexpressoes lower duplicadas (try_operator_overload /
+  try_bin_imm chamando lower_expr antes de checar se vao usar);
+- `uextend` desnecessarios em comparacoes que vao direto pro `brif`;
+- conversoes f64↔i32 em loop hot (literals como `1.0` mal-classificados);
+- `global_value` repetidos para o mesmo simbolo;
+- chamadas extern (calls externas) que poderiam ser intrinsics inline.
+
+**Padrao de uso:**
+
+1. Rodar bench (RTS lento? conferir gap com Bun/Node).
+2. `RTS_DUMP_IR=1 ... | sed -n '/<fn-de-interesse>/,/^---/p'` —
+   isolar a fn problematica.
+3. Olhar `block` que e' header/body do hot loop. Procurar:
+   - quantos `load`/`store` por iteracao (idealmente 0 para vars locais);
+   - quantos `call` (cada call extern e' caro);
+   - duplicacao de subexpressoes (mesma `fmul`/`fadd` repetida).
+4. Identificar a causa no codegen (`src/codegen/lower/`) e corrigir.
+5. Re-dump pra confirmar; rodar `cargo test --release --lib` +
+   `target/release/rts.exe test` pra garantir 0 regressao.
+
+**Exemplo real (commit 4a418d1):** `x*x + y*y <= 1.0` em loop tinha
+6× `fmul x x` + 3× `fmul y y` + 3× `fadd` no IR — `try_operator_overload`
+e `try_bin_imm` faziam lower duplicado de subexprs antes de saber se
+iam usar. Fix reduziu pra 1× cada (~6% mais rapido em Monte Carlo).
 
 ## Benchmarks
 
