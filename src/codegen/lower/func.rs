@@ -4069,8 +4069,19 @@ fn infer_abi_member_ty(expr: &Expr) -> Option<ValTy> {
         _ => return None,
     };
     let qualified = format!("{}.{}", ns.sym.as_str(), name);
-    let (_, member) = crate::abi::lookup(&qualified)?;
-    Some(ValTy::from_abi(member.returns))
+    if let Some((_, member)) = crate::abi::lookup(&qualified) {
+        return Some(ValTy::from_abi(member.returns));
+    }
+    // Redirect implicito JSON.* → json.* (#215). Sem isso o tipo
+    // do global declarado em top-level via `const x = JSON.parse(...)`
+    // cai no fallback I64 e a leitura subsequente perde o tipo Handle.
+    if let Some(method) = qualified.strip_prefix("JSON.") {
+        let target = format!("json.{method}");
+        if let Some((_, member)) = crate::abi::lookup(&target) {
+            return Some(ValTy::from_abi(member.returns));
+        }
+    }
+    None
 }
 
 fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {

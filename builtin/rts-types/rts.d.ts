@@ -147,6 +147,64 @@ declare module "rts" {
   }
 
   /**
+   * JSON parsing and serialization (paridade com JSON.parse/stringify).
+   */
+  export namespace json {
+    /**
+     * Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.
+     */
+    export function parse(text: string): number;
+    /**
+     * Serializes a JSON value handle into its compact string form.
+     */
+    export function stringify(value: number): string;
+    /**
+     * Pretty-printed serialization with `indent` spaces (>= 0).
+     */
+    export function stringify_pretty(value: number, indent: number): string;
+    /**
+     * Releases the JSON value handle.
+     */
+    export function free(handle: number): void;
+    /**
+     * Returns: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object, -1 invalid.
+     */
+    export function type_of(value: number): number;
+    /**
+     * Coerces JSON value to bool (true for non-zero/non-null/non-empty).
+     */
+    export function as_bool(value: number): boolean;
+    /**
+     * Reads JSON number as i64 (truncates floats). 0 for invalid/non-number.
+     */
+    export function as_i64(value: number): number;
+    /**
+     * Reads JSON number as f64. NaN for invalid/non-number.
+     */
+    export function as_f64(value: number): number;
+    /**
+     * Reads JSON string as a string handle. Empty handle (0) for non-string.
+     */
+    export function as_string(value: number): string;
+    /**
+     * Number of elements when value is array; -1 otherwise.
+     */
+    export function array_len(value: number): number;
+    /**
+     * Returns a NEW handle to the element at `index`. 0 if out of range.
+     */
+    export function array_get(value: number, index: number): number;
+    /**
+     * Returns a NEW handle to the property `key`. 0 if missing or non-object.
+     */
+    export function object_get(value: number, key: string): number;
+    /**
+     * True when value is an object containing `key`.
+     */
+    export function object_has(value: number, key: string): boolean;
+  }
+
+  /**
    * Filesystem operations backed by std::fs.
    */
   export namespace fs {
@@ -2070,6 +2128,80 @@ declare module "rts:io" {
     stderr_flush: (typeof import("rts"))["io"]["stderr_flush"];
     stdin_read: (typeof import("rts"))["io"]["stdin_read"];
     stdin_read_line: (typeof import("rts"))["io"]["stdin_read_line"];
+  };
+  export default _default;
+}
+
+declare module "rts:json" {
+  /**
+   * JSON parsing and serialization (paridade com JSON.parse/stringify).
+   */
+  /**
+   * Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.
+   */
+  export function parse(text: string): number;
+  /**
+   * Serializes a JSON value handle into its compact string form.
+   */
+  export function stringify(value: number): string;
+  /**
+   * Pretty-printed serialization with `indent` spaces (>= 0).
+   */
+  export function stringify_pretty(value: number, indent: number): string;
+  /**
+   * Releases the JSON value handle.
+   */
+  export function free(handle: number): void;
+  /**
+   * Returns: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object, -1 invalid.
+   */
+  export function type_of(value: number): number;
+  /**
+   * Coerces JSON value to bool (true for non-zero/non-null/non-empty).
+   */
+  export function as_bool(value: number): boolean;
+  /**
+   * Reads JSON number as i64 (truncates floats). 0 for invalid/non-number.
+   */
+  export function as_i64(value: number): number;
+  /**
+   * Reads JSON number as f64. NaN for invalid/non-number.
+   */
+  export function as_f64(value: number): number;
+  /**
+   * Reads JSON string as a string handle. Empty handle (0) for non-string.
+   */
+  export function as_string(value: number): string;
+  /**
+   * Number of elements when value is array; -1 otherwise.
+   */
+  export function array_len(value: number): number;
+  /**
+   * Returns a NEW handle to the element at `index`. 0 if out of range.
+   */
+  export function array_get(value: number, index: number): number;
+  /**
+   * Returns a NEW handle to the property `key`. 0 if missing or non-object.
+   */
+  export function object_get(value: number, key: string): number;
+  /**
+   * True when value is an object containing `key`.
+   */
+  export function object_has(value: number, key: string): boolean;
+  const _default: {
+    parse: (typeof import("rts"))["json"]["parse"];
+    stringify: (typeof import("rts"))["json"]["stringify"];
+    stringify_pretty: (typeof import("rts"))["json"]["stringify_pretty"];
+    free: (typeof import("rts"))["json"]["free"];
+    type_of: (typeof import("rts"))["json"]["type_of"];
+    as_bool: (typeof import("rts"))["json"]["as_bool"];
+    as_i64: (typeof import("rts"))["json"]["as_i64"];
+    as_f64: (typeof import("rts"))["json"]["as_f64"];
+    as_string: (typeof import("rts"))["json"]["as_string"];
+    array_len: (typeof import("rts"))["json"]["array_len"];
+    array_get: (typeof import("rts"))["json"]["array_get"];
+    object_get: (typeof import("rts"))["json"]["object_get"];
+    object_has: (typeof import("rts"))["json"]["object_has"];
   };
   export default _default;
 }

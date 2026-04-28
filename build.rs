@@ -53,6 +53,18 @@ fn main() {
             deps_dir.display()
         )
     });
+    let serde_json_rlib = find_rlib_named(&deps_dir, "libserde_json-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate serde_json rlib under {} (required for json runtime symbols)",
+            deps_dir.display()
+        )
+    });
+    let serde_rlib = find_rlib_named(&deps_dir, "libserde-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate serde rlib under {} (required for json runtime symbols)",
+            deps_dir.display()
+        )
+    });
 
     let mut cmd = Command::new(&rustc);
     cmd.args([
@@ -86,6 +98,10 @@ fn main() {
         .arg(format!("rustls={}", rustls_rlib.display()));
     cmd.arg("--extern")
         .arg(format!("webpki_roots={}", webpki_roots_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("serde_json={}", serde_json_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("serde={}", serde_rlib.display()));
 
     let status = cmd
         .status()
@@ -103,6 +119,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/namespaces/gc/");
     println!("cargo:rerun-if-changed=src/namespaces/io/");
+    println!("cargo:rerun-if-changed=src/namespaces/json/");
     println!("cargo:rerun-if-changed=src/namespaces/fs/");
     println!("cargo:rerun-if-changed=src/namespaces/math/");
     println!("cargo:rerun-if-changed=src/namespaces/num/");

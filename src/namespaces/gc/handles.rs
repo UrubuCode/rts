@@ -91,6 +91,10 @@ pub enum Entry {
     /// Usado por `gc.env_*` para implementar capturas reais sem promote-
     /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).
     Env(Vec<i64>),
+    /// JSON value boxed — namespace `json`. serde_json::Value preserva
+    /// distincao entre null/bool/number/string/array/object necessaria
+    /// pro stringify nao virar lossy.
+    Json(Box<serde_json::Value>),
     /// Instancia de classe com layout nativo (#147 — passo 4).
     /// `class` aponta pro handle do tag string `__rts_class`; `bytes`
     /// armazena os fields conforme o `ClassLayout` calculado em

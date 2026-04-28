@@ -75,6 +75,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
                 return Ok(tv);
             }
+            // JSON global (#215): JSON.parse / JSON.stringify mapeiam
+            // direto pra namespace json. Permite usar JSON.X(...) sem
+            // import explicito, paridade com a semantica JS.
+            if let Some(redirected) = qualified.strip_prefix("JSON.") {
+                let target = format!("json.{redirected}");
+                if lookup(&target).is_some() {
+                    return lower_ns_call(ctx, &target, call);
+                }
+            }
             // Fallback: ident.fn(...) onde ident e var (ex: namespace TS
             // desugared para const Foo = { ... }). Faz map_get pela key
             // e despacha via call_indirect.

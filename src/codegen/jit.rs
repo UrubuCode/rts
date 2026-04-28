@@ -173,6 +173,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         __RTS_FN_NS_IO_STDIN_READ_LINE
     );
 
+    // ── namespaces::json ──────────────────────────────────────────────
+    use crate::namespaces::json::ops::*;
+    add_fn!("__RTS_FN_NS_JSON_PARSE", __RTS_FN_NS_JSON_PARSE);
+    add_fn!("__RTS_FN_NS_JSON_STRINGIFY", __RTS_FN_NS_JSON_STRINGIFY);
+    add_fn!(
+        "__RTS_FN_NS_JSON_STRINGIFY_PRETTY",
+        __RTS_FN_NS_JSON_STRINGIFY_PRETTY
+    );
+    add_fn!("__RTS_FN_NS_JSON_FREE", __RTS_FN_NS_JSON_FREE);
+    add_fn!("__RTS_FN_NS_JSON_TYPE_OF", __RTS_FN_NS_JSON_TYPE_OF);
+    add_fn!("__RTS_FN_NS_JSON_AS_BOOL", __RTS_FN_NS_JSON_AS_BOOL);
+    add_fn!("__RTS_FN_NS_JSON_AS_I64", __RTS_FN_NS_JSON_AS_I64);
+    add_fn!("__RTS_FN_NS_JSON_AS_F64", __RTS_FN_NS_JSON_AS_F64);
+    add_fn!("__RTS_FN_NS_JSON_AS_STRING", __RTS_FN_NS_JSON_AS_STRING);
+    add_fn!("__RTS_FN_NS_JSON_ARRAY_LEN", __RTS_FN_NS_JSON_ARRAY_LEN);
+    add_fn!("__RTS_FN_NS_JSON_ARRAY_GET", __RTS_FN_NS_JSON_ARRAY_GET);
+    add_fn!("__RTS_FN_NS_JSON_OBJECT_GET", __RTS_FN_NS_JSON_OBJECT_GET);
+    add_fn!("__RTS_FN_NS_JSON_OBJECT_HAS", __RTS_FN_NS_JSON_OBJECT_HAS);
+
     // ── namespaces::fs ────────────────────────────────────────────────
     use crate::namespaces::fs::*;
     add_fn!("__RTS_FN_NS_FS_READ", read::__RTS_FN_NS_FS_READ);

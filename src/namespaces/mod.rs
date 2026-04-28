@@ -19,6 +19,7 @@ pub mod gc;
 pub mod hash;
 pub mod hint;
 pub mod io;
+pub mod json;
 pub mod math;
 pub mod mem;
 pub mod net;

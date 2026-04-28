@@ -28,6 +28,7 @@ pub use types::AbiType;
 pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::gc::abi::SPEC,
     &crate::namespaces::io::abi::SPEC,
+    &crate::namespaces::json::abi::SPEC,
     &crate::namespaces::fs::abi::SPEC,
     &crate::namespaces::math::abi::SPEC,
     &crate::namespaces::net::abi::SPEC,
