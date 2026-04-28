@@ -490,6 +490,12 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         val
     }
 
+    /// Olha o LocalVar de uma var sem emitir IR — caller pode decidir
+    /// se vai usar (ex: branchless if-to-select).
+    pub fn read_local_info(&self, name: &str) -> Option<LocalVar> {
+        self.find_local(name)
+    }
+
     fn find_local(&self, name: &str) -> Option<LocalVar> {
         for scope in self.locals.iter().rev() {
             if let Some(slot) = scope.get(name) {

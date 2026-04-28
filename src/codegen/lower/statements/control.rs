@@ -7,6 +7,17 @@ use super::super::expressions::lower_expr;
 use super::{lower_block, lower_stmt};
 
 pub(super) fn lower_if_stmt(ctx: &mut FnCtx, if_stmt: &swc_ecma_ast::IfStmt) -> Result<bool> {
+    // Branchless pattern: \`if (cond) { var = var <op> imm; }\` (sem else)
+    // vira \`var = select(cond, new_val, var)\`. Elimina branch
+    // imprevisivel em hot loops como Monte Carlo \`if (... <= 1.0)\`
+    // onde branch predictor falha ~50% do tempo. Sem branch = sem
+    // pipeline stall.
+    if if_stmt.alt.is_none() {
+        if let Some(()) = try_lower_if_to_select(ctx, if_stmt)? {
+            return Ok(false);
+        }
+    }
+
     let cond = lower_expr(ctx, &if_stmt.test)?;
     let is_true = ctx.to_branch_cond(cond);
 
@@ -51,6 +62,108 @@ pub(super) fn lower_if_stmt(ctx: &mut FnCtx, if_stmt: &swc_ecma_ast::IfStmt) -> 
         ctx.builder.switch_to_block(merge_block);
         ctx.builder.seal_block(merge_block);
         Ok(false)
+    }
+}
+
+/// Tenta lower \`if (cond) { var = var <op> rhs; }\` (sem else) como
+/// uma assinatura \`var = select(cond, new_val, var)\`. Retorna Some(())
+/// quando o pattern bate e foi emitido; None quando o caller deve cair
+/// no caminho normal de branch.
+///
+/// Restricoes:
+/// - body e' exatamente 1 statement (ou Block com 1 stmt) — sem else;
+/// - statement e' \`var = expr\` simples ou \`var <op>= expr\`;
+/// - target e' Ident local (Variable I64/I32/F64). Globais nao
+///   suportados (semantica de escrita atrasada via select complica).
+fn try_lower_if_to_select(
+    ctx: &mut FnCtx,
+    if_stmt: &swc_ecma_ast::IfStmt,
+) -> Result<Option<()>> {
+    use swc_ecma_ast::{AssignOp, AssignTarget, Expr as E, SimpleAssignTarget, Stmt};
+
+    // Extrai o single statement do body.
+    let body_stmt: &Stmt = match &*if_stmt.cons {
+        Stmt::Block(b) if b.stmts.len() == 1 => &b.stmts[0],
+        s @ (Stmt::Expr(_)) => s,
+        _ => return Ok(None),
+    };
+    let assign_expr = if let Stmt::Expr(e) = body_stmt {
+        if let E::Assign(a) = e.expr.as_ref() {
+            a
+        } else {
+            return Ok(None);
+        }
+    } else {
+        return Ok(None);
+    };
+
+    // Target precisa ser Ident simples.
+    let target_name = match &assign_expr.left {
+        AssignTarget::Simple(SimpleAssignTarget::Ident(id)) => id.id.sym.as_str().to_string(),
+        _ => return Ok(None),
+    };
+
+    // Var deve ser local (Variable Cranelift) — escrita via def_var.
+    // Para globais o select nao pode ser direto (precisaria store
+    // condicional).
+    let local = match ctx.read_local_info(&target_name) {
+        Some(l) => l,
+        None => return Ok(None),
+    };
+    if local.is_const {
+        return Ok(None);
+    }
+
+    // RHS limites: pra simplificar, aceita qualquer expr — o select
+    // espera new_val/old_val do mesmo tipo, e a expressao deve nao
+    // ter side effects observaveis quando descartada... mas em pratica
+    // Cranelift mantem ambos lados execucao. Pra ser conservador,
+    // limitamos a operacoes puras (literal, var, var <op> literal).
+    if !is_pure_for_select(&assign_expr.right) {
+        return Ok(None);
+    }
+    // Compound assigns (\`+=\`, \`-=\`, etc) nao suportados aqui — apenas
+    // \`=\`. Compound exigiria extrair o op pra construir \`var op rhs\`
+    // como new_val.
+    if !matches!(assign_expr.op, AssignOp::Assign) {
+        return Ok(None);
+    }
+
+    // Lower cond e new_val no fluxo atual (sem branch).
+    let cond = lower_expr(ctx, &if_stmt.test)?;
+    let cond_val = ctx.to_branch_cond(cond);
+    let new_tv = lower_expr(ctx, &assign_expr.right)?;
+    let new_val = match local.ty {
+        crate::codegen::lower::ctx::ValTy::I32 => ctx.coerce_to_i32(new_tv).val,
+        crate::codegen::lower::ctx::ValTy::F64 => ctx.coerce_to_f64(new_tv).val,
+        _ => ctx.coerce_to_i64(new_tv).val,
+    };
+    let old_tv = ctx.read_local(&target_name).expect("var existe");
+    let old_val = old_tv.val;
+    // Cranelift select requer mesmo tipo em ambos lados.
+    let result = ctx.builder.ins().select(cond_val, new_val, old_val);
+    ctx.write_local(&target_name, result)?;
+    Ok(Some(()))
+}
+
+/// Conservador: define quais expressoes sao seguras pra serem lower
+/// no fluxo principal (sem branch). Side effects (calls, ++) nao
+/// devem rodar incondicionalmente quando o source so' espera execucao
+/// no caminho true.
+fn is_pure_for_select(e: &swc_ecma_ast::Expr) -> bool {
+    use swc_ecma_ast::Expr;
+    match e {
+        Expr::Lit(_) | Expr::Ident(_) | Expr::This(_) => true,
+        Expr::Bin(b) => is_pure_for_select(&b.left) && is_pure_for_select(&b.right),
+        Expr::Unary(u) => {
+            use swc_ecma_ast::UnaryOp;
+            matches!(
+                u.op,
+                UnaryOp::Minus | UnaryOp::Plus | UnaryOp::Tilde | UnaryOp::Bang
+            ) && is_pure_for_select(&u.arg)
+        }
+        Expr::Paren(p) => is_pure_for_select(&p.expr),
+        _ => false,
     }
 }
 

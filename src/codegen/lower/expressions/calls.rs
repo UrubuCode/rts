@@ -1785,7 +1785,6 @@ fn lower_intrinsic(
                     ctx.data_cache.insert(STATE_SYMBOL, id);
                     id
                 };
-                let _ = DataDescription::new();
                 let g = ctx.module.declare_data_in_func(data_id, ctx.builder.func);
                 ctx.gv_cache.insert(STATE_SYMBOL, g);
                 g
