@@ -214,6 +214,72 @@ pub(super) fn lower_labeled_stmt(ctx: &mut FnCtx, lbl: &swc_ecma_ast::LabeledStm
     Ok(terminated)
 }
 
+/// Heuristica conservadora: percorre o try block e, se cada `throw`
+/// encontrado for `throw new C(...)` com a mesma `C`, retorna `C`.
+/// Multiplos throws de classes diferentes ou throws de expressoes nao-new
+/// → None (catch param permanece sem classe estatica). Nao desce em
+/// nested try/catch (o inner pega seus proprios throws). Nao desce em
+/// fns aninhadas (closures/arrows criam contexto novo).
+fn infer_throw_class(stmts: &[swc_ecma_ast::Stmt]) -> Option<String> {
+    let mut found: Option<String> = None;
+    for stmt in stmts {
+        if let Some(name) = walk_for_throw_class(stmt) {
+            match &found {
+                None => found = Some(name),
+                Some(prev) if prev == &name => {}
+                Some(_) => return None, // mistura de classes
+            }
+        }
+    }
+    found
+}
+
+fn walk_for_throw_class(stmt: &swc_ecma_ast::Stmt) -> Option<String> {
+    use swc_ecma_ast::Stmt;
+    match stmt {
+        Stmt::Throw(t) => extract_new_class_name(&t.arg),
+        Stmt::Block(b) => {
+            let mut acc: Option<String> = None;
+            for s in &b.stmts {
+                if let Some(c) = walk_for_throw_class(s) {
+                    match &acc {
+                        None => acc = Some(c),
+                        Some(prev) if prev == &c => {}
+                        Some(_) => return None,
+                    }
+                }
+            }
+            acc
+        }
+        Stmt::If(i) => {
+            let a = walk_for_throw_class(&i.cons);
+            let b = i.alt.as_ref().and_then(|alt| walk_for_throw_class(alt));
+            match (a, b) {
+                (Some(x), Some(y)) if x == y => Some(x),
+                (Some(x), None) => Some(x),
+                (None, Some(y)) => Some(y),
+                _ => None,
+            }
+        }
+        Stmt::For(f) => walk_for_throw_class(&f.body),
+        Stmt::While(w) => walk_for_throw_class(&w.body),
+        Stmt::DoWhile(d) => walk_for_throw_class(&d.body),
+        Stmt::ForIn(f) => walk_for_throw_class(&f.body),
+        Stmt::ForOf(f) => walk_for_throw_class(&f.body),
+        Stmt::Try(_) => None, // nested try captura seus proprios throws
+        _ => None,
+    }
+}
+
+fn extract_new_class_name(expr: &Expr) -> Option<String> {
+    if let Expr::New(n) = expr {
+        if let Expr::Ident(id) = n.callee.as_ref() {
+            return Some(id.sym.to_string());
+        }
+    }
+    None
+}
+
 pub(super) fn lower_throw_stmt(
     ctx: &mut FnCtx,
     throw_stmt: &swc_ecma_ast::ThrowStmt,
@@ -270,6 +336,36 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
                 let inst = ctx.builder.ins().call(get_fref, &[]);
                 let err_handle = ctx.builder.inst_results(inst)[0];
                 ctx.declare_local(name, ValTy::Handle, err_handle);
+                // Anotacao `catch (e: ClassName)` propaga classe estatica
+                // para que `e.field` use field_type_in_hierarchy + dispatch
+                // virtual em vez de cair em map_get<i64>. Sem isso, leituras
+                // de string/number do payload retornam handle/i64 cru. (#214)
+                let mut class_for_catch: Option<String> = None;
+                if let Some(ann) = id.type_ann.as_ref() {
+                    if let Some(class_name) =
+                        super::decls::class_name_from_annotation(&ann.type_ann)
+                    {
+                        if ctx.classes.contains_key(&class_name) {
+                            class_for_catch = Some(class_name);
+                        }
+                    }
+                }
+                // Sem anotacao: heuristica simples — se todos os throw no
+                // try block sao `throw new SameClass(...)` e SameClass eh
+                // conhecida, usa essa classe. Multiplos throws de classes
+                // diferentes (ou throw de expressao nao-new) nao infere.
+                // Cobre o caso comum `try { throw new TypeError(...); } catch(e) { e.message }`.
+                if class_for_catch.is_none() {
+                    let inferred = infer_throw_class(&t.block.stmts);
+                    if let Some(cls) = inferred {
+                        if ctx.classes.contains_key(&cls) {
+                            class_for_catch = Some(cls);
+                        }
+                    }
+                }
+                if let Some(cls) = class_for_catch {
+                    ctx.local_class_ty.insert(name.to_string(), cls);
+                }
             }
         }
         let clear_fref = ctx.get_extern("__RTS_FN_RT_ERROR_CLEAR", &[], None)?;
