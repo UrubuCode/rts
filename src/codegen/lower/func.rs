@@ -191,25 +191,57 @@ fn reduce_pass(program: &mut Program) -> HashSet<String> {
     let pure_ns = build_pure_ns_set();
     let mut counter = 0u32;
     let mut par_fn_names: HashSet<String> = HashSet::new();
+    let mut new_fns: Vec<Item> = Vec::new();
 
+    // Top-level: itera program.items[i] e items[i+1].
+    apply_reduce_pass_to_top_level(
+        &mut program.items, &pure_ns, &mut counter, &mut par_fn_names, &mut new_fns,
+    );
+
+    // Bodies de cada user fn: apply em fn.body (Vec<Statement>).
+    // Coletamos os indices primeiro pra evitar borrow conflict.
+    let fn_indices: Vec<usize> = program.items.iter().enumerate()
+        .filter_map(|(i, it)| if matches!(it, Item::Function(_)) { Some(i) } else { None })
+        .collect();
+    for i in fn_indices {
+        if let Item::Function(f) = &mut program.items[i] {
+            apply_reduce_pass_to_body(
+                &mut f.body, &pure_ns, &mut counter, &mut par_fn_names, &mut new_fns,
+            );
+        }
+    }
+
+    // Prepend new fns
+    for fn_item in new_fns.into_iter().rev() {
+        program.items.insert(0, fn_item);
+    }
+
+    par_fn_names
+}
+
+/// Aplica reduce_pass no top-level (lista de Items).
+fn apply_reduce_pass_to_top_level(
+    items: &mut Vec<Item>,
+    pure_ns: &HashSet<(&'static str, &'static str)>,
+    counter: &mut u32,
+    par_fn_names: &mut HashSet<String>,
+    new_fns: &mut Vec<Item>,
+) {
     struct Match {
-        decl_idx: usize,        // index do `let acc = INIT`
-        for_idx: usize,         // index do `for...of` (decl_idx + 1)
+        decl_idx: usize,
+        for_idx: usize,
         acc_name: String,
         init_expr: Expr,
         arr_expr: Expr,
         loop_var: String,
-        rhs_expr: Expr,         // o EXPR que vira `acc + EXPR`
+        rhs_expr: Expr,
         fn_name: String,
         op: AssocOp,
     }
-
     let mut matches: Vec<Match> = Vec::new();
-
-    let n_items = program.items.len();
+    let n_items = items.len();
     for i in 0..n_items.saturating_sub(1) {
-        // Item[i] precisa ser `let acc = INIT;`
-        let Item::Statement(Statement::Raw(decl_raw)) = &program.items[i] else { continue };
+        let Item::Statement(Statement::Raw(decl_raw)) = &items[i] else { continue };
         let Some(Stmt::Decl(Decl::Var(vd))) = decl_raw.stmt.as_ref() else { continue };
         if vd.decls.len() != 1 {
             continue;
@@ -223,7 +255,7 @@ fn reduce_pass(program: &mut Program) -> HashSet<String> {
         }
 
         // Item[i+1] precisa ser `for (const x of arr) { ... }`
-        let Item::Statement(Statement::Raw(for_raw)) = &program.items[i + 1] else { continue };
+        let Item::Statement(Statement::Raw(for_raw)) = &items[i + 1] else { continue };
         let Some(Stmt::ForOf(for_of)) = for_raw.stmt.as_ref() else { continue };
         if for_of.is_await { continue; }
 
@@ -282,12 +314,12 @@ fn reduce_pass(program: &mut Program) -> HashSet<String> {
         };
 
         // EXPR deve ser puro (so usa loop_var, lits, fns pure).
-        if !is_pure_expr_for_parallel(&rhs_expr, &loop_var, &HashSet::new(), &pure_ns) {
+        if !is_pure_expr_for_parallel(&rhs_expr, &loop_var, &HashSet::new(), pure_ns) {
             continue;
         }
 
         let fn_name = format!("__par_reduce_{counter}");
-        counter += 1;
+        *counter += 1;
         matches.push(Match {
             decl_idx: i,
             for_idx: i + 1,
@@ -302,13 +334,11 @@ fn reduce_pass(program: &mut Program) -> HashSet<String> {
     }
 
     if matches.is_empty() {
-        return par_fn_names;
+        return;
     }
 
     // Para cada match, substitui o for...of por NOOP (um stmt vazio
     // expr `0`) e o decl pelo `let acc = parallel.reduce(...)`.
-    // Aplicamos de tras pra frente pra nao invalidar indices.
-    let mut new_fns: Vec<Item> = Vec::new();
     for m in &matches {
         // Sintetiza fn `(acc: i64, x: i64) -> i64 { return acc OP rhs_expr; }`
         let bin_op = match m.op {
@@ -367,7 +397,7 @@ fn reduce_pass(program: &mut Program) -> HashSet<String> {
     // for...of vira no-op (`0;`).
     for m in &matches {
         // Substitui o for_idx por no-op (Expr `0`).
-        if let Item::Statement(Statement::Raw(raw)) = &mut program.items[m.for_idx] {
+        if let Item::Statement(Statement::Raw(raw)) = &mut items[m.for_idx] {
             raw.stmt = Some(Stmt::Expr(swc_ecma_ast::ExprStmt {
                 span: Default::default(),
                 expr: Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
@@ -379,7 +409,7 @@ fn reduce_pass(program: &mut Program) -> HashSet<String> {
         }
 
         // Substitui o decl pelo `let acc = parallel.reduce(...)`.
-        if let Item::Statement(Statement::Raw(raw)) = &mut program.items[m.decl_idx] {
+        if let Item::Statement(Statement::Raw(raw)) = &mut items[m.decl_idx] {
             let reduce_call = make_par_reduce_expr(&m.arr_expr, &m.init_expr, &m.fn_name);
             raw.stmt = Some(Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
                 span: Default::default(),
@@ -403,13 +433,160 @@ fn reduce_pass(program: &mut Program) -> HashSet<String> {
             }))));
         }
     }
+}
 
-    // Prepend new fns
-    for fn_item in new_fns.into_iter().rev() {
-        program.items.insert(0, fn_item);
+/// Aplica reduce_pass num body de fn (lista de Statements).
+/// Usa stmt-level matching: procura `let acc = ...; for (...)` adjacentes.
+fn apply_reduce_pass_to_body(
+    body: &mut Vec<Statement>,
+    pure_ns: &HashSet<(&'static str, &'static str)>,
+    counter: &mut u32,
+    par_fn_names: &mut HashSet<String>,
+    new_fns: &mut Vec<Item>,
+) {
+    struct Match {
+        decl_idx: usize,
+        for_idx: usize,
+        acc_name: String,
+        init_expr: Expr,
+        arr_expr: Expr,
+        loop_var: String,
+        rhs_expr: Expr,
+        fn_name: String,
+        op: AssocOp,
     }
-
-    par_fn_names
+    let mut matches: Vec<Match> = Vec::new();
+    let n = body.len();
+    for i in 0..n.saturating_sub(1) {
+        let Statement::Raw(decl_raw) = &body[i];
+        let Some(Stmt::Decl(Decl::Var(vd))) = decl_raw.stmt.as_ref() else { continue };
+        if vd.decls.len() != 1 { continue; }
+        let Pat::Ident(acc_pat) = &vd.decls[0].name else { continue };
+        let acc_name = acc_pat.id.sym.as_str().to_string();
+        let Some(init) = vd.decls[0].init.as_deref() else { continue };
+        if !matches!(init, Expr::Lit(Lit::Num(_))) { continue; }
+        let Statement::Raw(for_raw) = &body[i + 1];
+        let Some(Stmt::ForOf(for_of)) = for_raw.stmt.as_ref() else { continue };
+        if for_of.is_await { continue; }
+        let loop_var = match &for_of.left {
+            ForHead::VarDecl(lvd) if lvd.decls.len() == 1 => match &lvd.decls[0].name {
+                Pat::Ident(id) => id.sym.as_str().to_string(),
+                _ => continue,
+            },
+            _ => continue,
+        };
+        let stmts: &[Stmt] = match for_of.body.as_ref() {
+            Stmt::Block(b) => &b.stmts,
+            other => std::slice::from_ref(other),
+        };
+        if stmts.len() != 1 { continue; }
+        let Stmt::Expr(expr_stmt) = &stmts[0] else { continue };
+        let Expr::Assign(assign) = expr_stmt.expr.as_ref() else { continue };
+        let lhs_ok = matches!(
+            &assign.left,
+            swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id))
+                if id.id.sym.as_str() == acc_name
+        );
+        if !lhs_ok { continue; }
+        let (op, rhs_expr): (AssocOp, Expr) = match assign.op {
+            swc_ecma_ast::AssignOp::AddAssign => (AssocOp::Add, (*assign.right).clone()),
+            swc_ecma_ast::AssignOp::MulAssign => (AssocOp::Mul, (*assign.right).clone()),
+            swc_ecma_ast::AssignOp::Assign => {
+                let Expr::Bin(bin) = assign.right.as_ref() else { continue };
+                let acc_lhs_ok = matches!(
+                    bin.left.as_ref(),
+                    Expr::Ident(i) if i.sym.as_str() == acc_name
+                );
+                if !acc_lhs_ok { continue; }
+                let op = match bin.op {
+                    swc_ecma_ast::BinaryOp::Add => AssocOp::Add,
+                    swc_ecma_ast::BinaryOp::Mul => AssocOp::Mul,
+                    _ => continue,
+                };
+                (op, (*bin.right).clone())
+            }
+            _ => continue,
+        };
+        if !is_pure_expr_for_parallel(&rhs_expr, &loop_var, &HashSet::new(), pure_ns) {
+            continue;
+        }
+        let fn_name = format!("__par_reduce_{counter}");
+        *counter += 1;
+        matches.push(Match {
+            decl_idx: i, for_idx: i + 1, acc_name, init_expr: init.clone(),
+            arr_expr: for_of.right.as_ref().clone(),
+            loop_var, rhs_expr, fn_name, op,
+        });
+    }
+    if matches.is_empty() { return; }
+    for m in &matches {
+        let bin_op = match m.op {
+            AssocOp::Add => swc_ecma_ast::BinaryOp::Add,
+            AssocOp::Mul => swc_ecma_ast::BinaryOp::Mul,
+        };
+        let body_expr = Expr::Bin(swc_ecma_ast::BinExpr {
+            span: Default::default(),
+            op: bin_op,
+            left: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(), ctxt: Default::default(),
+                sym: m.acc_name.clone().into(), optional: false,
+            })),
+            right: Box::new(m.rhs_expr.clone()),
+        });
+        let return_stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
+            span: Default::default(), arg: Some(Box::new(body_expr)),
+        });
+        let fn_body_stmts = vec![Statement::Raw(
+            RawStmt::new("<par-reduce>".to_string(), Span::default()).with_stmt(return_stmt),
+        )];
+        new_fns.push(Item::Function(FunctionDecl {
+            name: m.fn_name.clone(),
+            parameters: vec![
+                Parameter {
+                    name: m.acc_name.clone(),
+                    type_annotation: Some("i64".to_string()),
+                    modifiers: MemberModifiers::default(),
+                    variadic: false, default: None, span: Span::default(),
+                },
+                Parameter {
+                    name: m.loop_var.clone(),
+                    type_annotation: Some("i64".to_string()),
+                    modifiers: MemberModifiers::default(),
+                    variadic: false, default: None, span: Span::default(),
+                },
+            ],
+            return_type: Some("i64".to_string()),
+            body: fn_body_stmts,
+            span: Span::default(),
+        }));
+        par_fn_names.insert(m.fn_name.clone());
+    }
+    for m in &matches {
+        let Statement::Raw(raw) = &mut body[m.for_idx];
+        raw.stmt = Some(Stmt::Expr(swc_ecma_ast::ExprStmt {
+            span: Default::default(),
+            expr: Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                span: Default::default(), value: 0.0, raw: None,
+            }))),
+        }));
+        let reduce_call = make_par_reduce_expr(&m.arr_expr, &m.init_expr, &m.fn_name);
+        let Statement::Raw(raw2) = &mut body[m.decl_idx];
+        raw2.stmt = Some(Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
+            span: Default::default(), ctxt: Default::default(),
+            kind: swc_ecma_ast::VarDeclKind::Let, declare: false,
+            decls: vec![swc_ecma_ast::VarDeclarator {
+                span: Default::default(),
+                name: Pat::Ident(swc_ecma_ast::BindingIdent {
+                    id: swc_ecma_ast::Ident {
+                        span: Default::default(), ctxt: Default::default(),
+                        sym: m.acc_name.clone().into(), optional: false,
+                    },
+                    type_ann: None,
+                }),
+                init: Some(Box::new(reduce_call)), definite: false,
+            }],
+        }))));
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -474,7 +651,37 @@ fn purity_pass(program: &mut Program) -> HashSet<String> {
     let pure_ns = build_pure_ns_set();
     let mut counter = 0u32;
     let mut par_fn_names: HashSet<String> = HashSet::new();
+    let mut new_fns: Vec<Item> = Vec::new();
 
+    apply_purity_pass_to_top_level(
+        &mut program.items, &pure_ns, &mut counter, &mut par_fn_names, &mut new_fns,
+    );
+
+    let fn_indices: Vec<usize> = program.items.iter().enumerate()
+        .filter_map(|(i, it)| if matches!(it, Item::Function(_)) { Some(i) } else { None })
+        .collect();
+    for i in fn_indices {
+        if let Item::Function(f) = &mut program.items[i] {
+            apply_purity_pass_to_body(
+                &mut f.body, &pure_ns, &mut counter, &mut par_fn_names, &mut new_fns,
+            );
+        }
+    }
+
+    for fn_item in new_fns.into_iter().rev() {
+        program.items.insert(0, fn_item);
+    }
+
+    par_fn_names
+}
+
+fn apply_purity_pass_to_top_level(
+    items: &mut Vec<Item>,
+    pure_ns: &HashSet<(&'static str, &'static str)>,
+    counter: &mut u32,
+    par_fn_names: &mut HashSet<String>,
+    new_fns: &mut Vec<Item>,
+) {
     struct Transform {
         idx: usize,
         arr_expr: Expr,
@@ -484,17 +691,13 @@ fn purity_pass(program: &mut Program) -> HashSet<String> {
     }
     let mut transforms: Vec<Transform> = Vec::new();
 
-    for (idx, item) in program.items.iter().enumerate() {
+    for (idx, item) in items.iter().enumerate() {
         let Item::Statement(Statement::Raw(raw)) = item else { continue };
         let Some(Stmt::ForOf(for_of)) = raw.stmt.as_ref() else { continue };
-        if for_of.is_await {
-            continue;
-        }
+        if for_of.is_await { continue; }
         let loop_var = match &for_of.left {
             ForHead::VarDecl(vd) => {
-                if vd.decls.len() != 1 {
-                    continue;
-                }
+                if vd.decls.len() != 1 { continue; }
                 match &vd.decls[0].name {
                     Pat::Ident(id) => id.sym.as_str().to_string(),
                     _ => continue,
@@ -502,62 +705,102 @@ fn purity_pass(program: &mut Program) -> HashSet<String> {
             }
             _ => continue,
         };
-        if !analyze_for_of_body_pure(&for_of.body, &loop_var, &pure_ns) {
-            continue;
-        }
+        if !analyze_for_of_body_pure(&for_of.body, &loop_var, pure_ns) { continue; }
         let fn_name = format!("__par_forof_{counter}");
-        counter += 1;
+        *counter += 1;
         transforms.push(Transform {
-            idx,
-            arr_expr: for_of.right.as_ref().clone(),
+            idx, arr_expr: for_of.right.as_ref().clone(),
             body_stmt: for_of.body.as_ref().clone(),
-            loop_var,
-            fn_name,
+            loop_var, fn_name,
         });
     }
-
-    if transforms.is_empty() {
-        return par_fn_names;
-    }
-
-    let mut new_fn_items: Vec<Item> = Vec::new();
+    if transforms.is_empty() { return; }
     for t in &transforms {
         let body_stmts = vec![Statement::Raw(
             RawStmt::new("<par-forof>".to_string(), Span::default())
                 .with_stmt(t.body_stmt.clone()),
         )];
-        // Loop variable declared as i64: Rayon passes Vec<i64> elements as
-        // i64 via integer registers. Using "number" (f64) would mismatch.
-        new_fn_items.push(Item::Function(FunctionDecl {
+        new_fns.push(Item::Function(FunctionDecl {
             name: t.fn_name.clone(),
             parameters: vec![Parameter {
                 name: t.loop_var.clone(),
                 type_annotation: Some("i64".to_string()),
                 modifiers: MemberModifiers::default(),
-                variadic: false,
-                default: None,
-                span: Span::default(),
+                variadic: false, default: None, span: Span::default(),
             }],
             return_type: Some("void".to_string()),
-            body: body_stmts,
-            span: Span::default(),
+            body: body_stmts, span: Span::default(),
         }));
         par_fn_names.insert(t.fn_name.clone());
     }
-
-    // Apply replacements before prepending (t.idx still valid for original positions).
     for t in &transforms {
-        if let Item::Statement(Statement::Raw(raw)) = &mut program.items[t.idx] {
+        if let Item::Statement(Statement::Raw(raw)) = &mut items[t.idx] {
             raw.stmt = Some(make_par_foreach_stmt(&t.arr_expr, &t.fn_name));
         }
     }
+}
 
-    // Prepend synthetic functions in declaration order.
-    for fn_item in new_fn_items.into_iter().rev() {
-        program.items.insert(0, fn_item);
+fn apply_purity_pass_to_body(
+    body: &mut Vec<Statement>,
+    pure_ns: &HashSet<(&'static str, &'static str)>,
+    counter: &mut u32,
+    par_fn_names: &mut HashSet<String>,
+    new_fns: &mut Vec<Item>,
+) {
+    struct Transform {
+        idx: usize,
+        arr_expr: Expr,
+        body_stmt: Stmt,
+        loop_var: String,
+        fn_name: String,
     }
-
-    par_fn_names
+    let mut transforms: Vec<Transform> = Vec::new();
+    for (idx, stmt) in body.iter().enumerate() {
+        let Statement::Raw(raw) = stmt;
+        let Some(Stmt::ForOf(for_of)) = raw.stmt.as_ref() else { continue };
+        if for_of.is_await { continue; }
+        let loop_var = match &for_of.left {
+            ForHead::VarDecl(vd) => {
+                if vd.decls.len() != 1 { continue; }
+                match &vd.decls[0].name {
+                    Pat::Ident(id) => id.sym.as_str().to_string(),
+                    _ => continue,
+                }
+            }
+            _ => continue,
+        };
+        if !analyze_for_of_body_pure(&for_of.body, &loop_var, pure_ns) { continue; }
+        let fn_name = format!("__par_forof_{counter}");
+        *counter += 1;
+        transforms.push(Transform {
+            idx, arr_expr: for_of.right.as_ref().clone(),
+            body_stmt: for_of.body.as_ref().clone(),
+            loop_var, fn_name,
+        });
+    }
+    if transforms.is_empty() { return; }
+    for t in &transforms {
+        let body_stmts = vec![Statement::Raw(
+            RawStmt::new("<par-forof>".to_string(), Span::default())
+                .with_stmt(t.body_stmt.clone()),
+        )];
+        new_fns.push(Item::Function(FunctionDecl {
+            name: t.fn_name.clone(),
+            parameters: vec![Parameter {
+                name: t.loop_var.clone(),
+                type_annotation: Some("i64".to_string()),
+                modifiers: MemberModifiers::default(),
+                variadic: false, default: None, span: Span::default(),
+            }],
+            return_type: Some("void".to_string()),
+            body: body_stmts, span: Span::default(),
+        }));
+        par_fn_names.insert(t.fn_name.clone());
+    }
+    for t in &transforms {
+        let Statement::Raw(raw) = &mut body[t.idx];
+        raw.stmt = Some(make_par_foreach_stmt(&t.arr_expr, &t.fn_name));
+    }
 }
 
 /// Lifts inline `() => { ... }` arrow expressions that appear as `I64`-typed
