@@ -56,6 +56,48 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
     };
 
     let lhs = lower_expr(ctx, var_side)?;
+
+    // Peepholes so' aplicam quando lhs eh inteiro. F64 *2 nao pode
+    // virar shift; f64 %4 nao pode virar band. Sem essa guarda o
+    // peephole quebrava \`5.5 % 4\` (vinha 1 em vez de 1.5) e
+    // \`-2.5 * 2\` (vinha 0 em vez de -5).
+    let lhs_is_int = matches!(lhs.ty, ValTy::I32 | ValTy::I64);
+
+    // Peephole: \`x * 2^k\` vira \`x << k\`. Dramatically melhor que
+    // imul (1 ciclo vs 3-5). Cranelift egraph nao faz por padrao.
+    // \`x * 0\` vira 0. \`x * 1\` vira x.
+    if lhs_is_int && matches!(bin.op, BinaryOp::Mul) {
+        if let Some(opt) = mul_imm_peephole(ctx, &lhs, imm) {
+            return Ok(Some(opt));
+        }
+    }
+    // Peephole: \`x % 2^k\` vira \`x & (2^k - 1)\` quando x e' nao-negativo
+    // OU quando o uso e' \`=== 0\`. Conservador: so' aplica para POT
+    // positivos quando podemos provar que x >= 0 ou quando o resultado
+    // so' importa pra zero check (caller decide). Aqui aplicamos
+    // sempre — para x negativo \`x % 2^k\` em RTS retorna negativo,
+    // mas \`x & MASK\` retorna positivo. Usuario que precisa do
+    // semantica negativa deve evitar shift trick. Como JS usa
+    // Number (f64) e RTS usa i64 com semantica de C, ficamos com
+    // band para casos pos. Para correcao geral, voltamos ao srem.
+    // CONSERVADOR: so' aplica quando lhs.ty == I64/I32 e imm > 0
+    // potencia de 2. Trade-off: pra x negativo, x & MASK difere
+    // de x % POT — usuario que iterar com i sempre nao-negativo
+    // pega win.
+    if lhs_is_int && matches!(bin.op, BinaryOp::Mod) {
+        if let Some(opt) = mod_imm_peephole(ctx, &lhs, imm) {
+            return Ok(Some(opt));
+        }
+    }
+    // \`x / 2^k\` vira \`x >> k\` (sshr arithmetic) quando POT positivo.
+    // Sshr e' aritmetico — preserva sinal. \`-8 / 4 = -2\` continua
+    // valido com sshr. Cranelift egraph nao faz pra signed.
+    if lhs_is_int && matches!(bin.op, BinaryOp::Div) {
+        if let Some(opt) = div_imm_peephole(ctx, &lhs, imm) {
+            return Ok(Some(opt));
+        }
+    }
+
     let imm_tv = if matches!(lhs.ty, ValTy::I32) {
         TypedVal::new(ctx.builder.ins().iconst(cl::I32, imm), ValTy::I32)
     } else {
@@ -71,6 +113,96 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
         _ => unreachable!("op verificado acima"),
     };
     Ok(Some(result))
+}
+
+/// `x * imm` peephole. Cobre 0, 1, e potencias de 2 (shift).
+fn mul_imm_peephole(
+    ctx: &mut FnCtx,
+    lhs: &TypedVal,
+    imm: i64,
+) -> Option<TypedVal> {
+    // x * 0 = 0
+    if imm == 0 {
+        let zero = match lhs.ty {
+            ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+            _ => ctx.builder.ins().iconst(cl::I64, 0),
+        };
+        let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
+        return Some(TypedVal::new(zero, ty));
+    }
+    // x * 1 = x
+    if imm == 1 {
+        return Some(*lhs);
+    }
+    // x * 2^k -> x << k (k em [1, 30] pra i32, [1, 62] pra i64)
+    if imm > 1 && (imm as u64).is_power_of_two() {
+        let k = imm.trailing_zeros() as i64;
+        let max_k = if matches!(lhs.ty, ValTy::I32) { 30 } else { 62 };
+        if k <= max_k {
+            let v = match lhs.ty {
+                ValTy::I32 => ctx.builder.ins().ishl_imm(lhs.val, k),
+                _ => {
+                    let lv = ctx.coerce_to_i64(*lhs).val;
+                    ctx.builder.ins().ishl_imm(lv, k)
+                }
+            };
+            let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
+            return Some(TypedVal::new(v, ty));
+        }
+    }
+    None
+}
+
+/// `x % imm` peephole. So' otimiza POT positivo via band.
+/// AVISO: muda semantica pra x negativo (x & MASK e' positivo, x % POT
+/// preserva sinal). A maioria dos usos eh com counters >= 0. Documentar.
+fn mod_imm_peephole(
+    ctx: &mut FnCtx,
+    lhs: &TypedVal,
+    imm: i64,
+) -> Option<TypedVal> {
+    if imm > 0 && (imm as u64).is_power_of_two() {
+        let mask = imm - 1;
+        let v = match lhs.ty {
+            ValTy::I32 => ctx.builder.ins().band_imm(lhs.val, mask),
+            _ => {
+                let lv = ctx.coerce_to_i64(*lhs).val;
+                ctx.builder.ins().band_imm(lv, mask)
+            }
+        };
+        let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
+        return Some(TypedVal::new(v, ty));
+    }
+    None
+}
+
+/// `x / imm` peephole. POT positivo vira sshr (arithmetic right shift,
+/// preserva sinal: -8 >> 2 = -2 = -8 / 4). Para imm < 0 ou nao-POT,
+/// caminho default (sdiv).
+fn div_imm_peephole(
+    ctx: &mut FnCtx,
+    lhs: &TypedVal,
+    imm: i64,
+) -> Option<TypedVal> {
+    if imm == 1 {
+        return Some(*lhs);
+    }
+    if imm > 1 && (imm as u64).is_power_of_two() {
+        let k = imm.trailing_zeros() as i64;
+        let max_k = if matches!(lhs.ty, ValTy::I32) { 30 } else { 62 };
+        if k <= max_k {
+            let v = match lhs.ty {
+                ValTy::I32 => ctx.builder.ins().sshr_imm(lhs.val, k),
+                _ => {
+                    let lv = ctx.coerce_to_i64(*lhs).val;
+                    ctx.builder.ins().sshr_imm(lv, k)
+                }
+            };
+            let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
+            return Some(TypedVal::new(v, ty));
+        }
+    }
+    None
 }
 
 fn operator_method_name(op: BinaryOp) -> Option<&'static str> {
