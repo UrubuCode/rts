@@ -1547,6 +1547,60 @@ fn lower_array_builtin(
             let tv = lower_expr(ctx, &arg.expr)?;
             let v = ctx.coerce_to_i64(tv).val;
             ctx.builder.ins().call(push_fn, &[obj_h, v]);
+            // JS: push retorna novo length.
+            let len_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(len_fn, &[obj_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "pop" => {
+            // JS: retorna o ultimo elemento (ou undefined). v0 retorna 0 quando vazio.
+            let pop_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_POP",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(pop_fn, &[obj_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "length" | "size" => {
+            // length/size sao property em JS, mas v0 aceita como method call
+            // (`arr.length()`) ate ter property access em handles.
+            if !call.args.is_empty() {
+                return Ok(None);
+            }
+            let len_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(len_fn, &[obj_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "at" => {
+            // Negative indexing seria mais complexo; v0 so aceita non-negative.
+            let idx_arg = call.args.first().ok_or_else(|| anyhow!("at requires index"))?;
+            let tv = lower_expr(ctx, &idx_arg.expr)?;
+            let idx = ctx.coerce_to_i64(tv).val;
+            let get_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(get_fn, &[obj_h, idx]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "clear" => {
+            let fref =
+                ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", &[cl::I64], None)?;
+            ctx.builder.ins().call(fref, &[obj_h]);
             Ok(Some(TypedVal::new(
                 ctx.builder.ins().iconst(cl::I64, 0),
                 ValTy::I64,
