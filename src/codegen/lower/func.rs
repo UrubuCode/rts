@@ -167,6 +167,147 @@ fn make_par_foreach_stmt(arr_expr: &Expr, fn_name: &str) -> Stmt {
     })
 }
 
+/// Level-1 silent array methods: reescreve `arr.map(fn)`,
+/// `arr.forEach(fn)`, `arr.reduce(fn, init)` para `parallel.map(arr, fn)`,
+/// `parallel.for_each(arr, fn)`, `parallel.reduce(arr, init, fn)` quando
+/// `fn` e um Ident apontando pra uma user fn top-level.
+///
+/// Visita todos os statements do programa (top-level e bodies de fns)
+/// e reescreve os MemberExpr.Call qualificados.
+///
+/// Nao requer purity check no codegen — o user esta usando a sintaxe
+/// JS standard. Se a fn tiver side effects, o resultado paralelo
+/// pode ser nao-deterministico (ex: console.log). E responsabilidade
+/// do user passar fn pure quando quer behavior consistente.
+fn array_methods_pass(program: &mut Program) {
+    // Coleta nomes de user fns top-level pra validar que o arg e ident
+    // de user fn (caso contrario fica serial — pode ser arrow inline
+    // que ja e lifted por outros passes).
+    let user_fn_names: HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(f) => Some(f.name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    // Visita top-level statements.
+    let n_items = program.items.len();
+    for i in 0..n_items {
+        let Item::Statement(Statement::Raw(raw)) = &mut program.items[i] else { continue };
+        if let Some(stmt) = raw.stmt.as_mut() {
+            rewrite_array_methods_in_stmt(stmt, &user_fn_names);
+        }
+    }
+
+    // Visita body de cada user fn.
+    let fn_indices: Vec<usize> = program.items.iter().enumerate()
+        .filter_map(|(i, it)| if matches!(it, Item::Function(_)) { Some(i) } else { None })
+        .collect();
+    for i in fn_indices {
+        if let Item::Function(f) = &mut program.items[i] {
+            for stmt_raw in &mut f.body {
+                let Statement::Raw(raw) = stmt_raw;
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    rewrite_array_methods_in_stmt(stmt, &user_fn_names);
+                }
+            }
+        }
+    }
+}
+
+fn rewrite_array_methods_in_stmt(stmt: &mut Stmt, user_fn_names: &HashSet<String>) {
+    match stmt {
+        Stmt::Expr(e) => rewrite_array_methods_in_expr(&mut e.expr, user_fn_names),
+        Stmt::Decl(Decl::Var(vd)) => {
+            for d in &mut vd.decls {
+                if let Some(init) = d.init.as_deref_mut() {
+                    rewrite_array_methods_in_expr(init, user_fn_names);
+                }
+            }
+        }
+        Stmt::Return(r) => {
+            if let Some(arg) = r.arg.as_deref_mut() {
+                rewrite_array_methods_in_expr(arg, user_fn_names);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String>) {
+    // Recursa em sub-expressoes simples primeiro.
+    if let Expr::Call(call) = expr {
+        if let Callee::Expr(callee) = &call.callee {
+            if let Expr::Member(m) = callee.as_ref() {
+                if let MemberProp::Ident(prop) = &m.prop {
+                    let method = prop.sym.as_str();
+                    let arg0_is_user_fn = call.args.first()
+                        .and_then(|a| match a.expr.as_ref() {
+                            Expr::Ident(i) => Some(i.sym.to_string()),
+                            _ => None,
+                        })
+                        .map(|n| user_fn_names.contains(&n))
+                        .unwrap_or(false);
+
+                    let target_method: Option<&str> = match method {
+                        "map" if call.args.len() == 1 && arg0_is_user_fn => Some("map"),
+                        "forEach" if call.args.len() == 1 && arg0_is_user_fn => Some("for_each"),
+                        // arr.reduce(fn, init) — 2 args: fn primeiro,
+                        // init segundo. parallel.reduce(arr, init, fn).
+                        "reduce" if call.args.len() == 2 && arg0_is_user_fn => Some("reduce"),
+                        _ => None,
+                    };
+
+                    if let Some(par_method) = target_method {
+                        let arr_expr = (*m.obj).clone();
+                        let fn_arg = call.args[0].expr.clone();
+                        let new_args: Vec<swc_ecma_ast::ExprOrSpread> = if par_method == "reduce" {
+                            // parallel.reduce(arr, init, fn)
+                            let init_arg = call.args[1].expr.clone();
+                            vec![
+                                swc_ecma_ast::ExprOrSpread { spread: None, expr: Box::new(arr_expr) },
+                                swc_ecma_ast::ExprOrSpread { spread: None, expr: init_arg },
+                                swc_ecma_ast::ExprOrSpread { spread: None, expr: fn_arg },
+                            ]
+                        } else {
+                            // parallel.map / for_each (arr, fn)
+                            vec![
+                                swc_ecma_ast::ExprOrSpread { spread: None, expr: Box::new(arr_expr) },
+                                swc_ecma_ast::ExprOrSpread { spread: None, expr: fn_arg },
+                            ]
+                        };
+                        // Reescreve o call: callee = parallel.<par_method>, args = new_args
+                        *call = swc_ecma_ast::CallExpr {
+                            span: call.span,
+                            ctxt: call.ctxt,
+                            callee: Callee::Expr(Box::new(Expr::Member(swc_ecma_ast::MemberExpr {
+                                span: Default::default(),
+                                obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                                    span: Default::default(), ctxt: Default::default(),
+                                    sym: "parallel".into(), optional: false,
+                                })),
+                                prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                                    span: Default::default(),
+                                    sym: par_method.to_string().into(),
+                                }),
+                            }))),
+                            args: new_args,
+                            type_args: None,
+                        };
+                        return;
+                    }
+                }
+            }
+        }
+        // Se nao reescreveu, recursa nos args + callee.
+        for a in &mut call.args {
+            rewrite_array_methods_in_expr(&mut a.expr, user_fn_names);
+        }
+    }
+}
+
 /// Level-1 silent reduce: detecta padrao
 ///
 ///     let acc = INIT;
@@ -3496,6 +3637,7 @@ pub fn compile_program(
     extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
+    array_methods_pass(program);
     let mut par_fn_names = reduce_pass(program);
     par_fn_names.extend(purity_pass(program));
     let lifted_needs_c_callconv = lift_arrow_callbacks(program);
