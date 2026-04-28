@@ -84,6 +84,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return lower_ns_call(ctx, &target, call);
                 }
             }
+            // Date global (#220): Date.now() → date.now_ms,
+            // Date.parse(s) → date.from_iso. v0 expoe primitivas
+            // sobre i64 (ts_ms); construtor `new Date(...)` e
+            // getters de instancia ficam follow-up.
+            if let Some(method) = qualified.strip_prefix("Date.") {
+                let target = match method {
+                    "now" => "date.now_ms",
+                    "parse" => "date.from_iso",
+                    _ => "",
+                };
+                if !target.is_empty() && lookup(target).is_some() {
+                    return lower_ns_call(ctx, target, call);
+                }
+            }
             // Fallback: ident.fn(...) onde ident e var (ex: namespace TS
             // desugared para const Foo = { ... }). Faz map_get pela key
             // e despacha via call_indirect.

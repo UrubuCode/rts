@@ -192,6 +192,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_JSON_OBJECT_GET", __RTS_FN_NS_JSON_OBJECT_GET);
     add_fn!("__RTS_FN_NS_JSON_OBJECT_HAS", __RTS_FN_NS_JSON_OBJECT_HAS);
 
+    // ── namespaces::date ──────────────────────────────────────────────
+    use crate::namespaces::date::ops::*;
+    add_fn!("__RTS_FN_NS_DATE_NOW_MS", __RTS_FN_NS_DATE_NOW_MS);
+    add_fn!("__RTS_FN_NS_DATE_FROM_ISO", __RTS_FN_NS_DATE_FROM_ISO);
+    add_fn!("__RTS_FN_NS_DATE_FROM_PARTS", __RTS_FN_NS_DATE_FROM_PARTS);
+    add_fn!("__RTS_FN_NS_DATE_YEAR", __RTS_FN_NS_DATE_YEAR);
+    add_fn!("__RTS_FN_NS_DATE_MONTH", __RTS_FN_NS_DATE_MONTH);
+    add_fn!("__RTS_FN_NS_DATE_DAY", __RTS_FN_NS_DATE_DAY);
+    add_fn!("__RTS_FN_NS_DATE_WEEKDAY", __RTS_FN_NS_DATE_WEEKDAY);
+    add_fn!("__RTS_FN_NS_DATE_HOUR", __RTS_FN_NS_DATE_HOUR);
+    add_fn!("__RTS_FN_NS_DATE_MINUTE", __RTS_FN_NS_DATE_MINUTE);
+    add_fn!("__RTS_FN_NS_DATE_SECOND", __RTS_FN_NS_DATE_SECOND);
+    add_fn!("__RTS_FN_NS_DATE_MILLISECOND", __RTS_FN_NS_DATE_MILLISECOND);
+    add_fn!("__RTS_FN_NS_DATE_TO_ISO", __RTS_FN_NS_DATE_TO_ISO);
+
     // ── namespaces::fs ────────────────────────────────────────────────
     use crate::namespaces::fs::*;
     add_fn!("__RTS_FN_NS_FS_READ", read::__RTS_FN_NS_FS_READ);

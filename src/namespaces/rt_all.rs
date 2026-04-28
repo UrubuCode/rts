@@ -2,6 +2,10 @@
 pub mod gc;
 #[path = "io/rt.rs"]
 pub mod io;
+#[path = "json/rt.rs"]
+pub mod json;
+#[path = "date/rt.rs"]
+pub mod date;
 #[path = "fs/rt.rs"]
 pub mod fs;
 #[path = "math/rt.rs"]

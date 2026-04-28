@@ -120,6 +120,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/gc/");
     println!("cargo:rerun-if-changed=src/namespaces/io/");
     println!("cargo:rerun-if-changed=src/namespaces/json/");
+    println!("cargo:rerun-if-changed=src/namespaces/date/");
     println!("cargo:rerun-if-changed=src/namespaces/fs/");
     println!("cargo:rerun-if-changed=src/namespaces/math/");
     println!("cargo:rerun-if-changed=src/namespaces/num/");

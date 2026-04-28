@@ -205,6 +205,60 @@ declare module "rts" {
   }
 
   /**
+   * Calendar primitives backing the JS Date object — operam sobre ms desde Unix epoch (UTC).
+   */
+  export namespace date {
+    /**
+     * Current Unix timestamp in milliseconds (UTC).
+     */
+    export function now_ms(): number;
+    /**
+     * Parses ISO 8601 (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS.mmmZ). i64::MIN on parse error.
+     */
+    export function from_iso(text: string): number;
+    /**
+     * Composes ms-since-epoch from calendar fields (UTC). Month is 0-indexed (JS convention).
+     */
+    export function from_parts(y: number, mo: number, d: number, h: number, mi: number, s: number, ms: number): number;
+    /**
+     * Full year (UTC).
+     */
+    export function year(ts: number): number;
+    /**
+     * Month 0-indexed (UTC). Jan=0, Dec=11.
+     */
+    export function month(ts: number): number;
+    /**
+     * Day of month 1-31 (UTC).
+     */
+    export function day(ts: number): number;
+    /**
+     * Day of week (UTC). Sunday=0, Saturday=6.
+     */
+    export function weekday(ts: number): number;
+    /**
+     * Hour 0-23 (UTC).
+     */
+    export function hour(ts: number): number;
+    /**
+     * Minute 0-59 (UTC).
+     */
+    export function minute(ts: number): number;
+    /**
+     * Second 0-59 (UTC).
+     */
+    export function second(ts: number): number;
+    /**
+     * Millisecond 0-999 (UTC).
+     */
+    export function millisecond(ts: number): number;
+    /**
+     * Returns ISO 8601 UTC string (YYYY-MM-DDTHH:MM:SS.mmmZ).
+     */
+    export function to_iso(ts: number): string;
+  }
+
+  /**
    * Filesystem operations backed by std::fs.
    */
   export namespace fs {
@@ -2202,6 +2256,75 @@ declare module "rts:json" {
     array_get: (typeof import("rts"))["json"]["array_get"];
     object_get: (typeof import("rts"))["json"]["object_get"];
     object_has: (typeof import("rts"))["json"]["object_has"];
+  };
+  export default _default;
+}
+
+declare module "rts:date" {
+  /**
+   * Calendar primitives backing the JS Date object — operam sobre ms desde Unix epoch (UTC).
+   */
+  /**
+   * Current Unix timestamp in milliseconds (UTC).
+   */
+  export function now_ms(): number;
+  /**
+   * Parses ISO 8601 (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS.mmmZ). i64::MIN on parse error.
+   */
+  export function from_iso(text: string): number;
+  /**
+   * Composes ms-since-epoch from calendar fields (UTC). Month is 0-indexed (JS convention).
+   */
+  export function from_parts(y: number, mo: number, d: number, h: number, mi: number, s: number, ms: number): number;
+  /**
+   * Full year (UTC).
+   */
+  export function year(ts: number): number;
+  /**
+   * Month 0-indexed (UTC). Jan=0, Dec=11.
+   */
+  export function month(ts: number): number;
+  /**
+   * Day of month 1-31 (UTC).
+   */
+  export function day(ts: number): number;
+  /**
+   * Day of week (UTC). Sunday=0, Saturday=6.
+   */
+  export function weekday(ts: number): number;
+  /**
+   * Hour 0-23 (UTC).
+   */
+  export function hour(ts: number): number;
+  /**
+   * Minute 0-59 (UTC).
+   */
+  export function minute(ts: number): number;
+  /**
+   * Second 0-59 (UTC).
+   */
+  export function second(ts: number): number;
+  /**
+   * Millisecond 0-999 (UTC).
+   */
+  export function millisecond(ts: number): number;
+  /**
+   * Returns ISO 8601 UTC string (YYYY-MM-DDTHH:MM:SS.mmmZ).
+   */
+  export function to_iso(ts: number): string;
+  const _default: {
+    now_ms: (typeof import("rts"))["date"]["now_ms"];
+    from_iso: (typeof import("rts"))["date"]["from_iso"];
+    from_parts: (typeof import("rts"))["date"]["from_parts"];
+    year: (typeof import("rts"))["date"]["year"];
+    month: (typeof import("rts"))["date"]["month"];
+    day: (typeof import("rts"))["date"]["day"];
+    weekday: (typeof import("rts"))["date"]["weekday"];
+    hour: (typeof import("rts"))["date"]["hour"];
+    minute: (typeof import("rts"))["date"]["minute"];
+    second: (typeof import("rts"))["date"]["second"];
+    millisecond: (typeof import("rts"))["date"]["millisecond"];
+    to_iso: (typeof import("rts"))["date"]["to_iso"];
   };
   export default _default;
 }

@@ -4081,6 +4081,18 @@ fn infer_abi_member_ty(expr: &Expr) -> Option<ValTy> {
             return Some(ValTy::from_abi(member.returns));
         }
     }
+    if let Some(method) = qualified.strip_prefix("Date.") {
+        let target = match method {
+            "now" => "date.now_ms",
+            "parse" => "date.from_iso",
+            _ => "",
+        };
+        if !target.is_empty() {
+            if let Some((_, member)) = crate::abi::lookup(target) {
+                return Some(ValTy::from_abi(member.returns));
+            }
+        }
+    }
     None
 }
 

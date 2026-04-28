@@ -11,6 +11,7 @@ pub mod bigfloat;
 pub mod buffer;
 pub mod collections;
 pub mod crypto;
+pub mod date;
 pub mod env;
 pub mod fmt;
 pub mod ffi;
