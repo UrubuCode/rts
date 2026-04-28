@@ -16,6 +16,12 @@ pub(super) fn lower_if_stmt(ctx: &mut FnCtx, if_stmt: &swc_ecma_ast::IfStmt) -> 
         if let Some(()) = try_lower_if_to_select(ctx, if_stmt)? {
             return Ok(false);
         }
+    } else {
+        // Pattern \`if (cond) { return A; } else { return B; }\` vira
+        // \`return select(cond, A, B);\`. Elimina branch + dois returns.
+        if let Some(terminated) = try_lower_if_else_return_to_select(ctx, if_stmt)? {
+            return Ok(terminated);
+        }
     }
 
     let cond = lower_expr(ctx, &if_stmt.test)?;
@@ -63,6 +69,62 @@ pub(super) fn lower_if_stmt(ctx: &mut FnCtx, if_stmt: &swc_ecma_ast::IfStmt) -> 
         ctx.builder.seal_block(merge_block);
         Ok(false)
     }
+}
+
+/// Tenta lower \`if (cond) { return A; } else { return B; }\` como
+/// \`return select(cond, A, B);\`. A e B devem ser pure (literals,
+/// idents, binops, unarys puros). Elimina branch — return unico.
+fn try_lower_if_else_return_to_select(
+    ctx: &mut FnCtx,
+    if_stmt: &swc_ecma_ast::IfStmt,
+) -> Result<Option<bool>> {
+    use swc_ecma_ast::Stmt;
+    let Some(alt) = if_stmt.alt.as_ref() else { return Ok(None) };
+    // Body de cada lado deve ser exatamente \`return <expr>\`.
+    fn extract_return(stmt: &Stmt) -> Option<&swc_ecma_ast::Expr> {
+        match stmt {
+            Stmt::Return(r) => r.arg.as_deref(),
+            Stmt::Block(b) if b.stmts.len() == 1 => {
+                if let Stmt::Return(r) = &b.stmts[0] {
+                    r.arg.as_deref()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+    let Some(cons_expr) = extract_return(&if_stmt.cons) else { return Ok(None) };
+    let Some(alt_expr) = extract_return(alt) else { return Ok(None) };
+    if !is_pure_for_select(cons_expr) || !is_pure_for_select(alt_expr) {
+        return Ok(None);
+    }
+
+    // Lower no fluxo atual sem branch.
+    let cond = lower_expr(ctx, &if_stmt.test)?;
+    let cond_val = ctx.to_branch_cond(cond);
+
+    let cons_tv = lower_expr(ctx, cons_expr)?;
+    let alt_tv = lower_expr(ctx, alt_expr)?;
+
+    // Coerce ambos pro mesmo tipo (igual ao caminho de return normal).
+    let ret_ty = ctx.return_ty.unwrap_or(crate::codegen::lower::ctx::ValTy::I64);
+    let cons_v = match ret_ty {
+        crate::codegen::lower::ctx::ValTy::I32 => ctx.coerce_to_i32(cons_tv).val,
+        crate::codegen::lower::ctx::ValTy::F64 => ctx.coerce_to_f64(cons_tv).val,
+        _ => ctx.coerce_to_i64(cons_tv).val,
+    };
+    let alt_v = match ret_ty {
+        crate::codegen::lower::ctx::ValTy::I32 => ctx.coerce_to_i32(alt_tv).val,
+        crate::codegen::lower::ctx::ValTy::F64 => ctx.coerce_to_f64(alt_tv).val,
+        _ => ctx.coerce_to_i64(alt_tv).val,
+    };
+
+    let result = ctx.builder.ins().select(cond_val, cons_v, alt_v);
+    ctx.builder.ins().return_(&[result]);
+    // Sinaliza que o block esta terminated (caller nao precisa emitir
+    // jump pro merge nem fallthrough).
+    Ok(Some(true))
 }
 
 /// Tenta lower \`if (cond) { var = var <op> rhs; }\` (sem else) como

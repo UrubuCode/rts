@@ -1791,11 +1791,10 @@ fn lower_intrinsic(
             };
             let ptr_ty = ctx.module.isa().pointer_type();
             let cur_block = ctx.builder.current_block();
-            // Reusa x3 anterior se ainda no mesmo block: salta load.
-            // Cranelift egraph deveria CSE \`global_value gv0\` mas
-            // observado no IR, ele nao deduplica entre call sites
-            // (provavelmente porque o load intermediario forma uma
-            // depencia). Reuso explicito do SSA elimina reload.
+            // Reusa x3 anterior se ainda no mesmo block: salta load
+            // E pula o store da call anterior (dead store — overwrite
+            // imediato). Em hot loops com 2+ random_f64() consecutivos,
+            // isso elimina N-1 stores (so' o ultimo do block fica).
             let (ptr, x0) = if let (Some(blk), Some((cached_blk, cached_ptr, cached_x3))) =
                 (cur_block, ctx.rng_state_cached)
             {
