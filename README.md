@@ -10,8 +10,36 @@ os namespaces builtin. Ha dois caminhos de execucao:
 - **AOT** (`rts compile`) — emite object file, linka com o linker do sistema,
   produz executavel standalone.
 
-Namespaces ativos (16): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
-`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`.
+Namespaces ativos (32): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
+`path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
+`net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`,
+`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`. Cobre `std::*`, paralelismo,
+HTTPS, UI nativa.
+
+## Silent parallelism (zero esforço do user)
+
+```ts
+// User escreve isso:
+const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let sum = 0;
+for (const x of arr) {
+  sum = sum + x;
+}
+// Compilador detecta o padrão e roda em paralelo via rayon:
+//   sum = parallel.reduce(arr, 0, __par_reduce_0);
+```
+
+Funciona pra `for...of` puros, `arr.map(fn)`/`.forEach(fn)`/`.reduce(fn, init)`,
+e o padrão clássico de acumulador. Cobre top-level e bodies de fns. Detalhes
+em `CLAUDE.md` § Silent parallelism.
+
+## Stack runtime
+
+- **TCP/UDP** via `net.*` — `std::net` puro, sem deps externas
+- **HTTPS** via `tls.*` — `rustls` + `webpki-roots` (pure Rust, single binary)
+- **Threading** via `thread/atomic/sync/parallel` — `std::thread` + `std::sync` +
+  `rayon`. HandleTable shard-aware (32 shards lock-free entre si)
+- **UI nativa** via `ui.*` — FLTK 1.x bindings
 
 **Observação de perf (Windows, `rts_simple.ts`, 10 runs):**
 

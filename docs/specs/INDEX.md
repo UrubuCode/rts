@@ -9,6 +9,11 @@ arquiteturais. Para direcao de alto nivel do projeto consulte
 - [Como criar um namespace](namespace-creation-guide.md) — Processo atual
   baseado em `src/abi/` (SPECS centralizado, simbolos `__RTS_FN_NS_*`,
   `AbiType`). Reflete a branch `feat/remake-namespaces`.
+- [Silent parallelism (Level-1)](silent-parallelism.md) — Como o codegen
+  detecta padroes `for...of`, reduces, e `arr.map/forEach/reduce` e
+  reescreve transparentemente para `parallel.*`. Pipeline dos 3 passes,
+  criterio de pureza, infra de suporte (HandleTable shard-aware,
+  callconv), limitacoes.
 
 ## Historico / pendente de reescrita
 
