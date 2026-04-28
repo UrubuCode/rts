@@ -12,7 +12,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um i64 (= 8).",
         ts_signature: "size_of_i64: number",
         intrinsic: None,
-        pure: false,
+        pure: true,
     },
     NamespaceMember {
         name: "size_of_f64",
@@ -23,7 +23,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um f64 (= 8).",
         ts_signature: "size_of_f64: number",
         intrinsic: None,
-        pure: false,
+        pure: true,
     },
     NamespaceMember {
         name: "size_of_i32",
@@ -34,7 +34,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um i32 (= 4).",
         ts_signature: "size_of_i32: number",
         intrinsic: None,
-        pure: false,
+        pure: true,
     },
     NamespaceMember {
         name: "size_of_bool",
@@ -45,7 +45,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Tamanho em bytes de um bool (= 1).",
         ts_signature: "size_of_bool: number",
         intrinsic: None,
-        pure: false,
+        pure: true,
     },
     NamespaceMember {
         name: "align_of_i64",
@@ -56,7 +56,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Alinhamento de i64 (= 8).",
         ts_signature: "align_of_i64: number",
         intrinsic: None,
-        pure: false,
+        pure: true,
     },
     NamespaceMember {
         name: "align_of_f64",
@@ -67,7 +67,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Alinhamento de f64 (= 8).",
         ts_signature: "align_of_f64: number",
         intrinsic: None,
-        pure: false,
+        pure: true,
     },
     NamespaceMember {
         name: "swap_i64",
@@ -78,7 +78,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Retorna `b` (use idiom: `let old = mem.swap_i64(a, b)`).",
         ts_signature: "swap_i64(a: number, b: number): number",
         intrinsic: None,
-        pure: false,
+        pure: true,
     },
     NamespaceMember {
         name: "drop_handle",
