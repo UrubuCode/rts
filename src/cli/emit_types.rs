@@ -160,12 +160,16 @@ pub fn check(path: &Path) -> Result<()> {
     let actual = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    if actual == expected {
+    // Normaliza CRLF→LF: o checkout no Windows pode reescrever line
+    // endings (autocrlf), mas `generate()` sempre emite `\n`. Sem isso
+    // o test falha apos checkout fresh em maquinas Windows.
+    let actual_norm = actual.replace("\r\n", "\n");
+    if actual_norm == expected {
         return Ok(());
     }
 
     // Report first diverging line for a quick diagnosis.
-    for (i, (a, e)) in actual.lines().zip(expected.lines()).enumerate() {
+    for (i, (a, e)) in actual_norm.lines().zip(expected.lines()).enumerate() {
         if a != e {
             anyhow::bail!(
                 "{} is out of sync with SPECS (first diff at line {}):\n  committed: {a:?}\n  generated: {e:?}\nRun `rts emit-types` to regenerate.",
@@ -175,7 +179,7 @@ pub fn check(path: &Path) -> Result<()> {
         }
     }
 
-    let al = actual.lines().count();
+    let al = actual_norm.lines().count();
     let el = expected.lines().count();
     anyhow::bail!(
         "{} is out of sync with SPECS (committed {} lines, generated {} lines).\nRun `rts emit-types` to regenerate.",

@@ -492,7 +492,7 @@ mod tests {
                 .with_suggestion("voce quis dizer 'print'?"),
         );
         let out = engine.render_all(false);
-        assert!(out.contains("sugestao"));
+        assert!(out.contains("suggestion"));
         assert!(out.contains("print"));
     }
 }
