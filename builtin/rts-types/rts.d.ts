@@ -504,6 +504,14 @@ declare module "rts" {
      * Bytes invertidos (endianness flip).
      */
     export function swap_bytes(a: number): number;
+    /**
+     * Reinterpreta os bits de um i64 como f64 (bit-cast). Util pra recuperar f64 de canais que so passam i64 (ex: thread.spawn arg).
+     */
+    export function f64_from_bits(bits: number): number;
+    /**
+     * Reinterpreta os bits de um f64 como i64 (bit-cast). Util pra serializar f64 em canais i64-only.
+     */
+    export function f64_to_bits(value: number): number;
   }
 
   /**
@@ -2496,6 +2504,14 @@ declare module "rts:num" {
    * Bytes invertidos (endianness flip).
    */
   export function swap_bytes(a: number): number;
+  /**
+   * Reinterpreta os bits de um i64 como f64 (bit-cast). Util pra recuperar f64 de canais que so passam i64 (ex: thread.spawn arg).
+   */
+  export function f64_from_bits(bits: number): number;
+  /**
+   * Reinterpreta os bits de um f64 como i64 (bit-cast). Util pra serializar f64 em canais i64-only.
+   */
+  export function f64_to_bits(value: number): number;
   const _default: {
     checked_add: (typeof import("rts"))["num"]["checked_add"];
     checked_sub: (typeof import("rts"))["num"]["checked_sub"];
@@ -2518,6 +2534,8 @@ declare module "rts:num" {
     rotate_right: (typeof import("rts"))["num"]["rotate_right"];
     reverse_bits: (typeof import("rts"))["num"]["reverse_bits"];
     swap_bytes: (typeof import("rts"))["num"]["swap_bytes"];
+    f64_from_bits: (typeof import("rts"))["num"]["f64_from_bits"];
+    f64_to_bits: (typeof import("rts"))["num"]["f64_to_bits"];
   };
   export default _default;
 }

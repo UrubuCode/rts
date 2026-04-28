@@ -106,3 +106,15 @@ pub extern "C" fn __RTS_FN_NS_NUM_REVERSE_BITS(a: i64) -> i64 {
 pub extern "C" fn __RTS_FN_NS_NUM_SWAP_BYTES(a: i64) -> i64 {
     a.swap_bytes()
 }
+
+/// Bit-cast i64 → f64. Preserva o bit pattern.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_NUM_F64_FROM_BITS(bits: i64) -> f64 {
+    f64::from_bits(bits as u64)
+}
+
+/// Bit-cast f64 → i64. Preserva o bit pattern.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_NUM_F64_TO_BITS(value: f64) -> i64 {
+    value.to_bits() as i64
+}

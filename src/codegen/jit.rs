@@ -297,6 +297,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
         add_fn!("__RTS_FN_NS_NUM_REVERSE_BITS", n::__RTS_FN_NS_NUM_REVERSE_BITS);
         add_fn!("__RTS_FN_NS_NUM_SWAP_BYTES", n::__RTS_FN_NS_NUM_SWAP_BYTES);
+        add_fn!("__RTS_FN_NS_NUM_F64_FROM_BITS", n::__RTS_FN_NS_NUM_F64_FROM_BITS);
+        add_fn!("__RTS_FN_NS_NUM_F64_TO_BITS", n::__RTS_FN_NS_NUM_F64_TO_BITS);
     }
 
     // ── namespaces::mem ───────────────────────────────────────────────

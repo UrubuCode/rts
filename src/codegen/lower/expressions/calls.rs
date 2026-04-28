@@ -1334,7 +1334,23 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
                 let tv = lower_expr(ctx, &arg.expr)?;
                 values.push(ctx.coerce_to_i32(tv).val)
             }
-            AbiType::I64 | AbiType::U64 | AbiType::Handle | AbiType::Bool => {
+            AbiType::U64 => {
+                // U64 e tipo opaco (handle/ptr/bits brutos). Quando o
+                // input e f64, preservamos o bit-pattern via bitcast
+                // em vez de truncar (fcvt_to_sint_sat) — ex:
+                // `thread.spawn(fp, 3.14)` precisa entregar 3.14 ao
+                // worker, nao 3.
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let v = match tv.ty {
+                    crate::codegen::lower::ctx::ValTy::F64 => {
+                        use cranelift_codegen::ir::MemFlags;
+                        ctx.builder.ins().bitcast(cl::I64, MemFlags::new(), tv.val)
+                    }
+                    _ => ctx.coerce_to_i64(tv).val,
+                };
+                values.push(v)
+            }
+            AbiType::I64 | AbiType::Handle | AbiType::Bool => {
                 let tv = lower_expr(ctx, &arg.expr)?;
                 values.push(ctx.coerce_to_i64(tv).val)
             }
