@@ -23,8 +23,31 @@ ver **Progresso recente** abaixo.
 - **Capacidades TS**: template literals, ternario, bitwise ops, arrow/fn expressions,
   let/const scoping correto, compound assign (#48), `typeof`/`void`/`delete` (#51),
   `??` e optional call (#50), exponentiation (#52)
+- **Branchless if-to-select** (perf): `if (cond) var = expr` vira `select`,
+  Monte Carlo de 114→50ms (41% mais rapido que Bun)
+- **Globais top-level → Variables**: vars top-level nao referenciadas por user fns
+  viram Cranelift Variables; loops 5× mais rapidos
+- **Caches no FnCtx**: data_id, gv (por simbolo + por DataId), fn_ref, RNG state
+  entre calls
+- **Lower duplicado eliminado**: `try_operator_overload` e `try_bin_imm` agora
+  checam pre-condicoes ANTES de emitir IR — em hot loops ate 12 ops duplicadas
+  removidas
+- **f64 lit `1.0` direto** sem conversao I32→F64 (respeita raw do source)
+- **`uextend` redundante** em comparacoes pra brif eliminado
+- **String method dispatch**: `s.indexOf/startsWith/includes/etc` em receiver
+  Handle redirecionam pra namespace `string` (#235 fix de SIGSEGV)
+- **`ValTy::U64`** distinto de `Handle` evita string concat em ptr arith (#237)
+- **Catch param tipado**: `catch (e: Class)` ou inferencia automatica (#214)
+- **Module exports**: `export function/class` + `import { x } from "./mod"` (#213)
+- **Spread**: array spread `[...a, b]` e object spread `{...o, k: v}` (#209)
+- **Destructuring**: array nested + object com rename (#210 parcial)
+- **Map/Set v0**: `new Map()/new Set()` + set/get/has/delete/clear/size (#222)
+- **Array prototype**: push/pop/length/at/clear (#208 v0)
+- **enum** numerico + string (#212)
+- **`.size`/`.length`** property access via `gc.handle_len`
+- **Unreachable code warning** (#205)
 
-### Namespaces novos (13 total)
+### Namespaces novos (35 total)
 - **math** (#20) — 27 membros + 4 constantes (`MemberKind::Constant`)
 - **bigfloat** — decimal fixed-point i128, pi com 29 digitos via Machin
 - **time** (#14) — monotonic clock, wall clock, sleep
@@ -35,27 +58,43 @@ ver **Progresso recente** abaixo.
 - **process** (#15) — exit/abort/pid/spawn/wait/kill
 - **os** (#19) — platform/arch/home_dir/config_dir/cache_dir
 - **collections** (#26) — HashMap<string, i64>, Vec<i64>
+- **net/tls/thread/atomic/sync/parallel/regex/ui/json/date** (mais recentes)
+
+### Builtin globals (sem import explicito)
+- `console.log/error/warn/info/debug` → io.print/eprint (#221)
+- `JSON.parse/stringify` → namespace `json` (#215)
+- `Date.now/parse` → namespace `date` (#220)
 
 ## Backlog priorizado
 
-### Codegen
-- **#97 fases 2/3** — arrow em qualquer posicao + captura imutavel/mutavel (depende #99 ✅)
-- **#96 DWARF** — debug info no ObjectModule (investigacao complexa, ver comentario da issue)
-- **#90 loop block params** — deferred; impl atual ja produz SSA correto via frontend
-- **#92 autovec** — fechada como inviavel (Cranelift nao tem loop vectorizer)
-- **#53 object literals**, **#54 array literals** — grande, desbloqueia classes, destructuring,
-  `Array.prototype.*`
-- **#62 try/catch/throw** — error handling idiomatico
-- **#60/#61 for-of/for-in** — dependem de arrays/objects
+### Codegen / linguagem
+- **#207 async/await + Promise + microtask queue** — maior gate de paridade
+  JS, ~3 meses
+- **#208 prototype chain** — Array/String/Object/Function builtins completos
+  (~80% do npm depende)
+- **#211 generators** — `function*`, `yield`, iteration protocol
+- **#195 closures com env-record real** — substitui promote-to-global,
+  desbloqueia re-entrancia + loop closure
+- **#218 Proxy/Reflect** — handler-based interception
+- **#216 Symbol** + well-known symbols
+- **#219 BigInt** — arbitrary precision (use bigfloat backend)
+- **#202 integer overflow policy** — trap vs wrap (risco quebrar codigo
+  existente)
+- **#96 DWARF** — debug info no ObjectModule
+- **#92 autovec** — fechada como inviavel sem loop vectorizer proprio
 
-### Namespaces pendentes
-- **#23 fmt** — parse + format numerico (printf-like)
-- **#21 hash** — SipHash (std::hash)
-- **#24 crypto** — SHA/HMAC/AEAD (depende #22 ✅)
-- **#28 regex** — pattern matching
-- **#16 net** — TCP/UDP/HTTP (depende #22 ✅)
-- **#17 thread**, **#18 channel**, **#27 sync** — concorrencia
-- **#29-#39** — nicho (ffi, atomic, mem, ptr, num, hint, alloc, task, mpmc, simd, backtrace)
+### Namespaces pendentes / extensoes
+- **#234 http** — Bun.serve / fetch parity (depende #207 pra await)
+- **#225 Intl** — locale-aware formatting (precisa ICU ou tabelas)
+- **#217 WeakMap/WeakSet/FinalizationRegistry** — depende de GC tracking real
+- **#223 dynamic import()** — module namespace object (depende #207)
+- **#224 UI event loop** — primitivas de yield/timer
+- **#227/#228/#229** — ergonomia de threads (closures + retorno tipado +
+  auto-locking)
+
+### Bugs ativos
+- **#206** thread.spawn callconv — fechado, `spawn(fp, f64)` agora preserva
+  bit-pattern (limitacao: i64 → worker f64 reinterpreta bits)
 
 ## Direcao alvo
 

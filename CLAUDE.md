@@ -82,11 +82,11 @@ Regras:
 - Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
 - Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-Namespaces ativos (32): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
+Namespaces ativos (35): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
 `path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
 `net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`,
-`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`. Cobre std::* + paralelismo +
-HTTPS + UI completos.
+`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`. Cobre std::* +
+paralelismo + HTTPS + UI completos + JSON + Date.
 
 ### Namespaces existentes
 

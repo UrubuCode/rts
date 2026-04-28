@@ -41,14 +41,28 @@ em `CLAUDE.md` § Silent parallelism.
   `rayon`. HandleTable shard-aware (32 shards lock-free entre si)
 - **UI nativa** via `ui.*` — FLTK 1.x bindings
 
-**Observação de perf (Windows, `rts_simple.ts`, 10 runs):**
+**Observação de perf (Windows, 100 runs com 5 warmups):**
+
+`bench/rts_simple.ts` (LCG + primes + bigint-like):
 
 | Runner          | Mediana | vs Bun           |
 |-----------------|---------|------------------|
-| RTS (compiled)  |  15 ms  | **5.9× faster**  |
-| RTS (run, JIT)  |  22 ms  | **4.1× faster**  |
-| Bun             |  88 ms  | —                |
-| Node            | 118 ms  | 0.75× slower     |
+| **RTS AOT**     | **15,4 ms** | **4,45× mais rápido** |
+| RTS JIT         | 21,3 ms | 3,36× mais rápido |
+| Bun             | 70,9 ms | —                |
+| Node            | 98,1 ms | 0,72× (mais lento) |
+
+`bench/monte_carlo_pi.ts` (10M iters Monte Carlo):
+
+| Runner          | Mediana | vs Bun           |
+|-----------------|---------|------------------|
+| **RTS AOT**     | **50,4 ms** | **1,41× mais rápido** |
+| RTS JIT         | 57,3 ms | 1,22× mais rápido |
+| Bun             | 71,5 ms | —                |
+| Node            | 95,6 ms | 0,75× (mais lento) |
+
+Binário AOT do `rts_simple` tem **~3 KB** (sem runtime DLL — funciona em
+qualquer Windows sem instalar nada).
 
 ## Arquitetura
 
@@ -105,9 +119,11 @@ Pipeline JIT: `Source TS -> Parser (SWC) -> Codegen Cranelift -> JITModule in-me
 ## Contrato ABI
 
 - Fonte unica: `src/abi/`.
-- `abi::SPECS` lista os 16 namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`,
+- `abi::SPECS` lista 35 namespaces ativos: `io`, `fs`, `gc`, `math`, `bigfloat`,
   `time`, `env`, `path`, `buffer`, `string`, `process`, `os`, `collections`,
-  `hash`, `fmt`, `crypto`.
+  `hash`, `fmt`, `crypto`, `net`, `tls`, `thread`, `atomic`, `sync`, `parallel`,
+  `mem`, `hint`, `ptr`, `ffi`, `regex`, `runtime`, `test`, `trace`, `ui`,
+  `alloc`, `num`, `json`, `date`.
 - Cada membro declara nome, parametros, retorno via `AbiType`, e opcionalmente
   um `Intrinsic` que permite ao codegen emitir IR inline ao inves de call extern
   (usado em `math.sqrt`, `math.random_f64`, etc).
@@ -170,10 +186,25 @@ Suportadas no codegen:
 - **String equality**: `s1 == s2` compara conteudo via `gc.string_eq`
   quando ambos os operandos sao Handle.
 
-Nao suportado ainda: `async/await`, generators, destructuring, spread/rest,
-regex, decorators, generics, abstract classes, satisfies, enum, default
-parameters. Closures com captura de variaveis externas estao em fase 1
-(ponteiros de funcao sem env).
+Cobertos parcial ou totalmente em commits recentes:
+- **enum** numerico/string com auto-incremento (#212)
+- **destructuring** array/object simples + nested + rename (#210 parcial — sem rest/default ainda)
+- **spread** em array literal e object literal (#209 — call spread pendente)
+- **regex** via `regex` namespace (`regex.compile/test/find/replace`)
+- **abstract classes** com erro em `new`
+- **default parameters** em fns
+- **module exports**: `export function/class/const` + `import { x } from "./mod"` (#213)
+- **JSON.parse/stringify** + namespace `json` (#215)
+- **Date.now/parse** + namespace `date` (#220 v0)
+- **console.log/error/warn/info/debug** sem import (#221)
+- **Map/Set v0** com set/get/has/delete/clear/size (#222 — sem iteradores)
+- **Array.prototype**: push/pop/length/at/clear (#208 v0)
+- **String.prototype**: indexOf/includes/startsWith/endsWith/toLowerCase/etc (#235 fix)
+- **catch param tipado** por inferência ou anotação (#214 parcial)
+
+Não suportado ainda: `async/await`, generators, destructuring com defaults/rest,
+call spread `f(...args)`, decorators, generics completos, satisfies. Closures
+com captura mutável estão em fase 1 (#195 — env-record real pendente).
 
 ## CLI
 
@@ -202,27 +233,49 @@ cargo run -- apis
 ┌──────────────────┬──────────┬──────────┬────────┬────────┐
 │       Bench      │ RTS JIT  │ RTS AOT  │  Bun   │  Node  │
 ├──────────────────┼──────────┼──────────┼────────┼────────┤
-│ Monte Carlo 10M  │  119 ms  │  156 ms  │ 173 ms │ 281 ms │
+│ Monte Carlo 10M  │   57 ms  │   50 ms  │  72 ms │  96 ms │
 ├──────────────────┼──────────┼──────────┼────────┼────────┤
 │ Machin bigfloat  │   47 ms  │   48 ms  │ 109 ms │ 108 ms │
 └──────────────────┴──────────┴──────────┴────────┴────────┘
 ```
 
-- Monte Carlo: xorshift64 inline via intrinsic (`math.random_f64`). Mesmo
-  `inside = 7854393` deterministico em AOT e JIT.
+- Monte Carlo: RTS AOT **41% mais rápido que Bun** após otims de
+  branchless if-to-select (commit 437095e). O `if (x*x + y*y <= 1.0)
+  inside++` vira `select`, eliminando branch imprevisível em hot loop
+  (~50% misprediction).
 - Machin: pi = 16·atan(1/5) - 4·atan(1/239), atan via serie de Maclaurin em
   `bigfloat`. Resultado `3.141592653589793238462643383280` (29 digitos corretos,
   f64 entrega 16).
 
-Suite `bench/benchmark.ps1` compara 5 runners (RTS compiled / RTS run
-JIT / RTS run AOT / Bun / Node) em `bench/rts_simple.ts`:
+Suite `bench/benchmark.ps1` compara 4 runners (RTS compiled / RTS JIT /
+Bun / Node) em `bench/rts_simple.ts`:
 
 ```bash
-powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1 -Runs 10 -Warmup 2
+powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 ```
 
-Numeros tipicos (Windows, 10 runs): `RTS compiled ~15 ms`, `RTS JIT ~22 ms`,
-`Bun ~88 ms`, `Node ~118 ms`. **RTS JIT ~4× mais rapido que Bun.**
+Resultado típico (Windows, 100 runs): `RTS AOT ~15 ms`, `RTS JIT ~21 ms`,
+`Bun ~71 ms`, `Node ~98 ms`. **RTS AOT 4,45× mais rápido que Bun.**
+
+### Otimizações de codegen aplicadas
+
+- **Branchless if-to-select** (#perf): `if (cond) { var = expr }` vira
+  `var = select(cond, expr, var)` — sem branch, sem stall do branch
+  predictor. Cobre compound assigns (`+=`, `*=`, etc).
+- **Globais top-level → Cranelift Variables**: vars não referenciadas
+  por user fns são promovidas a registradores. `let i = 0; while (i < N)
+  i++` em top-level fica 5× mais rápido (sem load/store por iter).
+- **`uextend` redundante eliminado** em comparações que vão direto pro
+  `brif` — Bool nativo de 8 bits passa direto.
+- **Lower duplicado em binops corrigido**: `try_operator_overload` /
+  `try_bin_imm` faziam `lower_expr` da subexpr antes de saber se iam
+  usar — geravam IR duplicado em todo binop não-overload.
+- **f64 lit `1.0` direto** (sem conversão I32→F64): respeita `raw` do
+  literal pra preservar tipo no source.
+- **Cache de `FuncRef`/`GlobalValue`** por símbolo no FnCtx — Cranelift
+  não dedupa entre `declare_*_in_func` calls separadas.
+- **RNG state caching** entre calls consecutivas de `random_f64` no
+  mesmo block.
 
 ## Runtime vs Compile (AOT)
 
@@ -321,3 +374,24 @@ ver comentarios nas issues para dependencias e ordem.
 
 Guardrails: sem `xtask`, sem download de runtime support em tempo de build,
 sem dependencia de Rust/Cargo no ambiente de uso final do binario AOT.
+
+## Documentação adicional
+
+- **`BLOG_POST.md`** — visão geral pra dev de fora: o que é, performance,
+  quando faz sentido usar, decisões interessantes de design.
+- **`CLAUDE.md`** — instruções pro AI assistant + arquitetura interna,
+  regras do codebase, ABI, modos de debug. Inclui seção sobre
+  `RTS_DUMP_IR=1` pra inspecionar IR Cranelift gerado.
+- **`docs/specs/`** — specs detalhadas de features e decisões de design.
+- **Issues abertas** em github.com/UrubuCode/rts/issues. Tracker mestre
+  de paridade JS/TS é #226.
+
+### Debug rápido
+
+```bash
+RTS_DUMP_IR=1 target/release/rts.exe run file.ts 2>&1 | head -50
+```
+
+Imprime IR Cranelift de cada user fn + `__RTS_MAIN`. Útil pra ver
+duplicações no codegen, loads/stores redundantes em hot loops,
+oportunidades de otim. Ver `CLAUDE.md` § Debug do codegen.
