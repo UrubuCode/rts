@@ -47,6 +47,87 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
     Ok(TypedVal::new(handle, ValTy::Handle))
 }
 
+/// Para cada key em src (ordem deterministica), faz dst[key] = src[key].
+/// Usa map_key_at + map_get + map_set — todos do namespace collections.
+fn emit_map_extend(
+    ctx: &mut FnCtx,
+    dst: cranelift_codegen::ir::Value,
+    src: cranelift_codegen::ir::Value,
+    set_fn: cranelift_codegen::ir::FuncRef,
+) -> Result<()> {
+    use cranelift_codegen::ir::condcodes::IntCC;
+
+    let len_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_LEN",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+    let key_at_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let get_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let str_ptr_fn = ctx.get_extern(
+        "__RTS_FN_NS_GC_STRING_PTR",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+    let str_len_fn = ctx.get_extern(
+        "__RTS_FN_NS_GC_STRING_LEN",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+
+    let len_inst = ctx.builder.ins().call(len_fn, &[src]);
+    let len = ctx.builder.inst_results(len_inst)[0];
+
+    let loop_block = ctx.builder.create_block();
+    let body_block = ctx.builder.create_block();
+    let exit_block = ctx.builder.create_block();
+    ctx.builder.append_block_param(loop_block, cl::I64);
+
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    ctx.builder.ins().jump(loop_block, &[zero.into()]);
+
+    ctx.builder.switch_to_block(loop_block);
+    let i = ctx.builder.block_params(loop_block)[0];
+    let cond = ctx.builder.ins().icmp(IntCC::SignedLessThan, i, len);
+    ctx.builder
+        .ins()
+        .brif(cond, body_block, &[], exit_block, &[]);
+
+    ctx.builder.switch_to_block(body_block);
+    ctx.builder.seal_block(body_block);
+
+    // key_handle = map_key_at(src, i)
+    let key_inst = ctx.builder.ins().call(key_at_fn, &[src, i]);
+    let key_handle = ctx.builder.inst_results(key_inst)[0];
+    // (kp, kl) = (string_ptr(key_handle), string_len(key_handle))
+    let kp_inst = ctx.builder.ins().call(str_ptr_fn, &[key_handle]);
+    let kp = ctx.builder.inst_results(kp_inst)[0];
+    let kl_inst = ctx.builder.ins().call(str_len_fn, &[key_handle]);
+    let kl = ctx.builder.inst_results(kl_inst)[0];
+    // value = map_get(src, kp, kl)
+    let val_inst = ctx.builder.ins().call(get_fn, &[src, kp, kl]);
+    let value = ctx.builder.inst_results(val_inst)[0];
+    // map_set(dst, kp, kl, value)
+    ctx.builder.ins().call(set_fn, &[dst, kp, kl, value]);
+
+    let one = ctx.builder.ins().iconst(cl::I64, 1);
+    let next_i = ctx.builder.ins().iadd(i, one);
+    ctx.builder.ins().jump(loop_block, &[next_i.into()]);
+
+    ctx.builder.seal_block(loop_block);
+    ctx.builder.switch_to_block(exit_block);
+    ctx.builder.seal_block(exit_block);
+    Ok(())
+}
+
 /// Para cada elemento `i` em [0, len(src)), faz dst.push(src[i]).
 /// Emite um loop em IR usando block params.
 fn emit_vec_extend(
@@ -118,8 +199,15 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
     for prop in &obj.props {
         let p = match prop {
             PropOrSpread::Prop(p) => p,
-            PropOrSpread::Spread(_) => {
-                return Err(anyhow!("spread em object literal nao suportado (MVP)"));
+            PropOrSpread::Spread(spread) => {
+                // #209: object spread — copia todas as keys da fonte
+                // pro destino. Fonte deve ser map handle. Keys posteriores
+                // sobrescrevem (semantica JS: \`{ ...a, x: 1, ...b }\`
+                // resolve em ordem).
+                let src_tv = lower_expr(ctx, &spread.expr)?;
+                let src_h = ctx.coerce_to_i64(src_tv).val;
+                emit_map_extend(ctx, handle, src_h, set_fn)?;
+                continue;
             }
         };
 
