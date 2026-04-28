@@ -122,17 +122,46 @@ fn try_lower_if_to_select(
     if !is_pure_for_select(&assign_expr.right) {
         return Ok(None);
     }
-    // Compound assigns (\`+=\`, \`-=\`, etc) nao suportados aqui — apenas
-    // \`=\`. Compound exigiria extrair o op pra construir \`var op rhs\`
-    // como new_val.
-    if !matches!(assign_expr.op, AssignOp::Assign) {
-        return Ok(None);
-    }
 
-    // Lower cond e new_val no fluxo atual (sem branch).
+    // Lower cond no fluxo atual (sem branch).
     let cond = lower_expr(ctx, &if_stmt.test)?;
     let cond_val = ctx.to_branch_cond(cond);
-    let new_tv = lower_expr(ctx, &assign_expr.right)?;
+
+    // Compound assigns (\`+=\`, \`-=\`, etc) sao tratados como
+    // \`var = var <op> rhs\`. Resultado da expressao + write de var
+    // — old e' lido antes (pra select), op aplicado, select decide.
+    let new_tv = if matches!(assign_expr.op, AssignOp::Assign) {
+        lower_expr(ctx, &assign_expr.right)?
+    } else {
+        let bin_op = match assign_expr.op {
+            AssignOp::AddAssign => swc_ecma_ast::BinaryOp::Add,
+            AssignOp::SubAssign => swc_ecma_ast::BinaryOp::Sub,
+            AssignOp::MulAssign => swc_ecma_ast::BinaryOp::Mul,
+            AssignOp::DivAssign => swc_ecma_ast::BinaryOp::Div,
+            AssignOp::ModAssign => swc_ecma_ast::BinaryOp::Mod,
+            AssignOp::BitAndAssign => swc_ecma_ast::BinaryOp::BitAnd,
+            AssignOp::BitOrAssign => swc_ecma_ast::BinaryOp::BitOr,
+            AssignOp::BitXorAssign => swc_ecma_ast::BinaryOp::BitXor,
+            AssignOp::LShiftAssign => swc_ecma_ast::BinaryOp::LShift,
+            AssignOp::RShiftAssign => swc_ecma_ast::BinaryOp::RShift,
+            AssignOp::ZeroFillRShiftAssign => swc_ecma_ast::BinaryOp::ZeroFillRShift,
+            _ => return Ok(None),
+        };
+        // Sintetiza \`var <bin_op> rhs\`.
+        let synthetic_bin = swc_ecma_ast::BinExpr {
+            span: assign_expr.span,
+            op: bin_op,
+            left: Box::new(swc_ecma_ast::Expr::Ident(swc_ecma_ast::Ident {
+                span: assign_expr.span,
+                ctxt: Default::default(),
+                sym: target_name.as_str().into(),
+                optional: false,
+            })),
+            right: assign_expr.right.clone(),
+        };
+        lower_expr(ctx, &swc_ecma_ast::Expr::Bin(synthetic_bin))?
+    };
+
     let new_val = match local.ty {
         crate::codegen::lower::ctx::ValTy::I32 => ctx.coerce_to_i32(new_tv).val,
         crate::codegen::lower::ctx::ValTy::F64 => ctx.coerce_to_f64(new_tv).val,
@@ -140,7 +169,6 @@ fn try_lower_if_to_select(
     };
     let old_tv = ctx.read_local(&target_name).expect("var existe");
     let old_val = old_tv.val;
-    // Cranelift select requer mesmo tipo em ambos lados.
     let result = ctx.builder.ins().select(cond_val, new_val, old_val);
     ctx.write_local(&target_name, result)?;
     Ok(Some(()))
