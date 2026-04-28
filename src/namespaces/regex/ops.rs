@@ -1,6 +1,6 @@
 //! Regex runtime operations — backend `regex` crate.
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 use regex::{Regex, RegexBuilder};
 
 unsafe fn slice_from(ptr: *const u8, len: i64) -> &'static [u8] {
@@ -16,14 +16,14 @@ unsafe fn str_from(ptr: *const u8, len: i64) -> &'static str {
 }
 
 fn alloc_string(bytes: Vec<u8>) -> u64 {
-    table().lock().unwrap().alloc(Entry::String(bytes))
+    alloc_entry(Entry::String(bytes))
 }
 
 fn with_regex<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&Regex) -> R,
 {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     if let Some(Entry::Regex(rx)) = guard.get(handle) {
         f(rx)
     } else {
@@ -63,14 +63,14 @@ pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
         }
     }
     match builder.build() {
-        Ok(rx) => table().lock().unwrap().alloc(Entry::Regex(Box::new(rx))),
+        Ok(rx) => alloc_entry(Entry::Regex(Box::new(rx))),
         Err(_) => 0,
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_REGEX_FREE(handle: u64) {
-    let _ = table().lock().unwrap().free(handle);
+    let _ = free_handle(handle);
 }
 
 #[unsafe(no_mangle)]

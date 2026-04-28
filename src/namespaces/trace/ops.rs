@@ -1,5 +1,5 @@
 use super::frame_stack;
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle};
 
 unsafe fn str_from_raw(ptr: *const u8, len: usize) -> String {
     let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
@@ -36,7 +36,7 @@ pub extern "C" fn __RTS_FN_NS_TRACE_CAPTURE() -> u64 {
     if s.is_empty() {
         return 0;
     }
-    table().lock().unwrap().alloc(Entry::String(s.into_bytes()))
+    alloc_entry(Entry::String(s.into_bytes()))
 }
 
 /// Print current trace stack to stderr.
@@ -60,5 +60,5 @@ pub extern "C" fn __RTS_FN_NS_TRACE_DEPTH() -> i64 {
 /// Free a GC handle returned by `trace.capture()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_TRACE_FREE(handle: u64) {
-    let _ = table().lock().unwrap().free(handle);
+    let _ = free_handle(handle);
 }

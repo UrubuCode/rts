@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
@@ -17,7 +17,7 @@ fn with_map<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&HashMap<String, i64>) -> R,
 {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     match guard.get(handle) {
         Some(Entry::Map(m)) => f(m.as_ref()),
         _ => default,
@@ -28,8 +28,7 @@ fn with_map_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut HashMap<String, i64>) -> R,
 {
-    let t = table();
-    let mut guard = t.lock().unwrap();
+    let mut guard = shard_for_handle(handle).lock().unwrap();
     match guard.get_mut(handle) {
         Some(Entry::Map(m)) => f(m.as_mut()),
         _ => default,
@@ -38,15 +37,12 @@ where
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::Map(Box::new(HashMap::new())))
+    alloc_entry(Entry::Map(Box::new(HashMap::new())))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREE(handle: u64) {
-    table().lock().unwrap().free(handle);
+    free_handle(handle);
 }
 
 #[unsafe(no_mangle)]

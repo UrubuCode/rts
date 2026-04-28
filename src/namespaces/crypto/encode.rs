@@ -1,6 +1,6 @@
 //! Encoders — base64 e hex. Impl pura, sem deps.
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -56,7 +56,7 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_HEX_DECODE(ptr: *const u8, len: i64) -> u64
         out.push((h << 4) | l);
         i += 2;
     }
-    table().lock().unwrap().alloc(Entry::Buffer(out))
+    alloc_entry(Entry::Buffer(out))
 }
 
 // ── Base64 (RFC 4648, padded) ────────────────────────────────────────
@@ -139,5 +139,5 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_BASE64_DECODE(ptr: *const u8, len: i64) -> 
         }
         i += 4;
     }
-    table().lock().unwrap().alloc(Entry::Buffer(out))
+    alloc_entry(Entry::Buffer(out))
 }

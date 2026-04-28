@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
 
 /// Os campos parecem "dead" para o compilador, mas existem pelo seu
 /// efeito Drop: liberar o lock subjacente ao serem removidos do mapa.
@@ -31,14 +31,11 @@ fn next_guard_id() -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_SYNC_RWLOCK_NEW(initial: i64) -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::SyncRwLock(Box::new(RwLock::new(initial))))
+    alloc_entry(Entry::SyncRwLock(Box::new(RwLock::new(initial))))
 }
 
 fn rwlock_ptr(handle: u64) -> Option<*const RwLock<i64>> {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     match guard.get(handle) {
         Some(Entry::SyncRwLock(r)) => Some(r.as_ref() as *const RwLock<i64>),
         _ => None,

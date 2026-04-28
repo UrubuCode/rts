@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 thread_local! {
     /// Guarda ativos por handle de mutex, para esta thread.
@@ -23,17 +23,14 @@ thread_local! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_SYNC_MUTEX_NEW(initial: i64) -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::SyncMutex(Box::new(Mutex::new(initial))))
+    alloc_entry(Entry::SyncMutex(Box::new(Mutex::new(initial))))
 }
 
 /// Helper: obtem ponteiro estavel para o `Mutex<i64>` referenciado pelo
 /// handle. Retorna `None` se o handle for invalido. O ponteiro e valido
 /// enquanto o slot na HandleTable nao for liberado.
 fn mutex_ptr(handle: u64) -> Option<*const Mutex<i64>> {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     match guard.get(handle) {
         Some(Entry::SyncMutex(m)) => Some(m.as_ref() as *const Mutex<i64>),
         _ => None,
@@ -97,5 +94,5 @@ pub extern "C" fn __RTS_FN_NS_SYNC_MUTEX_FREE(handle: u64) {
     GUARDS.with(|cell| {
         cell.borrow_mut().remove(&handle);
     });
-    table().lock().unwrap().free(handle);
+    free_handle(handle);
 }

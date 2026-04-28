@@ -1,6 +1,6 @@
 //! CSPRNG — /dev/urandom em Unix, BCryptGenRandom em Windows.
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry};
 
 // ── Windows ──────────────────────────────────────────────────────────
 #[cfg(target_os = "windows")]
@@ -79,5 +79,5 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_BUFFER(len: i64) -> u64 {
     if !os_random_into(&mut buf) {
         return 0;
     }
-    table().lock().unwrap().alloc(Entry::Buffer(buf))
+    alloc_entry(Entry::Buffer(buf))
 }
