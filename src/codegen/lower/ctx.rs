@@ -311,6 +311,10 @@ pub struct FnCtx<'m, 'fb> {
     /// nome do label. O loop seguinte consome (via \`take()\`) ao fazer
     /// push no \`loop_stack\`.
     pub pending_label: Option<String>,
+
+    /// Warnings coletados durante o lower (#205 unreachable code, etc).
+    /// Drenados por compile_program antes de retornar.
+    pub warnings: Vec<String>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -349,6 +353,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             var_counter: 0,
             loop_stack: Vec::new(),
             pending_label: None,
+            warnings: Vec::new(),
         }
     }
 

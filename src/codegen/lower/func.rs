@@ -3849,7 +3849,7 @@ pub fn compile_program(
         // `super` no body do metodo.
         let owner_class = extract_class_owner(&fn_decl.name);
         let address_taken = address_taken_fns.contains(&fn_decl.name);
-        compile_user_fn(
+        let fn_warnings = compile_user_fn(
             module,
             extern_cache,
             data_counter,
@@ -3864,6 +3864,7 @@ pub fn compile_program(
             address_taken,
         )
         .with_context(|| format!("in function `{}`", fn_decl.name))?;
+        warnings.extend(fn_warnings);
     }
 
     // Phase 3: collect top-level statements.
@@ -4475,7 +4476,8 @@ fn compile_user_fn(
     info: &UserFn,
     current_class: Option<String>,
     address_taken: bool,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut warnings: Vec<String> = Vec::new();
     let mut ctx = ClContext::new();
     let call_conv = user_call_conv(module, &fn_decl.name, address_taken);
     ctx.func.signature = {
@@ -4570,13 +4572,37 @@ fn compile_user_fn(
 
         // Compile body statements.
         let mut terminated = false;
-        for stmt_raw in &fn_decl.body {
+        let mut iter = fn_decl.body.iter();
+        while let Some(stmt_raw) = iter.next() {
             if terminated {
                 break;
             }
             let Statement::Raw(raw) = stmt_raw;
             if let Some(swc_stmt) = raw.stmt.as_ref() {
                 terminated = lower_stmt(&mut fn_ctx, swc_stmt)?;
+                // #205 — emite warning quando ha statements depois de
+                // um terminal (return/throw/break/continue) no body
+                // top-level da fn. Ignora Statement::Raw sem stmt
+                // (placeholders sinteticos do lifter).
+                if terminated {
+                    if let Some(next) = iter.clone().find(|s| {
+                        let Statement::Raw(r) = s;
+                        r.stmt.as_ref().map(|st| !matches!(st, swc_ecma_ast::Stmt::Empty(_))).unwrap_or(false)
+                    }) {
+                        let Statement::Raw(_) = next;
+                        let kind = match swc_stmt {
+                            swc_ecma_ast::Stmt::Return(_) => "return",
+                            swc_ecma_ast::Stmt::Throw(_) => "throw",
+                            swc_ecma_ast::Stmt::Break(_) => "break",
+                            swc_ecma_ast::Stmt::Continue(_) => "continue",
+                            _ => "terminal statement",
+                        };
+                        fn_ctx.warnings.push(format!(
+                            "warning: unreachable code after `{}`",
+                            kind
+                        ));
+                    }
+                }
             }
         }
 
@@ -4595,6 +4621,12 @@ fn compile_user_fn(
             }
         }
 
+        // Drena warnings emitidos durante o lower (#205 unreachable code).
+        // Prefixa com nome da fn para diagnostico util.
+        for w in fn_ctx.warnings.drain(..) {
+            warnings.push(format!("in `{}`: {}", fn_decl.name, w));
+        }
+
         builder.finalize();
     }
 
@@ -4602,7 +4634,7 @@ fn compile_user_fn(
         .define_function(info.id, &mut ctx)
         .with_context(|| format!("failed to define function `{}`", fn_decl.name))?;
 
-    Ok(())
+    Ok(warnings)
 }
 
 fn compile_main(

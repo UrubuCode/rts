@@ -40,10 +40,25 @@ pub fn lower_block(ctx: &mut FnCtx, block: &BlockStmt) -> Result<bool> {
     ctx.push_scope();
     let mut exited = false;
     let mut err = None;
-    for s in &block.stmts {
+    let mut iter = block.stmts.iter();
+    while let Some(s) = iter.next() {
         match lower_stmt(ctx, s) {
             Ok(true) => {
                 exited = true;
+                // #205 — warn sobre o primeiro stmt nao-trivial apos
+                // um terminal (return/throw/break/continue). Empty/Decl
+                // stmts puros (var hoisting) nao contam — a idiomatica
+                // de declarar var no fim do escopo apos return early
+                // ainda eh comum, e o codigo morto real eh statement
+                // executavel.
+                if let Some(next) = iter.next() {
+                    if !is_trivially_empty(next) {
+                        ctx.warnings.push(format!(
+                            "warning: unreachable code after `{}`",
+                            terminal_kind(s)
+                        ));
+                    }
+                }
                 break;
             }
             Ok(false) => {}
@@ -58,6 +73,20 @@ pub fn lower_block(ctx: &mut FnCtx, block: &BlockStmt) -> Result<bool> {
         return Err(e);
     }
     Ok(exited)
+}
+
+fn is_trivially_empty(stmt: &Stmt) -> bool {
+    matches!(stmt, Stmt::Empty(_))
+}
+
+fn terminal_kind(stmt: &Stmt) -> &'static str {
+    match stmt {
+        Stmt::Return(_) => "return",
+        Stmt::Throw(_) => "throw",
+        Stmt::Break(_) => "break",
+        Stmt::Continue(_) => "continue",
+        _ => "terminal statement",
+    }
 }
 
 fn stmt_kind_name(stmt: &Stmt) -> &'static str {
