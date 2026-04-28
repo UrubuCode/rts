@@ -67,6 +67,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if lookup(&qualified).is_some() {
                 return lower_ns_call(ctx, &qualified, call);
             }
+            // Console builtin (#221): console.log/info/debug → io.print,
+            // console.error/warn → io.eprint. Args concatenados separados
+            // por espaco. Implementado em codegen direto pra evitar
+            // dependencia em pacote builtin/console que precisaria ser
+            // auto-importado.
+            if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
+                return Ok(tv);
+            }
             // Fallback: ident.fn(...) onde ident e var (ex: namespace TS
             // desugared para const Foo = { ... }). Faz map_get pela key
             // e despacha via call_indirect.
@@ -1262,6 +1270,76 @@ fn lower_string_builtin(
         }
         _ => Ok(None),
     }
+}
+
+/// Console object (#221) — mapeia console.log/info/debug → io.print
+/// e console.error/warn → io.eprint. Args sao concatenados como string
+/// separados por espaco (semantica JS). Implementado em codegen direto
+/// pra que `console.X(...)` funcione sem import explicito.
+fn lower_console_call(
+    ctx: &mut FnCtx,
+    qualified: &str,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    let Some(method) = qualified.strip_prefix("console.") else {
+        return Ok(None);
+    };
+
+    let target_symbol: &str = match method {
+        "log" | "info" | "debug" => "__RTS_FN_NS_IO_PRINT",
+        "error" | "warn" => "__RTS_FN_NS_IO_EPRINT",
+        _ => return Ok(None),
+    };
+
+    // Concatena todos os args como string. JS: separador eh " " entre args.
+    // Caso 0 args: imprime linha vazia (io.print/eprint ja adicionam \n).
+    let space = ctx.emit_str_handle(b" ")?.val;
+    let mut acc: Option<cranelift_codegen::ir::Value> = None;
+    let concat = ctx.get_extern(
+        "__RTS_FN_NS_GC_STRING_CONCAT",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+
+    for arg in &call.args {
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in console.* args"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        let h = ctx.coerce_to_handle(tv)?.val;
+        acc = Some(match acc {
+            None => h,
+            Some(prev) => {
+                let with_space = ctx.builder.ins().call(concat, &[prev, space]);
+                let prev_sp = ctx.builder.inst_results(with_space)[0];
+                let combined = ctx.builder.ins().call(concat, &[prev_sp, h]);
+                ctx.builder.inst_results(combined)[0]
+            }
+        });
+    }
+
+    let msg_handle = match acc {
+        Some(v) => v,
+        None => ctx.emit_str_handle(b"")?.val,
+    };
+
+    // Extrai (ptr, len) do handle e chama io.print/eprint (assinatura StrPtr).
+    let ptr_fref =
+        ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let len_fref =
+        ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let pi = ctx.builder.ins().call(ptr_fref, &[msg_handle]);
+    let p = ctx.builder.inst_results(pi)[0];
+    let li = ctx.builder.ins().call(len_fref, &[msg_handle]);
+    let l = ctx.builder.inst_results(li)[0];
+
+    let print_fref = ctx.get_extern(target_symbol, &[cl::I64, cl::I64], None)?;
+    ctx.builder.ins().call(print_fref, &[p, l]);
+
+    Ok(Some(TypedVal::new(
+        ctx.builder.ins().iconst(cl::I64, 0),
+        ValTy::I64,
+    )))
 }
 
 /// Builtins universais para arrays/maps via handle. Retorna `Some` se
