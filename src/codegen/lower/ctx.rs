@@ -340,6 +340,18 @@ pub struct FnCtx<'m, 'fb> {
     /// (ex: gc.string_ptr/string_len 4-6x por iter de console.log),
     /// isso gerava 4-6 \`call\` instrucoes que Cranelift nao deduplica.
     pub fn_ref_cache: HashMap<&'static str, cranelift_codegen::ir::FuncRef>,
+    /// Estado RNG atual em SSA quando varias calls de random_f64
+    /// acontecem em sequencia no mesmo block. Permite reusar o ultimo
+    /// x3 (estado pos-xorshift) sem load/store intermediario:
+    /// reutilizamos o SSA value, e fazemos store apenas uma vez no
+    /// final do block (atraves de fim do builder ou primeira nao-RNG
+    /// op). Reset quando block muda ou outro op pode escrever na
+    /// memoria global.
+    pub rng_state_cached: Option<(
+        cranelift_codegen::ir::Block,
+        cranelift_codegen::ir::Value, // ptr
+        cranelift_codegen::ir::Value, // ultimo x3
+    )>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -383,6 +395,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             gv_cache: HashMap::new(),
             gv_data_cache: HashMap::new(),
             fn_ref_cache: HashMap::new(),
+            rng_state_cached: None,
         }
     }
 

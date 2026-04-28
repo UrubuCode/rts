@@ -1790,9 +1790,27 @@ fn lower_intrinsic(
                 g
             };
             let ptr_ty = ctx.module.isa().pointer_type();
-            let ptr = ctx.builder.ins().global_value(ptr_ty, gv);
-
-            let x0 = ctx.builder.ins().load(cl::I64, MemFlags::trusted(), ptr, 0);
+            let cur_block = ctx.builder.current_block();
+            // Reusa x3 anterior se ainda no mesmo block: salta load.
+            // Cranelift egraph deveria CSE \`global_value gv0\` mas
+            // observado no IR, ele nao deduplica entre call sites
+            // (provavelmente porque o load intermediario forma uma
+            // depencia). Reuso explicito do SSA elimina reload.
+            let (ptr, x0) = if let (Some(blk), Some((cached_blk, cached_ptr, cached_x3))) =
+                (cur_block, ctx.rng_state_cached)
+            {
+                if blk == cached_blk {
+                    (cached_ptr, cached_x3)
+                } else {
+                    let ptr = ctx.builder.ins().global_value(ptr_ty, gv);
+                    let x0 = ctx.builder.ins().load(cl::I64, MemFlags::trusted(), ptr, 0);
+                    (ptr, x0)
+                }
+            } else {
+                let ptr = ctx.builder.ins().global_value(ptr_ty, gv);
+                let x0 = ctx.builder.ins().load(cl::I64, MemFlags::trusted(), ptr, 0);
+                (ptr, x0)
+            };
             let s13 = ctx.builder.ins().ishl_imm(x0, 13);
             let x1 = ctx.builder.ins().bxor(x0, s13);
             let s7 = ctx.builder.ins().ushr_imm(x1, 7);
@@ -1800,6 +1818,11 @@ fn lower_intrinsic(
             let s17 = ctx.builder.ins().ishl_imm(x2, 17);
             let x3 = ctx.builder.ins().bxor(x2, s17);
             ctx.builder.ins().store(MemFlags::trusted(), x3, ptr, 0);
+
+            // Cache pra prox call no mesmo block reusar x3 sem reload.
+            if let Some(blk) = cur_block {
+                ctx.rng_state_cached = Some((blk, ptr, x3));
+            }
 
             let bits = ctx.builder.ins().ushr_imm(x3, 11);
             let as_f = ctx.builder.ins().fcvt_from_uint(cl::F64, bits);
