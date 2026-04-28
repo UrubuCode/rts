@@ -334,6 +334,12 @@ pub struct FnCtx<'m, 'fb> {
     /// na mesma fn (caso tipico: contador top-level usado em hot loop).
     pub gv_data_cache:
         HashMap<cranelift_module::DataId, cranelift_codegen::ir::GlobalValue>,
+    /// Cache de FuncRef por simbolo extern declarado na fn atual.
+    /// Cada declare_func_in_func cria um FuncRef distinto mesmo pra
+    /// mesma FuncId — em hot loops com varias calls do mesmo extern
+    /// (ex: gc.string_ptr/string_len 4-6x por iter de console.log),
+    /// isso gerava 4-6 \`call\` instrucoes que Cranelift nao deduplica.
+    pub fn_ref_cache: HashMap<&'static str, cranelift_codegen::ir::FuncRef>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -376,6 +382,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             data_cache: HashMap::new(),
             gv_cache: HashMap::new(),
             gv_data_cache: HashMap::new(),
+            fn_ref_cache: HashMap::new(),
         }
     }
 
@@ -583,6 +590,14 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         params: &[cranelift_codegen::ir::Type],
         ret: Option<cranelift_codegen::ir::Type>,
     ) -> Result<FuncRef> {
+        // Cache duplo: FuncId e' por modulo (compartilhado entre fns),
+        // FuncRef e' por funcao em compilacao. Cranelift nao deduplica
+        // FuncRefs distintos pro mesmo FuncId no mesmo modulo, entao
+        // sem o segundo cache hot loops emitiam varios \`fn3 = ...\`
+        // distintos pra mesma signature/symbol.
+        if let Some(fref) = self.fn_ref_cache.get(symbol).copied() {
+            return Ok(fref);
+        }
         if !self.extern_cache.contains_key(symbol) {
             use cranelift_codegen::ir::{AbiParam, Signature};
             use cranelift_module::Linkage;
@@ -601,7 +616,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             self.extern_cache.insert(symbol, id);
         }
         let id = *self.extern_cache.get(symbol).expect("extern declared");
-        Ok(self.module.declare_func_in_func(id, self.builder.func))
+        let fref = self.module.declare_func_in_func(id, self.builder.func);
+        self.fn_ref_cache.insert(symbol, fref);
+        Ok(fref)
     }
 
     /// Emits a rodata string literal and returns (ptr: i64, len: i64).

@@ -186,19 +186,25 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     }
 
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
+    // Reaproveita os valores ja promovidos pra comparacoes —
+    // antes lower_icmp recebia lhs/rhs originais e fazia coerce_to_i64
+    // de novo, emitindo sextend duplicado. Em \`i < N\` com N: i32,
+    // gerava 2x \`sextend.i64\` no IR.
+    let lhs_p = TypedVal::new(lv, ty);
+    let rhs_p = TypedVal::new(rv, ty);
 
     match bin.op {
         BinaryOp::Add => unreachable!(),
-        BinaryOp::Sub => lower_sub(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
-        BinaryOp::Mul => lower_mul(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
-        BinaryOp::Div => lower_div(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
-        BinaryOp::Mod => lower_mod(ctx, TypedVal::new(lv, ty), TypedVal::new(rv, ty)),
-        BinaryOp::EqEq | BinaryOp::EqEqEq => Ok(lower_icmp(ctx, IntCC::Equal, lhs, rhs)),
-        BinaryOp::NotEq | BinaryOp::NotEqEq => Ok(lower_icmp(ctx, IntCC::NotEqual, lhs, rhs)),
-        BinaryOp::Lt => Ok(lower_icmp(ctx, IntCC::SignedLessThan, lhs, rhs)),
-        BinaryOp::LtEq => Ok(lower_icmp(ctx, IntCC::SignedLessThanOrEqual, lhs, rhs)),
-        BinaryOp::Gt => Ok(lower_icmp(ctx, IntCC::SignedGreaterThan, lhs, rhs)),
-        BinaryOp::GtEq => Ok(lower_icmp(ctx, IntCC::SignedGreaterThanOrEqual, lhs, rhs)),
+        BinaryOp::Sub => lower_sub(ctx, lhs_p, rhs_p),
+        BinaryOp::Mul => lower_mul(ctx, lhs_p, rhs_p),
+        BinaryOp::Div => lower_div(ctx, lhs_p, rhs_p),
+        BinaryOp::Mod => lower_mod(ctx, lhs_p, rhs_p),
+        BinaryOp::EqEq | BinaryOp::EqEqEq => Ok(lower_icmp(ctx, IntCC::Equal, lhs_p, rhs_p)),
+        BinaryOp::NotEq | BinaryOp::NotEqEq => Ok(lower_icmp(ctx, IntCC::NotEqual, lhs_p, rhs_p)),
+        BinaryOp::Lt => Ok(lower_icmp(ctx, IntCC::SignedLessThan, lhs_p, rhs_p)),
+        BinaryOp::LtEq => Ok(lower_icmp(ctx, IntCC::SignedLessThanOrEqual, lhs_p, rhs_p)),
+        BinaryOp::Gt => Ok(lower_icmp(ctx, IntCC::SignedGreaterThan, lhs_p, rhs_p)),
+        BinaryOp::GtEq => Ok(lower_icmp(ctx, IntCC::SignedGreaterThanOrEqual, lhs_p, rhs_p)),
         BinaryOp::BitOr => Ok(TypedVal::new(ctx.builder.ins().bor(lv, rv), ty)),
         BinaryOp::BitXor => Ok(TypedVal::new(ctx.builder.ins().bxor(lv, rv), ty)),
         BinaryOp::BitAnd => Ok(TypedVal::new(ctx.builder.ins().band(lv, rv), ty)),
