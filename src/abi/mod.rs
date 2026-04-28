@@ -64,7 +64,18 @@ pub const SPECS: &[&NamespaceSpec] = &[
 ];
 
 /// Locates a member by its fully qualified name (e.g. `"io.print"`).
-pub fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
+///
+/// **Trust boundary (#204)**: este lookup eh `pub(crate)` por design.
+/// Todos os call sites estao em `src/codegen/lower/` — sao alimentados
+/// por strings derivadas de AST nodes static (Member expressions),
+/// nunca de input arbitrario do usuario em runtime. Se um caminho
+/// futuro (`runtime.eval_file`, reflection API) precisar resolver
+/// nomes em runtime, deve usar uma allowlist explicita em vez de
+/// expor este lookup.
+///
+/// Auditoria de uso: `grep -rn "abi::lookup" src/` deve retornar
+/// apenas codegen, nunca runtime/* ou cli/*.
+pub(crate) fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
     let (ns_name, fn_name) = qualified.split_once('.')?;
     let spec = SPECS.iter().copied().find(|spec| spec.name == ns_name)?;
     let member = spec.members.iter().find(|m| m.name == fn_name)?;
