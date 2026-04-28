@@ -238,6 +238,28 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "f64_from_bits",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_NUM_F64_FROM_BITS",
+        args: &[AbiType::I64],
+        returns: AbiType::F64,
+        doc: "Reinterpreta os bits de um i64 como f64 (bit-cast). Util pra recuperar f64 de canais que so passam i64 (ex: thread.spawn arg).",
+        ts_signature: "f64_from_bits(bits: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "f64_to_bits",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_NUM_F64_TO_BITS",
+        args: &[AbiType::F64],
+        returns: AbiType::I64,
+        doc: "Reinterpreta os bits de um f64 como i64 (bit-cast). Util pra serializar f64 em canais i64-only.",
+        ts_signature: "f64_to_bits(value: number): number",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {

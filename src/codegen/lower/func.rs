@@ -293,6 +293,20 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
             _ => None,
         })
         .collect();
+    // Tipo declarado do primeiro param (ou None se sem annotation /
+    // sem params). Usado pelo lifter de thread.spawn pra decidir se
+    // injeta `num.f64_from_bits` no trampolim quando worker pede f64.
+    let mut user_fn_first_param_ty: HashMap<String, Option<String>> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(f) => Some((
+                f.name.clone(),
+                f.parameters.first().and_then(|p| p.type_annotation.clone()),
+            )),
+            _ => None,
+        })
+        .collect();
 
     // Top-level aliases: `const fp = worker as unknown as number;`
     // Marca `fp` como alias da user fn para o lifter detectar idents
@@ -321,6 +335,9 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
             if let Some(&arity) = user_fn_arities.get(id.sym.as_str()) {
                 user_fn_arities.insert(alias.clone(), arity);
             }
+            if let Some(ty) = user_fn_first_param_ty.get(id.sym.as_str()).cloned() {
+                user_fn_first_param_ty.insert(alias.clone(), ty);
+            }
             alias_to_real.insert(alias, id.sym.to_string());
         }
     }
@@ -331,6 +348,7 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         new_globals: Vec::new(),
         user_fn_names,
         user_fn_arities,
+        user_fn_first_param_ty,
         alias_to_real,
         needs_c_callconv: HashSet::new(),
     };
@@ -472,6 +490,11 @@ struct LiftAcc {
     /// para que trampolins de `thread.spawn(fp, arg)` repassem o `arg`
     /// quando a worker fn aceita 1+ parâmetros (#206).
     user_fn_arities: HashMap<String, usize>,
+    /// Tipo declarado do primeiro param (string raw da annotation, ex:
+    /// "number", "i64") ou None. Quando worker de thread.spawn pede
+    /// "number" (f64), o trampolim envolve `__rts_spawn_arg` em
+    /// `num.f64_from_bits(...)` pra preservar o bit pattern.
+    user_fn_first_param_ty: HashMap<String, Option<String>>,
     /// Mapa alias → user fn real para `const fp = worker as ...`. O
     /// trampolim deve invocar a fn real, não o alias (que vira const
     /// global e cai em call_indirect com sig errada).
@@ -2067,13 +2090,27 @@ impl LiftAcc {
                                     .with_stmt(body_stmt),
                             )];
                         } else {
+                            // Decide nome do param: __rts_spawn_arg_f64
+                            // se worker pede `number`, senao
+                            // __rts_spawn_arg. Esse mesmo nome e usado
+                            // tanto na decl do trampolim (acima) quanto
+                            // no ident que passa pro worker.
+                            let worker_wants_f64 = pass_arg && matches!(
+                                self.user_fn_first_param_ty.get(real_name.as_str()),
+                                Some(Some(ty)) if ty == "number" || ty == "f64"
+                            );
+                            let arg_name = if worker_wants_f64 {
+                                "__rts_spawn_arg_f64"
+                            } else {
+                                "__rts_spawn_arg"
+                            };
                             let args: Vec<swc_ecma_ast::ExprOrSpread> = if pass_arg {
                                 vec![swc_ecma_ast::ExprOrSpread {
                                     spread: None,
                                     expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
                                         span: Default::default(),
                                         ctxt: Default::default(),
-                                        sym: "__rts_spawn_arg".into(),
+                                        sym: arg_name.into(),
                                         optional: false,
                                     })),
                                 }]
@@ -2157,15 +2194,30 @@ impl LiftAcc {
                             self.user_fn_arities.get(real.as_str()).copied().unwrap_or(0) >= 1
                         })
                     {
-                        // Tipo `i64` — `thread.spawn` ABI passa o arg como
-                        // U64; o trampolim recebe como i64 inteiro e o
-                        // codegen converte para f64 quando worker declara
-                        // `arg: number`. Sem isso, Win64 procura o arg no
-                        // registrador XMM0 (float) em vez de RCX (int) e
-                        // pega lixo (#206).
+                        // Worker pode pedir `number` (f64) ou `i64`. Pra
+                        // f64, marcamos o param com nome especial
+                        // `__rts_spawn_arg_f64` — `compile_user_fn` detecta
+                        // o sufixo, gera bind com bitcast i64→f64 (caller
+                        // passa bits via U64 extern arg, NAO numerico).
+                        // Sem isso, codegen faria fcvt_from_sint e
+                        // worker receberia valor errado.
+                        let real_for_ty = match peel_ts(arg.expr.as_ref()) {
+                            Expr::Ident(id) => self.alias_to_real.get(id.sym.as_str()).cloned()
+                                .unwrap_or_else(|| id.sym.to_string()),
+                            _ => String::new(),
+                        };
+                        let worker_wants_f64 = matches!(
+                            self.user_fn_first_param_ty.get(real_for_ty.as_str()),
+                            Some(Some(ty)) if ty == "number" || ty == "f64"
+                        );
+                        let pname = if worker_wants_f64 {
+                            "__rts_spawn_arg_f64"
+                        } else {
+                            "__rts_spawn_arg"
+                        };
                         (
                             vec![Parameter {
-                                name: "__rts_spawn_arg".to_string(),
+                                name: pname.to_string(),
                                 type_annotation: Some("i64".to_string()),
                                 modifiers: MemberModifiers::default(),
                                 variadic: false,
@@ -3792,13 +3844,27 @@ fn compile_user_fn(
         }
 
         // Bind parameters as locals.
+        // Caso especial: param `__rts_spawn_arg_f64` (gerado pelo lifter
+        // de thread.spawn quando worker pede `number`) — block_param
+        // chega como i64 mas ja contem o bit pattern de um f64. Bind
+        // local como F64 via bitcast em vez de fcvt (que perderia o
+        // valor por interpretar bits como inteiro).
         for (i, param) in fn_decl.parameters.iter().enumerate() {
+            let block_param = fn_ctx.builder.block_params(entry)[i];
+            if param.name == "__rts_spawn_arg_f64" {
+                let f = fn_ctx.builder.ins().bitcast(
+                    cranelift_codegen::ir::types::F64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    block_param,
+                );
+                fn_ctx.declare_local(&param.name, ValTy::F64, f);
+                continue;
+            }
             let ty = param
                 .type_annotation
                 .as_deref()
                 .map(ValTy::from_annotation)
                 .unwrap_or(ValTy::I64);
-            let block_param = fn_ctx.builder.block_params(entry)[i];
             fn_ctx.declare_local(&param.name, ty, block_param);
         }
 
