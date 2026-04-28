@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 
-use super::handles::{Entry, table};
+use super::handles::{Entry, alloc_entry, free_handle};
 use super::string_pool::read_string_handle;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -30,15 +30,12 @@ fn capture_stack_handle() -> u64 {
     if text.is_empty() {
         return 0;
     }
-    table()
-        .lock()
-        .expect("handle table poisoned")
-        .alloc(Entry::String(text.into_bytes()))
+    alloc_entry(Entry::String(text.into_bytes()))
 }
 
 fn free_handle_if_any(handle: u64) {
     if handle != 0 {
-        let _ = table().lock().expect("handle table poisoned").free(handle);
+        let _ = free_handle(handle);
     }
 }
 

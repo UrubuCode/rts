@@ -7,14 +7,11 @@
 
 use std::sync::Once;
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_SYNC_ONCE_NEW() -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::SyncOnce(Box::new(Once::new())))
+    alloc_entry(Entry::SyncOnce(Box::new(Once::new())))
 }
 
 #[unsafe(no_mangle)]
@@ -24,7 +21,7 @@ pub extern "C" fn __RTS_FN_NS_SYNC_ONCE_CALL(handle: u64, fn_ptr: i64) {
     }
     // Obtem ponteiro estavel para o Once dentro do Box.
     let once_ptr: *const Once = {
-        let guard = table().lock().unwrap();
+        let guard = shard_for_handle(handle).lock().unwrap();
         match guard.get(handle) {
             Some(Entry::SyncOnce(o)) => o.as_ref() as *const Once,
             _ => return,

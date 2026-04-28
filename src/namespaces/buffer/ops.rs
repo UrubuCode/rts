@@ -8,7 +8,7 @@
 //! representacoes nativas. Out-of-bounds retorna 0 (para reads) ou
 //! vira no-op (para writes) — sem panics no boundary C.
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 // Para o runtime staticlib, `super::super::gc` resolve para
 // `crate::gc` (sem `namespaces`). Para o crate rts principal, resolve
@@ -22,14 +22,11 @@ fn with_buffer_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut Vec<u8>) -> R,
 {
-    // `table().lock()` returns MutexGuard of HandleTable. Mutable
-    // access ao `Entry::Buffer` interno: infelizmente o HandleTable
-    // expoe so `get(&self) -> Option<&Entry>`, nao mut — precisamos
-    // reimplementar via API publica. Na pratica, reabrimos o Mutex
-    // e chamamos `alloc` com o buffer modificado (via clone), ou
-    // exponemos `get_mut` diretamente. Escolho expor `get_mut`.
-    let t = table();
-    let mut guard = t.lock().unwrap();
+    // Roteia para o shard correto via `shard_for_handle`. Antes da
+    // migracao usavamos `table()` (shard 0 only), o que silenciosamente
+    // retornava `default` quando o buffer fora alocado em outro shard
+    // (ex: via `parallel.map`).
+    let mut guard = shard_for_handle(handle).lock().unwrap();
     if let Some(Entry::Buffer(buf)) = guard.get_mut(handle) {
         f(buf)
     } else {
@@ -41,7 +38,7 @@ fn with_buffer<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&Vec<u8>) -> R,
 {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     match guard.get(handle) {
         Some(Entry::Buffer(buf)) => f(buf),
         _ => default,
@@ -55,7 +52,7 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_ALLOC(size: i64) -> u64 {
         return 0;
     }
     let buf = vec![0u8; size as usize];
-    table().lock().unwrap().alloc(Entry::Buffer(buf))
+    alloc_entry(Entry::Buffer(buf))
 }
 
 /// Alias explicito para alloc zeroed — no Rust Vec::new ja zera.
@@ -67,7 +64,7 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_ALLOC_ZEROED(size: i64) -> u64 {
 /// Libera o handle. Chamadas repetidas sao no-op silencioso.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_BUFFER_FREE(handle: u64) {
-    table().lock().unwrap().free(handle);
+    free_handle(handle);
 }
 
 /// Tamanho do buffer em bytes, ou -1 se handle invalido.

@@ -100,7 +100,8 @@
       "Bash(cargo run *)",
       "Bash(git pull *)",
       "Bash(target/debug/rts.exe test *)",
-      "Bash(git log *)"
+      "Bash(git log *)",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }

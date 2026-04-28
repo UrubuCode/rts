@@ -5,7 +5,7 @@
 //! `env_get`/`env_set`. Permite capturas re-entrantes e per-iteração de
 //! loop sem o esquema promote-to-global que tem limitações estruturais.
 
-use super::handles::{table, Entry};
+use super::handles::{alloc_entry, free_handle, shard_for_handle, Entry};
 
 /// Aloca um env record com `slot_count` slots, todos inicializados em 0.
 /// Retorna o handle. `slot_count` negativo ou maior que 2^16 é tratado
@@ -16,7 +16,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ENV_ALLOC(slot_count: i32) -> u64 {
         return 0;
     }
     let slots = vec![0i64; slot_count as usize];
-    table().lock().unwrap().alloc(Entry::Env(slots))
+    alloc_entry(Entry::Env(slots))
 }
 
 /// Lê o valor de um slot. Retorna 0 em caso de handle inválido ou slot
@@ -26,7 +26,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ENV_GET(env: u64, slot: i32) -> i64 {
     if slot < 0 {
         return 0;
     }
-    let table = table().lock().unwrap();
+    let table = shard_for_handle(env).lock().unwrap();
     let Some(Entry::Env(slots)) = table.get(env) else {
         return 0;
     };
@@ -40,7 +40,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ENV_SET(env: u64, slot: i32, value: i64) -> i64
     if slot < 0 {
         return 0;
     }
-    let mut table = table().lock().unwrap();
+    let mut table = shard_for_handle(env).lock().unwrap();
     let Some(Entry::Env(slots)) = table.get_mut(env) else {
         return 0;
     };
@@ -54,11 +54,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ENV_SET(env: u64, slot: i32, value: i64) -> i64
 /// Libera o env record. Retorna 1 em sucesso, 0 se handle já era inválido.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_ENV_FREE(env: u64) -> i64 {
-    if table().lock().unwrap().free(env) {
-        1
-    } else {
-        0
-    }
+    if free_handle(env) { 1 } else { 0 }
 }
 
 #[cfg(test)]

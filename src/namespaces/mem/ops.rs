@@ -43,7 +43,7 @@ pub extern "C" fn __RTS_FN_NS_MEM_SWAP_I64(_a: i64, b: i64) -> i64 {
 /// Forca free de um handle GC (string, vec, map, regex, ...).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_MEM_DROP_HANDLE(handle: u64) {
-    let _ = super::super::gc::handles::table().lock().unwrap().free(handle);
+    let _ = super::super::gc::handles::free_handle(handle);
 }
 
 /// Esquece handle (no-op em GC slab — vaza ate program exit).

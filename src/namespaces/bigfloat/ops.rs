@@ -8,7 +8,7 @@ use super::fixed::FixedDecimal;
 // `super::super` resolves to the crate root in the standalone runtime
 // staticlib build (`rt_all.rs`) and to `namespaces` in the main `rts`
 // crate; both expose the `gc` submodule at that level.
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 // Forward-declared extern so we can intern the decimal string without
 // hard-coding the `gc::string_pool::...` path (which differs between
@@ -18,14 +18,11 @@ unsafe extern "C" {
 }
 
 fn alloc(value: FixedDecimal) -> u64 {
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::BigFixed(Box::new(value)))
+    alloc_entry(Entry::BigFixed(Box::new(value)))
 }
 
 fn clone_of(handle: u64) -> Option<FixedDecimal> {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     match guard.get(handle) {
         Some(Entry::BigFixed(b)) => Some(b.as_ref().clone()),
         _ => None,
@@ -136,5 +133,5 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_SQRT(a: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FREE(handle: u64) {
-    table().lock().unwrap().free(handle);
+    free_handle(handle);
 }

@@ -2,7 +2,7 @@
 
 use std::ffi::OsString;
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -24,17 +24,14 @@ pub extern "C" fn __RTS_FN_NS_FFI_OSSTR_FROM_STR(ptr: *const u8, len: i64) -> u6
         return 0;
     };
     let os = OsString::from(s);
-    table()
-        .lock()
-        .unwrap()
-        .alloc(Entry::OsString(Box::new(os)))
+    alloc_entry(Entry::OsString(Box::new(os)))
 }
 
 /// Converte para string UTF-8 (handle gc::string). 0 se nao-UTF8 ou
 /// handle invalido.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FFI_OSSTR_TO_STR(handle: u64) -> u64 {
-    let guard = table().lock().unwrap();
+    let guard = shard_for_handle(handle).lock().unwrap();
     let Some(Entry::OsString(os)) = guard.get(handle) else {
         return 0;
     };
@@ -53,5 +50,5 @@ pub extern "C" fn __RTS_FN_NS_FFI_OSSTR_TO_STR(handle: u64) -> u64 {
 /// Libera o handle (no-op se invalido).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FFI_OSSTR_FREE(handle: u64) {
-    table().lock().unwrap().free(handle);
+    free_handle(handle);
 }

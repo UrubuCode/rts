@@ -6,7 +6,7 @@
 
 use std::process::{Child, Command, Stdio};
 
-use super::super::gc::handles::{Entry, table};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
@@ -42,10 +42,7 @@ pub extern "C" fn __RTS_FN_NS_PROCESS_SPAWN(
         .stderr(Stdio::inherit());
 
     match command.spawn() {
-        Ok(child) => table()
-            .lock()
-            .unwrap()
-            .alloc(Entry::ProcessChild(Box::new(child))),
+        Ok(child) => alloc_entry(Entry::ProcessChild(Box::new(child))),
         Err(_) => 0,
     }
 }
@@ -56,8 +53,7 @@ pub extern "C" fn __RTS_FN_NS_PROCESS_SPAWN(
 pub extern "C" fn __RTS_FN_NS_PROCESS_WAIT(handle: u64) -> i32 {
     // Take: move o Child pra fora do Entry, substitui por Free.
     let child: Option<Box<Child>> = {
-        let t = table();
-        let mut guard = t.lock().unwrap();
+        let mut guard = shard_for_handle(handle).lock().unwrap();
         match guard.get_mut(handle) {
             Some(entry @ Entry::ProcessChild(_)) => {
                 let taken = std::mem::replace(entry, Entry::Free);
@@ -71,7 +67,7 @@ pub extern "C" fn __RTS_FN_NS_PROCESS_WAIT(handle: u64) -> i32 {
         }
     };
     // free formal do slot (bump generation)
-    table().lock().unwrap().free(handle);
+    free_handle(handle);
     let Some(mut child) = child else {
         return -1;
     };
@@ -85,8 +81,7 @@ pub extern "C" fn __RTS_FN_NS_PROCESS_WAIT(handle: u64) -> i32 {
 /// sucesso, -1 em erro.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROCESS_KILL(handle: u64) -> i64 {
-    let t = table();
-    let mut guard = t.lock().unwrap();
+    let mut guard = shard_for_handle(handle).lock().unwrap();
     match guard.get_mut(handle) {
         Some(Entry::ProcessChild(c)) => match c.kill() {
             Ok(_) => 0,

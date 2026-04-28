@@ -9,7 +9,7 @@
 //! Validacao defensiva: handle invalido ou offset fora do range retornam
 //! 0 (loads) ou 0 (stores) sem trap.
 
-use super::handles::{table, Entry, Instance};
+use super::handles::{alloc_entry, free_handle, shard_for_handle, Entry, Instance};
 
 const SENTINEL_ERR: i64 = 0;
 
@@ -25,13 +25,13 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_NEW(size: i32, class_handle: u64) -> u
         class: class_handle,
         bytes,
     };
-    table().lock().unwrap().alloc(Entry::Instance(Box::new(inst)))
+    alloc_entry(Entry::Instance(Box::new(inst)))
 }
 
 /// Retorna o class handle armazenado na instancia, ou 0 em handle invalido.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_CLASS(h: u64) -> u64 {
-    let table = table().lock().unwrap();
+    let table = shard_for_handle(h).lock().unwrap();
     let Some(Entry::Instance(inst)) = table.get(h) else {
         return 0;
     };
@@ -41,11 +41,7 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_CLASS(h: u64) -> u64 {
 /// Libera a instancia. Retorna 1 em sucesso, 0 se handle ja invalido.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_FREE(h: u64) -> i64 {
-    if table().lock().unwrap().free(h) {
-        1
-    } else {
-        0
-    }
+    if free_handle(h) { 1 } else { 0 }
 }
 
 #[inline]
@@ -62,7 +58,7 @@ fn check_range(len: usize, offset: i32, slot: usize) -> Option<usize> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_I64(h: u64, offset: i32) -> i64 {
-    let table = table().lock().unwrap();
+    let table = shard_for_handle(h).lock().unwrap();
     let Some(Entry::Instance(inst)) = table.get(h) else {
         return 0;
     };
@@ -76,7 +72,7 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_I64(h: u64, offset: i32) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_I64(h: u64, offset: i32, value: i64) -> i64 {
-    let mut table = table().lock().unwrap();
+    let mut table = shard_for_handle(h).lock().unwrap();
     let Some(Entry::Instance(inst)) = table.get_mut(h) else {
         return SENTINEL_ERR;
     };
@@ -89,7 +85,7 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_I64(h: u64, offset: i32, value: 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_I32(h: u64, offset: i32) -> i32 {
-    let table = table().lock().unwrap();
+    let table = shard_for_handle(h).lock().unwrap();
     let Some(Entry::Instance(inst)) = table.get(h) else {
         return 0;
     };
@@ -103,7 +99,7 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_I32(h: u64, offset: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_I32(h: u64, offset: i32, value: i32) -> i64 {
-    let mut table = table().lock().unwrap();
+    let mut table = shard_for_handle(h).lock().unwrap();
     let Some(Entry::Instance(inst)) = table.get_mut(h) else {
         return SENTINEL_ERR;
     };
@@ -116,7 +112,7 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_I32(h: u64, offset: i32, value: 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_F64(h: u64, offset: i32) -> f64 {
-    let table = table().lock().unwrap();
+    let table = shard_for_handle(h).lock().unwrap();
     let Some(Entry::Instance(inst)) = table.get(h) else {
         return 0.0;
     };
@@ -130,7 +126,7 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_F64(h: u64, offset: i32) -> f64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_F64(h: u64, offset: i32, value: f64) -> i64 {
-    let mut table = table().lock().unwrap();
+    let mut table = shard_for_handle(h).lock().unwrap();
     let Some(Entry::Instance(inst)) = table.get_mut(h) else {
         return SENTINEL_ERR;
     };

@@ -136,13 +136,6 @@ pub struct HandleTable {
 }
 
 impl HandleTable {
-    /// Legacy: allocates in shard 0. Used by callers that still go through
-    /// `table().lock().unwrap().alloc(...)`. Prefer `alloc_entry` instead.
-    #[deprecated(note = "use alloc_entry")]
-    pub fn alloc(&mut self, entry: Entry) -> u64 {
-        self.alloc_in_shard(entry, 0)
-    }
-
     /// Allocate `entry` in this shard. `shard_idx` is encoded in the low
     /// SHARD_BITS of the slot field so `shard_for_handle` can route back
     /// without extra metadata.
@@ -246,16 +239,6 @@ pub fn alloc_entry(entry: Entry) -> u64 {
 /// Frees a handle. Returns false if the handle is invalid or already freed.
 pub fn free_handle(handle: u64) -> bool {
     shard_for_handle(handle).lock().unwrap().free(handle)
-}
-
-/// Legacy single-table accessor kept for call sites that have not been
-/// migrated to the sharded API yet. Points to shard 0.
-///
-/// Deprecated: migrate callers to `alloc_entry` / `free_handle` /
-/// `shard_for_handle`. This will be removed once all namespaces are updated.
-#[deprecated(note = "use alloc_entry / free_handle / shard_for_handle")]
-pub fn table() -> &'static Mutex<HandleTable> {
-    &shards()[0]
 }
 
 #[cfg(test)]
