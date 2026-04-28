@@ -1767,12 +1767,29 @@ fn lower_intrinsic(
             use cranelift_codegen::ir::MemFlags;
 
             const STATE_SYMBOL: &str = "__RTS_DATA_NS_MATH_RNG_STATE";
-            let data_id = ctx
-                .module
-                .declare_data(STATE_SYMBOL, Linkage::Import, true, false)
-                .map_err(|e| anyhow!("failed to declare {STATE_SYMBOL}: {e}"))?;
-            let _ = DataDescription::new();
-            let gv = ctx.module.declare_data_in_func(data_id, ctx.builder.func);
+            // Cache pra evitar redeclaracao em cada call de random_f64.
+            // Cada declare_data nova em ObjectModule produz gv distinto
+            // que Cranelift nao deduplica — em hot loops com 2+ chamadas
+            // por iter, isso gerava 2 global_value/load/store
+            // independentes no IR.
+            let gv = if let Some(g) = ctx.gv_cache.get(STATE_SYMBOL).copied() {
+                g
+            } else {
+                let data_id = if let Some(id) = ctx.data_cache.get(STATE_SYMBOL).copied() {
+                    id
+                } else {
+                    let id = ctx
+                        .module
+                        .declare_data(STATE_SYMBOL, Linkage::Import, true, false)
+                        .map_err(|e| anyhow!("failed to declare {STATE_SYMBOL}: {e}"))?;
+                    ctx.data_cache.insert(STATE_SYMBOL, id);
+                    id
+                };
+                let _ = DataDescription::new();
+                let g = ctx.module.declare_data_in_func(data_id, ctx.builder.func);
+                ctx.gv_cache.insert(STATE_SYMBOL, g);
+                g
+            };
             let ptr_ty = ctx.module.isa().pointer_type();
             let ptr = ctx.builder.ins().global_value(ptr_ty, gv);
 

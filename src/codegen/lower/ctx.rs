@@ -315,6 +315,20 @@ pub struct FnCtx<'m, 'fb> {
     /// Warnings coletados durante o lower (#205 unreachable code, etc).
     /// Drenados por compile_program antes de retornar.
     pub warnings: Vec<String>,
+
+    /// Cache de DataId pra simbolos de data global declarados via
+    /// declare_data. Evita declarar duas vezes o mesmo simbolo (p.ex.
+    /// __RTS_DATA_NS_MATH_RNG_STATE em cada call de random_f64) — cada
+    /// declare_data cria um novo gv distinto que Cranelift nao
+    /// deduplica, gerando \`global_value + load + store\` repetidos
+    /// no body do loop.
+    pub data_cache: HashMap<&'static str, cranelift_module::DataId>,
+    /// Cache do GlobalValue resultante de declare_data_in_func na fn
+    /// atual. Mesmo data_id chamado 2x em declare_data_in_func produz
+    /// 2 gvs distintos — Cranelift nao deduplica, e em loops com varias
+    /// calls do mesmo intrinsic isso emite \`global_value\` e \`load\`
+    /// redundantes.
+    pub gv_cache: HashMap<&'static str, cranelift_codegen::ir::GlobalValue>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -354,6 +368,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             loop_stack: Vec::new(),
             pending_label: None,
             warnings: Vec::new(),
+            data_cache: HashMap::new(),
+            gv_cache: HashMap::new(),
         }
     }
 
