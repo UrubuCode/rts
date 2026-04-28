@@ -82,10 +82,11 @@ Regras:
 - Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
 - Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-Namespaces ativos (16): `io`, `fs`, `gc`, `math`, `bigfloat`, `time`, `env`, `path`,
-`buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`.
-Demais (net, thread, sync, atomic, etc) serao reintroduzidos sobre o contrato
-atual a medida que o pipeline estabiliza. Ver issues #16-#39 para o backlog.
+Namespaces ativos (32): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
+`path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
+`net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`,
+`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`. Cobre std::* + paralelismo +
+HTTPS + UI completos.
 
 ### Namespaces existentes
 
@@ -127,8 +128,67 @@ atual a medida que o pipeline estabiliza. Ver issues #16-#39 para o backlog.
 - `fmt/` — parse_i64/f64 (tolerante), fmt_hex/oct/bin/f64_prec
 - `crypto/` — SHA-256 inline (FIPS 180-4), base64/hex encode+decode,
   CSPRNG via BCryptGenRandom (Windows) / /dev/urandom (Unix)
+- `net/` — TCP listener/stream + UDP socket + DNS resolve via `std::net`.
+  Handles via `Entry::TcpListener/TcpStream/UdpSocket(UdpEntry)`. Sync,
+  sem deps externas
+- `tls/` — TLS 1.2/1.3 client via `rustls` + `webpki-roots` (Mozilla CAs
+  embutidos). Wraps `TcpStream` em conexao TLS. HTTPS funciona ponta-a-
+  ponta sem OpenSSL nem schannel
+- `thread/` — `std::thread` spawn/join/detach + scope auto-join +
+  sleep_ms. spawn(fp, arg) entrega arg ao worker (i64 e f64 via
+  bit-pattern preservado)
+- `atomic/` — `std::sync::atomic`: AtomicI64 (load/store/fetch_*/cas/swap),
+  AtomicBool, AtomicF64 (via AtomicU64 + bit-transmute), fences
+- `sync/` — `std::sync`: Mutex<i64>, RwLock<i64>, Once. Guards thread-
+  local pra atravessar chamadas extern "C"
+- `parallel/` — `rayon`: map/for_each/reduce + num_threads. Backing dos
+  passes silent (purity_pass, reduce_pass, array_methods_pass)
+- `mem/` — size_of/align_of constantes, swap_i64, drop/forget_handle
+- `num/` — checked/saturating/wrapping arith, bit ops (rotate, count_ones/
+  zeros, leading/trailing_zeros, reverse_bits, swap_bytes), bitcast
+  f64<->bits
+- `ptr/` — copy_nonoverlapping, raw pointer ops
+- `ffi/` — CString, OsString
+- `regex/` — backend `regex` crate, compile + test/find/replace/replace_all
+- `runtime/` — eval_file (dynamic import) + hot-reload primitives
+- `test/` — test_core (suite/case begin/end, fail) + bundle.ts (`rts:test`
+  describe/test/expect)
+- `trace/` — push/pop/capture/print frame stack pra erros estilo Bun
+- `ui/` — FLTK 1.x bindings (Button, Window, Input, Slider, ...)
+- `alloc/` — malloc-style raw allocations
+- `hint/` — black_box, spin_loop, unreachable, assert_unchecked
 
-### Capacidades de linguagem ativas (codegen)
+## Silent parallelism (Level-1)
+
+O codegen tem 3 passes que reescrevem padroes TS comuns para chamadas
+`parallel.*` automaticamente. User nao precisa mencionar threads/workers:
+
+- **`array_methods_pass`** — detecta `arr.map(fn)`, `arr.forEach(fn)`,
+  `arr.reduce(fn, init)` quando `fn` e Ident de user fn → reescreve para
+  `parallel.map/for_each/reduce`. Roda primeiro.
+- **`reduce_pass`** — detecta padrao classico de acumulador
+  (`let s = 0; for (x of arr) s = s + EXPR;` ou `s += EXPR`) e reescreve
+  para `parallel.reduce`. So aceita ops associativas (+, *).
+- **`purity_pass`** — detecta `for...of` cujo corpo so chama membros
+  `pure: true` de namespaces e nao tem assignments → reescreve para
+  `parallel.for_each`.
+
+Os 3 passes cobrem top-level + body de cada user fn. Counters
+compartilhados sem colisao de nomes. 96 fns marcadas `pure: true` hoje
+(math, string, num, fmt, path, hash, mem) — base do reconhecimento.
+
+`parallel.*` aceita arrays literais, em variavel, e retornados de fn
+(todos viram Vec<i64> via codegen de array literal). Bridge pra Buffer
+e typed arrays e follow-up.
+
+## HandleTable shard-aware
+
+`HandleTable` esta dividido em 32 shards lock-free entre si. `alloc_entry`
+distribui round-robin por thread; `shard_for_handle` decodifica O(1) o
+shard de qualquer handle (encoded nos low bits). Todos os 17 namespaces
+handle-based migrados pra essa API — sem contenção em workloads paralelos.
+
+## Capacidades de linguagem ativas (codegen)
 
 - Object/array literals: `{k: v}` e `[1,2,3]` via `collections.map_*`/`vec_*`.
 - Classes: constructor, method, this, extends, super(args), super.method(args),
