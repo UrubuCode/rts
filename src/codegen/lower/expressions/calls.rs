@@ -1404,7 +1404,7 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         let tv = lower_expr(ctx, &arg.expr)?;
         let value = match expected_ty {
             ValTy::I32 => ctx.coerce_to_i32(tv).val,
-            ValTy::I64 | ValTy::Bool | ValTy::Handle => ctx.coerce_to_i64(tv).val,
+            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
             ValTy::F64 => to_f64(ctx, tv),
         };
         values.push(value);

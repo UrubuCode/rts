@@ -285,6 +285,11 @@ pub(crate) fn emit_flat_field_read(
             cl::I64,
             ValTy::I64,
         ),
+        ValTy::U64 => (
+            "__RTS_FN_NS_GC_INSTANCE_LOAD_I64",
+            cl::I64,
+            ValTy::U64,
+        ),
     };
     let fref = ctx.get_extern(sym, &[cl::I64, cl::I32], Some(ret_ty))?;
     let inst = ctx.builder.ins().call(fref, &[recv_handle, off]);
@@ -326,7 +331,7 @@ pub(crate) fn emit_flat_field_write(
             )?;
             ctx.builder.ins().call(fref, &[recv_handle, off, coerced]);
         }
-        ValTy::I64 | ValTy::Bool | ValTy::Handle => {
+        ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => {
             let coerced = ctx.coerce_to_i64(value).val;
             let fref = ctx.get_extern(
                 "__RTS_FN_NS_GC_INSTANCE_STORE_I64",

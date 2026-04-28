@@ -23,15 +23,18 @@ pub enum ValTy {
     I64,
     F64,
     Bool,
-    /// GC handle. Backed by I64.
+    /// GC handle (string pool, etc.). Backed by I64. `+` faz string concat.
     Handle,
+    /// Bits opacos de 64 bits (ex.: ptr/handle de namespace nao-string como
+    /// `buffer.ptr`, `atomic.*`). Backed by I64. `+` faz aritmetica inteira.
+    U64,
 }
 
 impl ValTy {
     pub fn cl_type(self) -> cranelift_codegen::ir::Type {
         match self {
             ValTy::I32 => cl::I32,
-            ValTy::I64 | ValTy::Bool | ValTy::Handle => cl::I64,
+            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => cl::I64,
             ValTy::F64 => cl::F64,
         }
     }
@@ -86,7 +89,8 @@ impl ValTy {
             AbiType::I32 => ValTy::I32,
             AbiType::F64 => ValTy::F64,
             AbiType::Bool => ValTy::Bool,
-            AbiType::Handle | AbiType::U64 => ValTy::Handle,
+            AbiType::Handle => ValTy::Handle,
+            AbiType::U64 => ValTy::U64,
             _ => ValTy::I64,
         }
     }
@@ -595,6 +599,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn coerce_to_handle(&mut self, tv: TypedVal) -> Result<TypedVal> {
         match tv.ty {
             ValTy::Handle => Ok(tv),
+            ValTy::U64 => Ok(TypedVal::new(tv.val, ValTy::Handle)),
             ValTy::I64 | ValTy::I32 | ValTy::Bool => {
                 let as_i64 = self.coerce_to_i64(tv);
                 let fref =
@@ -616,7 +621,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     /// Coerces a value to I64.
     pub fn coerce_to_i64(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
-            ValTy::I64 | ValTy::Bool | ValTy::Handle => tv,
+            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => tv,
             ValTy::I32 => TypedVal::new(self.builder.ins().sextend(cl::I64, tv.val), ValTy::I64),
             ValTy::F64 => TypedVal::new(
                 self.builder.ins().fcvt_to_sint_sat(cl::I64, tv.val),
@@ -629,7 +634,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn coerce_to_i32(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
             ValTy::I32 => tv,
-            ValTy::I64 | ValTy::Bool | ValTy::Handle => {
+            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => {
                 TypedVal::new(self.builder.ins().ireduce(cl::I32, tv.val), ValTy::I32)
             }
             ValTy::F64 => {
@@ -647,7 +652,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
                 ValTy::F64,
             ),
-            ValTy::I64 | ValTy::Bool | ValTy::Handle => TypedVal::new(
+            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => TypedVal::new(
                 self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
                 ValTy::F64,
             ),

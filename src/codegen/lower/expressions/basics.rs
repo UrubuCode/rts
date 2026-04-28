@@ -120,7 +120,7 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     let ty_str = match tv.ty {
         ValTy::Bool => "boolean",
         ValTy::Handle => "string",
-        ValTy::F64 | ValTy::I32 | ValTy::I64 => "number",
+        ValTy::F64 | ValTy::I32 | ValTy::I64 | ValTy::U64 => "number",
     };
     ctx.emit_str_handle(ty_str.as_bytes())
 }

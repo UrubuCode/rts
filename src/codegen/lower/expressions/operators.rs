@@ -350,10 +350,15 @@ fn promote_numeric(
     if matches!(lhs.ty, ValTy::I32) && matches!(rhs.ty, ValTy::I32) {
         return Ok((lhs.val, rhs.val, ValTy::I32));
     }
+    let result_ty = if matches!(lhs.ty, ValTy::U64) || matches!(rhs.ty, ValTy::U64) {
+        ValTy::U64
+    } else {
+        ValTy::I64
+    };
     Ok((
         ctx.coerce_to_i64(lhs).val,
         ctx.coerce_to_i64(rhs).val,
-        ValTy::I64,
+        result_ty,
     ))
 }
 
