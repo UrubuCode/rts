@@ -40,6 +40,15 @@ fn as_int_literal(expr: &Expr) -> Option<i64> {
 }
 
 fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
+    // Checa op antes de qualquer lower — sem isso, ops fora desta lista
+    // pagavam lower duplicado da subexpr (uma aqui, outra no fluxo
+    // principal). Em hot loops com FP arith isso era visivel no IR.
+    if !matches!(
+        bin.op,
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod
+    ) {
+        return Ok(None);
+    }
     let (var_side, imm) = match (as_int_literal(&bin.left), as_int_literal(&bin.right)) {
         (Some(imm), None) => (&bin.right, imm),
         (None, Some(imm)) => (&bin.left, imm),
@@ -59,7 +68,7 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
         BinaryOp::Mul => lower_mul(ctx, lhs, imm_tv)?,
         BinaryOp::Div => lower_div(ctx, lhs, imm_tv)?,
         BinaryOp::Mod => lower_mod(ctx, lhs, imm_tv)?,
-        _ => return Ok(None),
+        _ => unreachable!("op verificado acima"),
     };
     Ok(Some(result))
 }
@@ -86,10 +95,27 @@ fn try_operator_overload(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedV
         Some(method) => method,
         None => return Ok(None),
     };
-    let lhs_tv = lower_expr(ctx, &bin.left)?;
+    // Checa classe ANTES de fazer lower — lower emite IR e nao tem
+    // como desfazer. Sem essa guarda, todo binop nao-overload pagava
+    // por um lower duplicado da subexpr esquerda. Em hot loops com
+    // \`x*x + y*y <= 1.0\`, isso tripla-emitia o IR (3 caminhos:
+    // try_operator_overload, try_bin_imm, fluxo principal).
     let Some(class_name) = lhs_static_class(ctx, &bin.left) else {
         return Ok(None);
     };
+    // Confirma que a classe tem o metodo do operator antes de gastar
+    // lower_expr. Sem o metodo a chamada cairia em runtime warning
+    // (call to undeclared method) e o fluxo principal eh o caminho
+    // correto.
+    let has_method = ctx
+        .classes
+        .get(&class_name)
+        .map(|m| m.methods.iter().any(|n| n == method))
+        .unwrap_or(false);
+    if !has_method {
+        return Ok(None);
+    }
+    let lhs_tv = lower_expr(ctx, &bin.left)?;
     let recv_i64 = ctx.coerce_to_i64(lhs_tv).val;
     let synthetic_call = CallExpr {
         span: bin.span,

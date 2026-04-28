@@ -9,12 +9,30 @@ pub(super) fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
     match lit {
         Lit::Num(n) => {
             let v = n.value;
-            if v.fract() == 0.0 && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
+            // Se o source escreveu \`1.0\` ou \`1e3\` (com . ou expoente),
+            // mantemos F64 mesmo que matematicamente seja inteiro. Isso
+            // evita que codigo \`x <= 1.0\` em loop quente faca
+            // iconst.i32 + fcvt_from_sint.f64 toda iter — basta
+            // f64const direto. Cranelift egraph nao hoist esse fcvt
+            // mesmo quando trivialmente loop-invariant.
+            let wrote_as_float = n
+                .raw
+                .as_ref()
+                .map(|r| {
+                    let s = r.as_bytes();
+                    s.iter().any(|&b| b == b'.' || b == b'e' || b == b'E')
+                })
+                .unwrap_or(false);
+            if !wrote_as_float
+                && v.fract() == 0.0
+                && v >= i32::MIN as f64
+                && v <= i32::MAX as f64
+            {
                 Ok(TypedVal::new(
                     ctx.builder.ins().iconst(cl::I32, v as i64),
                     ValTy::I32,
                 ))
-            } else if v.fract() == 0.0 && v.is_finite() {
+            } else if !wrote_as_float && v.fract() == 0.0 && v.is_finite() {
                 Ok(TypedVal::new(
                     ctx.builder.ins().iconst(cl::I64, v as i64),
                     ValTy::I64,
