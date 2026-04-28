@@ -173,6 +173,19 @@ impl HandleTable {
         true
     }
 
+    /// Resolve um handle ao seu Entry. Retorna None quando o handle eh
+    /// invalido (sentinela, slot inexistente, gen nao bate, ja liberado).
+    ///
+    /// **Use-after-free safety (#203)**: o caller nunca recebe acesso a
+    /// memoria de um Entry que foi liberado, mesmo que o slot tenha sido
+    /// reutilizado por outra alocacao — a comparacao de generation
+    /// invalida handles stale. Type confusion entre String/Buffer/etc
+    /// fica impossivel: caller deve fazer pattern match em Entry::X
+    /// e tratar mismatches como invalido.
+    ///
+    /// Todos os call sites em `src/namespaces/*/{ops,*.rs}` seguem o
+    /// padrao `match table.get(h) { Some(Entry::Tag(...)) => ..., _ => fallback }`
+    /// e nao usam `unwrap()` — verificado por audit em #203.
     pub fn get(&self, handle: u64) -> Option<&Entry> {
         let (expected_gen, _, table_slot) = decode(handle)?;
         let slot = self.slots.get(table_slot as usize)?;
@@ -270,6 +283,39 @@ mod tests {
         drop(g1);
         let g2 = shard_for_handle(h2).lock().unwrap();
         assert!(matches!(g2.get(h2), Some(Entry::String(_))));
+    }
+
+    /// #203: passar handle invalido pra get()/get_mut() retorna None,
+    /// nunca acessa memoria liberada nem confunde tipos.
+    #[test]
+    fn invalid_handles_safe() {
+        let table = HandleTable::default();
+        // Handle 0 (sentinela)
+        assert!(table.get(0).is_none());
+        // Handle absurdo (slot fora do range, gen nunca alocado)
+        assert!(table.get(0xDEAD_BEEF_DEAD_BEEF).is_none());
+        // Bits altos zerados (gen=0 + slot inexistente)
+        assert!(table.get(999_999).is_none());
+    }
+
+    /// #203: type confusion via stale handle e bloqueado.
+    /// Free String, aloca Buffer no mesmo slot — stale handle pra String
+    /// nao deve resolver (gen incrementada).
+    #[test]
+    fn type_confusion_via_stale_handle_blocked() {
+        let h_str = alloc_entry(Entry::String(b"old".to_vec()));
+        free_handle(h_str);
+        // Aloca buffer logo apos — pode reusar o mesmo slot, mas com gen+1.
+        let h_buf = alloc_entry(Entry::Buffer(vec![0u8; 16]));
+        let guard = shard_for_handle(h_str).lock().unwrap();
+        assert!(
+            guard.get(h_str).is_none(),
+            "stale handle nao deve resolver mesmo apos reuso do slot"
+        );
+        // h_buf e' um handle valido distinto.
+        drop(guard);
+        let g2 = shard_for_handle(h_buf).lock().unwrap();
+        assert!(matches!(g2.get(h_buf), Some(Entry::Buffer(_))));
     }
 
     #[test]
