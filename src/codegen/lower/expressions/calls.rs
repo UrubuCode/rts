@@ -1008,6 +1008,16 @@ fn lower_var_member_call(
         .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
     let obj_h = ctx.coerce_to_i64(obj_tv).val;
 
+    // Builtins de string em receiver Handle: s.indexOf(...), s.startsWith(...), etc.
+    // Tem que vir antes do map_get porque uma string handle nao e um map —
+    // map_get retornaria lixo, e o call_indirect subsequente saltaria pra
+    // endereco invalido. (#235: indexOf travava/SIGSEGV em string com \0)
+    if matches!(obj_tv.ty, ValTy::Handle) {
+        if let Some(tv) = lower_string_builtin(ctx, prop, obj_h, call)? {
+            return Ok(tv);
+        }
+    }
+
     // Builtins de array/map: arr.push(x), arr.length() etc.
     if let Some(tv) = lower_array_builtin(ctx, prop, obj_h, call)? {
         return Ok(tv);
@@ -1049,6 +1059,209 @@ fn lower_var_member_call(
         .copied()
         .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
     Ok(TypedVal::new(v, ValTy::I64))
+}
+
+/// Builtins de String.prototype em receiver Handle (string pool).
+/// Mapeia os metodos JS-classicos para chamadas no namespace `string`/`gc`.
+/// Retorna `Some` quando reconheceu o metodo. Necessario porque um
+/// string handle nao e um map; tentar `map_get` num handle e depois
+/// `call_indirect` no resultado salta pra lixo (#235).
+fn lower_string_builtin(
+    ctx: &mut FnCtx,
+    method: &str,
+    recv_h: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    // Helper: extrai (ptr, len) de um string handle via gc.string_ptr/len.
+    fn handle_to_strptr(
+        ctx: &mut FnCtx,
+        h: cranelift_codegen::ir::Value,
+    ) -> Result<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
+        let ptr_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let len_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let pi = ctx.builder.ins().call(ptr_fref, &[h]);
+        let p = ctx.builder.inst_results(pi)[0];
+        let li = ctx.builder.ins().call(len_fref, &[h]);
+        let l = ctx.builder.inst_results(li)[0];
+        Ok((p, l))
+    }
+
+    fn arg_strptr(
+        ctx: &mut FnCtx,
+        call: &CallExpr,
+        idx: usize,
+    ) -> Result<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
+        let arg = call
+            .args
+            .get(idx)
+            .ok_or_else(|| anyhow!("missing arg #{idx}"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in string builtin"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        let h = ctx.coerce_to_handle(tv)?.val;
+        let ptr_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let len_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let pi = ctx.builder.ins().call(ptr_fref, &[h]);
+        let p = ctx.builder.inst_results(pi)[0];
+        let li = ctx.builder.ins().call(len_fref, &[h]);
+        let l = ctx.builder.inst_results(li)[0];
+        Ok((p, l))
+    }
+
+    match method {
+        "length" => {
+            // s.length() — comprimento em bytes UTF-8 (paridade com string.byte_len).
+            let len_fref =
+                ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(len_fref, &[recv_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "indexOf" => {
+            // s.indexOf(needle) — string.find(s, needle), retorna i64.
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let (np, nl) = arg_strptr(ctx, call, 0)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_FIND",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl, np, nl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "includes" | "contains" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let (np, nl) = arg_strptr(ctx, call, 0)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_CONTAINS",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl, np, nl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Bool)))
+        }
+        "startsWith" | "starts_with" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let (np, nl) = arg_strptr(ctx, call, 0)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_STARTS_WITH",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl, np, nl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Bool)))
+        }
+        "endsWith" | "ends_with" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let (np, nl) = arg_strptr(ctx, call, 0)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_ENDS_WITH",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl, np, nl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Bool)))
+        }
+        "toLowerCase" | "toLocaleLowerCase" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_TO_LOWER",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "toUpperCase" | "toLocaleUpperCase" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_TO_UPPER",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "trim" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_TRIM",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "trimStart" | "trim_start" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_TRIM_START",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "trimEnd" | "trim_end" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_TRIM_END",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "charCodeAt" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let arg = call
+                .args
+                .first()
+                .ok_or_else(|| anyhow!("charCodeAt requires index"))?;
+            let tv = lower_expr(ctx, &arg.expr)?;
+            let idx = ctx.coerce_to_i64(tv).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_CHAR_CODE_AT",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl, idx]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "charAt" => {
+            let (sp, sl) = handle_to_strptr(ctx, recv_h)?;
+            let arg = call
+                .args
+                .first()
+                .ok_or_else(|| anyhow!("charAt requires index"))?;
+            let tv = lower_expr(ctx, &arg.expr)?;
+            let idx = ctx.coerce_to_i64(tv).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_STRING_CHAR_AT",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[sp, sl, idx]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        _ => Ok(None),
+    }
 }
 
 /// Builtins universais para arrays/maps via handle. Retorna `Some` se
