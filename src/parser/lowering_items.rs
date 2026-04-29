@@ -148,7 +148,17 @@ fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec
         match init.as_ref() {
             Expr::Fn(fn_expr) => {
                 let span = fn_expr.function.span;
-                pending.push(lower_function(cm, &name, &fn_expr.function, span));
+                // Named function expression: o nome interno (`function fact(){...}`)
+                // so e visivel dentro do body. Reescreve referencias a `fact`
+                // para o binding externo (`factorial`) antes de descer.
+                let mut function = (*fn_expr.function).clone();
+                if let Some(inner_id) = &fn_expr.ident {
+                    let inner_name = inner_id.sym.as_ref();
+                    if inner_name != name {
+                        rename_ident_in_function(&mut function, inner_name, &name);
+                    }
+                }
+                pending.push(lower_function(cm, &name, &function, span));
             }
             Expr::Arrow(arrow) => {
                 let synthetic = arrow_to_function(arrow);
@@ -548,3 +558,238 @@ fn lower_class_decl(cm: &Lrc<SourceMap>, class_decl: &SwcClassDecl) -> ClassDecl
     )
 }
 
+/// Reescreve ocorrencias de `Expr::Ident(old)` para `new` no body
+/// inteiro de uma `Function`. Conservador: para em escopos onde o
+/// nome e' rebound (param/var local com mesmo nome).
+fn rename_ident_in_function(f: &mut swc_ecma_ast::Function, old: &str, new: &str) {
+    for p in &f.params {
+        if pat_binds(&p.pat, old) {
+            return;
+        }
+    }
+    if let Some(body) = f.body.as_mut() {
+        for s in &mut body.stmts {
+            rename_in_stmt(s, old, new);
+        }
+    }
+}
+
+fn pat_binds(pat: &swc_ecma_ast::Pat, name: &str) -> bool {
+    use swc_ecma_ast::Pat;
+    match pat {
+        Pat::Ident(b) => b.id.sym.as_ref() == name,
+        Pat::Array(a) => a.elems.iter().flatten().any(|p| pat_binds(p, name)),
+        Pat::Object(o) => o.props.iter().any(|prop| match prop {
+            swc_ecma_ast::ObjectPatProp::KeyValue(kv) => pat_binds(&kv.value, name),
+            swc_ecma_ast::ObjectPatProp::Assign(a) => a.key.sym.as_ref() == name,
+            swc_ecma_ast::ObjectPatProp::Rest(r) => pat_binds(&r.arg, name),
+        }),
+        Pat::Rest(r) => pat_binds(&r.arg, name),
+        Pat::Assign(a) => pat_binds(&a.left, name),
+        _ => false,
+    }
+}
+
+fn rename_in_stmt(s: &mut swc_ecma_ast::Stmt, old: &str, new: &str) {
+    use swc_ecma_ast::Stmt;
+    match s {
+        Stmt::Block(b) => {
+            for s in &mut b.stmts {
+                rename_in_stmt(s, old, new);
+            }
+        }
+        Stmt::Expr(e) => rename_in_expr(&mut e.expr, old, new),
+        Stmt::Return(r) => {
+            if let Some(e) = r.arg.as_mut() {
+                rename_in_expr(e, old, new);
+            }
+        }
+        Stmt::If(i) => {
+            rename_in_expr(&mut i.test, old, new);
+            rename_in_stmt(&mut i.cons, old, new);
+            if let Some(alt) = i.alt.as_mut() {
+                rename_in_stmt(alt, old, new);
+            }
+        }
+        Stmt::While(w) => {
+            rename_in_expr(&mut w.test, old, new);
+            rename_in_stmt(&mut w.body, old, new);
+        }
+        Stmt::DoWhile(d) => {
+            rename_in_expr(&mut d.test, old, new);
+            rename_in_stmt(&mut d.body, old, new);
+        }
+        Stmt::For(f) => {
+            if let Some(init) = f.init.as_mut() {
+                match init {
+                    swc_ecma_ast::VarDeclOrExpr::Expr(e) => rename_in_expr(e, old, new),
+                    swc_ecma_ast::VarDeclOrExpr::VarDecl(vd) => {
+                        for d in &mut vd.decls {
+                            if let Some(e) = d.init.as_mut() {
+                                rename_in_expr(e, old, new);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(t) = f.test.as_mut() {
+                rename_in_expr(t, old, new);
+            }
+            if let Some(u) = f.update.as_mut() {
+                rename_in_expr(u, old, new);
+            }
+            rename_in_stmt(&mut f.body, old, new);
+        }
+        Stmt::ForOf(f) => {
+            rename_in_expr(&mut f.right, old, new);
+            rename_in_stmt(&mut f.body, old, new);
+        }
+        Stmt::ForIn(f) => {
+            rename_in_expr(&mut f.right, old, new);
+            rename_in_stmt(&mut f.body, old, new);
+        }
+        Stmt::Switch(s) => {
+            rename_in_expr(&mut s.discriminant, old, new);
+            for c in &mut s.cases {
+                if let Some(t) = c.test.as_mut() {
+                    rename_in_expr(t, old, new);
+                }
+                for s in &mut c.cons {
+                    rename_in_stmt(s, old, new);
+                }
+            }
+        }
+        Stmt::Throw(t) => rename_in_expr(&mut t.arg, old, new),
+        Stmt::Try(t) => {
+            for s in &mut t.block.stmts {
+                rename_in_stmt(s, old, new);
+            }
+            if let Some(h) = t.handler.as_mut() {
+                for s in &mut h.body.stmts {
+                    rename_in_stmt(s, old, new);
+                }
+            }
+            if let Some(f) = t.finalizer.as_mut() {
+                for s in &mut f.stmts {
+                    rename_in_stmt(s, old, new);
+                }
+            }
+        }
+        Stmt::Decl(swc_ecma_ast::Decl::Var(v)) => {
+            for d in &mut v.decls {
+                if let Some(e) = d.init.as_mut() {
+                    rename_in_expr(e, old, new);
+                }
+            }
+        }
+        Stmt::Labeled(l) => rename_in_stmt(&mut l.body, old, new),
+        _ => {}
+    }
+}
+
+fn rename_in_expr(e: &mut swc_ecma_ast::Expr, old: &str, new: &str) {
+    use swc_ecma_ast::Expr;
+    match e {
+        Expr::Ident(id) if id.sym.as_ref() == old => {
+            id.sym = new.into();
+        }
+        Expr::Bin(b) => {
+            rename_in_expr(&mut b.left, old, new);
+            rename_in_expr(&mut b.right, old, new);
+        }
+        Expr::Unary(u) => rename_in_expr(&mut u.arg, old, new),
+        Expr::Update(u) => rename_in_expr(&mut u.arg, old, new),
+        Expr::Assign(a) => {
+            rename_in_expr(&mut a.right, old, new);
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(m),
+            ) = &mut a.left
+            {
+                rename_in_expr(&mut m.obj, old, new);
+            }
+        }
+        Expr::Cond(c) => {
+            rename_in_expr(&mut c.test, old, new);
+            rename_in_expr(&mut c.cons, old, new);
+            rename_in_expr(&mut c.alt, old, new);
+        }
+        Expr::Call(c) => {
+            if let swc_ecma_ast::Callee::Expr(callee) = &mut c.callee {
+                rename_in_expr(callee, old, new);
+            }
+            for a in &mut c.args {
+                rename_in_expr(&mut a.expr, old, new);
+            }
+        }
+        Expr::New(n) => {
+            rename_in_expr(&mut n.callee, old, new);
+            if let Some(args) = n.args.as_mut() {
+                for a in args {
+                    rename_in_expr(&mut a.expr, old, new);
+                }
+            }
+        }
+        Expr::Member(m) => {
+            rename_in_expr(&mut m.obj, old, new);
+            if let swc_ecma_ast::MemberProp::Computed(c) = &mut m.prop {
+                rename_in_expr(&mut c.expr, old, new);
+            }
+        }
+        Expr::Paren(p) => rename_in_expr(&mut p.expr, old, new),
+        Expr::Seq(s) => {
+            for e in &mut s.exprs {
+                rename_in_expr(e, old, new);
+            }
+        }
+        Expr::Array(a) => {
+            for el in a.elems.iter_mut().flatten() {
+                rename_in_expr(&mut el.expr, old, new);
+            }
+        }
+        Expr::Object(o) => {
+            for p in &mut o.props {
+                if let swc_ecma_ast::PropOrSpread::Prop(p) = p {
+                    if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_mut() {
+                        rename_in_expr(&mut kv.value, old, new);
+                    }
+                }
+            }
+        }
+        Expr::Tpl(t) => {
+            for e in &mut t.exprs {
+                rename_in_expr(e, old, new);
+            }
+        }
+        Expr::TsAs(a) => rename_in_expr(&mut a.expr, old, new),
+        Expr::TsTypeAssertion(a) => rename_in_expr(&mut a.expr, old, new),
+        Expr::TsNonNull(n) => rename_in_expr(&mut n.expr, old, new),
+        Expr::TsConstAssertion(a) => rename_in_expr(&mut a.expr, old, new),
+        Expr::Arrow(a) => {
+            if a.params.iter().any(|p| pat_binds(p, old)) {
+                return;
+            }
+            match a.body.as_mut() {
+                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+                    for s in &mut b.stmts {
+                        rename_in_stmt(s, old, new);
+                    }
+                }
+                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => rename_in_expr(e, old, new),
+            }
+        }
+        Expr::Fn(f) => {
+            if f.ident.as_ref().map(|i| i.sym.as_ref() == old).unwrap_or(false) {
+                return;
+            }
+            if f.function.params.iter().any(|p| pat_binds(&p.pat, old)) {
+                return;
+            }
+            if let Some(body) = f.function.body.as_mut() {
+                for s in &mut body.stmts {
+                    rename_in_stmt(s, old, new);
+                }
+            }
+        }
+        _ => {}
+    }
+}
