@@ -109,8 +109,8 @@ pub fn build_executable_with_request(
             }
         };
 
-    let runtime_archive = crate::runtime_objects::extract_runtime_archive(&cache.runtime_dir())
-        .context("failed to extract runtime archive")?;
+    let runtime_archive = crate::runtime_objects::ensure_artifacts()
+        .context("failed to prepare runtime artifacts")?;
 
     let inputs = vec![obj_path, runtime_archive.clone()];
 

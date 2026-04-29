@@ -1,30 +1,48 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
-/// Combined Rust staticlib for all runtime namespaces (gc + io + fs).
+/// Combined Rust staticlib for all runtime namespaces (gc + io + fs + …).
 /// Compiled at build time; includes all Rust std dependencies needed at link.
 pub(crate) static RUNTIME_ARCHIVE: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/runtime_support.a"));
 
-/// Extracts the runtime archive into `cache_dir` if not already present.
+/// Returns `~/.rts/artifacts.a`, extracting or updating it when the embedded
+/// archive differs from what's on disk (SHA-256 comparison).
 ///
-/// Returns the path to the extracted `.a` file. The linker accepts archives
-/// directly; dead code elimination (`--gc-sections` / `/OPT:REF`) strips
-/// unused namespace functions from the final binary.
-pub(crate) fn extract_runtime_archive(cache_dir: &Path) -> Result<PathBuf> {
-    std::fs::create_dir_all(cache_dir)
-        .with_context(|| format!("failed to create runtime cache {}", cache_dir.display()))?;
+/// This is a global user-level cache: all projects share the same file.
+/// Re-extraction only happens when `rts` itself is rebuilt with a new runtime.
+pub(crate) fn ensure_artifacts() -> Result<PathBuf> {
+    let path = artifacts_path()?;
 
-    let hash = format!("{:x}", Sha256::digest(RUNTIME_ARCHIVE));
-    let archive_path = cache_dir.join(format!("runtime_support_{}.a", &hash[..16]));
-
-    if !archive_path.is_file() {
-        std::fs::write(&archive_path, RUNTIME_ARCHIVE).with_context(|| {
-            format!("failed to write runtime archive {}", archive_path.display())
-        })?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create ~/.rts dir {}", parent.display()))?;
     }
 
-    Ok(archive_path)
+    let embedded_hash = sha256_hex(RUNTIME_ARCHIVE);
+
+    let needs_update = if path.is_file() {
+        let on_disk = std::fs::read(&path)
+            .with_context(|| format!("read {}", path.display()))?;
+        sha256_hex(&on_disk) != embedded_hash
+    } else {
+        true
+    };
+
+    if needs_update {
+        std::fs::write(&path, RUNTIME_ARCHIVE)
+            .with_context(|| format!("write {}", path.display()))?;
+    }
+
+    Ok(path)
+}
+
+fn artifacts_path() -> Result<PathBuf> {
+    Ok(crate::registers::rts_home()?.join("artifacts.a"))
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(data))
 }

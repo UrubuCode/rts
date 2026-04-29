@@ -103,20 +103,11 @@ impl ObjCache {
         Ok(dest)
     }
 
-    pub fn runtime_dir(&self) -> PathBuf {
-        self.root.join("runtime").join(runtime_stamp())
-    }
-
     fn obj_dir(&self, checksum: &str) -> PathBuf {
         self.root.join("obj").join(checksum)
     }
 }
 
-/// Hash of the embedded runtime archive — changes when runtime is rebuilt.
-fn runtime_stamp() -> String {
-    let digest = Sha256::digest(crate::runtime_objects::RUNTIME_ARCHIVE);
-    format!("{:x}", digest)[..16].to_string()
-}
 
 fn file_sha256(path: &Path) -> Result<String> {
     let bytes =
