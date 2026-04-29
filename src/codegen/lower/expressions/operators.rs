@@ -77,6 +77,19 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
 
     let lhs = lower_expr(ctx, var_side)?;
 
+    // (#299) Peephole de Add inverteu lhs/rhs quando literal estava na
+    // esquerda. Pra Number e' OK (3+5=5+3) mas Add com Handle vira
+    // string concat e a ordem importa (\`3+\"5\"=\"35\"\`, \`\"5\"+3=\"53\"\`).
+    // Quando o var_side e' Handle e o literal estava do outro lado,
+    // a inversao quebra a semantica — abort do peephole, deixa o fluxo
+    // principal lower_bin emitir concat na ordem do AST.
+    if matches!(bin.op, BinaryOp::Add)
+        && matches!(lhs.ty, ValTy::Handle)
+        && matches!(as_int_literal(&bin.left), Some(_))
+    {
+        return Ok(None);
+    }
+
     // Peepholes so' aplicam quando lhs eh inteiro. F64 *2 nao pode
     // virar shift; f64 %4 nao pode virar band. Sem essa guarda o
     // peephole quebrava \`5.5 % 4\` (vinha 1 em vez de 1.5) e
