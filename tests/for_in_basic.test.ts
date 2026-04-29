@@ -16,6 +16,6 @@ for (const key in obj) {
 
 describe("fixture:for_in_basic", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("bar\nbaz\nfoo\n");
+    expect(__rtsCapturedOutput).toBe("foo\nbar\nbaz\n");
   });
 });

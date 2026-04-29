@@ -1,8 +1,35 @@
-//! HashMap<String, i64> — mapa de chave string para valor i64.
+//! IndexMap<String, i64> — mapa de chave string para valor i64.
+//!
+//! Usa `indexmap::IndexMap` para preservar ordem de inserção, necessário
+//! para implementar a ordem de enumeração de propriedades do JS:
+//! - integer-indexed keys (`"0"`, `"1"`, `"2"`, ...) em ordem numérica
+//!   ascendente;
+//! - demais string keys em ordem de inserção.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+
+/// Reconhece "array index" no sentido do ECMA-262: string que representa
+/// um u32 canônico (sem leading zeros exceto "0"; máximo 2^32 - 2).
+/// Retorna o valor numérico para ordenação. Strings como "01", "+1", "1.0",
+/// " 1" não são consideradas índices.
+fn parse_array_index(s: &str) -> Option<u32> {
+    if s.is_empty() {
+        return None;
+    }
+    if s.len() > 1 && s.starts_with('0') {
+        return None;
+    }
+    if !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: u32 = s.parse().ok()?;
+    if n == u32::MAX {
+        return None;
+    }
+    Some(n)
+}
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
@@ -15,7 +42,7 @@ fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
 
 fn with_map<F, R>(handle: u64, default: R, f: F) -> R
 where
-    F: FnOnce(&HashMap<String, i64>) -> R,
+    F: FnOnce(&IndexMap<String, i64>) -> R,
 {
     let guard = shard_for_handle(handle).lock().unwrap();
     match guard.get(handle) {
@@ -26,7 +53,7 @@ where
 
 fn with_map_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
-    F: FnOnce(&mut HashMap<String, i64>) -> R,
+    F: FnOnce(&mut IndexMap<String, i64>) -> R,
 {
     let mut guard = shard_for_handle(handle).lock().unwrap();
     match guard.get_mut(handle) {
@@ -37,7 +64,7 @@ where
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> u64 {
-    alloc_entry(Entry::Map(Box::new(HashMap::new())))
+    alloc_entry(Entry::Map(Box::new(IndexMap::new())))
 }
 
 #[unsafe(no_mangle)]
@@ -102,7 +129,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
-    with_map_mut(handle, 0, |m| if m.remove(key).is_some() { 1 } else { 0 })
+    with_map_mut(handle, 0, |m| if m.shift_remove(key).is_some() { 1 } else { 0 })
 }
 
 #[unsafe(no_mangle)]
@@ -110,19 +137,33 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(handle: u64) {
     with_map_mut(handle, (), |m| m.clear());
 }
 
-/// Retorna a key na posição `idx` (em ordem de iteração estável dentro
-/// de uma chamada). Usado por for-in. Coleta keys em snapshot Vec
-/// ordenado pra garantir ordem reproduzível em runs distintos. Retorna
-/// handle de string ou 0 se idx fora de range.
+/// Retorna a key na posição `idx` na ordem de enumeração definida pelo JS:
+/// 1. integer-indexed keys (string que parseia para u32 sem leading zero,
+///    exceto "0") em ordem numérica ascendente;
+/// 2. demais string keys em ordem de inserção (preservada pelo IndexMap).
+///
+/// Usado por for-in. Retorna handle de string ou 0 se idx fora de range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(handle: u64, idx: i64) -> u64 {
     if idx < 0 {
         return 0;
     }
     let key_opt: Option<String> = with_map(handle, None, |m| {
-        let mut keys: Vec<&String> = m.keys().collect();
-        keys.sort();
-        keys.get(idx as usize).map(|s| (*s).clone())
+        let mut int_keys: Vec<(u32, &String)> = Vec::new();
+        let mut str_keys: Vec<&String> = Vec::new();
+        for k in m.keys() {
+            match parse_array_index(k) {
+                Some(n) => int_keys.push((n, k)),
+                None => str_keys.push(k),
+            }
+        }
+        int_keys.sort_by_key(|(n, _)| *n);
+        let i = idx as usize;
+        if i < int_keys.len() {
+            Some(int_keys[i].1.clone())
+        } else {
+            str_keys.get(i - int_keys.len()).map(|s| (*s).clone())
+        }
     });
     match key_opt {
         Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
