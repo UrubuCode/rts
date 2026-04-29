@@ -519,7 +519,35 @@ pub(super) fn lower_opt_chain(
 ) -> Result<TypedVal> {
     match opt.base.as_ref() {
         swc_ecma_ast::OptChainBase::Member(member) => {
-            super::members::lower_member_expr(ctx, member)
+            // (#271) \`obj?.prop\`: brif em obj==0; bloco null retorna 0
+            // (representa undefined em ValTy::I64); bloco non-null faz
+            // member_expr normal e converte resultado pra i64 pra unificar
+            // o merge. Same approach do OptChainBase::Call.
+            let obj_tv = lower_expr(ctx, &member.obj)?;
+            let obj_i64 = ctx.coerce_to_i64(obj_tv).val;
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_null = ctx.builder.ins().icmp(IntCC::Equal, obj_i64, zero);
+
+            let null_block = ctx.builder.create_block();
+            let access_block = ctx.builder.create_block();
+            let merge = ctx.builder.create_block();
+            let result = ctx.builder.append_block_param(merge, cl::I64);
+            ctx.builder.ins().brif(is_null, null_block, &[], access_block, &[]);
+
+            ctx.builder.switch_to_block(null_block);
+            ctx.builder.seal_block(null_block);
+            let z = ctx.builder.ins().iconst(cl::I64, 0);
+            ctx.builder.ins().jump(merge, &[z.into()]);
+
+            ctx.builder.switch_to_block(access_block);
+            ctx.builder.seal_block(access_block);
+            let access_tv = super::members::lower_member_expr(ctx, member)?;
+            let access_i64 = ctx.coerce_to_i64(access_tv).val;
+            ctx.builder.ins().jump(merge, &[access_i64.into()]);
+
+            ctx.builder.switch_to_block(merge);
+            ctx.builder.seal_block(merge);
+            Ok(TypedVal::new(result, ValTy::I64))
         }
         swc_ecma_ast::OptChainBase::Call(call) => {
             // `callee?.(args)`: se callee for 0 (null), retorna 0 sem chamar.
