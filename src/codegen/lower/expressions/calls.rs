@@ -2150,30 +2150,15 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         values.push(value);
     }
 
-    // Tail calls: still check depth (self-recursion runs as loop via return_call).
+    // Tail calls: \`return_call\` substitui o frame atual no lugar de
+    // empilhar — semantica de loop iterativo. NAO incrementar stack
+    // depth, senao tail recursion de N iteracoes estoura limite (10K
+    // default) mesmo nao consumindo stack real do C. Tambem NAO pop —
+    // o frame atual sera substituido, sem retorno ao caller pra fazer
+    // pop. (Antes Daniel emitia push aqui, fazendo loopTco(500000)
+    // overflow desnecessariamente.)
     if ctx.is_tail_conv && ctx.in_tail_position {
         let ty = abi.ret.unwrap_or(ValTy::I64);
-        let push_fref = ctx.get_extern("__RTS_FN_RT_STACK_PUSH", &[], Some(cl::I32))?;
-        let push_inst = ctx.builder.ins().call(push_fref, &[]);
-        let ok_flag = ctx.builder.inst_results(push_inst)[0];
-
-        let tail_block = ctx.builder.create_block();
-        let overflow_block = ctx.builder.create_block();
-        ctx.builder.ins().brif(ok_flag, tail_block, &[], overflow_block, &[]);
-
-        // overflow: return sentinel without doing the tail call
-        ctx.builder.switch_to_block(overflow_block);
-        ctx.builder.seal_block(overflow_block);
-        let sentinel: cranelift_codegen::ir::Value = match ty {
-            ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
-            ValTy::F64 => ctx.builder.ins().f64const(0.0),
-            _ => ctx.builder.ins().iconst(cl::I64, 0),
-        };
-        ctx.builder.ins().return_(&[sentinel]);
-
-        // ok: do the actual tail call — no pop, depth accumulates across tail iterations.
-        ctx.builder.switch_to_block(tail_block);
-        ctx.builder.seal_block(tail_block);
         ctx.builder.ins().return_call(fref, &values);
         let cont = ctx.builder.create_block();
         ctx.builder.switch_to_block(cont);

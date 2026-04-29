@@ -44,6 +44,11 @@ pub fn command(path: Option<String>) -> Result<()> {
         eprintln!("\n{}", dim(&label));
 
         runner::reset_runner();
+        // Reseta state global entre fixtures: erro slot + stack depth.
+        // Sem isso fixtures que comecam erro pendente ou depth acumulada
+        // de fixture anterior batem em RangeError espurio.
+        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+        crate::namespaces::gc::stack::reset_stack_depth();
 
         let run_result = crate::pipeline::run_jit_with_imports(file, options);
 
