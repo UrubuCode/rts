@@ -125,6 +125,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return lower_ns_call(ctx, target, call);
                 }
             }
+            // (#266) Object globals: Object.keys, Object.values, Object.hasOwn.
+            if let Some(method) = qualified.strip_prefix("Object.") {
+                let target = match method {
+                    "keys" => "collections.map_keys",
+                    "values" => "collections.map_values",
+                    "hasOwn" => "collections.map_has",
+                    _ => "",
+                };
+                if !target.is_empty() && lookup(target).is_some() {
+                    return lower_ns_call(ctx, target, call);
+                }
+            }
             // Fallback: ident.fn(...) onde ident e var (ex: namespace TS
             // desugared para const Foo = { ... }). Faz map_get pela key
             // e despacha via call_indirect.

@@ -228,9 +228,11 @@ fn mul_imm_peephole(
 ///
 /// Fix correto sem perder a otimizacao em hot paths:
 ///
-///     adj  = (x >> (BITS-1)) & (n-1)    // -1 todos bits se x < 0, else 0
-///     r    = (x + adj) & (n-1)          // r positivo
-///     r    = r - adj                    // ajusta sinal
+/// ```text
+/// adj  = (x >> (BITS-1)) & (n-1)    // -1 todos bits se x < 0, else 0
+/// r    = (x + adj) & (n-1)          // r positivo
+/// r    = r - adj                    // ajusta sinal
+/// ```
 ///
 /// Equivalente a `(x % n + n) & (n-1)` mas sem branch. 4 instrucoes
 /// vs srem ~20+. Cranelift egraph nao faz pra signed mod.

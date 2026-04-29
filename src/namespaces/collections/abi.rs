@@ -103,6 +103,28 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    NamespaceMember {
+        name: "map_keys",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
+        args: &[AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "Returns Vec<i64> with key handles (sorted asc). Used by Object.keys.",
+        ts_signature: "map_keys(h: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "map_values",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
+        args: &[AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "Returns Vec<i64> with values (in key-sorted order). Used by Object.values.",
+        ts_signature: "map_values(h: number): number",
+        intrinsic: None,
+        pure: false,
+    },
     // ── Vec ───────────────────────────────────────────────────────────
     NamespaceMember {
         name: "vec_new",
