@@ -56,6 +56,12 @@ pub const MEMBERS: &[NodespaceMember] = &[
         args: &[AbiType::StrPtr, AbiType::StrPtr],
         returns: AbiType::Void,
     },
+    NodespaceMember {
+        name: "readdirSync",
+        symbol: "__RTS_FN_NS_FS_READDIR",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+    },
 ];
 
 pub const SPEC: NodespaceSpec = NodespaceSpec {
