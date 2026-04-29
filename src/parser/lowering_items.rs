@@ -32,6 +32,61 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
         ModuleDecl::ExportDecl(export_decl) => {
             lower_decl(cm, &export_decl.decl, out);
         }
+        ModuleDecl::ExportNamed(export_named) => {
+            // (#307) Re-export: \`export { x } from \"./mod\"\` traduzido como
+            // import implicito + propaga os nomes pra resolver downstream.
+            // Sem o \`from\`, e' apenas re-export local de Item ja' definido
+            // no modulo — codegen ja' inclui Item::Function/Class no scope,
+            // entao nao precisa fazer nada (o nome esta visivel).
+            if let Some(src) = export_named.src.as_ref() {
+                use swc_ecma_ast::ExportSpecifier;
+                let mut names = Vec::new();
+                for spec in &export_named.specifiers {
+                    match spec {
+                        ExportSpecifier::Named(n) => {
+                            // \`export { foo } from "./mod"\` — orig=foo, exported=None
+                            // \`export { foo as bar } from "./mod"\` — orig=foo, exported=bar
+                            // Importamos o orig (nome no modulo source); o alias
+                            // \`exported\` so e' relevante pra modulos que importam
+                            // este — sem suporte completo a aliasing ainda.
+                            let name = module_export_name(&n.orig);
+                            names.push(name);
+                        }
+                        ExportSpecifier::Namespace(_) | ExportSpecifier::Default(_) => {
+                            // \`export * as foo\` e \`export foo\` from src — follow-up.
+                        }
+                    }
+                }
+                if !names.is_empty() {
+                    let import = ImportDecl {
+                        names,
+                        default_name: None,
+                        from: src.value.to_string_lossy().to_string(),
+                        span: convert_span(cm, export_named.span),
+                    };
+                    out.push(Item::Import(import));
+                }
+            }
+            // \`export { foo }\` (sem from) — Item ja' definido localmente,
+            // nada a emitir. Caso \`export * from \"./mod\"\` (sem named
+            // specifiers, com src) nao e' coberto aqui — follow-up.
+        }
+        ModuleDecl::ExportAll(export_all) => {
+            // (#307) \`export * from \"./mod\"\` — re-exporta todos os names
+            // do modulo source. Sem visibilidade do graph aqui; emit o
+            // import com names vazio sinaliza pro pipeline de imports
+            // resolver e injetar todos os exports.
+            // Workaround minimalista: import vazio que o pipeline pode
+            // expandir. Se nao expandir, e' no-op — usuario pode usar
+            // import explicito como fallback.
+            let import = ImportDecl {
+                names: Vec::new(),
+                default_name: None,
+                from: export_all.src.value.to_string_lossy().to_string(),
+                span: convert_span(cm, export_all.span),
+            };
+            out.push(Item::Import(import));
+        }
         ModuleDecl::ExportDefaultDecl(default_decl) => match &default_decl.decl {
             DefaultDecl::Class(class_expr) => {
                 if let Some(name) = class_expr.ident.as_ref().map(|ident| ident.sym.to_string()) {
