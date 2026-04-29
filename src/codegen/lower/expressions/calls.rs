@@ -1876,6 +1876,28 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
         }
         match abi_ty {
             AbiType::StrPtr => {
+                // Fast path: arg eh literal string. Emite (ptr, len)
+                // estaticos direto, sem string_from_static + string_ptr
+                // + string_len. Em \`io.print(\"hello\")\` reduz 4 calls
+                // pra 1.
+                fn unwrap_paren(e: &Expr) -> &Expr {
+                    match e {
+                        Expr::Paren(p) => unwrap_paren(&p.expr),
+                        _ => e,
+                    }
+                }
+                let lit_bytes: Option<Vec<u8>> = match unwrap_paren(&arg.expr) {
+                    Expr::Lit(swc_ecma_ast::Lit::Str(s)) => {
+                        Some(s.value.as_bytes().to_vec())
+                    }
+                    _ => None,
+                };
+                if let Some(bytes) = lit_bytes {
+                    let (ptr, len) = ctx.emit_str_literal(&bytes)?;
+                    values.push(ptr);
+                    values.push(len);
+                    continue;
+                }
                 let tv = lower_expr(ctx, &arg.expr)?;
                 match tv.ty {
                     ValTy::Handle => {
