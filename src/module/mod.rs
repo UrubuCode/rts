@@ -183,7 +183,116 @@ impl ModuleGraph {
             );
         }
 
-        Ok(Self { entry_key, modules })
+        let graph = Self { entry_key, modules };
+        if let Some(cycle) = graph.detect_cycle() {
+            anyhow::bail!("{}", graph.format_cycle_error(&cycle));
+        }
+        Ok(graph)
+    }
+
+    /// Procura um ciclo no grafo de imports usando DFS com tres-cores.
+    /// Retorna o ciclo (sequencia de chaves canonicas) na ordem em que
+    /// foi descoberto. Modulos builtin sao ignorados — ciclos so' sao
+    /// reportados quando todos os participantes sao source modules.
+    fn detect_cycle(&self) -> Option<Vec<String>> {
+        use std::collections::HashSet;
+
+        const WHITE: u8 = 0;
+        const GRAY: u8 = 1;
+        const BLACK: u8 = 2;
+
+        let mut color: BTreeMap<&str, u8> =
+            self.modules.keys().map(|k| (k.as_str(), WHITE)).collect();
+        let mut stack: Vec<&str> = Vec::new();
+        let mut on_stack: HashSet<&str> = HashSet::new();
+
+        fn visit<'a>(
+            graph: &'a ModuleGraph,
+            key: &'a str,
+            color: &mut BTreeMap<&'a str, u8>,
+            stack: &mut Vec<&'a str>,
+            on_stack: &mut HashSet<&'a str>,
+        ) -> Option<Vec<String>> {
+            color.insert(key, GRAY);
+            stack.push(key);
+            on_stack.insert(key);
+
+            if let Some(module) = graph.modules.get(key) {
+                if !matches!(module.kind, ModuleKind::Builtin) {
+                    for import in &module.imports {
+                        let next = import.resolved_key.as_str();
+                        let Some(target) = graph.modules.get(next) else { continue };
+                        if matches!(target.kind, ModuleKind::Builtin) {
+                            continue;
+                        }
+                        let next_static: &'a str = graph
+                            .modules
+                            .get_key_value(next)
+                            .map(|(k, _)| k.as_str())
+                            .unwrap_or(next);
+                        match color.get(next_static).copied().unwrap_or(WHITE) {
+                            WHITE => {
+                                if let Some(cycle) =
+                                    visit(graph, next_static, color, stack, on_stack)
+                                {
+                                    return Some(cycle);
+                                }
+                            }
+                            GRAY => {
+                                let start =
+                                    stack.iter().position(|k| *k == next_static).unwrap_or(0);
+                                let mut cycle: Vec<String> =
+                                    stack[start..].iter().map(|s| s.to_string()).collect();
+                                cycle.push(next_static.to_string());
+                                return Some(cycle);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            on_stack.remove(key);
+            stack.pop();
+            color.insert(key, BLACK);
+            None
+        }
+
+        let entry: &str = self
+            .modules
+            .get_key_value(self.entry_key.as_str())
+            .map(|(k, _)| k.as_str())?;
+        if let Some(cycle) = visit(self, entry, &mut color, &mut stack, &mut on_stack) {
+            return Some(cycle);
+        }
+        for key in self.modules.keys() {
+            let k = key.as_str();
+            if color.get(k).copied().unwrap_or(WHITE) == WHITE {
+                if let Some(cycle) = visit(self, k, &mut color, &mut stack, &mut on_stack) {
+                    return Some(cycle);
+                }
+            }
+        }
+        None
+    }
+
+    fn format_cycle_error(&self, cycle: &[String]) -> String {
+        let mut out = String::from("circular import detected:\n");
+        for pair in cycle.windows(2) {
+            let from = self.short_name(&pair[0]);
+            let to = self.short_name(&pair[1]);
+            out.push_str(&format!("  {from} imports {to}\n"));
+        }
+        out
+    }
+
+    fn short_name(&self, key: &str) -> String {
+        if let Some(module) = self.modules.get(key) {
+            if let Some(name) = module.path.file_name().and_then(|s| s.to_str()) {
+                return name.to_string();
+            }
+        }
+        key.to_string()
     }
 
     pub fn entry(&self) -> Option<&SourceModule> {
