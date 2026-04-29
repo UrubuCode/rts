@@ -274,6 +274,49 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 return Ok(tv);
             }
         }
+        // Number.* globals (#305). RTS internamente usa i64 para inteiros,
+        // entao MAX_SAFE_INTEGER ainda eh exato — mas expomos os mesmos
+        // valores que JS pra paridade (codigo que faz `< MAX_SAFE_INTEGER`
+        // pra detectar limite f64).
+        if let Some(name) = qualified.strip_prefix("Number.") {
+            use cranelift_codegen::ir::{InstBuilder, types as cl};
+            use crate::codegen::lower::ctx::ValTy;
+            match name {
+                "MAX_SAFE_INTEGER" => {
+                    let v = ctx.builder.ins().iconst(cl::I64, 9_007_199_254_740_991);
+                    return Ok(TypedVal::new(v, ValTy::I64));
+                }
+                "MIN_SAFE_INTEGER" => {
+                    let v = ctx.builder.ins().iconst(cl::I64, -9_007_199_254_740_991);
+                    return Ok(TypedVal::new(v, ValTy::I64));
+                }
+                "MAX_VALUE" => {
+                    let v = ctx.builder.ins().f64const(f64::MAX);
+                    return Ok(TypedVal::new(v, ValTy::F64));
+                }
+                "MIN_VALUE" => {
+                    let v = ctx.builder.ins().f64const(f64::MIN_POSITIVE);
+                    return Ok(TypedVal::new(v, ValTy::F64));
+                }
+                "EPSILON" => {
+                    let v = ctx.builder.ins().f64const(f64::EPSILON);
+                    return Ok(TypedVal::new(v, ValTy::F64));
+                }
+                "POSITIVE_INFINITY" => {
+                    let v = ctx.builder.ins().f64const(f64::INFINITY);
+                    return Ok(TypedVal::new(v, ValTy::F64));
+                }
+                "NEGATIVE_INFINITY" => {
+                    let v = ctx.builder.ins().f64const(f64::NEG_INFINITY);
+                    return Ok(TypedVal::new(v, ValTy::F64));
+                }
+                "NaN" => {
+                    let v = ctx.builder.ins().f64const(f64::NAN);
+                    return Ok(TypedVal::new(v, ValTy::F64));
+                }
+                _ => {}
+            }
+        }
     }
 
     let receiver_class = lhs_static_class(ctx, &m.obj);
