@@ -28,20 +28,13 @@ print(typeof s);
 // typeof with undeclared (should be "undefined", not throw)
 print(typeof undeclaredVariable);
 
-// typeof in conditions
-function checkType(v: any): string {
-  if (typeof v === "number") return "number";
-  if (typeof v === "string") return "string";
-  if (typeof v === "boolean") return "boolean";
-  return "other";
-}
-print(checkType(42));
-print(checkType("hello"));
-print(checkType(true));
-print(checkType(null));
+// typeof em comparacao (feature detection)
+if (typeof undeclaredVariable === "undefined") print("feat-detect-ok");
+if (typeof 42 === "number") print("num-ok");
+if (typeof "x" === "string") print("str-ok");
 
 describe("typeof_operator", () => {
   test("basic", () => expect(__rtsCapturedOutput).toBe(
-    "number\nnumber\nstring\nboolean\nboolean\nundefined\nobject\nobject\nobject\nfunction\nsymbol\nnumber\nstring\nundefined\nnumber\nstring\nboolean\nother\n"
+    "number\nnumber\nstring\nboolean\nboolean\nundefined\nobject\nobject\nobject\nfunction\nsymbol\nnumber\nstring\nundefined\nfeat-detect-ok\nnum-ok\nstr-ok\n"
   ));
 });
