@@ -5338,7 +5338,7 @@ fn compile_user_fn(
         builder.finalize();
     }
 
-    if std::env::var("RTS_DUMP_IR").is_ok() {
+    if crate::codegen::ir_dump_enabled() {
         eprintln!("--- {} IR ---\n{}", fn_decl.name, ctx.func.display());
     }
 
@@ -5419,9 +5419,7 @@ fn compile_main(
         builder.finalize();
     }
 
-    // RTS_DUMP_IR=1 — imprime o IR Cranelift do __RTS_MAIN antes do define.
-    // Util pra inspecionar codegen de hot loops sem flag de codegen-time.
-    if std::env::var("RTS_DUMP_IR").is_ok() {
+    if crate::codegen::ir_dump_enabled() {
         eprintln!("--- __RTS_MAIN IR ---\n{}", runtime_ctx.func.display());
     }
 
