@@ -41,9 +41,12 @@ pub enum Entry {
     /// Child process handle owned via std::process::Child — usado pelo
     /// namespace `process` para spawn/wait/kill.
     ProcessChild(Box<std::process::Child>),
-    /// HashMap<String, i64> — namespace `collections` (map_*).
+    /// IndexMap<String, i64> — namespace `collections` (map_*).
     /// Valor i64 cobre inteiros, handles, e bool (0/1).
-    Map(Box<std::collections::HashMap<String, i64>>),
+    /// IndexMap preserva ordem de inserção (necessário para ordem de
+    /// enumeração JS: integer keys ascendentes + string keys em ordem de
+    /// inserção). Ver `MAP_KEY_AT` para a lógica de ordenação.
+    Map(Box<indexmap::IndexMap<String, i64>>),
     /// Vec<i64> — namespace `collections` (vec_*).
     Vec(Box<Vec<i64>>),
     /// Regex compilada — namespace `regex`.

@@ -65,6 +65,24 @@ fn main() {
             deps_dir.display()
         )
     });
+    let indexmap_rlib = find_rlib_named(&deps_dir, "libindexmap-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate indexmap rlib under {} (required for collections runtime symbols)",
+            deps_dir.display()
+        )
+    });
+    let hashbrown_rlib = find_rlib_named(&deps_dir, "libhashbrown-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate hashbrown rlib under {} (required for collections runtime symbols)",
+            deps_dir.display()
+        )
+    });
+    let equivalent_rlib = find_rlib_named(&deps_dir, "libequivalent-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate equivalent rlib under {} (required for collections runtime symbols)",
+            deps_dir.display()
+        )
+    });
 
     let mut cmd = Command::new(&rustc);
     cmd.args([
@@ -102,6 +120,12 @@ fn main() {
         .arg(format!("serde_json={}", serde_json_rlib.display()));
     cmd.arg("--extern")
         .arg(format!("serde={}", serde_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("indexmap={}", indexmap_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("hashbrown={}", hashbrown_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("equivalent={}", equivalent_rlib.display()));
 
     let status = cmd
         .status()
