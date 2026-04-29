@@ -22,7 +22,7 @@ use crate::parser::span::Span;
 use super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
 use super::statements::lower_stmt;
 
-const RUNTIME_MAIN_SYMBOL: &str = "__RTS_MAIN";
+const RUNTIME_MAIN_SYMBOL: &str = crate::abi::symbols::ENTRY_POINT;
 
 /// Info about a user-defined function needed by callers.
 #[derive(Debug, Clone)]

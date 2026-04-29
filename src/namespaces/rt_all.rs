@@ -72,3 +72,11 @@ pub mod namespaces {
     pub use crate::gc;
     pub use crate::trace;
 }
+
+// Shim para `crate::abi::handles` (#283) — handle layout compartilhado entre
+// gc e ui. Inclui o mesmo arquivo que o main crate (`src/abi/handles.rs`).
+#[path = "../abi/handles.rs"]
+pub mod __abi_handles;
+pub mod abi {
+    pub use super::__abi_handles as handles;
+}

@@ -71,6 +71,12 @@ pub fn validate_symbol(symbol: &str) -> Result<(), SymbolError> {
     Ok(())
 }
 
+/// Nome do entry point sintetico do top-level (`__RTS_MAIN`).
+///
+/// Centralizado para evitar drift entre codegen, JIT loader, eval_jit e
+/// pipeline (#283). Mudar aqui propaga pra todos os call sites.
+pub const ENTRY_POINT: &str = "__RTS_MAIN";
+
 /// Structured error produced by [`validate_symbol`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolError {

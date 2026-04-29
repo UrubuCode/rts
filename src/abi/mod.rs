@@ -9,6 +9,7 @@
 //! legacy dispatch path; namespaces migrate one at a time.
 
 pub mod guards;
+pub mod handles;
 pub mod member;
 pub mod signature;
 pub mod symbols;

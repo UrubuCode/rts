@@ -136,7 +136,7 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
         crate::codegen::compile_program_to_jit(&mut program).context("JIT compile failed")?;
 
     use cranelift_module::Module;
-    let name = "__RTS_MAIN";
+    let name = crate::abi::symbols::ENTRY_POINT;
     let main_id = match module.get_name(name) {
         Some(cranelift_module::FuncOrDataId::Func(id)) => id,
         _ => anyhow::bail!("JIT: `{name}` not found in module"),
@@ -174,9 +174,10 @@ pub fn run_jit_inline(source: &str, options: CompileOptions) -> Result<(i32, Vec
     let (module, warnings) =
         crate::codegen::compile_program_to_jit(&mut program).context("JIT compile failed")?;
     use cranelift_module::Module;
-    let main_id = match module.get_name("__RTS_MAIN") {
+    let entry = crate::abi::symbols::ENTRY_POINT;
+    let main_id = match module.get_name(entry) {
         Some(cranelift_module::FuncOrDataId::Func(id)) => id,
-        _ => anyhow::bail!("JIT: `__RTS_MAIN` not found in module"),
+        _ => anyhow::bail!("JIT: `{entry}` not found in module"),
     };
     let main_ptr = module.get_finalized_function(main_id);
     let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
@@ -202,7 +203,7 @@ pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String
     // Resolve `__RTS_MAIN`. The codegen pipeline always emits it with
     // Linkage::Local + platform default call conv (`int __RTS_MAIN(void)`).
     use cranelift_module::Module;
-    let name = "__RTS_MAIN";
+    let name = crate::abi::symbols::ENTRY_POINT;
     let main_id = match module.get_name(name) {
         Some(cranelift_module::FuncOrDataId::Func(id)) => id,
         _ => anyhow::bail!("JIT: `{name}` not found in module"),
