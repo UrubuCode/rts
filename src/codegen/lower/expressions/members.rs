@@ -365,8 +365,15 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             // Fallback: tipo de campo registrado em var local (object literal).
             if field_ty.is_none() {
                 if let Expr::Ident(obj_id) = m.obj.as_ref() {
-                    if let Some(types) = ctx.local_obj_field_types.get(obj_id.sym.as_str()) {
+                    let n = obj_id.sym.as_str();
+                    if let Some(types) = ctx.local_obj_field_types.get(n) {
                         field_ty = types.get(key).copied();
+                    }
+                    // (#330) Global object literal (ex: enum string em fn user)
+                    if field_ty.is_none() {
+                        if let Some(types) = ctx.global_obj_field_types.get(n) {
+                            field_ty = types.get(key).copied();
+                        }
                     }
                 }
             }
