@@ -519,10 +519,13 @@ pub(super) fn lower_opt_chain(
 ) -> Result<TypedVal> {
     match opt.base.as_ref() {
         swc_ecma_ast::OptChainBase::Member(member) => {
-            // (#271) \`obj?.prop\`: brif em obj==0; bloco null retorna 0
-            // (representa undefined em ValTy::I64); bloco non-null faz
-            // member_expr normal e converte resultado pra i64 pra unificar
-            // o merge. Same approach do OptChainBase::Call.
+            // (#271) \`obj?.prop\`: brif em obj==0; bloco null retorna 0;
+            // bloco non-null faz member_expr normal. Resultado merged
+            // preservando o tipo do access (Handle, F64, I32, etc).
+            //
+            // Limitacao: \`cfg?.server?.host\` em object literal aninhado
+            // ainda retorna handle bruto, mas isso e' problema de chained
+            // member access em general — bug separado.
             let obj_tv = lower_expr(ctx, &member.obj)?;
             let obj_i64 = ctx.coerce_to_i64(obj_tv).val;
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
@@ -531,23 +534,36 @@ pub(super) fn lower_opt_chain(
             let null_block = ctx.builder.create_block();
             let access_block = ctx.builder.create_block();
             let merge = ctx.builder.create_block();
-            let result = ctx.builder.append_block_param(merge, cl::I64);
             ctx.builder.ins().brif(is_null, null_block, &[], access_block, &[]);
-
-            ctx.builder.switch_to_block(null_block);
-            ctx.builder.seal_block(null_block);
-            let z = ctx.builder.ins().iconst(cl::I64, 0);
-            ctx.builder.ins().jump(merge, &[z.into()]);
 
             ctx.builder.switch_to_block(access_block);
             ctx.builder.seal_block(access_block);
             let access_tv = super::members::lower_member_expr(ctx, member)?;
-            let access_i64 = ctx.coerce_to_i64(access_tv).val;
-            ctx.builder.ins().jump(merge, &[access_i64.into()]);
+            let access_ty = access_tv.ty;
+            let access_val = match access_ty {
+                ValTy::F64 | ValTy::I32 => access_tv.val,
+                _ => ctx.coerce_to_i64(access_tv).val,
+            };
+            let merge_cl_ty = match access_ty {
+                ValTy::F64 => cl::F64,
+                ValTy::I32 => cl::I32,
+                _ => cl::I64,
+            };
+            let result = ctx.builder.append_block_param(merge, merge_cl_ty);
+            ctx.builder.ins().jump(merge, &[access_val.into()]);
+
+            ctx.builder.switch_to_block(null_block);
+            ctx.builder.seal_block(null_block);
+            let z = match access_ty {
+                ValTy::F64 => ctx.builder.ins().f64const(0.0),
+                ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+                _ => ctx.builder.ins().iconst(cl::I64, 0),
+            };
+            ctx.builder.ins().jump(merge, &[z.into()]);
 
             ctx.builder.switch_to_block(merge);
             ctx.builder.seal_block(merge);
-            Ok(TypedVal::new(result, ValTy::I64))
+            Ok(TypedVal::new(result, access_ty))
         }
         swc_ecma_ast::OptChainBase::Call(call) => {
             // `callee?.(args)`: se callee for 0 (null), retorna 0 sem chamar.
