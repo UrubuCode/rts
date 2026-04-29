@@ -51,6 +51,14 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         Expr::TsSatisfies(a) => lower_expr(ctx, &a.expr),
         Expr::TsNonNull(n) => lower_expr(ctx, &n.expr),
         Expr::Await(a) => lower_expr(ctx, &a.arg),
+        Expr::Seq(s) => {
+            // Comma operator: avalia tudo pelo side-effect, retorna o ultimo.
+            let mut last: Option<TypedVal> = None;
+            for e in &s.exprs {
+                last = Some(lower_expr(ctx, e)?);
+            }
+            last.ok_or_else(|| anyhow!("empty sequence expression"))
+        }
         other => Err(anyhow!("unsupported expression: {}", expr_kind_name(other))),
     }
 }
@@ -90,7 +98,33 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                 AssignOp::BitAndAssign => BinaryOp::BitAnd,
                 AssignOp::ExpAssign => BinaryOp::Exp,
                 AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullishAssign => {
-                    return Err(anyhow!("logical compound em member access nao suportado"));
+                    // `obj.x ||= y` → recursa como `obj.x = obj.x || y`.
+                    // O lower_logical em lower_bin emite curto-circuito;
+                    // depois cai no caminho normal de Member assign abaixo.
+                    let logical_op = match a.op {
+                        AssignOp::AndAssign => BinaryOp::LogicalAnd,
+                        AssignOp::OrAssign => BinaryOp::LogicalOr,
+                        AssignOp::NullishAssign => BinaryOp::NullishCoalescing,
+                        _ => unreachable!(),
+                    };
+                    let read_lhs = Expr::Member(swc_ecma_ast::MemberExpr {
+                        span: a.span,
+                        obj: m.obj.clone(),
+                        prop: m.prop.clone(),
+                    });
+                    let synthetic_right = Box::new(Expr::Bin(BinExpr {
+                        span: a.span,
+                        op: logical_op,
+                        left: Box::new(read_lhs),
+                        right: a.right.clone(),
+                    }));
+                    let synthetic_assign = swc_ecma_ast::AssignExpr {
+                        span: a.span,
+                        op: AssignOp::Assign,
+                        left: a.left.clone(),
+                        right: synthetic_right,
+                    };
+                    return lower_assign_expr(ctx, &synthetic_assign);
                 }
                 AssignOp::Assign => unreachable!(),
             };
@@ -230,6 +264,39 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         _ => return Err(anyhow!("only simple identifier assignment is supported")),
     };
 
+    // Logical compound assignment: `x ||= y`, `x &&= y`, `x ??= y` —
+    // semantica curto-circuito. Translado para `x = x op y` via Bin
+    // logical, que ja avalia y so quando necessario.
+    if matches!(a.op, AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullishAssign) {
+        let logical_op = match a.op {
+            AssignOp::AndAssign => BinaryOp::LogicalAnd,
+            AssignOp::OrAssign => BinaryOp::LogicalOr,
+            AssignOp::NullishAssign => BinaryOp::NullishCoalescing,
+            _ => unreachable!(),
+        };
+        let synthetic_left = Expr::Ident(swc_ecma_ast::Ident {
+            span: a.span,
+            ctxt: Default::default(),
+            sym: name.as_str().into(),
+            optional: false,
+        });
+        let bin = BinExpr {
+            span: a.span,
+            op: logical_op,
+            left: Box::new(synthetic_left),
+            right: a.right.clone(),
+        };
+        let rhs_val = lower_bin(ctx, &bin)?;
+        let coerced = match ctx.var_ty(&name) {
+            Some(ValTy::I32) => ctx.coerce_to_i32(rhs_val),
+            Some(ValTy::I64) => ctx.coerce_to_i64(rhs_val),
+            Some(ValTy::Handle) => ctx.coerce_to_handle(rhs_val)?,
+            _ => rhs_val,
+        };
+        ctx.write_local(&name, coerced.val)?;
+        return Ok(coerced);
+    }
+
     let rhs_val = if matches!(a.op, AssignOp::Assign) {
         lower_expr(ctx, &a.right)?
     } else {
@@ -247,10 +314,7 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
             AssignOp::BitAndAssign => BinaryOp::BitAnd,
             AssignOp::ExpAssign => BinaryOp::Exp,
             AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullishAssign => {
-                return Err(anyhow!(
-                    "logical compound assignment ({:?}) not supported yet",
-                    a.op
-                ));
+                unreachable!("logical compound handled above")
             }
             AssignOp::Assign => unreachable!(),
         };

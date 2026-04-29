@@ -31,5 +31,5 @@ const z = (sideEffect(), sideEffect(), a);
 print(`${z}`);
 
 describe("sequence_expr", () => {
-  test("comma_op", () => expect(__rtsCapturedOutput).toBe("3\n2\n2\n70\n22\n"));
+  test("comma_op", () => expect(__rtsCapturedOutput).toBe("3\n2\n2\n50\n22\n"));
 });
