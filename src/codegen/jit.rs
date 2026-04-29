@@ -45,6 +45,9 @@ fn build_jit_module() -> Result<JITModule> {
     flag_builder
         .set("opt_level", "speed")
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
+    let _ = flag_builder.set("use_egraphs", "true");
+    let _ = flag_builder.set("enable_alias_analysis", "true");
+    let _ = flag_builder.set("enable_jump_tables", "true");
     flag_builder
         .set("preserve_frame_pointers", "true")
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;

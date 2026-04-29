@@ -86,6 +86,11 @@ fn build_module() -> Result<ObjectModule> {
     flag_builder
         .set("opt_level", "speed")
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
+    // Egraph e alias analysis sao default-on em Cranelift recente mas
+    // a explicitacao garante CSE/constant fold/LICM agressivo.
+    let _ = flag_builder.set("use_egraphs", "true");
+    let _ = flag_builder.set("enable_alias_analysis", "true");
+    let _ = flag_builder.set("enable_jump_tables", "true");
     // Tail calls (#93) require frame pointers on x86-64 in Cranelift 0.131.
     flag_builder
         .set("preserve_frame_pointers", "true")
