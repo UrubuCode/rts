@@ -89,9 +89,16 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
 }
 
 /// Converts an `f64` to its decimal string representation and returns a handle.
+/// Match JS Number.prototype.toString: NaN/Infinity formatados como
+/// "NaN"/"Infinity"/"-Infinity"; finitos sem fracao formatados como i64
+/// (sem `.0`); finitos com fracao via Display do Rust.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_F64(value: f64) -> u64 {
-    let s = if value.fract() == 0.0 && value.is_finite() {
+    let s = if value.is_nan() {
+        "NaN".to_string()
+    } else if value.is_infinite() {
+        if value > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }
+    } else if value.fract() == 0.0 && value.abs() < 1e16 {
         format!("{}", value as i64)
     } else {
         format!("{value}")

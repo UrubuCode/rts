@@ -56,9 +56,22 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
     ) {
         return Ok(None);
     }
+    // Para ops comutativas (Add, Mul, BitAnd/Or/Xor), peephole pode usar
+    // qualquer lado como imm. Para nao-comutativas (Sub, Div, Mod), so'
+    // aceita imm na direita: \`x - 5\`, \`x / 5\`, \`x % 5\` (peephole \`var op imm\`),
+    // mas NAO \`5 - x\`, \`5 / x\`, \`5 % x\` (var no lado direito quebraria
+    // a semantica — \`10 / i\` virava \`i / 10\` antes deste fix).
+    let is_commutative = matches!(
+        bin.op,
+        BinaryOp::Add
+            | BinaryOp::Mul
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+    );
     let (var_side, imm) = match (as_int_literal(&bin.left), as_int_literal(&bin.right)) {
-        (Some(imm), None) => (&bin.right, imm),
         (None, Some(imm)) => (&bin.left, imm),
+        (Some(imm), None) if is_commutative => (&bin.right, imm),
         _ => return Ok(None),
     };
 
@@ -743,26 +756,81 @@ fn lower_mul(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> 
 }
 
 fn lower_div(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
+    // (#296) sdiv crasha em divisor 0. Solucao: int/int onde o divisor e'
+    // literal nao-zero mantem sdiv (caminho rapido); caso contrario emite
+    // guard inline que retorna i64. Em divisor 0, retorna 0 como sentinel
+    // — nao e' Infinity exato mas evita trap. Float div ja' e' IEEE-754,
+    // f.div_zero retorna Inf/-Inf/NaN naturalmente.
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
-    let val = match ty {
-        ValTy::F64 => ctx.builder.ins().fdiv(lv, rv),
-        _ => ctx.builder.ins().sdiv(lv, rv),
-    };
+    if matches!(ty, ValTy::F64) {
+        return Ok(TypedVal::new(ctx.builder.ins().fdiv(lv, rv), ty));
+    }
+    let val = lower_idiv_safe(ctx, lv, rv, ty);
     Ok(TypedVal::new(val, ty))
 }
 
 fn lower_mod(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
-    let val = match ty {
-        ValTy::F64 => {
-            let div = ctx.builder.ins().fdiv(lv, rv);
-            let trunc = ctx.builder.ins().trunc(div);
-            let mul = ctx.builder.ins().fmul(trunc, rv);
-            ctx.builder.ins().fsub(lv, mul)
-        }
-        _ => ctx.builder.ins().srem(lv, rv),
-    };
+    if matches!(ty, ValTy::F64) {
+        let div = ctx.builder.ins().fdiv(lv, rv);
+        let trunc = ctx.builder.ins().trunc(div);
+        let mul = ctx.builder.ins().fmul(trunc, rv);
+        return Ok(TypedVal::new(ctx.builder.ins().fsub(lv, mul), ty));
+    }
+    let val = lower_imod_safe(ctx, lv, rv, ty);
     Ok(TypedVal::new(val, ty))
+}
+
+/// Emite sdiv com guard pra divisor 0. (#296) Em divisor 0 retorna 0.
+/// Estrategia branchless: bor(rv, is_zero_flag) garante divisor != 0;
+/// em divisor 0, divide por 1 (mascara is_zero=1 entra no rv). Depois
+/// AND com !is_zero zera o resultado quando original era 0.
+/// Sem branches, sem select — IR mais previsivel pra Cranelift.
+/// Emite sdiv com guard branchless pra divisor 0. (#296) Em divisor 0
+/// retorna 0 (sentinel). Estrategia: `safe_rv = rv | is_zero` evita o
+/// trap, depois `result & (is_zero - 1)` mascara para 0 no caso original 0.
+fn lower_idiv_safe(
+    ctx: &mut FnCtx,
+    lv: cranelift_codegen::ir::Value,
+    rv: cranelift_codegen::ir::Value,
+    ty: ValTy,
+) -> cranelift_codegen::ir::Value {
+    let cl_ty = if matches!(ty, ValTy::I32) { cl::I32 } else { cl::I64 };
+    let zero = ctx.builder.ins().iconst(cl_ty, 0);
+    let is_zero_b = ctx.builder.ins().icmp(IntCC::Equal, rv, zero);
+    let bool_ty = ctx.builder.func.dfg.value_type(is_zero_b);
+    let is_zero = if bool_ty == cl_ty {
+        is_zero_b
+    } else {
+        ctx.builder.ins().uextend(cl_ty, is_zero_b)
+    };
+    let safe_rv = ctx.builder.ins().bor(rv, is_zero);
+    let q = ctx.builder.ins().sdiv(lv, safe_rv);
+    let one = ctx.builder.ins().iconst(cl_ty, 1);
+    let mask = ctx.builder.ins().isub(is_zero, one);
+    ctx.builder.ins().band(q, mask)
+}
+
+fn lower_imod_safe(
+    ctx: &mut FnCtx,
+    lv: cranelift_codegen::ir::Value,
+    rv: cranelift_codegen::ir::Value,
+    ty: ValTy,
+) -> cranelift_codegen::ir::Value {
+    let cl_ty = if matches!(ty, ValTy::I32) { cl::I32 } else { cl::I64 };
+    let zero = ctx.builder.ins().iconst(cl_ty, 0);
+    let is_zero_b = ctx.builder.ins().icmp(IntCC::Equal, rv, zero);
+    let bool_ty = ctx.builder.func.dfg.value_type(is_zero_b);
+    let is_zero = if bool_ty == cl_ty {
+        is_zero_b
+    } else {
+        ctx.builder.ins().uextend(cl_ty, is_zero_b)
+    };
+    let safe_rv = ctx.builder.ins().bor(rv, is_zero);
+    let r = ctx.builder.ins().srem(lv, safe_rv);
+    let one = ctx.builder.ins().iconst(cl_ty, 1);
+    let mask = ctx.builder.ins().isub(is_zero, one);
+    ctx.builder.ins().band(r, mask)
 }
 
 fn lower_icmp(ctx: &mut FnCtx, cc: IntCC, lhs: TypedVal, rhs: TypedVal) -> TypedVal {
