@@ -310,14 +310,18 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
 
 /// Level-1 silent reduce: detecta padrao
 ///
-///     let acc = INIT;
-///     for (const x of arr) {
-///         acc = acc + EXPR;     // ou acc += EXPR
-///     }
+/// ```text
+/// let acc = INIT;
+/// for (const x of arr) {
+///     acc = acc + EXPR;     // ou acc += EXPR
+/// }
+/// ```
 ///
 /// e reescreve para:
 ///
-///     let acc = parallel.reduce(arr, INIT, __par_reduce_N);
+/// ```text
+/// let acc = parallel.reduce(arr, INIT, __par_reduce_N);
+/// ```
 ///
 /// Onde `__par_reduce_N(a: i64, x: i64) -> i64` retorna `a + EXPR` com
 /// `x` substituido pelo loop var. So aceita operacoes associativas

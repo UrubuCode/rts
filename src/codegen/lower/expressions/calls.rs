@@ -46,16 +46,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return lower_ns_call(ctx, &qualified, call);
                 }
             }
-            if let MemberProp::Ident(method_id) = &m.prop {
+            let prop_method_name: Option<String> = match &m.prop {
+                MemberProp::Ident(id) => Some(id.sym.as_str().to_string()),
+                MemberProp::PrivateName(pn) => Some(format!("#{}", pn.name.as_ref())),
+                _ => None,
+            };
+            if let Some(method_name) = prop_method_name {
                 if let Some(class_name) = lhs_static_class(ctx, &m.obj) {
-                    let method_name = method_id.sym.as_str();
-                    if resolve_method_owner(ctx, &class_name, method_name).is_some() {
+                    if resolve_method_owner(ctx, &class_name, &method_name).is_some() {
                         let recv_tv = lower_expr(ctx, &m.obj)?;
                         let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
                         return lower_class_method_call_with_recv(
                             ctx,
                             &class_name,
-                            method_name,
+                            &method_name,
                             recv_i64,
                             call,
                         );

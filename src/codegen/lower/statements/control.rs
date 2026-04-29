@@ -366,13 +366,23 @@ pub(super) fn lower_return_stmt(
         let tv = lower_expr(ctx, arg)?;
         ctx.in_tail_position = prev;
 
-        let coerced = match ctx.return_ty {
-            Some(ValTy::I32) => ctx.coerce_to_i32(tv),
-            Some(ValTy::F64) => ctx.coerce_to_f64(tv),
-            Some(ValTy::Handle) => ctx.coerce_to_handle(tv)?,
-            _ => ctx.coerce_to_i64(tv),
-        };
-        ctx.builder.ins().return_(&[coerced.val]);
+        match ctx.return_ty {
+            None => {
+                // Fn void: avalia a expr pelo side-effect e descarta o valor.
+                // Acontece em `() => f()` lifted como FunctionDecl com
+                // return_type "void" — body vira `return f();`.
+                ctx.builder.ins().return_(&[]);
+            }
+            Some(ret_ty) => {
+                let coerced = match ret_ty {
+                    ValTy::I32 => ctx.coerce_to_i32(tv),
+                    ValTy::F64 => ctx.coerce_to_f64(tv),
+                    ValTy::Handle => ctx.coerce_to_handle(tv)?,
+                    _ => ctx.coerce_to_i64(tv),
+                };
+                ctx.builder.ins().return_(&[coerced.val]);
+            }
+        }
     } else {
         ctx.builder.ins().return_(&[]);
     }
