@@ -254,6 +254,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
     add_fn!("__RTS_FN_NS_FS_RENAME", ops::__RTS_FN_NS_FS_RENAME);
     add_fn!("__RTS_FN_NS_FS_COPY", ops::__RTS_FN_NS_FS_COPY);
+    add_fn!("__RTS_FN_NS_FS_READDIR", dir::__RTS_FN_NS_FS_READDIR);
 
     // ── namespaces::math ──────────────────────────────────────────────
     use crate::namespaces::math::*;

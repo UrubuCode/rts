@@ -169,6 +169,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "readdir",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_FS_READDIR",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Lê o conteúdo do diretório e retorna handle de Vec<string-handle> com os nomes (file_name, sem path). Retorna 0 em erro.",
+        ts_signature: "readdir(path: string): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "copy",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_FS_COPY",
