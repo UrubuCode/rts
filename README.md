@@ -381,7 +381,7 @@ sem dependencia de Rust/Cargo no ambiente de uso final do binario AOT.
   quando faz sentido usar, decisões interessantes de design.
 - **`CLAUDE.md`** — instruções pro AI assistant + arquitetura interna,
   regras do codebase, ABI, modos de debug. Inclui seção sobre
-  `RTS_DUMP_IR=1` pra inspecionar IR Cranelift gerado.
+  `rts ir` pra inspecionar IR Cranelift gerado.
 - **`docs/specs/`** — specs detalhadas de features e decisões de design.
 - **Issues abertas** em github.com/UrubuCode/rts/issues. Tracker mestre
   de paridade JS/TS é #226.
@@ -389,9 +389,9 @@ sem dependencia de Rust/Cargo no ambiente de uso final do binario AOT.
 ### Debug rápido
 
 ```bash
-RTS_DUMP_IR=1 target/release/rts.exe run file.ts 2>&1 | head -50
+target/release/rts.exe ir file.ts 2>&1 | head -50
 ```
 
-Imprime IR Cranelift de cada user fn + `__RTS_MAIN`. Útil pra ver
-duplicações no codegen, loads/stores redundantes em hot loops,
+Imprime IR Cranelift de cada user fn + `__RTS_MAIN` sem executar o programa.
+Útil pra ver duplicações no codegen, loads/stores redundantes em hot loops,
 oportunidades de otim. Ver `CLAUDE.md` § Debug do codegen.

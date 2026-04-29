@@ -302,23 +302,25 @@ byte-a-byte. Para adicionar nova fixture:
 3. `#[test] fn fixture_<name>() { run_fixture("<name>") }` em
    `tests/codegen_fixtures.rs`
 
-## Debug do codegen — `RTS_DUMP_IR=1`
+## Debug do codegen — `rts ir`
 
 Para inspecionar o IR Cranelift gerado de qualquer programa antes
-do define+compile, basta exportar `RTS_DUMP_IR=1` e rodar via JIT:
+do define+compile, use o comando `rts ir`:
 
 ```bash
-RTS_DUMP_IR=1 target/release/rts.exe run file.ts 2>&1 | head -100
+target/release/rts.exe ir file.ts 2>&1 | head -100
 ```
 
-Para snippets curtos sem precisar criar arquivo temp, use `-e` ou `eval`:
+Para snippets curtos sem precisar criar arquivo temp, use `-e` ou `eval`
+com `rts run` — mas para ver o IR de um snippet crie um arquivo temporario
+e rode `rts ir`:
 
 ```bash
-RTS_DUMP_IR=1 target/release/rts.exe -e 'import { io } from "rts"; let i: i64 = 0; while (i < 10) i = i + 1; io.print(i);' 2>&1 | head -30
+target/release/rts.exe ir file.ts 2>&1 | head -30
 ```
 
 Imprime o IR completo de cada `user fn` mais o `__RTS_MAIN`
-(top-level). Saida vai para stderr.
+(top-level). Saida vai para stderr. Nao executa o programa.
 
 **Use sempre `-e`/`eval` para snippets de teste/debug** — evita
 criar arquivos temporários soltos no projeto. Imports relativos
@@ -340,7 +342,7 @@ imediatamente:
 **Padrao de uso:**
 
 1. Rodar bench (RTS lento? conferir gap com Bun/Node).
-2. `RTS_DUMP_IR=1 ... | sed -n '/<fn-de-interesse>/,/^---/p'` —
+2. `rts ir file.ts 2>&1 | sed -n '/<fn-de-interesse>/,/^---/p'` —
    isolar a fn problematica.
 3. Olhar `block` que e' header/body do hot loop. Procurar:
    - quantos `load`/`store` por iteracao (idealmente 0 para vars locais);
