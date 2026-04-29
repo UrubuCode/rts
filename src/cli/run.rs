@@ -14,6 +14,13 @@ pub fn command(input: Option<String>, options: CompileOptions) -> Result<()> {
         return Err(anyhow!("input file not found: {}", input_path.display()));
     }
 
+    // Load .env from the project directory before executing
+    if let Ok(abs) = input_path.canonicalize() {
+        if let Some(dir) = abs.parent() {
+            crate::dotenv::load_from_dir(dir);
+        }
+    }
+
     // #213: usa run_jit_with_imports pra resolver `import { x } from "./mod"`.
     // Modulos relativos sao carregados, flattened em um unico Program e
     // compilados via JIT. Builtins (rts:*) continuam resolvendo via SPECS.

@@ -5,6 +5,8 @@ pub mod clean;
 pub mod compile;
 pub mod emit_types;
 pub mod init;
+pub mod install;
+pub mod ir;
 pub mod run;
 pub mod test_cmd;
 
@@ -91,6 +93,11 @@ where
         "clean" => clean::command(),
         "test" => test_cmd::command(positional.get(1).cloned()),
         "emit-types" => emit_types::command(positional.get(1).cloned()),
+        "ir" => ir::command(positional.get(1).cloned(), flags.as_compile_options()),
+        "i" | "install" | "add" => {
+            let extra: Vec<String> = positional[1..].to_vec();
+            install::command(extra)
+        }
         "help" => {
             print_help(&bin_name);
             Ok(())
@@ -171,6 +178,8 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} clean");
     println!("  {bin_name} test [path]");
     println!("  {bin_name} emit-types [output.d.ts]");
+    println!("  {bin_name} ir <input.ts>          dump Cranelift IR to stderr (no execution)");
+    println!("  {bin_name} i [pkg@version ...]   install packages from package.json or args");
     println!("  {bin_name} help");
     println!("Options:");
     println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");

@@ -225,6 +225,25 @@ pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String
     Ok((exit_code, warnings))
 }
 
+/// Compile `input` (resolving imports) and dump Cranelift IR to stderr.
+/// Does NOT execute the program.
+pub fn dump_ir_with_imports(input: &Path, options: CompileOptions) -> Result<Vec<String>> {
+    // RTS_DUMP_IR is checked inside codegen — set it for this process run.
+    // SAFETY: single-threaded at this point (before JIT spawns rayon workers).
+    unsafe { std::env::set_var("RTS_DUMP_IR", "1") };
+
+    let graph = crate::module::ModuleGraph::load(input, options)
+        .with_context(|| format!("failed to load module graph for {}", input.display()))?;
+    let mut program = graph.flatten_for_jit();
+
+    let (_module, warnings) =
+        crate::codegen::compile_program_to_jit(&mut program).context("JIT compile failed")?;
+
+    unsafe { std::env::remove_var("RTS_DUMP_IR") };
+
+    Ok(warnings)
+}
+
 fn format_runtime_error(
     report: &crate::namespaces::gc::error::RuntimeErrorReport,
     use_color: bool,

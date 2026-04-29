@@ -11,11 +11,13 @@ pub mod cli;
 pub mod codegen;
 pub mod compile_options;
 pub mod diagnostics;
+pub mod dotenv;
 pub mod linker;
 pub mod module;
 pub mod namespaces;
 pub mod parser;
 pub mod pipeline;
+pub mod registers;
 pub mod runtime;
 pub mod type_system;
 

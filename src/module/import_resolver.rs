@@ -127,6 +127,14 @@ pub(crate) fn resolve_import_target(
         });
     }
 
+    // node_modules/<specifier> installed by rts i / npm / bun / yarn
+    if let Some(path) = resolve_node_modules_import(workspace_root, specifier, manifest_cache)? {
+        return Ok(ImportTarget {
+            path,
+            kind: ModuleKind::CachedDependency,
+        });
+    }
+
     // Embedded TypeScript builtins served under the "rts:<name>" scheme but
     // NOT backed by a SPECS entry (they are full TS source modules).
     if specifier == "rts:test" {
@@ -445,4 +453,63 @@ pub(crate) fn validate_source_extension(path: &Path) -> Result<()> {
 
 pub(crate) fn is_remote_url(specifier: &str) -> bool {
     specifier.starts_with("http://") || specifier.starts_with("https://")
+}
+
+/// Resolve `specifier` against `<workspace_root>/node_modules/`.
+/// Handles plain packages (`axios`), scoped packages (`@org/pkg`), and
+/// sub-path imports (`pkg/subpath`).
+fn resolve_node_modules_import(
+    workspace_root: &Path,
+    specifier: &str,
+    manifest_cache: &mut ManifestCache,
+) -> Result<Option<PathBuf>> {
+    let node_modules = workspace_root.join("node_modules");
+    if !node_modules.exists() {
+        return Ok(None);
+    }
+
+    // Split specifier into package root + optional subpath
+    // e.g. "axios/lib/core" → ("axios", Some("lib/core"))
+    //      "@org/pkg/sub"   → ("@org/pkg", Some("sub"))
+    let (pkg_name, subpath) = split_pkg_specifier(specifier);
+    let pkg_dir = node_modules.join(pkg_name);
+
+    if !pkg_dir.exists() {
+        return Ok(None);
+    }
+
+    if let Some(sub) = subpath {
+        let candidate = pkg_dir.join(sub);
+        match resolve_source_candidate(&candidate) {
+            Ok(path) => return Ok(Some(path)),
+            Err(_) => return Ok(None),
+        }
+    }
+
+    match resolve_package_entry(&pkg_dir, manifest_cache) {
+        Ok(path) => Ok(Some(path)),
+        Err(_) => Ok(None),
+    }
+}
+
+fn split_pkg_specifier(specifier: &str) -> (&str, Option<&str>) {
+    if specifier.starts_with('@') {
+        // Scoped: @org/pkg or @org/pkg/subpath
+        if let Some(rest) = specifier.strip_prefix('@') {
+            if let Some(slash) = rest.find('/') {
+                let after_scope_pkg = &rest[slash + 1..];
+                if let Some(sub_slash) = after_scope_pkg.find('/') {
+                    let pkg_end = 1 + slash + 1 + sub_slash; // offset in original
+                    return (&specifier[..pkg_end], Some(&specifier[pkg_end + 1..]));
+                }
+            }
+        }
+        return (specifier, None);
+    }
+
+    if let Some(slash) = specifier.find('/') {
+        (&specifier[..slash], Some(&specifier[slash + 1..]))
+    } else {
+        (specifier, None)
+    }
 }

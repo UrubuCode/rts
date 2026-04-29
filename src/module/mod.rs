@@ -1,5 +1,5 @@
 mod import_resolver;
-mod manifest;
+pub mod manifest;
 mod module_cache;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};

@@ -28,12 +28,12 @@ pub(crate) enum DependencySpec {
 }
 
 #[derive(Debug, Deserialize)]
-pub(super) struct RawPackageManifest {
-    pub(super) name: Option<String>,
-    pub(super) version: Option<String>,
-    pub(super) main: Option<String>,
+pub struct RawPackageManifest {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub main: Option<String>,
     #[serde(default)]
-    pub(super) dependencies: BTreeMap<String, String>,
+    pub dependencies: BTreeMap<String, String>,
 }
 
 pub(crate) fn find_owner_manifest(
