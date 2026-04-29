@@ -11,8 +11,8 @@ use fltk::{
     text, valuator, window,
 };
 
-const GEN_SHIFT: u32 = 48;
-const SLOT_MASK: u64 = (1u64 << GEN_SHIFT) - 1;
+// Compartilhado com `gc::HandleTable` via `crate::abi::handles` (#283).
+use crate::abi::handles::{HANDLE_GEN_SHIFT as GEN_SHIFT, HANDLE_SLOT_MASK as SLOT_MASK};
 
 pub enum UiEntry {
     App,

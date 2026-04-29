@@ -41,6 +41,10 @@ fn run_source(src: &str) -> anyhow::Result<i32> {
     let mut program = crate::parser::parse_source_with_mode(src, FrontendMode::Native)?;
     let (module, _warnings) = crate::codegen::compile_program_to_jit(&mut program)?;
 
+    // Mantido hardcoded: este arquivo eh compilado tanto como parte do main
+    // crate quanto como parte de `runtime_support` (rt_all.rs), e a constante
+    // `crate::abi::symbols::ENTRY_POINT` so existe no main crate. Se mudar la,
+    // mudar aqui tambem.
     let name = "__RTS_MAIN";
     let main_id = match module.get_name(name) {
         Some(cranelift_module::FuncOrDataId::Func(id)) => id,

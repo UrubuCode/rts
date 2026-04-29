@@ -16,13 +16,15 @@ use std::cell::Cell;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-const GEN_SHIFT: u32 = 48;
-const SLOT_MASK: u64 = (1u64 << GEN_SHIFT) - 1;
-const SENTINEL_INVALID: u64 = 0;
+// Layout do handle (gen/slot/shard) e' compartilhado com `ui::store` via
+// `crate::abi::handles` (#283). Mudancas aqui invalidam handles existentes.
+use crate::abi::handles::{
+    HANDLE_GEN_SHIFT as GEN_SHIFT, HANDLE_N_SHARDS as N_SHARDS,
+    HANDLE_SHARD_BITS as SHARD_BITS, HANDLE_SHARD_MASK as SHARD_MASK,
+    HANDLE_SLOT_MASK as SLOT_MASK,
+};
 
-const N_SHARDS: usize = 32;
-const SHARD_BITS: u32 = 5; // log2(N_SHARDS)
-const SHARD_MASK: u64 = (N_SHARDS as u64) - 1;
+const SENTINEL_INVALID: u64 = 0;
 
 /// Value kinds stored behind a handle. Extensible as namespaces grow.
 #[derive(Debug)]
