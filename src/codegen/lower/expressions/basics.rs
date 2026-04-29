@@ -136,16 +136,32 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
 fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     // `typeof undeclaredVar` em JS retorna "undefined" sem erro — fast
     // path para nao tentar resolver o ident e disparar undefined-var.
+    // Excluimos NaN/Infinity (que sao globais resolvidos em
+    // lower_ident_expr): \`typeof NaN\` em JS e' "number".
     if let Expr::Ident(id) = operand {
         let name = id.sym.as_str();
-        if ctx.read_local(name).is_none() && !ctx.user_fns.contains_key(name) {
+        let is_js_global = matches!(name, "NaN" | "Infinity" | "undefined");
+        if !is_js_global
+            && ctx.read_local(name).is_none()
+            && !ctx.user_fns.contains_key(name)
+        {
             return ctx.emit_str_handle(b"undefined");
         }
     }
     let tv = lower_expr(ctx, operand)?;
     let ty_str = match tv.ty {
         ValTy::Bool => "boolean",
-        ValTy::Handle => "string",
+        ValTy::Handle => {
+            // \`undefined\` global vira string handle "undefined". Caso
+            // especifico — distinguir typeof "x" (string normal) de
+            // typeof undefined (undefined) exige checagem do ident.
+            if let Expr::Ident(id) = operand {
+                if id.sym.as_ref() == "undefined" {
+                    return ctx.emit_str_handle(b"undefined");
+                }
+            }
+            "string"
+        }
         ValTy::F64 | ValTy::I32 | ValTy::I64 | ValTy::U64 => "number",
     };
     ctx.emit_str_handle(ty_str.as_bytes())
