@@ -70,6 +70,31 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     if ctx.user_fns.contains_key(name) {
         return emit_user_fn_addr(ctx, name);
     }
+    // (#298) Globais JS NaN/Infinity/undefined. NaN e Infinity sao
+    // f64 IEEE; \`undefined\` em RTS nao tem representacao distinta de
+    // 0/null entao mapeamos para 0 (caller que comparar com === detecta
+    // tipo via context). Cobre uso comum em template/aritmetica.
+    use cranelift_codegen::ir::{InstBuilder, types as cl};
+    use crate::codegen::lower::ctx::ValTy;
+    match name {
+        "NaN" => {
+            let v = ctx.builder.ins().f64const(f64::NAN);
+            return Ok(TypedVal::new(v, ValTy::F64));
+        }
+        "Infinity" => {
+            let v = ctx.builder.ins().f64const(f64::INFINITY);
+            return Ok(TypedVal::new(v, ValTy::F64));
+        }
+        "undefined" => {
+            // Usado em \`x === undefined\`, \`x ?? def\`, \`${undefined}\`.
+            // Sentinel 0 cobre as 3 — strict check distingue tipo via
+            // operador, e template literal converte i64 0 para "0".
+            // Pra alinhar com JS \`${undefined}\` -> "undefined", emitimos
+            // string handle "undefined" direto.
+            return ctx.emit_str_handle(b"undefined");
+        }
+        _ => {}
+    }
     Err(anyhow!("undefined variable `{name}`"))
 }
 
