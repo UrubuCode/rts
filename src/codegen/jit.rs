@@ -209,6 +209,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_JSON_OBJECT_GET", __RTS_FN_NS_JSON_OBJECT_GET);
     add_fn!("__RTS_FN_NS_JSON_OBJECT_HAS", __RTS_FN_NS_JSON_OBJECT_HAS);
 
+    // ── namespaces::globals::regexp (RegExp global class) ────────────
+    use crate::namespaces::globals::regexp::instance::*;
+    add_fn!("__RTS_FN_GL_REGEXP_NEW", __RTS_FN_GL_REGEXP_NEW);
+    add_fn!("__RTS_FN_GL_REGEXP_NEW_WITH_FLAGS", __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS);
+    add_fn!("__RTS_FN_GL_REGEXP_TEST", __RTS_FN_GL_REGEXP_TEST);
+    add_fn!("__RTS_FN_GL_REGEXP_EXEC", __RTS_FN_GL_REGEXP_EXEC);
+    add_fn!("__RTS_FN_GL_REGEXP_SOURCE", __RTS_FN_GL_REGEXP_SOURCE);
+
+    // ── namespaces::globals::error (Error class family) ───────────────
+    use crate::namespaces::globals::error::instance::*;
+    add_fn!("__RTS_FN_GL_ERROR_NEW", __RTS_FN_GL_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_TYPE_ERROR_NEW", __RTS_FN_GL_TYPE_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_RANGE_ERROR_NEW", __RTS_FN_GL_RANGE_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_REF_ERROR_NEW", __RTS_FN_GL_REF_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_SYNTAX_ERROR_NEW", __RTS_FN_GL_SYNTAX_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_ERROR_MESSAGE", __RTS_FN_GL_ERROR_MESSAGE);
+    add_fn!("__RTS_FN_GL_ERROR_NAME", __RTS_FN_GL_ERROR_NAME);
+    add_fn!("__RTS_FN_GL_ERROR_TO_STRING", __RTS_FN_GL_ERROR_TO_STRING);
+
     // ── namespaces::globals::date (Date global class) ─────────────────
     use crate::namespaces::globals::date::instance::*;
     add_fn!("__RTS_FN_GL_DATE_NEW_NOW", __RTS_FN_GL_DATE_NEW_NOW);

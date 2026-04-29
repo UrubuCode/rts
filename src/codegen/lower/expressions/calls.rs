@@ -627,11 +627,31 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
     // Global class constructors: new Date(), new Date(ms), new Date(isoStr)
     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
         let n_args = new_expr.args.as_ref().map(|a| a.len()).unwrap_or(0);
-        // For StrPtr args, each string counts as 1 TS arg but expands to 2 ABI slots.
-        // constructor_for_arity matches on TS arg count.
-        let ctor = spec
-            .constructor_for_arity(n_args)
-            .ok_or_else(|| anyhow!("Date: no constructor with {n_args} args"))?;
+        // When multiple constructors share the same arity (e.g. Date: I64 vs StrPtr),
+        // prefer the one whose first arg type matches the AST arg expression kind:
+        //   - string literal or Handle expr → StrPtr ctor
+        //   - otherwise → first matching ctor (numeric/I64)
+        let ctor = {
+            let candidates: Vec<_> = spec.constructors()
+                .filter(|m| m.args.len() == n_args)
+                .collect();
+            if candidates.len() > 1 {
+                // Disambiguate by first arg: string literal → StrPtr ctor
+                let first_is_str = new_expr.args.as_ref()
+                    .and_then(|a| a.first())
+                    .map(|a| matches!(a.expr.as_ref(), Expr::Lit(swc_ecma_ast::Lit::Str(_))))
+                    .unwrap_or(false);
+                if first_is_str {
+                    candidates.into_iter().find(|m| m.args.first() == Some(&AbiType::StrPtr))
+                        .or_else(|| spec.constructor_for_arity(n_args))
+                } else {
+                    candidates.into_iter().find(|m| m.args.first() != Some(&AbiType::StrPtr))
+                        .or_else(|| spec.constructor_for_arity(n_args))
+                }
+            } else {
+                spec.constructor_for_arity(n_args)
+            }
+        }.ok_or_else(|| anyhow!("`new {}`: no constructor with {n_args} args", class_name))?;
         let sig = crate::abi::signature::lower_member(ctor);
         let mut arg_vals = Vec::new();
         if let Some(args) = &new_expr.args {

@@ -346,12 +346,51 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     return emit_flat_field_read(ctx, obj_handle, cls, key);
                 }
             }
+            // Error class property reads: .message / .name / .toString via
+            // Entry::ErrorObj. Route to __RTS_FN_GL_ERROR_* instead of map_get.
+            if let Some(cls) = receiver_class.as_deref() {
+                let is_error_cls = matches!(
+                    cls,
+                    "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+                );
+                if is_error_cls {
+                    let sym = match key {
+                        "message" => Some("__RTS_FN_GL_ERROR_MESSAGE"),
+                        "name" => Some("__RTS_FN_GL_ERROR_NAME"),
+                        _ => None,
+                    };
+                    if let Some(sym) = sym {
+                        let f = ctx.get_extern(sym, &[cl::I64], Some(cl::I64))?;
+                        let inst = ctx.builder.ins().call(f, &[obj_handle]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Handle));
+                    }
+                }
+            }
+            // Global class instance property reads (e.g. re.source via InstanceMethod).
+            if let Some(cls) = receiver_class.as_deref() {
+                if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                    if let Some(member) = spec.instance_method(key) {
+                        // Zero-arg instance method used as property accessor (e.g. .source)
+                        if member.args.len() == 1 {
+                            let sig = crate::abi::signature::lower_member(member);
+                            let f = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                            let inst = ctx.builder.ins().call(f, &[obj_handle]);
+                            let ret_ty = ValTy::from_abi(member.returns);
+                            let v = if sig.ret.is_some() {
+                                ctx.builder.inst_results(inst)[0]
+                            } else {
+                                ctx.builder.ins().iconst(cl::I64, 0)
+                            };
+                            return Ok(TypedVal::new(v, ret_ty));
+                        }
+                    }
+                }
+            }
+            // (#214) `(e as Error).message` — field_ty hint for map_get fallback.
             let mut field_ty = receiver_class
                 .as_deref()
                 .and_then(|c| field_type_in_hierarchy(ctx, c, key));
-            // (#214) \`(e as Error).message\` ou \`obj_typed_as_Error.message\`:
-            // receiver_class detecta builtin error class e expoe
-            // \`message\`/\`name\` como Handle.
             if field_ty.is_none() && (key == "message" || key == "name") {
                 if let Some(cls) = receiver_class.as_deref() {
                     if matches!(

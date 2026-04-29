@@ -66,6 +66,10 @@ pub mod ui;
 pub mod runtime;
 #[path = "globals/date/rt.rs"]
 pub mod globals_date;
+#[path = "globals/regexp/rt.rs"]
+pub mod globals_regexp;
+#[path = "globals/error/rt.rs"]
+pub mod globals_error;
 
 // rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
 // modules reference `crate::namespaces::...`, so we expose a compatibility
@@ -73,5 +77,6 @@ pub mod globals_date;
 pub mod namespaces {
     pub use crate::date;
     pub use crate::gc;
+    pub use crate::regex;
     pub use crate::trace;
 }

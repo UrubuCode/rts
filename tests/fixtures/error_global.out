@@ -1,0 +1,8 @@
+message_ok
+name_ok
+tostring_ok
+type_error_name_ok
+type_error_msg_ok
+range_error_ok
+syntax_error_ok
+empty_msg_ok

@@ -105,6 +105,9 @@ pub enum Entry {
     /// `Date` instance — milliseconds since Unix epoch (UTC).
     /// Created by `new Date()` / `new Date(ms)` in the globals::date module.
     DateMs(i64),
+    /// `Error` instance — message string + name tag.
+    /// Created by `new Error(msg)` / `new TypeError(msg)` etc.
+    ErrorObj { message: String, name: String },
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
