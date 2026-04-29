@@ -115,7 +115,22 @@
       "Bash(bun -e ' *)",
       "Bash(ls C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts\\\\src\\\\namespaces\\\\gc\\\\\\\\ *)",
       "Bash(ls C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts\\\\src\\\\module\\\\\\\\ *)",
-      "Bash(ls \"C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts\\\\src\\\\type_system\\\\\\\\\")"
+      "Bash(ls \"C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts\\\\src\\\\type_system\\\\\\\\\")",
+      "Bash(target/debug/rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } try { recurse\\(0\\); } catch\\(e\\) { io.print\\(\"caught overflow\"\\); }')",
+      "Bash(RTS_STACK_LIMIT=5 target/debug/rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } try { recurse\\(0\\); } catch\\(e\\) { io.print\\(\"caught overflow\"\\); }')",
+      "Bash(taskkill /F /IM rts.exe)",
+      "PowerShell($env:RTS_STACK_LIMIT = \"5\"; cd C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts; .\\\\target\\\\debug\\\\rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } try { recurse\\(0\\); } catch\\(e\\) { io.print\\(\"caught overflow\"\\); }' 2>&1 | Out-String)",
+      "PowerShell($env:RTS_STACK_LIMIT = \"5\"; $env:RTS_DUMP_IR = \"1\"; cd C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts; .\\\\target\\\\debug\\\\rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } recurse\\(0\\);' 2>&1 | Out-String | Select-String -Pattern \"error|verif|block|recurse\" -AllMatches | Select-Object -First 30)",
+      "PowerShell($env:RTS_STACK_LIMIT = \"5\"; $env:RTS_DUMP_IR = \"1\"; cd C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts; $out = .\\\\target\\\\debug\\\\rts.exe -e 'import { io } from \"rts\"; function add\\(a: i64, b: i64\\): i64 { return a + b; } io.print\\(add\\(1, 2\\)\\);' 2>&1; $out | Out-String)",
+      "PowerShell($env:RTS_DUMP_IR = \"1\"; cd C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts; .\\\\target\\\\debug\\\\rts.exe -e 'import { io } from \"rts\"; function add\\(a: i64, b: i64\\): i64 { return a + b; } io.print\\(add\\(1, 2\\)\\);' 2>&1 | Out-String)",
+      "PowerShell($env:RTS_DUMP_IR = \"1\"; cd C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts; .\\\\target\\\\debug\\\\rts.exe -e 'import { io } from \"rts\"; function add\\(a: i64, b: i64\\): i64 { return a + b; } io.print\\(add\\(1, 2\\)\\);' 2>&1)",
+      "Bash(RTS_DUMP_IR=1 ./target/debug/rts.exe -e 'import { io } from \"rts\"; function add\\(a: i64, b: i64\\): i64 { return a + b; } io.print\\(add\\(1, 2\\)\\);')",
+      "Bash(./target/debug/rts.exe -e 'import { io } from \"rts\"; function add\\(a: i64, b: i64\\): i64 { return a + b; } let r: i64 = add\\(1, 2\\); io.print\\(r\\);')",
+      "Bash(./target/debug/rts.exe -e 'import { io } from \"rts\"; function greet\\(\\): i64 { io.print\\(\"hello from fn\"\\); return 0; } greet\\(\\);')",
+      "Bash(RTS_STACK_LIMIT=5 ./target/debug/rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } try { recurse\\(0\\); } catch\\(e\\) { io.print\\(\"caught overflow\"\\); }')",
+      "Bash(./target/debug/rts.exe -e 'import { io } from \"rts\"; function fib\\(n: i64\\): i64 { if \\(n <= 1\\) return n; return fib\\(n-1\\) + fib\\(n-2\\); } io.print\\(fib\\(10\\)\\);')",
+      "Bash(./target/debug/rts.exe -e 'import { io } from \"rts\"; function count\\(n: i64\\): i64 { if \\(n <= 0\\) return 0; return count\\(n - 1\\) + 1; } let r: i64 = count\\(50\\); if \\(r == 50\\) { io.print\\(\"ok 50\"\\); }')",
+      "Bash(RTS_STACK_LIMIT=10 ./target/debug/rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } recurse\\(0\\);')"
     ]
   }
 }

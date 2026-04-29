@@ -1994,12 +1994,34 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         values.push(value);
     }
 
+    // Tail calls: still check depth (self-recursion runs as loop via return_call).
     if ctx.is_tail_conv && ctx.in_tail_position {
+        let ty = abi.ret.unwrap_or(ValTy::I64);
+        let push_fref = ctx.get_extern("__RTS_FN_RT_STACK_PUSH", &[], Some(cl::I32))?;
+        let push_inst = ctx.builder.ins().call(push_fref, &[]);
+        let ok_flag = ctx.builder.inst_results(push_inst)[0];
+
+        let tail_block = ctx.builder.create_block();
+        let overflow_block = ctx.builder.create_block();
+        ctx.builder.ins().brif(ok_flag, tail_block, &[], overflow_block, &[]);
+
+        // overflow: return sentinel without doing the tail call
+        ctx.builder.switch_to_block(overflow_block);
+        ctx.builder.seal_block(overflow_block);
+        let sentinel: cranelift_codegen::ir::Value = match ty {
+            ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+            ValTy::F64 => ctx.builder.ins().f64const(0.0),
+            _ => ctx.builder.ins().iconst(cl::I64, 0),
+        };
+        ctx.builder.ins().return_(&[sentinel]);
+
+        // ok: do the actual tail call — no pop, depth accumulates across tail iterations.
+        ctx.builder.switch_to_block(tail_block);
+        ctx.builder.seal_block(tail_block);
         ctx.builder.ins().return_call(fref, &values);
         let cont = ctx.builder.create_block();
         ctx.builder.switch_to_block(cont);
         ctx.builder.seal_block(cont);
-        let ty = abi.ret.unwrap_or(ValTy::I64);
         let placeholder = match ty {
             ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
             ValTy::F64 => ctx.builder.ins().f64const(0.0),
@@ -2008,20 +2030,59 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         return Ok(TypedVal::new(placeholder, ty));
     }
 
+    let ret_ty = abi.ret.unwrap_or(ValTy::I64);
+
+    // Stack depth guard: push → brif → call → pop.
+    let push_fref = ctx.get_extern("__RTS_FN_RT_STACK_PUSH", &[], Some(cl::I32))?;
+    let push_inst = ctx.builder.ins().call(push_fref, &[]);
+    let ok_flag = ctx.builder.inst_results(push_inst)[0];
+
+    let call_block = ctx.builder.create_block();
+    let overflow_block = ctx.builder.create_block();
+    let after_block = ctx.builder.create_block();
+    let cl_ty = match ret_ty {
+        ValTy::I32 => cl::I32,
+        ValTy::F64 => cl::F64,
+        _ => cl::I64,
+    };
+    ctx.builder.append_block_param(after_block, cl_ty);
+
+    ctx.builder.ins().brif(ok_flag, call_block, &[], overflow_block, &[]);
+
+    // overflow path — error slot set by STACK_PUSH, return sentinel
+    ctx.builder.switch_to_block(overflow_block);
+    ctx.builder.seal_block(overflow_block);
+    let sentinel: cranelift_codegen::ir::Value = match ret_ty {
+        ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+        ValTy::F64 => ctx.builder.ins().f64const(0.0),
+        _ => ctx.builder.ins().iconst(cl::I64, 0),
+    };
+    ctx.builder.ins().jump(after_block, &[sentinel.into()]);
+
+    // normal call path
+    ctx.builder.switch_to_block(call_block);
+    ctx.builder.seal_block(call_block);
     let inst = ctx.builder.ins().call(fref, &values);
-    let results = ctx.builder.inst_results(inst);
-    if let Some(ret_ty) = abi.ret {
-        if let Some(&value) = results.first() {
-            Ok(TypedVal::new(value, ret_ty))
+    let pop_fref = ctx.get_extern("__RTS_FN_RT_STACK_POP", &[], None)?;
+    ctx.builder.ins().call(pop_fref, &[]);
+    let ret_val: cranelift_codegen::ir::Value = {
+        let results = ctx.builder.inst_results(inst);
+        if let Some(&v) = results.first() {
+            v
         } else {
-            Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ret_ty))
+            match ret_ty {
+                ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+                ValTy::F64 => ctx.builder.ins().f64const(0.0),
+                _ => ctx.builder.ins().iconst(cl::I64, 0),
+            }
         }
-    } else {
-        Ok(TypedVal::new(
-            ctx.builder.ins().iconst(cl::I64, 0),
-            ValTy::I64,
-        ))
-    }
+    };
+    ctx.builder.ins().jump(after_block, &[ret_val.into()]);
+
+    ctx.builder.switch_to_block(after_block);
+    ctx.builder.seal_block(after_block);
+    let result = ctx.builder.block_params(after_block)[0];
+    Ok(TypedVal::new(result, ret_ty))
 }
 
 pub(super) fn emit_namespace_constant(
