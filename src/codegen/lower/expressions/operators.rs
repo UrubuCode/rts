@@ -194,27 +194,42 @@ fn mul_imm_peephole(
     None
 }
 
-/// `x % imm` peephole. So' otimiza POT positivo via band.
-/// AVISO: muda semantica pra x negativo (x & MASK e' positivo, x % POT
-/// preserva sinal). A maioria dos usos eh com counters >= 0. Documentar.
+/// `x % imm` peephole correto pra signed (#297).
+///
+/// Para POT positivo `n = 2^k`, `x % n` em JS preserva sinal do dividendo:
+/// `-7 % 4 = -3`, `-8 % 4 = 0`. A trick `x & (n-1)` so' funciona para
+/// `x >= 0` — para x negativo `x & MASK` retorna positivo (errado).
+///
+/// Fix correto sem perder a otimizacao em hot paths:
+///
+///     adj  = (x >> (BITS-1)) & (n-1)    // -1 todos bits se x < 0, else 0
+///     r    = (x + adj) & (n-1)          // r positivo
+///     r    = r - adj                    // ajusta sinal
+///
+/// Equivalente a `(x % n + n) & (n-1)` mas sem branch. 4 instrucoes
+/// vs srem ~20+. Cranelift egraph nao faz pra signed mod.
 fn mod_imm_peephole(
     ctx: &mut FnCtx,
     lhs: &TypedVal,
     imm: i64,
 ) -> Option<TypedVal> {
-    if imm > 0 && (imm as u64).is_power_of_two() {
-        let mask = imm - 1;
-        let v = match lhs.ty {
-            ValTy::I32 => ctx.builder.ins().band_imm(lhs.val, mask),
-            _ => {
-                let lv = ctx.coerce_to_i64(*lhs).val;
-                ctx.builder.ins().band_imm(lv, mask)
-            }
-        };
-        let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
-        return Some(TypedVal::new(v, ty));
+    if !(imm > 0 && (imm as u64).is_power_of_two()) {
+        return None;
     }
-    None
+    let mask = imm - 1;
+    let (lv, ty, bits_minus_one) = match lhs.ty {
+        ValTy::I32 => (lhs.val, ValTy::I32, 31),
+        _ => (ctx.coerce_to_i64(*lhs).val, ValTy::I64, 63),
+    };
+    // adj = (x >> (BITS-1)) & mask
+    let signbits = ctx.builder.ins().sshr_imm(lv, bits_minus_one);
+    let adj = ctx.builder.ins().band_imm(signbits, mask);
+    // r = (x + adj) & mask
+    let plus = ctx.builder.ins().iadd(lv, adj);
+    let masked = ctx.builder.ins().band_imm(plus, mask);
+    // r = masked - adj
+    let r = ctx.builder.ins().isub(masked, adj);
+    Some(TypedVal::new(r, ty))
 }
 
 /// `x / imm` peephole. POT positivo vira sshr (arithmetic right shift,
