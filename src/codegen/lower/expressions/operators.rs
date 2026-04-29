@@ -324,6 +324,13 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return Ok(tv);
     }
 
+    // `x instanceof C` — RHS é um Ident de classe, não uma expression
+    // valor. Lê __rts_class do receiver e compara contra C e todas as
+    // subclasses de C conhecidas em compile-time (descendentes).
+    if matches!(bin.op, BinaryOp::InstanceOf) {
+        return lower_instanceof(ctx, bin);
+    }
+
     let lhs = lower_expr(ctx, &bin.left)?;
     let rhs = lower_expr(ctx, &bin.right)?;
 
@@ -713,4 +720,71 @@ fn ident_name(expr: &Expr) -> Option<&str> {
     } else {
         None
     }
+}
+
+/// `lhs instanceof RhsClass`. RHS deve ser um Ident referenciando uma
+/// classe registrada em `ctx.classes`. Lê o tag `__rts_class` do
+/// receiver (handle de string com o nome da classe runtime) e compara
+/// com cada classe `C` em `{RhsClass} ∪ descendants(RhsClass)`.
+/// Resultado é `bool` (i64 0/1), retornando true se algum match.
+fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
+    use super::members::emit_class_tag_read;
+
+    let class_name = match bin.right.as_ref() {
+        Expr::Ident(id) => id.sym.as_str().to_string(),
+        _ => return Err(anyhow!("instanceof RHS must be a class identifier")),
+    };
+    if !ctx.classes.contains_key(&class_name) {
+        return Err(anyhow!("instanceof RHS `{class_name}` is not a known class"));
+    }
+
+    let lhs = lower_expr(ctx, &bin.left)?;
+    let recv = ctx.coerce_to_i64(lhs).val;
+
+    // Coleta nomes de todas as classes que são RhsClass ou herdam dela.
+    let mut matches: Vec<String> = Vec::new();
+    for (name, meta) in ctx.classes.iter() {
+        let mut cur = name.clone();
+        loop {
+            if cur == class_name {
+                matches.push(name.clone());
+                break;
+            }
+            match ctx.classes.get(&cur).and_then(|m| m.super_class.clone()) {
+                Some(p) => cur = p,
+                None => break,
+            }
+        }
+        let _ = meta;
+    }
+
+    let tag = emit_class_tag_read(ctx, recv, &class_name)?;
+
+    // OR de string-equal contra cada nome.
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let mut acc = zero;
+    let str_eq = ctx.get_extern(
+        "__RTS_FN_NS_GC_STRING_EQ",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    for name in &matches {
+        let (kp, kl) = ctx.emit_str_literal(name.as_bytes())?;
+        // emit_str_literal retorna (ptr, len) — precisamos de string handle.
+        // GC_STRING_EQ compara dois handles. Em vez disso usamos
+        // gc.string_from_static(ptr, len) para criar handle e comparar.
+        let mk_static = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_FROM_STATIC",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(mk_static, &[kp, kl]);
+        let lit_handle = ctx.builder.inst_results(inst)[0];
+
+        let inst = ctx.builder.ins().call(str_eq, &[tag, lit_handle]);
+        let eq = ctx.builder.inst_results(inst)[0];
+        acc = ctx.builder.ins().bor(acc, eq);
+    }
+
+    Ok(TypedVal::new(acc, ValTy::Bool))
 }

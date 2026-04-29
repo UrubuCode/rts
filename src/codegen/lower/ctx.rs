@@ -712,7 +712,16 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         match tv.ty {
             ValTy::Handle => Ok(tv),
             ValTy::U64 => Ok(TypedVal::new(tv.val, ValTy::Handle)),
-            ValTy::I64 | ValTy::I32 | ValTy::Bool => {
+            ValTy::Bool => {
+                // Bool em string vira "true"/"false" (semantica JS), nao
+                // "1"/"0". Sem isso `${x instanceof C}` saia como `1`.
+                let true_h = self.emit_str_handle(b"true")?;
+                let false_h = self.emit_str_handle(b"false")?;
+                let cond = self.coerce_to_i64(tv).val;
+                let val = self.builder.ins().select(cond, true_h.val, false_h.val);
+                Ok(TypedVal::new(val, ValTy::Handle))
+            }
+            ValTy::I64 | ValTy::I32 => {
                 let as_i64 = self.coerce_to_i64(tv);
                 let fref =
                     self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64", &[cl::I64], Some(cl::I64))?;
