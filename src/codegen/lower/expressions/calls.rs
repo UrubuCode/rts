@@ -123,6 +123,12 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         }
         if let Expr::Ident(id) = callee.as_ref() {
             let name = id.sym.as_str();
+            // Globais JS \`isNaN\`/\`isFinite\`/\`Number\`/\`String\`/\`Boolean\`
+            // resolvidos antes de cair em user_call (que falharia com
+            // \"undeclared user function\").
+            if let Some(tv) = lower_js_global_call(ctx, name, call)? {
+                return Ok(tv);
+            }
             if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
                 return lower_user_call(ctx, name, call);
             }
@@ -157,6 +163,51 @@ fn lower_dynamic_import(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         ctxt: Default::default(),
     })
     .map(|tv| crate::codegen::lower::ctx::TypedVal { val: tv.val, ty: ValTy::I64 })
+}
+
+/// Globais JS funcionais: \`isNaN\`, \`isFinite\`, \`Number\`, \`String\`, \`Boolean\`.
+/// Retornam Some(tv) quando match, None pra deixar o caller resolver como
+/// user fn / indirect.
+fn lower_js_global_call(
+    ctx: &mut FnCtx,
+    name: &str,
+    call: &CallExpr,
+) -> Result<Option<crate::codegen::lower::ctx::TypedVal>> {
+    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+    use cranelift_codegen::ir::condcodes::FloatCC;
+    match name {
+        "isNaN" => {
+            let arg = call.args.first().ok_or_else(|| anyhow!("isNaN requires 1 arg"))?;
+            if arg.spread.is_some() {
+                return Ok(None);
+            }
+            let tv = super::lower_expr(ctx, &arg.expr)?;
+            // Promove pra f64 e usa fcmp Unordered (NaN == NaN em fcmp e' false,
+            // NaN != NaN e' true). Cranelift FloatCC::Unordered: true se
+            // qualquer operando e' NaN. Compara x com x — se NaN, Unordered = true.
+            let f = super::operators::to_f64(ctx, tv);
+            let result = ctx.builder.ins().fcmp(FloatCC::Unordered, f, f);
+            Ok(Some(TypedVal::new(result, ValTy::Bool)))
+        }
+        "isFinite" => {
+            let arg = call.args.first().ok_or_else(|| anyhow!("isFinite requires 1 arg"))?;
+            if arg.spread.is_some() {
+                return Ok(None);
+            }
+            let tv = super::lower_expr(ctx, &arg.expr)?;
+            let f = super::operators::to_f64(ctx, tv);
+            // !isNaN(f) && f != Infinity && f != -Infinity.
+            // Equivale a: |f| < Infinity (e nao-NaN). Mais simples: usa
+            // f64 ABS via Cranelift fabs e compara com INFINITY.
+            let abs_f = ctx.builder.ins().fabs(f);
+            let inf = ctx.builder.ins().f64const(f64::INFINITY);
+            // OrderedLessThan: false se NaN (Unordered) -> retorna 0.
+            // |x| < inf -> true se x for finito; false pra Infinity ou NaN.
+            let result = ctx.builder.ins().fcmp(FloatCC::LessThan, abs_f, inf);
+            Ok(Some(TypedVal::new(result, ValTy::Bool)))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn resolve_method_owner(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {
