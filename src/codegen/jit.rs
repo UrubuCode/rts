@@ -101,6 +101,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_ERROR_CLEAR", __RTS_FN_RT_ERROR_CLEAR);
     }
 
+    // ── runtime stack depth limit ─────────────────────────────────────
+    {
+        use crate::namespaces::gc::stack::*;
+        add_fn!("__RTS_FN_RT_STACK_PUSH", __RTS_FN_RT_STACK_PUSH);
+        add_fn!("__RTS_FN_RT_STACK_POP", __RTS_FN_RT_STACK_POP);
+        add_fn!("__RTS_FN_RT_STACK_DEPTH", __RTS_FN_RT_STACK_DEPTH);
+    }
+
     // ── namespaces::gc ────────────────────────────────────────────────
     use crate::namespaces::gc::string_pool::*;
     add_fn!("__RTS_FN_NS_GC_STRING_NEW", __RTS_FN_NS_GC_STRING_NEW);
@@ -1445,6 +1453,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     #[cfg(debug_assertions)]
     {
         use std::collections::HashSet;
+        use crate::abi::SPECS;
         let spec_syms: HashSet<&str> = SPECS
             .iter()
             .flat_map(|s| s.members.iter().map(|m| m.symbol))
