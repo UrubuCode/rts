@@ -446,6 +446,25 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         && ((lhs.ty == ValTy::Handle && rhs.ty != ValTy::Handle)
             || (rhs.ty == ValTy::Handle && lhs.ty != ValTy::Handle))
     {
+        // Caso especial: comparacao com 0 numerico literal sentinel (null).
+        // Handles 0/null sao usados pra sentinela em RTS (\`h0 == 0\`).
+        // Vai como icmp i64 — nao tenta string convert.
+        let other_is_zero_lit = if lhs.ty == ValTy::Handle {
+            matches!(&*bin.right, Expr::Lit(Lit::Num(n)) if n.value == 0.0)
+        } else {
+            matches!(&*bin.left, Expr::Lit(Lit::Num(n)) if n.value == 0.0)
+        };
+        if other_is_zero_lit {
+            let h = if lhs.ty == ValTy::Handle { lhs.val } else { rhs.val };
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let cc = if matches!(bin.op, BinaryOp::EqEq) {
+                IntCC::Equal
+            } else {
+                IntCC::NotEqual
+            };
+            let result = ctx.builder.ins().icmp(cc, h, zero);
+            return Ok(TypedVal::new(result, ValTy::Bool));
+        }
         // Converte o numerico em string handle e compara conteudo.
         // JS: `"1" == 1` -> ToNumber("1") == 1 -> 1 == 1 -> true.
         // Implementacao: stringify ambos e usa STRING_EQ. Funciona pq
