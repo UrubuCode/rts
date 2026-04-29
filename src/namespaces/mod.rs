@@ -14,6 +14,7 @@ pub mod collections;
 pub mod crypto;
 pub mod date;
 pub mod env;
+pub mod events;
 pub mod fmt;
 pub mod ffi;
 pub mod fs;

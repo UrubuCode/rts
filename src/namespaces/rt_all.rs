@@ -26,6 +26,8 @@ pub mod bigfloat;
 pub mod time;
 #[path = "env/rt.rs"]
 pub mod env;
+#[path = "events/rt.rs"]
+pub mod events;
 #[path = "path/rt.rs"]
 pub mod path;
 #[path = "buffer/rt.rs"]
