@@ -26,6 +26,6 @@ print(`empty == empty: ${e1 == e2}`);
 
 describe("fixture:string_eq", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("a == b: 1\na == c: 0\na != c: 1\nch == \"b\": 1\nch == \"x\": 0\nempty == empty: 1\n");
+    expect(__rtsCapturedOutput).toBe("a == b: true\na == c: false\na != c: true\nch == \"b\": true\nch == \"x\": false\nempty == empty: true\n");
   });
 });
