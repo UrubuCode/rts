@@ -101,7 +101,21 @@
       "Bash(git pull *)",
       "Bash(target/debug/rts.exe test *)",
       "Bash(git log *)",
-      "PowerShell(Stop-Process *)"
+      "PowerShell(Stop-Process *)",
+      "Bash(bun -e \"const [a, b, c] = [1, 2, 3]; console.log\\(a, b, c\\)\")",
+      "Bash(bun -e \"const {x, y} = {x: 10, y: 20}; console.log\\(x, y\\)\")",
+      "Bash(bun -e \"const {a = 5, b = 10} = {a: 1}; console.log\\(a, b\\)\")",
+      "Bash(bun -e \"const {a: {b}} = {a: {b: 42}}; console.log\\(b\\)\")",
+      "Bash(bun -e \"function f\\({x, y}\\) { console.log\\(x, y\\) } f\\({x:1, y:2}\\)\")",
+      "Bash(bun -e \"class C{static x; static{C.x=42}} console.log\\(C.x\\)\")",
+      "Bash(bun -e \"class C{#val=10; #double\\(\\){return this.#val*2} get\\(\\){return this.#double\\(\\)}} console.log\\(new C\\(\\).get\\(\\)\\)\")",
+      "Bash(bun -e \"function* gen\\(\\){yield 1; yield 2; yield 3} const g=gen\\(\\); console.log\\(g.next\\(\\).value, g.next\\(\\).value, g.next\\(\\).value\\)\")",
+      "Bash(bun -e \"const s=Symbol\\('desc'\\); console.log\\(typeof s, s.toString\\(\\)\\)\")",
+      "Bash(bun -e \"const m=new Map\\(\\); m.set\\('a',1\\); m.set\\('b',2\\); console.log\\(m.get\\('a'\\), m.size\\)\")",
+      "Bash(bun -e ' *)",
+      "Bash(ls C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts\\\\src\\\\namespaces\\\\gc\\\\\\\\ *)",
+      "Bash(ls C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts\\\\src\\\\module\\\\\\\\ *)",
+      "Bash(ls \"C:\\\\Users\\\\danie\\\\Documents\\\\GitHub\\\\rts\\\\src\\\\type_system\\\\\\\\\")"
     ]
   }
 }
