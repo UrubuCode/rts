@@ -1224,6 +1224,9 @@ fn expand_static_fields(program: &mut Program) {
     // Mapa: (class_name, field) -> nome global gerado. Usado pra
     // reescrita de C.field e pra detectar conflitos.
     let mut static_map: HashMap<(String, String), String> = HashMap::new();
+    // Stmts dos `static { ... }` blocks, drenados das ClassDecls,
+    // re-emitidos como top-level apos as let de static fields.
+    let mut static_init_stmts: Vec<Statement> = Vec::new();
 
     for item in program.items.iter_mut() {
         let Item::Class(class) = item else { continue };
@@ -1244,9 +1247,15 @@ fn expand_static_fields(program: &mut Program) {
             }
             true
         });
+        // Drena `static { ... }` blocks. Mantem ordem source — multiplos
+        // blocks na mesma classe sao concatenados, e classes anteriores
+        // executam antes (program order).
+        if !class.static_init_body.is_empty() {
+            static_init_stmts.extend(std::mem::take(&mut class.static_init_body));
+        }
     }
 
-    if fields.is_empty() {
+    if fields.is_empty() && static_init_stmts.is_empty() {
         return;
     }
 
@@ -1273,11 +1282,7 @@ fn expand_static_fields(program: &mut Program) {
         let global_name = format!("__class_static_{}_{}", sf.class, sf.field);
         let init_expr = match &sf.init {
             Some(e) => (**e).clone(),
-            None => Expr::Lit(Lit::Num(swc_ecma_ast::Number {
-                span: Default::default(),
-                value: 0.0,
-                raw: None,
-            })),
+            None => default_expr_for_ann(sf.type_ann.as_deref()),
         };
         let mut binding = swc_ecma_ast::BindingIdent {
             id: swc_ecma_ast::Ident {
@@ -1309,6 +1314,19 @@ fn expand_static_fields(program: &mut Program) {
         decls.push(Item::Statement(Statement::Raw(raw)));
     }
 
+    // Anexa os stmts dos `static { }` blocks depois das declaracoes
+    // das let. Eles vao por `rewrite_static_in_program` na proxima fase
+    // — mas como ja' rodamos rewrite acima, precisamos rodar so' neles.
+    for stmt in static_init_stmts.iter_mut() {
+        let Statement::Raw(r) = stmt;
+        if let Some(s) = r.stmt.as_mut() {
+            rewrite_static_in_swc_stmt(s, &static_keys);
+        }
+    }
+    for stmt in static_init_stmts {
+        decls.push(Item::Statement(stmt));
+    }
+
     // Insere antes da primeira Class declaration (pra que ja existam
     // quando o codegen das classes processar referências).
     let insert_at = program
@@ -1318,6 +1336,29 @@ fn expand_static_fields(program: &mut Program) {
         .unwrap_or(0);
     for (i, decl) in decls.into_iter().enumerate() {
         program.items.insert(insert_at + i, decl);
+    }
+}
+
+/// Default value compativel com a anotacao do field. Static fields sem
+/// initializer (ex: `static readonly X: string;`) ainda precisam de um
+/// init na let global pra Cranelift nao reclamar de tipo. O valor real
+/// chega via static {} block.
+fn default_expr_for_ann(ann: Option<&str>) -> Expr {
+    match ann.map(str::trim) {
+        Some("string") => Expr::Lit(Lit::Str(swc_ecma_ast::Str {
+            span: Default::default(),
+            value: "".into(),
+            raw: None,
+        })),
+        Some("boolean") | Some("bool") => Expr::Lit(Lit::Bool(swc_ecma_ast::Bool {
+            span: Default::default(),
+            value: false,
+        })),
+        _ => Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+            span: Default::default(),
+            value: 0.0,
+            raw: None,
+        })),
     }
 }
 
@@ -4762,6 +4803,13 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
         // isso o global eh declarado como I64 e member calls em
         // receiver Handle nao disparam.
         Expr::New(_) => ValTy::Handle,
+        // Array literal `[...]` aloca Vec via collections.vec_new e armazena
+        // o handle. Sem isso `let arr: T[] = []` em top-level vira I64 e
+        // `.length`/`.push` no codegen nao reconhecem como Handle (caem em
+        // map_get nominal — o que segfauta ou retorna lixo).
+        Expr::Array(_) => ValTy::Handle,
+        // Object literal `{ ... }` idem — aloca Map via collections.map_new.
+        Expr::Object(_) => ValTy::Handle,
         _ => ValTy::I64,
     }
 }

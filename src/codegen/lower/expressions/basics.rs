@@ -134,6 +134,14 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
 }
 
 fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
+    // `typeof undeclaredVar` em JS retorna "undefined" sem erro — fast
+    // path para nao tentar resolver o ident e disparar undefined-var.
+    if let Expr::Ident(id) = operand {
+        let name = id.sym.as_str();
+        if ctx.read_local(name).is_none() && !ctx.user_fns.contains_key(name) {
+            return ctx.emit_str_handle(b"undefined");
+        }
+    }
     let tv = lower_expr(ctx, operand)?;
     let ty_str = match tv.ty {
         ValTy::Bool => "boolean",

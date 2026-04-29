@@ -76,3 +76,53 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(handle: u64, index: i64, value
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(handle: u64) {
     with_vec_mut(handle, (), |v| v.clear());
 }
+
+/// Junta os elementos do Vec interpretando cada i64 como:
+///   - string handle valido → conteudo da string
+///   - caso contrario → representacao decimal do numero
+/// Retorna handle de string nova com os elementos separados por `sep_h`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u64 {
+    // Snapshot dos elementos sem segurar o lock — formatar pode tocar
+    // outros shards (resolver string handles).
+    let elems: Vec<i64> = {
+        let guard = shard_for_handle(handle).lock().unwrap();
+        match guard.get(handle) {
+            Some(Entry::Vec(v)) => v.iter().copied().collect(),
+            _ => return 0,
+        }
+    };
+
+    // Resolve separador como bytes; vazio se handle invalido.
+    let sep_bytes: Vec<u8> = {
+        let guard = shard_for_handle(sep_h).lock().unwrap();
+        match guard.get(sep_h) {
+            Some(Entry::String(b)) => b.clone(),
+            _ => Vec::new(),
+        }
+    };
+
+    let mut out: Vec<u8> = Vec::new();
+    for (i, e) in elems.iter().enumerate() {
+        if i > 0 {
+            out.extend_from_slice(&sep_bytes);
+        }
+        let h = *e as u64;
+        // Tenta como string handle primeiro.
+        let as_str: Option<Vec<u8>> = {
+            let guard = shard_for_handle(h).lock().unwrap();
+            match guard.get(h) {
+                Some(Entry::String(b)) => Some(b.clone()),
+                _ => None,
+            }
+        };
+        if let Some(b) = as_str {
+            out.extend_from_slice(&b);
+        } else {
+            // Fallback: formata como i64 decimal.
+            out.extend_from_slice(e.to_string().as_bytes());
+        }
+    }
+
+    alloc_entry(Entry::String(out))
+}
