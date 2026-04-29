@@ -102,6 +102,9 @@ pub enum Entry {
     /// class handle redundantemente em `class` para acesso O(1) sem
     /// decodificar o slot 0.
     Instance(Box<Instance>),
+    /// `Date` instance — milliseconds since Unix epoch (UTC).
+    /// Created by `new Date()` / `new Date(ms)` in the globals::date module.
+    DateMs(i64),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

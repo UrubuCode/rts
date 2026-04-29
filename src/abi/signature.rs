@@ -43,12 +43,17 @@ pub fn lower_return(ret: AbiType) -> Option<ClType> {
 /// Full lowering of a member's signature.
 ///
 /// For constants, returns empty params and the declared return type.
+/// For `Constructor` and `InstanceMethod`, `args` is used as-is —
+/// the Handle receiver is already included in the args list for
+/// `InstanceMethod` (slot 0), and constructors carry their own params.
 pub fn lower_member(member: &NamespaceMember) -> LoweredSignature {
     match member.kind {
-        MemberKind::Function => LoweredSignature {
-            params: lower_params(member.args),
-            ret: lower_return(member.returns),
-        },
+        MemberKind::Function | MemberKind::Constructor | MemberKind::InstanceMethod => {
+            LoweredSignature {
+                params: lower_params(member.args),
+                ret: lower_return(member.returns),
+            }
+        }
         MemberKind::Constant => LoweredSignature {
             params: Vec::new(),
             ret: lower_return(member.returns),

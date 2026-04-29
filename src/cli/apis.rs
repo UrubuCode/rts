@@ -17,8 +17,9 @@ pub fn command() -> Result<()> {
         println!("  - {}: {}", spec.name, spec.doc);
         for member in spec.members {
             let kind = match member.kind {
-                MemberKind::Function => "fn",
+                MemberKind::Function | MemberKind::Constructor => "fn",
                 MemberKind::Constant => "const",
+                MemberKind::InstanceMethod => "method",
             };
             println!(
                 "      * [{kind}] {sig}  -> {symbol}  // {doc}",

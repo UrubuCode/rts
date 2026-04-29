@@ -8,6 +8,7 @@
 //! Populated incrementally. While empty, the runtime continues to rely on the
 //! legacy dispatch path; namespaces migrate one at a time.
 
+pub mod global_class;
 pub mod guards;
 pub mod member;
 pub mod signature;
@@ -17,8 +18,24 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
+pub use global_class::GlobalClassSpec;
 pub use member::{Intrinsic, MemberKind, NamespaceMember, NamespaceSpec};
 pub use types::AbiType;
+
+/// Global registry of built-in JS classes (Date, Error, …).
+///
+/// Each entry is a `GlobalClassSpec` that describes constructors, instance
+/// methods, and static functions for one global class.
+pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] =
+    &[&crate::namespaces::globals::date::abi::CLASS_SPEC];
+
+/// Looks up a global class spec by JS class name (e.g. `"Date"`).
+pub(crate) fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
+    GLOBAL_CLASS_SPECS
+        .iter()
+        .copied()
+        .find(|s| s.name == name)
+}
 
 /// Global registry of namespaces exposed through the new ABI.
 ///
@@ -61,6 +78,10 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::thread::abi::SPEC,
     &crate::namespaces::parallel::abi::SPEC,
     &crate::namespaces::tls::abi::SPEC,
+    // Global JS object namespaces — name matches JS global (e.g. "JSON", "console").
+    // Codegen routes JSON.parse() / console.log() through these specs.
+    &crate::namespaces::globals::json::abi::SPEC,
+    &crate::namespaces::globals::console::abi::SPEC,
 ];
 
 /// Locates a member by its fully qualified name (e.g. `"io.print"`).

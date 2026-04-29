@@ -76,6 +76,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             call,
                         );
                     }
+                    // Global class instance methods (e.g. Date.getFullYear())
+                    if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
+                        if let Some(member) = spec.instance_method(&method_name) {
+                            let recv_tv = lower_expr(ctx, &m.obj)?;
+                            let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
+                            return lower_global_instance_call(ctx, member, recv_i64, call);
+                        }
+                    }
                 }
             }
         }
@@ -102,27 +110,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
                 return Ok(tv);
             }
-            // JSON global (#215): JSON.parse / JSON.stringify mapeiam
-            // direto pra namespace json. Permite usar JSON.X(...) sem
-            // import explicito, paridade com a semantica JS.
-            if let Some(redirected) = qualified.strip_prefix("JSON.") {
-                let target = format!("json.{redirected}");
-                if lookup(&target).is_some() {
-                    return lower_ns_call(ctx, &target, call);
-                }
-            }
-            // Date global (#220): Date.now() → date.now_ms,
-            // Date.parse(s) → date.from_iso. v0 expoe primitivas
-            // sobre i64 (ts_ms); construtor `new Date(...)` e
-            // getters de instancia ficam follow-up.
-            if let Some(method) = qualified.strip_prefix("Date.") {
-                let target = match method {
-                    "now" => "date.now_ms",
-                    "parse" => "date.from_iso",
-                    _ => "",
-                };
-                if !target.is_empty() && lookup(target).is_some() {
-                    return lower_ns_call(ctx, target, call);
+            // JSON global (#215): JSON.* — spec name="JSON" is in SPECS, so
+            // `lookup("JSON.parse")` resolves directly above. No fallback needed.
+
+            // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
+            if let Some((cls, method)) = qualified.split_once('.') {
+                if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                    if let Some(member) = spec.static_member(method) {
+                        return lower_ns_call_member(ctx, member, call);
+                    }
                 }
             }
             // Fallback: ident.fn(...) onde ident e var (ex: namespace TS
@@ -615,6 +611,55 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             ));
         }
     };
+
+    // Global class constructors: new Date(), new Date(ms), new Date(isoStr)
+    if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
+        let n_args = new_expr.args.as_ref().map(|a| a.len()).unwrap_or(0);
+        // For StrPtr args, each string counts as 1 TS arg but expands to 2 ABI slots.
+        // constructor_for_arity matches on TS arg count.
+        let ctor = spec
+            .constructor_for_arity(n_args)
+            .ok_or_else(|| anyhow!("Date: no constructor with {n_args} args"))?;
+        let sig = crate::abi::signature::lower_member(ctor);
+        let mut arg_vals = Vec::new();
+        if let Some(args) = &new_expr.args {
+            for (idx, arg) in args.iter().enumerate() {
+                let expected = ctor.args[idx];
+                let tv = lower_expr(ctx, &arg.expr)?;
+                if expected == AbiType::StrPtr {
+                    // expand handle to (ptr, len)
+                    let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                    let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                    let h = ctx.coerce_to_i64(tv).val;
+                    let pi = ctx.builder.ins().call(ptr_fn, &[h]);
+                    let ptr = ctx.builder.inst_results(pi)[0];
+                    let li = ctx.builder.ins().call(len_fn, &[h]);
+                    let len = ctx.builder.inst_results(li)[0];
+                    arg_vals.push(ptr);
+                    arg_vals.push(len);
+                } else {
+                    arg_vals.push(ctx.coerce_to_i64(tv).val);
+                }
+            }
+        }
+        let fn_ref = ctx.get_extern(ctor.symbol, &sig.params, sig.ret)?;
+        let inst = ctx.builder.ins().call(fn_ref, &arg_vals);
+        let handle = ctx.builder.inst_results(inst)[0];
+        // Track local variable type for instance method dispatch
+        // Caller (lower_var_decl) will store the binding name; we store the class name
+        // via the return value annotation. Here we return a Handle tagged with class name.
+        // The caller in lower_let_decl sets local_class_ty[bind] = class_name when it sees
+        // a NewExpr whose callee is a known class. We need to ensure class_name is in
+        // local_class_ty — do so by inserting via the returned TypedVal metadata.
+        // Since we can't do it here directly (no bind name), the lower_let path handles it.
+        // But we need to mark it as a global class so lhs_static_class can find it.
+        // Store class_name in global_class_ty isn't mutable. Use local_class_ty trick:
+        // The VarDecl lowering already calls `ctx.local_class_ty.insert(bind, class_name)`
+        // when it detects a NewExpr with a known user class. We must ensure the same
+        // happens for global classes. See lower/func.rs compile_user_fn var_decl handling.
+        // For now return Handle — the VarDecl lowering will handle local_class_ty.
+        return Ok(TypedVal::new(handle, ValTy::Handle));
+    }
 
     // #222 Map/Set v0 — `new Map()` e `new Set()` mapeiam para
     // collections.map_new (mesmo backing store HashMap<string, i64>).
@@ -2067,6 +2112,19 @@ fn lower_intrinsic(
     }
 }
 
+fn lower_ns_call_member(
+    ctx: &mut FnCtx,
+    member: &'static crate::abi::member::NamespaceMember,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    if let Some(kind) = member.intrinsic {
+        if let Some(result) = lower_intrinsic(ctx, kind, call)? {
+            return Ok(result);
+        }
+    }
+    lower_ns_call_body(ctx, member, call)
+}
+
 fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {
     let (_spec, member) =
         lookup(qualified).ok_or_else(|| anyhow!("unknown namespace member `{qualified}`"))?;
@@ -2077,6 +2135,15 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
         }
     }
 
+    lower_ns_call_body(ctx, member, call)
+}
+
+fn lower_ns_call_body(
+    ctx: &mut FnCtx,
+    member: &'static crate::abi::member::NamespaceMember,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    let qualified = member.symbol;
     let lowered = lower_member(member);
 
     let func_id = if !ctx.extern_cache.contains_key(member.symbol) {
@@ -2301,6 +2368,63 @@ fn lower_node_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Resu
             ctx.builder.ins().iconst(cl::I64, 0),
             ValTy::I64,
         ))
+    }
+}
+
+/// Emits a call to a global class instance method (e.g. `d.getFullYear()`).
+/// `recv` is the already-lowered Handle value. The InstanceMethod ABI has the
+/// Handle as its first arg (slot 0 of member.args), so we prepend it and pass
+/// the remaining TS args in order.
+fn lower_global_instance_call(
+    ctx: &mut FnCtx,
+    member: &'static crate::abi::member::NamespaceMember,
+    recv: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    use crate::abi::signature::lower_member;
+
+    let sig = lower_member(member);
+    let fn_ref = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+
+    // slot 0 = Handle receiver; slots 1.. = TS call args
+    let mut values = vec![recv];
+    let abi_args = &member.args[1..]; // skip Handle slot
+    let mut arg_iter = call.args.iter();
+    for &abi_ty in abi_args {
+        let arg = arg_iter
+            .next()
+            .ok_or_else(|| anyhow!("too few arguments for `{}`", member.name))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in global class method call"));
+        }
+        match abi_ty {
+            AbiType::StrPtr => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let h = ctx.coerce_to_i64(tv).val;
+                let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let pi = ctx.builder.ins().call(ptr_fn, &[h]);
+                values.push(ctx.builder.inst_results(pi)[0]);
+                let li = ctx.builder.ins().call(len_fn, &[h]);
+                values.push(ctx.builder.inst_results(li)[0]);
+            }
+            AbiType::F64 => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(to_f64(ctx, tv));
+            }
+            _ => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(ctx.coerce_to_i64(tv).val);
+            }
+        }
+    }
+
+    let inst = ctx.builder.ins().call(fn_ref, &values);
+    if sig.ret.is_some() {
+        let v = ctx.builder.inst_results(inst)[0];
+        Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
+    } else {
+        Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))
     }
 }
 

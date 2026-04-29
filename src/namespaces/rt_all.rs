@@ -64,11 +64,14 @@ pub mod tls;
 pub mod ui;
 #[path = "runtime/rt.rs"]
 pub mod runtime;
+#[path = "globals/date/rt.rs"]
+pub mod globals_date;
 
 // rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
 // modules reference `crate::namespaces::...`, so we expose a compatibility
 // shim with the subset they need in runtime_support.
 pub mod namespaces {
+    pub use crate::date;
     pub use crate::gc;
     pub use crate::trace;
 }

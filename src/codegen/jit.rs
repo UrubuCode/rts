@@ -209,6 +209,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_JSON_OBJECT_GET", __RTS_FN_NS_JSON_OBJECT_GET);
     add_fn!("__RTS_FN_NS_JSON_OBJECT_HAS", __RTS_FN_NS_JSON_OBJECT_HAS);
 
+    // ── namespaces::globals::date (Date global class) ─────────────────
+    use crate::namespaces::globals::date::instance::*;
+    add_fn!("__RTS_FN_GL_DATE_NEW_NOW", __RTS_FN_GL_DATE_NEW_NOW);
+    add_fn!("__RTS_FN_GL_DATE_NEW_FROM_MS", __RTS_FN_GL_DATE_NEW_FROM_MS);
+    add_fn!("__RTS_FN_GL_DATE_NEW_FROM_ISO", __RTS_FN_GL_DATE_NEW_FROM_ISO);
+    add_fn!("__RTS_FN_GL_DATE_GET_TIME", __RTS_FN_GL_DATE_GET_TIME);
+    add_fn!("__RTS_FN_GL_DATE_VALUE_OF", __RTS_FN_GL_DATE_VALUE_OF);
+    add_fn!("__RTS_FN_GL_DATE_GET_FULL_YEAR", __RTS_FN_GL_DATE_GET_FULL_YEAR);
+    add_fn!("__RTS_FN_GL_DATE_GET_MONTH", __RTS_FN_GL_DATE_GET_MONTH);
+    add_fn!("__RTS_FN_GL_DATE_GET_DATE", __RTS_FN_GL_DATE_GET_DATE);
+    add_fn!("__RTS_FN_GL_DATE_GET_DAY", __RTS_FN_GL_DATE_GET_DAY);
+    add_fn!("__RTS_FN_GL_DATE_GET_HOURS", __RTS_FN_GL_DATE_GET_HOURS);
+    add_fn!("__RTS_FN_GL_DATE_GET_MINUTES", __RTS_FN_GL_DATE_GET_MINUTES);
+    add_fn!("__RTS_FN_GL_DATE_GET_SECONDS", __RTS_FN_GL_DATE_GET_SECONDS);
+    add_fn!("__RTS_FN_GL_DATE_GET_MILLISECONDS", __RTS_FN_GL_DATE_GET_MILLISECONDS);
+    add_fn!("__RTS_FN_GL_DATE_TO_ISO_STRING", __RTS_FN_GL_DATE_TO_ISO_STRING);
+    add_fn!("__RTS_FN_GL_DATE_TO_STRING", __RTS_FN_GL_DATE_TO_STRING);
+    add_fn!("__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING", __RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING);
+
     // ── namespaces::date ──────────────────────────────────────────────
     use crate::namespaces::date::ops::*;
     add_fn!("__RTS_FN_NS_DATE_NOW_MS", __RTS_FN_NS_DATE_NOW_MS);

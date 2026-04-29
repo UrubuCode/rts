@@ -24,7 +24,9 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         if let Pat::Ident(id) = &decl.name {
             if let Some(ann) = id.type_ann.as_ref() {
                 if let Some(cn) = class_name_from_annotation(&ann.type_ann) {
-                    if ctx.classes.contains_key(&cn) {
+                    if ctx.classes.contains_key(&cn)
+                        || crate::abi::global_class_lookup(&cn).is_some()
+                    {
                         ctx.local_class_ty.insert(name.clone(), cn);
                     }
                 }
@@ -95,13 +97,15 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                     if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
                         let cn = cid.sym.as_str().to_string();
                         // (#214) Error builtin classes: registra field
-                        // types pra que \`e.message\`/\`e.name\` retorne
+                        // types pra que `e.message`/`e.name` retorne
                         // Handle em vez de I64 anonimo.
                         let is_error_class = matches!(
                             cn.as_str(),
                             "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
                         );
-                        if ctx.classes.contains_key(&cn) {
+                        if ctx.classes.contains_key(&cn)
+                            || crate::abi::global_class_lookup(&cn).is_some()
+                        {
                             ctx.local_class_ty.insert(name.clone(), cn.clone());
                         }
                         if is_error_class {

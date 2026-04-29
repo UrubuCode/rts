@@ -772,7 +772,9 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
         Expr::New(n) => {
             if let Expr::Ident(id) = n.callee.as_ref() {
                 let name = id.sym.as_str();
-                if ctx.classes.contains_key(name) {
+                if ctx.classes.contains_key(name)
+                    || crate::abi::global_class_lookup(name).is_some()
+                {
                     return Some(name.to_string());
                 }
             }

@@ -83,12 +83,13 @@ fn emit_rts_dts(path: &Path) -> Result<()> {
         for member in spec.members {
             out.push_str(&format!("    /** {} */\n", member.doc));
             match member.kind {
-                MemberKind::Function => {
+                MemberKind::Function | MemberKind::Constructor => {
                     out.push_str(&format!("    export function {};\n", member.ts_signature));
                 }
                 MemberKind::Constant => {
                     out.push_str(&format!("    export const {};\n", member.ts_signature));
                 }
+                MemberKind::InstanceMethod => {}
             }
         }
         out.push_str("  }\n\n");

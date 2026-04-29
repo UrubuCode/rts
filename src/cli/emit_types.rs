@@ -79,7 +79,7 @@ fn push_namespace(
         out.push_str(&format!("{inner} */\n"));
 
         match member.kind {
-            MemberKind::Function => {
+            MemberKind::Function | MemberKind::Constructor => {
                 out.push_str(&format!(
                     "{inner}export function {};\n",
                     member.ts_signature
@@ -91,6 +91,7 @@ fn push_namespace(
                     member.ts_signature
                 ));
             }
+            MemberKind::InstanceMethod => {}
         }
     }
 
@@ -113,12 +114,13 @@ fn push_namespace_module(
         out.push_str(&format!("   * {}\n", member.doc));
         out.push_str("   */\n");
         match member.kind {
-            MemberKind::Function => {
+            MemberKind::Function | MemberKind::Constructor => {
                 out.push_str(&format!("  export function {};\n", member.ts_signature));
             }
             MemberKind::Constant => {
                 out.push_str(&format!("  export const {};\n", member.ts_signature));
             }
+            MemberKind::InstanceMethod => {}
         }
     }
 

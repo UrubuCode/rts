@@ -74,7 +74,7 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     // f64 IEEE; \`undefined\` em RTS nao tem representacao distinta de
     // 0/null entao mapeamos para 0 (caller que comparar com === detecta
     // tipo via context). Cobre uso comum em template/aritmetica.
-    use cranelift_codegen::ir::{InstBuilder, types as cl};
+    use cranelift_codegen::ir::InstBuilder;
     use crate::codegen::lower::ctx::ValTy;
     match name {
         "NaN" => {

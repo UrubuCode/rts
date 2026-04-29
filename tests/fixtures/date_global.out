@@ -1,0 +1,6 @@
+now_ok
+getTime_ok
+getFullYear_ok
+getMonth_ok
+parse_ok
+toISOString_ok

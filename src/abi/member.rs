@@ -75,7 +75,7 @@ pub enum Intrinsic {
     RandomF64,
 }
 
-/// Whether a member is a function or a constant.
+/// Whether a member is a function, constant, constructor, or instance method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemberKind {
     /// Callable extern "C" function. `args`/`returns` describe its signature.
@@ -83,6 +83,17 @@ pub enum MemberKind {
     /// Constant value resolved once at program startup. `args` must be empty
     /// and `returns` holds the value type.
     Constant,
+    /// Class constructor — emitted for `new ClassName(args)`.
+    ///
+    /// `args` describes the constructor parameters; `returns` is always
+    /// `AbiType::Handle` (the newly allocated instance handle).
+    /// Multiple `Constructor` members in the same `GlobalClassSpec` are
+    /// distinguished by `args.len()` (overload by arity).
+    Constructor,
+    /// Instance method — first ABI argument is always the `Handle` of the
+    /// receiver (implicit `this`). Codegen inserts it automatically; the TS
+    /// signature lists only the explicit params.
+    InstanceMethod,
 }
 
 /// A registered namespace exposed through the new ABI.
