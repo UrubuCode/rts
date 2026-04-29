@@ -174,7 +174,7 @@ fn lower_js_global_call(
     call: &CallExpr,
 ) -> Result<Option<crate::codegen::lower::ctx::TypedVal>> {
     use crate::codegen::lower::ctx::{TypedVal, ValTy};
-    use cranelift_codegen::ir::condcodes::FloatCC;
+    use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
     match name {
         "isNaN" => {
             let arg = call.args.first().ok_or_else(|| anyhow!("isNaN requires 1 arg"))?;
@@ -182,9 +182,6 @@ fn lower_js_global_call(
                 return Ok(None);
             }
             let tv = super::lower_expr(ctx, &arg.expr)?;
-            // Promove pra f64 e usa fcmp Unordered (NaN == NaN em fcmp e' false,
-            // NaN != NaN e' true). Cranelift FloatCC::Unordered: true se
-            // qualquer operando e' NaN. Compara x com x — se NaN, Unordered = true.
             let f = super::operators::to_f64(ctx, tv);
             let result = ctx.builder.ins().fcmp(FloatCC::Unordered, f, f);
             Ok(Some(TypedVal::new(result, ValTy::Bool)))
@@ -196,15 +193,90 @@ fn lower_js_global_call(
             }
             let tv = super::lower_expr(ctx, &arg.expr)?;
             let f = super::operators::to_f64(ctx, tv);
-            // !isNaN(f) && f != Infinity && f != -Infinity.
-            // Equivale a: |f| < Infinity (e nao-NaN). Mais simples: usa
-            // f64 ABS via Cranelift fabs e compara com INFINITY.
             let abs_f = ctx.builder.ins().fabs(f);
             let inf = ctx.builder.ins().f64const(f64::INFINITY);
-            // OrderedLessThan: false se NaN (Unordered) -> retorna 0.
-            // |x| < inf -> true se x for finito; false pra Infinity ou NaN.
             let result = ctx.builder.ins().fcmp(FloatCC::LessThan, abs_f, inf);
             Ok(Some(TypedVal::new(result, ValTy::Bool)))
+        }
+        "Number" => {
+            // Number(x): converte para f64. String -> parse, bool -> 0/1,
+            // number -> identidade.
+            if let Some(arg) = call.args.first() {
+                if arg.spread.is_some() {
+                    return Ok(None);
+                }
+                let tv = super::lower_expr(ctx, &arg.expr)?;
+                if matches!(tv.ty, ValTy::Handle) {
+                    // Parse string -> f64. fmt.parse_f64 espera (ptr, len),
+                    // entao extraimos via gc.string_ptr / gc.string_len.
+                    let ptr_fn = ctx.get_extern(
+                        "__RTS_FN_NS_GC_STRING_PTR",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let len_fn = ctx.get_extern(
+                        "__RTS_FN_NS_GC_STRING_LEN",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let parse_fn = ctx.get_extern(
+                        "__RTS_FN_NS_FMT_PARSE_F64",
+                        &[cl::I64, cl::I64],
+                        Some(cl::F64),
+                    )?;
+                    let ptr_inst = ctx.builder.ins().call(ptr_fn, &[tv.val]);
+                    let ptr = ctx.builder.inst_results(ptr_inst)[0];
+                    let len_inst = ctx.builder.ins().call(len_fn, &[tv.val]);
+                    let len = ctx.builder.inst_results(len_inst)[0];
+                    let inst = ctx.builder.ins().call(parse_fn, &[ptr, len]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(Some(TypedVal::new(v, ValTy::F64)));
+                }
+                let f = super::operators::to_f64(ctx, tv);
+                return Ok(Some(TypedVal::new(f, ValTy::F64)));
+            }
+            // Number() sem args -> 0
+            let v = ctx.builder.ins().f64const(0.0);
+            Ok(Some(TypedVal::new(v, ValTy::F64)))
+        }
+        "String" => {
+            // String(x): converte para handle de string.
+            if let Some(arg) = call.args.first() {
+                if arg.spread.is_some() {
+                    return Ok(None);
+                }
+                let tv = super::lower_expr(ctx, &arg.expr)?;
+                let h = ctx.coerce_to_handle(tv)?;
+                return Ok(Some(h));
+            }
+            // String() sem args -> ""
+            let h = ctx.emit_str_handle(b"")?;
+            Ok(Some(h))
+        }
+        "Boolean" => {
+            // Boolean(x): truthiness JS — false/0/""/NaN/null/undefined sao falsy.
+            // RTS aproximacao: handle 0 e numerico 0 sao falsy; resto e' truthy.
+            // Para Handle, checa se != 0 (string vazia tem handle != 0 entao
+            // a aprox falha pra "" — TODO: peek length se for Entry::String).
+            if let Some(arg) = call.args.first() {
+                if arg.spread.is_some() {
+                    return Ok(None);
+                }
+                let tv = super::lower_expr(ctx, &arg.expr)?;
+                if matches!(tv.ty, ValTy::F64) {
+                    // f64: !=0.0 e !NaN. NaN != NaN, entao apenas 0.0 e' false.
+                    let zero = ctx.builder.ins().f64const(0.0);
+                    let ne_zero = ctx.builder.ins().fcmp(FloatCC::NotEqual, tv.val, zero);
+                    return Ok(Some(TypedVal::new(ne_zero, ValTy::Bool)));
+                }
+                let v = ctx.coerce_to_i64(tv).val;
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                let result = ctx.builder.ins().icmp(IntCC::NotEqual, v, zero);
+                return Ok(Some(TypedVal::new(result, ValTy::Bool)));
+            }
+            // Boolean() sem args -> false
+            let v = ctx.builder.ins().iconst(cl::I64, 0);
+            Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
         _ => Ok(None),
     }
