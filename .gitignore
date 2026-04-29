@@ -39,3 +39,6 @@ debug_*
 /*.so
 /tmp_*
 /.tmp-types-check
+
+# rts-types — gerado por rts emit-types, nao versionar
+builtin/rts-types/

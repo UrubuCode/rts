@@ -121,5 +121,5 @@ const RTS_PENDING_APIS: &[&str] = &[
     "Crypto namespace (SHA family, HMAC, AEAD)",
     "Async runtime primitives (timers, task scheduler)",
     "Structured diagnostics + source maps for AOT binaries",
-    "builtin/ tarball embed + `rts i` installer",
+    "package registry + `rts i` installer",
 ];

@@ -18,10 +18,17 @@ fn resolve_output(arg: Option<String>) -> Result<PathBuf> {
     if let Some(p) = arg {
         return Ok(PathBuf::from(p));
     }
-    // Default: builtin/rts-types/rts.d.ts relative to cwd (repo root when
-    // run as `cargo run -- emit-types` or `rts emit-types` from the workspace).
+    // Default: node_modules/.rts/builtin/rts-types/rts.d.ts (per-project cache).
+    // Used by `rts init` and `rts emit-types` without an explicit output path.
     let cwd = std::env::current_dir().context("failed to read current directory")?;
-    Ok(cwd.join("builtin").join("rts-types").join("rts.d.ts"))
+    let dest = cwd
+        .join("node_modules")
+        .join(".rts")
+        .join("builtin")
+        .join("rts-types");
+    std::fs::create_dir_all(&dest)
+        .with_context(|| format!("failed to create {}", dest.display()))?;
+    Ok(dest.join("rts.d.ts"))
 }
 
 pub fn generate() -> String {
@@ -133,8 +140,6 @@ fn push_namespace_module(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     #[test]
     fn generate_includes_rts_namespace_modules() {
         let dts = super::generate();
@@ -144,12 +149,6 @@ mod tests {
         assert!(!dts.contains("export const readonly "));
     }
 
-    #[test]
-    fn rts_dts_in_sync_with_specs() {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let committed = manifest.join("builtin/rts-types/rts.d.ts");
-        super::check(&committed).expect("builtin/rts-types/rts.d.ts out of sync — run `rts emit-types`");
-    }
 }
 
 /// Checks whether the committed file at `path` matches what `generate()`
