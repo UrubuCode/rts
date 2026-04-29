@@ -217,6 +217,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_EE_ONCE", __RTS_FN_GL_EE_ONCE);
     add_fn!("__RTS_FN_GL_EE_OFF", __RTS_FN_GL_EE_OFF);
     add_fn!("__RTS_FN_GL_EE_EMIT", __RTS_FN_GL_EE_EMIT);
+    add_fn!("__RTS_FN_GL_EE_EMIT_HANDLE", __RTS_FN_GL_EE_EMIT_HANDLE);
     add_fn!("__RTS_FN_GL_EE_REMOVE_ALL", __RTS_FN_GL_EE_REMOVE_ALL);
     add_fn!("__RTS_FN_GL_EE_LISTENER_COUNT", __RTS_FN_GL_EE_LISTENER_COUNT);
     add_fn!("__RTS_FN_GL_EE_EVENT_NAMES", __RTS_FN_GL_EE_EVENT_NAMES);

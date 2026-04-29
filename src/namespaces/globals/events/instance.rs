@@ -175,9 +175,8 @@ pub extern "C" fn __RTS_FN_GL_EE_EMIT(
         return 0;
     }
 
-    // User functions in RTS codegen use f64 for `number` parameters.
-    // Convert the i64 arg to f64 so the argument lands in the correct
-    // XMM register on x86-64 Windows fastcall / SystemV.
+    // RTS codegen compiles `number` params as f64 (XMM register on x86-64).
+    // Numeric conversion so integer values (42, -1, etc.) arrive correctly.
     let arg_f64 = arg as f64;
 
     if async_mode {
@@ -200,6 +199,56 @@ pub extern "C" fn __RTS_FN_GL_EE_EMIT(
     }
 
     1 // true — at least one listener was called
+}
+
+/// Like `emit` but passes the handle arg as a bitcast f64 so all 64 bits are
+/// preserved. Listener recovers the handle via `num.f64_to_bits(arg)`.
+/// Use this variant when the payload is a handle/raw u64, not a numeric value.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_EE_EMIT_HANDLE(
+    handle: u64,
+    ev_ptr: i64,
+    ev_len: i64,
+    arg: i64,
+) -> i64 {
+    let event = unsafe { event_name(ev_ptr, ev_len) };
+
+    let (snapshot, async_mode) = {
+        let Some(arc) = clone_arc(handle) else { return 0; };
+        let mut any = arc.lock().unwrap();
+        let Some(data) = any.downcast_mut::<EmitterData>() else { return 0; };
+        let list = data.listeners.get(&event).cloned().unwrap_or_default();
+        if let Some(vec) = data.listeners.get_mut(&event) {
+            vec.retain(|l| !l.once);
+        }
+        (list, data.async_mode)
+    };
+
+    if snapshot.is_empty() {
+        return 0;
+    }
+
+    // Bitcast: reinterpret i64 bits as f64 — no numeric conversion, all bits intact.
+    // Listener recovers the original handle bits via num.f64_to_bits(arg).
+    let arg_bits = f64::from_bits(arg as u64);
+
+    if async_mode {
+        for listener in snapshot {
+            rayon::spawn(move || {
+                let f: extern "C" fn(f64) -> f64 =
+                    unsafe { std::mem::transmute(listener.fn_ptr as usize) };
+                f(arg_bits);
+            });
+        }
+    } else {
+        for listener in &snapshot {
+            let f: extern "C" fn(f64) -> f64 =
+                unsafe { std::mem::transmute(listener.fn_ptr as usize) };
+            f(arg_bits);
+        }
+    }
+
+    1
 }
 
 // ── removeAllListeners / listenerCount / eventNames ──────────────────────────
