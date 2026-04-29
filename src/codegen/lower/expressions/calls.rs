@@ -45,6 +45,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 if lookup(&qualified).is_some() {
                     return lower_ns_call(ctx, &qualified, call);
                 }
+                // node: namespace imports: `import * as fs from "node:fs"` → `fs.readFileSync()`
+                // node_import_map["fs"] = "node_fs" (prefix only, no dot)
+                if let Some((obj_name, fn_name)) = qualified.split_once('.') {
+                    if let Some(prefix) = ctx.node_import_map.get(obj_name) {
+                        if !prefix.contains('.') {
+                            let node_qualified = format!("{prefix}.{fn_name}");
+                            if crate::nodespace::node_lookup(&node_qualified).is_some() {
+                                return lower_node_ns_call(ctx, &node_qualified, call);
+                            }
+                        }
+                    }
+                }
             }
             let prop_method_name: Option<String> = match &m.prop {
                 MemberProp::Ident(id) => Some(id.sym.as_str().to_string()),
@@ -70,6 +82,17 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         if let Some(qualified) = qualified_member_name(callee) {
             if lookup(&qualified).is_some() {
                 return lower_ns_call(ctx, &qualified, call);
+            }
+            // node: namespace/default imports: `import fs from "node:fs"` → `fs.readFileSync()`
+            if let Some((obj_name, fn_name)) = qualified.split_once('.') {
+                if let Some(prefix) = ctx.node_import_map.get(obj_name) {
+                    if !prefix.contains('.') {
+                        let node_qualified = format!("{prefix}.{fn_name}");
+                        if crate::nodespace::node_lookup(&node_qualified).is_some() {
+                            return lower_node_ns_call(ctx, &node_qualified, call);
+                        }
+                    }
+                }
             }
             // Console builtin (#221): console.log/info/debug → io.print,
             // console.error/warn → io.eprint. Args concatenados separados
@@ -128,6 +151,13 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // \"undeclared user function\").
             if let Some(tv) = lower_js_global_call(ctx, name, call)? {
                 return Ok(tv);
+            }
+            // node: named imports: `import { readFileSync } from "node:fs"`
+            // node_import_map["readFileSync"] = "node_fs.readFileSync"
+            if let Some(qualified) = ctx.node_import_map.get(name).cloned() {
+                if crate::nodespace::node_lookup(&qualified).is_some() {
+                    return lower_node_ns_call(ctx, &qualified, call);
+                }
             }
             if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
                 return lower_user_call(ctx, name, call);
@@ -2104,6 +2134,118 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
 
     let inst = ctx.builder.ins().call(fref, &values);
     if lowered.ret.is_some() {
+        let v = ctx.builder.inst_results(inst)[0];
+        Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
+    } else {
+        Ok(TypedVal::new(
+            ctx.builder.ins().iconst(cl::I64, 0),
+            ValTy::I64,
+        ))
+    }
+}
+
+/// Lowers a call to a `node:*` member via nodespace lookup.
+///
+/// `qualified` is the codegen-internal name like `"node_fs.readFileSync"`.
+/// The nodespace member maps directly to an existing RTS ABI symbol, so
+/// this function builds the same extern call as `lower_ns_call` but sources
+/// the metadata from `crate::nodespace::node_lookup` instead of `abi::lookup`.
+fn lower_node_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {
+    use crate::abi::signature::{lower_params, lower_return};
+
+    let member = crate::nodespace::node_lookup(qualified)
+        .ok_or_else(|| anyhow!("unknown node namespace member `{qualified}`"))?;
+
+    let lowered_params = lower_params(member.args);
+    let lowered_ret = lower_return(member.returns);
+
+    let func_id = if !ctx.extern_cache.contains_key(member.symbol) {
+        let mut sig = Signature::new(ctx.module.isa().default_call_conv());
+        for &p in &lowered_params {
+            sig.params.push(AbiParam::new(p));
+        }
+        if let Some(r) = lowered_ret {
+            sig.returns.push(AbiParam::new(r));
+        }
+        let id = ctx
+            .module
+            .declare_function(member.symbol, Linkage::Import, &sig)
+            .map_err(|e| anyhow!("failed to declare {}: {e}", member.symbol))?;
+        ctx.extern_cache.insert(member.symbol, id);
+        id
+    } else {
+        *ctx.extern_cache.get(member.symbol).unwrap()
+    };
+    let fref = ctx.fref_for_id(func_id);
+
+    let mut values = Vec::new();
+    let mut arg_iter = call.args.iter();
+    for &abi_ty in member.args {
+        let arg = arg_iter
+            .next()
+            .ok_or_else(|| anyhow!("too few arguments for node `{qualified}`"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in node namespace calls"));
+        }
+        match abi_ty {
+            AbiType::StrPtr => {
+                fn unwrap_paren(e: &Expr) -> &Expr {
+                    match e {
+                        Expr::Paren(p) => unwrap_paren(&p.expr),
+                        _ => e,
+                    }
+                }
+                let lit_bytes: Option<Vec<u8>> = match unwrap_paren(&arg.expr) {
+                    Expr::Lit(swc_ecma_ast::Lit::Str(s)) => Some(s.value.as_bytes().to_vec()),
+                    _ => None,
+                };
+                if let Some(bytes) = lit_bytes {
+                    let (ptr, len) = ctx.emit_str_literal(&bytes)?;
+                    values.push(ptr);
+                    values.push(len);
+                    continue;
+                }
+                let tv = lower_expr(ctx, &arg.expr)?;
+                match tv.ty {
+                    ValTy::Handle => {
+                        let ptr_fref = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_PTR",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let len_fref = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_LEN",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let pi = ctx.builder.ins().call(ptr_fref, &[tv.val]);
+                        let ptr = ctx.builder.inst_results(pi)[0];
+                        let li = ctx.builder.ins().call(len_fref, &[tv.val]);
+                        let len = ctx.builder.inst_results(li)[0];
+                        values.push(ptr);
+                        values.push(len);
+                    }
+                    _ => return Err(anyhow!("StrPtr argument must be a string value")),
+                }
+            }
+            AbiType::I32 => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(ctx.coerce_to_i32(tv).val)
+            }
+            AbiType::U64 | AbiType::I64 | AbiType::Handle | AbiType::Bool => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(ctx.coerce_to_i64(tv).val)
+            }
+            AbiType::F64 => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(to_f64(ctx, tv))
+            }
+            AbiType::Void => {}
+        }
+    }
+
+    let inst = ctx.builder.ins().call(fref, &values);
+    if lowered_ret.is_some() {
         let v = ctx.builder.inst_results(inst)[0];
         Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
     } else {

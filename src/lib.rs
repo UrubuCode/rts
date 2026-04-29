@@ -15,6 +15,7 @@ pub mod dotenv;
 pub mod linker;
 pub mod module;
 pub mod namespaces;
+pub mod nodespace;
 pub mod parser;
 pub mod pipeline;
 pub mod registers;

@@ -151,6 +151,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/net/");
     println!("cargo:rerun-if-changed=src/namespaces/tls/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
+    println!("cargo:rerun-if-changed=src/nodespace/");
     println!("cargo:rerun-if-changed=build.rs");
 }
 

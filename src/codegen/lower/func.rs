@@ -4120,6 +4120,29 @@ pub fn compile_program(
     expand_spread_args(program);
     expand_rest_args(program);
 
+    // Single-file AOT path: imports are not stripped before compile_program,
+    // so we scan them here to populate node_import_map (JIT multi-file path
+    // already populated this in ModuleGraph::flatten_for_jit).
+    for item in &program.items {
+        if let Item::Import(decl) = item {
+            if let Some(prefix) = crate::nodespace::ns_prefix_for(&decl.from) {
+                for name in &decl.names {
+                    program
+                        .node_import_map
+                        .entry(name.clone())
+                        .or_insert_with(|| format!("{prefix}.{name}"));
+                }
+                if let Some(default_name) = &decl.default_name {
+                    program
+                        .node_import_map
+                        .entry(default_name.clone())
+                        .or_insert_with(|| prefix.to_string());
+                }
+            }
+        }
+    }
+    let node_import_map = std::mem::take(&mut program.node_import_map);
+
     let mut warnings = Vec::new();
 
     let globals = collect_module_globals(program, module)?;
@@ -4329,6 +4352,7 @@ pub fn compile_program(
             &classes,
             &global_class_ty,
             &fn_class_returns,
+            &node_import_map,
             fn_decl,
             info,
             owner_class,
@@ -4372,6 +4396,7 @@ pub fn compile_program(
         &classes,
         &global_class_ty,
         &fn_class_returns,
+        &node_import_map,
         &top_stmts,
         &mut warnings,
     )
@@ -5228,6 +5253,7 @@ fn compile_user_fn(
     classes: &HashMap<String, ClassMeta>,
     global_class_ty: &HashMap<String, String>,
     fn_class_returns: &HashMap<String, String>,
+    node_import_map: &HashMap<String, String>,
     fn_decl: &FunctionDecl,
     info: &UserFn,
     current_class: Option<String>,
@@ -5270,6 +5296,7 @@ fn compile_user_fn(
             classes,
             global_class_ty,
             fn_class_returns,
+            node_import_map,
             false,
         );
         fn_ctx.return_ty = info.ret;
@@ -5416,6 +5443,7 @@ fn compile_main(
     classes: &HashMap<String, ClassMeta>,
     global_class_ty: &HashMap<String, String>,
     fn_class_returns: &HashMap<String, String>,
+    node_import_map: &HashMap<String, String>,
     stmts: &[&Stmt],
     warnings: &mut Vec<String>,
 ) -> Result<()> {
@@ -5446,6 +5474,7 @@ fn compile_main(
             classes,
             global_class_ty,
             fn_class_returns,
+            node_import_map,
             true,
         );
 

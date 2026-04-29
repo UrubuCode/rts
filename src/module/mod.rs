@@ -287,7 +287,20 @@ impl ModuleGraph {
                 continue;
             }
             for item in &module.program.items {
-                if matches!(item, Item::Import(_)) {
+                if let Item::Import(decl) = item {
+                    // Collect node: import bindings before stripping.
+                    if let Some(prefix) = crate::nodespace::ns_prefix_for(&decl.from) {
+                        for name in &decl.names {
+                            merged
+                                .node_import_map
+                                .insert(name.clone(), format!("{prefix}.{name}"));
+                        }
+                        if let Some(default_name) = &decl.default_name {
+                            merged
+                                .node_import_map
+                                .insert(default_name.clone(), prefix.to_string());
+                        }
+                    }
                     continue;
                 }
                 merged.items.push(item.clone());

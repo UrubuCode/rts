@@ -40,6 +40,24 @@ pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
         }
     }
 
+    if let Some(ns_name) = name.strip_prefix("node:") {
+        if let Some(spec) = crate::nodespace::NODE_SPECS
+            .iter()
+            .copied()
+            .find(|s| s.node_module == ns_name)
+        {
+            let exports: Vec<String> = spec
+                .members
+                .iter()
+                .map(|m| m.name.to_string())
+                .chain(std::iter::once("default".to_string()))
+                .collect();
+            let mut module = BuiltinModule::new(name, std::iter::empty::<&'static str>());
+            module.exports = exports.into_iter().collect();
+            return Some(module);
+        }
+    }
+
     None
 }
 
@@ -49,6 +67,9 @@ pub fn builtin_module_keys() -> Vec<&'static str> {
     let mut keys = vec!["rts", "rts:test"];
     for spec in SPECS {
         keys.push(spec.name);
+    }
+    for spec in crate::nodespace::NODE_SPECS {
+        keys.push(spec.ns_prefix);
     }
     keys
 }

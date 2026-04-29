@@ -320,6 +320,10 @@ pub struct FnCtx<'m, 'fb> {
     /// Drenados por compile_program antes de retornar.
     pub warnings: Vec<String>,
 
+    /// Maps local import name → codegen qualified name for `node:*` imports.
+    /// Sourced from `Program::node_import_map`. See `nodespace::mod` for encoding.
+    pub node_import_map: &'fb HashMap<String, String>,
+
     /// Cache de DataId pra simbolos de data global declarados via
     /// declare_data. Evita declarar duas vezes o mesmo simbolo (p.ex.
     /// __RTS_DATA_NS_MATH_RNG_STATE em cada call de random_f64) — cada
@@ -376,6 +380,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         classes: &'fb HashMap<String, ClassMeta>,
         global_class_ty: &'fb HashMap<String, String>,
         fn_class_returns: &'fb HashMap<String, String>,
+        node_import_map: &'fb HashMap<String, String>,
         module_scope: bool,
     ) -> Self {
         Self {
@@ -403,6 +408,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             loop_stack: Vec::new(),
             pending_label: None,
             warnings: Vec::new(),
+            node_import_map,
             data_cache: HashMap::new(),
             gv_cache: HashMap::new(),
             gv_data_cache: HashMap::new(),

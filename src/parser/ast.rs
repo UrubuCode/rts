@@ -1,8 +1,20 @@
-﻿use super::span::Span;
+﻿use std::collections::HashMap;
+
+use super::span::Span;
 
 #[derive(Debug, Clone, Default)]
 pub struct Program {
     pub items: Vec<Item>,
+    /// Maps local import name → codegen qualified name for `node:*` imports.
+    ///
+    /// Named import: `import { readFileSync } from "node:fs"`
+    ///   → `"readFileSync"` → `"node_fs.readFileSync"`
+    ///
+    /// Namespace/default import: `import * as fs from "node:fs"`
+    ///   → `"fs"` → `"node_fs"` (prefix only, no dot)
+    ///
+    /// Populated by `ModuleGraph::flatten_for_jit` before import stripping.
+    pub node_import_map: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
