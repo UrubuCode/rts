@@ -225,15 +225,30 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
             }
         };
 
-        let (key_str, value_expr): (String, Box<Expr>) = match p.as_ref() {
+        // Resolve key + value. Para computed keys avaliamos a expr e
+        // pegamos ptr/len do string handle resultante. Para keys
+        // estaticas usamos emit_str_literal direto.
+        enum KeySrc {
+            Static(String),
+            Computed(Box<Expr>),
+        }
+        let (key_src, value_expr): (KeySrc, Box<Expr>) = match p.as_ref() {
             Prop::KeyValue(kv) => {
                 let k = match &kv.key {
-                    PropName::Ident(id) => id.sym.as_str().to_string(),
-                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
-                    PropName::Num(n) => n.value.to_string(),
-                    PropName::Computed(_) | PropName::BigInt(_) => {
+                    PropName::Ident(id) => KeySrc::Static(id.sym.as_str().to_string()),
+                    PropName::Str(s) => KeySrc::Static(s.value.to_string_lossy().to_string()),
+                    PropName::Num(n) => KeySrc::Static(n.value.to_string()),
+                    PropName::Computed(c) => {
+                        // Caso comum: literal string dentro do []
+                        if let Expr::Lit(swc_ecma_ast::Lit::Str(s)) = c.expr.as_ref() {
+                            KeySrc::Static(s.value.to_string_lossy().to_string())
+                        } else {
+                            KeySrc::Computed(c.expr.clone())
+                        }
+                    }
+                    PropName::BigInt(_) => {
                         return Err(anyhow!(
-                            "computed/bigint key em object literal nao suportado (MVP)"
+                            "bigint key em object literal nao suportado"
                         ));
                     }
                 };
@@ -247,7 +262,7 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
                     sym: name.as_str().into(),
                     optional: false,
                 }));
-                (name, synthetic)
+                (KeySrc::Static(name), synthetic)
             }
             Prop::Method(_) | Prop::Getter(_) | Prop::Setter(_) | Prop::Assign(_) => {
                 return Err(anyhow!(
@@ -258,10 +273,37 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
 
         let value_tv = lower_expr(ctx, &value_expr)?;
         let value_i64 = ctx.coerce_to_i64(value_tv).val;
-        let (kptr, klen) = ctx.emit_str_literal(key_str.as_bytes())?;
-        ctx.builder
-            .ins()
-            .call(set_fn, &[handle, kptr, klen, value_i64]);
+        match key_src {
+            KeySrc::Static(s) => {
+                let (kptr, klen) = ctx.emit_str_literal(s.as_bytes())?;
+                ctx.builder
+                    .ins()
+                    .call(set_fn, &[handle, kptr, klen, value_i64]);
+            }
+            KeySrc::Computed(expr) => {
+                // Avalia expr -> handle (string). Coerce + chama
+                // gc.string_ptr/len pra extrair ptr+len.
+                let key_tv = lower_expr(ctx, &expr)?;
+                let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                let ptr_fn = ctx.get_extern(
+                    "__RTS_FN_NS_GC_STRING_PTR",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let len_fn = ctx.get_extern(
+                    "__RTS_FN_NS_GC_STRING_LEN",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let p_inst = ctx.builder.ins().call(ptr_fn, &[key_h]);
+                let kptr = ctx.builder.inst_results(p_inst)[0];
+                let l_inst = ctx.builder.ins().call(len_fn, &[key_h]);
+                let klen = ctx.builder.inst_results(l_inst)[0];
+                ctx.builder
+                    .ins()
+                    .call(set_fn, &[handle, kptr, klen, value_i64]);
+            }
+        }
     }
 
     Ok(TypedVal::new(handle, ValTy::Handle))
