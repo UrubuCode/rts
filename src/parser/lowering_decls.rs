@@ -1,8 +1,14 @@
 fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan) -> ClassDecl {
     let mut members = Vec::new();
+    let mut static_init_body: Vec<Statement> = Vec::new();
 
     for member in &class.body {
         match member {
+            SwcClassMember::StaticBlock(sb) => {
+                let stmts = lower_block_body(cm, Some(&sb.body));
+                static_init_body.extend(stmts);
+                continue;
+            }
             SwcClassMember::Constructor(constructor) => {
                 let parameters = constructor
                     .params
@@ -195,6 +201,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
         super_class,
         members,
         is_abstract: class.is_abstract,
+        static_init_body,
         span: convert_span(cm, span),
     }
 }

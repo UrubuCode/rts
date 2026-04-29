@@ -48,6 +48,10 @@ pub struct ClassDecl {
     /// `abstract class C { ... }` — não pode ser instanciada via `new C()`.
     /// Subclasses concretas devem implementar todos os métodos abstract.
     pub is_abstract: bool,
+    /// Stmts dos `static { ... }` blocks, na ordem em que apareceram.
+    /// expand_static_fields prepend-os ao top-level depois das declaracoes
+    /// de static fields, mantendo a ordem de inicializacao TS.
+    pub static_init_body: Vec<Statement>,
     pub span: Span,
 }
 
