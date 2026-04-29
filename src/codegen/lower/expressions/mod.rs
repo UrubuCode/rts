@@ -51,6 +51,14 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         Expr::TsSatisfies(a) => lower_expr(ctx, &a.expr),
         Expr::TsNonNull(n) => lower_expr(ctx, &n.expr),
         Expr::Await(a) => lower_expr(ctx, &a.arg),
+        Expr::Seq(s) => {
+            // Comma operator: avalia tudo pelo side-effect, retorna o ultimo.
+            let mut last: Option<TypedVal> = None;
+            for e in &s.exprs {
+                last = Some(lower_expr(ctx, e)?);
+            }
+            last.ok_or_else(|| anyhow!("empty sequence expression"))
+        }
         other => Err(anyhow!("unsupported expression: {}", expr_kind_name(other))),
     }
 }
