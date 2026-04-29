@@ -1676,7 +1676,6 @@ fn lower_intrinsic(
 ) -> Result<Option<TypedVal>> {
     use crate::abi::Intrinsic;
     use cranelift_codegen::ir::condcodes::IntCC;
-    use cranelift_module::DataDescription;
 
     fn arg_f64(
         ctx: &mut FnCtx,

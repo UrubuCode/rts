@@ -146,7 +146,7 @@ fn try_lower_if_to_select(
     // Extrai o single statement do body.
     let body_stmt: &Stmt = match &*if_stmt.cons {
         Stmt::Block(b) if b.stmts.len() == 1 => &b.stmts[0],
-        s @ (Stmt::Expr(_)) => s,
+        s @ Stmt::Expr(_) => s,
         _ => return Ok(None),
     };
     let assign_expr = if let Stmt::Expr(e) = body_stmt {

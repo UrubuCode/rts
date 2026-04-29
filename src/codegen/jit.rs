@@ -16,7 +16,6 @@ use anyhow::{Result, anyhow};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_jit::{JITBuilder, JITModule};
 
-use crate::abi::SPECS;
 use crate::codegen::lower::compile_program;
 use crate::parser::ast::Program;
 
