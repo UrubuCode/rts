@@ -34,6 +34,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::error::abi::RANGE_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::error::abi::REF_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::error::abi::SYNTAX_ERROR_CLASS_SPEC,
+    &crate::namespaces::globals::events::abi::CLASS_SPEC,
 ];
 
 /// Looks up a global class spec by JS class name (e.g. `"Date"`).

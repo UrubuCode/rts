@@ -70,6 +70,8 @@ pub mod globals_date;
 pub mod globals_regexp;
 #[path = "globals/error/rt.rs"]
 pub mod globals_error;
+#[path = "globals/events/rt.rs"]
+pub mod globals_events;
 
 // rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
 // modules reference `crate::namespaces::...`, so we expose a compatibility

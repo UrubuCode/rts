@@ -1,0 +1,9 @@
+count_ok
+emit_ok
+emit2_ok
+once_ok
+off_ok
+no_listeners_ok
+remove_all_ok
+async_count_ok
+async_emit_no_crash

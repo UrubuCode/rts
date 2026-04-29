@@ -209,6 +209,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_JSON_OBJECT_GET", __RTS_FN_NS_JSON_OBJECT_GET);
     add_fn!("__RTS_FN_NS_JSON_OBJECT_HAS", __RTS_FN_NS_JSON_OBJECT_HAS);
 
+    // ── namespaces::globals::events (EventEmitter global class) ──────
+    use crate::namespaces::globals::events::instance::*;
+    add_fn!("__RTS_FN_GL_EE_NEW", __RTS_FN_GL_EE_NEW);
+    add_fn!("__RTS_FN_GL_EE_NEW_ASYNC", __RTS_FN_GL_EE_NEW_ASYNC);
+    add_fn!("__RTS_FN_GL_EE_ON", __RTS_FN_GL_EE_ON);
+    add_fn!("__RTS_FN_GL_EE_ONCE", __RTS_FN_GL_EE_ONCE);
+    add_fn!("__RTS_FN_GL_EE_OFF", __RTS_FN_GL_EE_OFF);
+    add_fn!("__RTS_FN_GL_EE_EMIT", __RTS_FN_GL_EE_EMIT);
+    add_fn!("__RTS_FN_GL_EE_REMOVE_ALL", __RTS_FN_GL_EE_REMOVE_ALL);
+    add_fn!("__RTS_FN_GL_EE_LISTENER_COUNT", __RTS_FN_GL_EE_LISTENER_COUNT);
+    add_fn!("__RTS_FN_GL_EE_EVENT_NAMES", __RTS_FN_GL_EE_EVENT_NAMES);
+
     // ── namespaces::globals::regexp (RegExp global class) ────────────
     use crate::namespaces::globals::regexp::instance::*;
     add_fn!("__RTS_FN_GL_REGEXP_NEW", __RTS_FN_GL_REGEXP_NEW);

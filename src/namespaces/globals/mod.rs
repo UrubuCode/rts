@@ -13,6 +13,7 @@
 pub mod console;
 pub mod date;
 pub mod error;
+pub mod events;
 pub mod global_this;
 pub mod json;
 pub mod regexp;

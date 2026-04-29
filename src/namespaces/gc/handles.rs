@@ -108,6 +108,10 @@ pub enum Entry {
     /// `Error` instance — message string + name tag.
     /// Created by `new Error(msg)` / `new TypeError(msg)` etc.
     ErrorObj { message: String, name: String },
+    /// `EventEmitter` instance — Arc<Mutex<dyn Any+Send>> so the inner lock
+    /// can be held independently of the shard lock. The concrete type is
+    /// `globals::events::instance::EmitterData`; downcast at access sites.
+    EventEmitter(std::sync::Arc<std::sync::Mutex<dyn std::any::Any + Send>>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
