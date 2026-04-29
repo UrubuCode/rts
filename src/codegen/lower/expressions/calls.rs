@@ -419,7 +419,7 @@ fn emit_named_method_call(
         .extern_cache
         .get(mangled)
         .ok_or_else(|| anyhow!("mangled `{mangled}` nao registrado"))?;
-    let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+    let fref = ctx.fref_for_id(fn_id);
 
     let mut args = Vec::with_capacity(arg_values.len() + 1);
     args.push(recv_i64);
@@ -542,7 +542,7 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             .extern_cache
             .get(mangled)
             .ok_or_else(|| anyhow!("init mangled `{mangled}` faltando"))?;
-        let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+        let fref = ctx.fref_for_id(fn_id);
 
         let user_args: &[swc_ecma_ast::ExprOrSpread] =
             new_expr.args.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
@@ -608,7 +608,7 @@ fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         .extern_cache
         .get(mangled)
         .ok_or_else(|| anyhow!("super init mangled `{mangled}` faltando"))?;
-    let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+    let fref = ctx.fref_for_id(fn_id);
 
     let this_val = ctx
         .read_local("this")
@@ -913,7 +913,7 @@ fn emit_method_call(
         .extern_cache
         .get(mangled)
         .ok_or_else(|| anyhow!("metodo mangled `{mangled}` faltando"))?;
-    let fref = ctx.module.declare_func_in_func(fn_id, ctx.builder.func);
+    let fref = ctx.fref_for_id(fn_id);
 
     let mut args = Vec::with_capacity(arg_values.len() + 1);
     args.push(recv_i64);
@@ -1035,7 +1035,7 @@ pub(super) fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal>
         .extern_cache
         .get(mangled)
         .ok_or_else(|| anyhow!("user function `{name}` has no cached id"))?;
-    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+    let fref = ctx.fref_for_id(func_id);
     let ptr_ty = ctx.module.isa().pointer_type();
     let addr = ctx.builder.ins().func_addr(ptr_ty, fref);
     Ok(TypedVal::new(addr, ValTy::I64))
@@ -1663,7 +1663,7 @@ fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> 
         ctx.extern_cache.insert(member.symbol, id);
         id
     };
-    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+    let fref = ctx.fref_for_id(func_id);
     let inst = ctx.builder.ins().call(fref, &[]);
     let val = ctx.builder.inst_results(inst)[0];
     Ok(TypedVal::new(val, ValTy::from_abi(member.returns)))
@@ -1863,7 +1863,7 @@ fn lower_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<Ty
     } else {
         *ctx.extern_cache.get(member.symbol).unwrap()
     };
-    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+    let fref = ctx.fref_for_id(func_id);
 
     let mut values = Vec::new();
     let mut arg_iter = call.args.iter();
@@ -1949,7 +1949,7 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         return Err(anyhow!("call to undeclared user function `{name}`"));
     }
     let func_id = *ctx.extern_cache.get(mangled).unwrap();
-    let fref = ctx.module.declare_func_in_func(func_id, ctx.builder.func);
+    let fref = ctx.fref_for_id(func_id);
 
     if call.args.len() != abi.params.len() {
         return Err(anyhow!(

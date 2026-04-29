@@ -340,6 +340,13 @@ pub struct FnCtx<'m, 'fb> {
     /// (ex: gc.string_ptr/string_len 4-6x por iter de console.log),
     /// isso gerava 4-6 \`call\` instrucoes que Cranelift nao deduplica.
     pub fn_ref_cache: HashMap<&'static str, cranelift_codegen::ir::FuncRef>,
+    /// Cache de FuncRef por FuncId — usado em chamadas de user fns
+    /// e qualquer site que ja' tem FuncId em mao (sem passar por
+    /// fn_ref_cache que e' string-keyed). Em fns recursivas como
+    /// \`fib\`, sem isso cada chamada (\`fib(n-1)\` e \`fib(n-2)\`)
+    /// emitia FuncRef distintos pra mesma fn.
+    pub fn_ref_by_id_cache:
+        HashMap<cranelift_module::FuncId, cranelift_codegen::ir::FuncRef>,
     /// Estado RNG atual em SSA quando varias calls de random_f64
     /// acontecem em sequencia no mesmo block. Permite reusar o ultimo
     /// x3 (estado pos-xorshift) sem load/store intermediario:
@@ -395,8 +402,25 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             gv_cache: HashMap::new(),
             gv_data_cache: HashMap::new(),
             fn_ref_cache: HashMap::new(),
+            fn_ref_by_id_cache: HashMap::new(),
             rng_state_cached: None,
         }
+    }
+
+    /// Resolve `fn_id` a um FuncRef na fn atual, cacheando.
+    /// Cada declare_func_in_func cria FuncRef distinto pro mesmo
+    /// FuncId — em recursao ou multiplas chamadas, isso fragmentava
+    /// o IR sem necessidade.
+    pub fn fref_for_id(
+        &mut self,
+        fn_id: cranelift_module::FuncId,
+    ) -> cranelift_codegen::ir::FuncRef {
+        if let Some(f) = self.fn_ref_by_id_cache.get(&fn_id).copied() {
+            return f;
+        }
+        let f = self.module.declare_func_in_func(fn_id, self.builder.func);
+        self.fn_ref_by_id_cache.insert(fn_id, f);
+        f
     }
 
     /// Resolve `data_id` a um GlobalValue na fn atual, cacheando o
