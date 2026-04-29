@@ -132,3 +132,39 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(handle: u64, idx: i64) -> u
         None => 0,
     }
 }
+
+/// (#266) Object.keys(obj) — retorna Vec<i64> com handles de strings dos
+/// keys. Ordem: sorted asc (mesmo criterio de KEY_AT).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
+    let keys: Vec<String> = with_map(handle, Vec::new(), |m| {
+        let mut ks: Vec<String> = m.keys().cloned().collect();
+        ks.sort();
+        ks
+    });
+    let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
+    for k in keys {
+        let h = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            k.as_ptr(),
+            k.len() as i64,
+        );
+        vec.push(h as i64);
+    }
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::Vec(Box::new(vec)),
+    )
+}
+
+/// (#266) Object.values(obj) — retorna Vec<i64> com valores. Ordem por
+/// keys sorted asc.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
+    let vals: Vec<i64> = with_map(handle, Vec::new(), |m| {
+        let mut entries: Vec<(&String, &i64)> = m.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        entries.into_iter().map(|(_, v)| *v).collect()
+    });
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::Vec(Box::new(vals)),
+    )
+}

@@ -610,6 +610,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_KEYS
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_VALUES
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW
         );
