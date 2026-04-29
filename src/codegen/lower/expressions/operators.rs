@@ -194,27 +194,42 @@ fn mul_imm_peephole(
     None
 }
 
-/// `x % imm` peephole. So' otimiza POT positivo via band.
-/// AVISO: muda semantica pra x negativo (x & MASK e' positivo, x % POT
-/// preserva sinal). A maioria dos usos eh com counters >= 0. Documentar.
+/// `x % imm` peephole correto pra signed (#297).
+///
+/// Para POT positivo `n = 2^k`, `x % n` em JS preserva sinal do dividendo:
+/// `-7 % 4 = -3`, `-8 % 4 = 0`. A trick `x & (n-1)` so' funciona para
+/// `x >= 0` — para x negativo `x & MASK` retorna positivo (errado).
+///
+/// Fix correto sem perder a otimizacao em hot paths:
+///
+///     adj  = (x >> (BITS-1)) & (n-1)    // -1 todos bits se x < 0, else 0
+///     r    = (x + adj) & (n-1)          // r positivo
+///     r    = r - adj                    // ajusta sinal
+///
+/// Equivalente a `(x % n + n) & (n-1)` mas sem branch. 4 instrucoes
+/// vs srem ~20+. Cranelift egraph nao faz pra signed mod.
 fn mod_imm_peephole(
     ctx: &mut FnCtx,
     lhs: &TypedVal,
     imm: i64,
 ) -> Option<TypedVal> {
-    if imm > 0 && (imm as u64).is_power_of_two() {
-        let mask = imm - 1;
-        let v = match lhs.ty {
-            ValTy::I32 => ctx.builder.ins().band_imm(lhs.val, mask),
-            _ => {
-                let lv = ctx.coerce_to_i64(*lhs).val;
-                ctx.builder.ins().band_imm(lv, mask)
-            }
-        };
-        let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
-        return Some(TypedVal::new(v, ty));
+    if !(imm > 0 && (imm as u64).is_power_of_two()) {
+        return None;
     }
-    None
+    let mask = imm - 1;
+    let (lv, ty, bits_minus_one) = match lhs.ty {
+        ValTy::I32 => (lhs.val, ValTy::I32, 31),
+        _ => (ctx.coerce_to_i64(*lhs).val, ValTy::I64, 63),
+    };
+    // adj = (x >> (BITS-1)) & mask
+    let signbits = ctx.builder.ins().sshr_imm(lv, bits_minus_one);
+    let adj = ctx.builder.ins().band_imm(signbits, mask);
+    // r = (x + adj) & mask
+    let plus = ctx.builder.ins().iadd(lv, adj);
+    let masked = ctx.builder.ins().band_imm(plus, mask);
+    // r = masked - adj
+    let r = ctx.builder.ins().isub(masked, adj);
+    Some(TypedVal::new(r, ty))
 }
 
 /// `x / imm` peephole. POT positivo vira sshr (arithmetic right shift,
@@ -357,6 +372,69 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         let inst = ctx.builder.ins().call(fref, &[lhs.val, rhs.val]);
         let eq = ctx.builder.inst_results(inst)[0];
         let result = if matches!(bin.op, BinaryOp::NotEq | BinaryOp::NotEqEq) {
+            let one = ctx.builder.ins().iconst(cl::I64, 1);
+            ctx.builder.ins().bxor(eq, one)
+        } else {
+            eq
+        };
+        return Ok(TypedVal::new(result, ValTy::Bool));
+    }
+
+    // === / !== com tipos diferentes em compile-time → const false/true.
+    // (#306) JS strict equality nao coerce; `0 === false` deve ser false.
+    // Bool e' detectavel separado de I64/F64 em ValTy mesmo backed por
+    // mesmo cl_type, e Handle (string) e' distinto de numericos.
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq) {
+        if !same_strict_kind(lhs.ty, rhs.ty) {
+            let result = if matches!(bin.op, BinaryOp::NotEqEq) { 1 } else { 0 };
+            let v = ctx.builder.ins().iconst(cl::I64, result);
+            return Ok(TypedVal::new(v, ValTy::Bool));
+        }
+    }
+
+    // == / != com Bool ↔ numerico: coerce ambos para numerico e comparar.
+    // (#306) JS abstract equality: `0 == false` e' true via Number(false)=0.
+    // Mesmo tratamento para I64<->F64<->I32 (promove pra F64 via promote_numeric
+    // que ja' roda abaixo). Mas distincao Bool e' importante: sem este branch,
+    // `0 === false` (mesmo backing i64) cairia em strict-eq numerico true.
+    if matches!(bin.op, BinaryOp::EqEq | BinaryOp::NotEq)
+        && (lhs.ty == ValTy::Bool || rhs.ty == ValTy::Bool)
+        && lhs.ty != ValTy::Handle
+        && rhs.ty != ValTy::Handle
+    {
+        // Promote ambos para i64 e comparar.
+        let lv = ctx.coerce_to_i64(lhs).val;
+        let rv = ctx.coerce_to_i64(rhs).val;
+        let cc = if matches!(bin.op, BinaryOp::EqEq) {
+            IntCC::Equal
+        } else {
+            IntCC::NotEqual
+        };
+        let result = ctx.builder.ins().icmp(cc, lv, rv);
+        return Ok(TypedVal::new(result, ValTy::Bool));
+    }
+
+    // == entre Handle (string) e numerico: parse a string como numero
+    // e compara. Conservador — sem fast path para casos comuns.
+    if matches!(bin.op, BinaryOp::EqEq | BinaryOp::NotEq)
+        && ((lhs.ty == ValTy::Handle && rhs.ty != ValTy::Handle)
+            || (rhs.ty == ValTy::Handle && lhs.ty != ValTy::Handle))
+    {
+        // Converte o numerico em string handle e compara conteudo.
+        // JS: `"1" == 1` -> ToNumber("1") == 1 -> 1 == 1 -> true.
+        // Implementacao: stringify ambos e usa STRING_EQ. Funciona pq
+        // STRING_FROM_I64/F64 emite a representacao decimal canonica que
+        // bate com a string parseavel original (`"1" -> 1 -> "1"`).
+        let lhs_h = ctx.coerce_to_handle(lhs)?.val;
+        let rhs_h = ctx.coerce_to_handle(rhs)?.val;
+        let fref = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_EQ",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[lhs_h, rhs_h]);
+        let eq = ctx.builder.inst_results(inst)[0];
+        let result = if matches!(bin.op, BinaryOp::NotEq) {
             let one = ctx.builder.ins().iconst(cl::I64, 1);
             ctx.builder.ins().bxor(eq, one)
         } else {
@@ -720,6 +798,19 @@ fn ident_name(expr: &Expr) -> Option<&str> {
     } else {
         None
     }
+}
+
+/// Strict equality (===) considera tipos como JS: Bool, Number (I32/I64/F64
+/// unificados), String (Handle). U64 trata como numerico.
+fn same_strict_kind(a: ValTy, b: ValTy) -> bool {
+    fn kind(t: ValTy) -> u8 {
+        match t {
+            ValTy::Bool => 0,
+            ValTy::Handle => 1,
+            ValTy::I32 | ValTy::I64 | ValTy::F64 | ValTy::U64 => 2,
+        }
+    }
+    kind(a) == kind(b)
 }
 
 /// `lhs instanceof RhsClass`. RHS deve ser um Ident referenciando uma
