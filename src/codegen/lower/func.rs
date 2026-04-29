@@ -5387,7 +5387,13 @@ fn compile_user_fn(
     }
 
     if crate::codegen::ir_dump_enabled() {
-        eprintln!("--- {} IR ---\n{}", fn_decl.name, ctx.func.display());
+        let file = crate::codegen::ir_source_file();
+        let loc = if file.is_empty() {
+            format!("line {}:{}", fn_decl.span.start.line, fn_decl.span.start.column)
+        } else {
+            format!("{}:{}:{}", file, fn_decl.span.start.line, fn_decl.span.start.column)
+        };
+        eprintln!("--- {} [{}] IR ---\n{}", fn_decl.name, loc, ctx.func.display());
     }
 
     module
@@ -5468,7 +5474,13 @@ fn compile_main(
     }
 
     if crate::codegen::ir_dump_enabled() {
-        eprintln!("--- __RTS_MAIN IR ---\n{}", runtime_ctx.func.display());
+        let file = crate::codegen::ir_source_file();
+        let loc = if file.is_empty() {
+            "top-level".to_string()
+        } else {
+            format!("{} top-level", file)
+        };
+        eprintln!("--- __RTS_MAIN [{}] IR ---\n{}", loc, runtime_ctx.func.display());
     }
 
     module

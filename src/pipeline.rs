@@ -229,6 +229,11 @@ pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String
 /// Does NOT execute the program.
 pub fn dump_ir_with_imports(input: &Path, options: CompileOptions) -> Result<Vec<String>> {
     crate::codegen::enable_ir_dump();
+    crate::codegen::set_ir_source_file(
+        input.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_else(|| input.to_str().unwrap_or("?")),
+    );
 
     let graph = crate::module::ModuleGraph::load(input, options)
         .with_context(|| format!("failed to load module graph for {}", input.display()))?;
