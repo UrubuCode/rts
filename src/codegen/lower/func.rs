@@ -5281,6 +5281,10 @@ fn compile_user_fn(
             .as_ref()
             .map(|c| fn_decl.name == class_init_name(c))
             .unwrap_or(false);
+        // Reset por fn — \`super_already_called\` rastreia chamadas dentro
+        // do constructor corrente. Sem reset, multiplos constructors no
+        // mesmo programa compartilhariam a flag.
+        fn_ctx.super_already_called = false;
         // Em metodos/constructors, o param `this` e instancia da classe
         // dona — populamos local_class_ty pra que `this.field`/dispatch
         // tipicos funcionem (e overload em `this.x + ...`).
@@ -5624,6 +5628,25 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         match member {
             ClassMember::Constructor(ctor) => {
                 has_constructor = true;
+                // (#303 parte 1) Detecta \`super(...); super(...)\` em
+                // sequencia direta (mesmo bloco/escopo top-level do
+                // constructor body). JS proibe — segundo super lanca
+                // ReferenceError. So' rejeita o caso linear obvio; em
+                // branches if/else mutuamente exclusivos (super em cons
+                // E em alt), passa silenciosamente — runtime check seria
+                // a fase 2 dessa issue.
+                if count_super_calls_in_top_level(&ctor.body) > 1 {
+                    // SyntaxError-like: rejeita o programa em compile time.
+                    // Usar eprintln + std::process::exit(1) imita o caminho
+                    // de erros existentes em outras validacoes (abstract,
+                    // visibility). Sem Result aqui pra nao espalhar
+                    // mudanca de tipo em todo synthesize_class_fns caller.
+                    eprintln!(
+                        "error: ReferenceError: super constructor may only be called once (em `{}`)",
+                        class.name
+                    );
+                    std::process::exit(1);
+                }
                 for p in &ctor.parameters {
                     if let Some(ann) = p.type_annotation.as_deref() {
                         field_types
@@ -5841,6 +5864,26 @@ fn make_field_init_stmt(
 /// - Se `has_super` e o primeiro statement do user é `super(...)`,
 ///   coloca os initializers logo depois.
 /// - Caso contrário, prepende.
+/// (#303 parte 1) Conta \`super(...)\` no nivel top-level do body de um
+/// constructor, sem descer em if/else/loops/blocks. Detect de duplicacao
+/// linear evita o caso degenerate \`super(); super();\`.
+fn count_super_calls_in_top_level(body: &[Statement]) -> usize {
+    use swc_ecma_ast::{Callee, Expr, Stmt};
+    let mut count = 0usize;
+    for stmt in body {
+        let Statement::Raw(raw) = stmt;
+        let Some(s) = raw.stmt.as_ref() else { continue };
+        if let Stmt::Expr(e) = s {
+            if let Expr::Call(c) = e.expr.as_ref() {
+                if matches!(c.callee, Callee::Super(_)) {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
+}
+
 fn weave_initializers(
     user_body: &[Statement],
     init_stmts: &[Statement],

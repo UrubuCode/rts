@@ -639,6 +639,14 @@ fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         .and_then(|m| m.super_class.clone())
         .ok_or_else(|| anyhow!("`super(...)` em classe sem extends"))?;
 
+    // (#303) JS: \`Super constructor may only be called once\`. Detect
+    // estatico via flag aqui ja' produzia falso positivo em branches
+    // \`if/else\` mutualmente exclusivos. Flag agora rastreia mas nao
+    // bloqueia automaticamente — caller de detect com scan AST especifico
+    // deve invalidar o caso linear (super; super no mesmo block).
+    // Nao implementado completamente; placeholder pra fase futura.
+    ctx.super_already_called = true;
+
     let Some(init_owner) = resolve_init_owner(ctx, &parent) else {
         for a in &call.args {
             if a.spread.is_some() {

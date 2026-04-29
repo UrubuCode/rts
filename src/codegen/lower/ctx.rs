@@ -286,6 +286,10 @@ pub struct FnCtx<'m, 'fb> {
     /// True quando a função atual é um constructor de classe
     /// (`__class_C__init`). Usado pra permitir assign em readonly fields.
     pub current_is_ctor: bool,
+    /// (#303) True quando \`super(...)\` ja foi chamado neste constructor.
+    /// JS lanca ReferenceError no segundo super(). Reseta a cada
+    /// constructor lowered.
+    pub super_already_called: bool,
     /// True when lowering top-level statements in `main`.
     pub module_scope: bool,
     /// Declared return type of the surrounding function, used to coerce
@@ -390,6 +394,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             global_class_ty,
             current_class: None,
             current_is_ctor: false,
+            super_already_called: false,
             module_scope,
             return_ty: None,
             in_tail_position: false,
