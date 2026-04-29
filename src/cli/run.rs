@@ -1,5 +1,6 @@
 //! `rts run <input.ts>` — compile + execute via Cranelift JIT.
 
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
@@ -38,14 +39,43 @@ pub fn command(input: Option<String>, options: CompileOptions) -> Result<()> {
 /// TS inline via JIT, sem precisar criar arquivo temp. Uso tipico:
 /// debug rapido de snippet, ou em pipelines/scripts shell.
 ///
+/// (#285) Quando \`source\` e' None e stdin nao e' tty, le de stdin —
+/// permite \`echo \"...\" | rts -e\` e \`cat script.ts | rts -e\`.
+///
 /// Imports relativos (\`./mod\`) nao sao resolvidos — so' builtins
 /// (\`import { io } from \"rts\"\`).
 pub fn eval_command(input: Option<String>, options: CompileOptions) -> Result<()> {
-    let source = input.ok_or_else(|| anyhow!("usage: rts eval \"<source>\" ou rts -e \"<source>\""))?;
+    let source = match input {
+        Some(s) => s,
+        None => {
+            // Tenta ler stdin. Em terminal interativo, isto bloqueia esperando
+            // input — emit usage error em vez de pendurar.
+            if is_stdin_tty() {
+                return Err(anyhow!(
+                    "usage: rts eval \"<source>\" ou rts -e \"<source>\"\n\
+                     (alternativa: 'echo ... | rts -e' para ler de stdin)"
+                ));
+            }
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .context("falha ao ler stdin")?;
+            if buf.trim().is_empty() {
+                return Err(anyhow!("stdin vazio"));
+            }
+            buf
+        }
+    };
+    // Shebang strip e' aplicado no parser (parse_source_with_mode) —
+    // funciona tanto para arquivos via \`rts run\` quanto pra eval/stdin.
     let (exit_code, warnings) = pipeline::run_jit_inline(&source, options)
         .with_context(|| "JIT eval falhou")?;
     for warning in &warnings {
         eprintln!("{warning}");
     }
     std::process::exit(exit_code);
+}
+
+fn is_stdin_tty() -> bool {
+    std::io::stdin().is_terminal()
 }

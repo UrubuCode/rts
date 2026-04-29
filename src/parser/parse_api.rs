@@ -5,8 +5,22 @@ pub fn parse_source(source: &str) -> Result<Program> {
 /// Parse sem arquivo conhecido. Registra um fonte anonimo no `SourceStore`
 /// para que diagnosticos ainda consigam renderizar snippets.
 pub fn parse_source_with_mode(source: &str, mode: FrontendMode) -> Result<Program> {
-    let file = source_store::register_anonymous("eval", source);
-    parse_source_with_file(source, mode, file)
+    let stripped = strip_shebang(source);
+    let file = source_store::register_anonymous("eval", stripped);
+    parse_source_with_file(stripped, mode, file)
+}
+
+/// Remove shebang (\`#!...\`) na primeira linha. (#285) Permite scripts
+/// executaveis com \`#!/usr/bin/env rts\` no topo. Mantem o \\n pra
+/// preservar line numbers nos diagnosticos.
+pub(crate) fn strip_shebang(source: &str) -> &str {
+    if let Some(rest) = source.strip_prefix("#!") {
+        if let Some(nl) = rest.find('\n') {
+            return &source[nl + 2..];
+        }
+        return "";
+    }
+    source
 }
 
 /// Parse com `FileId` conhecido — todos os spans do AST resultante
