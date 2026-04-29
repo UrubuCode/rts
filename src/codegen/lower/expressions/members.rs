@@ -349,6 +349,19 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             let mut field_ty = receiver_class
                 .as_deref()
                 .and_then(|c| field_type_in_hierarchy(ctx, c, key));
+            // (#214) \`(e as Error).message\` ou \`obj_typed_as_Error.message\`:
+            // receiver_class detecta builtin error class e expoe
+            // \`message\`/\`name\` como Handle.
+            if field_ty.is_none() && (key == "message" || key == "name") {
+                if let Some(cls) = receiver_class.as_deref() {
+                    if matches!(
+                        cls,
+                        "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+                    ) {
+                        field_ty = Some(ValTy::Handle);
+                    }
+                }
+            }
             // Fallback: tipo de campo registrado em var local (object literal).
             if field_ty.is_none() {
                 if let Expr::Ident(obj_id) = m.obj.as_ref() {
