@@ -1,5 +1,17 @@
 {
-    "compilerOptions": {
-        "types": ["builtin/rts-types/rts.d.ts"]
-    }
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "typeRoots": ["./rts-types"],
+    "paths": {
+      "rts": ["./rts-types/rts.d.ts"],
+      "rts:*": ["./rts-types/*.d.ts"]
+    },
+    "types": []
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "bench/**/*.ts"]
 }

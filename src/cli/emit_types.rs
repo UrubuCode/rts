@@ -18,14 +18,10 @@ fn resolve_output(arg: Option<String>) -> Result<PathBuf> {
     if let Some(p) = arg {
         return Ok(PathBuf::from(p));
     }
-    // Default: node_modules/.rts/builtin/rts-types/rts.d.ts (per-project cache).
-    // Used by `rts init` and `rts emit-types` without an explicit output path.
+    // Default: rts-types/rts.d.ts at project root.
+    // Gitignored by rts init; regenerate with `rts emit-types`.
     let cwd = std::env::current_dir().context("failed to read current directory")?;
-    let dest = cwd
-        .join("node_modules")
-        .join(".rts")
-        .join("builtin")
-        .join("rts-types");
+    let dest = cwd.join("rts-types");
     std::fs::create_dir_all(&dest)
         .with_context(|| format!("failed to create {}", dest.display()))?;
     Ok(dest.join("rts.d.ts"))

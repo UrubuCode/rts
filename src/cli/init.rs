@@ -43,14 +43,10 @@ pub fn command(project_name_arg: Option<String>) -> Result<()> {
     write_new_file(&project_dir.join("tsconfig.json"), &render_tsconfig())?;
     write_new_file(&project_dir.join(".gitignore"), &render_gitignore())?;
 
-    // Gera os .d.ts em `node_modules/.rts/builtin/rts-types/` para que
-    // o VSCode tenha IntelliSense de primeiro dia. O tsconfig aponta
-    // exatamente para esse diretorio via `typeRoots`.
-    let types_dir = project_dir
-        .join("node_modules")
-        .join(".rts")
-        .join("builtin")
-        .join("rts-types");
+    // Gera rts-types/rts.d.ts na raiz do projeto para IntelliSense.
+    // A pasta e ignorada pelo .gitignore gerado e pode ser regenerada
+    // com `rts emit-types`.
+    let types_dir = project_dir.join("rts-types");
     std::fs::create_dir_all(&types_dir)
         .with_context(|| format!("failed to create {}", types_dir.display()))?;
     emit_rts_dts(&types_dir.join("rts.d.ts"))?;
@@ -192,9 +188,8 @@ fn render_readme(project_name: &str, version: &str) -> String {
     )
 }
 
-/// `tsconfig.json` gerado para o projeto. Aponta o resolver do TypeScript
-/// para os types em `node_modules/.rts/builtin/rts-types/`, que sao
-/// gerados pelo `rts init` e podem ser regenerados com `rts emit-types`.
+/// `tsconfig.json` gerado para o projeto. Aponta para `rts-types/`
+/// na raiz do projeto, gerado por `rts init` e regeneravel com `rts emit-types`.
 fn render_tsconfig() -> String {
     // Formato simples — um unico `typeRoots` + `paths` para permitir
     // `import { io } from "rts"` e `import * as fs from "rts:fs"`.
@@ -206,10 +201,10 @@ fn render_tsconfig() -> String {
     "strict": true,
     "skipLibCheck": true,
     "baseUrl": ".",
-    "typeRoots": ["./node_modules/.rts/builtin/rts-types"],
+    "typeRoots": ["./rts-types"],
     "paths": {
-      "rts": ["./node_modules/.rts/builtin/rts-types/rts.d.ts"],
-      "rts:*": ["./node_modules/.rts/builtin/rts-types/*.d.ts"]
+      "rts": ["./rts-types/rts.d.ts"],
+      "rts:*": ["./rts-types/*.d.ts"]
     },
     "types": []
   },
@@ -225,6 +220,7 @@ fn render_gitignore() -> String {
     r#"# RTS caches
 node_modules/
 target/
+rts-types/
 
 # Compiled binaries (rts compile default output path is project root)
 *.exe

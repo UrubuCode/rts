@@ -41,4 +41,4 @@ debug_*
 /.tmp-types-check
 
 # rts-types — gerado por rts emit-types, nao versionar
-builtin/rts-types/
+rts-types/
