@@ -4296,6 +4296,12 @@ pub fn compile_program(
     // registrada. Permite funcoes top-level acessarem globais como
     // instancias e participarem de overload.
     let mut global_class_ty: HashMap<String, String> = HashMap::new();
+    // (#330) global_obj_field_types — populado a partir de globais que
+    // sao object literals (incluindo enum string desugar). Compartilhado
+    // entre fns user pra que \`E.Member\` retorne o ValTy correto (Handle
+    // pra string enum, Bool, etc) em vez de I64 anonimo.
+    let mut global_obj_field_types: HashMap<String, HashMap<String, ValTy>> =
+        HashMap::new();
     for item in &program.items {
         let Item::Statement(Statement::Raw(raw)) = item else {
             continue;
@@ -4324,9 +4330,43 @@ pub fn compile_program(
                         if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
                             let cn = cid.sym.as_str();
                             if classes.contains_key(cn) {
-                                global_class_ty.insert(name, cn.to_string());
+                                global_class_ty.insert(name.clone(), cn.to_string());
                             }
                         }
+                    }
+                }
+            }
+            // (#330) Object literal init -> coleta field types pra compartilhar.
+            if let Some(init) = d.init.as_ref() {
+                if let swc_ecma_ast::Expr::Object(obj) = init.as_ref() {
+                    let mut fts: HashMap<String, ValTy> = HashMap::new();
+                    for prop in &obj.props {
+                        if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                            if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                                let key = match &kv.key {
+                                    swc_ecma_ast::PropName::Ident(i) => i.sym.as_str().to_string(),
+                                    swc_ecma_ast::PropName::Str(s) => {
+                                        s.value.to_string_lossy().to_string()
+                                    }
+                                    _ => continue,
+                                };
+                                match kv.value.as_ref() {
+                                    swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) => {
+                                        fts.insert(key, ValTy::Handle);
+                                    }
+                                    swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(_)) => {
+                                        fts.insert(key, ValTy::I64);
+                                    }
+                                    swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => {
+                                        fts.insert(key, ValTy::Bool);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    if !fts.is_empty() {
+                        global_obj_field_types.insert(name, fts);
                     }
                 }
             }
@@ -4351,6 +4391,7 @@ pub fn compile_program(
             &user_fn_abis,
             &classes,
             &global_class_ty,
+            &global_obj_field_types,
             &fn_class_returns,
             &node_import_map,
             fn_decl,
@@ -4395,6 +4436,7 @@ pub fn compile_program(
         &user_fn_abis,
         &classes,
         &global_class_ty,
+        &global_obj_field_types,
         &fn_class_returns,
         &node_import_map,
         &top_stmts,
@@ -5252,6 +5294,7 @@ fn compile_user_fn(
     user_fns: &HashMap<String, UserFnAbi>,
     classes: &HashMap<String, ClassMeta>,
     global_class_ty: &HashMap<String, String>,
+    global_obj_field_types: &HashMap<String, HashMap<String, ValTy>>,
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
     fn_decl: &FunctionDecl,
@@ -5295,6 +5338,7 @@ fn compile_user_fn(
             user_fns,
             classes,
             global_class_ty,
+            global_obj_field_types,
             fn_class_returns,
             node_import_map,
             false,
@@ -5442,6 +5486,7 @@ fn compile_main(
     user_fns: &HashMap<String, UserFnAbi>,
     classes: &HashMap<String, ClassMeta>,
     global_class_ty: &HashMap<String, String>,
+    global_obj_field_types: &HashMap<String, HashMap<String, ValTy>>,
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
     stmts: &[&Stmt],
@@ -5473,6 +5518,7 @@ fn compile_main(
             user_fns,
             classes,
             global_class_ty,
+            global_obj_field_types,
             fn_class_returns,
             node_import_map,
             true,

@@ -280,6 +280,11 @@ pub struct FnCtx<'m, 'fb> {
     /// entre todos os FnCtx — permite dispatch de overload em funcoes
     /// top-level que referenciam `const a: V = new V(...)` global.
     pub global_class_ty: &'fb HashMap<String, String>,
+    /// (#330) Tipos de fields de globais object-literal (ex: enum string
+    /// \`enum E { A = \"a\" }\` desugara em \`const E = {A:\"a\"}\`. Sem isso,
+    /// fn user fazendo \`E.A\` retornava I64 anonimo, e \`x == E.A\` comparava
+    /// como int em vez de string.
+    pub global_obj_field_types: &'fb HashMap<String, HashMap<String, ValTy>>,
     /// Nome da classe atualmente sendo lowered (quando dentro de um
     /// metodo ou constructor). Usado para resolver `super`.
     pub current_class: Option<String>,
@@ -379,6 +384,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         user_fns: &'fb HashMap<String, UserFnAbi>,
         classes: &'fb HashMap<String, ClassMeta>,
         global_class_ty: &'fb HashMap<String, String>,
+        global_obj_field_types: &'fb HashMap<String, HashMap<String, ValTy>>,
         fn_class_returns: &'fb HashMap<String, String>,
         node_import_map: &'fb HashMap<String, String>,
         module_scope: bool,
@@ -397,6 +403,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             local_array_class_ty: HashMap::new(),
             local_obj_field_types: HashMap::new(),
             global_class_ty,
+            global_obj_field_types,
             current_class: None,
             current_is_ctor: false,
             super_already_called: false,
