@@ -192,6 +192,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    NamespaceMember {
+        name: "vec_join",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
+        args: &[AbiType::U64, AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.",
+        ts_signature: "vec_join(h: number, sep: number): number",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {

@@ -1440,6 +1440,10 @@ declare module "rts" {
      * Removes all elements.
      */
     export function vec_clear(h: number): void;
+    /**
+     * Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.
+     */
+    export function vec_join(h: number, sep: number): number;
   }
 
   /**
@@ -3833,6 +3837,10 @@ declare module "rts:collections" {
    * Removes all elements.
    */
   export function vec_clear(h: number): void;
+  /**
+   * Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.
+   */
+  export function vec_join(h: number, sep: number): number;
   const _default: {
     map_new: (typeof import("rts"))["collections"]["map_new"];
     map_free: (typeof import("rts"))["collections"]["map_free"];
@@ -3851,6 +3859,7 @@ declare module "rts:collections" {
     vec_get: (typeof import("rts"))["collections"]["vec_get"];
     vec_set: (typeof import("rts"))["collections"]["vec_set"];
     vec_clear: (typeof import("rts"))["collections"]["vec_clear"];
+    vec_join: (typeof import("rts"))["collections"]["vec_join"];
   };
   export default _default;
 }

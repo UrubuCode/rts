@@ -1601,6 +1601,27 @@ fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
+        "join" => {
+            // arr.join(sep): converte sep para string handle, chama runtime.
+            let sep_h = if let Some(arg) = call.args.first() {
+                if arg.spread.is_some() {
+                    return Ok(None);
+                }
+                let tv = lower_expr(ctx, &arg.expr)?;
+                ctx.coerce_to_handle(tv)?.val
+            } else {
+                // Default JS: separador "," sem argumento.
+                ctx.emit_str_handle(b",")?.val
+            };
+            let join_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(join_fn, &[obj_h, sep_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+        }
         "clear" => {
             let fref =
                 ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", &[cl::I64], None)?;

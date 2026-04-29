@@ -4803,6 +4803,13 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
         // isso o global eh declarado como I64 e member calls em
         // receiver Handle nao disparam.
         Expr::New(_) => ValTy::Handle,
+        // Array literal `[...]` aloca Vec via collections.vec_new e armazena
+        // o handle. Sem isso `let arr: T[] = []` em top-level vira I64 e
+        // `.length`/`.push` no codegen nao reconhecem como Handle (caem em
+        // map_get nominal — o que segfauta ou retorna lixo).
+        Expr::Array(_) => ValTy::Handle,
+        // Object literal `{ ... }` idem — aloca Map via collections.map_new.
+        Expr::Object(_) => ValTy::Handle,
         _ => ValTy::I64,
     }
 }

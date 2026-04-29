@@ -622,6 +622,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_VEC_CLEAR",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_CLEAR
         );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_JOIN
+        );
     }
 
     // ── namespaces::os ────────────────────────────────────────────────
