@@ -48,6 +48,14 @@ impl ValTy {
             "string" | "str" => return ValTy::Handle,
             _ => {}
         }
+        // \`Promise<X>\` (resultado tipico de async fn): RTS nao tem
+        // Promise propria — async vira sync stripped, entao o tipo
+        // efetivo eh X. Cobre \`Promise<string>\`, \`Promise<number>\`, etc.
+        if let Some(rest) = trimmed.strip_prefix("Promise<") {
+            if let Some(inner) = rest.strip_suffix('>') {
+                return ValTy::from_annotation(inner);
+            }
+        }
         // Union types raw da source: tenta resolver para um tipo unico
         // se todos os ramos sao do mesmo. Usa parsing textual simples.
         if trimmed.contains('|') {
