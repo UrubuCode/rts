@@ -42,3 +42,6 @@ debug_*
 
 # rts-types — gerado por rts emit-types, nao versionar
 rts-types/
+
+# Regras locais do desenvolvedor — pessoal, nao versionar
+local-rules.md

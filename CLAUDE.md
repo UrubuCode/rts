@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Regras locais do desenvolvedor
+
+Antes de iniciar qualquer tarefa, verifique se existe um arquivo `local-rules.md` na raiz do projeto. Se existir, leia-o e trate seu conteúdo como regras adicionais definidas pelo desenvolvedor que está trabalhando nesta cópia local. Essas regras têm prioridade sobre preferências genéricas e devem ser respeitadas durante toda a sessão.
+
+O arquivo `local-rules.md` é pessoal de cada desenvolvedor e **não deve ser versionado** (já está no `.gitignore`).
+
 ## Projeto
 
 RTS e um compilador/runtime TypeScript-to-native usando Cranelift como backend de codegen.
