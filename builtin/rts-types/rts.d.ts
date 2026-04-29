@@ -110,6 +110,18 @@ declare module "rts" {
      * Libera o env record. Retorna 1 em sucesso, 0 se handle já inválido.
      */
     export function env_free(env: number): number;
+    /**
+     * Mark+sweep: marca `root` e tudo que ele alcanca via Map/Vec/Instance/Env, libera o restante. Retorna numero de slots liberados. Passe 0 pra liberar tudo.
+     */
+    export function collect(root: number): number;
+    /**
+     * Mark+sweep com multiplos roots num Vec<i64>. Cada elemento e' tratado como handle a preservar. Retorna numero de slots liberados.
+     */
+    export function collect_vec(roots: number): number;
+    /**
+     * Numero total de handles vivos (nao-Free) em todos os shards. Util pra benchmarks/testes de coleta.
+     */
+    export function live_count(): number;
   }
 
   /**
@@ -2118,6 +2130,18 @@ declare module "rts:gc" {
    * Libera o env record. Retorna 1 em sucesso, 0 se handle já inválido.
    */
   export function env_free(env: number): number;
+  /**
+   * Mark+sweep: marca `root` e tudo que ele alcanca via Map/Vec/Instance/Env, libera o restante. Retorna numero de slots liberados. Passe 0 pra liberar tudo.
+   */
+  export function collect(root: number): number;
+  /**
+   * Mark+sweep com multiplos roots num Vec<i64>. Cada elemento e' tratado como handle a preservar. Retorna numero de slots liberados.
+   */
+  export function collect_vec(roots: number): number;
+  /**
+   * Numero total de handles vivos (nao-Free) em todos os shards. Util pra benchmarks/testes de coleta.
+   */
+  export function live_count(): number;
   const _default: {
     string_from_i64: (typeof import("rts"))["gc"]["string_from_i64"];
     string_from_f64: (typeof import("rts"))["gc"]["string_from_f64"];
@@ -2142,6 +2166,9 @@ declare module "rts:gc" {
     instance_load_f64: (typeof import("rts"))["gc"]["instance_load_f64"];
     instance_store_f64: (typeof import("rts"))["gc"]["instance_store_f64"];
     env_free: (typeof import("rts"))["gc"]["env_free"];
+    collect: (typeof import("rts"))["gc"]["collect"];
+    collect_vec: (typeof import("rts"))["gc"]["collect_vec"];
+    live_count: (typeof import("rts"))["gc"]["live_count"];
   };
   export default _default;
 }

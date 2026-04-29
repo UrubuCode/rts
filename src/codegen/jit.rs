@@ -167,6 +167,12 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         __RTS_FN_NS_GC_INSTANCE_STORE_F64
     );
 
+    // ── gc collector (mark+sweep manual) ──────────────────────────────
+    use crate::namespaces::gc::collector::*;
+    add_fn!("__RTS_FN_NS_GC_COLLECT", __RTS_FN_NS_GC_COLLECT);
+    add_fn!("__RTS_FN_NS_GC_COLLECT_VEC", __RTS_FN_NS_GC_COLLECT_VEC);
+    add_fn!("__RTS_FN_NS_GC_LIVE_COUNT", __RTS_FN_NS_GC_LIVE_COUNT);
+
     // ── namespaces::io ────────────────────────────────────────────────
     use crate::namespaces::io::print::*;
     use crate::namespaces::io::stderr::*;

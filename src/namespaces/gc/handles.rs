@@ -203,6 +203,25 @@ impl HandleTable {
         }
         Some(&mut slot.entry)
     }
+
+    /// Retorna handles de todos os slots vivos deste shard. Caller
+    /// passa o `shard_idx` (que e' constante para o shard inteiro)
+    /// pra reconstruir os handles. Usado pelo collector no sweep.
+    pub fn live_handles_snapshot(&self, shard_idx: usize) -> Vec<u64> {
+        let mut out = Vec::with_capacity(self.slots.len());
+        for (idx, slot) in self.slots.iter().enumerate() {
+            if matches!(slot.entry, Entry::Free) {
+                continue;
+            }
+            out.push(encode(slot.generation, shard_idx, idx as u32));
+        }
+        out
+    }
+
+    /// Conta handles vivos (nao-Free) neste shard.
+    pub fn live_handle_count(&self) -> usize {
+        self.slots.iter().filter(|s| !matches!(s.entry, Entry::Free)).count()
+    }
 }
 
 /// Encodes generation + shard_idx + per-shard table_slot into a u64 handle.
@@ -225,7 +244,7 @@ pub fn decode(handle: u64) -> Option<(u16, usize, u32)> {
 
 // ── Sharded table ────────────────────────────────────────────────────────────
 
-fn shards() -> &'static [Mutex<HandleTable>; N_SHARDS] {
+pub(crate) fn shards() -> &'static [Mutex<HandleTable>; N_SHARDS] {
     static SHARDS: OnceLock<[Mutex<HandleTable>; N_SHARDS]> = OnceLock::new();
     SHARDS.get_or_init(|| std::array::from_fn(|_| Mutex::new(HandleTable::default())))
 }
