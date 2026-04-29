@@ -117,9 +117,21 @@ pub enum Entry {
     /// can be held independently of the shard lock. The concrete type is
     /// `globals::events::instance::EmitterData`; downcast at access sites.
     EventEmitter(std::sync::Arc<std::sync::Mutex<dyn std::any::Any + Send>>),
+    /// EventEmitter primitivo do namespace `events` (rts:events). Armazena
+    /// listeners por nome de evento como function pointers (i64 raw).
+    /// Distinto do `EventEmitter` global acima — coexistem.
+    RtsEventsEmitter(Box<RtsEventsEmitter>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
+}
+
+/// Storage para `Entry::RtsEventsEmitter`. Listeners agrupados por nome
+/// de evento; cada listener é um endereço de função (`func_addr` raw),
+/// chamado via transmute → `extern "C" fn`.
+#[derive(Debug, Default)]
+pub struct RtsEventsEmitter {
+    pub listeners: std::collections::HashMap<String, Vec<u64>>,
 }
 
 /// UDP socket + ultimo peer observado em recv. Box estabiliza o

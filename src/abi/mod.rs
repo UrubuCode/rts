@@ -91,6 +91,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     // Codegen routes JSON.parse() / console.log() through these specs.
     &crate::namespaces::globals::json::abi::SPEC,
     &crate::namespaces::globals::console::abi::SPEC,
+    &crate::namespaces::events::abi::SPEC,
 ];
 
 /// Locates a member by its fully qualified name (e.g. `"io.print"`).
