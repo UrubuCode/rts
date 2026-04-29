@@ -45,7 +45,14 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
     // principal). Em hot loops com FP arith isso era visivel no IR.
     if !matches!(
         bin.op,
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod
+        BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Mod
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
     ) {
         return Ok(None);
     }
@@ -96,6 +103,40 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
         if let Some(opt) = div_imm_peephole(ctx, &lhs, imm) {
             return Ok(Some(opt));
         }
+    }
+    // Identidades aritmeticas com 0: x + 0 = x, x - 0 = x.
+    // Cranelift egraph deveria pegar mas observado no IR mostra
+    // \`iadd v, 0\` permanecendo. Documenta no IR e poupa um
+    // ciclo opcional.
+    if lhs_is_int && imm == 0 {
+        match bin.op {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::BitOr | BinaryOp::BitXor => {
+                return Ok(Some(lhs));
+            }
+            BinaryOp::BitAnd => {
+                // x & 0 = 0
+                let zero = match lhs.ty {
+                    ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+                    _ => ctx.builder.ins().iconst(cl::I64, 0),
+                };
+                let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
+                return Ok(Some(TypedVal::new(zero, ty)));
+            }
+            _ => {}
+        }
+    }
+    // x & -1 = x, x | -1 = -1, x ^ -1 = ~x. Pulamos esses por agora —
+    // raros em codigo idiomatico, e Cranelift tem peephole pra bnot.
+
+    // Para BitAnd/BitOr/BitXor com imm != 0 caem no fluxo principal
+    // (criam imm_tv e chamam lower_bin original via match abaixo).
+    // Mas o match abaixo so trata Add/Sub/Mul/Div/Mod — se chegou
+    // BitOp aqui, retorna None pra deixar o caller fazer.
+    if matches!(
+        bin.op,
+        BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor
+    ) {
+        return Ok(None);
     }
 
     let imm_tv = if matches!(lhs.ty, ValTy::I32) {
