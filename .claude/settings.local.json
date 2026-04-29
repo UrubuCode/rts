@@ -130,7 +130,8 @@
       "Bash(RTS_STACK_LIMIT=5 ./target/debug/rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } try { recurse\\(0\\); } catch\\(e\\) { io.print\\(\"caught overflow\"\\); }')",
       "Bash(./target/debug/rts.exe -e 'import { io } from \"rts\"; function fib\\(n: i64\\): i64 { if \\(n <= 1\\) return n; return fib\\(n-1\\) + fib\\(n-2\\); } io.print\\(fib\\(10\\)\\);')",
       "Bash(./target/debug/rts.exe -e 'import { io } from \"rts\"; function count\\(n: i64\\): i64 { if \\(n <= 0\\) return 0; return count\\(n - 1\\) + 1; } let r: i64 = count\\(50\\); if \\(r == 50\\) { io.print\\(\"ok 50\"\\); }')",
-      "Bash(RTS_STACK_LIMIT=10 ./target/debug/rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } recurse\\(0\\);')"
+      "Bash(RTS_STACK_LIMIT=10 ./target/debug/rts.exe -e 'import { io } from \"rts\"; function recurse\\(n: i64\\): i64 { return recurse\\(n + 1\\); } recurse\\(0\\);')",
+      "PowerShell($env:RTS_DUMP_IR=\"1\"; & target/release/rts.exe -e 'function dyn\\(x: number\\): string { const y = x; return `${100/y}`; } import { io } from \"rts\"; io.print\\(dyn\\(4\\)\\);' 2>&1 | Select-Object -First 50)"
     ]
   }
 }
