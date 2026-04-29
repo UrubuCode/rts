@@ -1847,6 +1847,29 @@ fn expand_destruct_decl(
             }
             for (idx, elem) in arr.elems.iter().enumerate() {
                 let Some(e) = elem else { continue }; // hole — pula
+
+                // Rest element: copia tudo a partir de idx para um novo
+                // array. Sem default ou nesting interno (caso atipico).
+                if let Pat::Rest(rest_pat) = e {
+                    let rest_name = match rest_pat.arg.as_ref() {
+                        Pat::Ident(b) => b.id.sym.to_string(),
+                        _ => continue,
+                    };
+                    push_array_rest_decl(&tmp_name, &rest_name, idx, kind, out);
+                    break; // rest precisa ser ultimo
+                }
+
+                // Default em array: \`[a = 5]\` — Pat::Assign.
+                if let Pat::Assign(ap) = e {
+                    let access = make_index_access_with_default(
+                        &tmp_name,
+                        idx as f64,
+                        ap.right.as_ref(),
+                    );
+                    expand_destruct_decl(ap.left.as_ref(), Some(&access), kind, counter, out);
+                    continue;
+                }
+
                 // const elem_name = __destruct_N[idx];
                 let access = make_index_access(&tmp_name, idx as f64);
                 expand_destruct_decl(&e, Some(&access), kind, counter, out);
@@ -1863,13 +1886,15 @@ fn expand_destruct_decl(
                     swc_ecma_ast::ObjectPatProp::Assign(ap) => {
                         // \`{ x }\` ou \`{ x = default }\`
                         let key = ap.key.id.sym.as_str();
-                        let access = make_member_access(&tmp_name, key);
                         let inner_pat = Pat::Ident(swc_ecma_ast::BindingIdent {
                             id: ap.key.id.clone(),
                             type_ann: None,
                         });
-                        // Default em destructuring ainda não suportado;
-                        // o init do AssignPatProp é ignorado neste MVP.
+                        let access = if let Some(default) = ap.value.as_ref() {
+                            make_member_access_with_default(&tmp_name, key, default.as_ref())
+                        } else {
+                            make_member_access(&tmp_name, key)
+                        };
                         expand_destruct_decl(&inner_pat, Some(&access), kind, counter, out);
                     }
                     swc_ecma_ast::ObjectPatProp::KeyValue(kvp) => {
@@ -1957,6 +1982,160 @@ fn make_member_access(obj_name: &str, key: &str) -> Expr {
             sym: key.into(),
         }),
     })
+}
+
+/// `<obj>[<idx>] ?? <default>` como Expr.
+/// Em destructuring com default, queremos: se o slot eh nullish/missing,
+/// usa default. Em RTS isso tambem dispara em valor 0 — JS distingue mas
+/// custaria adicionar IR proprio so pra isso. Boa aproximacao pra MVP.
+fn make_index_access_with_default(obj_name: &str, idx: f64, default: &Expr) -> Expr {
+    let access = make_index_access(obj_name, idx);
+    Expr::Bin(swc_ecma_ast::BinExpr {
+        span: Default::default(),
+        op: swc_ecma_ast::BinaryOp::NullishCoalescing,
+        left: Box::new(access),
+        right: Box::new(default.clone()),
+    })
+}
+
+/// `<obj>.<key> ?? <default>` como Expr.
+fn make_member_access_with_default(obj_name: &str, key: &str, default: &Expr) -> Expr {
+    let access = make_member_access(obj_name, key);
+    Expr::Bin(swc_ecma_ast::BinExpr {
+        span: Default::default(),
+        op: swc_ecma_ast::BinaryOp::NullishCoalescing,
+        left: Box::new(access),
+        right: Box::new(default.clone()),
+    })
+}
+
+/// Empurra em \`out\`:
+///   \`const <rest_name> = [];\`
+///   \`for (let __i = <start_idx>; __i < <obj>.length; __i++) <rest_name>.push(<obj>[__i]);\`
+fn push_array_rest_decl(
+    obj_name: &str,
+    rest_name: &str,
+    start_idx: usize,
+    kind: swc_ecma_ast::VarDeclKind,
+    out: &mut Vec<Statement>,
+) {
+    use swc_ecma_ast::{
+        AssignOp, BinaryOp, BlockStmt, ForStmt, Ident, MemberExpr, Stmt, UpdateExpr, UpdateOp,
+        VarDecl, VarDeclKind, VarDeclOrExpr, VarDeclarator,
+    };
+
+    let counter_name = format!("__rest_i_{}", obj_name);
+
+    fn ident(name: &str) -> Ident {
+        Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: name.into(),
+            optional: false,
+        }
+    }
+
+    let arr_init = Expr::Array(swc_ecma_ast::ArrayLit {
+        span: Default::default(),
+        elems: vec![],
+    });
+
+    // const <rest_name> = [];
+    let rest_decl_stmt = make_const_decl(rest_name, arr_init, kind);
+
+    // for (let __rest_i = start_idx; __rest_i < obj.length; __rest_i++)
+    //   <rest_name>.push(obj[__rest_i]);
+    let init = VarDeclOrExpr::VarDecl(Box::new(VarDecl {
+        span: Default::default(),
+        ctxt: Default::default(),
+        kind: VarDeclKind::Let,
+        declare: false,
+        decls: vec![VarDeclarator {
+            span: Default::default(),
+            name: Pat::Ident(swc_ecma_ast::BindingIdent {
+                id: ident(&counter_name),
+                type_ann: None,
+            }),
+            init: Some(Box::new(Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                span: Default::default(),
+                value: start_idx as f64,
+                raw: Some(format!("{}", start_idx).into()),
+            })))),
+            definite: false,
+        }],
+    }));
+
+    let length_access = Expr::Member(MemberExpr {
+        span: Default::default(),
+        obj: Box::new(Expr::Ident(ident(obj_name))),
+        prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+            span: Default::default(),
+            sym: "length".into(),
+        }),
+    });
+
+    let test = Expr::Bin(swc_ecma_ast::BinExpr {
+        span: Default::default(),
+        op: BinaryOp::Lt,
+        left: Box::new(Expr::Ident(ident(&counter_name))),
+        right: Box::new(length_access),
+    });
+
+    let update = Expr::Update(UpdateExpr {
+        span: Default::default(),
+        op: UpdateOp::PlusPlus,
+        prefix: false,
+        arg: Box::new(Expr::Ident(ident(&counter_name))),
+    });
+
+    // <rest_name>.push(<obj>[<counter>])
+    let push_call = Expr::Call(swc_ecma_ast::CallExpr {
+        span: Default::default(),
+        ctxt: Default::default(),
+        callee: swc_ecma_ast::Callee::Expr(Box::new(Expr::Member(MemberExpr {
+            span: Default::default(),
+            obj: Box::new(Expr::Ident(ident(rest_name))),
+            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                span: Default::default(),
+                sym: "push".into(),
+            }),
+        }))),
+        args: vec![swc_ecma_ast::ExprOrSpread {
+            spread: None,
+            expr: Box::new(Expr::Member(MemberExpr {
+                span: Default::default(),
+                obj: Box::new(Expr::Ident(ident(obj_name))),
+                prop: MemberProp::Computed(swc_ecma_ast::ComputedPropName {
+                    span: Default::default(),
+                    expr: Box::new(Expr::Ident(ident(&counter_name))),
+                }),
+            })),
+        }],
+        type_args: None,
+    });
+
+    let body_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+        span: Default::default(),
+        expr: Box::new(push_call),
+    });
+
+    let for_stmt = Stmt::For(ForStmt {
+        span: Default::default(),
+        init: Some(init),
+        test: Some(Box::new(test)),
+        update: Some(Box::new(update)),
+        body: Box::new(Stmt::Block(BlockStmt {
+            span: Default::default(),
+            ctxt: Default::default(),
+            stmts: vec![body_stmt],
+        })),
+    });
+
+    let _ = AssignOp::Assign;
+    out.push(rest_decl_stmt);
+    out.push(Statement::Raw(
+        RawStmt::new("<destruct-rest-loop>".to_string(), Span::default()).with_stmt(for_stmt),
+    ));
 }
 
 fn expand_default_args(program: &mut Program) {
