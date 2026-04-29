@@ -94,8 +94,22 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                 if let swc_ecma_ast::Expr::New(ne) = init.as_ref() {
                     if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
                         let cn = cid.sym.as_str().to_string();
+                        // (#214) Error builtin classes: registra field
+                        // types pra que \`e.message\`/\`e.name\` retorne
+                        // Handle em vez de I64 anonimo.
+                        let is_error_class = matches!(
+                            cn.as_str(),
+                            "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+                        );
                         if ctx.classes.contains_key(&cn) {
-                            ctx.local_class_ty.insert(name.clone(), cn);
+                            ctx.local_class_ty.insert(name.clone(), cn.clone());
+                        }
+                        if is_error_class {
+                            let mut ft: std::collections::HashMap<String, ValTy> =
+                                std::collections::HashMap::new();
+                            ft.insert("message".into(), ValTy::Handle);
+                            ft.insert("name".into(), ValTy::Handle);
+                            ctx.local_obj_field_types.insert(name.clone(), ft);
                         }
                     }
                 }

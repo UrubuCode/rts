@@ -631,6 +631,54 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         }
     }
 
+    // (#214) Error / TypeError / RangeError / ReferenceError / SyntaxError —
+    // builtin error classes JS. Implementados como Map handle com keys
+    // \`message\` (string) e \`name\` (string). Permite \`throw new Error(\"x\")\`,
+    // \`(e as Error).message\`, comparacoes etc.
+    let is_error_class = matches!(
+        class_name.as_str(),
+        "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+    );
+    if is_error_class && !ctx.classes.contains_key(&class_name) {
+        let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(new_fn, &[]);
+        let h = ctx.builder.inst_results(inst)[0];
+
+        let set_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+            &[cl::I64, cl::I64, cl::I64, cl::I64],
+            None,
+        )?;
+
+        // Set name = "Error" / "TypeError" / etc.
+        let (name_kp, name_kl) = ctx.emit_str_literal(b"name")?;
+        let (cls_ptr, cls_len) = ctx.emit_str_literal(class_name.as_bytes())?;
+        let from_static = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_FROM_STATIC",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(from_static, &[cls_ptr, cls_len]);
+        let name_handle = ctx.builder.inst_results(inst)[0];
+        ctx.builder.ins().call(set_fn, &[h, name_kp, name_kl, name_handle]);
+
+        // Set message = primeiro argumento (string) ou "" se sem args.
+        let msg_handle = if let Some(arg) = new_expr.args.as_ref().and_then(|args| args.first()) {
+            if arg.spread.is_none() {
+                let tv = super::lower_expr(ctx, &arg.expr)?;
+                ctx.coerce_to_handle(tv)?.val
+            } else {
+                ctx.emit_str_handle(b"")?.val
+            }
+        } else {
+            ctx.emit_str_handle(b"")?.val
+        };
+        let (msg_kp, msg_kl) = ctx.emit_str_literal(b"message")?;
+        ctx.builder.ins().call(set_fn, &[h, msg_kp, msg_kl, msg_handle]);
+
+        return Ok(TypedVal::new(h, ValTy::Handle));
+    }
+
     let meta = ctx
         .classes
         .get(&class_name)

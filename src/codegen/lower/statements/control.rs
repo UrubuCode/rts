@@ -569,8 +569,19 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
                 if class_for_catch.is_none() {
                     let inferred = infer_throw_class(&t.block.stmts);
                     if let Some(cls) = inferred {
+                        let is_error_class = matches!(
+                            cls.as_str(),
+                            "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+                        );
                         if ctx.classes.contains_key(&cls) {
-                            class_for_catch = Some(cls);
+                            class_for_catch = Some(cls.clone());
+                        }
+                        if is_error_class {
+                            let mut ft: std::collections::HashMap<String, ValTy> =
+                                std::collections::HashMap::new();
+                            ft.insert("message".into(), ValTy::Handle);
+                            ft.insert("name".into(), ValTy::Handle);
+                            ctx.local_obj_field_types.insert(name.to_string(), ft);
                         }
                     }
                 }
