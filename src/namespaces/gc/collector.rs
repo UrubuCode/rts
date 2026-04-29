@@ -164,3 +164,48 @@ pub extern "C" fn __RTS_FN_NS_GC_LIVE_COUNT() -> i64 {
     }
     total
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::handles::{Entry, alloc_entry};
+    use std::sync::Mutex;
+
+    // Serializa os tests do collector — a HandleTable e' global e cada
+    // teste sweepa tudo, entao sem mutex eles brigam.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn collect_with_root_preserves_root() {
+        let _g = SERIAL.lock().unwrap();
+        let h = alloc_entry(Entry::String(b"keep".to_vec()));
+        collect(&[h]);
+        let shard = super::super::handles::shard_for_handle(h);
+        let table = shard.lock().unwrap();
+        assert!(matches!(table.get(h), Some(Entry::String(_))));
+    }
+
+    #[test]
+    fn collect_without_root_frees_entry() {
+        let _g = SERIAL.lock().unwrap();
+        let h = alloc_entry(Entry::String(b"drop".to_vec()));
+        collect(&[]);
+        let shard = super::super::handles::shard_for_handle(h);
+        let table = shard.lock().unwrap();
+        assert!(table.get(h).is_none());
+    }
+
+    #[test]
+    fn collect_traces_vec_elements() {
+        let _g = SERIAL.lock().unwrap();
+        let inner = alloc_entry(Entry::String(b"reachable".to_vec()));
+        let vec_h = alloc_entry(Entry::Vec(Box::new(vec![inner as i64])));
+        collect(&[vec_h]);
+        let shard = super::super::handles::shard_for_handle(inner);
+        let table = shard.lock().unwrap();
+        assert!(
+            matches!(table.get(inner), Some(Entry::String(_))),
+            "inner string deveria ser preservado via trace do Vec"
+        );
+    }
+}
