@@ -168,6 +168,105 @@ fn raw_statement(
     Some(Statement::Raw(raw))
 }
 
+/// True quando o pattern faz destructuring (object/array), incluindo
+/// quando vem embrulhado em `Pat::Assign` (parametro com default).
+fn is_destructure_pat(pat: &Pat) -> bool {
+    match pat {
+        Pat::Object(_) | Pat::Array(_) => true,
+        Pat::Assign(assign) => is_destructure_pat(&assign.left),
+        _ => false,
+    }
+}
+
+/// Nome sintetico do parametro destructured no slot `index`.
+fn synth_destructure_param_name(index: usize) -> String {
+    format!("__rts_param_destruct_{}", index)
+}
+
+/// Parseia um statement sintetico (`const {a,b} = src;`) usando o
+/// parser SWC TS. Retorna `None` se o snippet falhar ao parsear — caller
+/// loga e segue (o codegen exibira erro de var indefinida no body).
+fn parse_synthetic_stmt(text: &str) -> Option<Stmt> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(
+        Lrc::new(FileName::Custom("rts-synth.ts".into())),
+        text.to_string(),
+    );
+    let lexer = Lexer::new(
+        Syntax::Typescript(TsSyntax::default()),
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+    let mut parser = Parser::new_from(lexer);
+    let program = parser.parse_program().ok()?;
+    match program {
+        SwcProgram::Module(m) => m.body.into_iter().find_map(|item| match item {
+            ModuleItem::Stmt(stmt) => Some(stmt),
+            _ => None,
+        }),
+        SwcProgram::Script(s) => s.body.into_iter().next(),
+    }
+}
+
+/// Para uma lista de parametros SWC, retorna a lista lowered de
+/// `Parameter` (com nomes sinteticos quando o pattern usa destructuring)
+/// e a lista de statements de prologo a serem prepended ao body da fn.
+///
+/// `let { a, b } = __rts_param_destruct_0;` — reusa o pipeline de
+/// destructuring de `let/const` que ja existe em `expand_destruct_decl`
+/// (codegen).
+fn lower_params_with_destructure(
+    cm: &Lrc<SourceMap>,
+    params: &[SwcParam],
+) -> (Vec<Parameter>, Vec<Statement>) {
+    let mut lowered = Vec::with_capacity(params.len());
+    let mut prologue: Vec<Statement> = Vec::new();
+    for (i, param) in params.iter().enumerate() {
+        let needs_destructure = is_destructure_pat(&param.pat);
+        if needs_destructure {
+            // Pattern original (pode estar dentro de Pat::Assign quando ha default).
+            let (pat_for_text, default_text) = match &param.pat {
+                Pat::Assign(assign) => (
+                    &*assign.left,
+                    span_snippet(cm, assign.right.span()),
+                ),
+                _ => (&param.pat, None),
+            };
+            let pat_text = match span_snippet(cm, pat_for_text.span()) {
+                Some(t) => t,
+                None => continue,
+            };
+            let synth_name = synth_destructure_param_name(i);
+            // Prologo: const <pat> = <synth>; — ?? <default> quando aplicavel.
+            let init_expr = match &default_text {
+                Some(d) => format!("({} ?? {})", synth_name, d),
+                None => synth_name.clone(),
+            };
+            let snippet = format!("const {} = {};", pat_text.trim(), init_expr);
+            if let Some(stmt) = parse_synthetic_stmt(&snippet) {
+                let span = convert_span(cm, param.span);
+                let mut raw = RawStmt::new(snippet, span);
+                raw = raw.with_stmt(stmt);
+                prologue.push(Statement::Raw(raw));
+            }
+            // Parametro real entra como ident sintetico.
+            let type_annotation = pat_type_annotation(cm, pat_for_text);
+            lowered.push(Parameter {
+                name: synth_name,
+                type_annotation,
+                modifiers: MemberModifiers::default(),
+                variadic: false,
+                default: None,
+                span: convert_span(cm, param.span),
+            });
+        } else if let Some(p) = lower_param(cm, param, MemberModifiers::default()) {
+            lowered.push(p);
+        }
+    }
+    (lowered, prologue)
+}
+
 fn lower_block_body(cm: &Lrc<SourceMap>, body: Option<&BlockStmt>) -> Vec<Statement> {
     body.map(|block| {
         block
