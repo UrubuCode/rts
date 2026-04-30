@@ -7,7 +7,8 @@
 //! ```
 //!
 //! where `KIND` is one of `FN`, `CONST`, `TYPE`, `SCOPE` is one of `NS`,
-//! `GC`, `ABI`, and both `NS` and `NAME` are uppercase ASCII with digits and
+//! `GC`, `ABI`, `GL` (global JS objects/classes), and both `NS` and `NAME`
+//! are uppercase ASCII with digits and
 //! underscores. The convention is enforced at startup by
 //! [`validate_symbol`]; malformed entries in `SPECS` cause immediate panic
 //! during tests and in debug builds.
@@ -53,7 +54,7 @@ pub fn validate_symbol(symbol: &str) -> Result<(), SymbolError> {
     let rest = parts.next().ok_or(SymbolError::MissingScope)?;
     let mut parts = rest.splitn(2, '_');
     let scope = parts.next().ok_or(SymbolError::MissingScope)?;
-    if !matches!(scope, "NS" | "GC" | "ABI") {
+    if !matches!(scope, "NS" | "GC" | "ABI" | "GL") {
         return Err(SymbolError::InvalidScope);
     }
 
