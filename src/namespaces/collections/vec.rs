@@ -39,9 +39,28 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LEN(handle: u64) -> i64 {
     with_vec(handle, -1, |v| v.len() as i64)
 }
 
+/// Limite duro de elementos por vec — protege contra OOM em cenarios
+/// patologicos (ex: generator infinito desugared para buffer eager,
+/// loop sem condicao de parada). 1M i64 = 8MiB por vec, suficiente
+/// pro caso real e barato comparado aos GBs que um leak descontrolado
+/// produz.
+const VEC_MAX_LEN: usize = 1_000_000;
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64) {
-    with_vec_mut(handle, (), |v| v.push(value));
+    let limit_hit = with_vec_mut(handle, false, |v| {
+        if v.len() >= VEC_MAX_LEN {
+            return true;
+        }
+        v.push(value);
+        false
+    });
+    if limit_hit {
+        eprintln!(
+            "RTS runtime: vec push exceeded limit of {VEC_MAX_LEN} elements; aborting (likely infinite generator or unbounded loop)"
+        );
+        std::process::abort();
+    }
 }
 
 /// Remove e retorna o ultimo valor, ou 0 se vazio.
