@@ -126,6 +126,47 @@ pub enum Entry {
     Free,
 }
 
+/// Cleanup ativo de recursos do SO quando um Entry e' descartado (#279).
+///
+/// Nao usamos `impl Drop for Entry` para nao quebrar call sites que
+/// movem variantes via `mem::replace(entry, Entry::Free)` + pattern
+/// match (E0509). Em vez disso, esta funcao e' chamada explicitamente
+/// em `HandleTable::free` antes de substituir o slot por `Free`, e
+/// tambem percorrida no `Drop` do HandleTable inteiro.
+///
+/// Tipos cobertos:
+/// - `ProcessChild`: drop padrao nao chama wait — gera zumbi ate o pai
+///   morrer. Chamamos `try_wait` para reaproveitar o status sem
+///   bloquear; se ainda nao terminou, deixamos o SO tratar.
+/// - `TcpStream`/`TlsClient`: shutdown(Both) acorda peers em vez de
+///   esperar timeout do TCP.
+///
+/// Demais tipos (Buffer, Map, Regex, Mutex, etc) liberam memoria
+/// corretamente via Drop padrao do Box/Vec — nao precisam de logica
+/// extra aqui.
+fn cleanup_entry(entry: &mut Entry) {
+    match entry {
+        Entry::ProcessChild(child) => {
+            let _ = child.try_wait();
+        }
+        Entry::TcpStream(stream) => {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+        Entry::TlsClient(tls) => {
+            let _ = tls.tcp.shutdown(std::net::Shutdown::Both);
+        }
+        _ => {}
+    }
+}
+
+impl Drop for HandleTable {
+    fn drop(&mut self) {
+        for slot in &mut self.slots {
+            cleanup_entry(&mut slot.entry);
+        }
+    }
+}
+
 /// Storage para `Entry::RtsEventsEmitter`. Listeners agrupados por nome
 /// de evento; cada listener é um endereço de função (`func_addr` raw),
 /// chamado via transmute → `extern "C" fn`.
@@ -195,6 +236,7 @@ impl HandleTable {
         if slot.generation != expected_gen {
             return false;
         }
+        cleanup_entry(&mut slot.entry);
         slot.entry = Entry::Free;
         self.free_list.push(table_slot);
         true
