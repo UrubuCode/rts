@@ -2,7 +2,7 @@
 
 ## Regras locais do desenvolvedor
 
-Antes de iniciar qualquer tarefa, verifique se existe um arquivo `local-rules.md` na raiz do projeto. Se existir, leia-o e trate seu conteúdo como regras adicionais definidas pelo desenvolvedor que está trabalhando nesta cópia local. Essas regras têm prioridade sobre preferências genéricas e devem ser respeitadas durante toda a sessão.
+**REQUISITO OBRIGATÓRIO:** antes de iniciar qualquer tarefa, você **DEVE** verificar se existe um arquivo `local-rules.md` na raiz do projeto. **Se existir, ler é obrigatório** — não é opcional, não pular, não assumir conteúdo, não prosseguir sem ler. Se não existir, prossiga normalmente. Quando existir, trate seu conteúdo como regras adicionais definidas pelo desenvolvedor que está trabalhando nesta cópia local. Essas regras têm prioridade sobre preferências genéricas e devem ser respeitadas durante toda a sessão.
 
 O arquivo `local-rules.md` é pessoal de cada desenvolvedor e **não deve ser versionado** (já está no `.gitignore`).
 
