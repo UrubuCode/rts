@@ -42,6 +42,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
             if let Some(qualified) = qualified_member_name(callee) {
+                // Console builtin precisa preceder o lookup (#380).
+                if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
+                    return Ok(tv);
+                }
                 if lookup(&qualified).is_some() {
                     return lower_ns_call(ctx, &qualified, call);
                 }
@@ -88,6 +92,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
         }
         if let Some(qualified) = qualified_member_name(callee) {
+            // Console builtin (#221, #380): console.log/info/debug → io.print,
+            // console.error/warn → io.eprint. Args concatenados separados
+            // por espaco. PRECISA vir antes do `lookup` generico porque
+            // console.* tambem esta listado em SPECS (com aridade fixa
+            // `StrPtr`) so' pra type-check / `rts apis` — passar 42 ali
+            // dispararia "StrPtr argument must be a string value".
+            if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
+                return Ok(tv);
+            }
             if lookup(&qualified).is_some() {
                 return lower_ns_call(ctx, &qualified, call);
             }
@@ -101,14 +114,6 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                 }
-            }
-            // Console builtin (#221): console.log/info/debug → io.print,
-            // console.error/warn → io.eprint. Args concatenados separados
-            // por espaco. Implementado em codegen direto pra evitar
-            // dependencia em pacote builtin/console que precisaria ser
-            // auto-importado.
-            if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
-                return Ok(tv);
             }
             // JSON global (#215): JSON.* — spec name="JSON" is in SPECS, so
             // `lookup("JSON.parse")` resolves directly above. No fallback needed.
