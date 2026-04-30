@@ -56,6 +56,15 @@ pub fn command(path: Option<String>) -> Result<()> {
         let output = std::process::Command::new(&exe)
             .arg("test")
             .arg(file)
+            // RUST_BACKTRACE=1 garante backtrace nativa em crashes do
+            // codegen/runtime — printada pra stderr pelo runtime do Rust
+            // antes do processo morrer. Sem isso, segfaults so' viram
+            // exit code sem contexto. Nao sobrescreve var ja' setada
+            // pelo user.
+            .env("RUST_BACKTRACE", std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string()))
+            // Liga trace de etapas no child — `[trace] invoking __RTS_MAIN`
+            // antes de um segfault aponta exatamente onde morreu (#314).
+            .env("RTS_TEST_TRACE_STAGES", "1")
             .output();
         let output = match output {
             Ok(o) => o,
@@ -67,9 +76,8 @@ pub fn command(path: Option<String>) -> Result<()> {
             }
         };
 
-        // Re-emit child stderr (where rts test imprime tudo) sem o
-        // header de arquivo — ja' imprimimos acima. Pulamos a primeira
-        // linha em branco + header pra evitar duplicar.
+        // Re-emit child stderr (onde vai o output do rts test e' panics
+        // do Rust). Sem o header de arquivo — ja' imprimimos acima.
         let stderr = String::from_utf8_lossy(&output.stderr);
         emit_child_output(&stderr, &label);
 
@@ -88,7 +96,22 @@ pub fn command(path: Option<String>) -> Result<()> {
                 .code()
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "signal".to_string());
-            eprintln!("  {} {}", red("✗"), red(&format!("crashed (exit {code})")));
+            // Emite stdout do filho (prints do user TS antes do crash)
+            // e stderr completo pra dar contexto. stderr ja' foi
+            // re-emitido acima — aqui so' o stdout pra nao duplicar.
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if !stdout.trim().is_empty() {
+                eprintln!("  {} child stdout (last output before crash):", dim("│"));
+                for line in stdout.lines() {
+                    eprintln!("  {} {line}", dim("│"));
+                }
+            }
+            eprintln!(
+                "  {} {} — codigo {} (Windows: -1073741819=ACCESS_VIOLATION, -1073740791=HEAP_CORRUPTION)",
+                red("✗"),
+                red(&format!("crashed")),
+                code,
+            );
         } else if !output.status.success() || file_failed > 0 {
             failed_files += 1;
         }

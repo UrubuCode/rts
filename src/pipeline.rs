@@ -128,10 +128,25 @@ pub fn build_executable_with_request(
 /// Like [`run_jit`] but resolves imports and flattens the full module graph
 /// into a single program before JIT compilation. Used by `rts test`.
 pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String>)> {
+    use std::io::Write;
+    // Quando rodando como child de `rts test`, marca cada etapa pra que
+    // um segfault subsequente identifique exatamente onde morreu (#314).
+    // Pai liga via RTS_TEST_TRACE_STAGES=1.
+    let trace = std::env::var_os("RTS_TEST_TRACE_STAGES").is_some();
+    let mark = |stage: &str| {
+        if trace {
+            let _ = writeln!(std::io::stderr(), "  [trace] {stage}");
+            let _ = std::io::stderr().flush();
+        }
+    };
+
+    mark("loading module graph");
     let graph = crate::module::ModuleGraph::load(input, options)
         .with_context(|| format!("failed to load module graph for {}", input.display()))?;
+    mark("flattening for JIT");
     let mut program = graph.flatten_for_jit();
 
+    mark("compiling to JIT");
     let (module, warnings) =
         crate::codegen::compile_program_to_jit(&mut program).context("JIT compile failed")?;
 
@@ -143,7 +158,9 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     };
     let main_ptr = module.get_finalized_function(main_id);
     let main_fn: extern "C" fn() -> i32 = unsafe { std::mem::transmute(main_ptr) };
+    mark("invoking __RTS_MAIN");
     let exit_code = main_fn();
+    mark("post-main cleanup");
     if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
         let use_color = crate::diagnostics::reporter::stderr_supports_color();
         eprint!("{}", format_runtime_error(&report, use_color));
