@@ -123,9 +123,21 @@ pub enum Entry {
     /// listeners por nome de evento como function pointers (i64 raw).
     /// Distinto do `EventEmitter` global acima — coexistem.
     RtsEventsEmitter(Box<RtsEventsEmitter>),
+    /// Promise<T> síncrona — valor já resolvido como i64 (handle ou primitivo).
+    /// `.then(fn)` chama fn(value) imediatamente. `.catch(fn)` é passthrough.
+    Promise(i64),
+    /// Response do `fetch()` — status HTTP + body bytes + URL final.
+    HttpResponse(Box<HttpResponseData>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
+}
+
+#[derive(Debug)]
+pub struct HttpResponseData {
+    pub status: u16,
+    pub url: String,
+    pub body: Vec<u8>,
 }
 
 /// Cleanup ativo de recursos do SO quando um Entry e' descartado (#279).

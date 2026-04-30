@@ -36,6 +36,11 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::error::abi::REF_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::error::abi::SYNTAX_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::events::abi::CLASS_SPEC,
+    &crate::namespaces::globals::text_encoding::class_spec::TEXT_ENCODER_CLASS_SPEC,
+    &crate::namespaces::globals::text_encoding::class_spec::TEXT_DECODER_CLASS_SPEC,
+    &crate::namespaces::globals::fetch::class_spec::RESPONSE_CLASS_SPEC,
+    &crate::namespaces::globals::fetch::class_spec::PROMISE_CLASS_SPEC,
+    &crate::namespaces::globals::url::class_spec::URL_CLASS_SPEC,
 ];
 
 /// Looks up a global class spec by JS class name (e.g. `"Date"`).
@@ -91,6 +96,11 @@ pub const SPECS: &[&NamespaceSpec] = &[
     // Codegen routes JSON.parse() / console.log() through these specs.
     &crate::namespaces::globals::json::abi::SPEC,
     &crate::namespaces::globals::console::abi::SPEC,
+    &crate::namespaces::globals::timers::abi::SPEC,
+    &crate::namespaces::globals::fetch::abi::SPEC,
+    &crate::namespaces::globals::text_encoding::abi::SPEC,
+    &crate::namespaces::globals::performance::abi::SPEC,
+    &crate::namespaces::globals::url::abi::SPEC,
     &crate::namespaces::events::abi::SPEC,
 ];
 

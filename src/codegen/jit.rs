@@ -260,6 +260,64 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_DATE_TO_STRING", __RTS_FN_GL_DATE_TO_STRING);
     add_fn!("__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING", __RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING);
 
+    // ── namespaces::globals::timers ───────────────────────────────────
+    use crate::namespaces::globals::timers::instance::*;
+    add_fn!("__RTS_FN_GL_TIMERS_SET_TIMEOUT", __RTS_FN_GL_TIMERS_SET_TIMEOUT);
+    add_fn!("__RTS_FN_GL_TIMERS_CLEAR_TIMEOUT", __RTS_FN_GL_TIMERS_CLEAR_TIMEOUT);
+    add_fn!("__RTS_FN_GL_TIMERS_SET_INTERVAL", __RTS_FN_GL_TIMERS_SET_INTERVAL);
+    add_fn!("__RTS_FN_GL_TIMERS_CLEAR_INTERVAL", __RTS_FN_GL_TIMERS_CLEAR_INTERVAL);
+    add_fn!("__RTS_FN_GL_TIMERS_SET_IMMEDIATE", __RTS_FN_GL_TIMERS_SET_IMMEDIATE);
+    add_fn!("__RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE", __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE);
+
+    // ── namespaces::globals::fetch ────────────────────────────────────
+    use crate::namespaces::globals::fetch::instance::*;
+    add_fn!("__RTS_FN_GL_FETCH", __RTS_FN_GL_FETCH);
+    add_fn!("__RTS_FN_GL_PROMISE_THEN", __RTS_FN_GL_PROMISE_THEN);
+    add_fn!("__RTS_FN_GL_PROMISE_CATCH", __RTS_FN_GL_PROMISE_CATCH);
+    add_fn!("__RTS_FN_GL_PROMISE_FINALLY", __RTS_FN_GL_PROMISE_FINALLY);
+    add_fn!("__RTS_FN_GL_PROMISE_RESOLVE", __RTS_FN_GL_PROMISE_RESOLVE);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_STATUS", __RTS_FN_GL_FETCH_RESPONSE_STATUS);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_OK", __RTS_FN_GL_FETCH_RESPONSE_OK);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT", __RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_TEXT", __RTS_FN_GL_FETCH_RESPONSE_TEXT);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_JSON", __RTS_FN_GL_FETCH_RESPONSE_JSON);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER", __RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_URL", __RTS_FN_GL_FETCH_RESPONSE_URL);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_FREE", __RTS_FN_GL_FETCH_RESPONSE_FREE);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_THEN", __RTS_FN_GL_FETCH_RESPONSE_THEN);
+
+    // ── namespaces::globals::text_encoding ───────────────────────────
+    use crate::namespaces::globals::text_encoding::instance::*;
+    add_fn!("__RTS_FN_GL_TEXTENC_ENCODE", __RTS_FN_GL_TEXTENC_ENCODE);
+    add_fn!("__RTS_FN_GL_TEXTENC_DECODE", __RTS_FN_GL_TEXTENC_DECODE);
+    add_fn!("__RTS_FN_GL_TEXTENC_BTOA", __RTS_FN_GL_TEXTENC_BTOA);
+    add_fn!("__RTS_FN_GL_TEXTENC_ATOB", __RTS_FN_GL_TEXTENC_ATOB);
+    add_fn!("__RTS_FN_GL_TEXTENC_STRUCTURED_CLONE", __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE);
+    add_fn!("__RTS_FN_GL_TEXTENC_QUEUE_MICROTASK", __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK);
+    add_fn!("__RTS_FN_GL_TEXTENC_NEW", __RTS_FN_GL_TEXTENC_NEW);
+    add_fn!("__RTS_FN_GL_TEXTDEC_NEW", __RTS_FN_GL_TEXTDEC_NEW);
+    add_fn!("__RTS_FN_GL_TEXTENC_ENCODE_INSTANCE", __RTS_FN_GL_TEXTENC_ENCODE_INSTANCE);
+    add_fn!("__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE", __RTS_FN_GL_TEXTDEC_DECODE_INSTANCE);
+
+    // ── namespaces::globals::performance ─────────────────────────────
+    use crate::namespaces::globals::performance::instance::*;
+    add_fn!("__RTS_FN_GL_PERF_NOW", __RTS_FN_GL_PERF_NOW);
+    add_fn!("__RTS_FN_GL_PERF_TIME_ORIGIN", __RTS_FN_GL_PERF_TIME_ORIGIN);
+
+    // ── namespaces::globals::url ──────────────────────────────────────
+    use crate::namespaces::globals::url::instance::*;
+    add_fn!("__RTS_FN_GL_URL_NEW", __RTS_FN_GL_URL_NEW);
+    add_fn!("__RTS_FN_GL_URL_HREF", __RTS_FN_GL_URL_HREF);
+    add_fn!("__RTS_FN_GL_URL_PROTOCOL", __RTS_FN_GL_URL_PROTOCOL);
+    add_fn!("__RTS_FN_GL_URL_HOST", __RTS_FN_GL_URL_HOST);
+    add_fn!("__RTS_FN_GL_URL_HOSTNAME", __RTS_FN_GL_URL_HOSTNAME);
+    add_fn!("__RTS_FN_GL_URL_PORT", __RTS_FN_GL_URL_PORT);
+    add_fn!("__RTS_FN_GL_URL_PATHNAME", __RTS_FN_GL_URL_PATHNAME);
+    add_fn!("__RTS_FN_GL_URL_SEARCH", __RTS_FN_GL_URL_SEARCH);
+    add_fn!("__RTS_FN_GL_URL_HASH", __RTS_FN_GL_URL_HASH);
+    add_fn!("__RTS_FN_GL_URL_ORIGIN", __RTS_FN_GL_URL_ORIGIN);
+    add_fn!("__RTS_FN_GL_URL_FREE", __RTS_FN_GL_URL_FREE);
+
     // ── namespaces::date ──────────────────────────────────────────────
     use crate::namespaces::date::ops::*;
     add_fn!("__RTS_FN_NS_DATE_NOW_MS", __RTS_FN_NS_DATE_NOW_MS);

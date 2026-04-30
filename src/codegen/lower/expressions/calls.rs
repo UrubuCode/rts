@@ -349,6 +349,99 @@ fn lower_js_global_call(
             let tv = super::lower_expr(ctx, inner)?;
             Ok(Some(TypedVal::new(ctx.coerce_to_i64(tv).val, ValTy::I64)))
         }
+        // ── Timers ────────────────────────────────────────────────────────────
+        "setTimeout" => Ok(Some(lower_ns_call(ctx, "timers.setTimeout", call)?)),
+        "clearTimeout" => Ok(Some(lower_ns_call(ctx, "timers.clearTimeout", call)?)),
+        "setInterval" => Ok(Some(lower_ns_call(ctx, "timers.setInterval", call)?)),
+        "clearInterval" => Ok(Some(lower_ns_call(ctx, "timers.clearInterval", call)?)),
+        "setImmediate" => Ok(Some(lower_ns_call(ctx, "timers.setImmediate", call)?)),
+        "clearImmediate" => Ok(Some(lower_ns_call(ctx, "timers.clearImmediate", call)?)),
+
+        // ── fetch(url, opts?) ─────────────────────────────────────────────────
+        // Assinatura interna: __RTS_FN_GL_FETCH(url_ptr, url_len, opts_h: u64)
+        // opts_h = 0 quando chamado com 1 arg.
+        "fetch" => {
+            use crate::codegen::lower::ctx::{TypedVal, ValTy};
+            let member = crate::abi::lookup("fetch.fetch")
+                .ok_or_else(|| anyhow!("fetch.fetch not in SPECS"))?
+                .1;
+            // Resolve URL arg (StrPtr → ptr, len)
+            let url_arg = call.args.first()
+                .ok_or_else(|| anyhow!("fetch() requires at least 1 argument (url)"))?;
+            if url_arg.spread.is_some() {
+                return Ok(None);
+            }
+            let (url_ptr, url_len) = {
+                let tv = super::lower_expr(ctx, &url_arg.expr)?;
+                match tv.ty {
+                    ValTy::Handle => {
+                        let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                        let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                        let pi = ctx.builder.ins().call(ptr_fn, &[tv.val]);
+                        let ptr = ctx.builder.inst_results(pi)[0];
+                        let li = ctx.builder.ins().call(len_fn, &[tv.val]);
+                        let len = ctx.builder.inst_results(li)[0];
+                        (ptr, len)
+                    }
+                    _ => {
+                        // Literal string already materialized as (ptr,len) via lower_expr?
+                        // Fallback: treat as i64 ptr with len from string_from_static.
+                        // Best effort: emit as gc handle.
+                        let h = ctx.coerce_to_i64(tv).val;
+                        let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                        let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                        let pi = ctx.builder.ins().call(ptr_fn, &[h]);
+                        let ptr = ctx.builder.inst_results(pi)[0];
+                        let li = ctx.builder.ins().call(len_fn, &[h]);
+                        let len = ctx.builder.inst_results(li)[0];
+                        (ptr, len)
+                    }
+                }
+            };
+            // opts arg: second arg or 0
+            let opts_h = if call.args.len() >= 2 {
+                let opts_arg = &call.args[1];
+                if opts_arg.spread.is_none() {
+                    let tv = super::lower_expr(ctx, &opts_arg.expr)?;
+                    ctx.coerce_to_i64(tv).val
+                } else {
+                    ctx.builder.ins().iconst(cl::I64, 0)
+                }
+            } else {
+                ctx.builder.ins().iconst(cl::I64, 0)
+            };
+            // Emit call __RTS_FN_GL_FETCH(url_ptr, url_len, opts_h) -> i64 (handle)
+            let func_id = {
+                use cranelift_codegen::ir::types::I64 as CL_I64;
+                use cranelift_codegen::ir::{AbiParam, Signature};
+                use cranelift_module::Linkage;
+                let sym = member.symbol;
+                if !ctx.extern_cache.contains_key(sym) {
+                    let mut sig = Signature::new(ctx.module.isa().default_call_conv());
+                    sig.params.push(AbiParam::new(CL_I64)); // url_ptr
+                    sig.params.push(AbiParam::new(CL_I64)); // url_len
+                    sig.params.push(AbiParam::new(CL_I64)); // opts_h
+                    sig.returns.push(AbiParam::new(CL_I64)); // Promise<Response> handle
+                    let id = ctx.module.declare_function(sym, Linkage::Import, &sig)
+                        .map_err(|e| anyhow!("{e}"))?;
+                    ctx.extern_cache.insert(sym.to_string(), id);
+                    id
+                } else {
+                    *ctx.extern_cache.get(sym).unwrap()
+                }
+            };
+            let fref = ctx.fref_for_id(func_id);
+            let inst = ctx.builder.ins().call(fref, &[url_ptr, url_len, opts_h]);
+            let val = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(val, ValTy::Handle)))
+        }
+
+        // ── Text encoding / global utils ──────────────────────────────────────
+        "atob" => Ok(Some(lower_ns_call(ctx, "text_encoding.atob", call)?)),
+        "btoa" => Ok(Some(lower_ns_call(ctx, "text_encoding.btoa", call)?)),
+        "structuredClone" => Ok(Some(lower_ns_call(ctx, "text_encoding.structuredClone", call)?)),
+        "queueMicrotask" => Ok(Some(lower_ns_call(ctx, "text_encoding.queueMicrotask", call)?)),
+
         _ => Ok(None),
     }
 }

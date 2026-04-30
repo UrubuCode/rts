@@ -134,7 +134,8 @@
       "PowerShell($env:RTS_DUMP_IR=\"1\"; & target/release/rts.exe -e 'function dyn\\(x: number\\): string { const y = x; return `${100/y}`; } import { io } from \"rts\"; io.print\\(dyn\\(4\\)\\);' 2>&1 | Select-Object -First 50)",
       "Bash(grep \"src\\\\\\\\\")",
       "Bash(target/release/rts.exe eval *)",
-      "Bash(target/release/rts.exe ir *)"
+      "Bash(target/release/rts.exe ir *)",
+      "Bash(bun *)"
     ]
   }
 }

@@ -117,10 +117,23 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         }
                     }
                 }
-                if let swc_ecma_ast::Expr::Call(call) = init.as_ref() {
+                // Peel await: `await fetch(...)` → `fetch(...)`
+                fn peel_await(e: &swc_ecma_ast::Expr) -> &swc_ecma_ast::Expr {
+                    match e {
+                        swc_ecma_ast::Expr::Await(a) => peel_await(&a.arg),
+                        swc_ecma_ast::Expr::Paren(p) => peel_await(&p.expr),
+                        _ => e,
+                    }
+                }
+                let init_inner = peel_await(init.as_ref());
+                if let swc_ecma_ast::Expr::Call(call) = init_inner {
                     if let swc_ecma_ast::Callee::Expr(cb) = &call.callee {
                         if let swc_ecma_ast::Expr::Ident(fid) = cb.as_ref() {
-                            if let Some(cn) = ctx.fn_class_returns.get(fid.sym.as_str()) {
+                            let fname = fid.sym.as_str();
+                            // fetch() → Response
+                            if fname == "fetch" {
+                                ctx.local_class_ty.insert(name.clone(), "Response".to_string());
+                            } else if let Some(cn) = ctx.fn_class_returns.get(fname) {
                                 ctx.local_class_ty.insert(name.clone(), cn.clone());
                             }
                         }

@@ -472,6 +472,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     }
                 }
             }
+            // Fallback: receiver_class desconhecido mas Handle — tentar GlobalClassSpecs
+            // por nome de propriedade. Cobre `resp.ok`, `resp.status`, etc. sem anotação.
+            if receiver_class.is_none() {
+                for spec in crate::abi::GLOBAL_CLASS_SPECS {
+                    if let Some(member) = spec.instance_method(key) {
+                        if member.args.len() == 1 {
+                            let sig = crate::abi::signature::lower_member(member);
+                            let f = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                            let inst = ctx.builder.ins().call(f, &[obj_handle]);
+                            let ret_ty = ValTy::from_abi(member.returns);
+                            let v = if sig.ret.is_some() {
+                                ctx.builder.inst_results(inst)[0]
+                            } else {
+                                ctx.builder.ins().iconst(cl::I64, 0)
+                            };
+                            return Ok(TypedVal::new(v, ret_ty));
+                        }
+                    }
+                }
+            }
             // (#214) `(e as Error).message` — field_ty hint for map_get fallback.
             let mut field_ty = receiver_class
                 .as_deref()
@@ -921,13 +941,19 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
             field_class_in_hierarchy(ctx, &owner, prop)
         }
         Expr::Call(call) => {
-            // Resolve method chains like `expect(...).toBe(...)`:
-            // if the callee is a user fn with a known class return type, use it.
             if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
-                if let Expr::Ident(id) = callee.as_ref() {
-                    if let Some(abi) = ctx.user_fns.get(id.sym.as_str()) {
-                        return abi.ret_class.clone();
+                match callee.as_ref() {
+                    // fetch(...) → Response
+                    Expr::Ident(id) if id.sym.as_str() == "fetch" => {
+                        return Some("Response".to_string());
                     }
+                    // user fn with known return class
+                    Expr::Ident(id) => {
+                        if let Some(abi) = ctx.user_fns.get(id.sym.as_str()) {
+                            return abi.ret_class.clone();
+                        }
+                    }
+                    _ => {}
                 }
             }
             None
