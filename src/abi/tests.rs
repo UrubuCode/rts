@@ -29,15 +29,27 @@ fn every_symbol_is_canonical() {
 
 #[test]
 fn symbols_are_globally_unique() {
-    let mut seen: HashSet<&'static str> = HashSet::new();
+    // Mesmo simbolo so' eh permitido quando duas specs declaram um alias
+    // (assinatura identica). Ex: `JSON.parse` (global) e `json.parse`
+    // (namespace) compartilham `__RTS_FN_NS_JSON_PARSE`. Colisao com
+    // assinaturas divergentes continua sendo erro.
+    use std::collections::HashMap;
+    let mut seen: HashMap<&'static str, (&'static str, &'static [AbiType], AbiType)> =
+        HashMap::new();
     for spec in SPECS {
         for member in spec.members {
-            assert!(
-                seen.insert(member.symbol),
-                "duplicate symbol {} found in namespace {}",
-                member.symbol,
-                spec.name
-            );
+            let sig = (spec.name, member.args, member.returns);
+            if let Some(prev) = seen.get(member.symbol) {
+                assert!(
+                    prev.1 == sig.1 && prev.2 == sig.2,
+                    "symbol {} shared between {} and {} with diverging signatures",
+                    member.symbol,
+                    prev.0,
+                    spec.name
+                );
+            } else {
+                seen.insert(member.symbol, sig);
+            }
         }
     }
 }

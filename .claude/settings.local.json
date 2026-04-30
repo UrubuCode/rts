@@ -135,7 +135,19 @@
       "Bash(grep \"src\\\\\\\\\")",
       "Bash(target/release/rts.exe eval *)",
       "Bash(target/release/rts.exe ir *)",
-      "Bash(bun *)"
+      "Bash(bun *)",
+      "Bash(grep \"tests\\\\\\\\\\\\\\\\\")",
+      "Bash(grep -oE \"tests[\\\\\\\\\\\\\\\\/][a-z_0-9]+\\\\.test\\\\.ts\")",
+      "Bash(grep -E \"tests[\\\\\\\\\\\\\\\\/].*\\\\.test\\\\.ts\" \"/c/Users/Marcos/AppData/Local/Temp/claude/C--Users-Marcos-Desktop-SERVICO-ESCRAVO-rts1/c633b635-772d-42bd-b028-ff02934e7e98/tasks/b9msgrzyd.output\")",
+      "Bash(echo \"exit=$?\")",
+      "Bash(taskkill //F //IM rts.exe)",
+      "Bash(tasklist //FI \"IMAGENAME eq rts.exe\")",
+      "Bash(grep -nE \"tests[\\\\\\\\\\\\\\\\/].*\\\\.test\\\\.ts|crashed|Files |Tests \" /tmp/rts-test-full.log)",
+      "Bash(awk '/\\\\.test\\\\.ts/ { last=$0 } /crashed/ { print last; print $0 }' /tmp/rts-test-full.log)",
+      "Bash(awk '/\\\\.test\\\\.ts/ { last=$0 } /crashed|test failed/ { if \\(last\\) print last; last=\"\" }' /tmp/rts-test-full.log)",
+      "Bash(grep -oE \"tests\\\\\\\\\\\\\\\\[a-z_0-9]+\\\\.test\\\\.ts\")",
+      "Bash(sed -E 's/\\\\x1b\\\\[[0-9;]*m//g' /tmp/rts-test-full.log)",
+      "Bash(awk '/\\\\.test\\\\.ts$/ { last=$0 } /crashed|test failed|✗ 1 test/ { if \\(last != \"\"\\) { print last; last=\"\" } }' /tmp/rts-clean.log)"
     ]
   }
 }
