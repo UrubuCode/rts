@@ -35,6 +35,7 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         Expr::Assign(assign) => lower_assign_expr(ctx, assign),
         Expr::Call(call) => lower_call(ctx, call),
         Expr::Tpl(tpl) => basics::lower_tpl(ctx, tpl),
+        Expr::TaggedTpl(tt) => lower_tagged_tpl(ctx, tt),
         Expr::Cond(cond) => lower_cond(ctx, cond),
         Expr::Array(arr) => lower_array_lit(ctx, arr),
         Expr::Object(obj) => lower_object_lit(ctx, obj),
@@ -369,6 +370,69 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
     Ok(coerced)
 }
 
+/// Lower de tagged template literal (#269): `tag\`a${x}b${y}c\`` →
+/// `tag([\"a\", \"b\", \"c\"], x, y)`.
+///
+/// JS spec define o primeiro arg como TemplateStringsArray (objeto com
+/// propriedade `.raw`); aqui passamos um array simples — caller
+/// recebe `strings[0]`, `strings[1]`, etc via index access. `.raw` nao
+/// e' implementado nesta fase (raw strings preservam escape sequences;
+/// cooked aplica). Documentado como limitacao no commit.
+fn lower_tagged_tpl(
+    ctx: &mut FnCtx,
+    tt: &swc_ecma_ast::TaggedTpl,
+) -> Result<TypedVal> {
+    use swc_ecma_ast::{ArrayLit, CallExpr, Callee, ExprOrSpread};
+
+    // Constroi array literal das string parts (cooked).
+    let elems: Vec<Option<ExprOrSpread>> = tt
+        .tpl
+        .quasis
+        .iter()
+        .map(|q| {
+            let cooked: String = q
+                .cooked
+                .as_ref()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| q.raw.as_str().to_string());
+            Some(ExprOrSpread {
+                spread: None,
+                expr: Box::new(Expr::Lit(Lit::Str(swc_ecma_ast::Str {
+                    span: Default::default(),
+                    value: cooked.as_str().into(),
+                    raw: None,
+                }))),
+            })
+        })
+        .collect();
+    let strings_array = Expr::Array(ArrayLit {
+        span: Default::default(),
+        elems,
+    });
+
+    // Args: [strings_array, ...interpolated_exprs]
+    let mut args: Vec<ExprOrSpread> = Vec::with_capacity(1 + tt.tpl.exprs.len());
+    args.push(ExprOrSpread {
+        spread: None,
+        expr: Box::new(strings_array),
+    });
+    for e in &tt.tpl.exprs {
+        args.push(ExprOrSpread {
+            spread: None,
+            expr: e.clone(),
+        });
+    }
+
+    let synthetic_call = CallExpr {
+        span: tt.span,
+        ctxt: tt.ctxt,
+        callee: Callee::Expr(tt.tag.clone()),
+        args,
+        type_args: tt.type_params.clone(),
+    };
+    lower_call(ctx, &synthetic_call)
+}
+
 fn expr_kind_name(expr: &Expr) -> &'static str {
     match expr {
         Expr::Array(_) => "array",
@@ -387,7 +451,7 @@ fn expr_kind_name(expr: &Expr) -> &'static str {
         Expr::Object(_) => "object",
         Expr::Paren(_) => "paren",
         Expr::Seq(_) => "sequence",
-        Expr::TaggedTpl(_) => "tagged-template",
+        Expr::TaggedTpl(_) => "tagged-template-fallback",
         Expr::This(_) => "this",
         Expr::Tpl(_) => "template",
         Expr::Unary(_) => "unary",
