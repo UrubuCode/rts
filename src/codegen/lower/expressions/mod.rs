@@ -315,6 +315,7 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         let coerced = match ctx.var_ty(&name) {
             Some(ValTy::I32) => ctx.coerce_to_i32(rhs_val),
             Some(ValTy::I64) => ctx.coerce_to_i64(rhs_val),
+            Some(ValTy::F64) => ctx.coerce_to_f64(rhs_val),
             Some(ValTy::Handle) => ctx.coerce_to_handle(rhs_val)?,
             _ => rhs_val,
         };

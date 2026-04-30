@@ -5541,7 +5541,7 @@ fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
 
     if let TsType::TsKeywordType(kw) = ty {
         return Some(match kw.kind {
-            TsKeywordTypeKind::TsNumberKeyword => ValTy::I32,
+            TsKeywordTypeKind::TsNumberKeyword => ValTy::F64,
             TsKeywordTypeKind::TsBooleanKeyword => ValTy::Bool,
             TsKeywordTypeKind::TsStringKeyword => ValTy::Handle,
             TsKeywordTypeKind::TsVoidKeyword => ValTy::I64,
