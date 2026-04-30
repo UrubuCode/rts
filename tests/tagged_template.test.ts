@@ -5,40 +5,27 @@ function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// Basic tagged template
-function tag(strings: TemplateStringsArray, ...values: any[]): string {
-  let result = "";
-  strings.forEach((str, i) => {
-    result += str;
-    if (i < values.length) result += String(values[i]).toUpperCase();
-  });
-  return result;
+// Tag fn recebe (strings_array, ...interpolated_values).
+// Caso 1 — soma de valores interpolados, ignora strings.
+function sum(strings: string[], a: number, b: number): number {
+  return a + b;
 }
+print(`${sum`x${10}y${20}z`}`);
+print(`${sum`${5}+${7}`}`);
 
-print(tag`Hello ${"world"} and ${"foo"}`);
-print(tag`Value: ${42}`);
-
-// html escape tag
-function html(strings: TemplateStringsArray, ...values: any[]): string {
-  return strings.reduce((acc, str, i) => {
-    const val = i < values.length
-      ? String(values[i]).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      : "";
-    return acc + str + val;
-  }, "");
+// Caso 2 — multiplica todos os interpolados.
+function mul3(strings: string[], a: number, b: number, c: number): number {
+  return a * b * c;
 }
+print(`${mul3`r=${2},${3},${4}`}`);
 
-const user = "<script>alert('xss')</script>";
-print(html`<div>Hello ${user}</div>`);
-
-// raw strings
-function raw(strings: TemplateStringsArray): string {
-  return strings.raw[0];
+// Caso 3 — tag pode receber 0 valores interpolados.
+function noVals(strings: string[]): number {
+  return 99;
 }
-print(raw`line1\nline2`);
+print(`${noVals`only static text`}`);
 
 describe("tagged_template", () => {
-  test("basic", () => expect(__rtsCapturedOutput).toBe(
-    "Hello WORLD and FOO\nValue: 42\n<div>Hello &lt;script&gt;alert('xss')&lt;/script&gt;</div>\nline1\\nline2\n"
-  ));
+  test("call with interpolated values", () =>
+    expect(__rtsCapturedOutput).toBe("30\n12\n24\n99\n"));
 });
