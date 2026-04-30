@@ -42,7 +42,7 @@ fn build_jit_module() -> Result<JITModule> {
         .set("is_pic", "false")
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
     flag_builder
-        .set("opt_level", "speed")
+        .set("opt_level", crate::compile_options::opt_level())
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
     let _ = flag_builder.set("use_egraphs", "true");
     let _ = flag_builder.set("enable_alias_analysis", "true");
