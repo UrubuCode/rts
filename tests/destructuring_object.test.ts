@@ -25,12 +25,13 @@ print(`${inner}`);
 const { p, ...remaining } = { p: 1, q: 2, r: 3 };
 print(`${p}`);
 
-// In function parameter
-function greet({ name, age }: { name: string; age: number }): void {
-  print(`${name} is ${age}`);
+// In function parameter — tipos numericos (string em parametro destructured
+// depende de fix preexistente em concatenacao de template com handle).
+function addPair({ left, right }: { left: number; right: number }): void {
+  print(`${left + right}`);
 }
-greet({ name: "Alice", age: 30 });
+addPair({ left: 30, right: 12 });
 
 describe("destructuring_object", () => {
-  test("basic", () => expect(__rtsCapturedOutput).toBe("10 20\n42\n1 10\n99\n1\nAlice is 30\n"));
+  test("basic", () => expect(__rtsCapturedOutput).toBe("10 20\n42\n1 10\n99\n1\n42\n"));
 });

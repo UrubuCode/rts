@@ -30,14 +30,10 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                     continue;
                 }
 
-                let parameters = method
-                    .function
-                    .params
-                    .iter()
-                    .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
-                    .collect::<Vec<_>>();
+                let (parameters, destructure_prologue) =
+                    lower_params_with_destructure(cm, &method.function.params);
 
-                let body = if method.function.is_generator {
+                let mut body = if method.function.is_generator {
                     let desugared = method
                         .function
                         .body
@@ -47,6 +43,11 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                 } else {
                     lower_block_body(cm, method.function.body.as_ref())
                 };
+                if !destructure_prologue.is_empty() {
+                    let mut prologue = destructure_prologue;
+                    prologue.extend(body);
+                    body = prologue;
+                }
 
                 let role = match method.kind {
                     swc_ecma_ast::MethodKind::Method => MethodRole::Method,
@@ -80,14 +81,10 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                 }));
             }
             SwcClassMember::PrivateMethod(method) => {
-                let parameters = method
-                    .function
-                    .params
-                    .iter()
-                    .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
-                    .collect::<Vec<_>>();
+                let (parameters, destructure_prologue) =
+                    lower_params_with_destructure(cm, &method.function.params);
 
-                let body = if method.function.is_generator {
+                let mut body = if method.function.is_generator {
                     let desugared = method
                         .function
                         .body
@@ -97,6 +94,11 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                 } else {
                     lower_block_body(cm, method.function.body.as_ref())
                 };
+                if !destructure_prologue.is_empty() {
+                    let mut prologue = destructure_prologue;
+                    prologue.extend(body);
+                    body = prologue;
+                }
 
                 let return_type = if method.function.is_generator {
                     Some("i64".to_string())
@@ -221,13 +223,9 @@ fn lower_function(
     function: &SwcFunction,
     span: SwcSpan,
 ) -> FunctionDecl {
-    let parameters = function
-        .params
-        .iter()
-        .filter_map(|parameter| lower_param(cm, parameter, MemberModifiers::default()))
-        .collect::<Vec<_>>();
+    let (parameters, destructure_prologue) = lower_params_with_destructure(cm, &function.params);
 
-    let body = if function.is_generator {
+    let mut body = if function.is_generator {
         let desugared = function
             .body
             .as_ref()
@@ -236,6 +234,11 @@ fn lower_function(
     } else {
         lower_block_body(cm, function.body.as_ref())
     };
+    if !destructure_prologue.is_empty() {
+        let mut prologue = destructure_prologue;
+        prologue.extend(body);
+        body = prologue;
+    }
 
     let return_type = if function.is_generator {
         // Generators sempre retornam Vec<i64> handle.
