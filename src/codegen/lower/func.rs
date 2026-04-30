@@ -2333,19 +2333,24 @@ fn expand_destruct_decl(
             if let Some(init) = init {
                 out.push(make_const_decl(&tmp_name, init.clone(), kind));
             }
+            // Coleta keys explicitamente capturadas — usadas pra construir
+            // o `rest` removendo-as do clone (#312).
+            let mut consumed_keys: Vec<String> = Vec::new();
+            let mut rest_pat: Option<&Pat> = None;
             for prop in &obj.props {
                 match prop {
                     swc_ecma_ast::ObjectPatProp::Assign(ap) => {
                         // \`{ x }\` ou \`{ x = default }\`
-                        let key = ap.key.id.sym.as_str();
+                        let key = ap.key.id.sym.to_string();
+                        consumed_keys.push(key.clone());
                         let inner_pat = Pat::Ident(swc_ecma_ast::BindingIdent {
                             id: ap.key.id.clone(),
                             type_ann: None,
                         });
                         let access = if let Some(default) = ap.value.as_ref() {
-                            make_member_access_with_default(&tmp_name, key, default.as_ref())
+                            make_member_access_with_default(&tmp_name, &key, default.as_ref())
                         } else {
-                            make_member_access(&tmp_name, key)
+                            make_member_access(&tmp_name, &key)
                         };
                         expand_destruct_decl(&inner_pat, Some(&access), kind, counter, out);
                     }
@@ -2356,12 +2361,23 @@ fn expand_destruct_decl(
                             swc_ecma_ast::PropName::Str(s) => s.value.to_string_lossy().to_string(),
                             _ => continue,
                         };
+                        consumed_keys.push(key.clone());
                         let access = make_member_access(&tmp_name, &key);
                         expand_destruct_decl(&kvp.value, Some(&access), kind, counter, out);
                     }
-                    swc_ecma_ast::ObjectPatProp::Rest(_) => {
-                        // Rest em object destructuring — follow-up.
+                    swc_ecma_ast::ObjectPatProp::Rest(rest) => {
+                        rest_pat = Some(rest.arg.as_ref());
                     }
+                }
+            }
+            // Object rest (#312): `const { a, b, ...rest } = obj` →
+            //   const rest = collections.map_clone(__destruct_N);
+            //   collections.map_delete(rest, "a");
+            //   collections.map_delete(rest, "b");
+            if let Some(pat) = rest_pat {
+                if let Pat::Ident(rest_id) = pat {
+                    let rest_name = rest_id.id.sym.to_string();
+                    push_object_rest_decls(&rest_name, &tmp_name, &consumed_keys, kind, out);
                 }
             }
         }
@@ -2459,6 +2475,92 @@ fn make_member_access_with_default(obj_name: &str, key: &str, default: &Expr) ->
         left: Box::new(access),
         right: Box::new(default.clone()),
     })
+}
+
+/// Empurra em `out` o desugar de object rest (#312):
+///   `const <rest_name> = collections.map_clone(<src_name>);`
+///   `collections.map_delete(<rest_name>, "<key>");` (uma por consumed_key)
+///
+/// Reusa o builtin `collections.map_clone` (registra entry novo no
+/// HandleTable com clone do IndexMap) + `map_delete` ja existente.
+fn push_object_rest_decls(
+    rest_name: &str,
+    src_name: &str,
+    consumed_keys: &[String],
+    kind: swc_ecma_ast::VarDeclKind,
+    out: &mut Vec<Statement>,
+) {
+    use swc_ecma_ast::{CallExpr, ExprOrSpread, ExprStmt, Ident, MemberExpr, Stmt};
+
+    fn ident(name: &str) -> Ident {
+        Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: name.into(),
+            optional: false,
+        }
+    }
+
+    // collections.map_clone(<src_name>)
+    let clone_call = Expr::Call(CallExpr {
+        span: Default::default(),
+        ctxt: Default::default(),
+        callee: swc_ecma_ast::Callee::Expr(Box::new(Expr::Member(MemberExpr {
+            span: Default::default(),
+            obj: Box::new(Expr::Ident(ident("collections"))),
+            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                span: Default::default(),
+                sym: "map_clone".into(),
+            }),
+        }))),
+        args: vec![ExprOrSpread {
+            spread: None,
+            expr: Box::new(Expr::Ident(ident(src_name))),
+        }],
+        type_args: None,
+    });
+    out.push(make_const_decl(rest_name, clone_call, kind));
+
+    // collections.map_delete(<rest_name>, "<key>"); para cada consumed_key
+    for key in consumed_keys {
+        let delete_call = Expr::Call(CallExpr {
+            span: Default::default(),
+            ctxt: Default::default(),
+            callee: swc_ecma_ast::Callee::Expr(Box::new(Expr::Member(MemberExpr {
+                span: Default::default(),
+                obj: Box::new(Expr::Ident(ident("collections"))),
+                prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                    span: Default::default(),
+                    sym: "map_delete".into(),
+                }),
+            }))),
+            args: vec![
+                ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(Expr::Ident(ident(rest_name))),
+                },
+                ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(Expr::Lit(Lit::Str(swc_ecma_ast::Str {
+                        span: Default::default(),
+                        value: key.as_str().into(),
+                        raw: None,
+                    }))),
+                },
+            ],
+            type_args: None,
+        });
+        let stmt = Stmt::Expr(ExprStmt {
+            span: Default::default(),
+            expr: Box::new(delete_call),
+        });
+        let raw = crate::parser::ast::RawStmt::new(
+            format!("collections.map_delete({rest_name}, \"{key}\");"),
+            crate::parser::span::Span::default(),
+        )
+        .with_stmt(stmt);
+        out.push(crate::parser::ast::Statement::Raw(raw));
+    }
 }
 
 /// Empurra em \`out\`:
