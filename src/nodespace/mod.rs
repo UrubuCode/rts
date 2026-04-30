@@ -4,6 +4,7 @@ pub mod fs;
 pub mod os;
 pub mod path;
 pub mod process;
+pub mod util;
 
 pub struct NodespaceSpec {
     pub node_module: &'static str,
@@ -18,7 +19,13 @@ pub struct NodespaceMember {
     pub returns: AbiType,
 }
 
-pub const NODE_SPECS: &[&NodespaceSpec] = &[&fs::SPEC, &path::SPEC, &os::SPEC, &process::SPEC];
+pub const NODE_SPECS: &[&NodespaceSpec] = &[
+    &fs::SPEC,
+    &path::SPEC,
+    &os::SPEC,
+    &process::SPEC,
+    &util::SPEC,
+];
 
 /// Resolves a codegen-qualified name like `"node_fs.readFileSync"` to its member.
 pub(crate) fn node_lookup(qualified: &str) -> Option<&'static NodespaceMember> {
