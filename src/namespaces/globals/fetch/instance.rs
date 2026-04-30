@@ -1,5 +1,5 @@
 use crate::namespaces::gc::handles::{
-    alloc_entry, free_handle, shard_for_handle, Entry, HttpResponseData,
+    alloc_entry, free_handle, with_entry, with_entry_mut, Entry, HttpResponseData,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -19,24 +19,19 @@ fn map_get_str(map_h: u64, key: &str) -> Option<Vec<u8>> {
     if map_h == 0 {
         return None;
     }
-    let guard = shard_for_handle(map_h).lock().unwrap();
-    match guard.get(map_h) {
-        Some(Entry::Map(m)) => {
-            let val = m.get(key).copied()?;
-            // val is a string handle
-            drop(guard);
-            let sh = val as u64;
-            if sh == 0 {
-                return None;
-            }
-            let sg = shard_for_handle(sh).lock().unwrap();
-            match sg.get(sh) {
-                Some(Entry::String(v)) => Some(v.clone()),
-                _ => None,
-            }
-        }
-        _ => None,
+    // Get the value handle from the map (lock released after closure).
+    let val_h: u64 = with_entry(map_h, |entry| match entry {
+        Some(Entry::Map(m)) => m.get(key).copied().unwrap_or(0) as u64,
+        _ => 0,
+    });
+    if val_h == 0 {
+        return None;
     }
+    // Now resolve the string handle (separate lock acquisition).
+    with_entry(val_h, |entry| match entry {
+        Some(Entry::String(v)) => Some(v.clone()),
+        _ => None,
+    })
 }
 
 /// Read all headers from a nested Map handle stored under key "headers".

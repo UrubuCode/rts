@@ -1,27 +1,25 @@
 //! Vec<i64> — lista ordenada de valores i64.
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&Vec<i64>) -> R,
 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::Vec(v)) => f(v.as_ref()),
         _ => default,
-    }
+    })
 }
 
 fn with_vec_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut Vec<i64>) -> R,
 {
-    let mut guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get_mut(handle) {
+    with_entry_mut(handle, |entry| match entry {
         Some(Entry::Vec(v)) => f(v.as_mut()),
         _ => default,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -104,22 +102,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(handle: u64) {
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u64 {
     // Snapshot dos elementos sem segurar o lock — formatar pode tocar
     // outros shards (resolver string handles).
-    let elems: Vec<i64> = {
-        let guard = shard_for_handle(handle).lock().unwrap();
-        match guard.get(handle) {
-            Some(Entry::Vec(v)) => v.iter().copied().collect(),
-            _ => return 0,
-        }
-    };
+    let elems: Option<Vec<i64>> = with_entry(handle, |entry| match entry {
+        Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+        _ => None,
+    });
+    let Some(elems) = elems else { return 0; };
 
     // Resolve separador como bytes; vazio se handle invalido.
-    let sep_bytes: Vec<u8> = {
-        let guard = shard_for_handle(sep_h).lock().unwrap();
-        match guard.get(sep_h) {
-            Some(Entry::String(b)) => b.clone(),
-            _ => Vec::new(),
-        }
-    };
+    let sep_bytes: Vec<u8> = with_entry(sep_h, |entry| match entry {
+        Some(Entry::String(b)) => b.clone(),
+        _ => Vec::new(),
+    });
 
     let mut out: Vec<u8> = Vec::new();
     for (i, e) in elems.iter().enumerate() {
@@ -128,13 +121,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u
         }
         let h = *e as u64;
         // Tenta como string handle primeiro.
-        let as_str: Option<Vec<u8>> = {
-            let guard = shard_for_handle(h).lock().unwrap();
-            match guard.get(h) {
-                Some(Entry::String(b)) => Some(b.clone()),
-                _ => None,
-            }
-        };
+        let as_str: Option<Vec<u8>> = with_entry(h, |entry| match entry {
+            Some(Entry::String(b)) => Some(b.clone()),
+            _ => None,
+        });
         if let Some(b) = as_str {
             out.extend_from_slice(&b);
         } else {

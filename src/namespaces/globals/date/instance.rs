@@ -3,16 +3,15 @@
 //! Each `Date` instance is stored as `Entry::DateMs(i64)` in the HandleTable,
 //! where the i64 is milliseconds since Unix epoch (UTC).
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 fn get_ms(handle: u64) -> i64 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::DateMs(ms)) => *ms,
         _ => 0,
-    }
+    })
 }
 
 // ── Constructors ──────────────────────────────────────────────────────────────

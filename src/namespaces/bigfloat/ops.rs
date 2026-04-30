@@ -8,7 +8,7 @@ use super::fixed::FixedDecimal;
 // `super::super` resolves to the crate root in the standalone runtime
 // staticlib build (`rt_all.rs`) and to `namespaces` in the main `rts`
 // crate; both expose the `gc` submodule at that level.
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 // Forward-declared extern so we can intern the decimal string without
 // hard-coding the `gc::string_pool::...` path (which differs between
@@ -22,11 +22,10 @@ fn alloc(value: FixedDecimal) -> u64 {
 }
 
 fn clone_of(handle: u64) -> Option<FixedDecimal> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::BigFixed(b)) => Some(b.as_ref().clone()),
         _ => None,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]

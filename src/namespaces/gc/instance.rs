@@ -9,7 +9,7 @@
 //! Validacao defensiva: handle invalido ou offset fora do range retornam
 //! 0 (loads) ou 0 (stores) sem trap.
 
-use super::handles::{alloc_entry, free_handle, shard_for_handle, Entry, Instance};
+use super::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry, Instance};
 
 const SENTINEL_ERR: i64 = 0;
 
@@ -31,11 +31,10 @@ pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_NEW(size: i32, class_handle: u64) -> u
 /// Retorna o class handle armazenado na instancia, ou 0 em handle invalido.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_CLASS(h: u64) -> u64 {
-    let table = shard_for_handle(h).lock().unwrap();
-    let Some(Entry::Instance(inst)) = table.get(h) else {
-        return 0;
-    };
-    inst.class
+    with_entry(h, |entry| match entry {
+        Some(Entry::Instance(inst)) => inst.class,
+        _ => 0,
+    })
 }
 
 /// Libera a instancia. Retorna 1 em sucesso, 0 se handle ja invalido.
@@ -58,83 +57,80 @@ fn check_range(len: usize, offset: i32, slot: usize) -> Option<usize> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_I64(h: u64, offset: i32) -> i64 {
-    let table = shard_for_handle(h).lock().unwrap();
-    let Some(Entry::Instance(inst)) = table.get(h) else {
-        return 0;
-    };
-    let Some(off) = check_range(inst.bytes.len(), offset, 8) else {
-        return 0;
-    };
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(&inst.bytes[off..off + 8]);
-    i64::from_le_bytes(buf)
+    with_entry(h, |entry| match entry {
+        Some(Entry::Instance(inst)) => match check_range(inst.bytes.len(), offset, 8) {
+            Some(off) => {
+                let mut buf = [0u8; 8];
+                buf.copy_from_slice(&inst.bytes[off..off + 8]);
+                i64::from_le_bytes(buf)
+            }
+            None => 0,
+        },
+        _ => 0,
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_I64(h: u64, offset: i32, value: i64) -> i64 {
-    let mut table = shard_for_handle(h).lock().unwrap();
-    let Some(Entry::Instance(inst)) = table.get_mut(h) else {
-        return SENTINEL_ERR;
-    };
-    let Some(off) = check_range(inst.bytes.len(), offset, 8) else {
-        return SENTINEL_ERR;
-    };
-    inst.bytes[off..off + 8].copy_from_slice(&value.to_le_bytes());
-    1
+    with_entry_mut(h, |entry| match entry {
+        Some(Entry::Instance(inst)) => match check_range(inst.bytes.len(), offset, 8) {
+            Some(off) => { inst.bytes[off..off + 8].copy_from_slice(&value.to_le_bytes()); 1 }
+            None => SENTINEL_ERR,
+        },
+        _ => SENTINEL_ERR,
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_I32(h: u64, offset: i32) -> i32 {
-    let table = shard_for_handle(h).lock().unwrap();
-    let Some(Entry::Instance(inst)) = table.get(h) else {
-        return 0;
-    };
-    let Some(off) = check_range(inst.bytes.len(), offset, 4) else {
-        return 0;
-    };
-    let mut buf = [0u8; 4];
-    buf.copy_from_slice(&inst.bytes[off..off + 4]);
-    i32::from_le_bytes(buf)
+    with_entry(h, |entry| match entry {
+        Some(Entry::Instance(inst)) => match check_range(inst.bytes.len(), offset, 4) {
+            Some(off) => {
+                let mut buf = [0u8; 4];
+                buf.copy_from_slice(&inst.bytes[off..off + 4]);
+                i32::from_le_bytes(buf)
+            }
+            None => 0,
+        },
+        _ => 0,
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_I32(h: u64, offset: i32, value: i32) -> i64 {
-    let mut table = shard_for_handle(h).lock().unwrap();
-    let Some(Entry::Instance(inst)) = table.get_mut(h) else {
-        return SENTINEL_ERR;
-    };
-    let Some(off) = check_range(inst.bytes.len(), offset, 4) else {
-        return SENTINEL_ERR;
-    };
-    inst.bytes[off..off + 4].copy_from_slice(&value.to_le_bytes());
-    1
+    with_entry_mut(h, |entry| match entry {
+        Some(Entry::Instance(inst)) => match check_range(inst.bytes.len(), offset, 4) {
+            Some(off) => { inst.bytes[off..off + 4].copy_from_slice(&value.to_le_bytes()); 1 }
+            None => SENTINEL_ERR,
+        },
+        _ => SENTINEL_ERR,
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_LOAD_F64(h: u64, offset: i32) -> f64 {
-    let table = shard_for_handle(h).lock().unwrap();
-    let Some(Entry::Instance(inst)) = table.get(h) else {
-        return 0.0;
-    };
-    let Some(off) = check_range(inst.bytes.len(), offset, 8) else {
-        return 0.0;
-    };
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(&inst.bytes[off..off + 8]);
-    f64::from_le_bytes(buf)
+    with_entry(h, |entry| match entry {
+        Some(Entry::Instance(inst)) => match check_range(inst.bytes.len(), offset, 8) {
+            Some(off) => {
+                let mut buf = [0u8; 8];
+                buf.copy_from_slice(&inst.bytes[off..off + 8]);
+                f64::from_le_bytes(buf)
+            }
+            None => 0.0,
+        },
+        _ => 0.0,
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_INSTANCE_STORE_F64(h: u64, offset: i32, value: f64) -> i64 {
-    let mut table = shard_for_handle(h).lock().unwrap();
-    let Some(Entry::Instance(inst)) = table.get_mut(h) else {
-        return SENTINEL_ERR;
-    };
-    let Some(off) = check_range(inst.bytes.len(), offset, 8) else {
-        return SENTINEL_ERR;
-    };
-    inst.bytes[off..off + 8].copy_from_slice(&value.to_le_bytes());
-    1
+    with_entry_mut(h, |entry| match entry {
+        Some(Entry::Instance(inst)) => match check_range(inst.bytes.len(), offset, 8) {
+            Some(off) => { inst.bytes[off..off + 8].copy_from_slice(&value.to_le_bytes()); 1 }
+            None => SENTINEL_ERR,
+        },
+        _ => SENTINEL_ERR,
+    })
 }
 
 #[cfg(test)]

@@ -1799,6 +1799,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "slotmap",
  "swc_common",
  "swc_ecma_ast",
  "swc_ecma_parser",
@@ -2085,6 +2086,15 @@ name = "siphasher"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
+
+[[package]]
+name = "slotmap"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
+dependencies = [
+ "version_check",
+]
 
 [[package]]
 name = "smallvec"

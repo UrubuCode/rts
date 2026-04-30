@@ -2,7 +2,7 @@
 
 use std::ffi::CString;
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
@@ -30,11 +30,10 @@ pub extern "C" fn __RTS_FN_NS_FFI_CSTRING_NEW(ptr: *const u8, len: i64) -> u64 {
 /// 0 se handle invalido.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FFI_CSTRING_PTR(handle: u64) -> u64 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::CString(c)) => c.as_ptr() as u64,
         _ => 0,
-    }
+    })
 }
 
 /// Libera o handle (no-op se invalido).

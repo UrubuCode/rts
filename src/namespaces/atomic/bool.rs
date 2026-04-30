@@ -5,17 +5,17 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, with_entry};
 
 fn with_atomic_bool<R>(handle: u64, default: R, f: impl FnOnce(&AtomicBool) -> R) -> R {
-    let ptr: *const AtomicBool = {
-        let guard = shard_for_handle(handle).lock().unwrap();
-        match guard.get(handle) {
-            Some(Entry::AtomicBool(a)) => a.as_ref() as *const _,
-            _ => return default,
-        }
-    }; // shard lock released — atomic op runs lock-free
-    // SAFETY: Box<AtomicBool> is heap-stable; same handle contract as AtomicI64.
+    let ptr: *const AtomicBool = with_entry(handle, |entry| match entry {
+        Some(Entry::AtomicBool(a)) => a.as_ref() as *const _,
+        _ => std::ptr::null(),
+    });
+    if ptr.is_null() {
+        return default;
+    }
+    // SAFETY: Box<AtomicBool> is heap-stable; lock released — atomic op runs lock-free.
     f(unsafe { &*ptr })
 }
 

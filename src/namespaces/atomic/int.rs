@@ -2,19 +2,18 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, with_entry};
 
 fn with_atomic_i64<R>(handle: u64, default: R, f: impl FnOnce(&AtomicI64) -> R) -> R {
-    let ptr: *const AtomicI64 = {
-        let guard = shard_for_handle(handle).lock().unwrap();
-        match guard.get(handle) {
-            Some(Entry::AtomicI64(a)) => a.as_ref() as *const _,
-            _ => return default,
-        }
-    }; // shard lock released here — atomic op runs lock-free
-    // SAFETY: Box<AtomicI64> is heap-allocated and stable. The slot lives as
-    // long as the handle is valid; caller must not free the handle concurrently
-    // with this call (same contract as all handle-based ops).
+    let ptr: *const AtomicI64 = with_entry(handle, |entry| match entry {
+        Some(Entry::AtomicI64(a)) => a.as_ref() as *const _,
+        _ => std::ptr::null(),
+    });
+    if ptr.is_null() {
+        return default;
+    }
+    // SAFETY: Box<AtomicI64> is heap-allocated and stable. Lock released —
+    // atomic op runs lock-free. Caller must not free the handle concurrently.
     f(unsafe { &*ptr })
 }
 

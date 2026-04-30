@@ -5,7 +5,7 @@
 //! adicionais (`emit2`, `emit_arr`) ficam follow-up.
 
 use crate::namespaces::gc::handles::{
-    Entry, RtsEventsEmitter, alloc_entry, free_handle, shard_for_handle,
+    Entry, RtsEventsEmitter, alloc_entry, free_handle, with_entry, with_entry_mut,
 };
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
@@ -20,22 +20,20 @@ fn with_emitter<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&RtsEventsEmitter) -> R,
 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::RtsEventsEmitter(e)) => f(e.as_ref()),
         _ => default,
-    }
+    })
 }
 
 fn with_emitter_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut RtsEventsEmitter) -> R,
 {
-    let mut guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get_mut(handle) {
+    with_entry_mut(handle, |entry| match entry {
         Some(Entry::RtsEventsEmitter(e)) => f(e.as_mut()),
         _ => default,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]

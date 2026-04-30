@@ -4,7 +4,7 @@
 //! with `name` set to the appropriate class name. All instance methods are
 //! shared (same symbol `__RTS_FN_GL_ERROR_*`).
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -24,15 +24,14 @@ fn alloc_error(name: &str, message: String) -> u64 {
 }
 
 fn get_field(handle: u64, field: &str) -> String {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { message, name }) => match field {
             "message" => message.clone(),
             "name" => name.clone(),
             _ => String::new(),
         },
         _ => String::new(),
-    }
+    })
 }
 
 fn alloc_str(s: String) -> u64 {

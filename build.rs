@@ -83,6 +83,18 @@ fn main() {
             deps_dir.display()
         )
     });
+    let gc_arena_rlib = find_rlib_named(&deps_dir, "libgc_arena-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate gc_arena rlib under {} (required for gc runtime symbols)",
+            deps_dir.display()
+        )
+    });
+    let slotmap_rlib = find_rlib_named(&deps_dir, "libslotmap-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate slotmap rlib under {} (required for gc runtime symbols)",
+            deps_dir.display()
+        )
+    });
 
     let mut cmd = Command::new(&rustc);
     cmd.args([
@@ -126,6 +138,10 @@ fn main() {
         .arg(format!("hashbrown={}", hashbrown_rlib.display()));
     cmd.arg("--extern")
         .arg(format!("equivalent={}", equivalent_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("gc_arena={}", gc_arena_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("slotmap={}", slotmap_rlib.display()));
 
     let status = cmd
         .status()

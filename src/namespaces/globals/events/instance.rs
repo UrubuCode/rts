@@ -22,7 +22,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 // ── Internal data ──────────────────────────────────────────────────────────────
 
@@ -49,12 +49,10 @@ impl EmitterData {
 // ── Handle accessors ──────────────────────────────────────────────────────────
 
 fn clone_arc(handle: u64) -> Option<Arc<Mutex<dyn Any + Send>>> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    if let Some(Entry::EventEmitter(arc)) = guard.get(handle) {
-        Some(arc.clone())
-    } else {
-        None
-    }
+    with_entry(handle, |entry| match entry {
+        Some(Entry::EventEmitter(arc)) => Some(arc.clone()),
+        _ => None,
+    })
 }
 
 fn with_emitter<F, R>(handle: u64, default: R, f: F) -> R
@@ -284,8 +282,6 @@ pub extern "C" fn __RTS_FN_GL_EE_LISTENER_COUNT(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_EE_EVENT_NAMES(handle: u64) -> u64 {
-    use crate::namespaces::gc::handles::alloc_entry;
-
     let names: Vec<String> = {
         let Some(arc) = clone_arc(handle) else { return 0; };
         let any = arc.lock().unwrap();
@@ -297,15 +293,10 @@ pub extern "C" fn __RTS_FN_GL_EE_EVENT_NAMES(handle: u64) -> u64 {
             .collect()
     };
 
-    // Build a Vec<i64> of string handles, return as a collections Vec handle.
-    let vec_handle = alloc_entry(Entry::Vec(Box::new(Vec::new())));
-    let shard = shard_for_handle(vec_handle);
-    let mut guard = shard.lock().unwrap();
-    if let Some(Entry::Vec(v)) = guard.get_mut(vec_handle) {
-        for name in names {
-            let str_handle = alloc_entry(Entry::String(name.into_bytes()));
-            v.push(str_handle as i64);
-        }
-    }
-    vec_handle
+    // Alloc string handles first (outside any handle closure), then build Vec.
+    let str_handles: Vec<i64> = names
+        .into_iter()
+        .map(|name| alloc_entry(Entry::String(name.into_bytes())) as i64)
+        .collect();
+    alloc_entry(Entry::Vec(Box::new(str_handles)))
 }

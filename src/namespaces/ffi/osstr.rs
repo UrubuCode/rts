@@ -2,7 +2,7 @@
 
 use std::ffi::OsString;
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -31,18 +31,13 @@ pub extern "C" fn __RTS_FN_NS_FFI_OSSTR_FROM_STR(ptr: *const u8, len: i64) -> u6
 /// handle invalido.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FFI_OSSTR_TO_STR(handle: u64) -> u64 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    let Some(Entry::OsString(os)) = guard.get(handle) else {
-        return 0;
-    };
-    match os.to_str() {
-        Some(s) => {
-            // Clona pra liberar o lock antes de chamar STRING_NEW
-            // (que tambem trava o HandleTable).
-            let bytes = s.as_bytes().to_vec();
-            drop(guard);
-            unsafe { __RTS_FN_NS_GC_STRING_NEW(bytes.as_ptr(), bytes.len() as i64) }
-        }
+    // Clone bytes inside with_entry to release lock before calling STRING_NEW.
+    let bytes: Option<Vec<u8>> = with_entry(handle, |entry| match entry {
+        Some(Entry::OsString(os)) => os.to_str().map(|s| s.as_bytes().to_vec()),
+        _ => None,
+    });
+    match bytes {
+        Some(b) => unsafe { __RTS_FN_NS_GC_STRING_NEW(b.as_ptr(), b.len() as i64) },
         None => 0,
     }
 }

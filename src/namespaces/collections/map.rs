@@ -8,7 +8,7 @@
 
 use indexmap::IndexMap;
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 /// Reconhece "array index" no sentido do ECMA-262: string que representa
 /// um u32 canônico (sem leading zeros exceto "0"; máximo 2^32 - 2).
@@ -44,22 +44,20 @@ fn with_map<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&IndexMap<String, i64>) -> R,
 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::Map(m)) => f(m.as_ref()),
         _ => default,
-    }
+    })
 }
 
 fn with_map_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut IndexMap<String, i64>) -> R,
 {
-    let mut guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get_mut(handle) {
+    with_entry_mut(handle, |entry| match entry {
         Some(Entry::Map(m)) => f(m.as_mut()),
         _ => default,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]

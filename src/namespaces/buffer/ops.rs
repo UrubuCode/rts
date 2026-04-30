@@ -8,7 +8,7 @@
 //! representacoes nativas. Out-of-bounds retorna 0 (para reads) ou
 //! vira no-op (para writes) — sem panics no boundary C.
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 // Para o runtime staticlib, `super::super::gc` resolve para
 // `crate::gc` (sem `namespaces`). Para o crate rts principal, resolve
@@ -22,27 +22,20 @@ fn with_buffer_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut Vec<u8>) -> R,
 {
-    // Roteia para o shard correto via `shard_for_handle`. Antes da
-    // migracao usavamos `table()` (shard 0 only), o que silenciosamente
-    // retornava `default` quando o buffer fora alocado em outro shard
-    // (ex: via `parallel.map`).
-    let mut guard = shard_for_handle(handle).lock().unwrap();
-    if let Some(Entry::Buffer(buf)) = guard.get_mut(handle) {
-        f(buf)
-    } else {
-        default
-    }
+    with_entry_mut(handle, |entry| match entry {
+        Some(Entry::Buffer(buf)) => f(buf),
+        _ => default,
+    })
 }
 
 fn with_buffer<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&Vec<u8>) -> R,
 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::Buffer(buf)) => f(buf),
         _ => default,
-    }
+    })
 }
 
 /// Aloca um buffer de `size` bytes, preenchido com zeros.

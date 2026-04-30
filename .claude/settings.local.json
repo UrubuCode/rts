@@ -147,7 +147,8 @@
       "Bash(awk '/\\\\.test\\\\.ts/ { last=$0 } /crashed|test failed/ { if \\(last\\) print last; last=\"\" }' /tmp/rts-test-full.log)",
       "Bash(grep -oE \"tests\\\\\\\\\\\\\\\\[a-z_0-9]+\\\\.test\\\\.ts\")",
       "Bash(sed -E 's/\\\\x1b\\\\[[0-9;]*m//g' /tmp/rts-test-full.log)",
-      "Bash(awk '/\\\\.test\\\\.ts$/ { last=$0 } /crashed|test failed|✗ 1 test/ { if \\(last != \"\"\\) { print last; last=\"\" } }' /tmp/rts-clean.log)"
+      "Bash(awk '/\\\\.test\\\\.ts$/ { last=$0 } /crashed|test failed|✗ 1 test/ { if \\(last != \"\"\\) { print last; last=\"\" } }' /tmp/rts-clean.log)",
+      "Bash(cargo update *)"
     ]
   }
 }
