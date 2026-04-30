@@ -93,6 +93,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "map_clone",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_MAP_CLONE",
+        args: &[AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "Returns a shallow copy of the map (new handle).",
+        ts_signature: "map_clone(h: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "map_key_at",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT",

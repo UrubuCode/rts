@@ -137,6 +137,20 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(handle: u64) {
     with_map_mut(handle, (), |m| m.clear());
 }
 
+/// Shallow clone do map — aloca novo handle com mesmas (key, value) pairs.
+/// Usado pelo desugar de `const { a, ...rest } = obj` (#312): rest e'
+/// inicializado como clone, e em seguida o codegen emite map_delete para
+/// cada key explicita.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLONE(handle: u64) -> u64 {
+    let cloned: Option<IndexMap<String, i64>> =
+        with_map(handle, None, |m| Some(m.clone()));
+    match cloned {
+        Some(m) => alloc_entry(Entry::Map(Box::new(m))),
+        None => 0,
+    }
+}
+
 /// Retorna a key na posição `idx` na ordem de enumeração definida pelo JS:
 /// 1. integer-indexed keys (string que parseia para u32 sem leading zero,
 ///    exceto "0") em ordem numérica ascendente;
