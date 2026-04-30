@@ -876,6 +876,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         "__RTS_FN_NS_BUFFER_TO_STRING",
         buf::__RTS_FN_NS_BUFFER_TO_STRING
     );
+    add_fn!("__RTS_FN_NS_BUFFER_EQUALS", buf::__RTS_FN_NS_BUFFER_EQUALS);
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_INDEX_OF",
+        buf::__RTS_FN_NS_BUFFER_INDEX_OF
+    );
 
     // ── namespaces::ffi ───────────────────────────────────────────────
     use crate::namespaces::ffi::{cstr as ffi_cstr, cstring as ffi_cstring, osstr as ffi_osstr};
