@@ -1680,6 +1680,20 @@ fn lower_map_set_builtin(
         Ok((p, l))
     }
 
+    // Arity check: a heuristica so' deve disparar quando o nº de args
+    // bate com a assinatura JS de Map/Set. Sem isso, qualquer obj literal
+    // com chave `add`/`set`/`get`/`has`/`delete` que carregue uma fn de
+    // user com aridade diferente cai aqui e retorna lixo (#311). Caller
+    // recebe None e tenta o path generico de map_get + call_indirect.
+    let arity = call.args.len();
+    let expected_arity = match method {
+        "set" => 2, // Map.set(key, value)
+        "add" | "delete" | "has" | "get" => 1,
+        _ => usize::MAX, // outros metodos nao tem checagem aqui
+    };
+    if expected_arity != usize::MAX && arity != expected_arity {
+        return Ok(None);
+    }
     match method {
         "set" => {
             // Map.set(key, value) — value pode ser handle ou number.
