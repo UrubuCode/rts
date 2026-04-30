@@ -157,6 +157,7 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         let init_coerced = match ty {
             ValTy::I32 => ctx.coerce_to_i32(TypedVal::new(init_val, inferred_ty)).val,
             ValTy::I64 => ctx.coerce_to_i64(TypedVal::new(init_val, inferred_ty)).val,
+            ValTy::F64 => ctx.coerce_to_f64(TypedVal::new(init_val, inferred_ty)).val,
             _ => init_val,
         };
 
@@ -175,7 +176,7 @@ pub(super) fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
     use swc_ecma_ast::{TsKeywordTypeKind, TsLit, TsLitType, TsType, TsUnionOrIntersectionType};
     if let TsType::TsKeywordType(kw) = ty {
         return Some(match kw.kind {
-            TsKeywordTypeKind::TsNumberKeyword => ValTy::I32,
+            TsKeywordTypeKind::TsNumberKeyword => ValTy::F64,
             TsKeywordTypeKind::TsBooleanKeyword => ValTy::Bool,
             TsKeywordTypeKind::TsStringKeyword => ValTy::Handle,
             TsKeywordTypeKind::TsVoidKeyword => ValTy::I64,
