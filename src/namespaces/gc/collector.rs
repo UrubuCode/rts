@@ -36,7 +36,7 @@ fn mark(handle: u64, visited: &mut HashSet<u64>) {
         let Some(shard) = shards().get(shard_idx) else {
             return;
         };
-        let Ok(table) = shard.lock() else { return };
+        let table = shard.lock().unwrap_or_else(|e| e.into_inner());
         let Some(entry) = table.get(handle) else {
             return;
         };
@@ -93,7 +93,7 @@ fn collect_refs(entry: &Entry) -> Vec<u64> {
 fn sweep(visited: &HashSet<u64>) -> u64 {
     let mut freed = 0u64;
     for (shard_idx, shard) in shards().iter().enumerate() {
-        let Ok(mut table) = shard.lock() else { continue };
+        let mut table = shard.lock().unwrap_or_else(|e| e.into_inner());
         let to_free = table.live_handles_snapshot(shard_idx);
         for h in to_free {
             if !visited.contains(&h) {
@@ -142,7 +142,7 @@ pub extern "C" fn __RTS_FN_NS_GC_COLLECT_VEC(roots_vec: u64) -> i64 {
         let Some(shard) = shards().get(shard_idx) else {
             return 0;
         };
-        let Ok(table) = shard.lock() else { return 0 };
+        let table = shard.lock().unwrap_or_else(|e| e.into_inner());
         match table.get(roots_vec) {
             Some(Entry::Vec(v)) => v.iter().map(|x| *x as u64).collect(),
             _ => return 0,

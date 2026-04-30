@@ -22,7 +22,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::namespaces::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
 
 // ── Internal data ──────────────────────────────────────────────────────────────
 
@@ -80,7 +80,12 @@ unsafe fn event_name(ptr: i64, len: i64) -> String {
     std::str::from_utf8(bytes).unwrap_or("").to_owned()
 }
 
-// ── Constructors ──────────────────────────────────────────────────────────────
+// ── Constructors / destructor ─────────────────────────────────────────────────
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_EE_FREE(handle: u64) -> i64 {
+    if free_handle(handle) { 1 } else { 0 }
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_EE_NEW() -> u64 {

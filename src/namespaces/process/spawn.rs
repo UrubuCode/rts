@@ -77,16 +77,25 @@ pub extern "C" fn __RTS_FN_NS_PROCESS_WAIT(handle: u64) -> i32 {
     }
 }
 
-/// Envia SIGKILL (ou TerminateProcess no Windows). Retorna 0 em
-/// sucesso, -1 em erro.
+/// Envia SIGKILL (ou TerminateProcess no Windows). Consome o handle —
+/// após kill o slot vira Free (mesmo que kill falhe por processo já
+/// terminado). Retorna 0 em sucesso, -1 em erro.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROCESS_KILL(handle: u64) -> i64 {
-    let mut guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get_mut(handle) {
-        Some(Entry::ProcessChild(c)) => match c.kill() {
-            Ok(_) => 0,
-            Err(_) => -1,
-        },
-        _ => -1,
+    let child: Option<Box<Child>> = {
+        let mut guard = shard_for_handle(handle).lock().unwrap();
+        match guard.get_mut(handle) {
+            Some(entry @ Entry::ProcessChild(_)) => {
+                let taken = std::mem::replace(entry, Entry::Free);
+                if let Entry::ProcessChild(c) = taken { Some(c) } else { None }
+            }
+            _ => None,
+        }
+    };
+    free_handle(handle);
+    let Some(mut child) = child else { return -1; };
+    match child.kill() {
+        Ok(_) => 0,
+        Err(_) => -1,
     }
 }

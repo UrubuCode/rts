@@ -382,12 +382,18 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         s.set((v + 1) % N_SHARDS);
         v
     });
-    shards()[shard_idx].lock().unwrap().alloc_in_shard(entry, shard_idx)
+    shards()[shard_idx]
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .alloc_in_shard(entry, shard_idx)
 }
 
 /// Frees a handle. Returns false if the handle is invalid or already freed.
 pub fn free_handle(handle: u64) -> bool {
-    shard_for_handle(handle).lock().unwrap().free(handle)
+    shard_for_handle(handle)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .free(handle)
 }
 
 #[cfg(test)]

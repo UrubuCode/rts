@@ -10,6 +10,18 @@
 use crate::abi::{AbiType, GlobalClassSpec, MemberKind, NamespaceMember};
 
 pub const MEMBERS: &[NamespaceMember] = &[
+    // ── Destructor ────────────────────────────────────────────────────────────
+    NamespaceMember {
+        name: "free",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_EE_FREE",
+        args: &[AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Frees the EventEmitter handle. Returns 1 on success, 0 if already invalid.",
+        ts_signature: "free(): number",
+        intrinsic: None,
+        pure: false,
+    },
     // ── Constructors ──────────────────────────────────────────────────────────
     NamespaceMember {
         name: "new",
