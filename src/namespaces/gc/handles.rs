@@ -402,6 +402,107 @@ pub fn free_handle(handle: u64) -> bool {
         .free(handle)
 }
 
+/// Immutable access to an entry. `f` receives `None` for invalid handles.
+pub fn with_entry<R>(handle: u64, f: impl FnOnce(Option<&Entry>) -> R) -> R {
+    if handle == 0 {
+        return f(None);
+    }
+    let guard = shard_for_handle(handle)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    f(guard.get(handle))
+}
+
+/// Mutable access to an entry. `f` receives `None` for invalid handles.
+pub fn with_entry_mut<R>(handle: u64, f: impl FnOnce(Option<&mut Entry>) -> R) -> R {
+    if handle == 0 {
+        return f(None);
+    }
+    let mut guard = shard_for_handle(handle)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    f(guard.get_mut(handle))
+}
+
+/// Simultaneous immutable access to two entries.
+pub fn with_two_entries<R>(
+    ha: u64,
+    hb: u64,
+    f: impl FnOnce(Option<&Entry>, Option<&Entry>) -> R,
+) -> R {
+    if ha == 0 && hb == 0 {
+        return f(None, None);
+    }
+    let sa = if ha == 0 {
+        0
+    } else {
+        ((ha & SLOT_MASK) & SHARD_MASK) as usize
+    };
+    let sb = if hb == 0 {
+        0
+    } else {
+        ((hb & SLOT_MASK) & SHARD_MASK) as usize
+    };
+
+    if ha != 0 && hb != 0 && sa == sb {
+        let guard = shard_for_handle(ha)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        return f(guard.get(ha), guard.get(hb));
+    }
+
+    if sa <= sb {
+        let ga = if ha == 0 {
+            None
+        } else {
+            Some(
+                shards()[sa]
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()),
+            )
+        };
+        let gb = if hb == 0 {
+            None
+        } else {
+            Some(
+                shards()[sb]
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()),
+            )
+        };
+        let ea = ga.as_ref().and_then(|g| g.get(ha));
+        let eb = gb.as_ref().and_then(|g| g.get(hb));
+        f(ea, eb)
+    } else {
+        let gb = Some(
+            shards()[sb]
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
+        let ga = Some(
+            shards()[sa]
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
+        let ea = ga.as_ref().and_then(|g| g.get(ha));
+        let eb = gb.as_ref().and_then(|g| g.get(hb));
+        f(ea, eb)
+    }
+}
+
+/// Compatibility hook for incremental GC pacing.
+/// Sharded handle table has no incremental collector, so this is a no-op.
+pub fn collect_debt() {}
+
+/// Compatibility hook for forced GC cycle.
+/// Sharded handle table has no cycle collector, so this is a no-op.
+pub fn finish_cycle() {}
+
+/// Count of currently live handles (allocated minus freed).
+pub fn live_handle_count() -> usize {
+    LIVE_HANDLES.load(Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
