@@ -145,3 +145,16 @@ impl Default for CompileOptions {
         }
     }
 }
+
+/// Le `RTS_OPT_LEVEL` e devolve um valor aceito por Cranelift.
+/// Aceita: `none` | `speed` | `speed_and_size`. Default `speed`.
+/// `none` reduz tempo de compilacao em troca de codigo mais lento — util
+/// pra debug rapido de codegen e iteracoes em testes.
+pub fn opt_level() -> &'static str {
+    match std::env::var("RTS_OPT_LEVEL").as_deref() {
+        Ok("none") => "none",
+        Ok("speed_and_size") => "speed_and_size",
+        Ok("speed") => "speed",
+        _ => "speed",
+    }
+}

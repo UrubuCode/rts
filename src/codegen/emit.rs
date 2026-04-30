@@ -84,7 +84,7 @@ fn build_module() -> Result<ObjectModule> {
     // Speed: inlining and LICM help hot loops like bench/monte_carlo_pi;
     // impact on non-loop code is negligible.
     flag_builder
-        .set("opt_level", "speed")
+        .set("opt_level", crate::compile_options::opt_level())
         .map_err(|e| anyhow!("cranelift flag error: {e}"))?;
     // Egraph e alias analysis sao default-on em Cranelift recente mas
     // a explicitacao garante CSE/constant fold/LICM agressivo.
