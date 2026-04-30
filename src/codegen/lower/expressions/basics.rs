@@ -203,13 +203,17 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
         )?;
         let rhs = ctx.coerce_to_handle(val)?.val;
         let inst = ctx.builder.ins().call(concat, &[acc.val, rhs]);
-        acc = TypedVal::new(ctx.builder.inst_results(inst)[0], ValTy::Handle);
+        let r = ctx.builder.inst_results(inst)[0];
+        ctx.register_temp_handle(r);
+        acc = TypedVal::new(r, ValTy::Handle);
 
         let bytes = cook(quasi);
         if !bytes.is_empty() {
             let qh = ctx.emit_str_handle(&bytes)?;
             let inst = ctx.builder.ins().call(concat, &[acc.val, qh.val]);
-            acc = TypedVal::new(ctx.builder.inst_results(inst)[0], ValTy::Handle);
+            let r = ctx.builder.inst_results(inst)[0];
+            ctx.register_temp_handle(r);
+            acc = TypedVal::new(r, ValTy::Handle);
         }
     }
 
