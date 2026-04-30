@@ -556,8 +556,25 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
                     if let Some(class_name) =
                         super::decls::class_name_from_annotation(&ann.type_ann)
                     {
-                        if ctx.classes.contains_key(&class_name) {
-                            class_for_catch = Some(class_name);
+                        // (#300) `catch (e: Error)` precisa popular
+                        // local_class_ty mesmo para global classes (Error,
+                        // TypeError, etc) — sem isso, `e.message` cai em
+                        // map_get_static em vez de __RTS_FN_GL_ERROR_MESSAGE.
+                        let is_error_class = matches!(
+                            class_name.as_str(),
+                            "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+                        );
+                        if ctx.classes.contains_key(&class_name)
+                            || crate::abi::global_class_lookup(&class_name).is_some()
+                        {
+                            class_for_catch = Some(class_name.clone());
+                        }
+                        if is_error_class {
+                            let mut ft: std::collections::HashMap<String, ValTy> =
+                                std::collections::HashMap::new();
+                            ft.insert("message".into(), ValTy::Handle);
+                            ft.insert("name".into(), ValTy::Handle);
+                            ctx.local_obj_field_types.insert(name.to_string(), ft);
                         }
                     }
                 }
@@ -573,7 +590,12 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
                             cls.as_str(),
                             "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
                         );
-                        if ctx.classes.contains_key(&cls) {
+                        // (#300) inferencia tambem aceita global classes —
+                        // sem isso `try { throw new Error(...) } catch (e) { e.message }`
+                        // (sem anotacao) caia em map_get.
+                        if ctx.classes.contains_key(&cls)
+                            || crate::abi::global_class_lookup(&cls).is_some()
+                        {
                             class_for_catch = Some(cls.clone());
                         }
                         if is_error_class {
