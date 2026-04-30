@@ -279,6 +279,12 @@ impl HandleTable {
         if slot.generation != expected_gen {
             return false;
         }
+        // Slot ja' liberado (gen bate, mas entry e' Free) — handle stale
+        // mas nao double-free real. Nao decrementa pra evitar wrap-around
+        // do counter atomico em cenarios de auto-free agressivo.
+        if matches!(slot.entry, Entry::Free) {
+            return false;
+        }
         cleanup_entry(&mut slot.entry);
         slot.entry = Entry::Free;
         self.free_list.push(table_slot);
