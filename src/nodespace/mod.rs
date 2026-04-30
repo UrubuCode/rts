@@ -1,5 +1,6 @@
 use crate::abi::AbiType;
 
+pub mod crypto;
 pub mod fs;
 pub mod os;
 pub mod path;
@@ -25,6 +26,7 @@ pub const NODE_SPECS: &[&NodespaceSpec] = &[
     &os::SPEC,
     &process::SPEC,
     &util::SPEC,
+    &crypto::SPEC,
 ];
 
 /// Resolves a codegen-qualified name like `"node_fs.readFileSync"` to its member.
