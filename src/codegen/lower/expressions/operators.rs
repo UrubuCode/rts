@@ -857,10 +857,9 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
         let lhs_h = ctx.coerce_to_handle(lhs)?.val;
         let rhs_h = ctx.coerce_to_handle(rhs)?.val;
         let inst = ctx.builder.ins().call(concat, &[lhs_h, rhs_h]);
-        return Ok(TypedVal::new(
-            ctx.builder.inst_results(inst)[0],
-            ValTy::Handle,
-        ));
+        let result = ctx.builder.inst_results(inst)[0];
+        ctx.register_temp_handle(result);
+        return Ok(TypedVal::new(result, ValTy::Handle));
     }
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
     let val = match ty {

@@ -259,6 +259,21 @@ pub struct FnCtx<'m, 'fb> {
     /// Stack of scopes. The first entry is the function scope (where `var`
     /// declarations live); subsequent entries are block scopes for `let`/`const`.
     pub locals: Vec<HashMap<String, LocalVar>>,
+    /// (#155 fase 1) Handles owned por escopo, candidatos a string_free
+    /// no pop_scope. Paralelo a `locals`. Cada entrada e' o nome da var
+    /// + Variable Cranelift; ao popar, o codegen pode emitir
+    /// `string_free(var)` se feature flag estiver ativa.
+    pub owned_handles_per_scope: Vec<Vec<(String, Variable)>>,
+    /// (#155 fase 1) Handles temporarios (sem nome de var) produzidos
+    /// dentro do escopo corrente. Cada entry tem o Value + o Block onde
+    /// foi criado, pra que pop_scope so' libere os que continuam
+    /// dominando o ponto de free (mesmo block ou ancestor direto sem
+    /// branches no meio).
+    pub temp_handles_per_scope: Vec<Vec<(Value, Block)>>,
+    /// Nomes que escapam do bloco corrente (return/atribuicao external/
+    /// captura por closure). Populado pre-lower via escape analysis em
+    /// `lower_block`. Vars listadas aqui nao sao auto-freed.
+    pub escaped_in_block: Vec<std::collections::HashSet<String>>,
     /// Module-scope globals visible from functions.
     pub globals: &'fb HashMap<String, GlobalVar>,
     /// User-defined function signatures by source name.
@@ -390,6 +405,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             extern_cache,
             data_counter,
             locals: vec![HashMap::new()],
+            owned_handles_per_scope: vec![Vec::new()],
+            temp_handles_per_scope: vec![Vec::new()],
+            escaped_in_block: vec![std::collections::HashSet::new()],
             globals,
             user_fns,
             fn_class_returns,
@@ -486,12 +504,107 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     /// Pushes a new block scope. Variables declared with `let`/`const` go here.
     pub fn push_scope(&mut self) {
         self.locals.push(HashMap::new());
+        self.owned_handles_per_scope.push(Vec::new());
+        self.temp_handles_per_scope.push(Vec::new());
+        self.escaped_in_block.push(std::collections::HashSet::new());
     }
 
-    /// Pops the current block scope.
+    /// Pops the current block scope. Antes de descartar, emite
+    /// `string_free` para handles owned que nao escaparam (#155 fase 1).
+    /// So' age se feature flag `RTS_AUTO_FREE_HANDLES=1` estiver ativa
+    /// e o IR atual ainda for alcancavel (nao-terminator).
     pub fn pop_scope(&mut self) {
         if self.locals.len() > 1 {
+            self.try_emit_scope_frees();
             self.locals.pop();
+            self.owned_handles_per_scope.pop();
+            self.temp_handles_per_scope.pop();
+            self.escaped_in_block.pop();
+        }
+    }
+
+    fn try_emit_scope_frees(&mut self) {
+        // Feature flag: opt-in via env var enquanto a analise de escape
+        // amadurece. Off por padrao para evitar regressoes.
+        if std::env::var("RTS_AUTO_FREE_HANDLES").ok().as_deref() != Some("1") {
+            return;
+        }
+        if self.builder.is_unreachable() {
+            return;
+        }
+        // Cranelift verifier rejeita instrucoes apos terminator no
+        // mesmo block. Se o block atual ja' fechou com return/jump/
+        // brif, nao da' pra adicionar mais calls.
+        if let Some(b) = self.builder.current_block() {
+            if let Some(last) = self.builder.func.layout.last_inst(b) {
+                use cranelift_codegen::ir::InstructionData;
+                let dfg = &self.builder.func.dfg;
+                if matches!(
+                    dfg.insts[last],
+                    InstructionData::Jump { .. }
+                        | InstructionData::Brif { .. }
+                        | InstructionData::BranchTable { .. }
+                        | InstructionData::MultiAry { .. } // return / return_call
+                        | InstructionData::Trap { .. }
+                ) {
+                    return;
+                }
+            }
+        }
+        let owned = self.owned_handles_per_scope.last().cloned().unwrap_or_default();
+        let temps = self.temp_handles_per_scope.last().cloned().unwrap_or_default();
+        if owned.is_empty() && temps.is_empty() {
+            return;
+        }
+        let escaped = self.escaped_in_block.last().cloned().unwrap_or_default();
+        // Sentinel "*" significa que houve closure no bloco — todas
+        // as vars potencialmente escaparam, nao libera nada.
+        if escaped.contains("*") {
+            return;
+        }
+        let free_fn = match self.get_extern(
+            "__RTS_FN_NS_GC_STRING_FREE",
+            &[cl::I64],
+            Some(cl::I64),
+        ) {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        for (name, var) in owned {
+            if escaped.contains(&name) {
+                continue;
+            }
+            let h = self.builder.use_var(var);
+            self.builder.ins().call(free_fn, &[h]);
+        }
+        // Temp so' eh seguro liberar quando o block onde foi criado
+        // domina o ponto atual. Heuristica simples: so' libera temps
+        // cujo block bate com o block corrente (sem branches no meio).
+        let cur_block = self.builder.current_block();
+        for (h, block) in temps {
+            if Some(block) == cur_block {
+                self.builder.ins().call(free_fn, &[h]);
+            }
+        }
+    }
+
+    /// Registra um handle temporario (sem nome) produzido no escopo
+    /// corrente para auto-free no pop_scope. Chamadores: emit_str_handle
+    /// (string_from_static), coerce_to_handle (string_from_i64/f64),
+    /// concat de strings.
+    pub fn register_temp_handle(&mut self, h: Value) {
+        if std::env::var("RTS_AUTO_FREE_HANDLES").ok().as_deref() != Some("1") {
+            return;
+        }
+        if self.locals.len() <= 1 {
+            return; // function scope — let main lifetime cuidar.
+        }
+        let cur_block = match self.builder.current_block() {
+            Some(b) => b,
+            None => return,
+        };
+        if let Some(top) = self.temp_handles_per_scope.last_mut() {
+            top.push((h, cur_block));
         }
     }
 
@@ -524,6 +637,20 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             self.locals.len() - 1
         };
         self.locals[idx].insert(name.to_string(), slot);
+        // (#155 fase 1) Registra handles `const` em escopo de bloco
+        // como candidatos a string_free no pop_scope. So' const Handle
+        // em block scope (nao function/var scope).
+        if is_const && matches!(ty, ValTy::Handle) && !function_scope && self.locals.len() > 1 {
+            self.owned_handles_per_scope[idx].push((name.to_string(), var));
+            // O `init` do declare ja' foi registrado como temp no
+            // emit_str_handle/coerce_to_handle/concat. Remove esse
+            // temp pra evitar double-free (var ja' vai liberar).
+            if let Some(top) = self.temp_handles_per_scope.last_mut() {
+                if top.last().map(|(v, _)| *v) == Some(init) {
+                    top.pop();
+                }
+            }
+        }
     }
 
     /// Garante que `val` tem o cl_type esperado pela Variable de tipo `ty`.
@@ -716,6 +843,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         )?;
         let inst = self.builder.ins().call(fref, &[ptr, len]);
         let val = self.builder.inst_results(inst)[0];
+        // (#155 fase 1) Auto-free: registra como temp pra liberar no
+        // fim do escopo se RTS_AUTO_FREE_HANDLES=1.
+        self.register_temp_handle(val);
         Ok(TypedVal::new(val, ValTy::Handle))
     }
 
@@ -739,6 +869,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                     self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64", &[cl::I64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[as_i64.val]);
                 let val = self.builder.inst_results(inst)[0];
+                self.register_temp_handle(val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
             ValTy::F64 => {
@@ -746,6 +877,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                     self.get_extern("__RTS_FN_NS_GC_STRING_FROM_F64", &[cl::F64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[tv.val]);
                 let val = self.builder.inst_results(inst)[0];
+                self.register_temp_handle(val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
         }
