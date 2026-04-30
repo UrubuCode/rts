@@ -1508,6 +1508,15 @@ fn lower_var_member_call(
     let inst = ctx.builder.ins().call(map_get, &[obj_h, kp, kl]);
     let callee_val = ctx.builder.inst_results(inst)[0];
 
+    // Guard runtime: se obj nao for um Map (e.g. Vec sem o metodo
+    // requested como `arr.filter` antes da feature #267 estar pronta),
+    // map_get retorna 0 e o call_indirect saltaria pra endereco 0
+    // → segfault silencioso. Trap explicito da diagnostico claro em
+    // vez de access violation.
+    ctx.builder
+        .ins()
+        .trapz(callee_val, cranelift_codegen::ir::TrapCode::user(1).unwrap());
+
     // namespace fns address-taken sao SystemV/Win64 (ver
     // user_call_conv). call_indirect tem que casar a callconv da
     // target ou args/return chegam corrompidos.
