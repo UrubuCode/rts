@@ -253,7 +253,7 @@ pub struct ClassMeta {
 pub struct FnCtx<'m, 'fb> {
     pub builder: &'fb mut FunctionBuilder<'m>,
     pub module: &'m mut dyn Module,
-    pub extern_cache: &'fb mut HashMap<&'static str, cranelift_module::FuncId>,
+    pub extern_cache: &'fb mut HashMap<String, cranelift_module::FuncId>,
     pub data_counter: &'fb mut u32,
 
     /// Stack of scopes. The first entry is the function scope (where `var`
@@ -373,7 +373,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn new(
         builder: &'fb mut FunctionBuilder<'m>,
         module: &'m mut dyn Module,
-        extern_cache: &'fb mut HashMap<&'static str, cranelift_module::FuncId>,
+        extern_cache: &'fb mut HashMap<String, cranelift_module::FuncId>,
         data_counter: &'fb mut u32,
         globals: &'fb HashMap<String, GlobalVar>,
         user_fns: &'fb HashMap<String, UserFnAbi>,
@@ -668,7 +668,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 .module
                 .declare_function(symbol, Linkage::Import, &sig)
                 .map_err(|e| anyhow!("failed to declare extern {symbol}: {e}"))?;
-            self.extern_cache.insert(symbol, id);
+            self.extern_cache.insert(symbol.to_string(), id);
         }
         let id = *self.extern_cache.get(symbol).expect("extern declared");
         let fref = self.module.declare_func_in_func(id, self.builder.func);

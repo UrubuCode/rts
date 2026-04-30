@@ -57,7 +57,7 @@ pub fn compile_program_to_object(
 }
 
 fn collect_used_namespaces(
-    extern_cache: &HashMap<&'static str, cranelift_module::FuncId>,
+    extern_cache: &HashMap<String, cranelift_module::FuncId>,
 ) -> HashSet<String> {
     extern_cache
         .keys()

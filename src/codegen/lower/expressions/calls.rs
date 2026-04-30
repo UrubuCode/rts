@@ -579,10 +579,10 @@ fn emit_named_method_call(
         .get(fn_name)
         .ok_or_else(|| anyhow!("user fn `{fn_name}` nao registrada"))?
         .clone();
-    let mangled: &'static str = Box::leak(format!("__user_{fn_name}").into_boxed_str());
+    let mangled: String = format!("__user_{fn_name}");
     let fn_id = *ctx
         .extern_cache
-        .get(mangled)
+        .get(mangled.as_str())
         .ok_or_else(|| anyhow!("mangled `{mangled}` nao registrado"))?;
     let fref = ctx.fref_for_id(fn_id);
 
@@ -819,10 +819,10 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             .get(&init_fn_name)
             .ok_or_else(|| anyhow!("init de classe `{init_owner}` nao registrado"))?
             .clone();
-        let mangled: &'static str = Box::leak(format!("__user_{init_fn_name}").into_boxed_str());
+        let mangled: String = format!("__user_{init_fn_name}");
         let fn_id = *ctx
             .extern_cache
-            .get(mangled)
+            .get(mangled.as_str())
             .ok_or_else(|| anyhow!("init mangled `{mangled}` faltando"))?;
         let fref = ctx.fref_for_id(fn_id);
 
@@ -893,10 +893,10 @@ fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         .get(&init_fn_name)
         .ok_or_else(|| anyhow!("super init de `{init_owner}` nao registrado"))?
         .clone();
-    let mangled: &'static str = Box::leak(format!("__user_{init_fn_name}").into_boxed_str());
+    let mangled: String = format!("__user_{init_fn_name}");
     let fn_id = *ctx
         .extern_cache
-        .get(mangled)
+        .get(mangled.as_str())
         .ok_or_else(|| anyhow!("super init mangled `{mangled}` faltando"))?;
     let fref = ctx.fref_for_id(fn_id);
 
@@ -1198,10 +1198,10 @@ fn emit_method_call(
         .get(&fn_name)
         .ok_or_else(|| anyhow!("metodo `{owner}.{method_name}` nao registrado"))?
         .clone();
-    let mangled: &'static str = Box::leak(format!("__user_{fn_name}").into_boxed_str());
+    let mangled: String = format!("__user_{fn_name}");
     let fn_id = *ctx
         .extern_cache
-        .get(mangled)
+        .get(mangled.as_str())
         .ok_or_else(|| anyhow!("metodo mangled `{mangled}` faltando"))?;
     let fref = ctx.fref_for_id(fn_id);
 
@@ -1320,10 +1320,10 @@ pub(super) fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal>
     // User fns cujo endereço é tomado são declaradas com C callconv
     // (ver `address_taken_fns` em compile_program / #206) — seguro para
     // `thread.spawn` e FFI.
-    let mangled: &'static str = Box::leak(format!("__user_{name}").into_boxed_str());
+    let mangled: String = format!("__user_{name}");
     let func_id = *ctx
         .extern_cache
-        .get(mangled)
+        .get(mangled.as_str())
         .ok_or_else(|| anyhow!("user function `{name}` has no cached id"))?;
     let fref = ctx.fref_for_id(func_id);
     let ptr_ty = ctx.module.isa().pointer_type();
@@ -1971,7 +1971,7 @@ fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> 
             .module
             .declare_function(member.symbol, Linkage::Import, &sig)
             .map_err(|e| anyhow!("failed to declare {}: {e}", member.symbol))?;
-        ctx.extern_cache.insert(member.symbol, id);
+        ctx.extern_cache.insert(member.symbol.to_string(), id);
         id
     };
     let fref = ctx.fref_for_id(func_id);
@@ -2122,7 +2122,7 @@ fn lower_ns_call_body(
             .module
             .declare_function(member.symbol, Linkage::Import, &sig)
             .map_err(|e| anyhow!("failed to declare {}: {e}", member.symbol))?;
-        ctx.extern_cache.insert(member.symbol, id);
+        ctx.extern_cache.insert(member.symbol.to_string(), id);
         id
     } else {
         *ctx.extern_cache.get(member.symbol).unwrap()
@@ -2250,7 +2250,7 @@ fn lower_node_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Resu
             .module
             .declare_function(member.symbol, Linkage::Import, &sig)
             .map_err(|e| anyhow!("failed to declare {}: {e}", member.symbol))?;
-        ctx.extern_cache.insert(member.symbol, id);
+        ctx.extern_cache.insert(member.symbol.to_string(), id);
         id
     } else {
         *ctx.extern_cache.get(member.symbol).unwrap()
@@ -2399,11 +2399,11 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         .ok_or_else(|| anyhow!("call to undeclared user function `{name}`"))?
         .clone();
 
-    let mangled: &'static str = Box::leak(format!("__user_{name}").into_boxed_str());
-    if !ctx.extern_cache.contains_key(mangled) {
+    let mangled: String = format!("__user_{name}");
+    if !ctx.extern_cache.contains_key(mangled.as_str()) {
         return Err(anyhow!("call to undeclared user function `{name}`"));
     }
-    let func_id = *ctx.extern_cache.get(mangled).unwrap();
+    let func_id = *ctx.extern_cache.get(mangled.as_str()).unwrap();
     let fref = ctx.fref_for_id(func_id);
 
     if call.args.len() != abi.params.len() {

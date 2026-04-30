@@ -4719,7 +4719,7 @@ fn make_slot_assign(slot_name: &str) -> Statement {
 pub fn compile_program(
     program: &mut Program,
     module: &mut dyn Module,
-    extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
+    extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
     expand_static_fields(program);
@@ -4868,8 +4868,8 @@ pub fn compile_program(
     for fn_decl in &fn_decls {
         let address_taken = address_taken_fns.contains(&fn_decl.name);
         let info = declare_user_fn(module, fn_decl, address_taken)?;
-        let mangled: &'static str = Box::leak(format!("__user_{}", fn_decl.name).into_boxed_str());
-        extern_cache.insert(mangled, info.id);
+        let mangled: String = format!("__user_{}", fn_decl.name);
+        extern_cache.insert(mangled.clone(), info.id);
         user_fns.insert(fn_decl.name.clone(), info);
     }
 
@@ -5904,7 +5904,7 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
 
 fn compile_user_fn(
     module: &mut dyn Module,
-    extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
+    extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
@@ -6096,7 +6096,7 @@ fn compile_user_fn(
 
 fn compile_main(
     module: &mut dyn Module,
-    extern_cache: &mut HashMap<&'static str, cranelift_module::FuncId>,
+    extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
     data_counter: &mut u32,
     globals: &HashMap<String, GlobalVar>,
     user_fns: &HashMap<String, UserFnAbi>,
