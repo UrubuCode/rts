@@ -28,7 +28,7 @@ function doubleWorker(x: number): void {
   // reads x, pure computation — just validate it runs
   const _ = x * 2;
 }
-const dfp = doubleWorker as unknown as number;
+const dfp = getPointer(doubleWorker);
 const nums = [10, 20, 30, 40];
 parallel.for_each(nums, dfp);
 print("manual-foreach-ok");
@@ -37,7 +37,7 @@ print("manual-foreach-ok");
 function squareFn(x: number): number {
   return x * x;
 }
-const sfp = squareFn as unknown as number;
+const sfp = getPointer(squareFn);
 const src = [1, 2, 3, 4, 5];
 const squared = parallel.map(src, sfp);
 const len = collections.vec_len(squared);
@@ -56,7 +56,7 @@ print(hv4); gc.string_free(hv4); // expect 25
 function addFn(acc: number, x: number): number {
   return acc + x;
 }
-const afp = addFn as unknown as number;
+const afp = getPointer(addFn);
 const total = parallel.reduce(src, 0, afp);
 const ht = gc.string_from_i64(total);
 print(ht); gc.string_free(ht); // expect 15

@@ -19,13 +19,13 @@ function workerF64Double(arg: number): void {
 }
 
 // Spawns top-level — exercitam o fix.
-const fp1 = workerF64 as unknown as number;
+const fp1 = getPointer(workerF64);
 const t1 = thread.spawn(fp1, 3.14);
 thread.join(t1);
 const got1 = atomic.f64_load(fSlot);
 
 atomic.f64_store(fSlot, 0.0);
-const fp2 = workerF64Double as unknown as number;
+const fp2 = getPointer(workerF64Double);
 const t2 = thread.spawn(fp2, -2.5);
 thread.join(t2);
 const got2 = atomic.f64_load(fSlot);

@@ -72,7 +72,7 @@ if (o == 0) {
 } else {
   print("once-ok");
 }
-const fp = setFlag as unknown as number;
+const fp = getPointer(setFlag);
 sync.once_call(o, fp);
 sync.once_call(o, fp);
 sync.once_call(o, fp);

@@ -34,7 +34,7 @@ thread.sleep_ms(1);
 print("sleep-ok");
 
 // 3) spawn(fp, 7) retorna handle != 0 — arg 7 deve chegar ao worker
-const fp = worker as unknown as number;
+const fp = getPointer(worker);
 const t = thread.spawn(fp, 7);
 if (t == 0) {
   print("FAIL: thread.spawn retornou 0");

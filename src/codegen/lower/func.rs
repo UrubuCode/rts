@@ -988,6 +988,7 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         .collect();
 
     // Top-level aliases: `const fp = worker as unknown as number;`
+    //                  ou `const fp = getPointer(worker);`
     // Marca `fp` como alias da user fn para o lifter detectar idents
     // wrappados (necessario p/ thread.spawn, sync.once_call etc).
     fn peel_for_alias<'a>(e: &'a Expr) -> &'a Expr {
@@ -996,6 +997,21 @@ fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
             Expr::TsTypeAssertion(a) => peel_for_alias(&a.expr),
             Expr::TsConstAssertion(a) => peel_for_alias(&a.expr),
             Expr::Paren(p) => peel_for_alias(&p.expr),
+            // getPointer(fn) → fn
+            Expr::Call(c) => {
+                if let Callee::Expr(callee) = &c.callee {
+                    if let Expr::Ident(id) = callee.as_ref() {
+                        if id.sym.as_str() == "getPointer" {
+                            if let Some(arg) = c.args.first() {
+                                if arg.spread.is_none() {
+                                    return peel_for_alias(&arg.expr);
+                                }
+                            }
+                        }
+                    }
+                }
+                e
+            }
             _ => e,
         }
     }

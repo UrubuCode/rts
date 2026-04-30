@@ -316,6 +316,39 @@ fn lower_js_global_call(
             let v = ctx.builder.ins().iconst(cl::I64, 0);
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
+        // getPointer(fn) — materializa o endereço de uma user fn como i64.
+        // Substitui o padrão `fn as unknown as number` nos call sites.
+        "getPointer" => {
+            let arg = call
+                .args
+                .first()
+                .ok_or_else(|| anyhow!("getPointer requires 1 argument"))?;
+            if arg.spread.is_some() {
+                return Ok(None);
+            }
+            // Peel type assertions: getPointer(fn as SomeType) -> getPointer(fn)
+            fn peel_ty(e: &Expr) -> &Expr {
+                match e {
+                    Expr::TsAs(a) => peel_ty(&a.expr),
+                    Expr::TsTypeAssertion(a) => peel_ty(&a.expr),
+                    Expr::TsConstAssertion(a) => peel_ty(&a.expr),
+                    Expr::Paren(p) => peel_ty(&p.expr),
+                    _ => e,
+                }
+            }
+            let inner = peel_ty(&arg.expr);
+            if let Expr::Ident(id) = inner {
+                let name = id.sym.as_str();
+                // Se for user fn direta, emite func_addr.
+                // Se for var local (alias de fp), lower_expr já devolve o i64 armazenado.
+                if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
+                    return Ok(Some(emit_user_fn_addr(ctx, name)?));
+                }
+            }
+            // Fallback: expressão que já contém um ponteiro (var local, param, etc)
+            let tv = super::lower_expr(ctx, inner)?;
+            Ok(Some(TypedVal::new(ctx.coerce_to_i64(tv).val, ValTy::I64)))
+        }
         _ => Ok(None),
     }
 }

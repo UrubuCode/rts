@@ -10,7 +10,7 @@ function print(value: string): void {
 function cube(x: number): number {
   return x * x * x;
 }
-const cfp = cube as unknown as number;
+const cfp = getPointer(cube);
 const nums = [1, 2, 3, 4, 5];
 const cubed = parallel.map(nums, cfp);
 
@@ -35,7 +35,7 @@ collections.vec_push(h, 30);
 function halve(x: number): number {
   return x / 2;
 }
-const hfp = halve as unknown as number;
+const hfp = getPointer(halve);
 const halved = parallel.map(h, hfp);
 
 const h0 = gc.string_from_i64(collections.vec_get(halved, 0));
@@ -48,7 +48,7 @@ print(h1); gc.string_free(h1); // 15
 function sumTwo(acc: number, x: number): number {
   return acc + x;
 }
-const sfp = sumTwo as unknown as number;
+const sfp = getPointer(sumTwo);
 const total = parallel.reduce(cubed, 0, sfp);
 const ht = gc.string_from_i64(total);
 print(ht); gc.string_free(ht); // 1+8+27+64+125 = 225
@@ -56,7 +56,7 @@ print(ht); gc.string_free(ht); // 1+8+27+64+125 = 225
 // 4) parallel.map empty vec → vec_len = 0.
 const empty = collections.vec_new();
 function identity(x: number): number { return x; }
-const ifp = identity as unknown as number;
+const ifp = getPointer(identity);
 const mapped_empty = parallel.map(empty, ifp);
 const eLen = gc.string_from_i64(collections.vec_len(mapped_empty));
 print(eLen); gc.string_free(eLen); // 0

@@ -10,7 +10,7 @@ function workerI64(arg: i64): void {
 }
 
 function spawnAndJoinHelper(value: i64): void {
-  const fp = workerI64 as unknown as number;
+  const fp = getPointer(workerI64);
   const t = thread.spawn(fp, value);
   thread.join(t);
 }
@@ -18,7 +18,7 @@ function spawnAndJoinHelper(value: i64): void {
 describe("fixture:thread_arg_passing", () => {
   test("spawn(fp, N) entrega N ao worker(arg: i64)", () => {
     atomic.i64_store(sumI64, 0);
-    const fp = workerI64 as unknown as number;
+    const fp = getPointer(workerI64);
     const t = thread.spawn(fp, 42);
     thread.join(t);
     const got = atomic.i64_load(sumI64);
@@ -32,7 +32,7 @@ describe("fixture:thread_arg_passing", () => {
 
   test("multiplos spawns paralelos com args diferentes", () => {
     atomic.i64_store(sumI64, 0);
-    const fp = workerI64 as unknown as number;
+    const fp = getPointer(workerI64);
     const t1 = thread.spawn(fp, 10);
     const t2 = thread.spawn(fp, 20);
     const t3 = thread.spawn(fp, 30);
