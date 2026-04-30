@@ -185,6 +185,28 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    NamespaceMember {
+        name: "equals",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BUFFER_EQUALS",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::Bool,
+        doc: "Byte-wise equality of two buffers.",
+        ts_signature: "equals(a: number, b: number): boolean",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "index_of",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_BUFFER_INDEX_OF",
+        args: &[AbiType::U64, AbiType::I32, AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Index of first occurrence of byte starting at `from`. Returns -1 if not found.",
+        ts_signature: "index_of(handle: number, byte: number, from: number): number",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {

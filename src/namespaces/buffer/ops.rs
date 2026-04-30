@@ -252,6 +252,37 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_FILL(handle: u64, byte: i32, len: i64) {
     });
 }
 
+/// Compara conteudo byte-a-byte de dois buffers. Retorna 1 se iguais,
+/// 0 se diferentes (ou algum handle invalido). Equivalente a
+/// `Buffer.prototype.equals` em node:buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_BUFFER_EQUALS(a: u64, b: u64) -> i32 {
+    if a == b {
+        // Mesmo handle (ou ambos zero) — trivialmente iguais se vivos.
+        return with_buffer(a, 0, |_| 1);
+    }
+    // Clonamos pra evitar segurar dois locks simultaneos (potencial
+    // deadlock com shards distintos).
+    let bytes_a = with_buffer(a, Vec::new(), |buf| buf.clone());
+    let bytes_b = with_buffer(b, Vec::new(), |buf| buf.clone());
+    if bytes_a == bytes_b { 1 } else { 0 }
+}
+
+/// Procura o primeiro byte com valor `byte` a partir de `from`.
+/// Retorna o offset (>= 0) ou -1 se nao encontrado / handle invalido.
+/// Equivalente a `Buffer.prototype.indexOf` (variante byte).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_BUFFER_INDEX_OF(handle: u64, byte: i32, from: i64) -> i64 {
+    let target = byte as u8;
+    with_buffer(handle, -1, |buf| {
+        let start = if from < 0 { 0 } else { (from as usize).min(buf.len()) };
+        match buf[start..].iter().position(|&b| b == target) {
+            Some(i) => (start + i) as i64,
+            None => -1,
+        }
+    })
+}
+
 /// Converte o buffer (assumido como UTF-8) para um string handle do
 /// `gc::string_pool`. Conteudo invalido volta como string vazia.
 #[unsafe(no_mangle)]
