@@ -15,6 +15,7 @@
 use std::cell::Cell;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Layout do handle (gen/slot/shard) e' compartilhado com `ui::store` via
 // `crate::abi::handles` (#283). Mudancas aqui invalidam handles existentes.
@@ -221,11 +222,39 @@ pub struct HandleTable {
     free_list: Vec<u32>,
 }
 
+/// Contador global de slots vivos cross-shard. Incrementado em cada
+/// alloc novo (slot inedito) e decrementado em cada free. Reuso de
+/// slot via free_list nao mexe no contador.
+///
+/// Usado para cap de seguranca: programas patologicos que alocam
+/// strings/handles em loop sem GC (ex: codegen ainda nao emite
+/// string_free) acabam vazando memoria sem limite. Cap converte
+/// vazamento silencioso em diagnostico claro.
+pub(crate) static LIVE_HANDLES: AtomicUsize = AtomicUsize::new(0);
+
+/// Limite duro de handles vivos simultaneos. Cada handle (string/vec/map/
+/// buffer/etc) custa entre dezenas de bytes (string curta) e MBs (buffer
+/// grande). 5M handles = ~5GB no pior caso de strings curtas; o cap evita
+/// passar disso e dar OOM no SO. Caso real de teste-suite passa muito
+/// abaixo (dezenas a poucos milhares de handles vivos).
+const HANDLES_MAX: usize = 5_000_000;
+
 impl HandleTable {
     /// Allocate `entry` in this shard. `shard_idx` is encoded in the low
     /// SHARD_BITS of the slot field so `shard_for_handle` can route back
     /// without extra metadata.
     pub fn alloc_in_shard(&mut self, entry: Entry, shard_idx: usize) -> u64 {
+        // Cap em slots vivos (alloc - free). Reuso via free_list ja
+        // recuperou o slot anterior — incrementa de novo aqui pra
+        // manter "live = total alloc - total free" simetrico.
+        let prev = LIVE_HANDLES.fetch_add(1, Ordering::Relaxed);
+        if prev >= HANDLES_MAX {
+            LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
+            eprintln!(
+                "RTS runtime: handle table exceeded limit of {HANDLES_MAX} live handles; aborting (likely string/array allocations in unbounded loop without GC — codegen does not emit auto-free yet)"
+            );
+            std::process::abort();
+        }
         if let Some(table_slot) = self.free_list.pop() {
             let slot = &mut self.slots[table_slot as usize];
             slot.generation = slot.generation.wrapping_add(1);
@@ -253,6 +282,7 @@ impl HandleTable {
         cleanup_entry(&mut slot.entry);
         slot.entry = Entry::Free;
         self.free_list.push(table_slot);
+        LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
         true
     }
 
