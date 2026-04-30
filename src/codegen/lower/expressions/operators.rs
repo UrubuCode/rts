@@ -587,8 +587,64 @@ pub(super) fn lower_opt_chain(
             Ok(TypedVal::new(result, access_ty))
         }
         swc_ecma_ast::OptChainBase::Call(call) => {
-            // `callee?.(args)`: se callee for 0 (null), retorna 0 sem chamar.
-            // Caso contrario, faz call_indirect via i64 funcptr.
+            // (#333) Caso `obj?.method(args)`: o swc representa como
+            // `OptChainExpr<Call>` cujo callee e' outro `OptChainExpr<Member>`
+            // (`obj?.method`). O lower antigo recursava em ambos OptChain
+            // criando 2 niveis de blocks que nao conectavam corretamente —
+            // Verifier "invalid block reference". Achatamos pra um unico
+            // null-guard sobre `obj`: se `obj` e' null retorna 0 sem
+            // chamar, senao faz a chamada normal `obj.method(args)`.
+            if let swc_ecma_ast::Expr::OptChain(inner_opt) = call.callee.as_ref() {
+                if let swc_ecma_ast::OptChainBase::Member(inner_member) =
+                    inner_opt.base.as_ref()
+                {
+                    let obj_tv = lower_expr(ctx, &inner_member.obj)?;
+                    let obj_i64 = ctx.coerce_to_i64(obj_tv).val;
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    let is_null = ctx.builder.ins().icmp(IntCC::Equal, obj_i64, zero);
+
+                    let null_block = ctx.builder.create_block();
+                    let call_block = ctx.builder.create_block();
+                    let merge = ctx.builder.create_block();
+                    let result = ctx.builder.append_block_param(merge, cl::I64);
+
+                    ctx.builder.ins().brif(is_null, null_block, &[], call_block, &[]);
+
+                    ctx.builder.switch_to_block(null_block);
+                    ctx.builder.seal_block(null_block);
+                    let z = ctx.builder.ins().iconst(cl::I64, 0);
+                    ctx.builder.ins().jump(merge, &[z.into()]);
+
+                    ctx.builder.switch_to_block(call_block);
+                    ctx.builder.seal_block(call_block);
+                    // Constroi `obj.method(args)` sintetico (sem `?`).
+                    let synthetic_member = swc_ecma_ast::MemberExpr {
+                        span: inner_member.span,
+                        obj: inner_member.obj.clone(),
+                        prop: inner_member.prop.clone(),
+                    };
+                    let synthetic_callee =
+                        Box::new(swc_ecma_ast::Expr::Member(synthetic_member));
+                    let synthetic = CallExpr {
+                        span: call.span,
+                        ctxt: call.ctxt,
+                        callee: swc_ecma_ast::Callee::Expr(synthetic_callee),
+                        args: call.args.clone(),
+                        type_args: call.type_args.clone(),
+                    };
+                    let call_tv = super::calls::lower_call(ctx, &synthetic)?;
+                    let call_i64 = ctx.coerce_to_i64(call_tv).val;
+                    ctx.builder.ins().jump(merge, &[call_i64.into()]);
+
+                    ctx.builder.switch_to_block(merge);
+                    ctx.builder.seal_block(merge);
+                    return Ok(TypedVal::new(result, ValTy::I64));
+                }
+            }
+
+            // Caso geral: `callee?.(args)` onde callee e' uma expressao
+            // qualquer (var, member nao-optional, etc). Avalia callee, se
+            // e' null retorna 0 sem chamar.
             let callee_tv = lower_expr(ctx, &call.callee)?;
             let callee_i64 = ctx.coerce_to_i64(callee_tv).val;
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
