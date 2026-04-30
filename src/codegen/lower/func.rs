@@ -6020,6 +6020,100 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
     (params, ret)
 }
 
+/// (#301) Coleta os nomes de todos os `var x` declarados no statement,
+/// recursivamente, sem atravessar boundaries de function/arrow/class.
+/// Usado para var hoisting — todas as `var` em uma fn sao pre-declaradas
+/// no topo com valor 0 (proxy de undefined).
+fn collect_var_decls(stmt: &Stmt, out: &mut Vec<String>) {
+    match stmt {
+        Stmt::Decl(Decl::Var(vd)) => {
+            if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
+                for d in &vd.decls {
+                    if let Pat::Ident(id) = &d.name {
+                        out.push(id.id.sym.as_str().to_string());
+                    }
+                }
+            }
+        }
+        Stmt::Block(b) => {
+            for s in &b.stmts {
+                collect_var_decls(s, out);
+            }
+        }
+        Stmt::If(i) => {
+            collect_var_decls(&i.cons, out);
+            if let Some(alt) = &i.alt {
+                collect_var_decls(alt, out);
+            }
+        }
+        Stmt::For(f) => {
+            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = &f.init {
+                if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
+                    for d in &vd.decls {
+                        if let Pat::Ident(id) = &d.name {
+                            out.push(id.id.sym.as_str().to_string());
+                        }
+                    }
+                }
+            }
+            collect_var_decls(&f.body, out);
+        }
+        Stmt::ForIn(f) => {
+            if let ForHead::VarDecl(vd) = &f.left {
+                if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
+                    for d in &vd.decls {
+                        if let Pat::Ident(id) = &d.name {
+                            out.push(id.id.sym.as_str().to_string());
+                        }
+                    }
+                }
+            }
+            collect_var_decls(&f.body, out);
+        }
+        Stmt::ForOf(f) => {
+            if let ForHead::VarDecl(vd) = &f.left {
+                if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
+                    for d in &vd.decls {
+                        if let Pat::Ident(id) = &d.name {
+                            out.push(id.id.sym.as_str().to_string());
+                        }
+                    }
+                }
+            }
+            collect_var_decls(&f.body, out);
+        }
+        Stmt::While(w) => collect_var_decls(&w.body, out),
+        Stmt::DoWhile(d) => collect_var_decls(&d.body, out),
+        Stmt::Try(t) => {
+            for s in &t.block.stmts {
+                collect_var_decls(s, out);
+            }
+            if let Some(h) = &t.handler {
+                for s in &h.body.stmts {
+                    collect_var_decls(s, out);
+                }
+            }
+            if let Some(f) = &t.finalizer {
+                for s in &f.stmts {
+                    collect_var_decls(s, out);
+                }
+            }
+        }
+        Stmt::Switch(sw) => {
+            for case in &sw.cases {
+                for s in &case.cons {
+                    collect_var_decls(s, out);
+                }
+            }
+        }
+        Stmt::Labeled(l) => collect_var_decls(&l.body, out),
+        Stmt::With(w) => collect_var_decls(&w.body, out),
+        // function/arrow/class declarations dentro do body criam novo
+        // scope — nao recursa.
+        _ => {}
+    }
+}
+
 fn compile_user_fn(
     module: &mut dyn Module,
     extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
@@ -6133,6 +6227,27 @@ fn compile_user_fn(
                 .map(ValTy::from_annotation)
                 .unwrap_or(ValTy::I64);
             fn_ctx.declare_local(&param.name, ty, block_param);
+        }
+
+        // (#301) Var hoisting: coletar todos os nomes `var x` no body
+        // (incluindo nested em if/for/while/try mas ignorando function/
+        // arrow/class boundaries) e pre-declarar como I64=0. Isso
+        // permite `console.log(x); var x = 5;` retornar 0 (proxy de
+        // undefined) em vez de "undefined variable" erro.
+        {
+            let mut hoisted: Vec<String> = Vec::new();
+            for stmt_raw in fn_decl.body.iter() {
+                let Statement::Raw(raw) = stmt_raw;
+                if let Some(stmt) = raw.stmt.as_ref() {
+                    collect_var_decls(stmt, &mut hoisted);
+                }
+            }
+            for name in &hoisted {
+                if fn_ctx.var_ty(name).is_none() {
+                    let zero = fn_ctx.builder.ins().iconst(cl::I64, 0);
+                    fn_ctx.declare_local_kind(name, ValTy::I64, zero, false, true);
+                }
+            }
         }
 
         // Compile body statements.
@@ -6257,6 +6372,22 @@ fn compile_main(
             node_import_map,
             true,
         );
+
+        // (#301) Var hoisting top-level: declarar vars `var x` antes de
+        // executar body, com valor 0 (proxy undefined). Globals existentes
+        // ja' tem registro em `globals` map — pulamos.
+        {
+            let mut hoisted: Vec<String> = Vec::new();
+            for stmt in stmts {
+                collect_var_decls(stmt, &mut hoisted);
+            }
+            for name in &hoisted {
+                if !fn_ctx.has_global(name) && fn_ctx.var_ty(name).is_none() {
+                    let zero = fn_ctx.builder.ins().iconst(cl::I64, 0);
+                    fn_ctx.declare_local_kind(name, ValTy::I64, zero, false, true);
+                }
+            }
+        }
 
         for stmt in stmts {
             match lower_stmt(&mut fn_ctx, stmt) {
