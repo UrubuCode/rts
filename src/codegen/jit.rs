@@ -1506,14 +1506,6 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
     }
 
-    // ── Data symbols ──────────────────────────────────────────────────
-    // Xorshift PRNG state (mutable u64 global).
-    {
-        let ptr =
-            &raw const crate::namespaces::math::random::__RTS_DATA_NS_MATH_RNG_STATE as *const u8;
-        out.push(("__RTS_DATA_NS_MATH_RNG_STATE", ptr));
-    }
-
     // ── Libc ──────────────────────────────────────────────────────────
     // `fmod` is declared as an extern import for `BinaryOp::Mod` on f64.
     unsafe extern "C" {

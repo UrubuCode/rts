@@ -70,9 +70,6 @@ pub enum Intrinsic {
     MinI64,
     /// `i64::max` → signed integer max.
     MaxI64,
-    /// Xorshift64 PRNG: load global state, mutate, store, convert to f64.
-    /// State symbol is `__RTS_DATA_NS_MATH_RNG_STATE` (u64).
-    RandomF64,
 }
 
 /// Whether a member is a function, constant, constructor, or instance method.
