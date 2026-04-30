@@ -9,7 +9,7 @@
     "typeRoots": ["./rts-types"],
     "paths": {
       "rts": ["./rts-types/rts.d.ts"],
-      "rts:*": ["./rts-types/*.d.ts"]
+      "rts:*": ["./rts-types/*.d.ts"],
     },
     "types": []
   },

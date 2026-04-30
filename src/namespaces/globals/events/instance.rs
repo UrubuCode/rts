@@ -22,7 +22,6 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-
 use crate::namespaces::gc::handles::{Entry, alloc_entry, shard_for_handle};
 
 // ── Internal data ──────────────────────────────────────────────────────────────
