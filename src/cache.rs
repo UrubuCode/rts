@@ -29,6 +29,14 @@ pub struct ObjCache {
 
 impl ObjCache {
     pub fn for_input(input: &Path) -> Self {
+        // RTS_CACHE_DIR override absoluto: util pra projetos sem
+        // node_modules/ (workspaces Rust, etc) ou pra isolar caches em CI.
+        if let Ok(custom) = std::env::var("RTS_CACHE_DIR") {
+            let p = PathBuf::from(custom);
+            if !p.as_os_str().is_empty() {
+                return Self { root: p };
+            }
+        }
         Self {
             root: find_project_root(input).join(CACHE_SUBDIR),
         }
