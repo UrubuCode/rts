@@ -338,9 +338,8 @@ pub struct FnCtx<'m, 'fb> {
     pub node_import_map: &'fb HashMap<String, String>,
 
     /// Cache de DataId pra simbolos de data global declarados via
-    /// declare_data. Evita declarar duas vezes o mesmo simbolo (p.ex.
-    /// __RTS_DATA_NS_MATH_RNG_STATE em cada call de random_f64) — cada
-    /// declare_data cria um novo gv distinto que Cranelift nao
+    /// declare_data. Evita declarar duas vezes o mesmo simbolo —
+    /// cada declare_data cria um novo gv distinto que Cranelift nao
     /// deduplica, gerando \`global_value + load + store\` repetidos
     /// no body do loop.
     pub data_cache: HashMap<&'static str, cranelift_module::DataId>,
@@ -368,18 +367,6 @@ pub struct FnCtx<'m, 'fb> {
     /// emitia FuncRef distintos pra mesma fn.
     pub fn_ref_by_id_cache:
         HashMap<cranelift_module::FuncId, cranelift_codegen::ir::FuncRef>,
-    /// Estado RNG atual em SSA quando varias calls de random_f64
-    /// acontecem em sequencia no mesmo block. Permite reusar o ultimo
-    /// x3 (estado pos-xorshift) sem load/store intermediario:
-    /// reutilizamos o SSA value, e fazemos store apenas uma vez no
-    /// final do block (atraves de fim do builder ou primeira nao-RNG
-    /// op). Reset quando block muda ou outro op pode escrever na
-    /// memoria global.
-    pub rng_state_cached: Option<(
-        cranelift_codegen::ir::Block,
-        cranelift_codegen::ir::Value, // ptr
-        cranelift_codegen::ir::Value, // ultimo x3
-    )>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -429,7 +416,6 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             gv_data_cache: HashMap::new(),
             fn_ref_cache: HashMap::new(),
             fn_ref_by_id_cache: HashMap::new(),
-            rng_state_cached: None,
         }
     }
 

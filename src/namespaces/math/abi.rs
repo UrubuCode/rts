@@ -305,8 +305,8 @@ pub const MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::F64,
         doc: "Uniform f64 in [0, 1) from a thread-local xorshift64 PRNG.",
         ts_signature: "random_f64(): number",
-        intrinsic: Some(Intrinsic::RandomF64),
-        pure: false, // mutates global RNG state
+        intrinsic: None,
+        pure: false, // mutates thread-local RNG state
     },
     NamespaceMember {
         name: "random_i64_range",
