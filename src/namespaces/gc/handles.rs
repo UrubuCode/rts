@@ -67,13 +67,15 @@ pub enum Entry {
     /// Stored as AtomicU64 because Rust has no AtomicF64; ops use
     /// f64::to_bits / f64::from_bits.
     AtomicF64(Box<std::sync::atomic::AtomicU64>),
-    /// Mutex<i64> owned — namespace `sync` (mutex_*). Box estabiliza o
-    /// endereco; guards sao armazenados em mapa thread-local para
-    /// permitir lock/unlock atravessando chamadas extern "C".
-    SyncMutex(Box<std::sync::Mutex<i64>>),
+    /// Mutex<i64> owned — namespace `sync` (mutex_*). `Arc` permite que
+    /// o guard armazenado no mapa thread-local mantenha um clone do
+    /// Arc, garantindo que o Mutex viva enquanto houver guard, mesmo
+    /// que o handle seja liberado antes do unlock (#280 — antes era
+    /// `Box` + transmute para 'static, UB se free vinha antes de unlock).
+    SyncMutex(std::sync::Arc<std::sync::Mutex<i64>>),
     /// RwLock<i64> owned — namespace `sync` (rwlock_*). Mesma logica de
-    /// guards thread-local que `SyncMutex`.
-    SyncRwLock(Box<std::sync::RwLock<i64>>),
+    /// `Arc` que `SyncMutex`.
+    SyncRwLock(std::sync::Arc<std::sync::RwLock<i64>>),
     /// OnceLock owned — namespace `sync` (once_*). Usa `std::sync::Once`
     /// internamente para executar fn_ptr exatamente uma vez.
     SyncOnce(Box<std::sync::Once>),
