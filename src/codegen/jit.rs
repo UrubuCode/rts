@@ -337,6 +337,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FETCH_RESPONSE_FREE", __RTS_FN_GL_FETCH_RESPONSE_FREE);
     add_fn!("__RTS_FN_GL_FETCH_RESPONSE_THEN", __RTS_FN_GL_FETCH_RESPONSE_THEN);
 
+    // ── namespaces::globals::function (#359) ──────────────────────────
+    use crate::namespaces::globals::function::ops::*;
+    add_fn!("__RTS_FN_GL_FUNCTION_REIFY", __RTS_FN_GL_FUNCTION_REIFY);
+    add_fn!("__RTS_FN_GL_FUNCTION_NEW", __RTS_FN_GL_FUNCTION_NEW);
+    add_fn!("__RTS_FN_GL_FUNCTION_CALL", __RTS_FN_GL_FUNCTION_CALL);
+    add_fn!("__RTS_FN_GL_FUNCTION_APPLY", __RTS_FN_GL_FUNCTION_APPLY);
+    add_fn!("__RTS_FN_GL_FUNCTION_BIND", __RTS_FN_GL_FUNCTION_BIND);
+    add_fn!("__RTS_FN_GL_FUNCTION_NAME", __RTS_FN_GL_FUNCTION_NAME);
+    add_fn!("__RTS_FN_GL_FUNCTION_LENGTH", __RTS_FN_GL_FUNCTION_LENGTH);
+    add_fn!("__RTS_FN_GL_FUNCTION_TO_STRING", __RTS_FN_GL_FUNCTION_TO_STRING);
+
     // ── namespaces::globals::text_encoding ───────────────────────────
     use crate::namespaces::globals::text_encoding::instance::*;
     add_fn!("__RTS_FN_GL_TEXTENC_ENCODE", __RTS_FN_GL_TEXTENC_ENCODE);
