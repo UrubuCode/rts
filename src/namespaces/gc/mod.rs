@@ -9,6 +9,7 @@ pub mod collector;
 pub mod debug;
 pub mod env;
 pub mod error;
+pub mod global_roots;
 pub mod handles;
 pub mod instance;
 pub mod stack;

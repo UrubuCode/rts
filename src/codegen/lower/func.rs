@@ -5250,6 +5250,24 @@ fn collect_module_globals(
                 .define_data(data_id, &desc)
                 .with_context(|| format!("failed to define module global `{name}`"))?;
 
+            // Issue #407 / epic #419 — globals com tipo Handle precisam
+            // ser tratadas como roots GC, senao o sweep coleta o handle
+            // armazenado. Registra o DataId pra `jit.rs` resolver pra
+            // endereco real apos `finalize_definitions`.
+            //
+            // U64 e Bool nao sao tratados como handle por padrao; so'
+            // Handle explicito. Outros tipos podem armazenar bits
+            // arbitrarios (ptr, valor numerico) mas a regra do
+            // scanner conservativo (gen != 0) ja' filtra falsos
+            // positivos.
+            if matches!(ty, ValTy::Handle) {
+                use cranelift_module::DataId;
+                let _ = DataId::from_u32; // garante o tipo
+                crate::namespaces::gc::global_roots::push_pending_data_id(
+                    data_id.as_u32(),
+                );
+            }
+
             globals.insert(name, GlobalVar { data_id, ty });
         }
     }
