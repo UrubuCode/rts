@@ -34,6 +34,8 @@ pub mod path;
 pub mod buffer;
 #[path = "globals/string/rt.rs"]
 pub mod string;
+#[path = "globals/number/rt.rs"]
+pub mod number_gl;
 #[path = "process/rt.rs"]
 pub mod process;
 #[path = "ptr/rt.rs"]
