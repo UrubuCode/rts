@@ -1202,6 +1202,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             thread_spawn::__RTS_FN_NS_THREAD_SPAWN_WITH_UD
         );
         add_fn!(
+            "__RTS_FN_NS_THREAD_SPAWN_DETACHED",
+            thread_spawn::__RTS_FN_NS_THREAD_SPAWN_DETACHED
+        );
+        add_fn!(
+            "__RTS_FN_NS_THREAD_SPAWN_ASYNC",
+            crate::namespaces::thread::async_spawn::__RTS_FN_NS_THREAD_SPAWN_ASYNC
+        );
+        add_fn!(
             "__RTS_FN_NS_THREAD_SCOPE",
             thread_spawn::__RTS_FN_NS_THREAD_SCOPE
         );

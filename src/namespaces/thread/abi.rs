@@ -15,6 +15,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "spawn_async",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_THREAD_SPAWN_ASYNC",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::Void,
+        doc: "Submete `fn_ptr(arg)` ao runtime tokio compartilhado (issue #399). Diferente de `spawn_detached` (pool de threads OS), aqui o trabalho roda como task async no tokio — escala para milhares de tasks simultaneas com poucas threads OS. Sem JoinHandle: fire-and-forget. Para tarefas CPU-bound prefira `spawn`/`spawn_detached`; para muitas tarefas leves ou que aguardem I/O, este e' o caminho.",
+        ts_signature: "spawn_async(fn_ptr: number, arg: number): void",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "spawn_detached",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_THREAD_SPAWN_DETACHED",

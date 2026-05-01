@@ -55,6 +55,7 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_DETACHED(fn_ptr: u64, arg: u64) {
     super::pool::submit(fn_ptr, arg);
 }
 
+
 /// Variante com userdata: trampolim recebe `(ud, arg)`. Usado quando
 /// arrow capturada por `thread.spawn` referencia `this` — o lifter
 /// passa o handle do `this` como `ud`.
