@@ -594,4 +594,101 @@ mod tests {
             "alloc should visit every shard in one round"
         );
     }
+
+    // ── Leak detection ───────────────────────────────────────────────────────
+    //
+    // Testes de liveness verificam que o handle resolve antes do free e retorna
+    // None depois — sem depender do contador global (que sofre corrida com
+    // outros testes paralelos). O contador atomico e' testado via delta local.
+
+    #[test]
+    fn handle_dead_after_free() {
+        let h = alloc_entry(Entry::String(b"leak?".to_vec()));
+        with_entry(h, |e| assert!(e.is_some(), "handle nao vivo apos alloc"));
+        free_handle(h);
+        with_entry(h, |e| assert!(e.is_none(), "handle ainda vivo apos free — leak!"));
+    }
+
+    #[test]
+    fn batch_alloc_free_all_handles_die() {
+        let handles: Vec<u64> = (0..100)
+            .map(|i| alloc_entry(Entry::String(format!("s{i}").into_bytes())))
+            .collect();
+        for &h in &handles {
+            with_entry(h, |e| assert!(e.is_some(), "handle {h} nao vivo antes do free"));
+        }
+        for h in &handles {
+            free_handle(*h);
+        }
+        for &h in &handles {
+            with_entry(h, |e| assert!(e.is_none(), "handle {h} ainda vivo — leak!"));
+        }
+    }
+
+    #[test]
+    fn all_entry_variants_free_cleanly() {
+        let handles = vec![
+            alloc_entry(Entry::String(b"s".to_vec())),
+            alloc_entry(Entry::Buffer(vec![0u8; 8])),
+            alloc_entry(Entry::Vec(Box::new(vec![1i64, 2, 3]))),
+            alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new()))),
+            alloc_entry(Entry::Env(vec![0i64; 4])),
+            alloc_entry(Entry::Json(Box::new(serde_json::Value::Null))),
+            alloc_entry(Entry::Promise(42)),
+            alloc_entry(Entry::DateMs(0)),
+        ];
+        for &h in &handles {
+            with_entry(h, |e| assert!(e.is_some()));
+        }
+        for &h in &handles {
+            free_handle(h);
+        }
+        for &h in &handles {
+            with_entry(h, |e| assert!(e.is_none(), "variante vazou handle {h}"));
+        }
+    }
+
+    #[test]
+    fn double_free_does_not_underflow_live_count() {
+        let before = LIVE_HANDLES.load(Ordering::SeqCst);
+        let h = alloc_entry(Entry::String(b"x".to_vec()));
+        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before + 1);
+        assert!(free_handle(h));
+        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before);
+        assert!(!free_handle(h), "double-free deve retornar false");
+        assert_eq!(
+            LIVE_HANDLES.load(Ordering::SeqCst),
+            before,
+            "double-free corrompeu LIVE_HANDLES"
+        );
+    }
+
+    #[test]
+    fn free_invalid_handle_does_not_change_live_count() {
+        let before = LIVE_HANDLES.load(Ordering::SeqCst);
+        free_handle(0);
+        free_handle(0xDEAD_BEEF_DEAD_BEEF);
+        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before);
+    }
+
+    #[test]
+    fn repeated_alloc_free_cycle_no_leak() {
+        for _ in 0..1000 {
+            let h = alloc_entry(Entry::Buffer(vec![0u8; 64]));
+            with_entry(h, |e| assert!(e.is_some()));
+            free_handle(h);
+            with_entry(h, |e| assert!(e.is_none(), "cycle leak: handle {h} ainda vivo"));
+        }
+    }
+
+    #[test]
+    fn live_counter_tracks_alloc_free_delta() {
+        // Captura delta local: isola o contador antes/depois das nossas operacoes.
+        // Outros testes paralelos podem mudar o total, mas nosso delta deve ser exato.
+        let before = LIVE_HANDLES.load(Ordering::SeqCst);
+        let h = alloc_entry(Entry::DateMs(0));
+        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before + 1);
+        free_handle(h);
+        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before);
+    }
 }
