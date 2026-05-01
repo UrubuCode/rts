@@ -85,6 +85,100 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_TRY_VALUE(handle: u64) -> i64 {
     })
 }
 
+// ─── then/catch/finally como fns de namespace (F6 #417) ─────────────
+//
+// Versao namespace de `.then/.catch/.finally`. Mais simples que
+// instance methods (que tem caminho de codegen fragil pra Promise).
+// Recomendado: `promise.then(p, fn)` em TS — funciona sempre.
+
+type CallbackI64 = unsafe extern "C" fn(i64) -> i64;
+type CallbackVoid = unsafe extern "C" fn() -> i64;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PROMISE_THEN_NS(p_handle: u64, fp: u64) -> u64 {
+    let slot_arc = with_entry(p_handle, |entry| match entry {
+        Some(Entry::PromiseAsync(arc)) => Some(arc.clone()),
+        _ => None,
+    });
+    let Some(arc) = slot_arc else { return p_handle };
+    let result = promise_slot::new_pending();
+    let result_clone = result.clone();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result));
+
+    let rt = crate::runtime::async_rt::handle();
+    rt.spawn_blocking(move || {
+        let (state, value) = promise_slot::wait_blocking(&arc);
+        if state == promise_slot::STATE_FULFILLED {
+            if fp == 0 {
+                promise_slot::resolve(&result_clone, value);
+            } else {
+                let r = unsafe { (std::mem::transmute::<u64, CallbackI64>(fp))(value) };
+                promise_slot::resolve(&result_clone, r);
+            }
+        } else {
+            // rejected — propaga sem chamar fn (semantica de then com 1 arg)
+            promise_slot::reject(&result_clone, value);
+        }
+    });
+    result_handle
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH_NS(p_handle: u64, fp: u64) -> u64 {
+    let slot_arc = with_entry(p_handle, |entry| match entry {
+        Some(Entry::PromiseAsync(arc)) => Some(arc.clone()),
+        _ => None,
+    });
+    let Some(arc) = slot_arc else { return p_handle };
+    let result = promise_slot::new_pending();
+    let result_clone = result.clone();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result));
+
+    let rt = crate::runtime::async_rt::handle();
+    rt.spawn_blocking(move || {
+        let (state, value) = promise_slot::wait_blocking(&arc);
+        if state == promise_slot::STATE_FULFILLED {
+            // Sem rejection — passthrough.
+            promise_slot::resolve(&result_clone, value);
+        } else {
+            // rejected — chama callback que recovers.
+            if fp == 0 {
+                promise_slot::reject(&result_clone, value);
+            } else {
+                let r = unsafe { (std::mem::transmute::<u64, CallbackI64>(fp))(value) };
+                promise_slot::resolve(&result_clone, r);
+            }
+        }
+    });
+    result_handle
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY_NS(p_handle: u64, fp: u64) -> u64 {
+    let slot_arc = with_entry(p_handle, |entry| match entry {
+        Some(Entry::PromiseAsync(arc)) => Some(arc.clone()),
+        _ => None,
+    });
+    let Some(arc) = slot_arc else { return p_handle };
+    let result = promise_slot::new_pending();
+    let result_clone = result.clone();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result));
+
+    let rt = crate::runtime::async_rt::handle();
+    rt.spawn_blocking(move || {
+        let (state, value) = promise_slot::wait_blocking(&arc);
+        if fp != 0 {
+            let _ = unsafe { (std::mem::transmute::<u64, CallbackVoid>(fp))() };
+        }
+        if state == promise_slot::STATE_FULFILLED {
+            promise_slot::resolve(&result_clone, value);
+        } else {
+            promise_slot::reject(&result_clone, value);
+        }
+    });
+    result_handle
+}
+
 // ─── Error slot bridge (F5 #416) ─────────────────────────────────────
 //
 // Helpers expostos pro codegen do watcher chamar apos `inner`. Lê e

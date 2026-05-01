@@ -138,40 +138,132 @@ pub extern "C" fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> 
 }
 
 // ── Promise ──────────────────────────────────────────────────────────────────
+//
+// .then/.catch/.finally agora suportam ambas as variantes:
+// - Entry::PromiseAsync(Arc<PromiseSlot>) — Promise async real (F1+F2)
+// - Entry::Promise(i64) — Promise sync legacy (caminho rapido fetch)
+//
+// Para PromiseAsync: spawna task tokio que aguarda settle + chama
+// callback + resolve nova Promise. Encadeamento real (issue #417 / F6).
+//
+// Para Promise sync legacy: comportamento antigo (chama callback
+// imediato). Mantido para nao quebrar fetch().
 
 type CallbackFn = unsafe extern "C" fn(i64) -> i64;
+type CallbackFn0 = unsafe extern "C" fn() -> i64;
 
-/// promise.then(fn) → calls fn(resolved_value), wraps result in new Promise
+enum PromiseKind {
+    Async(std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>),
+    Sync(i64),
+    NotPromise,
+}
+
+fn classify(handle: u64) -> PromiseKind {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::PromiseAsync(arc)) => PromiseKind::Async(arc.clone()),
+        Some(Entry::Promise(v)) => PromiseKind::Sync(*v),
+        _ => PromiseKind::NotPromise,
+    })
+}
+
+/// promise.then(onFul, onRej?) — versao 2-arg.
+/// Variante 1-arg eh `__RTS_FN_GL_PROMISE_THEN` que delega.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej: u64) -> u64 {
+    use crate::namespaces::gc::promise_slot;
+
+    match classify(promise_h) {
+        PromiseKind::Async(arc) => {
+            let result = promise_slot::new_pending();
+            let result_clone = result.clone();
+            let result_handle = alloc_entry(Entry::PromiseAsync(result));
+
+            let rt = crate::runtime::async_rt::handle();
+            rt.spawn_blocking(move || {
+                let (state, value) = promise_slot::wait_blocking(&arc);
+                if state == promise_slot::STATE_FULFILLED {
+                    if on_ful == 0 {
+                        promise_slot::resolve(&result_clone, value);
+                    } else {
+                        let r = unsafe { (std::mem::transmute::<u64, CallbackFn>(on_ful))(value) };
+                        promise_slot::resolve(&result_clone, r);
+                    }
+                } else {
+                    if on_rej == 0 {
+                        promise_slot::reject(&result_clone, value);
+                    } else {
+                        let r = unsafe { (std::mem::transmute::<u64, CallbackFn>(on_rej))(value) };
+                        // onRej recovers — resolved com o retorno
+                        promise_slot::resolve(&result_clone, r);
+                    }
+                }
+            });
+            result_handle
+        }
+        PromiseKind::Sync(value) => {
+            // Path rapido sync — sem rejection no Promise(i64) legacy.
+            if on_ful == 0 {
+                return alloc_entry(Entry::Promise(value));
+            }
+            let r = unsafe { (std::mem::transmute::<u64, CallbackFn>(on_ful))(value) };
+            alloc_entry(Entry::Promise(r))
+        }
+        PromiseKind::NotPromise => promise_h,
+    }
+}
+
+/// promise.then(fn) → versao 1-arg, delega pra THEN2 sem onRej.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_THEN(promise_h: u64, fp: u64) -> u64 {
-    let value = with_entry(promise_h, |entry| match entry {
-        Some(Entry::Promise(v)) => *v,
-        _ => promise_h as i64, // bare value, not wrapped
-    });
-    if fp == 0 {
-        return promise_h;
-    }
-    let result = unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(value) };
-    // Wrap result in a new Promise
-    alloc_entry(Entry::Promise(result))
+    __RTS_FN_GL_PROMISE_THEN2(promise_h, fp, 0)
 }
 
-/// promise.catch(fn) → passthrough (sync, never rejects unless status 0)
+/// promise.catch(fn) → atalho de then(undefined, fn). Recupera de
+/// rejection via callback que retorna novo valor. Sem callback é passthrough.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_CATCH(promise_h: u64, _fp: u64) -> u64 {
-    promise_h
+pub extern "C" fn __RTS_FN_GL_PROMISE_CATCH(promise_h: u64, fp: u64) -> u64 {
+    __RTS_FN_GL_PROMISE_THEN2(promise_h, 0, fp)
 }
 
-/// promise.finally(fn) → calls fn() then returns original promise
+/// promise.finally(fn) — chama fn() ao settle (independente de
+/// fulfilled/rejected) e retorna nova Promise com mesmo state/value
+/// da original.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
-    if fp != 0 {
-        unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0) };
+    use crate::namespaces::gc::promise_slot;
+
+    match classify(promise_h) {
+        PromiseKind::Async(arc) => {
+            let result = promise_slot::new_pending();
+            let result_clone = result.clone();
+            let result_handle = alloc_entry(Entry::PromiseAsync(result));
+
+            let rt = crate::runtime::async_rt::handle();
+            rt.spawn_blocking(move || {
+                let (state, value) = promise_slot::wait_blocking(&arc);
+                if fp != 0 {
+                    let _ = unsafe { (std::mem::transmute::<u64, CallbackFn0>(fp))() };
+                }
+                if state == promise_slot::STATE_FULFILLED {
+                    promise_slot::resolve(&result_clone, value);
+                } else {
+                    promise_slot::reject(&result_clone, value);
+                }
+            });
+            result_handle
+        }
+        PromiseKind::Sync(value) => {
+            if fp != 0 {
+                unsafe { (std::mem::transmute::<u64, CallbackFn0>(fp))() };
+            }
+            alloc_entry(Entry::Promise(value))
+        }
+        PromiseKind::NotPromise => promise_h,
     }
-    promise_h
 }
 
 /// Resolve a Promise to its inner value (i64). Used by `await` lowering.
+/// LEGACY: caminho do fetch sync. Para Promise async use `promise.wait`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(promise_h: u64) -> i64 {
     with_entry(promise_h, |entry| match entry {
