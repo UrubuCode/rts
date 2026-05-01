@@ -28,6 +28,15 @@ fn next_join_id() -> u64 {
 
 /// Submete `fn_ptr(arg)` ao runtime tokio compartilhado, fire-and-forget.
 /// Roda em `spawn_blocking` (nao trava reactor com codigo JIT sincrono).
+///
+/// **Quando preferir esta funcao em vez de `__RTS_FN_NS_THREAD_SPAWN`:**
+/// - Tarefas leves ou IO-bound (~13× mais rapido pra spawnar)
+/// - Ja' existe runtime tokio vivo na chamada (ex: dentro de http_server)
+/// - Muitas tarefas concorrentes (>100) — pool elastico ate 512
+///
+/// **Quando preferir `spawn` (std::thread):**
+/// - CPU-bound longo onde o spawn-once-amortize-forever ganha
+/// - Bench Monte Carlo Pi 10M: spawn 30.3ms vs spawn_async 34.3ms
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC(fn_ptr: u64, arg: u64) {
     if fn_ptr == 0 {
@@ -44,6 +53,15 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC(fn_ptr: u64, arg: u64) {
 
 /// Como `spawn_async` mas retorna um id `u64` que pode ser passado pra
 /// `join_async` para aguardar e pegar o valor de retorno.
+///
+/// Roda em `tokio::spawn_blocking`. O `JoinHandle<u64>` e' guardado num
+/// `Mutex<HashMap>` dedicado (nao usa `tokio_ctx::put` porque
+/// `JoinHandle: Send` mas nao `Sync`).
+///
+/// **Use vs `spawn` + `join`:** spawn_async_join economiza ~30µs por
+/// spawn em workloads de muitas tarefas leves. Em CPU-bound longo
+/// (Monte Carlo, etc) `spawn` continua mais rapido por nao ter
+/// overhead de scheduling tokio (medido: 30.3ms vs 34.3ms).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN(fn_ptr: u64, arg: u64) -> u64 {
     if fn_ptr == 0 {
@@ -66,6 +84,10 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN(fn_ptr: u64, arg: u64) -> 
 
 /// Aguarda task `id` (criada via `spawn_async_join`) terminar e retorna
 /// seu valor. Consome o id. 0 se id invalido ou panic na task.
+///
+/// **Bloqueia a thread chamadora** ate o resultado. Para tasks de
+/// `std::thread::spawn` use `__RTS_FN_NS_THREAD_JOIN`. Os dois nao se
+/// misturam: id de spawn nao e' aceito por join_async e vice-versa.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_THREAD_JOIN_ASYNC(id: u64) -> u64 {
     let jh = {

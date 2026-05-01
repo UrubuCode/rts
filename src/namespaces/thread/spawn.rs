@@ -26,6 +26,15 @@ fn record_scoped_handle(handle: u64) {
     });
 }
 
+/// Cria uma OS thread (`std::thread::spawn`) executando `fn_ptr(arg)`.
+///
+/// Custo: ~30µs por chamada (Win32 CreateThread / pthread_create + alloc
+/// de 1MB de stack). Bom pra CPU-bound longo onde overhead e' diluido.
+///
+/// Para tarefas leves use `__RTS_FN_NS_THREAD_SPAWN_ASYNC` (tokio,
+/// ~13× mais rapido pra spawnar). Comparativo Monte Carlo Pi 10M com
+/// 8 workers: spawn 30.3ms vs spawn_async_join 34.3ms — `std::thread`
+/// vence em CPU-bound puro porque workers ficam ocupados a vida toda.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: u64, arg: u64) -> u64 {
     if fn_ptr == 0 {
