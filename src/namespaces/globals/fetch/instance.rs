@@ -1,5 +1,5 @@
 use crate::namespaces::gc::handles::{
-    alloc_entry, free_handle, with_entry, with_entry_mut, Entry, HttpResponseData,
+    alloc_entry, free_handle, with_entry, Entry, HttpResponseData,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -39,40 +39,33 @@ fn map_get_headers(map_h: u64) -> Vec<(String, String)> {
     if map_h == 0 {
         return vec![];
     }
-    let headers_h = {
-        let guard = shard_for_handle(map_h).lock().unwrap();
-        match guard.get(map_h) {
-            Some(Entry::Map(m)) => m.get("headers").copied().unwrap_or(0) as u64,
-            _ => 0,
-        }
-    };
+    let headers_h = with_entry(map_h, |entry| match entry {
+        Some(Entry::Map(m)) => m.get("headers").copied().unwrap_or(0) as u64,
+        _ => 0,
+    });
     if headers_h == 0 {
         return vec![];
     }
     // Collect (key, value_handle) pairs first, then resolve each string handle
-    let pairs: Vec<(String, u64)> = {
-        let guard = shard_for_handle(headers_h).lock().unwrap();
-        match guard.get(headers_h) {
-            Some(Entry::Map(m)) => m
-                .iter()
-                .map(|(k, &v)| (k.clone(), v as u64))
-                .collect(),
-            _ => vec![],
-        }
-    };
+    let pairs: Vec<(String, u64)> = with_entry(headers_h, |entry| match entry {
+        Some(Entry::Map(m)) => m
+            .iter()
+            .map(|(k, &v)| (k.clone(), v as u64))
+            .collect(),
+        _ => vec![],
+    });
     pairs
         .into_iter()
         .filter_map(|(k, sh)| {
             if sh == 0 {
                 return None;
             }
-            let guard = shard_for_handle(sh).lock().unwrap();
-            match guard.get(sh) {
+            with_entry(sh, |entry| match entry {
                 Some(Entry::String(b)) => {
                     Some((k, String::from_utf8_lossy(b).into_owned()))
                 }
                 _ => None,
-            }
+            })
         })
         .collect()
 }
@@ -151,13 +144,10 @@ type CallbackFn = unsafe extern "C" fn(i64) -> i64;
 /// promise.then(fn) → calls fn(resolved_value), wraps result in new Promise
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_THEN(promise_h: u64, fp: u64) -> u64 {
-    let value = {
-        let guard = shard_for_handle(promise_h).lock().unwrap();
-        match guard.get(promise_h) {
-            Some(Entry::Promise(v)) => *v,
-            _ => promise_h as i64, // bare value, not wrapped
-        }
-    };
+    let value = with_entry(promise_h, |entry| match entry {
+        Some(Entry::Promise(v)) => *v,
+        _ => promise_h as i64, // bare value, not wrapped
+    });
     if fp == 0 {
         return promise_h;
     }
@@ -184,21 +174,19 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
 /// Resolve a Promise to its inner value (i64). Used by `await` lowering.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(promise_h: u64) -> i64 {
-    let guard = shard_for_handle(promise_h).lock().unwrap();
-    match guard.get(promise_h) {
+    with_entry(promise_h, |entry| match entry {
         Some(Entry::Promise(v)) => *v,
         _ => promise_h as i64,
-    }
+    })
 }
 
 // ── Response instance methods ─────────────────────────────────────────────────
 
 fn with_response<T>(h: u64, f: impl FnOnce(&HttpResponseData) -> T) -> Option<T> {
-    let guard = shard_for_handle(h).lock().unwrap();
-    match guard.get(h) {
+    with_entry(h, |entry| match entry {
         Some(Entry::HttpResponse(r)) => Some(f(r)),
         _ => None,
-    }
+    })
 }
 
 /// response.status → number
@@ -276,13 +264,10 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
 /// response.free() — libera Response + Promise handles
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_FREE(h: u64) {
-    let inner = {
-        let guard = shard_for_handle(h).lock().unwrap();
-        match guard.get(h) {
-            Some(Entry::Promise(v)) => Some(*v as u64),
-            _ => None,
-        }
-    };
+    let inner = with_entry(h, |entry| match entry {
+        Some(Entry::Promise(v)) => Some(*v as u64),
+        _ => None,
+    });
     if let Some(inner_h) = inner {
         free_handle(inner_h);
     }

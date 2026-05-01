@@ -2,15 +2,14 @@
 
 use rayon::prelude::*;
 
-use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, with_entry};
 use super::pool::pool;
 
 fn snapshot_vec(handle: u64) -> Option<Vec<i64>> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
         _ => None,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]

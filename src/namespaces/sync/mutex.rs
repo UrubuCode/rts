@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 /// Guard owned: clona o Arc para ancorar o Mutex enquanto o guard existe.
 /// O guard e' tipado como `'static`, mas a soundness vem do Arc clone
@@ -39,11 +39,10 @@ pub extern "C" fn __RTS_FN_NS_SYNC_MUTEX_NEW(initial: i64) -> u64 {
 /// Helper: obtem um clone do Arc<Mutex<i64>> referenciado pelo handle.
 /// Retorna `None` se o handle for invalido.
 fn mutex_arc(handle: u64) -> Option<Arc<Mutex<i64>>> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::SyncMutex(m)) => Some(m.clone()),
         _ => None,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]

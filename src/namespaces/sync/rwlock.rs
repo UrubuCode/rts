@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, with_entry};
 
 /// Cada slot ancora o Arc para garantir que o RwLock viva enquanto o
 /// guard existir, mesmo apos free do handle original.
@@ -51,11 +51,10 @@ pub extern "C" fn __RTS_FN_NS_SYNC_RWLOCK_NEW(initial: i64) -> u64 {
 }
 
 fn rwlock_arc(handle: u64) -> Option<Arc<RwLock<i64>>> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::SyncRwLock(r)) => Some(r.clone()),
         _ => None,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]

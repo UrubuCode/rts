@@ -1,4 +1,4 @@
-use crate::namespaces::gc::handles::{alloc_entry, shard_for_handle, Entry};
+use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
 fn str_from_parts(ptr: i64, len: i64) -> &'static str {
     if ptr == 0 || len == 0 {
@@ -18,14 +18,14 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE(ptr: i64, len: i64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TEXTENC_DECODE(buf_handle: u64) -> u64 {
-    let bytes = {
-        let guard = shard_for_handle(buf_handle).lock().unwrap();
-        match guard.get(buf_handle) {
-            Some(Entry::Buffer(v)) | Some(Entry::String(v)) => v.clone(),
-            _ => return 0,
-        }
-    };
-    alloc_entry(Entry::String(bytes))
+    let bytes = with_entry(buf_handle, |entry| match entry {
+        Some(Entry::Buffer(v)) | Some(Entry::String(v)) => Some(v.clone()),
+        _ => None,
+    });
+    match bytes {
+        Some(b) => alloc_entry(Entry::String(b)),
+        None => 0,
+    }
 }
 
 const B64_ALPHA: &[u8] =
@@ -115,35 +115,18 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_ATOB(ptr: i64, len: i64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE(handle: u64) -> u64 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
-        Some(Entry::String(v)) => {
-            let cloned = v.clone();
-            drop(guard);
-            alloc_entry(Entry::String(cloned))
-        }
-        Some(Entry::Buffer(v)) => {
-            let cloned = v.clone();
-            drop(guard);
-            alloc_entry(Entry::Buffer(cloned))
-        }
-        Some(Entry::Vec(v)) => {
-            let cloned = v.as_ref().clone();
-            drop(guard);
-            alloc_entry(Entry::Vec(Box::new(cloned)))
-        }
-        Some(Entry::Map(m)) => {
-            let cloned = m.as_ref().clone();
-            drop(guard);
-            alloc_entry(Entry::Map(Box::new(cloned)))
-        }
-        Some(Entry::Json(j)) => {
-            let cloned = j.as_ref().clone();
-            drop(guard);
-            alloc_entry(Entry::Json(Box::new(cloned)))
-        }
+    let result = with_entry(handle, |entry| match entry {
+        Some(Entry::String(v)) => Some(Entry::String(v.clone())),
+        Some(Entry::Buffer(v)) => Some(Entry::Buffer(v.clone())),
+        Some(Entry::Vec(v)) => Some(Entry::Vec(Box::new(v.as_ref().clone()))),
+        Some(Entry::Map(m)) => Some(Entry::Map(Box::new(m.as_ref().clone()))),
+        Some(Entry::Json(j)) => Some(Entry::Json(Box::new(j.as_ref().clone()))),
         // Primitivos (número, bool): caller já tem o valor direto, não handle
-        _ => handle,
+        _ => None,
+    });
+    match result {
+        Some(entry) => alloc_entry(entry),
+        None => handle,
     }
 }
 

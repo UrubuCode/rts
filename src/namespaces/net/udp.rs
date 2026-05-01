@@ -2,7 +2,7 @@
 
 use std::net::UdpSocket;
 
-use super::super::gc::handles::{Entry, UdpEntry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, UdpEntry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
@@ -18,11 +18,10 @@ unsafe extern "C" {
 }
 
 fn clone_socket(handle: u64) -> Option<UdpSocket> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::UdpSocket(e)) => e.socket.try_clone().ok(),
         _ => None,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -78,42 +77,37 @@ pub extern "C" fn __RTS_FN_NS_NET_UDP_RECV_FROM(sock: u64, buf_ptr: u64, len: i6
         Ok(p) => p,
         Err(_) => return -1,
     };
-    // Atualiza last_peer no socket original.
-    {
-        let mut guard = shard_for_handle(sock).lock().unwrap();
-        if let Some(Entry::UdpSocket(e)) = guard.get_mut(sock) {
+    // Atualiza last_peer no socket original (clone released before this point).
+    with_entry_mut(sock, |entry| {
+        if let Some(Entry::UdpSocket(e)) = entry {
             e.last_peer = Some(peer);
         }
-    }
+    });
     n as i64
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_NET_UDP_LAST_PEER(sock: u64) -> u64 {
-    let guard = shard_for_handle(sock).lock().unwrap();
-    let addr = match guard.get(sock) {
-        Some(Entry::UdpSocket(e)) => match e.last_peer {
-            Some(p) => p.to_string(),
-            None => return 0,
-        },
-        _ => return 0,
-    };
-    drop(guard);
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(addr.as_ptr(), addr.len() as i64) }
+    let addr: Option<String> = with_entry(sock, |entry| match entry {
+        Some(Entry::UdpSocket(e)) => e.last_peer.map(|p| p.to_string()),
+        _ => None,
+    });
+    match addr {
+        Some(a) => unsafe { __RTS_FN_NS_GC_STRING_NEW(a.as_ptr(), a.len() as i64) },
+        None => 0,
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_NET_UDP_LOCAL_ADDR(sock: u64) -> u64 {
-    let guard = shard_for_handle(sock).lock().unwrap();
-    let addr = match guard.get(sock) {
-        Some(Entry::UdpSocket(e)) => match e.socket.local_addr() {
-            Ok(a) => a.to_string(),
-            Err(_) => return 0,
-        },
-        _ => return 0,
-    };
-    drop(guard);
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(addr.as_ptr(), addr.len() as i64) }
+    let addr: Option<String> = with_entry(sock, |entry| match entry {
+        Some(Entry::UdpSocket(e)) => e.socket.local_addr().ok().map(|a| a.to_string()),
+        _ => None,
+    });
+    match addr {
+        Some(a) => unsafe { __RTS_FN_NS_GC_STRING_NEW(a.as_ptr(), a.len() as i64) },
+        None => 0,
+    }
 }
 
 #[unsafe(no_mangle)]

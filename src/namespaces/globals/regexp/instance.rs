@@ -3,7 +3,7 @@
 //! Constructors delegate to `__RTS_FN_NS_REGEX_COMPILE` (which accepts flags).
 //! Instance methods delegate to the existing `regex` namespace ops.
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -61,12 +61,12 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
 /// `re.source` — returns pattern string as a handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_REGEXP_SOURCE(handle: u64) -> u64 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    if let Some(Entry::Regex(rx)) = guard.get(handle) {
-        let source = rx.as_str().to_owned();
-        drop(guard);
-        alloc_entry(Entry::String(source.into_bytes()))
-    } else {
-        0
+    let source: Option<String> = with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => Some(rx.as_str().to_owned()),
+        _ => None,
+    });
+    match source {
+        Some(s) => alloc_entry(Entry::String(s.into_bytes())),
+        None => 0,
     }
 }

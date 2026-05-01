@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use rustls::{ClientConfig, ClientConnection, RootCertStore};
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry_mut};
 
 /// Stream TLS client armazenado na HandleTable.
 pub struct TlsClientStream {
@@ -54,21 +54,18 @@ pub extern "C" fn __RTS_FN_NS_TLS_CLIENT(
     };
 
     // Move o TcpStream pra fora do slot do tcp_handle (transfere ownership).
-    let tcp: std::net::TcpStream = {
-        let t = shard_for_handle(tcp_handle);
-        let mut guard = t.lock().unwrap();
-        match guard.get_mut(tcp_handle) {
-            Some(entry @ Entry::TcpStream(_)) => {
-                let taken = std::mem::replace(entry, Entry::Free);
-                if let Entry::TcpStream(boxed) = taken {
-                    *boxed
-                } else {
-                    return 0;
-                }
+    let tcp: Option<std::net::TcpStream> = with_entry_mut(tcp_handle, |entry| match entry {
+        Some(entry @ Entry::TcpStream(_)) => {
+            let taken = std::mem::replace(entry, Entry::Free);
+            if let Entry::TcpStream(boxed) = taken {
+                Some(*boxed)
+            } else {
+                None
             }
-            _ => return 0,
         }
-    };
+        _ => None,
+    });
+    let Some(tcp) = tcp else { return 0; };
     // libera formal o slot (bump generation).
     free_handle(tcp_handle);
 
@@ -90,14 +87,12 @@ pub extern "C" fn __RTS_FN_NS_TLS_CLIENT(
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_TLS_CLOSE(handle: u64) {
     // Tenta close_notify antes de free.
-    {
-        let t = shard_for_handle(handle);
-        let mut guard = t.lock().unwrap();
-        if let Some(Entry::TlsClient(s)) = guard.get_mut(handle) {
+    with_entry_mut(handle, |entry| {
+        if let Some(Entry::TlsClient(s)) = entry {
             s.conn.send_close_notify();
             // Best-effort flush; ignora erros.
             let _ = s.conn.complete_io(&mut s.tcp);
         }
-    }
+    });
     free_handle(handle);
 }

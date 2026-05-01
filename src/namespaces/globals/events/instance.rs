@@ -12,7 +12,7 @@
 //!
 //! # Listener signature
 //!
-//! ```rust
+//! ```text
 //! extern "C" fn listener(arg: i64) -> i64;
 //! ```
 //!

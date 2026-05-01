@@ -1,6 +1,6 @@
 //! Regex runtime operations — backend `regex` crate.
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
 use regex::{Regex, RegexBuilder};
 
 unsafe fn slice_from(ptr: *const u8, len: i64) -> &'static [u8] {
@@ -23,12 +23,10 @@ fn with_regex<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&Regex) -> R,
 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    if let Some(Entry::Regex(rx)) = guard.get(handle) {
-        f(rx)
-    } else {
-        default
-    }
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => f(rx),
+        _ => default,
+    })
 }
 
 #[unsafe(no_mangle)]

@@ -8,7 +8,7 @@
 
 use serde_json::Value;
 
-use super::super::gc::handles::{alloc_entry, free_handle, shard_for_handle, Entry};
+use super::super::gc::handles::{alloc_entry, free_handle, with_entry, Entry};
 
 fn slice_from(ptr: u64, len: i64) -> Option<&'static [u8]> {
     if ptr == 0 || len < 0 {
@@ -35,11 +35,10 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE(ptr: u64, len: i64) -> u64 {
 }
 
 fn with_json<R>(handle: u64, default: R, f: impl FnOnce(&Value) -> R) -> R {
-    let table = shard_for_handle(handle).lock().unwrap();
-    match table.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::Json(v)) => f(v.as_ref()),
         _ => default,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]

@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 
 use rustls::Stream;
 
-use super::super::gc::handles::{Entry, shard_for_handle};
+use super::super::gc::handles::{Entry, with_entry_mut};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_TLS_SEND(
@@ -18,17 +18,17 @@ pub extern "C" fn __RTS_FN_NS_TLS_SEND(
     // SAFETY: caller contract.
     let payload = unsafe { std::slice::from_raw_parts(data_ptr, data_len as usize) };
 
-    let t = shard_for_handle(stream);
-    let mut guard = t.lock().unwrap();
-    let Some(Entry::TlsClient(s)) = guard.get_mut(stream) else {
-        return -1;
-    };
-    // Stream::new faz handshake lazy + encrypt + write.
-    let mut tls = Stream::new(&mut s.conn, &mut s.tcp);
-    match tls.write(payload) {
-        Ok(n) => n as i64,
-        Err(_) => -1,
-    }
+    with_entry_mut(stream, |entry| {
+        let Some(Entry::TlsClient(s)) = entry else {
+            return -1;
+        };
+        // Stream::new faz handshake lazy + encrypt + write.
+        let mut tls = Stream::new(&mut s.conn, &mut s.tcp);
+        match tls.write(payload) {
+            Ok(n) => n as i64,
+            Err(_) => -1,
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -41,17 +41,17 @@ pub extern "C" fn __RTS_FN_NS_TLS_RECV(stream: u64, buf_ptr: u64, len: i64) -> i
     // segurar a shard durante I/O bloqueante mais do que necessario.
     // Como TLS precisa do estado da conexao (que vive na shard),
     // mantemos o lock pela duracao toda mesmo. Aceitavel pra MVP.
-    let t = shard_for_handle(stream);
-    let mut guard = t.lock().unwrap();
-    let Some(Entry::TlsClient(s)) = guard.get_mut(stream) else {
-        return -1;
-    };
-    // SAFETY: caller passou ponteiro raw valido.
-    let dst = unsafe { std::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize) };
-    let mut tls = Stream::new(&mut s.conn, &mut s.tcp);
-    match tls.read(dst) {
-        Ok(n) => n as i64,
-        Err(e) if (&e as &std::io::Error).kind() == std::io::ErrorKind::UnexpectedEof => 0,
-        Err(_) => -1,
-    }
+    with_entry_mut(stream, |entry| {
+        let Some(Entry::TlsClient(s)) = entry else {
+            return -1;
+        };
+        // SAFETY: caller passou ponteiro raw valido.
+        let dst = unsafe { std::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize) };
+        let mut tls = Stream::new(&mut s.conn, &mut s.tcp);
+        match tls.read(dst) {
+            Ok(n) => n as i64,
+            Err(e) if (&e as &std::io::Error).kind() == std::io::ErrorKind::UnexpectedEof => 0,
+            Err(_) => -1,
+        }
+    })
 }

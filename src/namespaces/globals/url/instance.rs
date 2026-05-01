@@ -1,4 +1,4 @@
-use crate::namespaces::gc::handles::{alloc_entry, free_handle, shard_for_handle, Entry};
+use crate::namespaces::gc::handles::{alloc_entry, free_handle, with_entry, Entry};
 
 struct ParsedUrl {
     href: String,
@@ -111,11 +111,10 @@ pub extern "C" fn __RTS_FN_GL_URL_NEW(ptr: i64, len: i64) -> u64 {
 }
 
 fn url_field(handle: u64, idx: usize) -> u64 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::Env(v)) if v.len() > idx => v[idx] as u64,
         _ => 0,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -139,14 +138,12 @@ pub extern "C" fn __RTS_FN_GL_URL_ORIGIN(h: u64) -> u64   { url_field(h, 8) }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_FREE(handle: u64) {
-    // Free inner string handles
-    let fields: Vec<u64> = {
-        let guard = shard_for_handle(handle).lock().unwrap();
-        match guard.get(handle) {
-            Some(Entry::Env(v)) => v.iter().map(|&x| x as u64).collect(),
-            _ => vec![],
-        }
-    };
+    // Collect inner string handles outside any with_entry closure to avoid
+    // nested lock acquisition (deadlock risk if same shard).
+    let fields: Vec<u64> = with_entry(handle, |entry| match entry {
+        Some(Entry::Env(v)) => v.iter().map(|&x| x as u64).collect(),
+        _ => vec![],
+    });
     for fh in fields {
         if fh != 0 {
             free_handle(fh);

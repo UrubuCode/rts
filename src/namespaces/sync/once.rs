@@ -7,7 +7,7 @@
 
 use std::sync::Once;
 
-use super::super::gc::handles::{Entry, alloc_entry, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, with_entry};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_SYNC_ONCE_NEW() -> u64 {
@@ -20,13 +20,11 @@ pub extern "C" fn __RTS_FN_NS_SYNC_ONCE_CALL(handle: u64, fn_ptr: i64) {
         return;
     }
     // Obtem ponteiro estavel para o Once dentro do Box.
-    let once_ptr: *const Once = {
-        let guard = shard_for_handle(handle).lock().unwrap();
-        match guard.get(handle) {
-            Some(Entry::SyncOnce(o)) => o.as_ref() as *const Once,
-            _ => return,
-        }
-    };
+    let once_ptr: Option<*const Once> = with_entry(handle, |entry| match entry {
+        Some(Entry::SyncOnce(o)) => Some(o.as_ref() as *const Once),
+        _ => None,
+    });
+    let Some(once_ptr) = once_ptr else { return };
     // SAFETY: once_ptr permanece valido enquanto o slot na HandleTable
     // existir (caller nao deveria liberar durante a chamada). fn_ptr e
     // tratado como `extern "C" fn()` por contrato com o codegen.

@@ -9,7 +9,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, shard_for_handle};
+use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
@@ -21,19 +21,17 @@ fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
 }
 
 fn clone_stream(handle: u64) -> Option<TcpStream> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::TcpStream(s)) => s.try_clone().ok(),
         _ => None,
-    }
+    })
 }
 
 fn clone_listener(handle: u64) -> Option<TcpListener> {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    match guard.get(handle) {
+    with_entry(handle, |entry| match entry {
         Some(Entry::TcpListener(l)) => l.try_clone().ok(),
         _ => None,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -111,20 +109,16 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_NET_TCP_LOCAL_ADDR(handle: u64) -> u64 {
-    let guard = shard_for_handle(handle).lock().unwrap();
-    let addr = match guard.get(handle) {
-        Some(Entry::TcpStream(s)) => match s.local_addr() {
-            Ok(a) => a.to_string(),
-            Err(_) => return 0,
-        },
-        Some(Entry::TcpListener(l)) => match l.local_addr() {
-            Ok(a) => a.to_string(),
-            Err(_) => return 0,
-        },
-        _ => return 0,
-    };
-    drop(guard);
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(addr.as_ptr(), addr.len() as i64) }
+    // Collect addr string under the closure, then alloc outside.
+    let addr: Option<String> = with_entry(handle, |entry| match entry {
+        Some(Entry::TcpStream(s)) => s.local_addr().ok().map(|a| a.to_string()),
+        Some(Entry::TcpListener(l)) => l.local_addr().ok().map(|a| a.to_string()),
+        _ => None,
+    });
+    match addr {
+        Some(a) => unsafe { __RTS_FN_NS_GC_STRING_NEW(a.as_ptr(), a.len() as i64) },
+        None => 0,
+    }
 }
 
 #[unsafe(no_mangle)]
