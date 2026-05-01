@@ -23,6 +23,12 @@ use crate::parser::ast::Program;
 /// plus the FuncId for `__RTS_MAIN`. Caller invokes
 /// `module.get_finalized_function(id)` to obtain the pointer to execute.
 pub fn compile_program_to_jit(program: &mut Program) -> Result<(JITModule, Vec<String>)> {
+    // Install the periodic GC hook so alloc_entry can trigger finish_cycle()
+    // without a circular dependency between handles and collector.
+    crate::namespaces::gc::handles::install_gc_hook(
+        crate::namespaces::gc::collector::finish_cycle,
+    );
+
     let mut module = build_jit_module()?;
     let mut extern_cache = HashMap::new();
     let mut data_counter: u32 = 0;
@@ -43,13 +49,18 @@ pub fn compile_program_to_jit(program: &mut Program) -> Result<(JITModule, Vec<S
         use cranelift_module::FuncId;
 
         let pending = stack_map_registry::drain_pending();
+        let mut total_safepoints = 0usize;
         for entry in pending {
             let func_id = FuncId::from_u32(entry.func_id_raw);
             let base = module.get_finalized_function(func_id) as usize;
             for (ret_offset, sp_offsets) in entry.maps {
                 let return_pc = base + ret_offset as usize;
+                total_safepoints += 1;
                 stack_map_registry::register(return_pc, sp_offsets);
             }
+        }
+        if std::env::var("RTS_GC_DEBUG").is_ok() {
+            eprintln!("[gc] registered {total_safepoints} safepoints in JIT stack map registry");
         }
     }
 

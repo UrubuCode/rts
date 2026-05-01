@@ -410,12 +410,47 @@ pub fn shard_for_handle(handle: u64) -> &'static Mutex<HandleTable> {
 
 thread_local! {
     static ALLOC_SHARD: Cell<usize> = const { Cell::new(0) };
+    /// Conta alocações por thread para GC automático periódico.
+    static ALLOC_TICK: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Frequência do GC automático: a cada N alocações o collector faz
+/// um ciclo completo de mark+sweep. Calibrado para cobrir loops de
+/// concat sem overhead significativo em workloads leves.
+const GC_TICK_INTERVAL: u32 = 256;
+
+/// Hook instalado por `collector::install_gc_hook()` para disparar
+/// finish_cycle sem dependência circular handles → collector.
+static GC_COLLECT_HOOK: OnceLock<fn()> = OnceLock::new();
+
+/// Instala o hook de GC automático. Chamado uma vez por `collector` na
+/// inicialização do runtime JIT.
+pub fn install_gc_hook(f: fn()) {
+    let _ = GC_COLLECT_HOOK.set(f);
 }
 
 /// Allocates `entry` in the next shard (round-robin per thread).
 /// The shard index is encoded in the returned handle so `shard_for_handle`
 /// routes correctly without any extra lookup.
+///
+/// Every `GC_TICK_INTERVAL` allocations triggers an automatic mark+sweep
+/// cycle when the JIT stack map registry is active. This reclaims handles
+/// that are no longer reachable from any JIT frame.
 pub fn alloc_entry(entry: Entry) -> u64 {
+    // Periodic GC: tick counter is thread-local (no atomic overhead).
+    // We trigger BEFORE the new allocation so the allocation itself is
+    // not yet visible to the collector (correct: not yet a root).
+    let tick = ALLOC_TICK.with(|t| {
+        let v = t.get().wrapping_add(1);
+        t.set(v);
+        v
+    });
+    if tick % GC_TICK_INTERVAL == 0 {
+        if let Some(f) = GC_COLLECT_HOOK.get() {
+            f();
+        }
+    }
+
     let shard_idx = ALLOC_SHARD.with(|s| {
         let v = s.get();
         s.set((v + 1) % N_SHARDS);
@@ -546,14 +581,6 @@ pub fn with_two_entries<R>(
         f(ea, eb)
     }
 }
-
-/// Compatibility hook for incremental GC pacing.
-/// Sharded handle table has no incremental collector, so this is a no-op.
-pub fn collect_debt() {}
-
-/// Compatibility hook for forced GC cycle.
-/// Sharded handle table has no cycle collector, so this is a no-op.
-pub fn finish_cycle() {}
 
 /// Count of currently live handles (allocated minus freed).
 pub fn live_handle_count() -> usize {

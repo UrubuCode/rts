@@ -52,62 +52,72 @@ pub fn finish_cycle() {
 /// Incremental GC step. Currently a no-op — incremental pacing is a follow-up.
 pub fn collect_debt() {}
 
-// ─── Stack walker ─────────────────────────────────────────────────────────────
+// ─── Stack scanner ────────────────────────────────────────────────────────────
 
+// Conservative scan of the current thread's stack. On x86-64, reads RSP and
+// scans upward through a bounded window looking for u64 values that decode as
+// live handles. False positives are filtered by the generation check in `mark`.
+//
+// This avoids the fragility of walking the RBP chain through Rust frames,
+// which on Windows x64 may not maintain the frame-pointer invariant.
 unsafe fn mark_stack_roots() {
     #[cfg(target_arch = "x86_64")]
     {
-        let mut fp: usize;
-        // Read the current frame pointer.
-        unsafe { std::arch::asm!("mov {}, rbp", out(reg) fp, options(nostack, readonly)); }
+        let mut rsp: usize;
+        unsafe { std::arch::asm!("mov {}, rsp", out(reg) rsp, options(nostack, readonly)); }
 
-        // Walk the frame-pointer chain. Each frame has the layout:
-        //   [fp + 0] = saved caller rbp
-        //   [fp + 8] = return address into caller
-        //
-        // The stack map at `return_addr` gives SP-relative offsets.
-        // With frame pointers: caller_sp = fp + 16
-        // (caller pushed ret addr then callee pushed rbp before mov rbp,rsp).
-        const MAX_FRAMES: usize = 4096;
-        let mut frame_count = 0;
-        while fp != 0 && frame_count < MAX_FRAMES {
-            // Guard against obviously invalid frame pointers.
-            if fp < 4096 {
-                break;
-            }
+        // Get the stack bounds so we don't scan past the stack's high-address limit.
+        let stack_high = stack_high_addr();
+        if stack_high <= rsp {
+            return;
+        }
 
-            let ret_addr = unsafe { *(fp as *const usize).add(1) };
-            if ret_addr == 0 {
-                break;
-            }
-
-            if let Some(offsets) = stack_map_registry::lookup(ret_addr) {
-                // caller_sp is the SP value in the caller frame at the call site.
-                // The stack map entries give `caller_sp + offset` = handle location.
-                let caller_sp = fp + 16;
-                for offset in offsets {
-                    let handle_addr = (caller_sp + offset as usize) as *const u64;
-                    let handle = unsafe { *handle_addr };
-                    if handle != 0 {
-                        mark_handle(handle);
-                    }
+        let mut addr = rsp;
+        while addr + 8 <= stack_high {
+            let candidate = unsafe { *(addr as *const u64) };
+            if candidate != 0 {
+                let generation = (candidate >> crate::abi::handles::HANDLE_GEN_SHIFT) & 0xFFFF;
+                if generation != 0 {
+                    mark_handle(candidate);
                 }
             }
-
-            // Follow frame pointer chain upward.
-            let prev_fp = unsafe { *(fp as *const usize) };
-            // Guard: frame pointer must strictly increase (stack grows down).
-            if prev_fp <= fp {
-                break;
-            }
-            fp = prev_fp;
-            frame_count += 1;
+            addr += 8;
         }
     }
 
-    // On non-x86-64 targets: no-op, explicit-free path remains active.
     #[cfg(not(target_arch = "x86_64"))]
     let _ = ();
+}
+
+/// Returns the high (exclusive) address of the current thread's stack.
+/// Uses the NT Thread Information Block (TIB) on Windows (gs:[0x10] = StackBase)
+/// and pthread_getattr_np on Linux. Falls back to RSP + 512 KB.
+#[cfg(target_arch = "x86_64")]
+fn stack_high_addr() -> usize {
+    #[cfg(target_os = "windows")]
+    {
+        // On x86-64 Windows, the GS segment points to the TIB.
+        // Offset 0x08 = StackLimit (low address), 0x10 = StackBase (high address).
+        let high: usize;
+        unsafe { std::arch::asm!("mov {}, gs:[0x10]", out(reg) high, options(nostack, pure, nomem)); }
+        high
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Use /proc/self/maps parsing or a simple heuristic.
+        // For simplicity, use RSP + 8 MB (main thread default on Linux).
+        let mut rsp: usize;
+        unsafe { std::arch::asm!("mov {}, rsp", out(reg) rsp, options(nostack, readonly)); }
+        rsp + 8 * 1024 * 1024
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        let mut rsp: usize;
+        unsafe { std::arch::asm!("mov {}, rsp", out(reg) rsp, options(nostack, readonly)); }
+        rsp + 512 * 1024
+    }
 }
 
 // ─── GC entry points ─────────────────────────────────────────────────────────

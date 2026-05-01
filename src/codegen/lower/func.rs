@@ -6320,34 +6320,45 @@ fn compile_user_fn(
         eprintln!("--- {} [{}] IR ---\n{}", fn_decl.name, loc, ctx.func.display());
     }
 
+    // Pre-compile to capture GC stack maps BEFORE define_function clears the context.
+    // JITModule::define_function_with_control_plane calls ctx.clear() internally, so
+    // ctx.compiled_code() is always None after define_function. We compile once here
+    // just to read the stack maps, then define_function recompiles (double compilation).
+    {
+        use cranelift_codegen::control::ControlPlane;
+        let mut ctrl = ControlPlane::default();
+        let gc_debug = std::env::var("RTS_GC_DEBUG").is_ok();
+        match ctx.compile(module.isa(), &mut ctrl) {
+            Ok(compiled) => {
+                let raw_maps = compiled.buffer.user_stack_maps();
+                if gc_debug {
+                    eprintln!("[gc] fn `{}` — {} raw stack map entries", fn_decl.name, raw_maps.len());
+                }
+                let maps: Vec<(u32, Vec<u32>)> = raw_maps
+                    .iter()
+                    .filter_map(|(ret_offset, _, map)| {
+                        let offsets: Vec<u32> = map.entries().map(|(_, sp_off)| sp_off).collect();
+                        if gc_debug {
+                            eprintln!("[gc]   safepoint offset={ret_offset} offsets={offsets:?}");
+                        }
+                        if offsets.is_empty() { None } else { Some((*ret_offset, offsets)) }
+                    })
+                    .collect();
+                if !maps.is_empty() {
+                    crate::namespaces::gc::stack_map_registry::push_pending(info.id.as_u32(), maps);
+                }
+            }
+            Err(e) => {
+                if gc_debug {
+                    eprintln!("[gc] fn `{}` — pre-compile failed: {}", fn_decl.name, e.inner);
+                }
+            }
+        }
+    }
+
     module
         .define_function(info.id, &mut ctx)
         .with_context(|| format!("failed to define function `{}`", fn_decl.name))?;
-
-    // Collect GC stack maps produced by declare_value_needs_stack_map calls.
-    // Entries are stored as (ret_pc_offset_from_fn_start, [sp_offsets]) and
-    // resolved to absolute PCs by jit.rs after finalize_definitions().
-    if let Some(compiled) = ctx.compiled_code() {
-        let maps: Vec<(u32, Vec<u32>)> = compiled
-            .buffer
-            .user_stack_maps()
-            .iter()
-            .filter_map(|(ret_offset, _, map)| {
-                let offsets: Vec<u32> = map.entries().map(|(_, sp_off)| sp_off).collect();
-                if offsets.is_empty() {
-                    None
-                } else {
-                    Some((*ret_offset, offsets))
-                }
-            })
-            .collect();
-        if !maps.is_empty() {
-            crate::namespaces::gc::stack_map_registry::push_pending(
-                info.id.as_u32(),
-                maps,
-            );
-        }
-    }
 
     Ok(warnings)
 }
@@ -6450,6 +6461,35 @@ fn compile_main(
             format!("{} top-level", file)
         };
         eprintln!("--- __RTS_MAIN [{}] IR ---\n{}", loc, runtime_ctx.func.display());
+    }
+
+    {
+        use cranelift_codegen::control::ControlPlane;
+        let mut ctrl = ControlPlane::default();
+        let gc_debug = std::env::var("RTS_GC_DEBUG").is_ok();
+        match runtime_ctx.compile(module.isa(), &mut ctrl) {
+            Ok(compiled) => {
+                let raw_maps = compiled.buffer.user_stack_maps();
+                if gc_debug {
+                    eprintln!("[gc] fn `__RTS_MAIN` — {} raw stack map entries", raw_maps.len());
+                }
+                let maps: Vec<(u32, Vec<u32>)> = raw_maps
+                    .iter()
+                    .filter_map(|(ret_offset, _, map)| {
+                        let offsets: Vec<u32> = map.entries().map(|(_, sp_off)| sp_off).collect();
+                        if offsets.is_empty() { None } else { Some((*ret_offset, offsets)) }
+                    })
+                    .collect();
+                if !maps.is_empty() {
+                    crate::namespaces::gc::stack_map_registry::push_pending(runtime_main_id.as_u32(), maps);
+                }
+            }
+            Err(e) => {
+                if gc_debug {
+                    eprintln!("[gc] fn `__RTS_MAIN` — pre-compile failed: {}", e.inner);
+                }
+            }
+        }
     }
 
     module

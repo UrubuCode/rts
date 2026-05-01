@@ -849,11 +849,13 @@ pub(super) fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Va
 
 pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
     if matches!(lhs.ty, ValTy::Handle) || matches!(rhs.ty, ValTy::Handle) {
-        // Track whether each operand was already a Handle (named variable)
-        // or was created by coerce_to_handle (temporary). Temporaries are
-        // freed after concat — they are not referenced anywhere else.
-        let lhs_was_handle = matches!(lhs.ty, ValTy::Handle);
-        let rhs_was_handle = matches!(rhs.ty, ValTy::Handle);
+        // Determine liveness of operands before coerce modifies types.
+        // A Value is a "fresh" allocation when it was created by emit_str_handle
+        // or coerce_to_handle and has not been assigned to a named variable yet
+        // (tracked via FnCtx::fresh_handle_set). Fresh handles are safe to free
+        // after concat — they have no other references.
+        let lhs_is_fresh = ctx.fresh_handle_set.contains(&lhs.val);
+        let rhs_is_fresh = ctx.fresh_handle_set.contains(&rhs.val);
 
         let concat = ctx.get_extern(
             "__RTS_FN_NS_GC_STRING_CONCAT",
@@ -862,31 +864,27 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
         )?;
         let lhs_h = ctx.coerce_to_handle(lhs)?.val;
         let rhs_h = ctx.coerce_to_handle(rhs)?.val;
+
+        // coerce_to_handle may have created new fresh handles for numeric operands.
+        let lhs_free = lhs_is_fresh || (!matches!(lhs.ty, ValTy::Handle) && lhs_h != lhs.val);
+        let rhs_free = rhs_is_fresh || (!matches!(rhs.ty, ValTy::Handle) && rhs_h != rhs.val);
+
         let inst = ctx.builder.ins().call(concat, &[lhs_h, rhs_h]);
         let result = ctx.builder.inst_results(inst)[0];
 
         // Register result for GC stack map tracking and legacy scope auto-free.
         ctx.declare_gc_handle(result);
+        ctx.fresh_handle_set.insert(result);
         ctx.register_temp_handle(result);
 
-        // Free operand handles that were created as temporaries by coerce_to_handle.
-        // Handles that were already ValTy::Handle (named variables) must NOT be
-        // freed here — they may still be referenced in the current scope.
-        if !lhs_was_handle {
-            if let Ok(free_fn) = ctx.get_extern(
-                "__RTS_FN_NS_GC_STRING_FREE",
-                &[cl::I64],
-                Some(cl::I64),
-            ) {
+        // Free fresh operand handles — they are not referenced anywhere else.
+        if let Ok(free_fn) = ctx.get_extern("__RTS_FN_NS_GC_STRING_FREE", &[cl::I64], Some(cl::I64)) {
+            if lhs_free {
+                ctx.fresh_handle_set.remove(&lhs.val);
                 ctx.builder.ins().call(free_fn, &[lhs_h]);
             }
-        }
-        if !rhs_was_handle {
-            if let Ok(free_fn) = ctx.get_extern(
-                "__RTS_FN_NS_GC_STRING_FREE",
-                &[cl::I64],
-                Some(cl::I64),
-            ) {
+            if rhs_free {
+                ctx.fresh_handle_set.remove(&rhs.val);
                 ctx.builder.ins().call(free_fn, &[rhs_h]);
             }
         }

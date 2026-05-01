@@ -382,6 +382,12 @@ pub struct FnCtx<'m, 'fb> {
     /// emitia FuncRef distintos pra mesma fn.
     pub fn_ref_by_id_cache:
         HashMap<cranelift_module::FuncId, cranelift_codegen::ir::FuncRef>,
+
+    /// SSA Values que são handles freshly alocados (não variáveis nomeadas).
+    /// Populado por emit_str_handle e coerce_to_handle. Removido quando
+    /// o valor é atribuído a uma variável nomeada via declare_local_kind.
+    /// Usado por lower_add para liberar operandos temporários após concat.
+    pub fresh_handle_set: std::collections::HashSet<cranelift_codegen::ir::Value>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -434,6 +440,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             gv_data_cache: HashMap::new(),
             fn_ref_cache: HashMap::new(),
             fn_ref_by_id_cache: HashMap::new(),
+            fresh_handle_set: std::collections::HashSet::new(),
         }
     }
 
@@ -637,6 +644,14 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             self.locals.len() - 1
         };
         self.locals[idx].insert(name.to_string(), slot);
+        // Handle atribuído a variável nomeada — não é mais "fresh" (pode ser referenciado
+        // por nome; lower_add não deve liberar automaticamente).
+        if matches!(ty, ValTy::Handle) {
+            self.fresh_handle_set.remove(&init);
+            // Declarar a Variable para stack-map tracking — propaga para todos os
+            // SSA values da var, incluindo phi nodes em loop headers.
+            self.declare_gc_var(var);
+        }
         // (#155 fase 1) Registra handles `const` em escopo de bloco
         // como candidatos a string_free no pop_scope. So' const Handle
         // em block scope (nao function/var scope).
@@ -838,8 +853,19 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     /// Cranelift will spill this value at every non-tail-call safepoint where
     /// it is live, and record it in the `UserStackMap` for that call.
     /// The GC collector reads these maps during `finish_cycle()` to find roots.
+    ///
+    /// Prefer `declare_gc_var` when the handle will be stored in a Variable —
+    /// Variables span loop iterations (phi nodes) while Values are single SSA defs.
     pub fn declare_gc_handle(&mut self, val: Value) {
         self.builder.declare_value_needs_stack_map(val);
+    }
+
+    /// Declare a Variable (SSA variable holding a GC handle) for stack-map tracking.
+    /// Unlike `declare_gc_handle`, this propagates to ALL SSA values associated
+    /// with the variable, including phi nodes created at loop headers. Use this
+    /// for any `Variable` whose current value is a live GC handle.
+    pub fn declare_gc_var(&mut self, var: cranelift_frontend::Variable) {
+        self.builder.declare_var_needs_stack_map(var);
     }
 
     pub fn emit_str_handle(&mut self, bytes: &[u8]) -> Result<TypedVal> {
@@ -852,6 +878,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         let inst = self.builder.ins().call(fref, &[ptr, len]);
         let val = self.builder.inst_results(inst)[0];
         self.declare_gc_handle(val);
+        self.fresh_handle_set.insert(val);
         self.register_temp_handle(val);
         Ok(TypedVal::new(val, ValTy::Handle))
     }
@@ -877,6 +904,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 let inst = self.builder.ins().call(fref, &[as_i64.val]);
                 let val = self.builder.inst_results(inst)[0];
                 self.declare_gc_handle(val);
+                self.fresh_handle_set.insert(val);
                 self.register_temp_handle(val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
@@ -886,6 +914,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 let inst = self.builder.ins().call(fref, &[tv.val]);
                 let val = self.builder.inst_results(inst)[0];
                 self.declare_gc_handle(val);
+                self.fresh_handle_set.insert(val);
                 self.register_temp_handle(val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
