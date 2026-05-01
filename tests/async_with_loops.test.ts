@@ -31,22 +31,18 @@ async function matrix(n: i64): i64 {
 print("matrix(5)=" + (await matrix(5)));   // 25
 print("matrix(10)=" + (await matrix(10))); // 100
 
-// 3. async fn com if dentro de loop (sem early return ou flag —
-// `let` reassignment funciona OK).
-async function countEven(n: i64): i64 {
-  let count: i64 = 0;
-  let i: i64 = 0;
-  while (i < n) {
+// 3. async fn com early return em for-loop (issue #425 fixed).
+async function firstEven(start: i64, max: i64): i64 {
+  for (let i: i64 = start; i < max; i = i + 1) {
     if (i % 2 == 0) {
-      count = count + 1;
+      return i;
     }
-    i = i + 1;
   }
-  return count;
+  return -1;
 }
 
-print("countEven(10)=" + (await countEven(10))); // 5 (0,2,4,6,8)
-print("countEven(15)=" + (await countEven(15))); // 8 (0,2,4,6,8,10,12,14)
+print("firstEven(7,20)=" + (await firstEven(7, 20)));   // 8
+print("firstEven(11,12)=" + (await firstEven(11, 12))); // -1
 
 // 4. async fn com continue.
 async function sumOdd(n: i64): i64 {
@@ -91,7 +87,7 @@ print("decrement(5)=" + (await decrement(5)));  // 5
 describe("async functions com loops e control flow", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "sumRange(10)=55\nsumRange(100)=5050\nmatrix(5)=25\nmatrix(10)=100\ncountEven(10)=5\ncountEven(15)=8\nsumOdd(10)=25\nfindIdx(100)=10\nfindIdx(50)=8\ndecrement(5)=5\n"
+      "sumRange(10)=55\nsumRange(100)=5050\nmatrix(5)=25\nmatrix(10)=100\nfirstEven(7,20)=8\nfirstEven(11,12)=-1\nsumOdd(10)=25\nfindIdx(100)=10\nfindIdx(50)=8\ndecrement(5)=5\n"
     );
   });
 });

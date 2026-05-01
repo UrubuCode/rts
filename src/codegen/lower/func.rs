@@ -2076,11 +2076,9 @@ fn expand_async_functions(program: &mut Program) {
             if !f.is_async {
                 continue;
             }
-            // Suportamos so' 0 ou 1 parametro nesta primeira versao.
-            if f.parameters.len() > 1 {
-                continue;
-            }
-            let arg_name = f.parameters.first().map(|p| p.name.clone());
+            // Suporta N parametros — pack em Vec na chamada,
+            // unpack no watcher. Slot 0 = handle da Promise, 1.. = args.
+            let param_names: Vec<String> = f.parameters.iter().map(|p| p.name.clone()).collect();
             let inner_name = format!("__async_inner_{}", f.name);
             let watcher_name = format!("__async_watcher_{}", f.name);
 
@@ -2094,38 +2092,43 @@ fn expand_async_functions(program: &mut Program) {
                 is_async: false,
             }));
 
-            // 2. Watcher: extrai p e arg de uma Vec, chama inner, resolve.
-            //   const p = collections.vec_get(packed, 0);
-            //   const arg = collections.vec_get(packed, 1);  // se existir
-            //   const r = __async_inner(arg ou nada);
-            //   promise.resolve(p, r);
+            // 2. Watcher: extrai p e args do Vec, chama inner com todos
+            // os args extraidos, resolve a Promise.
+            //   const __p = collections.vec_get(__packed, 0);
+            //   const __a0 = collections.vec_get(__packed, 1);
+            //   const __a1 = collections.vec_get(__packed, 2);
+            //   ...
+            //   const __r = __async_inner(__a0, __a1, ...);
+            //   promise.resolve(__p, __r);
             //   return 0;
             let mut watcher_body: Vec<Statement> = Vec::new();
             watcher_body.push(raw_stmt(const_decl(
                 "__p",
                 ns_call("collections", "vec_get", vec![ident_expr("__packed"), num_lit(0)]),
             )));
-            let inner_call = if arg_name.is_some() {
+            let mut inner_args: Vec<Expr> = Vec::with_capacity(param_names.len());
+            for (idx, _) in param_names.iter().enumerate() {
+                let arg_name = format!("__a{}", idx);
                 watcher_body.push(raw_stmt(const_decl(
-                    "__a",
-                    ns_call("collections", "vec_get", vec![ident_expr("__packed"), num_lit(1)]),
+                    &arg_name,
+                    ns_call(
+                        "collections",
+                        "vec_get",
+                        vec![ident_expr("__packed"), num_lit((idx + 1) as i64)],
+                    ),
                 )));
-                Expr::Call(CallExpr {
-                    span: Default::default(),
-                    ctxt: Default::default(),
-                    callee: Callee::Expr(Box::new(ident_expr(&inner_name))),
-                    args: vec![ExprOrSpread { spread: None, expr: Box::new(ident_expr("__a")) }],
-                    type_args: None,
-                })
-            } else {
-                Expr::Call(CallExpr {
-                    span: Default::default(),
-                    ctxt: Default::default(),
-                    callee: Callee::Expr(Box::new(ident_expr(&inner_name))),
-                    args: vec![],
-                    type_args: None,
-                })
-            };
+                inner_args.push(ident_expr(&arg_name));
+            }
+            let inner_call = Expr::Call(CallExpr {
+                span: Default::default(),
+                ctxt: Default::default(),
+                callee: Callee::Expr(Box::new(ident_expr(&inner_name))),
+                args: inner_args
+                    .into_iter()
+                    .map(|e| ExprOrSpread { spread: None, expr: Box::new(e) })
+                    .collect(),
+                type_args: None,
+            });
             watcher_body.push(raw_stmt(const_decl("__r", inner_call)));
             watcher_body.push(raw_stmt(expr_stmt(ns_call(
                 "promise",
@@ -2151,12 +2154,14 @@ fn expand_async_functions(program: &mut Program) {
             }));
 
             // 3. Substitui o body de `f` por:
-            //   const p = promise.new_pending();
-            //   const args = collections.vec_new();
-            //   collections.vec_push(args, p);
-            //   [if has arg] collections.vec_push(args, arg);
-            //   thread.spawn_async(watcher_addr, args);
-            //   return p;
+            //   const __p = promise.new_pending();
+            //   const __args = collections.vec_new();
+            //   collections.vec_push(__args, __p);
+            //   collections.vec_push(__args, param_0);
+            //   collections.vec_push(__args, param_1);
+            //   ...
+            //   thread.spawn_async(watcher_addr, __args);
+            //   return __p;
             let mut new_body: Vec<Statement> = Vec::new();
             new_body.push(raw_stmt(const_decl(
                 "__p",
@@ -2171,11 +2176,11 @@ fn expand_async_functions(program: &mut Program) {
                 "vec_push",
                 vec![ident_expr("__args"), ident_expr("__p")],
             ))));
-            if let Some(ref arg) = arg_name {
+            for pname in &param_names {
                 new_body.push(raw_stmt(expr_stmt(ns_call(
                     "collections",
                     "vec_push",
-                    vec![ident_expr("__args"), ident_expr(arg)],
+                    vec![ident_expr("__args"), ident_expr(pname)],
                 ))));
             }
             new_body.push(raw_stmt(expr_stmt(ns_call(
