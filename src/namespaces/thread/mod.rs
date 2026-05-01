@@ -11,6 +11,7 @@
 //! em Rust 1.93).
 
 pub mod abi;
+pub mod async_spawn;
 pub mod info;
 pub mod join;
 pub mod pool;

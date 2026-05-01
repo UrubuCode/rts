@@ -128,15 +128,10 @@ pub extern "C" fn __RTS_FN_NS_HTTP_SERVER_SERVE(
         }
     };
 
-    let rt = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(r) => r,
-        Err(_) => return,
-    };
-
-    rt.block_on(async move {
+    // Usa o runtime tokio global compartilhado (issue #399). Antes
+    // criavamos um runtime local — isolava do GC scanner e impedia
+    // reuso por outras features async (fetch, fs, ws).
+    crate::runtime::async_rt::rt().block_on(async move {
         let server = match HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(handler_fn))
