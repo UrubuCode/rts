@@ -534,6 +534,7 @@ fn apply_reduce_pass_to_top_level(
             return_type: Some("i64".to_string()),
             body: body_stmts,
             span: Span::default(),
+            is_async: false,
         }));
         par_fn_names.insert(m.fn_name.clone());
     }
@@ -703,6 +704,7 @@ fn apply_reduce_pass_to_body(
             return_type: Some("i64".to_string()),
             body: fn_body_stmts,
             span: Span::default(),
+            is_async: false,
         }));
         par_fn_names.insert(m.fn_name.clone());
     }
@@ -875,6 +877,7 @@ fn apply_purity_pass_to_top_level(
             }],
             return_type: Some("void".to_string()),
             body: body_stmts, span: Span::default(),
+            is_async: false,
         }));
         par_fn_names.insert(t.fn_name.clone());
     }
@@ -939,6 +942,7 @@ fn apply_purity_pass_to_body(
             }],
             return_type: Some("void".to_string()),
             body: body_stmts, span: Span::default(),
+            is_async: false,
         }));
         par_fn_names.insert(t.fn_name.clone());
     }
@@ -1690,6 +1694,235 @@ fn rewrite_static_in_expr(e: &mut Expr, map: &HashMap<String, HashMap<String, St
 /// IIFE, valor em object literal, etc) para Item::Function sintetico
 /// no topo do programa, substituindo a expressao por Expr::Ident.
 ///
+/// Reescreve `async function f(arg)` em wrapper sincrono +
+/// fn interna executada em thread (issue #413, F2 da epic #411).
+///
+/// Modelo:
+/// ```ignore
+/// // Antes
+/// async function f(x: i64): i64 { return x + 1; }
+///
+/// // Depois (AST reescrito)
+/// function __async_inner_f(x: i64): i64 { return x + 1; }
+/// function __async_watcher_f(packed: i64): i64 {
+///   // packed = handle de Vec [p_handle, arg]
+///   const arg = collections.vec_get(packed, 1);
+///   const p = collections.vec_get(packed, 0);
+///   const r = __async_inner_f(arg);
+///   promise.resolve(p, r);
+///   return 0;
+/// }
+/// function f(x: i64): i64 {
+///   const p = promise.new_pending();
+///   const args = collections.vec_new();
+///   collections.vec_push(args, p);
+///   collections.vec_push(args, x);
+///   thread.spawn_async(__async_watcher_f, args);
+///   return p;
+/// }
+/// ```
+///
+/// Limitacoes desta primeira versao (F2 fase 1):
+/// - Suporta apenas async fns com 0 ou 1 parametro i64
+/// - Retorno wrappa value como i64 (Promise<T> generico — caller usa
+///   `await` que devolve i64)
+/// - Multi-arg vai numa F2-fase-2
+fn expand_async_functions(program: &mut Program) {
+    use swc_ecma_ast::{
+        BlockStmt, CallExpr, Callee, Expr, ExprOrSpread, ExprStmt, Ident, IdentName, Lit,
+        MemberExpr, MemberProp, ReturnStmt, Stmt, VarDecl, VarDeclKind, VarDeclarator,
+    };
+
+    fn ident(name: &str) -> Ident {
+        Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: name.into(),
+            optional: false,
+        }
+    }
+    fn ident_expr(name: &str) -> Expr { Expr::Ident(ident(name)) }
+    fn ns_call(ns: &str, method: &str, args: Vec<Expr>) -> Expr {
+        Expr::Call(CallExpr {
+            span: Default::default(),
+            ctxt: Default::default(),
+            callee: Callee::Expr(Box::new(Expr::Member(MemberExpr {
+                span: Default::default(),
+                obj: Box::new(ident_expr(ns)),
+                prop: MemberProp::Ident(IdentName {
+                    span: Default::default(),
+                    sym: method.into(),
+                }),
+            }))),
+            args: args
+                .into_iter()
+                .map(|e| ExprOrSpread { spread: None, expr: Box::new(e) })
+                .collect(),
+            type_args: None,
+        })
+    }
+    fn const_decl(name: &str, init: Expr) -> Stmt {
+        Stmt::Decl(swc_ecma_ast::Decl::Var(Box::new(VarDecl {
+            span: Default::default(),
+            ctxt: Default::default(),
+            kind: VarDeclKind::Const,
+            declare: false,
+            decls: vec![VarDeclarator {
+                span: Default::default(),
+                name: swc_ecma_ast::Pat::Ident(swc_ecma_ast::BindingIdent {
+                    id: ident(name),
+                    type_ann: None,
+                }),
+                init: Some(Box::new(init)),
+                definite: false,
+            }],
+        })))
+    }
+    fn expr_stmt(e: Expr) -> Stmt {
+        Stmt::Expr(ExprStmt { span: Default::default(), expr: Box::new(e) })
+    }
+    fn return_stmt(e: Option<Expr>) -> Stmt {
+        Stmt::Return(ReturnStmt {
+            span: Default::default(),
+            arg: e.map(Box::new),
+        })
+    }
+    fn raw_stmt(stmt: Stmt) -> Statement {
+        Statement::Raw(RawStmt::new("<async-rewrite>".to_string(), Span::default()).with_stmt(stmt))
+    }
+    fn num_lit(v: i64) -> Expr {
+        Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+            span: Default::default(),
+            value: v as f64,
+            raw: None,
+        }))
+    }
+
+    let mut new_fns: Vec<Item> = Vec::new();
+    for item in program.items.iter_mut() {
+        if let Item::Function(f) = item {
+            if !f.is_async {
+                continue;
+            }
+            // Suportamos so' 0 ou 1 parametro nesta primeira versao.
+            if f.parameters.len() > 1 {
+                continue;
+            }
+            let arg_name = f.parameters.first().map(|p| p.name.clone());
+            let inner_name = format!("__async_inner_{}", f.name);
+            let watcher_name = format!("__async_watcher_{}", f.name);
+
+            // 1. Inner fn = body original
+            new_fns.push(Item::Function(FunctionDecl {
+                name: inner_name.clone(),
+                parameters: f.parameters.clone(),
+                return_type: Some("i64".to_string()),
+                body: f.body.clone(),
+                span: f.span,
+                is_async: false,
+            }));
+
+            // 2. Watcher: extrai p e arg de uma Vec, chama inner, resolve.
+            //   const p = collections.vec_get(packed, 0);
+            //   const arg = collections.vec_get(packed, 1);  // se existir
+            //   const r = __async_inner(arg ou nada);
+            //   promise.resolve(p, r);
+            //   return 0;
+            let mut watcher_body: Vec<Statement> = Vec::new();
+            watcher_body.push(raw_stmt(const_decl(
+                "__p",
+                ns_call("collections", "vec_get", vec![ident_expr("__packed"), num_lit(0)]),
+            )));
+            let inner_call = if arg_name.is_some() {
+                watcher_body.push(raw_stmt(const_decl(
+                    "__a",
+                    ns_call("collections", "vec_get", vec![ident_expr("__packed"), num_lit(1)]),
+                )));
+                Expr::Call(CallExpr {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    callee: Callee::Expr(Box::new(ident_expr(&inner_name))),
+                    args: vec![ExprOrSpread { spread: None, expr: Box::new(ident_expr("__a")) }],
+                    type_args: None,
+                })
+            } else {
+                Expr::Call(CallExpr {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    callee: Callee::Expr(Box::new(ident_expr(&inner_name))),
+                    args: vec![],
+                    type_args: None,
+                })
+            };
+            watcher_body.push(raw_stmt(const_decl("__r", inner_call)));
+            watcher_body.push(raw_stmt(expr_stmt(ns_call(
+                "promise",
+                "resolve",
+                vec![ident_expr("__p"), ident_expr("__r")],
+            ))));
+            watcher_body.push(raw_stmt(return_stmt(Some(num_lit(0)))));
+
+            new_fns.push(Item::Function(FunctionDecl {
+                name: watcher_name.clone(),
+                parameters: vec![Parameter {
+                    name: "__packed".to_string(),
+                    type_annotation: Some("i64".to_string()),
+                    modifiers: MemberModifiers::default(),
+                    variadic: false,
+                    default: None,
+                    span: Span::default(),
+                }],
+                return_type: Some("i64".to_string()),
+                body: watcher_body,
+                span: f.span,
+                is_async: false,
+            }));
+
+            // 3. Substitui o body de `f` por:
+            //   const p = promise.new_pending();
+            //   const args = collections.vec_new();
+            //   collections.vec_push(args, p);
+            //   [if has arg] collections.vec_push(args, arg);
+            //   thread.spawn_async(watcher_addr, args);
+            //   return p;
+            let mut new_body: Vec<Statement> = Vec::new();
+            new_body.push(raw_stmt(const_decl(
+                "__p",
+                ns_call("promise", "new_pending", vec![]),
+            )));
+            new_body.push(raw_stmt(const_decl(
+                "__args",
+                ns_call("collections", "vec_new", vec![]),
+            )));
+            new_body.push(raw_stmt(expr_stmt(ns_call(
+                "collections",
+                "vec_push",
+                vec![ident_expr("__args"), ident_expr("__p")],
+            ))));
+            if let Some(ref arg) = arg_name {
+                new_body.push(raw_stmt(expr_stmt(ns_call(
+                    "collections",
+                    "vec_push",
+                    vec![ident_expr("__args"), ident_expr(arg)],
+                ))));
+            }
+            new_body.push(raw_stmt(expr_stmt(ns_call(
+                "thread",
+                "spawn_async",
+                vec![ident_expr(&watcher_name), ident_expr("__args")],
+            ))));
+            new_body.push(raw_stmt(return_stmt(Some(ident_expr("__p")))));
+
+            f.body = new_body;
+            f.is_async = false; // ja' processada — nao reentrar
+            f.return_type = Some("i64".to_string());
+            // BlockStmt fake para ficar consistente com helpers
+            let _ = BlockStmt::default;
+        }
+    }
+    program.items.extend(new_fns);
+}
+
 /// Top-level \`const x = function() {}\` ja foi convertido pelo parser
 /// (try_lower_fn_expr_decl); este pass cobre o que sobrou. Nao tenta
 /// resolver capturas de escopo — se o body referenciar variaveis
@@ -1790,6 +2023,7 @@ fn hoist_fn_expressions(program: &mut Program) {
             return_type,
             body,
             span: Span::default(),
+            is_async: false,
         }
     }
 
@@ -3501,6 +3735,7 @@ impl LiftAcc {
             return_type: Some("void".to_string()),
             body: body_stmts,
             span: Span::default(),
+            is_async: false,
         }));
 
         swc_ecma_ast::Ident {
@@ -3764,6 +3999,7 @@ impl LiftAcc {
                             return_type: Some("void".to_string()),
                             body: body_stmts,
                             span: Span::default(),
+                            is_async: false,
                         }));
                         *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
                             span: Default::default(),
@@ -4114,6 +4350,7 @@ impl LiftAcc {
                     return_type: Some(tramp_return_type.to_string()),
                     body: body_stmts,
                     span: Span::default(),
+                    is_async: false,
                 }));
 
                 if let Some(slot_name) = needs_this_slot {
@@ -4848,6 +5085,9 @@ pub fn compile_program(
     hoist_fn_expressions(program);
     expand_destructuring(program);
     expand_default_args(program);
+    // Async functions (#413/F2): reescreve `async function f(arg)` em
+    // wrapper sincrono que retorna Promise + spawna body em thread.
+    expand_async_functions(program);
     // Spread antes de rest: spread aplaina array literal nos call sites
     // (`f(...[1,2,3])` → `f(1,2,3)`); rest depois empacota argumentos
     // extras conforme o callee é variadic.
@@ -6691,6 +6931,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                     return_type: None,
                     body,
                     span: ctor.span,
+                    is_async: false,
                 });
             }
             ClassMember::Method(method) => {
@@ -6730,6 +6971,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                         return_type: method.return_type.clone(),
                         body,
                         span: method.span,
+                        is_async: false,
                     });
                     continue;
                 }
@@ -6741,6 +6983,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                         return_type: method.return_type.clone(),
                         body: method.body.clone(),
                         span: method.span,
+                        is_async: false,
                     });
                 } else {
                     let synth_name = match method.role {
@@ -6766,6 +7009,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
                         return_type: method.return_type.clone(),
                         body: method.body.clone(),
                         span: method.span,
+                        is_async: false,
                     });
                 }
             }
@@ -6818,6 +7062,7 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
             return_type: None,
             body: init_only_body,
             span: class.span,
+            is_async: false,
         });
         has_constructor = true;
     }
