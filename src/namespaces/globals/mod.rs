@@ -4,6 +4,7 @@
 
 pub mod console;
 pub mod date;
+pub mod number;
 pub mod error;
 pub mod events;
 pub mod fetch;

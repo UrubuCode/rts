@@ -953,6 +953,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_TO_STRING",        rt::__RTS_FN_GL_STRING_TO_STRING);
     add_fn!("__RTS_FN_GL_STRING_IS_WELL_FORMED",   rt::__RTS_FN_GL_STRING_IS_WELL_FORMED);
 
+    // ── namespaces::globals::number ───────────────────────────────────
+    use crate::namespaces::globals::number::rt as num_rt;
+    add_fn!("__RTS_FN_GL_NUMBER_NEW_FROM",    num_rt::__RTS_FN_GL_NUMBER_NEW_FROM);
+    add_fn!("__RTS_FN_GL_NUMBER_NEW_EMPTY",   num_rt::__RTS_FN_GL_NUMBER_NEW_EMPTY);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_NAN",      num_rt::__RTS_FN_GL_NUMBER_IS_NAN);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_FINITE",   num_rt::__RTS_FN_GL_NUMBER_IS_FINITE);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_INTEGER",  num_rt::__RTS_FN_GL_NUMBER_IS_INTEGER);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_SAFE_INT", num_rt::__RTS_FN_GL_NUMBER_IS_SAFE_INT);
+    add_fn!("__RTS_FN_GL_NUMBER_VALUE_OF",    num_rt::__RTS_FN_GL_NUMBER_VALUE_OF);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_FIXED",    num_rt::__RTS_FN_GL_NUMBER_TO_FIXED);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_PRECISION",    num_rt::__RTS_FN_GL_NUMBER_TO_PRECISION);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",  num_rt::__RTS_FN_GL_NUMBER_TO_EXPONENTIAL);
+    add_fn!("__RTS_FN_GL_NUMBER_FROM_STR",         num_rt::__RTS_FN_GL_NUMBER_FROM_STR);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_STRING_RADIX",  num_rt::__RTS_FN_GL_NUMBER_TO_STRING_RADIX);
+
     // ── namespaces::buffer ────────────────────────────────────────────
     use crate::namespaces::buffer::ops as buf;
     add_fn!("__RTS_FN_NS_BUFFER_ALLOC", buf::__RTS_FN_NS_BUFFER_ALLOC);

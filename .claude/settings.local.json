@@ -165,7 +165,8 @@
       "PowerShell(Copy-Item *)",
       "PowerShell(New-Item *)",
       "PowerShell(cargo build *)",
-      "PowerShell(git add *)"
+      "PowerShell(git add *)",
+      "Bash(RUSTC_BOOTSTRAP=1 cargo rustc --lib -- --emit=metadata)"
     ]
   }
 }
