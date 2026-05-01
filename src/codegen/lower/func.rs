@@ -1723,6 +1723,278 @@ fn rewrite_static_in_expr(e: &mut Expr, map: &HashMap<String, HashMap<String, St
 /// ```
 ///
 /// Limitacoes desta primeira versao (F2 fase 1):
+/// Reescreve `Expr::Await(x)` em `promise.wait(x)` em todo o programa
+/// (issue #414, F3 da epic #411).
+///
+/// Antes desta passagem, `await x` era stripado silenciosamente em
+/// `expressions/mod.rs:54` (`Expr::Await(a) => lower_expr(ctx, &a.arg)`),
+/// fazendo o codegen tratar `await p` como `p` — resultando em retornar
+/// o handle da Promise em vez do valor resolvido.
+///
+/// Apos este pass, `await x` vira `promise.wait(x)` que bloqueia ate
+/// settle e retorna o valor (i64). Funciona com Promises criadas por
+/// `async function f()` (F2 #413) ou explicitas via `promise.new_*`.
+///
+/// Visita todos os bodies de fn user, top-level statements, e class
+/// method bodies. Recursivo em sub-expressoes.
+fn expand_await_exprs(program: &mut Program) {
+    use swc_ecma_ast::{CallExpr, Callee, Expr, ExprOrSpread, Ident, IdentName, MemberExpr, MemberProp, Stmt};
+
+    fn make_promise_wait(arg: Expr) -> Expr {
+        Expr::Call(CallExpr {
+            span: Default::default(),
+            ctxt: Default::default(),
+            callee: Callee::Expr(Box::new(Expr::Member(MemberExpr {
+                span: Default::default(),
+                obj: Box::new(Expr::Ident(Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: "promise".into(),
+                    optional: false,
+                })),
+                prop: MemberProp::Ident(IdentName {
+                    span: Default::default(),
+                    sym: "wait".into(),
+                }),
+            }))),
+            args: vec![ExprOrSpread { spread: None, expr: Box::new(arg) }],
+            type_args: None,
+        })
+    }
+
+    fn visit_expr(expr: &mut Expr) {
+        // Detecta await — substitui in-place.
+        if let Expr::Await(a) = expr {
+            // Recurse no argumento primeiro (await pode estar aninhado).
+            visit_expr(a.arg.as_mut());
+            // Move o arg out e wrappa em promise.wait.
+            let arg = std::mem::replace(
+                a.arg.as_mut(),
+                Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                    span: Default::default(),
+                    value: 0.0,
+                    raw: None,
+                })),
+            );
+            *expr = make_promise_wait(arg);
+            return;
+        }
+        // Recursao em sub-expressoes.
+        match expr {
+            Expr::Array(a) => {
+                for el in a.elems.iter_mut().flatten() {
+                    visit_expr(el.expr.as_mut());
+                }
+            }
+            Expr::Object(o) => {
+                for p in &mut o.props {
+                    if let swc_ecma_ast::PropOrSpread::Prop(prop) = p {
+                        if let swc_ecma_ast::Prop::KeyValue(kv) = prop.as_mut() {
+                            visit_expr(kv.value.as_mut());
+                        }
+                    }
+                }
+            }
+            Expr::Unary(u) => visit_expr(u.arg.as_mut()),
+            Expr::Update(u) => visit_expr(u.arg.as_mut()),
+            Expr::Bin(b) => {
+                visit_expr(b.left.as_mut());
+                visit_expr(b.right.as_mut());
+            }
+            Expr::Assign(a) => visit_expr(a.right.as_mut()),
+            Expr::Cond(c) => {
+                visit_expr(c.test.as_mut());
+                visit_expr(c.cons.as_mut());
+                visit_expr(c.alt.as_mut());
+            }
+            Expr::Call(c) => {
+                if let Callee::Expr(callee) = &mut c.callee {
+                    visit_expr(callee.as_mut());
+                }
+                for arg in &mut c.args {
+                    visit_expr(arg.expr.as_mut());
+                }
+            }
+            Expr::New(n) => {
+                visit_expr(n.callee.as_mut());
+                if let Some(args) = n.args.as_mut() {
+                    for arg in args.iter_mut() {
+                        visit_expr(arg.expr.as_mut());
+                    }
+                }
+            }
+            Expr::Member(m) => {
+                visit_expr(m.obj.as_mut());
+            }
+            Expr::OptChain(o) => {
+                use swc_ecma_ast::OptChainBase;
+                match o.base.as_mut() {
+                    OptChainBase::Call(c) => {
+                        visit_expr(c.callee.as_mut());
+                        for arg in &mut c.args {
+                            visit_expr(arg.expr.as_mut());
+                        }
+                    }
+                    OptChainBase::Member(m) => visit_expr(m.obj.as_mut()),
+                }
+            }
+            Expr::Paren(p) => visit_expr(p.expr.as_mut()),
+            Expr::TsAs(a) => visit_expr(a.expr.as_mut()),
+            Expr::TsTypeAssertion(a) => visit_expr(a.expr.as_mut()),
+            Expr::TsConstAssertion(a) => visit_expr(a.expr.as_mut()),
+            Expr::TsSatisfies(a) => visit_expr(a.expr.as_mut()),
+            Expr::TsNonNull(n) => visit_expr(n.expr.as_mut()),
+            Expr::Tpl(t) => {
+                for e in &mut t.exprs {
+                    visit_expr(e.as_mut());
+                }
+            }
+            Expr::Seq(s) => {
+                for e in &mut s.exprs {
+                    visit_expr(e.as_mut());
+                }
+            }
+            Expr::Yield(y) => {
+                if let Some(arg) = y.arg.as_mut() {
+                    visit_expr(arg.as_mut());
+                }
+            }
+            // Fn/Arrow body: nao descer (rodara em nova chamada de
+            // expand_await_exprs caso o pass seja invocado pra fns
+            // sinteticas no futuro). Aqui evitamos reentrancia
+            // confusa.
+            _ => {}
+        }
+    }
+
+    fn visit_stmt(stmt: &mut Stmt) {
+        match stmt {
+            Stmt::Expr(e) => visit_expr(e.expr.as_mut()),
+            Stmt::Return(r) => {
+                if let Some(e) = r.arg.as_mut() {
+                    visit_expr(e.as_mut());
+                }
+            }
+            Stmt::Decl(swc_ecma_ast::Decl::Var(vd)) => {
+                for d in &mut vd.decls {
+                    if let Some(init) = d.init.as_mut() {
+                        visit_expr(init.as_mut());
+                    }
+                }
+            }
+            Stmt::If(i) => {
+                visit_expr(i.test.as_mut());
+                visit_stmt(i.cons.as_mut());
+                if let Some(alt) = i.alt.as_mut() {
+                    visit_stmt(alt.as_mut());
+                }
+            }
+            Stmt::Block(b) => {
+                for s in &mut b.stmts {
+                    visit_stmt(s);
+                }
+            }
+            Stmt::While(w) => {
+                visit_expr(w.test.as_mut());
+                visit_stmt(w.body.as_mut());
+            }
+            Stmt::DoWhile(d) => {
+                visit_expr(d.test.as_mut());
+                visit_stmt(d.body.as_mut());
+            }
+            Stmt::For(f) => {
+                if let Some(init) = f.init.as_mut() {
+                    match init {
+                        swc_ecma_ast::VarDeclOrExpr::Expr(e) => visit_expr(e.as_mut()),
+                        swc_ecma_ast::VarDeclOrExpr::VarDecl(vd) => {
+                            for d in &mut vd.decls {
+                                if let Some(init) = d.init.as_mut() {
+                                    visit_expr(init.as_mut());
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(t) = f.test.as_mut() {
+                    visit_expr(t.as_mut());
+                }
+                if let Some(u) = f.update.as_mut() {
+                    visit_expr(u.as_mut());
+                }
+                visit_stmt(f.body.as_mut());
+            }
+            Stmt::ForOf(f) => {
+                visit_expr(f.right.as_mut());
+                visit_stmt(f.body.as_mut());
+            }
+            Stmt::ForIn(f) => {
+                visit_expr(f.right.as_mut());
+                visit_stmt(f.body.as_mut());
+            }
+            Stmt::Try(t) => {
+                for s in &mut t.block.stmts {
+                    visit_stmt(s);
+                }
+                if let Some(h) = t.handler.as_mut() {
+                    for s in &mut h.body.stmts {
+                        visit_stmt(s);
+                    }
+                }
+                if let Some(f) = t.finalizer.as_mut() {
+                    for s in &mut f.stmts {
+                        visit_stmt(s);
+                    }
+                }
+            }
+            Stmt::Throw(t) => visit_expr(t.arg.as_mut()),
+            Stmt::Switch(sw) => {
+                visit_expr(sw.discriminant.as_mut());
+                for case in &mut sw.cases {
+                    if let Some(t) = case.test.as_mut() {
+                        visit_expr(t.as_mut());
+                    }
+                    for s in &mut case.cons {
+                        visit_stmt(s);
+                    }
+                }
+            }
+            Stmt::Labeled(l) => visit_stmt(l.body.as_mut()),
+            _ => {}
+        }
+    }
+
+    fn visit_body(body: &mut Vec<Statement>) {
+        for stmt in body.iter_mut() {
+            let Statement::Raw(raw) = stmt;
+            if let Some(s) = raw.stmt.as_mut() {
+                visit_stmt(s);
+            }
+        }
+    }
+
+    for item in program.items.iter_mut() {
+        match item {
+            Item::Function(f) => visit_body(&mut f.body),
+            Item::Class(c) => {
+                for member in &mut c.members {
+                    match member {
+                        ClassMember::Constructor(ctor) => visit_body(&mut ctor.body),
+                        ClassMember::Method(m) => visit_body(&mut m.body),
+                        ClassMember::Property(_) => {}
+                    }
+                }
+            }
+            Item::Statement(stmt) => {
+                let Statement::Raw(raw) = stmt;
+                if let Some(s) = raw.stmt.as_mut() {
+                    visit_stmt(s);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// - Suporta apenas async fns com 0 ou 1 parametro i64
 /// - Retorno wrappa value como i64 (Promise<T> generico — caller usa
 ///   `await` que devolve i64)
@@ -5088,6 +5360,12 @@ pub fn compile_program(
     // Async functions (#413/F2): reescreve `async function f(arg)` em
     // wrapper sincrono que retorna Promise + spawna body em thread.
     expand_async_functions(program);
+    // Await expressions (#414/F3): reescreve `await x` em `promise.wait(x)`.
+    // Roda DEPOIS de expand_async_functions porque o body original que
+    // sai dali pode conter await; e o pass de async pode ter introduzido
+    // calls que retornam Promise (nao precisam wait pq o pass ja' retorna
+    // o handle, mas user pode ter `await f()` dentro de outra fn).
+    expand_await_exprs(program);
     // Spread antes de rest: spread aplaina array literal nos call sites
     // (`f(...[1,2,3])` → `f(1,2,3)`); rest depois empacota argumentos
     // extras conforme o callee é variadic.
