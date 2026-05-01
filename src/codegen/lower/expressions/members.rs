@@ -379,6 +379,18 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     &[],
                 );
             }
+            // Global class instance getters (#359): Function.name/.length, etc.
+            if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                if let Some(member) = spec.instance_getter(prop_name) {
+                    let recv_tv = lower_expr(ctx, &m.obj)?;
+                    let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
+                    let sig = crate::abi::signature::lower_member(member);
+                    let fn_ref = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                    let inst = ctx.builder.ins().call(fn_ref, &[recv_i64]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::from_abi(member.returns)));
+                }
+            }
         }
     }
 

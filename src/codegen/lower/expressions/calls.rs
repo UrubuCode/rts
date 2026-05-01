@@ -791,6 +791,14 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         }
     };
 
+    // Function global (#359): `new Function(...params, body)` — variadic.
+    // Empacota todos args excerto o ultimo em string CSV de params, ultimo
+    // arg eh body. Aceita aridade 0+ (0 args = throw, 1 arg = body sem
+    // params, 2+ args = (...params, body)).
+    if class_name == "Function" {
+        return lower_new_function(ctx, new_expr);
+    }
+
     // Global class constructors: new Date(), new Date(ms), new Date(isoStr)
     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
         let n_args = new_expr.args.as_ref().map(|a| a.len()).unwrap_or(0);
@@ -1481,6 +1489,58 @@ fn emit_virtual_dispatch(
     ctx.builder.switch_to_block(merge_block);
     ctx.builder.seal_block(merge_block);
     Ok(TypedVal::new(result_param, ret_ty))
+}
+
+/// Function global (#359): `new Function(...params, body)` variadic.
+/// Concatena params em CSV e chama __RTS_FN_GL_FUNCTION_NEW(params_str, body).
+fn lower_new_function(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedVal> {
+    use crate::codegen::lower::ctx::ValTy;
+
+    let args = new_expr.args.as_ref();
+    let n = args.map(|a| a.len()).unwrap_or(0);
+    if n == 0 {
+        return Err(anyhow!("new Function() requer pelo menos 1 arg (body)"));
+    }
+    let args_vec = args.unwrap();
+    let body_idx = n - 1;
+
+    // Concatena params 0..body_idx em CSV. Para isso constroi handle string
+    // em runtime via gc.string_concat com ",". Caso comum: 1-3 params.
+    let params_handle = if body_idx == 0 {
+        // sem params — string vazia
+        ctx.emit_str_handle(b"")?.val
+    } else {
+        // Acumulador comeca com primeiro param.
+        let first_tv = lower_expr(ctx, &args_vec[0].expr)?;
+        let mut acc = ctx.coerce_to_i64(first_tv).val;
+        let comma_h = ctx.emit_str_handle(b",")?.val;
+        let concat_fn = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_CONCAT",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        for i in 1..body_idx {
+            let tv = lower_expr(ctx, &args_vec[i].expr)?;
+            let p = ctx.coerce_to_i64(tv).val;
+            let inst1 = ctx.builder.ins().call(concat_fn, &[acc, comma_h]);
+            let acc1 = ctx.builder.inst_results(inst1)[0];
+            let inst2 = ctx.builder.ins().call(concat_fn, &[acc1, p]);
+            acc = ctx.builder.inst_results(inst2)[0];
+        }
+        acc
+    };
+
+    let body_tv = lower_expr(ctx, &args_vec[body_idx].expr)?;
+    let body_h = ctx.coerce_to_i64(body_tv).val;
+
+    let new_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_NEW",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(new_fn, &[params_handle, body_h]);
+    let r = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(r, ValTy::Handle))
 }
 
 /// Function global (#359): chamada de metodo em handle Function ja' reificado
