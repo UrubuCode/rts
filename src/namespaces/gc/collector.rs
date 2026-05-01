@@ -80,10 +80,43 @@ unsafe fn mark_stack_roots() {
         //    eram swept e segfault sob carga (>16 conn http_server).
         #[cfg(target_os = "windows")]
         unsafe { mark_other_threads_windows(); }
+
+        // 3. Globals top-level com handles (issue #407, epic #419).
+        //    Codegen registra cada `let buffer = ...` de top-level
+        //    cujo `ValTy::Handle` apos `finalize_definitions()`. Sem
+        //    isso o sweep coleta handles vivos armazenados em globals.
+        unsafe { mark_global_roots(); }
     }
 
     #[cfg(not(target_arch = "x86_64"))]
     let _ = ();
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn mark_global_roots() {
+    let mut total = 0usize;
+    let mut marked = 0usize;
+    super::global_roots::for_each(|addr| {
+        total += 1;
+        // SAFETY: codegen so' registra enderecos de data symbols
+        // alocados via `module.declare_data` + `define_data`. O simbolo
+        // vive enquanto o JITModule existe — o que cobre toda a vida
+        // do processo no caminho `rts run`.
+        let candidate = unsafe { *(addr as *const u64) };
+        if candidate != 0 {
+            let generation = (candidate >> crate::abi::handles::HANDLE_GEN_SHIFT) & 0xFFFF;
+            if generation != 0 {
+                mark_handle(candidate);
+                marked += 1;
+            }
+        }
+    });
+    if super::debug::is_enabled() {
+        eprintln!(
+            "[gc]   mark_global_roots globals={} marks={}",
+            total, marked
+        );
+    }
 }
 
 #[cfg(target_arch = "x86_64")]

@@ -64,6 +64,25 @@ pub fn compile_program_to_jit(program: &mut Program) -> Result<(JITModule, Vec<S
         }
     }
 
+    // Resolve DataIds das globals com Handle pra enderecos reais
+    // (issue #407, epic #419). Sem isso o sweep coleta handles vivos
+    // armazenados em globals top-level.
+    {
+        use crate::namespaces::gc::global_roots;
+        use cranelift_module::DataId;
+        let pending = global_roots::drain_pending_data_ids();
+        let mut total = 0usize;
+        for raw_id in pending {
+            let data_id = DataId::from_u32(raw_id);
+            let (ptr, _size) = module.get_finalized_data(data_id);
+            global_roots::add(ptr as usize);
+            total += 1;
+        }
+        if std::env::var("RTS_GC_DEBUG").is_ok() {
+            eprintln!("[gc] registered {total} global roots (handle-typed top-level vars)");
+        }
+    }
+
     Ok((module, warnings))
 }
 
