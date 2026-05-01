@@ -1637,6 +1637,16 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     }
 
     // ── Libc ──────────────────────────────────────────────────────────
+    // ── namespaces::http_server ─────────────────────────────────────
+    {
+        use crate::namespaces::http_server::ops::*;
+        add_fn!("__RTS_FN_NS_HTTP_SERVER_SERVE", __RTS_FN_NS_HTTP_SERVER_SERVE);
+        add_fn!("__RTS_FN_NS_HTTP_SERVER_REQ_METHOD", __RTS_FN_NS_HTTP_SERVER_REQ_METHOD);
+        add_fn!("__RTS_FN_NS_HTTP_SERVER_REQ_PATH", __RTS_FN_NS_HTTP_SERVER_REQ_PATH);
+        add_fn!("__RTS_FN_NS_HTTP_SERVER_REQ_BODY", __RTS_FN_NS_HTTP_SERVER_REQ_BODY);
+        add_fn!("__RTS_FN_NS_HTTP_SERVER_RESPOND", __RTS_FN_NS_HTTP_SERVER_RESPOND);
+    }
+
     // `fmod` is declared as an extern import for `BinaryOp::Mod` on f64.
     unsafe extern "C" {
         fn fmod(a: f64, b: f64) -> f64;

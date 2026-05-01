@@ -21,6 +21,7 @@ pub mod fs;
 pub mod gc;
 pub mod hash;
 pub mod hint;
+pub mod http_server;
 pub mod io;
 pub mod json;
 pub mod math;

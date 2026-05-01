@@ -15,6 +15,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "spawn_detached",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_THREAD_SPAWN_DETACHED",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::Void,
+        doc: "Submete `fn_ptr(arg)` num pool de threads pre-criadas (default 8 workers, env `RTS_THREAD_POOL_SIZE`). Sem JoinHandle: nao pode ser joined nem detached, executa fire-and-forget. Muito mais rapido que `spawn` + `detach` em workloads que criam muitas threads (ex: 1 por request HTTP).",
+        ts_signature: "spawn_detached(fn_ptr: number, arg: number): void",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "spawn_with_ud",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_THREAD_SPAWN_WITH_UD",
