@@ -350,6 +350,11 @@ impl HandleTable {
         let Some((expected_gen, _, table_slot)) = decode(handle) else { return };
         let Some(slot) = self.slots.get_mut(table_slot as usize) else { return };
         if slot.generation == expected_gen && !matches!(slot.entry, Entry::Free) {
+            if super::debug::is_enabled()
+                && matches!(slot.entry, Entry::TcpListener(_) | Entry::TcpStream(_))
+            {
+                eprintln!("[gc] MARK handle={handle:#x} slot={table_slot} kind=Tcp*");
+            }
             slot.marked = true;
         }
     }
@@ -363,6 +368,18 @@ impl HandleTable {
                 continue;
             }
             if !slot.marked {
+                if super::debug::is_enabled() {
+                    let kind = match &slot.entry {
+                        Entry::String(_) => "String",
+                        Entry::Buffer(_) => "Buffer",
+                        Entry::TcpListener(_) => "TcpListener",
+                        Entry::TcpStream(_) => "TcpStream",
+                        Entry::Map(_) => "Map",
+                        Entry::Vec(_) => "Vec",
+                        _ => "Other",
+                    };
+                    eprintln!("[gc] SWEEP slot={idx} kind={kind}");
+                }
                 cleanup_entry(&mut slot.entry);
                 slot.entry = Entry::Free;
                 self.free_list.push(idx as u32);
@@ -419,6 +436,13 @@ thread_local! {
 /// concat sem overhead significativo em workloads leves.
 const GC_TICK_INTERVAL: u32 = 256;
 
+/// Permite desligar o GC automatico setando RTS_GC_DISABLE=1.
+/// Util para diagnosticar quando o sweep esta liberando handles
+/// alcancaveis (bug de stack scan / safepoint cobertura).
+fn gc_disabled() -> bool {
+    std::env::var("RTS_GC_DISABLE").ok().as_deref() == Some("1")
+}
+
 /// Hook instalado por `collector::install_gc_hook()` para disparar
 /// finish_cycle sem dependência circular handles → collector.
 static GC_COLLECT_HOOK: OnceLock<fn()> = OnceLock::new();
@@ -445,7 +469,7 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         t.set(v);
         v
     });
-    if tick % GC_TICK_INTERVAL == 0 {
+    if tick % GC_TICK_INTERVAL == 0 && !gc_disabled() {
         if let Some(f) = GC_COLLECT_HOOK.get() {
             f();
         }

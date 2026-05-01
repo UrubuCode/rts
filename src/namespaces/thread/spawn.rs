@@ -35,10 +35,24 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: u64, arg: u64) -> u64 {
     // funcao com assinatura `extern "C" fn(u64) -> u64`. Nao podemos
     // validar runtime — contrato com o compilador.
     let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let join_handle = thread::spawn(move || f(arg));
+    let join_handle = thread::spawn(move || {
+        super::super::gc::thread_registry::register_current();
+        let r = f(arg);
+        super::super::gc::thread_registry::unregister_current();
+        r
+    });
     let h = alloc_entry(Entry::JoinHandle(Box::new(join_handle)));
     record_scoped_handle(h);
     h
+}
+
+/// Submete `fn_ptr(arg)` a um thread pool global pre-criado, evitando
+/// o custo de `thread::spawn` por chamada (~100µs no Windows). Pool
+/// padrao tem 8 workers; ajustavel via `RTS_THREAD_POOL_SIZE`.
+/// Sem JoinHandle: nao retorna nada, executa fire-and-forget.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_DETACHED(fn_ptr: u64, arg: u64) {
+    super::pool::submit(fn_ptr, arg);
 }
 
 /// Variante com userdata: trampolim recebe `(ud, arg)`. Usado quando
@@ -52,7 +66,12 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_WITH_UD(fn_ptr: u64, arg: u64, ud: u6
     // SAFETY: contrato com o codegen — `fn_ptr` aponta para
     // `extern "C" fn(u64, u64) -> u64`.
     let f: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let join_handle = thread::spawn(move || f(ud, arg));
+    let join_handle = thread::spawn(move || {
+        super::super::gc::thread_registry::register_current();
+        let r = f(ud, arg);
+        super::super::gc::thread_registry::unregister_current();
+        r
+    });
     let h = alloc_entry(Entry::JoinHandle(Box::new(join_handle)));
     record_scoped_handle(h);
     h

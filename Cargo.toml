@@ -43,6 +43,9 @@ regex = "1"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "0.26"
 indexmap = "2.14.0"
+actix-web = { version = "4", default-features = false, features = ["macros"] }
+actix-rt = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
 [build-dependencies]
 fltk = { version = "1", features = ["fltk-bundled"] }

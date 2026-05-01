@@ -1,14 +1,20 @@
 // HTTP/1.1 server minimo em TS puro sobre o namespace `net`.
 //
-// Single-threaded (1 conexao por vez). Suficiente pra demonstrar o
-// stack rodando ponta-a-ponta no browser.
+// Multi-threaded: cada conexao aceita spawna uma thread worker.
+// Suportado pelo GC stop-the-world (scanner cobre todas threads
+// registradas via SuspendThread + GetThreadContext).
+//
+// Tentei thread pool (N workers em accept compartilhado) mas
+// `accept` simultaneo de varias threads na mesma listener trava
+// no Win32 — primeira thread atende conexoes, demais nunca pegam
+// nada. Manter spawn-per-request + GC thread-safe.
 //
 // Para usar:
 //   target/release/rts.exe run examples/http_server.ts
 //   abra http://127.0.0.1:8080/  no browser
 //   Ctrl+C pra parar
 
-import { net, buffer, string, io } from "rts";
+import { net, buffer, string, io, thread } from "rts";
 
 const ADDR = "127.0.0.1:8080";
 
@@ -25,14 +31,19 @@ if (server == 0) {
       io.eprint("accept falhou; encerrando\n");
       break;
     }
-    handleRequest(client);
-    net.tcp_close(client);
+    const h = thread.spawn(worker, client);
+    thread.detach(h);
   }
 
   net.tcp_close(server);
 }
 
-function handleRequest(client: number): void {
+function worker(client: i64): void {
+  handleRequest(client);
+  net.tcp_close(client);
+}
+
+function handleRequest(client: i64): void {
   const buf = buffer.alloc_zeroed(4096);
   const n = net.tcp_recv(client, buffer.ptr(buf), 4096);
   if (n <= 0) {
@@ -45,10 +56,10 @@ function handleRequest(client: number): void {
 
   // Parse linha 1: "METHOD PATH HTTP/1.1"
   const sp1 = string.find(raw, " ");
-  const method = sp1 > 0 ? sliceTo(raw, sp1) : "GET";
-  const rest = sliceFrom(raw, sp1 + 1);
+  const method = sp1 > 0 ? raw.slice(0, sp1) : "GET";
+  const rest = raw.slice(sp1 + 1);
   const sp2 = string.find(rest, " ");
-  const path = sp2 > 0 ? sliceTo(rest, sp2) : "/";
+  const path = sp2 > 0 ? rest.slice(0, sp2) : "/";
 
   io.print("[req] " + method + " " + path);
 
@@ -138,7 +149,7 @@ function render404(path: string): string {
   return s;
 }
 
-function sendResponse(client: number, status: number, contentType: string, body: string): void {
+function sendResponse(client: i64, status: number, contentType: string, body: string): void {
   const statusText = statusReason(status);
   const contentLen = string.byte_len(body);
   let header = "";
@@ -158,19 +169,3 @@ function statusReason(code: number): string {
   return "OK";
 }
 
-function sliceTo(s: string, end: number): string {
-  let out = "";
-  for (let i = 0; i < end; i = i + 1) {
-    out = out + string.char_at(s, i);
-  }
-  return out;
-}
-
-function sliceFrom(s: string, start: number): string {
-  let out = "";
-  const n = string.char_count(s);
-  for (let i = start; i < n; i = i + 1) {
-    out = out + string.char_at(s, i);
-  }
-  return out;
-}

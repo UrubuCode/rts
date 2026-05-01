@@ -6,6 +6,7 @@
 
 pub mod abi;
 pub mod collector;
+pub mod debug;
 pub mod env;
 pub mod error;
 pub mod handles;
@@ -13,3 +14,4 @@ pub mod instance;
 pub mod stack;
 pub mod stack_map_registry;
 pub mod string_pool;
+pub mod thread_registry;
