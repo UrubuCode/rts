@@ -31,6 +31,7 @@ pub mod num;
 pub mod os;
 pub mod path;
 pub mod process;
+pub mod promise;
 pub mod ptr;
 pub mod regex;
 pub mod parallel;

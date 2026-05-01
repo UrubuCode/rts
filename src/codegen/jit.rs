@@ -732,6 +732,19 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
     }
 
+    // ── namespaces::promise (issue #412) ──────────────────────────────
+    {
+        use crate::namespaces::promise::ops as pr;
+        add_fn!("__RTS_FN_NS_PROMISE_NEW_PENDING", pr::__RTS_FN_NS_PROMISE_NEW_PENDING);
+        add_fn!("__RTS_FN_NS_PROMISE_NEW_RESOLVED", pr::__RTS_FN_NS_PROMISE_NEW_RESOLVED);
+        add_fn!("__RTS_FN_NS_PROMISE_NEW_REJECTED", pr::__RTS_FN_NS_PROMISE_NEW_REJECTED);
+        add_fn!("__RTS_FN_NS_PROMISE_RESOLVE", pr::__RTS_FN_NS_PROMISE_RESOLVE);
+        add_fn!("__RTS_FN_NS_PROMISE_REJECT", pr::__RTS_FN_NS_PROMISE_REJECT);
+        add_fn!("__RTS_FN_NS_PROMISE_STATE", pr::__RTS_FN_NS_PROMISE_STATE);
+        add_fn!("__RTS_FN_NS_PROMISE_WAIT", pr::__RTS_FN_NS_PROMISE_WAIT);
+        add_fn!("__RTS_FN_NS_PROMISE_TRY_VALUE", pr::__RTS_FN_NS_PROMISE_TRY_VALUE);
+    }
+
     // ── namespaces::collections ───────────────────────────────────────
     {
         use crate::namespaces::collections::*;
