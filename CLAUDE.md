@@ -2,6 +2,29 @@
 
 ## Regras locais do desenvolvedor
 
+## REGRA OBRIGATÓRIA: USO DO RTK PARA COMANDOS ESPECÍFICOS
+
+### Comandos que DEVEM usar `.github/rtk.exe <execution>`:
+
+| Comando | Substituição Obrigatória |
+|---------|-------------------------|
+| `cat`   | `.github/rtk.exe cat`    |
+| `head`  | `.github/rtk.exe head`   |
+| `tail`  | `.github/rtk.exe tail`   |
+| `rg`    | `.github/rtk.exe rg`     |
+| `grep`  | `.github/rtk.exe grep`   |
+| `find`  | `.github/rtk.exe find`   |
+
+use os comandos nativos diretamente (ex: `cat file.txt` → use `.github/rtk.exe cat file.txt`)
+
+### Exceções e Observações:
+
+- **Ferramentas nativas do Claude Code** (Read, Grep, Glob) NÃO passam pelo hook e NÃO são reescritas automaticamente
+- Para obter a saída compacta do RTK nesses fluxos de trabalho, use comandos shell com RTK ou chame diretamente:
+  - `.github/rtk.exe read` (em vez de Read tool)
+  - `.github/rtk.exe grep` (em vez de Grep tool)
+  - `.github/rtk.exe find` (em vez de Glob tool)
+
 **REQUISITO OBRIGATÓRIO:** antes de iniciar qualquer tarefa, você **DEVE** verificar se existe um arquivo `local-rules.md` na raiz do projeto. **Se existir, ler é obrigatório** — não é opcional, não pular, não assumir conteúdo, não prosseguir sem ler. Se não existir, prossiga normalmente. Quando existir, trate seu conteúdo como regras adicionais definidas pelo desenvolvedor que está trabalhando nesta cópia local. Essas regras têm prioridade sobre preferências genéricas e devem ser respeitadas durante toda a sessão.
 
 O arquivo `local-rules.md` é pessoal de cada desenvolvedor e **não deve ser versionado** (já está no `.gitignore`).
