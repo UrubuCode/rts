@@ -1210,6 +1210,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             crate::namespaces::thread::async_spawn::__RTS_FN_NS_THREAD_SPAWN_ASYNC
         );
         add_fn!(
+            "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN",
+            crate::namespaces::thread::async_spawn::__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN
+        );
+        add_fn!(
+            "__RTS_FN_NS_THREAD_JOIN_ASYNC",
+            crate::namespaces::thread::async_spawn::__RTS_FN_NS_THREAD_JOIN_ASYNC
+        );
+        add_fn!(
             "__RTS_FN_NS_THREAD_SCOPE",
             thread_spawn::__RTS_FN_NS_THREAD_SCOPE
         );
