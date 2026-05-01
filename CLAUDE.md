@@ -141,11 +141,12 @@ Regras:
 - Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
 - Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-Namespaces ativos (35): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
+Namespaces ativos (36): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
 `path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
 `net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`,
-`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`. Cobre std::* +
-paralelismo + HTTPS + UI completos + JSON + Date.
+`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`, `http_server`.
+Cobre std::* + paralelismo + HTTPS + UI completos + JSON + Date + HTTP server
+nativo via actix-web.
 
 ### Namespaces existentes
 
@@ -193,9 +194,20 @@ paralelismo + HTTPS + UI completos + JSON + Date.
 - `tls/` — TLS 1.2/1.3 client via `rustls` + `webpki-roots` (Mozilla CAs
   embutidos). Wraps `TcpStream` em conexao TLS. HTTPS funciona ponta-a-
   ponta sem OpenSSL nem schannel
-- `thread/` — `std::thread` spawn/join/detach + scope auto-join +
-  sleep_ms. spawn(fp, arg) entrega arg ao worker (i64 e f64 via
-  bit-pattern preservado)
+- `thread/` — 4 mecanismos coexistindo, dev escolhe pelo workload:
+  `spawn` + `join`/`detach` (`std::thread`, JoinHandle real, ~30k spawn/s,
+  bom pra CPU-bound longo); `spawn_async_join` + `join_async` (tokio
+  `spawn_blocking`, retorna i64, ~400k spawn/s, bom pra leve/IO);
+  `spawn_async` (tokio fire-and-forget, ~400k spawn/s); `spawn_detached`
+  (pool fixo 8 workers, 5M spawn/s mas queue ilimitada — cuidado OOM).
+  Mais `scope` auto-join + `sleep_ms`. Doc-comments em
+  `src/namespaces/thread/abi.rs` tem tabela comparativa
+- `http_server/` — servidor HTTP/1.1 nativo via `actix-web` sobre
+  runtime tokio compartilhado. Bridge sync→async: `serve(addr,handler)`
+  bloqueia, cada request entra num shard map de slots, handler TS
+  chamado direto na thread async, response volta via oneshot. Suporta
+  keep-alive, pipelining, parsing correto. Pico medido 29k req/s
+  (78% do actix puro Rust)
 - `atomic/` — `std::sync::atomic`: AtomicI64 (load/store/fetch_*/cas/swap),
   AtomicBool, AtomicF64 (via AtomicU64 + bit-transmute), fences
 - `sync/` — `std::sync`: Mutex<i64>, RwLock<i64>, Once. Guards thread-
@@ -246,6 +258,40 @@ e typed arrays e follow-up.
 distribui round-robin por thread; `shard_for_handle` decodifica O(1) o
 shard de qualquer handle (encoded nos low bits). Todos os 17 namespaces
 handle-based migrados pra essa API — sem contenção em workloads paralelos.
+
+## Runtime tokio compartilhado (issue #399)
+
+`src/runtime/async_rt.rs` exporta `rt()` — `OnceLock<tokio::runtime::Runtime>`
+multi-thread global. Hooks `on_thread_start`/`on_thread_stop` registram cada
+worker no `gc/thread_registry` para o GC scanner ver handles vivos em tasks
+tokio (sem isso o sweep coletava indevidamente sob carga concorrente).
+
+Toda feature async deve reusar este runtime em vez de criar um proprio:
+
+- `http_server::serve` chama `rt().block_on(...)`
+- `thread::spawn_async*` usa `rt().handle().spawn_blocking(...)`
+- `runtime::tokio_ctx` oferece "id u64 opaco + shard map por TypeId"
+  como bridge sync↔async generico (substitui `slots()` ad-hoc do http_server)
+
+Convencao: o que cruza o JIT (extern "C") e' apenas u64 opaco. Tipos
+Rust-rich (Arc<T>, Channel, JoinHandle) ficam no shard map indexado por
+esse id.
+
+## GC stack scanner Win32
+
+`mark_stack_roots()` em `src/namespaces/gc/collector.rs` usa
+`GetCurrentThreadStackLimits` (API Win32 oficial) em vez de `gs:[0x10]`
+da TIB. O TIB.StackBase em alguns contextos retornava valor < RSP,
+deixando o scanner sem marcar nada e o sweep coletando handles vivos
+(bug encontrado em 2026-05-01 testando http_server sob carga). Mesmo
+caminho usado para varrer threads no `thread_registry` via
+`SuspendThread + GetThreadContext` + scan de registers callee-saved.
+
+## Disciplina de regressao zero
+
+Rever a `REGRA OBRIGATÓRIA: ZERO REGRESSÃO ANTES DE MERGE` no topo deste
+arquivo. Em projeto com IA acelerando velocidade, eh essa regra que
+mantem a suite confiavel ao longo de centenas de PRs.
 
 ## Capacidades de linguagem ativas (codegen)
 
