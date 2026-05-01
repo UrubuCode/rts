@@ -33,6 +33,26 @@ pub fn compile_program_to_jit(program: &mut Program) -> Result<(JITModule, Vec<S
         .finalize_definitions()
         .map_err(|e| anyhow!("JIT finalise failed: {e}"))?;
 
+    // Resolve pending GC stack map entries to absolute return PCs.
+    // During define_function each function's stack maps were stored as
+    // (func_id_raw, [(ret_pc_offset, [sp_offsets])]). Now that
+    // finalize_definitions() has fixed up all code addresses, we can
+    // translate offsets to absolute pointers.
+    {
+        use crate::namespaces::gc::stack_map_registry;
+        use cranelift_module::FuncId;
+
+        let pending = stack_map_registry::drain_pending();
+        for entry in pending {
+            let func_id = FuncId::from_u32(entry.func_id_raw);
+            let base = module.get_finalized_function(func_id) as usize;
+            for (ret_offset, sp_offsets) in entry.maps {
+                let return_pc = base + ret_offset as usize;
+                stack_map_registry::register(return_pc, sp_offsets);
+            }
+        }
+    }
+
     Ok((module, warnings))
 }
 

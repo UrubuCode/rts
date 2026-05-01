@@ -212,6 +212,8 @@ pub struct Instance {
 #[derive(Debug)]
 struct Slot {
     generation: u16,
+    /// Set during GC mark phase. Cleared at sweep start and after each cycle.
+    marked: bool,
     entry: Entry,
 }
 
@@ -264,6 +266,7 @@ impl HandleTable {
         let table_slot = self.slots.len() as u32;
         self.slots.push(Slot {
             generation: 1,
+            marked: false,
             entry,
         });
         encode(1, shard_idx, table_slot)
@@ -341,6 +344,36 @@ impl HandleTable {
     pub fn live_handle_count(&self) -> usize {
         self.slots.iter().filter(|s| !matches!(s.entry, Entry::Free)).count()
     }
+
+    /// Mark a handle as reachable (GC root). No-op for invalid/freed handles.
+    pub fn mark(&mut self, handle: u64) {
+        let Some((expected_gen, _, table_slot)) = decode(handle) else { return };
+        let Some(slot) = self.slots.get_mut(table_slot as usize) else { return };
+        if slot.generation == expected_gen && !matches!(slot.entry, Entry::Free) {
+            slot.marked = true;
+        }
+    }
+
+    /// Sweep: free all unmarked live entries, then reset all mark bits.
+    /// Returns number of handles freed.
+    pub fn sweep_unmarked(&mut self) -> usize {
+        let mut freed = 0;
+        for (idx, slot) in self.slots.iter_mut().enumerate() {
+            if matches!(slot.entry, Entry::Free) {
+                continue;
+            }
+            if !slot.marked {
+                cleanup_entry(&mut slot.entry);
+                slot.entry = Entry::Free;
+                self.free_list.push(idx as u32);
+                LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
+                freed += 1;
+            } else {
+                slot.marked = false;
+            }
+        }
+        freed
+    }
 }
 
 /// Encodes generation + shard_idx + per-shard table_slot into a u64 handle.
@@ -392,6 +425,30 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .alloc_in_shard(entry, shard_idx)
+}
+
+/// Mark a handle as reachable in the current GC cycle.
+pub fn mark_handle(handle: u64) {
+    if handle == 0 {
+        return;
+    }
+    shard_for_handle(handle)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .mark(handle);
+}
+
+/// Sweep all shards: free unmarked entries and reset mark bits.
+/// Returns total number of handles freed across all shards.
+pub fn sweep_all_shards() -> usize {
+    let mut total = 0;
+    for shard in shards() {
+        total += shard
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sweep_unmarked();
+    }
+    total
 }
 
 /// Frees a handle. Returns false if the handle is invalid or already freed.

@@ -6324,6 +6324,31 @@ fn compile_user_fn(
         .define_function(info.id, &mut ctx)
         .with_context(|| format!("failed to define function `{}`", fn_decl.name))?;
 
+    // Collect GC stack maps produced by declare_value_needs_stack_map calls.
+    // Entries are stored as (ret_pc_offset_from_fn_start, [sp_offsets]) and
+    // resolved to absolute PCs by jit.rs after finalize_definitions().
+    if let Some(compiled) = ctx.compiled_code() {
+        let maps: Vec<(u32, Vec<u32>)> = compiled
+            .buffer
+            .user_stack_maps()
+            .iter()
+            .filter_map(|(ret_offset, _, map)| {
+                let offsets: Vec<u32> = map.entries().map(|(_, sp_off)| sp_off).collect();
+                if offsets.is_empty() {
+                    None
+                } else {
+                    Some((*ret_offset, offsets))
+                }
+            })
+            .collect();
+        if !maps.is_empty() {
+            crate::namespaces::gc::stack_map_registry::push_pending(
+                info.id.as_u32(),
+                maps,
+            );
+        }
+    }
+
     Ok(warnings)
 }
 

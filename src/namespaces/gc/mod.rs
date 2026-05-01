@@ -11,4 +11,5 @@ pub mod error;
 pub mod handles;
 pub mod instance;
 pub mod stack;
+pub mod stack_map_registry;
 pub mod string_pool;

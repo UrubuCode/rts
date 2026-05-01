@@ -834,6 +834,14 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     }
 
     /// Promotes a static string literal to a GC handle.
+    /// Declare `val` (a GC handle) to Cranelift's stack-map tracking.
+    /// Cranelift will spill this value at every non-tail-call safepoint where
+    /// it is live, and record it in the `UserStackMap` for that call.
+    /// The GC collector reads these maps during `finish_cycle()` to find roots.
+    pub fn declare_gc_handle(&mut self, val: Value) {
+        self.builder.declare_value_needs_stack_map(val);
+    }
+
     pub fn emit_str_handle(&mut self, bytes: &[u8]) -> Result<TypedVal> {
         let (ptr, len) = self.emit_str_literal(bytes)?;
         let fref = self.get_extern(
@@ -843,8 +851,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         )?;
         let inst = self.builder.ins().call(fref, &[ptr, len]);
         let val = self.builder.inst_results(inst)[0];
-        // (#155 fase 1) Auto-free: registra como temp pra liberar no
-        // fim do escopo se RTS_AUTO_FREE_HANDLES=1.
+        self.declare_gc_handle(val);
         self.register_temp_handle(val);
         Ok(TypedVal::new(val, ValTy::Handle))
     }
@@ -869,6 +876,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                     self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64", &[cl::I64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[as_i64.val]);
                 let val = self.builder.inst_results(inst)[0];
+                self.declare_gc_handle(val);
                 self.register_temp_handle(val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
@@ -877,6 +885,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                     self.get_extern("__RTS_FN_NS_GC_STRING_FROM_F64", &[cl::F64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[tv.val]);
                 let val = self.builder.inst_results(inst)[0];
+                self.declare_gc_handle(val);
                 self.register_temp_handle(val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
