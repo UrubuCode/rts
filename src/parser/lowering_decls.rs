@@ -256,6 +256,7 @@ fn lower_function(
         return_type,
         body,
         span: convert_span(cm, span),
+        is_async: function.is_async,
     }
 }
 

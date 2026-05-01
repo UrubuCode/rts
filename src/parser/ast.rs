@@ -137,6 +137,10 @@ pub struct FunctionDecl {
     pub return_type: Option<String>,
     pub body: Vec<Statement>,
     pub span: Span,
+    /// True quando a fn foi declarada com `async`. Codegen (#413) usa
+    /// pra wrappear o body em `thread.spawn_async_join` + retornar
+    /// Promise<T>.
+    pub is_async: bool,
 }
 
 #[derive(Debug, Clone)]
