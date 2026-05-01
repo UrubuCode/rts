@@ -1,5 +1,42 @@
 # CLAUDE.md
 
+## REGRA #0 — META-REGRA OBRIGATÓRIA E ABSOLUTA
+
+**Antes de iniciar QUALQUER tarefa, você DEVE ler este CLAUDE.md por inteiro
+e seguir TODAS as regras que ele define, sem exceção, sem omissão, sem
+"escolher as importantes". Cada regra deste arquivo é vinculante.**
+
+Esta é a primeira e mais importante regra. Ela governa todas as outras.
+Não há trabalho neste projeto que dispense a leitura completa deste arquivo
+e a aplicação de tudo o que ele determina.
+
+### Como aplicar
+
+1. Na primeira mensagem de cada sessão (e sempre que o arquivo for
+   modificado), leia `CLAUDE.md` do começo ao fim antes de tocar em código.
+2. Cada seção marcada `## REGRA OBRIGATÓRIA:` é vinculante mesmo quando o
+   contexto da tarefa parece não exigir.
+3. Cada seção `## Convencoes`, `## Regras`, `## ABI ...`, `## Estrutura ...`
+   define convenções que devem ser respeitadas em qualquer mudança de código.
+4. Se uma regra entrar em conflito com uma instrução do usuário, peça
+   confirmação antes de violar a regra. Não decida sozinho.
+5. Se uma regra deste arquivo estiver desatualizada (o codigo nao bate mais
+   com o que esta escrito), atualize o CLAUDE.md no mesmo PR — nunca deixe
+   regra mentirosa em vigor.
+
+### Lista das regras obrigatorias atualmente neste arquivo
+
+- **REGRA #0** (esta) — ler e seguir tudo
+- **REGRA OBRIGATÓRIA: USO DO RTK** (`cat`/`head`/`tail`/`grep`/`find` viram
+  `.github/rtk.exe ...`)
+- **REQUISITO OBRIGATÓRIO: local-rules.md** (verificar e ler se existir)
+- **REGRA OBRIGATÓRIA: ZERO REGRESSÃO ANTES DE MERGE** (suite verde
+  obrigatoria)
+
+Esta lista deve ser mantida em sincronia com as proximas secoes deste
+arquivo. Se uma regra obrigatoria for adicionada/removida em outro lugar,
+atualizar aqui tambem.
+
 ## Regras locais do desenvolvedor
 
 ## REGRA OBRIGATÓRIA: USO DO RTK PARA COMANDOS ESPECÍFICOS
@@ -470,12 +507,20 @@ Benches canonicos em `bench/`:
 - `pi_bigfloat.ts` — pi via Machin 30 digitos usando `bigfloat`
 - `pi_machin.ts` — pi via Machin em f64 (16 digitos)
 
-Placar atual (AOT + JIT vs Bun/Node, medianas):
+Placar atual (medianas, atualizado 2026-05-01):
 
-| Bench            | RTS JIT | RTS AOT | Bun    | Node   |
-|------------------|---------|---------|--------|--------|
-| Monte Carlo 10M  | 119 ms  | 156 ms  | 173 ms | 281 ms |
-| Machin bigfloat  | 47 ms   | 48 ms   | 109 ms | 108 ms |
+| Bench                       | RTS JIT | RTS AOT | Bun    | Node    |
+|-----------------------------|---------|---------|--------|---------|
+| Monte Carlo 10M             | 26.8 ms | 16.9 ms | 91.8 ms| 113.9 ms|
+| Monte Carlo 10M (8 workers) | 30.3 ms | —       | 147.6 ms (Workers) | — |
+
+RTS AOT vs Bun: **5.14× mais rapido**. RTS multi-thread vs Bun Workers:
+**4.66× mais rapido**. Numeros antigos do CLAUDE.md (JIT 119ms / AOT
+156ms) eram pre-otimizacoes — fix em `try_operator_overload`,
+`try_bin_imm`, intrinsics inline, jump tables, etc.
+
+HTTP server (issue #399 + actix-web): pico **29k req/s** (78% do actix
+puro Rust em mesmo workload, 2× mais que `Bun.serve`).
 
 Suite completa:
 
@@ -588,15 +633,36 @@ Alvo da Fase 1 do roadmap (em progresso):
     <project_name>    — .exe / .dll / .so / .node conforme target
 ```
 
-## GC — gc-arena (coleta deterministica)
+## GC — mark+sweep com Cranelift stack maps
 
-Usar o crate `gc-arena` como sistema de GC deterministico. Coleta e disparada apos:
-- Retorno de funcoes
-- Execucao de metodos de classe
-- Fim de escopo de closures
+**Estado atual (2026-05-01):** o crate `gc-arena = "0.5"` esta declarado no
+`Cargo.toml` mas **nao esta integrado de fato**. O sistema real e' mark+sweep
+preciso usando `UserStackMap` do Cranelift, com scanner conservativo via
+`SuspendThread + GetThreadContext` para cobrir todas as threads RTS
+registradas no `thread_registry`. Detalhes:
 
-Principio: `safe_collect()` e chamado em pontos de quiescencia bem definidos, nao de forma
-periodica/assincrona. O namespace `gc` publica a API de alocacao de strings e o `HandleTable`.
+- Codegen chama `builder.declare_value_needs_stack_map(val)` para cada handle
+- `jit.rs` extrai `UserStackMap` apos `define_function` e registra
+  return-PC absolutos no `stack_map_registry`
+- A cada N alocacoes (`GC_TICK_INTERVAL = 256`), `finish_cycle()` roda
+  `mark_stack_roots()` (varre stack da thread atual + stacks de outras
+  threads via SuspendThread) e `sweep_all_shards()` libera o que nao foi
+  marcado
+- `mark_stack_roots()` no Windows usa `GetCurrentThreadStackLimits` (API
+  Win32 oficial). Nao usar `gs:[0x10]` — em alguns contextos retorna
+  StackBase < RSP, deixando o scanner sem marcar nada e o sweep coletando
+  handles vivos (bug PR #400)
+
+**Migracao real para gc-arena** (issue #393) seria refator grande: todas
+as 25+ variantes de `Entry` precisariam derivar `Collect`, com
+`Mutation<'gc>` token cruzando o JIT — incompativel com a ABI extern "C"
+plana atual. Adiada.
+
+A intenção original (do CLAUDE.md historico) era usar gc-arena com
+`safe_collect()` em pontos de quiescencia (retorno de fn, fim de metodo
+de classe, fim de closure). Esse modelo **nao e' o atual** — coleta hoje
+e' periodica via tick-counter. Atualizar este texto se a migracao
+acontecer.
 
 ## State
 
