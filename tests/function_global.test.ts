@@ -58,10 +58,21 @@ function makeAdd100(n: i64): i64 {
 }
 print("nest=" + makeAdd100(5));
 
+// 11. bind reduz .length corretamente
+const bndlen = new Function("a", "b", "c", "return a + b + c;");
+const bndlen_p = bndlen.bind(0, 100);
+print("bnd_len=" + bndlen_p.length);
+print("bnd_call=" + bndlen_p.call(0, 5, 10));
+
+// 12. aliasing — `const b = a` propaga local_class_ty
+const orig = new Function("x", "return x + 1;");
+const alias = orig;
+print("alias=" + alias.call(0, 41));
+
 describe("Function global (#359)", () => {
   test("call/apply/toString/new/bind + variadic + getters", () => {
     expect(__rtsCapturedOutput).toBe(
-      "call=7\napply=30\nfunction noop() { [native code] }\nnew=81\nbind=14\nvar0=42\nvar3=6\nsum10=55\nname=anonymous\nlength=2\nchain=19\nnest=105\n"
+      "call=7\napply=30\nfunction noop() { [native code] }\nnew=81\nbind=14\nvar0=42\nvar3=6\nsum10=55\nname=anonymous\nlength=2\nchain=19\nnest=105\nbnd_len=2\nbnd_call=115\nalias=42\n"
     );
   });
 });
