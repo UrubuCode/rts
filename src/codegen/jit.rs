@@ -857,8 +857,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_TLS_RECV", io::__RTS_FN_NS_TLS_RECV);
     }
 
-    // ── namespaces::string ────────────────────────────────────────────
-    use crate::namespaces::string::*;
+    // ── namespaces::globals::string ───────────────────────────────────
+    use crate::namespaces::globals::string::*;
     add_fn!(
         "__RTS_FN_NS_STRING_CONTAINS",
         search::__RTS_FN_NS_STRING_CONTAINS
@@ -919,6 +919,24 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!(
         "__RTS_FN_NS_STRING_CHAR_CODE_AT",
         split::__RTS_FN_NS_STRING_CHAR_CODE_AT
+    );
+    add_fn!(
+        "__RTS_FN_GL_STRING_FROM_CHAR_CODE",
+        rt::__RTS_FN_GL_STRING_FROM_CHAR_CODE
+    );
+    add_fn!("__RTS_FN_GL_STRING_SLICE", rt::__RTS_FN_GL_STRING_SLICE);
+    add_fn!("__RTS_FN_GL_STRING_SPLIT", rt::__RTS_FN_GL_STRING_SPLIT);
+    add_fn!(
+        "__RTS_FN_GL_STRING_TO_STRING",
+        rt::__RTS_FN_GL_STRING_TO_STRING
+    );
+    add_fn!(
+        "__RTS_FN_GL_STRING_PAD_START",
+        rt::__RTS_FN_GL_STRING_PAD_START
+    );
+    add_fn!(
+        "__RTS_FN_GL_STRING_PAD_END",
+        rt::__RTS_FN_GL_STRING_PAD_END
     );
 
     // ── namespaces::buffer ────────────────────────────────────────────

@@ -34,7 +34,7 @@ pub mod ptr;
 pub mod regex;
 pub mod parallel;
 pub mod runtime;
-pub mod string;
+// string movido para globals/string
 pub mod sync;
 pub mod test;
 pub mod thread;

@@ -11,7 +11,6 @@
 | `cat`   | `.github/rtk.exe cat`    |
 | `head`  | `.github/rtk.exe head`   |
 | `tail`  | `.github/rtk.exe tail`   |
-| `rg`    | `.github/rtk.exe rg`     |
 | `grep`  | `.github/rtk.exe grep`   |
 | `find`  | `.github/rtk.exe find`   |
 

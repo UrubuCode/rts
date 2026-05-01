@@ -32,7 +32,7 @@ pub mod events;
 pub mod path;
 #[path = "buffer/rt.rs"]
 pub mod buffer;
-#[path = "string/rt.rs"]
+#[path = "globals/string/rt.rs"]
 pub mod string;
 #[path = "process/rt.rs"]
 pub mod process;

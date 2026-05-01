@@ -148,7 +148,24 @@
       "Bash(grep -oE \"tests\\\\\\\\\\\\\\\\[a-z_0-9]+\\\\.test\\\\.ts\")",
       "Bash(sed -E 's/\\\\x1b\\\\[[0-9;]*m//g' /tmp/rts-test-full.log)",
       "Bash(awk '/\\\\.test\\\\.ts$/ { last=$0 } /crashed|test failed|✗ 1 test/ { if \\(last != \"\"\\) { print last; last=\"\" } }' /tmp/rts-clean.log)",
-      "Bash(cargo update *)"
+      "Bash(cargo update *)",
+      "Bash(.github/rtk.exe *)",
+      "Bash(.github/rtk.exe cat *)",
+      "Bash(RTS_GC_DEBUG=1 target/debug/rts.exe run /tmp/test_loop.ts)",
+      "Bash(RTS_GC_DEBUG=1 target/debug/rts.exe run /tmp/gc_test.ts)",
+      "Bash(target/debug/rts.exe ir *)",
+      "Bash(RTS_GC_DEBUG=1 target/debug/rts.exe run /tmp/gc_ir.ts)",
+      "Bash(RTS_GC_DEBUG=1 target/debug/rts.exe run /tmp/gc_fn.ts)",
+      "Bash(RTS_GC_DEBUG=1 target/debug/rts.exe run /tmp/gc_loop3.ts)",
+      "Bash(RUSTFLAGS=\"-C force-frame-pointers=yes\" cargo build)",
+      "Bash(RUSTFLAGS=\"-C force-frame-pointers=yes\" target/debug/rts.exe run *)",
+      "PowerShell(\\(Get-Content src\\\\codegen\\\\lower\\\\expressions\\\\calls.rs\\).Count; Get-ChildItem src\\\\namespaces\\\\globals\\\\ -Recurse -Name)",
+      "PowerShell(gh issue list --author \"@me\" --limit 20 --json number,title,body | ConvertFrom-Json | ForEach-Object { \"$\\($_.number\\): $\\($_.title\\)\" })",
+      "PowerShell(gh issue view 359 --json number,title,body | ConvertFrom-Json | Select-Object -ExpandProperty body)",
+      "PowerShell(Copy-Item *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(cargo build *)",
+      "PowerShell(git add *)"
     ]
   }
 }
