@@ -2130,11 +2130,56 @@ fn expand_async_functions(program: &mut Program) {
                 type_args: None,
             });
             watcher_body.push(raw_stmt(const_decl("__r", inner_call)));
-            watcher_body.push(raw_stmt(expr_stmt(ns_call(
-                "promise",
-                "resolve",
-                vec![ident_expr("__p"), ident_expr("__r")],
-            ))));
+            // F5: checa slot de erro thread-local. Se body fez throw,
+            // `take_error` retorna o handle e limpa o slot. Reject em
+            // vez de resolve.
+            watcher_body.push(raw_stmt(const_decl(
+                "__err",
+                ns_call("promise", "take_error", vec![]),
+            )));
+            // if (__err != 0) { promise.reject(__p, __err); }
+            // else { promise.resolve(__p, __r); }
+            let neq = swc_ecma_ast::BinExpr {
+                span: Default::default(),
+                op: swc_ecma_ast::BinaryOp::NotEq,
+                left: Box::new(ident_expr("__err")),
+                right: Box::new(num_lit(0)),
+            };
+            let cons_block = swc_ecma_ast::BlockStmt {
+                span: Default::default(),
+                ctxt: Default::default(),
+                stmts: vec![
+                    Stmt::Expr(swc_ecma_ast::ExprStmt {
+                        span: Default::default(),
+                        expr: Box::new(ns_call(
+                            "promise",
+                            "reject",
+                            vec![ident_expr("__p"), ident_expr("__err")],
+                        )),
+                    }),
+                ],
+            };
+            let alt_block = swc_ecma_ast::BlockStmt {
+                span: Default::default(),
+                ctxt: Default::default(),
+                stmts: vec![
+                    Stmt::Expr(swc_ecma_ast::ExprStmt {
+                        span: Default::default(),
+                        expr: Box::new(ns_call(
+                            "promise",
+                            "resolve",
+                            vec![ident_expr("__p"), ident_expr("__r")],
+                        )),
+                    }),
+                ],
+            };
+            let if_stmt = Stmt::If(swc_ecma_ast::IfStmt {
+                span: Default::default(),
+                test: Box::new(Expr::Bin(neq)),
+                cons: Box::new(Stmt::Block(cons_block)),
+                alt: Some(Box::new(Stmt::Block(alt_block))),
+            });
+            watcher_body.push(raw_stmt(if_stmt));
             watcher_body.push(raw_stmt(return_stmt(Some(num_lit(0)))));
 
             new_fns.push(Item::Function(FunctionDecl {

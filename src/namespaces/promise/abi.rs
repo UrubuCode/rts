@@ -92,6 +92,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "take_error",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PROMISE_TAKE_ERROR",
+        args: &[],
+        returns: AbiType::I64,
+        doc: "Le e limpa o slot de erro thread-local. Retorna handle do erro pendente ou 0 se nao houver. Usado internamente pelo codegen de async fn (F5 #416) — apos chamar o body, watcher checa este slot pra decidir entre `resolve` e `reject`.",
+        ts_signature: "take_error(): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "all",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_PROMISE_ALL",
