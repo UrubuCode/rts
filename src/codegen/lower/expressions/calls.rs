@@ -2338,16 +2338,19 @@ fn lower_ns_call_body(
                 values.push(ctx.coerce_to_i32(tv).val)
             }
             AbiType::U64 => {
-                // U64 e tipo opaco (handle/ptr/bits brutos). Quando o
-                // input e f64, preservamos o bit-pattern via bitcast
-                // em vez de truncar (fcvt_to_sint_sat) — ex:
-                // `thread.spawn(fp, 3.14)` precisa entregar 3.14 ao
-                // worker, nao 3.
+                // U64 e tipo opaco — handle de runtime ou ponteiro.
+                // Quando o input e f64 (variavel `number` carregando um
+                // handle), converte numericamente via fcvt_to_uint_sat:
+                // o valor f64 ja' foi produzido por uma conversao i64→f64,
+                // entao fcvt_to_uint_sat recupera o inteiro original.
+                // Bitcast daria o bit-pattern IEEE 754, que e' um valor
+                // completamente diferente — causaria handles invalidos.
+                // Nota: thread.spawn(fp, 3.14) nao passa float cru por
+                // U64; o worker recebe i64 e usa f64::from_bits explicitamente.
                 let tv = lower_expr(ctx, &arg.expr)?;
                 let v = match tv.ty {
                     crate::codegen::lower::ctx::ValTy::F64 => {
-                        use cranelift_codegen::ir::MemFlags;
-                        ctx.builder.ins().bitcast(cl::I64, MemFlags::new(), tv.val)
+                        ctx.builder.ins().fcvt_to_uint_sat(cl::I64, tv.val)
                     }
                     _ => ctx.coerce_to_i64(tv).val,
                 };
