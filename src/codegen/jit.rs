@@ -743,6 +743,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROMISE_STATE", pr::__RTS_FN_NS_PROMISE_STATE);
         add_fn!("__RTS_FN_NS_PROMISE_WAIT", pr::__RTS_FN_NS_PROMISE_WAIT);
         add_fn!("__RTS_FN_NS_PROMISE_TRY_VALUE", pr::__RTS_FN_NS_PROMISE_TRY_VALUE);
+        add_fn!("__RTS_FN_NS_PROMISE_TAKE_ERROR", pr::__RTS_FN_NS_PROMISE_TAKE_ERROR);
         add_fn!("__RTS_FN_NS_PROMISE_ALL", pr::__RTS_FN_NS_PROMISE_ALL);
         add_fn!("__RTS_FN_NS_PROMISE_RACE", pr::__RTS_FN_NS_PROMISE_RACE);
         add_fn!("__RTS_FN_NS_PROMISE_ANY", pr::__RTS_FN_NS_PROMISE_ANY);

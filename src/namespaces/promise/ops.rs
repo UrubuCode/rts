@@ -65,7 +65,12 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(handle: u64) -> i64 {
     });
     let Some(arc) = slot_arc else { return 0 };
     let (state, value) = promise_slot::wait_blocking(&arc);
-    let _ = state; // F5 (#416) usa state pra integrar try/catch
+    // F5 (#416): se Promise rejected, propaga via slot de erro
+    // thread-local que `try/catch` ja' le. O slot eh da thread atual
+    // (caller do `promise.wait`) — wait_blocking nao migra threads.
+    if state == promise_slot::STATE_REJECTED {
+        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(value as u64);
+    }
     value
 }
 
@@ -78,6 +83,22 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_TRY_VALUE(handle: u64) -> i64 {
             promise_slot::current_value(slot)
         }
     })
+}
+
+// ─── Error slot bridge (F5 #416) ─────────────────────────────────────
+//
+// Helpers expostos pro codegen do watcher chamar apos `inner`. Lê e
+// limpa o slot de erro thread-local. Se inner lancou (throw), o slot
+// fica com handle do erro — precisamos converter pra `promise.reject`.
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PROMISE_TAKE_ERROR() -> i64 {
+    use crate::namespaces::gc::error;
+    let h = error::__RTS_FN_RT_ERROR_GET();
+    if h != 0 {
+        error::__RTS_FN_RT_ERROR_CLEAR();
+    }
+    h as i64
 }
 
 // ─── Combinators (F4 #415) ───────────────────────────────────────────
@@ -127,8 +148,10 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(vec_handle: u64) -> u64 {
         let mut values: Vec<i64> = Vec::with_capacity(slots.len());
         for slot in slots.iter() {
             let Some(s) = slot else {
-                // Handle invalido — rejeita com 0
-                promise_slot::reject(&result_clone, 0);
+                // Handle invalido — rejeita com mensagem fallback.
+                let msg = b"Invalid promise handle in collection".to_vec();
+                let err_handle = alloc_entry(Entry::String(msg));
+                promise_slot::reject(&result_clone, err_handle as i64);
                 return;
             };
             let (state, value) = promise_slot::wait_blocking(s);
@@ -198,9 +221,13 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ANY(vec_handle: u64) -> u64 {
             let _ = value;
         }
         if all_rejected {
-            // Todas rejeitaram — JS daria AggregateError; aqui rejeitamos
-            // com 0 (placeholder ate AggregateError chegar).
-            promise_slot::reject(&result_clone, 0);
+            // Todas rejeitaram — JS daria AggregateError. Aqui usamos
+            // handle de string fallback (nao 0, senao slot de erro
+            // thread-local nao dispara catch — semantica de "no error"
+            // e' value=0).
+            let msg = b"All promises were rejected".to_vec();
+            let err_handle = alloc_entry(Entry::String(msg));
+            promise_slot::reject(&result_clone, err_handle as i64);
         }
     });
 
