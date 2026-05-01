@@ -20,6 +20,8 @@ pub fn command() -> Result<()> {
                 MemberKind::Function | MemberKind::Constructor => "fn",
                 MemberKind::Constant => "const",
                 MemberKind::InstanceMethod => "method",
+                MemberKind::StaticMethod => "static",
+                MemberKind::InstanceGetter => "getter",
             };
             println!(
                 "      * [{kind}] {sig}  -> {symbol}  // {doc}",

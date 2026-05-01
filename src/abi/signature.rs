@@ -48,7 +48,11 @@ pub fn lower_return(ret: AbiType) -> Option<ClType> {
 /// `InstanceMethod` (slot 0), and constructors carry their own params.
 pub fn lower_member(member: &NamespaceMember) -> LoweredSignature {
     match member.kind {
-        MemberKind::Function | MemberKind::Constructor | MemberKind::InstanceMethod => {
+        MemberKind::Function
+        | MemberKind::Constructor
+        | MemberKind::InstanceMethod
+        | MemberKind::StaticMethod
+        | MemberKind::InstanceGetter => {
             LoweredSignature {
                 params: lower_params(member.args),
                 ret: lower_return(member.returns),

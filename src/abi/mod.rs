@@ -28,6 +28,7 @@ pub use types::AbiType;
 /// Each entry is a `GlobalClassSpec` that describes constructors, instance
 /// methods, and static functions for one global class.
 pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
+    &crate::namespaces::globals::string::abi::STRING_CLASS_SPEC,
     &crate::namespaces::globals::date::abi::CLASS_SPEC,
     &crate::namespaces::globals::regexp::abi::CLASS_SPEC,
     &crate::namespaces::globals::error::abi::CLASS_SPEC,

@@ -920,24 +920,38 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         "__RTS_FN_NS_STRING_CHAR_CODE_AT",
         split::__RTS_FN_NS_STRING_CHAR_CODE_AT
     );
-    add_fn!(
-        "__RTS_FN_GL_STRING_FROM_CHAR_CODE",
-        rt::__RTS_FN_GL_STRING_FROM_CHAR_CODE
-    );
-    add_fn!("__RTS_FN_GL_STRING_SLICE", rt::__RTS_FN_GL_STRING_SLICE);
-    add_fn!("__RTS_FN_GL_STRING_SPLIT", rt::__RTS_FN_GL_STRING_SPLIT);
-    add_fn!(
-        "__RTS_FN_GL_STRING_TO_STRING",
-        rt::__RTS_FN_GL_STRING_TO_STRING
-    );
-    add_fn!(
-        "__RTS_FN_GL_STRING_PAD_START",
-        rt::__RTS_FN_GL_STRING_PAD_START
-    );
-    add_fn!(
-        "__RTS_FN_GL_STRING_PAD_END",
-        rt::__RTS_FN_GL_STRING_PAD_END
-    );
+    // ── globals::string instance + static methods ─────────────────────
+    add_fn!("__RTS_FN_GL_STRING_NEW_FROM",         rt::__RTS_FN_GL_STRING_NEW_FROM);
+    add_fn!("__RTS_FN_GL_STRING_NEW_EMPTY",        rt::__RTS_FN_GL_STRING_NEW_EMPTY);
+    add_fn!("__RTS_FN_GL_STRING_FROM_CHAR_CODE",   rt::__RTS_FN_GL_STRING_FROM_CHAR_CODE);
+    add_fn!("__RTS_FN_GL_STRING_FROM_CODE_POINT",  rt::__RTS_FN_GL_STRING_FROM_CODE_POINT);
+    add_fn!("__RTS_FN_GL_STRING_INDEX_OF",         rt::__RTS_FN_GL_STRING_INDEX_OF);
+    add_fn!("__RTS_FN_GL_STRING_LAST_INDEX_OF",    rt::__RTS_FN_GL_STRING_LAST_INDEX_OF);
+    add_fn!("__RTS_FN_GL_STRING_INCLUDES",         rt::__RTS_FN_GL_STRING_INCLUDES);
+    add_fn!("__RTS_FN_GL_STRING_STARTS_WITH",      rt::__RTS_FN_GL_STRING_STARTS_WITH);
+    add_fn!("__RTS_FN_GL_STRING_ENDS_WITH",        rt::__RTS_FN_GL_STRING_ENDS_WITH);
+    add_fn!("__RTS_FN_GL_STRING_CHAR_AT",          rt::__RTS_FN_GL_STRING_CHAR_AT);
+    add_fn!("__RTS_FN_GL_STRING_CHAR_CODE_AT",     rt::__RTS_FN_GL_STRING_CHAR_CODE_AT);
+    add_fn!("__RTS_FN_GL_STRING_CODE_POINT_AT",    rt::__RTS_FN_GL_STRING_CODE_POINT_AT);
+    add_fn!("__RTS_FN_GL_STRING_AT",               rt::__RTS_FN_GL_STRING_AT);
+    add_fn!("__RTS_FN_GL_STRING_SLICE",            rt::__RTS_FN_GL_STRING_SLICE);
+    add_fn!("__RTS_FN_GL_STRING_SUBSTRING",        rt::__RTS_FN_GL_STRING_SUBSTRING);
+    add_fn!("__RTS_FN_GL_STRING_SUBSTR",           rt::__RTS_FN_GL_STRING_SUBSTR);
+    add_fn!("__RTS_FN_GL_STRING_TO_UPPER_CASE",    rt::__RTS_FN_GL_STRING_TO_UPPER_CASE);
+    add_fn!("__RTS_FN_GL_STRING_TO_LOWER_CASE",    rt::__RTS_FN_GL_STRING_TO_LOWER_CASE);
+    add_fn!("__RTS_FN_GL_STRING_TRIM",             rt::__RTS_FN_GL_STRING_TRIM);
+    add_fn!("__RTS_FN_GL_STRING_TRIM_START",       rt::__RTS_FN_GL_STRING_TRIM_START);
+    add_fn!("__RTS_FN_GL_STRING_TRIM_END",         rt::__RTS_FN_GL_STRING_TRIM_END);
+    add_fn!("__RTS_FN_GL_STRING_REPEAT",           rt::__RTS_FN_GL_STRING_REPEAT);
+    add_fn!("__RTS_FN_GL_STRING_REPLACE",          rt::__RTS_FN_GL_STRING_REPLACE);
+    add_fn!("__RTS_FN_GL_STRING_REPLACE_ALL",      rt::__RTS_FN_GL_STRING_REPLACE_ALL);
+    add_fn!("__RTS_FN_GL_STRING_CONCAT",           rt::__RTS_FN_GL_STRING_CONCAT);
+    add_fn!("__RTS_FN_GL_STRING_PAD_START",        rt::__RTS_FN_GL_STRING_PAD_START);
+    add_fn!("__RTS_FN_GL_STRING_PAD_END",          rt::__RTS_FN_GL_STRING_PAD_END);
+    add_fn!("__RTS_FN_GL_STRING_SPLIT",            rt::__RTS_FN_GL_STRING_SPLIT);
+    add_fn!("__RTS_FN_GL_STRING_LOCALE_COMPARE",   rt::__RTS_FN_GL_STRING_LOCALE_COMPARE);
+    add_fn!("__RTS_FN_GL_STRING_TO_STRING",        rt::__RTS_FN_GL_STRING_TO_STRING);
+    add_fn!("__RTS_FN_GL_STRING_IS_WELL_FORMED",   rt::__RTS_FN_GL_STRING_IS_WELL_FORMED);
 
     // ── namespaces::buffer ────────────────────────────────────────────
     use crate::namespaces::buffer::ops as buf;

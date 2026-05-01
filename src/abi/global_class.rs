@@ -50,7 +50,18 @@ impl GlobalClassSpec {
     pub fn static_member(&self, name: &str) -> Option<&NamespaceMember> {
         use super::member::MemberKind;
         self.members.iter().find(|m| {
-            matches!(m.kind, MemberKind::Function | MemberKind::Constant) && m.name == name
+            matches!(
+                m.kind,
+                MemberKind::Function | MemberKind::Constant | MemberKind::StaticMethod
+            ) && m.name == name
         })
+    }
+
+    /// Returns an instance getter (property, no parens) by name, if any.
+    pub fn instance_getter(&self, name: &str) -> Option<&NamespaceMember> {
+        use super::member::MemberKind;
+        self.members
+            .iter()
+            .find(|m| m.kind == MemberKind::InstanceGetter && m.name == name)
     }
 }

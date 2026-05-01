@@ -91,7 +91,7 @@ fn push_namespace(
                     member.ts_signature
                 ));
             }
-            MemberKind::InstanceMethod => {}
+            MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
         }
     }
 
@@ -120,7 +120,7 @@ fn push_namespace_module(
             MemberKind::Constant => {
                 out.push_str(&format!("  export const {};\n", member.ts_signature));
             }
-            MemberKind::InstanceMethod => {}
+            MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
         }
     }
 

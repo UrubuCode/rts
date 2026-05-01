@@ -75,7 +75,7 @@ pub enum Intrinsic {
 /// Whether a member is a function, constant, constructor, or instance method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemberKind {
-    /// Callable extern "C" function. `args`/`returns` describe its signature.
+    /// Callable extern "C" function in a namespace (`rts:string`, etc.).
     Function,
     /// Constant value resolved once at program startup. `args` must be empty
     /// and `returns` holds the value type.
@@ -91,6 +91,12 @@ pub enum MemberKind {
     /// receiver (implicit `this`). Codegen inserts it automatically; the TS
     /// signature lists only the explicit params.
     InstanceMethod,
+    /// Static method on a class — no receiver. `ClassName.method(args)`.
+    /// Distinct from `Function` to separate namespace fns from class statics.
+    StaticMethod,
+    /// Read-only property access on an instance — `instance.prop`.
+    /// ABI: `fn(handle: u64) -> T`. No parens in TS.
+    InstanceGetter,
 }
 
 /// A registered namespace exposed through the new ABI.
