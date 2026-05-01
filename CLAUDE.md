@@ -178,10 +178,11 @@ Regras:
 - Cada arquivo operacional agrupa funcoes por responsabilidade (io/r-w/dir/metadata/…)
 - Nao existe `dispatch()` por namespace — cada funcao e um `#[no_mangle] extern "C"` direto
 
-Namespaces ativos (36): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
+Namespaces ativos (37): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
 `path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
 `net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`,
-`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`, `http_server`.
+`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`, `http_server`,
+`events`.
 Cobre std::* + paralelismo + HTTPS + UI completos + JSON + Date + HTTP server
 nativo via actix-web.
 
