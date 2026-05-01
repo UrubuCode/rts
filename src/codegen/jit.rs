@@ -703,6 +703,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_EVENTS_LISTENER_COUNT", ev::__RTS_FN_NS_EVENTS_LISTENER_COUNT);
         add_fn!("__RTS_FN_NS_EVENTS_EMIT0", ev::__RTS_FN_NS_EVENTS_EMIT0);
         add_fn!("__RTS_FN_NS_EVENTS_EMIT1", ev::__RTS_FN_NS_EVENTS_EMIT1);
+        add_fn!(
+            "__RTS_FN_NS_EVENTS_EMIT0_ASYNC",
+            crate::namespaces::events::async_emit::__RTS_FN_NS_EVENTS_EMIT0_ASYNC
+        );
+        add_fn!(
+            "__RTS_FN_NS_EVENTS_EMIT1_ASYNC",
+            crate::namespaces::events::async_emit::__RTS_FN_NS_EVENTS_EMIT1_ASYNC
+        );
     }
 
     // ── namespaces::collections ───────────────────────────────────────

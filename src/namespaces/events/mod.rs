@@ -8,4 +8,5 @@
 //! `node:events` (#290) é wrapper TS sobre este namespace.
 
 pub mod abi;
+pub mod async_emit;
 pub mod ops;
