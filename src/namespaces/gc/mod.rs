@@ -12,6 +12,7 @@ pub mod error;
 pub mod global_roots;
 pub mod handles;
 pub mod instance;
+pub mod promise_slot;
 pub mod stack;
 pub mod stack_map_registry;
 pub mod string_pool;

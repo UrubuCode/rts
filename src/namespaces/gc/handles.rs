@@ -126,7 +126,14 @@ pub enum Entry {
     RtsEventsEmitter(Box<RtsEventsEmitter>),
     /// Promise<T> síncrona — valor já resolvido como i64 (handle ou primitivo).
     /// `.then(fn)` chama fn(value) imediatamente. `.catch(fn)` é passthrough.
+    /// Caminho rápido para Promises que nasceram resolvidas (ex:
+    /// `Promise.resolve(v)`).
     Promise(i64),
+    /// Promise<T> assíncrona — slot com state pending/fulfilled/rejected
+    /// e fila de waiters (oneshot tokio). Issue #412 / epic #411.
+    /// Criada por `async function f()` quando o body bloqueia (await, IO,
+    /// thread.spawn etc) ou explicitamente por `new Promise(executor)`.
+    PromiseAsync(std::sync::Arc<PromiseSlot>),
     /// Response do `fetch()` — status HTTP + body bytes + URL final.
     HttpResponse(Box<HttpResponseData>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
@@ -188,6 +195,37 @@ impl Drop for HandleTable {
 #[derive(Debug, Default)]
 pub struct RtsEventsEmitter {
     pub listeners: std::collections::HashMap<String, Vec<u64>>,
+}
+
+// `PromiseSlot` (state machine completo + waiters via tokio oneshot)
+// vive em `crate::namespaces::gc::promise_slot` no main crate. Aqui
+// `Entry::PromiseAsync` armazena `Arc<PromiseSlot>` por valor (Arc
+// nao precisa de tokio em runtime_support — so' no main crate quando
+// usar wait_blocking/resolve/reject que dependem de tokio::oneshot).
+//
+// Forward declaration: o struct esta em `promise_slot.rs` (main crate
+// only). Aqui declaramos so' o tipo opaco — nao usamos seus metodos
+// dentro do runtime_support.
+pub struct PromiseSlot {
+    /// 0=pending, 1=fulfilled, 2=rejected.
+    pub state: std::sync::atomic::AtomicU8,
+    pub value: std::sync::Mutex<i64>,
+    /// Storage opaco pelo runtime_support — main crate define como
+    /// `Mutex<Vec<tokio::sync::oneshot::Sender<(u8, i64)>>>`.
+    /// Aqui guardamos so' como `Box<dyn Any + Send + Sync>` pra
+    /// nao puxar tokio. Main crate downcasta no acesso.
+    pub waiters: std::sync::Mutex<Box<dyn std::any::Any + Send + Sync>>,
+}
+
+impl std::fmt::Debug for PromiseSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = self.state.load(std::sync::atomic::Ordering::Acquire);
+        let value = *self.value.lock().unwrap_or_else(|e| e.into_inner());
+        f.debug_struct("PromiseSlot")
+            .field("state", &state)
+            .field("value", &value)
+            .finish()
+    }
 }
 
 /// UDP socket + ultimo peer observado em recv. Box estabiliza o
