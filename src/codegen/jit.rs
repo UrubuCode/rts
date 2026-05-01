@@ -763,6 +763,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROMISE_RACE", pr::__RTS_FN_NS_PROMISE_RACE);
         add_fn!("__RTS_FN_NS_PROMISE_ANY", pr::__RTS_FN_NS_PROMISE_ANY);
         add_fn!("__RTS_FN_NS_PROMISE_ALL_SETTLED", pr::__RTS_FN_NS_PROMISE_ALL_SETTLED);
+        add_fn!("__RTS_FN_NS_PROMISE_CREATE", pr::__RTS_FN_NS_PROMISE_CREATE);
     }
 
     // ── namespaces::collections ───────────────────────────────────────

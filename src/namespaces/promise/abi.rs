@@ -169,6 +169,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "create",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PROMISE_CREATE",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "promise.create(fn, args) — cria PromiseAsync executando `fn(...args)` em tokio task. Concentra spawn+state na Promise. `args` eh handle de Vec<i64> ou 0. Settle automatico no retorno (resolve) ou em throw (reject via error slot).",
+        ts_signature: "create(fn: any, args?: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "all_settled",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_PROMISE_ALL_SETTLED",

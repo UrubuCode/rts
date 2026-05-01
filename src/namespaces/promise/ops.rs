@@ -17,6 +17,67 @@ where
     })
 }
 
+/// Resolve `fp` para ponteiro de codigo executavel.
+///
+/// Se `fp` for handle de `Entry::Function` (criada via `new Function` ou
+/// via reify de user fn), extrai o `fn_ptr` interno + bound_args. Senao,
+/// trata como ponteiro extern "C" direto (path legado).
+///
+/// Retorna `(fn_ptr, bound_args, has_bound_this, bound_this)`.
+fn resolve_callback_ptr(fp: u64) -> (u64, Vec<i64>, bool, i64) {
+    if fp == 0 {
+        return (0, Vec::new(), false, 0);
+    }
+    let resolved = with_entry(fp, |entry| {
+        if let Some(Entry::Function(fd)) = entry {
+            Some((fd.fn_ptr, fd.bound_args.clone(), fd.has_bound_this, fd.bound_this))
+        } else {
+            None
+        }
+    });
+    resolved.unwrap_or((fp, Vec::new(), false, 0))
+}
+
+/// Invoca um ponteiro de fn extern "C" com 0 ou 1 arg, prepende
+/// bound_args. Retorna i64. Limite de aridade total = 8 (limite do
+/// trampolim em globals/function/ops).
+unsafe fn invoke_callback(fn_ptr: u64, bound: &[i64], extra: Option<i64>) -> i64 {
+    use std::mem::transmute;
+    let mut args: Vec<i64> = bound.to_vec();
+    if let Some(v) = extra {
+        args.push(v);
+    }
+    unsafe {
+        match args.len() {
+            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
+            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
+            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
+            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2],
+            ),
+            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3],
+            ),
+            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4],
+            ),
+            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4], args[5],
+            ),
+            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+            ),
+            8 => transmute::<
+                u64,
+                extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64,
+            >(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+            ),
+            _ => 0,
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_PENDING() -> u64 {
     let slot = promise_slot::new_pending();
@@ -105,18 +166,20 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN_NS(p_handle: u64, fp: u64) -> u64 {
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
+    // Resolve handle Function -> fn_ptr + bound args (ou usa fp como ptr direto).
+    let (fn_ptr, bound, _has_this, _this) = resolve_callback_ptr(fp);
+
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
         let (state, value) = promise_slot::wait_blocking(&arc);
         if state == promise_slot::STATE_FULFILLED {
-            if fp == 0 {
+            if fn_ptr == 0 {
                 promise_slot::resolve(&result_clone, value);
             } else {
-                let r = unsafe { (std::mem::transmute::<u64, CallbackI64>(fp))(value) };
+                let r = unsafe { invoke_callback(fn_ptr, &bound, Some(value)) };
                 promise_slot::resolve(&result_clone, r);
             }
         } else {
-            // rejected — propaga sem chamar fn (semantica de then com 1 arg)
             promise_slot::reject(&result_clone, value);
         }
     });
@@ -134,18 +197,17 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH_NS(p_handle: u64, fp: u64) -> u64 {
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
+    let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fp);
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
         let (state, value) = promise_slot::wait_blocking(&arc);
         if state == promise_slot::STATE_FULFILLED {
-            // Sem rejection — passthrough.
             promise_slot::resolve(&result_clone, value);
         } else {
-            // rejected — chama callback que recovers.
-            if fp == 0 {
+            if fn_ptr == 0 {
                 promise_slot::reject(&result_clone, value);
             } else {
-                let r = unsafe { (std::mem::transmute::<u64, CallbackI64>(fp))(value) };
+                let r = unsafe { invoke_callback(fn_ptr, &bound, Some(value)) };
                 promise_slot::resolve(&result_clone, r);
             }
         }
@@ -164,11 +226,12 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY_NS(p_handle: u64, fp: u64) -> u64 
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
+    let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fp);
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
         let (state, value) = promise_slot::wait_blocking(&arc);
-        if fp != 0 {
-            let _ = unsafe { (std::mem::transmute::<u64, CallbackVoid>(fp))() };
+        if fn_ptr != 0 {
+            let _ = unsafe { invoke_callback(fn_ptr, &bound, None) };
         }
         if state == promise_slot::STATE_FULFILLED {
             promise_slot::resolve(&result_clone, value);
@@ -359,4 +422,98 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL_SETTLED(vec_handle: u64) -> u64 {
     });
 
     result_handle
+}
+
+// ─── Promise-centric API (drysius design, #359 follow-up) ────────────
+//
+// `promise.create(fn_handle, args_vec)` — cria PromiseAsync que executa
+// `fn_handle` com `args_vec` em uma tokio task. Concentra spawn+state
+// dentro do Promise em vez de espalhar pelo `expand_async_functions`.
+//
+// `args_vec` pode ser handle de Vec<i64> ou 0 (sem args).
+// `fn_handle` deve ser handle de Entry::Function (criado via reify ou
+// new Function). Tambem aceita ptr extern "C" direto pelo path legado
+// de `resolve_callback_ptr`.
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: u64, args_vec_handle: u64) -> u64 {
+    let result = promise_slot::new_pending();
+    let result_clone = result.clone();
+    let handle = alloc_entry(Entry::PromiseAsync(result));
+
+    let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fn_handle);
+    if fn_ptr == 0 {
+        // fn invalida — Promise rejeitada com 0.
+        promise_slot::reject(&result_clone, 0);
+        return handle;
+    }
+
+    let extra_args = read_promise_vec(args_vec_handle);
+
+    let rt = crate::runtime::async_rt::handle();
+    rt.spawn_blocking(move || {
+        // Combina bound (de bind) + extra_args do caller.
+        let mut all: Vec<i64> = bound;
+        all.extend(extra_args);
+        // invoke_callback aceita 0 ou 1 extra; aqui ja' temos tudo
+        // empacotado, entao desempacotamos manualmente.
+        let r = unsafe { invoke_callback_full(fn_ptr, &all) };
+        // Checa error slot pra detectar throw dentro do body.
+        let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
+        if err != 0 {
+            crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+            promise_slot::reject(&result_clone, err as i64);
+        } else {
+            promise_slot::resolve(&result_clone, r);
+        }
+    });
+    handle
+}
+
+/// Variante de invoke_callback que recebe args ja' empacotados (sem extra).
+unsafe fn invoke_callback_full(fn_ptr: u64, args: &[i64]) -> i64 {
+    use std::mem::transmute;
+    unsafe {
+        match args.len() {
+            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
+            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
+            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
+            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2],
+            ),
+            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3],
+            ),
+            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4],
+            ),
+            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4], args[5],
+            ),
+            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+            ),
+            8 => transmute::<
+                u64,
+                extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64,
+            >(fn_ptr)(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+            ),
+            _ => 0,
+        }
+    }
+}
+
+/// Le o conteudo de um Vec<i64> handle (ou retorna vazio se nao for Vec).
+fn read_promise_vec(h: u64) -> Vec<i64> {
+    if h == 0 {
+        return Vec::new();
+    }
+    with_entry(h, |entry| {
+        if let Some(Entry::Vec(v)) = entry {
+            v.iter().copied().collect()
+        } else {
+            Vec::new()
+        }
+    })
 }
