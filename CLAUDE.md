@@ -28,6 +28,37 @@ use os comandos nativos diretamente (ex: `cat file.txt` → use `.github/rtk.exe
 
 O arquivo `local-rules.md` é pessoal de cada desenvolvedor e **não deve ser versionado** (já está no `.gitignore`).
 
+## REGRA OBRIGATÓRIA: ZERO REGRESSÃO ANTES DE MERGE
+
+**Toda PR — sem exceção — só pode ser merged depois de validar que TODOS os testes da suite atual ainda passam, junto com os testes novos da feature/fix.**
+
+Suite mínima a rodar antes de aprovar merge:
+
+```bash
+cargo build --release             # build limpo (zero warnings de erro)
+cargo test --release --lib        # 100% dos testes unit + integration verdes
+```
+
+Se o PR mexe em código de runtime/codegen/GC, também:
+
+```bash
+target/release/rts.exe test       # suite TS via rts:test
+```
+
+### Regras práticas
+
+- **Build quebrado bloqueia merge.** Mesmo que "só warning". Investigar antes.
+- **1 teste falhando bloqueia merge.** Não importa se "não tem relação com o PR". Falha é falha.
+- **Não há excecão de "consertar depois".** Se a feature exige refator que quebra teste, refatore + corrija o teste **no mesmo PR**, com justificativa explícita no commit.
+- **Fixtures de codegen (`tests/fixtures/*.ts/.out`) são parte da suite.** Se mudou comportamento esperado, atualizar `.out` e justificar.
+- **PRs grandes que tocam várias áreas devem rodar a suite incrementalmente** durante o desenvolvimento, não só no fim. Se quebrou no meio, parar e corrigir antes de avançar.
+
+### Por que essa regra existe
+
+Em projeto com 2 devs + IA acelerando velocidade, tentação de "mergear e arrumar depois" mata o projeto em 30 dias. Cada regressão silenciosa acumula até a suite virar mentira (testes verdes mas código quebrado em casos não cobertos). Manter zero regressão é o que separa projeto que cresce em qualidade do que apodrece em features.
+
+Disciplina aqui é inegociável. Se IA propõe solução que quebra suite, IA está errada — independente de quão convincente o argumento. Forçar outra abordagem.
+
 ## Projeto
 
 RTS e um compilador/runtime TypeScript-to-native usando Cranelift como backend de codegen.
