@@ -34,6 +34,16 @@ pub mod path;
 pub mod buffer;
 #[path = "globals/string/rt.rs"]
 pub mod string;
+#[path = "globals/string/search.rs"]
+pub mod string_search;
+#[path = "globals/string/split.rs"]
+pub mod string_split;
+#[path = "globals/string/transform.rs"]
+pub mod string_transform;
+#[path = "globals/string/replace.rs"]
+pub mod string_replace;
+#[path = "http_server/rt.rs"]
+pub mod http_server;
 #[path = "globals/number/rt.rs"]
 pub mod number_gl;
 #[path = "process/rt.rs"]
@@ -86,6 +96,7 @@ pub mod namespaces {
     pub use crate::regex;
     pub use crate::trace;
 }
+
 
 // Shim para `crate::abi::handles` (#283) — handle layout compartilhado entre
 // gc e ui. Inclui o mesmo arquivo que o main crate (`src/abi/handles.rs`).

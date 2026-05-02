@@ -83,6 +83,18 @@ fn main() {
             deps_dir.display()
         )
     });
+    let actix_web_rlib = find_rlib_named(&deps_dir, "libactix_web-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate actix_web rlib under {} (required for http_server runtime symbols)",
+            deps_dir.display()
+        )
+    });
+    let tokio_rlib = find_rlib_named(&deps_dir, "libtokio-").unwrap_or_else(|| {
+        panic!(
+            "failed to locate tokio rlib under {} (required for http_server runtime symbols)",
+            deps_dir.display()
+        )
+    });
     let mut cmd = Command::new(&rustc);
     cmd.args([
         "--edition",
@@ -125,6 +137,10 @@ fn main() {
         .arg(format!("hashbrown={}", hashbrown_rlib.display()));
     cmd.arg("--extern")
         .arg(format!("equivalent={}", equivalent_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("actix_web={}", actix_web_rlib.display()));
+    cmd.arg("--extern")
+        .arg(format!("tokio={}", tokio_rlib.display()));
 
     let status = cmd
         .status()
@@ -173,6 +189,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/namespaces/parallel/");
     println!("cargo:rerun-if-changed=src/namespaces/net/");
     println!("cargo:rerun-if-changed=src/namespaces/tls/");
+    println!("cargo:rerun-if-changed=src/namespaces/http_server/");
     println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
     println!("cargo:rerun-if-changed=src/nodespace/");
     println!("cargo:rerun-if-changed=build.rs");
