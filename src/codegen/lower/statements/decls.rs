@@ -88,6 +88,10 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                 if let Some(types) = ctx.local_obj_field_types.get(src_name).cloned() {
                     ctx.local_obj_field_types.insert(name.clone(), types);
                 }
+                // Aliasing: const b = a — propaga local_class_ty.
+                if let Some(cn) = ctx.local_class_ty.get(src_name).cloned() {
+                    ctx.local_class_ty.insert(name.clone(), cn);
+                }
             }
         }
 
@@ -135,6 +139,15 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 ctx.local_class_ty.insert(name.clone(), "Response".to_string());
                             } else if let Some(cn) = ctx.fn_class_returns.get(fname) {
                                 ctx.local_class_ty.insert(name.clone(), cn.clone());
+                            }
+                        }
+                        // Function global (#359): `.bind(...)` retorna Function.
+                        // Propaga local_class_ty pro var receptor.
+                        if let swc_ecma_ast::Expr::Member(m) = cb.as_ref() {
+                            if let swc_ecma_ast::MemberProp::Ident(mid) = &m.prop {
+                                if mid.sym.as_str() == "bind" {
+                                    ctx.local_class_ty.insert(name.clone(), "Function".to_string());
+                                }
                             }
                         }
                     }

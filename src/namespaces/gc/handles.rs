@@ -136,6 +136,11 @@ pub enum Entry {
     PromiseAsync(std::sync::Arc<PromiseSlot>),
     /// Response do `fetch()` — status HTTP + body bytes + URL final.
     HttpResponse(Box<HttpResponseData>),
+    /// Function reificada — handle de uma fn invocavel via .call/.apply/.bind.
+    /// `fn_ptr` aponta pro codigo (de `func_addr` ou compilado via eval).
+    /// Sintetizada quando codegen ve member access em user fn ident, ou
+    /// criada por `new Function("body")` via runtime.eval. Ver issue #359.
+    Function(Box<FunctionData>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
@@ -146,6 +151,37 @@ pub struct HttpResponseData {
     pub status: u16,
     pub url: String,
     pub body: Vec<u8>,
+}
+
+/// Dados de uma Function reificada (#359 / globals/function).
+///
+/// `fn_ptr` aponta pro codigo executavel — pode ser:
+/// - endereco de user fn estatica (de `func_addr` em codegen),
+/// - ou de fn compilada em runtime via `runtime.eval` (`new Function`).
+///
+/// `bound_this` e `bound_args` materializam `.bind()` (partial application).
+/// Quando handle vem de bind, ao invocar via `.call` o trampolim usa
+/// bound_this em vez do thisArg passado, e prepende bound_args.
+///
+/// `is_arrow` ignora thisArg em `.call/.apply` (spec arrow functions).
+///
+/// `keep_alive` mantem viva a JITModule de origem se for `new Function`.
+/// Quando o ultimo handle Function for liberado, o module pode ser dropado.
+#[derive(Debug)]
+pub struct FunctionData {
+    pub fn_ptr: u64,
+    pub arity: u8,
+    pub name: Box<str>,
+    pub bound_this: i64,
+    pub has_bound_this: bool,
+    pub bound_args: Vec<i64>,
+    pub is_arrow: bool,
+    pub source: Option<Box<str>>,
+    /// Mantem viva a JITModule de origem se a fn veio de `new Function`
+    /// (compilada em runtime). Mutex existe so' por Sync — JITModule e'
+    /// Send mas nao Sync, e Entry precisa ser Sync pra atravessar shards.
+    /// Nunca destravado em runtime — overhead zero no hot path.
+    pub keep_alive: Option<std::sync::Arc<std::sync::Mutex<dyn std::any::Any + Send>>>,
 }
 
 /// Cleanup ativo de recursos do SO quando um Entry e' descartado (#279).
