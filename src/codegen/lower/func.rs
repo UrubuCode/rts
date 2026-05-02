@@ -1995,10 +1995,24 @@ fn expand_await_exprs(program: &mut Program) {
     }
 }
 
-/// - Suporta apenas async fns com 0 ou 1 parametro i64
-/// - Retorno wrappa value como i64 (Promise<T> generico — caller usa
-///   `await` que devolve i64)
-/// - Multi-arg vai numa F2-fase-2
+/// Reescreve `async function f(args) { body }` para o desugar
+/// Promise-centric (#359 followup, design @drysius):
+///
+/// ```text
+/// async function f(a, b) { body }
+///
+/// =>
+///
+/// function __async_inner_f(a, b): i64 { body }
+/// function f(a, b): i64 {
+///     const __args = [a, b];
+///     return promise.create(__async_inner_f, __args);
+/// }
+/// ```
+///
+/// Concentra spawn+state em `promise.create` (Rust). Nao precisa mais
+/// de watcher sintetico: `promise.create` faz invoke + checa error slot
+/// + settle automaticamente.
 fn expand_async_functions(program: &mut Program) {
     use swc_ecma_ast::{
         BlockStmt, CallExpr, Callee, Expr, ExprOrSpread, ExprStmt, Ident, IdentName, Lit,
@@ -2070,19 +2084,17 @@ fn expand_async_functions(program: &mut Program) {
         }))
     }
 
+    let _ = BlockStmt::default;
     let mut new_fns: Vec<Item> = Vec::new();
     for item in program.items.iter_mut() {
         if let Item::Function(f) = item {
             if !f.is_async {
                 continue;
             }
-            // Suporta N parametros — pack em Vec na chamada,
-            // unpack no watcher. Slot 0 = handle da Promise, 1.. = args.
             let param_names: Vec<String> = f.parameters.iter().map(|p| p.name.clone()).collect();
             let inner_name = format!("__async_inner_{}", f.name);
-            let watcher_name = format!("__async_watcher_{}", f.name);
 
-            // 1. Inner fn = body original
+            // 1. Inner fn = body original (mantem parametros + body).
             new_fns.push(Item::Function(FunctionDecl {
                 name: inner_name.clone(),
                 parameters: f.parameters.clone(),
@@ -2092,135 +2104,17 @@ fn expand_async_functions(program: &mut Program) {
                 is_async: false,
             }));
 
-            // 2. Watcher: extrai p e args do Vec, chama inner com todos
-            // os args extraidos, resolve a Promise.
-            //   const __p = collections.vec_get(__packed, 0);
-            //   const __a0 = collections.vec_get(__packed, 1);
-            //   const __a1 = collections.vec_get(__packed, 2);
-            //   ...
-            //   const __r = __async_inner(__a0, __a1, ...);
-            //   promise.resolve(__p, __r);
-            //   return 0;
-            let mut watcher_body: Vec<Statement> = Vec::new();
-            watcher_body.push(raw_stmt(const_decl(
-                "__p",
-                ns_call("collections", "vec_get", vec![ident_expr("__packed"), num_lit(0)]),
-            )));
-            let mut inner_args: Vec<Expr> = Vec::with_capacity(param_names.len());
-            for (idx, _) in param_names.iter().enumerate() {
-                let arg_name = format!("__a{}", idx);
-                watcher_body.push(raw_stmt(const_decl(
-                    &arg_name,
-                    ns_call(
-                        "collections",
-                        "vec_get",
-                        vec![ident_expr("__packed"), num_lit((idx + 1) as i64)],
-                    ),
-                )));
-                inner_args.push(ident_expr(&arg_name));
-            }
-            let inner_call = Expr::Call(CallExpr {
-                span: Default::default(),
-                ctxt: Default::default(),
-                callee: Callee::Expr(Box::new(ident_expr(&inner_name))),
-                args: inner_args
-                    .into_iter()
-                    .map(|e| ExprOrSpread { spread: None, expr: Box::new(e) })
-                    .collect(),
-                type_args: None,
-            });
-            watcher_body.push(raw_stmt(const_decl("__r", inner_call)));
-            // F5: checa slot de erro thread-local. Se body fez throw,
-            // `take_error` retorna o handle e limpa o slot. Reject em
-            // vez de resolve.
-            watcher_body.push(raw_stmt(const_decl(
-                "__err",
-                ns_call("promise", "take_error", vec![]),
-            )));
-            // if (__err != 0) { promise.reject(__p, __err); }
-            // else { promise.resolve(__p, __r); }
-            let neq = swc_ecma_ast::BinExpr {
-                span: Default::default(),
-                op: swc_ecma_ast::BinaryOp::NotEq,
-                left: Box::new(ident_expr("__err")),
-                right: Box::new(num_lit(0)),
-            };
-            let cons_block = swc_ecma_ast::BlockStmt {
-                span: Default::default(),
-                ctxt: Default::default(),
-                stmts: vec![
-                    Stmt::Expr(swc_ecma_ast::ExprStmt {
-                        span: Default::default(),
-                        expr: Box::new(ns_call(
-                            "promise",
-                            "reject",
-                            vec![ident_expr("__p"), ident_expr("__err")],
-                        )),
-                    }),
-                ],
-            };
-            let alt_block = swc_ecma_ast::BlockStmt {
-                span: Default::default(),
-                ctxt: Default::default(),
-                stmts: vec![
-                    Stmt::Expr(swc_ecma_ast::ExprStmt {
-                        span: Default::default(),
-                        expr: Box::new(ns_call(
-                            "promise",
-                            "resolve",
-                            vec![ident_expr("__p"), ident_expr("__r")],
-                        )),
-                    }),
-                ],
-            };
-            let if_stmt = Stmt::If(swc_ecma_ast::IfStmt {
-                span: Default::default(),
-                test: Box::new(Expr::Bin(neq)),
-                cons: Box::new(Stmt::Block(cons_block)),
-                alt: Some(Box::new(Stmt::Block(alt_block))),
-            });
-            watcher_body.push(raw_stmt(if_stmt));
-            watcher_body.push(raw_stmt(return_stmt(Some(num_lit(0)))));
-
-            new_fns.push(Item::Function(FunctionDecl {
-                name: watcher_name.clone(),
-                parameters: vec![Parameter {
-                    name: "__packed".to_string(),
-                    type_annotation: Some("i64".to_string()),
-                    modifiers: MemberModifiers::default(),
-                    variadic: false,
-                    default: None,
-                    span: Span::default(),
-                }],
-                return_type: Some("i64".to_string()),
-                body: watcher_body,
-                span: f.span,
-                is_async: false,
-            }));
-
-            // 3. Substitui o body de `f` por:
-            //   const __p = promise.new_pending();
+            // 2. Substitui o body de `f` por:
             //   const __args = collections.vec_new();
-            //   collections.vec_push(__args, __p);
-            //   collections.vec_push(__args, param_0);
-            //   collections.vec_push(__args, param_1);
+            //   collections.vec_push(__args, p0);
+            //   collections.vec_push(__args, p1);
             //   ...
-            //   thread.spawn_async(watcher_addr, __args);
-            //   return __p;
+            //   return promise.create(__async_inner_f, __args);
             let mut new_body: Vec<Statement> = Vec::new();
-            new_body.push(raw_stmt(const_decl(
-                "__p",
-                ns_call("promise", "new_pending", vec![]),
-            )));
             new_body.push(raw_stmt(const_decl(
                 "__args",
                 ns_call("collections", "vec_new", vec![]),
             )));
-            new_body.push(raw_stmt(expr_stmt(ns_call(
-                "collections",
-                "vec_push",
-                vec![ident_expr("__args"), ident_expr("__p")],
-            ))));
             for pname in &param_names {
                 new_body.push(raw_stmt(expr_stmt(ns_call(
                     "collections",
@@ -2228,18 +2122,15 @@ fn expand_async_functions(program: &mut Program) {
                     vec![ident_expr("__args"), ident_expr(pname)],
                 ))));
             }
-            new_body.push(raw_stmt(expr_stmt(ns_call(
-                "thread",
-                "spawn_async",
-                vec![ident_expr(&watcher_name), ident_expr("__args")],
-            ))));
-            new_body.push(raw_stmt(return_stmt(Some(ident_expr("__p")))));
+            new_body.push(raw_stmt(return_stmt(Some(ns_call(
+                "promise",
+                "create",
+                vec![ident_expr(&inner_name), ident_expr("__args")],
+            )))));
 
             f.body = new_body;
-            f.is_async = false; // ja' processada — nao reentrar
+            f.is_async = false;
             f.return_type = Some("i64".to_string());
-            // BlockStmt fake para ficar consistente com helpers
-            let _ = BlockStmt::default;
         }
     }
     program.items.extend(new_fns);

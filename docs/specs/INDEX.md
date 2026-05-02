@@ -14,6 +14,12 @@ arquiteturais. Para direcao de alto nivel do projeto consulte
   reescreve transparentemente para `parallel.*`. Pipeline dos 3 passes,
   criterio de pureza, infra de suporte (HandleTable shard-aware,
   callconv), limitacoes.
+- [async / Promise / Function](async-promise-function.md) — Subsistema
+  unificado de async/await, Promise<T>, e Function class. Pipeline do
+  desugar `expand_async_functions` (`async fn` → `promise.create`),
+  trampolim invoke_n, `new Function` via eval em runtime, integracao
+  Promise+Function (`resolve_callback_ptr`). PRs #428-#437, design
+  Promise-centric @drysius.
 
 ## Subsistemas recentes (2026-05)
 

@@ -4,9 +4,11 @@
 
 pub mod console;
 pub mod date;
+pub mod number;
 pub mod error;
 pub mod events;
 pub mod fetch;
+pub mod function;
 pub mod global_this;
 pub mod json;
 pub mod performance;

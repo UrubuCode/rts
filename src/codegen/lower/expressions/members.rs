@@ -309,6 +309,60 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
     Ok(TypedVal::new(handle, ValTy::Handle))
 }
 
+/// Function global (#359): reify user fn ident + chama getter (.name/.length).
+fn lower_user_fn_getter(
+    ctx: &mut FnCtx,
+    fn_name: &str,
+    prop: &str,
+) -> Result<TypedVal> {
+    use crate::codegen::lower::ctx::ValTy;
+    use super::calls::emit_user_fn_addr;
+
+    let fn_ptr = emit_user_fn_addr(ctx, fn_name)?.val;
+    let arity = ctx
+        .user_fns
+        .get(fn_name)
+        .map(|f| f.params.len() as i64)
+        .unwrap_or(0);
+    let name_tv = ctx.emit_str_handle(fn_name.as_bytes())?;
+    let name_h = ctx.coerce_to_i64(name_tv).val;
+    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+    let n_ptr = ctx.builder.inst_results(inst_p)[0];
+    let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+    let n_len = ctx.builder.inst_results(inst_l)[0];
+
+    let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY",
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32],
+        Some(cl::I64),
+    )?;
+    let inst_r = ctx
+        .builder
+        .ins()
+        .call(reify_fn, &[fn_ptr, arity_v, n_ptr, n_len, is_arrow_v]);
+    let fn_handle = ctx.builder.inst_results(inst_r)[0];
+
+    match prop {
+        "name" => {
+            let getter = ctx.get_extern("__RTS_FN_GL_FUNCTION_NAME", &[cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(getter, &[fn_handle]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(TypedVal::new(v, ValTy::Handle))
+        }
+        "length" => {
+            let getter = ctx.get_extern("__RTS_FN_GL_FUNCTION_LENGTH", &[cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(getter, &[fn_handle]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(TypedVal::new(v, ValTy::I64))
+        }
+        _ => Err(anyhow!("user_fn_getter: prop {} nao suportado", prop)),
+    }
+}
+
 pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<TypedVal> {
     if let Some(qualified) = qualified_member_name(&Expr::Member(m.clone())) {
         if lookup(&qualified).is_some() {
@@ -316,48 +370,27 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 return Ok(tv);
             }
         }
-        // Number.* globals (#305). RTS internamente usa i64 para inteiros,
-        // entao MAX_SAFE_INTEGER ainda eh exato — mas expomos os mesmos
-        // valores que JS pra paridade (codigo que faz `< MAX_SAFE_INTEGER`
-        // pra detectar limite f64).
-        if let Some(name) = qualified.strip_prefix("Number.") {
-            use cranelift_codegen::ir::{InstBuilder, types as cl};
+        // Number.* constants — valores vêm de globals::number::abi::number_const_value,
+        // sem hardcode aqui. Codegen emite f64const inline para zero overhead.
+        if let Some(prop) = qualified.strip_prefix("Number.") {
+            use cranelift_codegen::ir::InstBuilder;
             use crate::codegen::lower::ctx::ValTy;
-            match name {
-                "MAX_SAFE_INTEGER" => {
-                    let v = ctx.builder.ins().iconst(cl::I64, 9_007_199_254_740_991);
-                    return Ok(TypedVal::new(v, ValTy::I64));
-                }
-                "MIN_SAFE_INTEGER" => {
-                    let v = ctx.builder.ins().iconst(cl::I64, -9_007_199_254_740_991);
-                    return Ok(TypedVal::new(v, ValTy::I64));
-                }
-                "MAX_VALUE" => {
-                    let v = ctx.builder.ins().f64const(f64::MAX);
-                    return Ok(TypedVal::new(v, ValTy::F64));
-                }
-                "MIN_VALUE" => {
-                    let v = ctx.builder.ins().f64const(f64::MIN_POSITIVE);
-                    return Ok(TypedVal::new(v, ValTy::F64));
-                }
-                "EPSILON" => {
-                    let v = ctx.builder.ins().f64const(f64::EPSILON);
-                    return Ok(TypedVal::new(v, ValTy::F64));
-                }
-                "POSITIVE_INFINITY" => {
-                    let v = ctx.builder.ins().f64const(f64::INFINITY);
-                    return Ok(TypedVal::new(v, ValTy::F64));
-                }
-                "NEGATIVE_INFINITY" => {
-                    let v = ctx.builder.ins().f64const(f64::NEG_INFINITY);
-                    return Ok(TypedVal::new(v, ValTy::F64));
-                }
-                "NaN" => {
-                    let v = ctx.builder.ins().f64const(f64::NAN);
-                    return Ok(TypedVal::new(v, ValTy::F64));
-                }
-                _ => {}
+            if let Some(v) = crate::namespaces::globals::number::abi::number_const_value(prop) {
+                let cv = ctx.builder.ins().f64const(v);
+                return Ok(TypedVal::new(cv, ValTy::F64));
             }
+        }
+    }
+
+    // Function global (#359): `<userFn>.name/.length` — reify e chama getter.
+    if let (Expr::Ident(obj_id), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
+        let obj_name = obj_id.sym.as_str();
+        let prop_name = prop.sym.as_str();
+        if matches!(prop_name, "name" | "length")
+            && ctx.user_fns.contains_key(obj_name)
+            && ctx.var_ty(obj_name).is_none()
+        {
+            return lower_user_fn_getter(ctx, obj_name, prop_name);
         }
     }
 
@@ -378,6 +411,18 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     recv_i64,
                     &[],
                 );
+            }
+            // Global class instance getters (#359): Function.name/.length, etc.
+            if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                if let Some(member) = spec.instance_getter(prop_name) {
+                    let recv_tv = lower_expr(ctx, &m.obj)?;
+                    let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
+                    let sig = crate::abi::signature::lower_member(member);
+                    let fn_ref = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                    let inst = ctx.builder.ins().call(fn_ref, &[recv_i64]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::from_abi(member.returns)));
+                }
             }
         }
     }

@@ -23,23 +23,35 @@ pub(super) fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
                     s.iter().any(|&b| b == b'.' || b == b'e' || b == b'E')
                 })
                 .unwrap_or(false);
-            if !wrote_as_float
+            // Cache key: (bits, is_float, block) — per-block para evitar
+            // usar Values de blocos não-dominadores (mesmo bug do str_handle_cache).
+            let cur_block = ctx.builder.current_block().unwrap_or_else(|| {
+                cranelift_codegen::ir::Block::with_number(0).unwrap()
+            });
+            let cache_key = (v.to_bits(), wrote_as_float as u8, cur_block);
+            if let Some(&cached) = ctx.num_val_cache.get(&cache_key) {
+                let ty = if !wrote_as_float && v.fract() == 0.0 && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
+                    ValTy::I32
+                } else if !wrote_as_float && v.fract() == 0.0 && v.is_finite() {
+                    ValTy::I64
+                } else {
+                    ValTy::F64
+                };
+                return Ok(TypedVal::new(cached, ty));
+            }
+            let tv = if !wrote_as_float
                 && v.fract() == 0.0
                 && v >= i32::MIN as f64
                 && v <= i32::MAX as f64
             {
-                Ok(TypedVal::new(
-                    ctx.builder.ins().iconst(cl::I32, v as i64),
-                    ValTy::I32,
-                ))
+                TypedVal::new(ctx.builder.ins().iconst(cl::I32, v as i64), ValTy::I32)
             } else if !wrote_as_float && v.fract() == 0.0 && v.is_finite() {
-                Ok(TypedVal::new(
-                    ctx.builder.ins().iconst(cl::I64, v as i64),
-                    ValTy::I64,
-                ))
+                TypedVal::new(ctx.builder.ins().iconst(cl::I64, v as i64), ValTy::I64)
             } else {
-                Ok(TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64))
-            }
+                TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64)
+            };
+            ctx.num_val_cache.insert(cache_key, tv.val);
+            Ok(tv)
         }
         Lit::Bool(b) => Ok(TypedVal::new(
             ctx.builder.ins().iconst(cl::I64, i64::from(b.value)),

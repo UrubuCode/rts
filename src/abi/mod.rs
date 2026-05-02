@@ -29,6 +29,7 @@ pub use types::AbiType;
 /// methods, and static functions for one global class.
 pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::string::abi::STRING_CLASS_SPEC,
+    &crate::namespaces::globals::number::abi::NUMBER_CLASS_SPEC,
     &crate::namespaces::globals::date::abi::CLASS_SPEC,
     &crate::namespaces::globals::regexp::abi::CLASS_SPEC,
     &crate::namespaces::globals::error::abi::CLASS_SPEC,
@@ -42,6 +43,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::fetch::class_spec::RESPONSE_CLASS_SPEC,
     &crate::namespaces::globals::fetch::class_spec::PROMISE_CLASS_SPEC,
     &crate::namespaces::globals::url::class_spec::URL_CLASS_SPEC,
+    &crate::namespaces::globals::function::abi::FUNCTION_CLASS_SPEC,
 ];
 
 /// Looks up a global class spec by JS class name (e.g. `"Date"`).

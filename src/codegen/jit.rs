@@ -337,6 +337,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FETCH_RESPONSE_FREE", __RTS_FN_GL_FETCH_RESPONSE_FREE);
     add_fn!("__RTS_FN_GL_FETCH_RESPONSE_THEN", __RTS_FN_GL_FETCH_RESPONSE_THEN);
 
+    // ── namespaces::globals::function (#359) ──────────────────────────
+    use crate::namespaces::globals::function::ops::*;
+    add_fn!("__RTS_FN_GL_FUNCTION_REIFY", __RTS_FN_GL_FUNCTION_REIFY);
+    add_fn!("__RTS_FN_GL_FUNCTION_NEW", __RTS_FN_GL_FUNCTION_NEW);
+    add_fn!("__RTS_FN_GL_FUNCTION_CALL", __RTS_FN_GL_FUNCTION_CALL);
+    add_fn!("__RTS_FN_GL_FUNCTION_APPLY", __RTS_FN_GL_FUNCTION_APPLY);
+    add_fn!("__RTS_FN_GL_FUNCTION_BIND", __RTS_FN_GL_FUNCTION_BIND);
+    add_fn!("__RTS_FN_GL_FUNCTION_NAME", __RTS_FN_GL_FUNCTION_NAME);
+    add_fn!("__RTS_FN_GL_FUNCTION_LENGTH", __RTS_FN_GL_FUNCTION_LENGTH);
+    add_fn!("__RTS_FN_GL_FUNCTION_TO_STRING", __RTS_FN_GL_FUNCTION_TO_STRING);
+
     // ── namespaces::globals::text_encoding ───────────────────────────
     use crate::namespaces::globals::text_encoding::instance::*;
     add_fn!("__RTS_FN_GL_TEXTENC_ENCODE", __RTS_FN_GL_TEXTENC_ENCODE);
@@ -752,6 +763,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROMISE_RACE", pr::__RTS_FN_NS_PROMISE_RACE);
         add_fn!("__RTS_FN_NS_PROMISE_ANY", pr::__RTS_FN_NS_PROMISE_ANY);
         add_fn!("__RTS_FN_NS_PROMISE_ALL_SETTLED", pr::__RTS_FN_NS_PROMISE_ALL_SETTLED);
+        add_fn!("__RTS_FN_NS_PROMISE_CREATE", pr::__RTS_FN_NS_PROMISE_CREATE);
     }
 
     // ── namespaces::collections ───────────────────────────────────────
@@ -1001,6 +1013,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_LOCALE_COMPARE",   rt::__RTS_FN_GL_STRING_LOCALE_COMPARE);
     add_fn!("__RTS_FN_GL_STRING_TO_STRING",        rt::__RTS_FN_GL_STRING_TO_STRING);
     add_fn!("__RTS_FN_GL_STRING_IS_WELL_FORMED",   rt::__RTS_FN_GL_STRING_IS_WELL_FORMED);
+
+    // ── namespaces::globals::number ───────────────────────────────────
+    use crate::namespaces::globals::number::rt as num_rt;
+    add_fn!("__RTS_FN_GL_NUMBER_NEW_FROM",    num_rt::__RTS_FN_GL_NUMBER_NEW_FROM);
+    add_fn!("__RTS_FN_GL_NUMBER_NEW_EMPTY",   num_rt::__RTS_FN_GL_NUMBER_NEW_EMPTY);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_NAN",      num_rt::__RTS_FN_GL_NUMBER_IS_NAN);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_FINITE",   num_rt::__RTS_FN_GL_NUMBER_IS_FINITE);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_INTEGER",  num_rt::__RTS_FN_GL_NUMBER_IS_INTEGER);
+    add_fn!("__RTS_FN_GL_NUMBER_IS_SAFE_INT", num_rt::__RTS_FN_GL_NUMBER_IS_SAFE_INT);
+    add_fn!("__RTS_FN_GL_NUMBER_VALUE_OF",    num_rt::__RTS_FN_GL_NUMBER_VALUE_OF);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_FIXED",    num_rt::__RTS_FN_GL_NUMBER_TO_FIXED);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_PRECISION",    num_rt::__RTS_FN_GL_NUMBER_TO_PRECISION);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",  num_rt::__RTS_FN_GL_NUMBER_TO_EXPONENTIAL);
+    add_fn!("__RTS_FN_GL_NUMBER_FROM_STR",         num_rt::__RTS_FN_GL_NUMBER_FROM_STR);
+    add_fn!("__RTS_FN_GL_NUMBER_TO_STRING_RADIX",  num_rt::__RTS_FN_GL_NUMBER_TO_STRING_RADIX);
 
     // ── namespaces::buffer ────────────────────────────────────────────
     use crate::namespaces::buffer::ops as buf;
