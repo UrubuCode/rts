@@ -13,7 +13,7 @@ Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
 <table>
 <tr>
 <td align="center" width="33%">
-<img src="https://raw.githubusercontent.com/oven-sh/bun/main/docs/logo.svg" width="80" alt="Bun"/><br/>
+<img src="https://private-user-images.githubusercontent.com/6010774/382552750-50282090-adfd-4ddb-9e27-c30753c6b161.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3Nzc2ODk3MzEsIm5iZiI6MTc3NzY4OTQzMSwicGF0aCI6Ii82MDEwNzc0LzM4MjU1Mjc1MC01MDI4MjA5MC1hZGZkLTRkZGItOWUyNy1jMzA3NTNjNmIxNjEucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI2MDUwMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNjA1MDJUMDIzNzExWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MDIyMTI5MTJiMmMwZGU0ODZiZWJlZDRkMmJiZTBiM2Y5YTM4ZDVhYjEyYTIwMmJhNTMzZGMxYzgyNDY1Y2Q1YyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmcmVzcG9uc2UtY29udGVudC10eXBlPWltYWdlJTJGcG5nIn0.gh-59_Ukvcob8Ls1zaUx96VckWVI5USpHt3NbS-WyDM" width="80" alt="Bun"/><br/>
 <b>Bun</b><br/>
 <code>91.8 ms</code><br/>
 <sub>baseline</sub>
@@ -38,7 +38,7 @@ Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
 <table>
 <tr>
 <td align="center" width="50%">
-<img src="https://raw.githubusercontent.com/oven-sh/bun/main/docs/logo.svg" width="80" alt="Bun"/><br/>
+<img src="https://private-user-images.githubusercontent.com/6010774/382552750-50282090-adfd-4ddb-9e27-c30753c6b161.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3Nzc2ODk3MzEsIm5iZiI6MTc3NzY4OTQzMSwicGF0aCI6Ii82MDEwNzc0LzM4MjU1Mjc1MC01MDI4MjA5MC1hZGZkLTRkZGItOWUyNy1jMzA3NTNjNmIxNjEucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI2MDUwMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNjA1MDJUMDIzNzExWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MDIyMTI5MTJiMmMwZGU0ODZiZWJlZDRkMmJiZTBiM2Y5YTM4ZDVhYjEyYTIwMmJhNTMzZGMxYzgyNDY1Y2Q1YyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmcmVzcG9uc2UtY29udGVudC10eXBlPWltYWdlJTJGcG5nIn0.gh-59_Ukvcob8Ls1zaUx96VckWVI5USpHt3NbS-WyDM" width="80" alt="Bun"/><br/>
 <b>Bun Workers</b><br/>
 <code>147.6 ms</code>
 </td>
@@ -56,7 +56,7 @@ Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
 <table>
 <tr>
 <td align="center" width="50%">
-<img src="https://raw.githubusercontent.com/oven-sh/bun/main/docs/logo.svg" width="80" alt="Bun"/><br/>
+<img src="https://private-user-images.githubusercontent.com/6010774/382552750-50282090-adfd-4ddb-9e27-c30753c6b161.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3Nzc2ODk3MzEsIm5iZiI6MTc3NzY4OTQzMSwicGF0aCI6Ii82MDEwNzc0LzM4MjU1Mjc1MC01MDI4MjA5MC1hZGZkLTRkZGItOWUyNy1jMzA3NTNjNmIxNjEucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI2MDUwMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNjA1MDJUMDIzNzExWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MDIyMTI5MTJiMmMwZGU0ODZiZWJlZDRkMmJiZTBiM2Y5YTM4ZDVhYjEyYTIwMmJhNTMzZGMxYzgyNDY1Y2Q1YyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmcmVzcG9uc2UtY29udGVudC10eXBlPWltYWdlJTJGcG5nIn0.gh-59_Ukvcob8Ls1zaUx96VckWVI5USpHt3NbS-WyDM" width="80" alt="Bun"/><br/>
 <b>Bun.serve</b><br/>
 <code>~14k req/s</code>
 </td>
