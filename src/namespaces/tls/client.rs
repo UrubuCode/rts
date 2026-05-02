@@ -34,7 +34,18 @@ fn default_config() -> Arc<ClientConfig> {
     static CFG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
     CFG.get_or_init(|| {
         let mut roots = RootCertStore::empty();
-        roots.roots.extend_from_slice(webpki_roots::TLS_SERVER_ROOTS);
+        for ta in webpki_roots::TLS_SERVER_ROOTS {
+            roots.roots.push(rustls::pki_types::TrustAnchor {
+                subject: rustls::pki_types::Der::from_slice(ta.subject.as_ref()),
+                subject_public_key_info: rustls::pki_types::Der::from_slice(
+                    ta.subject_public_key_info.as_ref(),
+                ),
+                name_constraints: ta
+                    .name_constraints
+                    .as_ref()
+                    .map(|nc| rustls::pki_types::Der::from_slice(nc.as_ref())),
+            });
+        }
         let cfg = ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
