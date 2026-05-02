@@ -2112,7 +2112,7 @@ dependencies = [
  "target-lexicon",
  "tokio",
  "ureq 2.12.1",
- "webpki-roots 0.26.11",
+ "webpki-roots 1.0.6",
  "xwin",
 ]
 
