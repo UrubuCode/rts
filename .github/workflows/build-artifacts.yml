@@ -31,15 +31,15 @@ jobs:
             libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev \
             libglu1-mesa-dev libfontconfig1-dev libcairo2-dev
 
+      - name: Setup MSVC env (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Build release
         run: cargo build --release
-
-      - name: Setup MSVC env (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Smoke test — rts run (JIT)
         run: target/release/rts run bench/pi_machin.ts
