@@ -878,12 +878,19 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
         ctx.register_temp_handle(result);
 
         // Free fresh operand handles — they are not referenced anywhere else.
+        // BUG FIX (#chat-tab): nao liberar handle que esta no str_handle_cache,
+        // pois pode ser reusado por outro concat na mesma expressao
+        // (ex: `"x" + "\t" + "y" + "\t" + "z"` — segundo "\t" busca cache,
+        // recebe handle ja' liberado, concat le lixo). Cache eh keyed por
+        // (bytes, block) -> Value; checar pelo Value.
+        let lhs_cached = ctx.str_handle_cache.values().any(|&v| v == lhs.val);
+        let rhs_cached = ctx.str_handle_cache.values().any(|&v| v == rhs.val);
         if let Ok(free_fn) = ctx.get_extern("__RTS_FN_NS_GC_STRING_FREE", &[cl::I64], Some(cl::I64)) {
-            if lhs_free {
+            if lhs_free && !lhs_cached {
                 ctx.fresh_handle_set.remove(&lhs.val);
                 ctx.builder.ins().call(free_fn, &[lhs_h]);
             }
-            if rhs_free {
+            if rhs_free && !rhs_cached {
                 ctx.fresh_handle_set.remove(&rhs.val);
                 ctx.builder.ins().call(free_fn, &[rhs_h]);
             }
