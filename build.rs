@@ -29,100 +29,53 @@ fn main() {
     // Anchor on a unique target-only crate (actix_web is unique because it's a
     // direct dep used at runtime, not via proc-macro) and read its rmeta hash
     // set. For each duplicated dep, prefer the variant whose hash is in the
-    // anchor's reference set.
+    // anchor's reference set. Windows has the most acute risk (cache restoration
+    // can leave stale rlibs from previous lock states), so every dep we --extern
+    // explicitly goes through the anchor-aware lookup.
     let anchor_rlib = find_rlib_named(&deps_dir, "libactix_web-").unwrap_or_else(|| {
         panic!(
-            "failed to locate actix_web rlib under {} (required as anchor for dep resolution)",
-            deps_dir.display()
+            "failed to locate actix_web rlib under {} (required as anchor for dep resolution)\n{}",
+            deps_dir.display(),
+            dump_deps_listing(&deps_dir)
         )
     });
-    let anchor_hashes = extract_referenced_hashes(&anchor_rlib);
-    let fltk_rlib = find_fltk_rlib(&deps_dir).unwrap_or_else(|| {
-        panic!(
-            "failed to locate fltk rlib under {} (required for ui runtime symbols)",
-            deps_dir.display()
-        )
-    });
-    let regex_rlib = find_rlib_named(&deps_dir, "libregex-").unwrap_or_else(|| {
-        panic!(
-            "failed to locate regex rlib under {} (required for regex runtime symbols)",
-            deps_dir.display()
-        )
-    });
-    let rayon_rlib = find_rlib_named(&deps_dir, "librayon-").unwrap_or_else(|| {
-        panic!(
-            "failed to locate rayon rlib under {} (required for parallel runtime symbols)",
-            deps_dir.display()
-        )
-    });
-    let rayon_core_rlib = find_rlib_named(&deps_dir, "librayon_core-").unwrap_or_else(|| {
-        panic!(
-            "failed to locate rayon_core rlib under {} (required for parallel runtime symbols)",
-            deps_dir.display()
-        )
-    });
-    let rustls_rlib = find_rlib_named(&deps_dir, "librustls-").unwrap_or_else(|| {
-        panic!(
-            "failed to locate rustls rlib under {} (required for tls runtime symbols)",
-            deps_dir.display()
-        )
-    });
-    let webpki_roots_rlib = find_rlib_with_anchor(&deps_dir, "libwebpki_roots-", &anchor_hashes)
-        .unwrap_or_else(|| {
+    let mut anchor_hashes = extract_referenced_hashes(&anchor_rlib);
+    // Add actix_web's own hash so anchor matches actix_web rlib too if needed.
+    if let Some(h) = rlib_hash(&anchor_rlib, "libactix_web-") {
+        anchor_hashes.insert(h.to_string());
+    }
+    // Tokio is target-only and pulled by actix-web; use it as a secondary
+    // anchor source so deps not directly referenced by actix_web (rayon, regex,
+    // rustls, webpki_roots, fltk transitives) still get a robust hash set on
+    // platforms where target == host (Windows, Linux, macOS native builds).
+    if let Some(tokio_anchor) = find_rlib_with_anchor(&deps_dir, "libtokio-", &anchor_hashes) {
+        for h in extract_referenced_hashes(&tokio_anchor) {
+            anchor_hashes.insert(h);
+        }
+    }
+    let must_find = |prefix: &str, role: &str| -> PathBuf {
+        find_rlib_with_anchor(&deps_dir, prefix, &anchor_hashes).unwrap_or_else(|| {
             panic!(
-                "failed to locate webpki_roots rlib under {} (required for tls runtime symbols)",
-                deps_dir.display()
+                "failed to locate {prefix}* rlib under {} (required for {role} runtime symbols)\n{}",
+                deps_dir.display(),
+                dump_deps_listing(&deps_dir)
             )
-        });
-    let serde_json_rlib = find_rlib_with_anchor(&deps_dir, "libserde_json-", &anchor_hashes)
-        .unwrap_or_else(|| {
-            panic!(
-                "failed to locate serde_json rlib under {} (required for json runtime symbols)",
-                deps_dir.display()
-            )
-        });
-    let serde_rlib = find_rlib_with_anchor(&deps_dir, "libserde-", &anchor_hashes)
-        .unwrap_or_else(|| {
-            panic!(
-                "failed to locate serde rlib under {} (required for json runtime symbols)",
-                deps_dir.display()
-            )
-        });
-    let serde_core_rlib = find_rlib_with_anchor(&deps_dir, "libserde_core-", &anchor_hashes)
-        .unwrap_or_else(|| {
-            panic!(
-                "failed to locate serde_core rlib under {} (required for json runtime symbols)",
-                deps_dir.display()
-            )
-        });
-    let indexmap_rlib = find_rlib_with_anchor(&deps_dir, "libindexmap-", &anchor_hashes)
-        .unwrap_or_else(|| {
-            panic!(
-                "failed to locate indexmap rlib under {} (required for collections runtime symbols)",
-                deps_dir.display()
-            )
-        });
-    let hashbrown_rlib = find_rlib_with_anchor(&deps_dir, "libhashbrown-", &anchor_hashes)
-        .unwrap_or_else(|| {
-            panic!(
-                "failed to locate hashbrown rlib under {} (required for collections runtime symbols)",
-                deps_dir.display()
-            )
-        });
-    let equivalent_rlib = find_rlib_with_anchor(&deps_dir, "libequivalent-", &anchor_hashes)
-        .unwrap_or_else(|| {
-            panic!(
-                "failed to locate equivalent rlib under {} (required for collections runtime symbols)",
-                deps_dir.display()
-            )
-        });
+        })
+    };
+    let fltk_rlib = must_find("libfltk-", "ui");
+    let regex_rlib = must_find("libregex-", "regex");
+    let rayon_rlib = must_find("librayon-", "parallel");
+    let rayon_core_rlib = must_find("librayon_core-", "parallel");
+    let rustls_rlib = must_find("librustls-", "tls");
+    let webpki_roots_rlib = must_find("libwebpki_roots-", "tls");
+    let serde_json_rlib = must_find("libserde_json-", "json");
+    let serde_rlib = must_find("libserde-", "json");
+    let serde_core_rlib = must_find("libserde_core-", "json");
+    let indexmap_rlib = must_find("libindexmap-", "collections");
+    let hashbrown_rlib = must_find("libhashbrown-", "collections");
+    let equivalent_rlib = must_find("libequivalent-", "collections");
     let actix_web_rlib = anchor_rlib.clone();
-    let tokio_rlib = find_rlib_named(&deps_dir, "libtokio-").unwrap_or_else(|| {
-        panic!(
-            "failed to locate tokio rlib under {} (required for http_server runtime symbols)",
-            deps_dir.display()
-        )
-    });
+    let tokio_rlib = must_find("libtokio-", "http_server");
     let mut cmd = Command::new(&rustc);
     cmd.args([
         "--edition",
@@ -278,8 +231,36 @@ fn deps_dir_from_out_dir(out_dir: &Path) -> Option<PathBuf> {
     None
 }
 
-fn find_fltk_rlib(deps_dir: &Path) -> Option<PathBuf> {
-    find_rlib_named(deps_dir, "libfltk-")
+fn dump_deps_listing(deps_dir: &Path) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("contents of {}:", deps_dir.display()));
+    let entries = match std::fs::read_dir(deps_dir) {
+        Ok(e) => e,
+        Err(err) => {
+            lines.push(format!("  <unable to read deps_dir: {err}>"));
+            return lines.join("\n");
+        }
+    };
+    let mut rlibs: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rlib") {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        rlibs.push(name.to_string());
+    }
+    rlibs.sort();
+    if rlibs.is_empty() {
+        lines.push("  <no rlibs found>".to_string());
+    } else {
+        for name in rlibs {
+            lines.push(format!("  {name}"));
+        }
+    }
+    lines.join("\n")
 }
 
 fn find_rlib_named(deps_dir: &Path, prefix: &str) -> Option<PathBuf> {
