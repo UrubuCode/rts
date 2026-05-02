@@ -1,32 +1,21 @@
 param(
-  [string]$RtsExe = "target\release\rts.exe",  # Caminho para o executável do RTS
-  [string]$SourceFile = "bench\rts_simple.ts",        # Código TypeScript comum
-  [string]$BuildOutput = "target\rts_app",                 # Nome base do binário compilado
-  [int]$Runs = 40,
-  [int]$Warmup = 5
+  [string]$RtsExe = "target\release\rts.exe",
+  [int]$Runs = 20,
+  [int]$Warmup = 3,
+  [string]$JsonOut = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-# Ajusta o diretório de trabalho para a raiz do projeto
+# Working directory = raiz do projeto
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-# Verifica se o executável do RTS existe
-cargo build --release
-
-# -------------------------------------------------------------------
-# Prepara o binário compilado (uma única vez antes dos benchmarks)
-# -------------------------------------------------------------------
-Write-Host "=== Building standalone executable with RTS ==="
-& $RtsExe compile -p $SourceFile $BuildOutput --production
-$CompiledExe = "$BuildOutput.exe"
-if (!(Test-Path $CompiledExe)) {
-  throw "Compiled executable not found at $CompiledExe"
+if (-not (Test-Path $RtsExe)) {
+  throw "RTS binary not found at $RtsExe — rode 'cargo build --release' antes."
 }
-Write-Host "Build completed: $CompiledExe`n"
 
 # -------------------------------------------------------------------
-# Funções de medição
+# Helpers
 # -------------------------------------------------------------------
 function Measure-OneRunMs([scriptblock]$Action) {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -36,12 +25,9 @@ function Measure-OneRunMs([scriptblock]$Action) {
 }
 
 function Measure-Suite([string]$Label, [scriptblock]$Action, [int]$Warm, [int]$TotalRuns) {
-  Write-Host "Warmup $Label ($Warm runs)..."
-  for ($i = 0; $i -lt $Warm; $i++) {
-    & $Action *> $null
-  }
-
-  Write-Host "Benchmark $Label ($TotalRuns runs)..."
+  Write-Host "  warmup $Label ($Warm)..."
+  for ($i = 0; $i -lt $Warm; $i++) { & $Action *> $null }
+  Write-Host "  bench  $Label ($TotalRuns)..."
   $results = New-Object System.Collections.Generic.List[double]
   for ($i = 0; $i -lt $TotalRuns; $i++) {
     $results.Add((Measure-OneRunMs $Action))
@@ -54,114 +40,124 @@ function Get-Stats([System.Collections.Generic.List[double]]$Values) {
   $count = $sorted.Count
   $sum = ($sorted | Measure-Object -Sum).Sum
   $avg = $sum / $count
-
   if ($count % 2 -eq 0) {
-    $midLeft = $sorted[($count / 2) - 1]
-    $midRight = $sorted[$count / 2]
-    $median = ($midLeft + $midRight) / 2
+    $median = ($sorted[($count / 2) - 1] + $sorted[$count / 2]) / 2
   } else {
     $median = $sorted[[int]($count / 2)]
   }
-
-  $p95Index = [Math]::Ceiling(($count - 1) * 0.95)
-  $p95 = $sorted[[int]$p95Index]
-
+  $p95Index = [Math]::Min($count - 1, [Math]::Ceiling(($count - 1) * 0.95))
   return [PSCustomObject]@{
-    count = $count
-    mean_ms = [Math]::Round($avg, 3)
+    count     = $count
+    mean_ms   = [Math]::Round($avg, 3)
     median_ms = [Math]::Round($median, 3)
-    p95_ms = [Math]::Round($p95, 3)
-    min_ms = [Math]::Round($sorted[0], 3)
-    max_ms = [Math]::Round($sorted[$count - 1], 3)
+    p95_ms    = [Math]::Round($sorted[[int]$p95Index], 3)
+    min_ms    = [Math]::Round($sorted[0], 3)
+    max_ms    = [Math]::Round($sorted[$count - 1], 3)
   }
 }
 
-# -------------------------------------------------------------------
-# Definição das ações de benchmark
-# -------------------------------------------------------------------
-
-# 1. RTS Runtime JIT (compila direto para memória executável)
-$rtsRunAction = { & $RtsExe run $SourceFile *> $null }
-
-# 2. RTS Compiled (executa o binário gerado)
-$rtsCompiledAction = { & $CompiledExe *> $null }
-
-# 3. Bun Runtime
-$bunAction = { bun run "bench\bun_simple.ts" *> $null }
-
-# 4. Node runtime
-$NodeAction = { node "bench\bun_simple.ts" *> $null }
+function Have-Cmd([string]$Name) {
+  $null = Get-Command $Name -ErrorAction SilentlyContinue
+  return $?
+}
 
 # -------------------------------------------------------------------
-# Execução dos benchmarks
+# Matriz de benches: id|rts_src|js_src (js_src vazio = so' RTS)
 # -------------------------------------------------------------------
-$rtsRunResults      = Measure-Suite "RTS (run, JIT)"     $rtsRunAction      $Warmup $Runs
-$rtsCompiledResults = Measure-Suite "RTS (compiled)"     $rtsCompiledAction $Warmup $Runs
-$bunResults         = Measure-Suite "Bun (run)"          $bunAction         $Warmup $Runs
-$NodeResults        = Measure-Suite "Node (run)"         $NodeAction        $Warmup $Runs
-
-# Estatísticas
-$rtsRunStats      = Get-Stats $rtsRunResults
-$rtsCompiledStats = Get-Stats $rtsCompiledResults
-$bunStats         = Get-Stats $bunResults
-$NodeStats        = Get-Stats $NodeResults
+$Benches = @(
+  @{ id = "simple";               rts = "bench\rts_simple.ts";               js = "bench\bun_simple.ts" }
+  @{ id = "monte_carlo";          rts = "bench\monte_carlo_pi.ts";           js = "bench\monte_carlo_pi.js" }
+  @{ id = "pi_bigfloat";          rts = "bench\pi_bigfloat.ts";              js = "bench\pi_bigfloat.js" }
+  @{ id = "monte_carlo_threaded"; rts = "bench\monte_carlo_pi_threaded.ts";  js = "bench\monte_carlo_pi_threaded_bun.ts" }
+  @{ id = "pi_machin";            rts = "bench\pi_machin.ts";                js = "" }
+)
 
 # -------------------------------------------------------------------
-# Exibição dos resultados
+# Pre-compila AOT de cada source RTS uma vez
 # -------------------------------------------------------------------
+$AotBin = @{}
+New-Item -ItemType Directory -Force -Path "target\bench" | Out-Null
+foreach ($b in $Benches) {
+  $key = ($b.rts -replace '[\\/]', '_') -replace '\.ts$', ''
+  $out = "target\bench\$key"
+  Write-Host "compiling AOT: $($b.rts) -> $out"
+  & $RtsExe compile -p $b.rts $out --production | Out-Host
+  $exe = "$out.exe"
+  if (-not (Test-Path $exe)) { throw "AOT output missing: $exe" }
+  $AotBin[$b.rts] = $exe
+}
+
+# -------------------------------------------------------------------
+# Runners disponiveis
+# -------------------------------------------------------------------
+$HaveBun  = Have-Cmd "bun"
+$HaveNode = Have-Cmd "node"
+$HaveDeno = Have-Cmd "deno"
+
+# -------------------------------------------------------------------
+# Roda
+# -------------------------------------------------------------------
+$benchResults = @()
+foreach ($b in $Benches) {
+  Write-Host "=== bench: $($b.id) ==="
+  $runs = @()
+
+  $stats = Get-Stats (Measure-Suite "RTS JIT [$($b.id)]" { & $RtsExe run $b.rts *> $null } $Warmup $Runs)
+  $runs += [PSCustomObject]@{ runner = "rts_jit"; source = $b.rts; stats = $stats }
+
+  $compiled = $AotBin[$b.rts]
+  $stats = Get-Stats (Measure-Suite "RTS AOT [$($b.id)]" { & $compiled *> $null } $Warmup $Runs)
+  $runs += [PSCustomObject]@{ runner = "rts_aot"; source = $b.rts; stats = $stats }
+
+  if ($b.js) {
+    if ($HaveBun) {
+      $stats = Get-Stats (Measure-Suite "Bun  [$($b.id)]" { bun run $b.js *> $null } $Warmup $Runs)
+      $runs += [PSCustomObject]@{ runner = "bun"; source = $b.js; stats = $stats }
+    }
+    if ($HaveNode) {
+      $stats = Get-Stats (Measure-Suite "Node [$($b.id)]" { node $b.js *> $null } $Warmup $Runs)
+      $runs += [PSCustomObject]@{ runner = "node"; source = $b.js; stats = $stats }
+    }
+    if ($HaveDeno) {
+      $stats = Get-Stats (Measure-Suite "Deno [$($b.id)]" { deno run --quiet --allow-all $b.js *> $null } $Warmup $Runs)
+      $runs += [PSCustomObject]@{ runner = "deno"; source = $b.js; stats = $stats }
+    }
+  }
+
+  $benchResults += [PSCustomObject]@{ id = $b.id; runs = $runs }
+}
+
+# -------------------------------------------------------------------
+# Meta + JSON
+# -------------------------------------------------------------------
+$sha = if ($env:GITHUB_SHA) { $env:GITHUB_SHA } else { (git rev-parse HEAD 2>$null) }
+if (-not $sha) { $sha = "unknown" }
+$shortSha = if ($sha.Length -ge 7) { $sha.Substring(0, 7) } else { $sha }
+$rtsVersion = (& $RtsExe --version 2>$null) -join " "
+if (-not $rtsVersion) { $rtsVersion = "unknown" }
+
+$report = [PSCustomObject]@{
+  meta = [PSCustomObject]@{
+    sha         = $sha
+    short_sha   = $shortSha
+    created     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    os          = "Windows"
+    arch        = $env:PROCESSOR_ARCHITECTURE
+    runs        = $Runs
+    warmup      = $Warmup
+    run_id      = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local" }
+    run_number  = if ($env:GITHUB_RUN_NUMBER) { $env:GITHUB_RUN_NUMBER } else { "0" }
+    rts_version = $rtsVersion
+  }
+  benches = $benchResults
+}
+
+$json = $report | ConvertTo-Json -Depth 10
 Write-Host ""
-Write-Host "=== Benchmark Summary (ms) ==="
-$summary = @()
-$summary += [PSCustomObject]@{
-  runner    = "RTS (run, JIT)"
-  mean_ms   = $rtsRunStats.mean_ms
-  median_ms = $rtsRunStats.median_ms
-  p95_ms    = $rtsRunStats.p95_ms
-  min_ms    = $rtsRunStats.min_ms
-  max_ms    = $rtsRunStats.max_ms
-}
-$summary += [PSCustomObject]@{
-  runner    = "RTS (compiled)"
-  mean_ms   = $rtsCompiledStats.mean_ms
-  median_ms = $rtsCompiledStats.median_ms
-  p95_ms    = $rtsCompiledStats.p95_ms
-  min_ms    = $rtsCompiledStats.min_ms
-  max_ms    = $rtsCompiledStats.max_ms
-}
-$summary += [PSCustomObject]@{
-  runner    = "Bun (run)"
-  mean_ms   = $bunStats.mean_ms
-  median_ms = $bunStats.median_ms
-  p95_ms    = $bunStats.p95_ms
-  min_ms    = $bunStats.min_ms
-  max_ms    = $bunStats.max_ms
-}
-$summary += [PSCustomObject]@{
-  runner    = "Node (run)"
-  mean_ms   = $NodeStats.mean_ms
-  median_ms = $NodeStats.median_ms
-  p95_ms    = $NodeStats.p95_ms
-  min_ms    = $NodeStats.min_ms
-  max_ms    = $NodeStats.max_ms
-}
+Write-Host "=== JSON ==="
+Write-Host $json
 
-$summary | Format-Table -AutoSize
-
-# Comparações relativas (tomando RTS compiled como base)
-Write-Host "`n=== Relative Comparisons ==="
-if ($rtsCompiledStats.mean_ms -gt 0) {
-  $rtsRunVsCompiled = $rtsRunStats.mean_ms / $rtsCompiledStats.mean_ms
-  $bunVsCompiled    = $bunStats.mean_ms    / $rtsCompiledStats.mean_ms
-  $nodeVsCompiled   = $NodeStats.mean_ms   / $rtsCompiledStats.mean_ms
-  Write-Host ("RTS (run, JIT) vs RTS compiled : {0:F2}x slower" -f $rtsRunVsCompiled)
-  Write-Host ("Bun (run)      vs RTS compiled : {0:F2}x slower" -f $bunVsCompiled)
-  Write-Host ("Node (run)     vs RTS compiled : {0:F2}x slower" -f $nodeVsCompiled)
-}
-
-# Comparações vs Bun
-if ($bunStats.mean_ms -gt 0 -and $rtsRunStats.mean_ms -gt 0) {
-  $rtsRunVsBun      = $bunStats.mean_ms / $rtsRunStats.mean_ms
-  $rtsCompiledVsBun = $bunStats.mean_ms / $rtsCompiledStats.mean_ms
-  Write-Host ("RTS (run, JIT) vs Bun          : {0:F2}x faster" -f $rtsRunVsBun)
-  Write-Host ("RTS (compiled) vs Bun          : {0:F2}x faster" -f $rtsCompiledVsBun)
+if ($JsonOut) {
+  $json | Out-File -FilePath $JsonOut -Encoding utf8
+  Write-Host "wrote $JsonOut"
 }

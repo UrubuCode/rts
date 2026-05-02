@@ -1,10 +1,12 @@
 name: Benchmarks
 
 on:
-  workflow_run:
-    workflows: ["Build Artifacts"]
-    types: [completed]
+  push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
     inputs:
       runs:
@@ -18,28 +20,17 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: benchmarks-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   bench:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Resolve commit SHA
-        id: sha
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
-          else
-            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
-          fi
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -66,20 +57,20 @@ jobs:
         run: cargo build --release
 
       - name: Run benchmarks
+        shell: pwsh
         env:
           RUNS: ${{ github.event.inputs.runs || '20' }}
           WARMUP: ${{ github.event.inputs.warmup || '3' }}
-          GITHUB_SHA: ${{ steps.sha.outputs.sha }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
-          chmod +x bench/benchmark.sh
-          mkdir -p bench-output
-          bash bench/benchmark.sh "$RUNS" "$WARMUP" > bench-output/results.json
-          echo "--- results.json ---"
-          cat bench-output/results.json | jq .
+          New-Item -ItemType Directory -Force -Path bench-output | Out-Null
+          ./bench/benchmark.ps1 -Runs ([int]$env:RUNS) -Warmup ([int]$env:WARMUP) -JsonOut bench-output/results.json
+          Write-Host "--- results.json ---"
+          Get-Content bench-output/results.json
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-${{ steps.sha.outputs.sha }}
+          name: benchmark-results-${{ github.sha }}
           path: bench-output/results.json
           retention-days: 90
