@@ -34,7 +34,7 @@ fn default_config() -> Arc<ClientConfig> {
     static CFG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
     CFG.get_or_init(|| {
         let mut roots = RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        roots.roots.extend_from_slice(webpki_roots::TLS_SERVER_ROOTS);
         let cfg = ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
