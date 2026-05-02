@@ -388,6 +388,21 @@ pub struct FnCtx<'m, 'fb> {
     /// o valor é atribuído a uma variável nomeada via declare_local_kind.
     /// Usado por lower_add para liberar operandos temporários após concat.
     pub fresh_handle_set: std::collections::HashSet<cranelift_codegen::ir::Value>,
+
+    /// Dedup de data sections por conteúdo: bytes → DataId já declarado.
+    /// Evita criar múltiplos .Lrts_str_N com bytes idênticos quando o mesmo
+    /// literal aparece mais de uma vez (dentro ou entre funções do módulo).
+    pub str_data_cache: HashMap<Vec<u8>, cranelift_module::DataId>,
+
+    /// Dedup de GC handles por conteúdo: (bytes, block) → Value emitido neste bloco.
+    /// Cache com chave de bloco evita reutilizar Values de blocos não-dominadores
+    /// (que causam stack slots não-inicializados em ternários encadeados).
+    pub str_handle_cache: HashMap<(Vec<u8>, cranelift_codegen::ir::Block), cranelift_codegen::ir::Value>,
+
+    /// Dedup de SSA Values para constantes numéricas por bloco.
+    /// Keyed por (bits, is_float, block) — per-block como str_handle_cache,
+    /// para evitar usar Values de blocos não-dominadores.
+    pub num_val_cache: HashMap<(u64, u8, cranelift_codegen::ir::Block), cranelift_codegen::ir::Value>,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -441,6 +456,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             fn_ref_cache: HashMap::new(),
             fn_ref_by_id_cache: HashMap::new(),
             fresh_handle_set: std::collections::HashSet::new(),
+            str_data_cache: HashMap::new(),
+            str_handle_cache: HashMap::new(),
+            num_val_cache: HashMap::new(),
         }
     }
 
@@ -822,19 +840,27 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn emit_str_literal(&mut self, bytes: &[u8]) -> Result<(Value, Value)> {
         use cranelift_module::{DataDescription, Linkage};
 
-        let name = format!(".Lrts_str_{}", self.data_counter);
-        *self.data_counter += 1;
+        // Reuse existing data section for identical byte content.
+        let data_id = if let Some(&cached) = self.str_data_cache.get(bytes) {
+            cached
+        } else {
+            let name = format!(".Lrts_str_{}", self.data_counter);
+            *self.data_counter += 1;
 
-        let data_id = self
-            .module
-            .declare_data(&name, Linkage::Local, false, false)
-            .map_err(|e| anyhow!("failed to declare data {name}: {e}"))?;
+            let id = self
+                .module
+                .declare_data(&name, Linkage::Local, false, false)
+                .map_err(|e| anyhow!("failed to declare data {name}: {e}"))?;
 
-        let mut desc = DataDescription::new();
-        desc.define(bytes.to_vec().into_boxed_slice());
-        self.module
-            .define_data(data_id, &desc)
-            .map_err(|e| anyhow!("failed to define data {name}: {e}"))?;
+            let mut desc = DataDescription::new();
+            desc.define(bytes.to_vec().into_boxed_slice());
+            self.module
+                .define_data(id, &desc)
+                .map_err(|e| anyhow!("failed to define data {name}: {e}"))?;
+
+            self.str_data_cache.insert(bytes.to_vec(), id);
+            id
+        };
 
         let gv = self.module.declare_data_in_func(data_id, self.builder.func);
         let ptr_ty = self.module.isa().pointer_type();
@@ -869,6 +895,17 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     }
 
     pub fn emit_str_handle(&mut self, bytes: &[u8]) -> Result<TypedVal> {
+        // Dedup per-block: reuse SSA Value only within the same basic block.
+        // Cross-block reuse of raw Values causes Cranelift to spill them into
+        // stack slots before GC calls, but if the defining block wasn't executed
+        // the slot is uninitialized — breaking ternary chains (issue #359).
+        let cur_block = self.builder.current_block().unwrap_or_else(|| {
+            cranelift_codegen::ir::Block::with_number(0).unwrap()
+        });
+        let cache_key = (bytes.to_vec(), cur_block);
+        if let Some(&cached_val) = self.str_handle_cache.get(&cache_key) {
+            return Ok(TypedVal::new(cached_val, ValTy::Handle));
+        }
         let (ptr, len) = self.emit_str_literal(bytes)?;
         let fref = self.get_extern(
             "__RTS_FN_NS_GC_STRING_FROM_STATIC",
@@ -880,6 +917,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         self.declare_gc_handle(val);
         self.fresh_handle_set.insert(val);
         self.register_temp_handle(val);
+        self.str_handle_cache.insert(cache_key, val);
         Ok(TypedVal::new(val, ValTy::Handle))
     }
 

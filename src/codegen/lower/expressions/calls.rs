@@ -99,6 +99,25 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                 }
+                // Numeric/string instance methods on literal/computed expressions:
+                // (1000).toString(), (3.14).toFixed(2), "hi".toUpperCase().
+                // Only when obj is NOT a plain Ident (those are handled via qualified_member_name
+                // at the outer dispatch path which has the global_class_lookup).
+                if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
+                    let recv_tv = lower_expr(ctx, &m.obj)?;
+                    if matches!(recv_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {
+                        let recv_f = to_f64(ctx, recv_tv);
+                        if let Some(tv) = lower_number_builtin(ctx, &method_name, recv_f, call)? {
+                            return Ok(tv);
+                        }
+                    }
+                    if matches!(recv_tv.ty, ValTy::Handle) {
+                        let recv_h = ctx.coerce_to_i64(recv_tv).val;
+                        if let Some(tv) = lower_string_builtin(ctx, &method_name, recv_h, call)? {
+                            return Ok(tv);
+                        }
+                    }
+                }
             }
         }
         if let Some(qualified) = qualified_member_name(callee) {
@@ -253,110 +272,12 @@ fn lower_js_global_call(
     call: &CallExpr,
 ) -> Result<Option<crate::codegen::lower::ctx::TypedVal>> {
     use crate::codegen::lower::ctx::{TypedVal, ValTy};
-    use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
     match name {
-        "isNaN" => {
-            let arg = call.args.first().ok_or_else(|| anyhow!("isNaN requires 1 arg"))?;
-            if arg.spread.is_some() {
-                return Ok(None);
-            }
-            let tv = super::lower_expr(ctx, &arg.expr)?;
-            let f = super::operators::to_f64(ctx, tv);
-            let result = ctx.builder.ins().fcmp(FloatCC::Unordered, f, f);
-            Ok(Some(TypedVal::new(result, ValTy::Bool)))
-        }
-        "isFinite" => {
-            let arg = call.args.first().ok_or_else(|| anyhow!("isFinite requires 1 arg"))?;
-            if arg.spread.is_some() {
-                return Ok(None);
-            }
-            let tv = super::lower_expr(ctx, &arg.expr)?;
-            let f = super::operators::to_f64(ctx, tv);
-            let abs_f = ctx.builder.ins().fabs(f);
-            let inf = ctx.builder.ins().f64const(f64::INFINITY);
-            let result = ctx.builder.ins().fcmp(FloatCC::LessThan, abs_f, inf);
-            Ok(Some(TypedVal::new(result, ValTy::Bool)))
-        }
-        "Number" => {
-            // Number(x): converte para f64. String -> parse, bool -> 0/1,
-            // number -> identidade.
-            if let Some(arg) = call.args.first() {
-                if arg.spread.is_some() {
-                    return Ok(None);
-                }
-                let tv = super::lower_expr(ctx, &arg.expr)?;
-                if matches!(tv.ty, ValTy::Handle) {
-                    // Parse string -> f64. fmt.parse_f64 espera (ptr, len),
-                    // entao extraimos via gc.string_ptr / gc.string_len.
-                    let ptr_fn = ctx.get_extern(
-                        "__RTS_FN_NS_GC_STRING_PTR",
-                        &[cl::I64],
-                        Some(cl::I64),
-                    )?;
-                    let len_fn = ctx.get_extern(
-                        "__RTS_FN_NS_GC_STRING_LEN",
-                        &[cl::I64],
-                        Some(cl::I64),
-                    )?;
-                    let parse_fn = ctx.get_extern(
-                        "__RTS_FN_NS_FMT_PARSE_F64",
-                        &[cl::I64, cl::I64],
-                        Some(cl::F64),
-                    )?;
-                    let ptr_inst = ctx.builder.ins().call(ptr_fn, &[tv.val]);
-                    let ptr = ctx.builder.inst_results(ptr_inst)[0];
-                    let len_inst = ctx.builder.ins().call(len_fn, &[tv.val]);
-                    let len = ctx.builder.inst_results(len_inst)[0];
-                    let inst = ctx.builder.ins().call(parse_fn, &[ptr, len]);
-                    let v = ctx.builder.inst_results(inst)[0];
-                    return Ok(Some(TypedVal::new(v, ValTy::F64)));
-                }
-                let f = super::operators::to_f64(ctx, tv);
-                return Ok(Some(TypedVal::new(f, ValTy::F64)));
-            }
-            // Number() sem args -> 0
-            let v = ctx.builder.ins().f64const(0.0);
-            Ok(Some(TypedVal::new(v, ValTy::F64)))
-        }
-        "String" => {
-            // String(x): converte para handle de string.
-            if let Some(arg) = call.args.first() {
-                if arg.spread.is_some() {
-                    return Ok(None);
-                }
-                let tv = super::lower_expr(ctx, &arg.expr)?;
-                let h = ctx.coerce_to_handle(tv)?;
-                return Ok(Some(h));
-            }
-            // String() sem args -> ""
-            let h = ctx.emit_str_handle(b"")?;
-            Ok(Some(h))
-        }
-        "Boolean" => {
-            // Boolean(x): truthiness JS — false/0/""/NaN/null/undefined sao falsy.
-            // RTS aproximacao: handle 0 e numerico 0 sao falsy; resto e' truthy.
-            // Para Handle, checa se != 0 (string vazia tem handle != 0 entao
-            // a aprox falha pra "" — TODO: peek length se for Entry::String).
-            if let Some(arg) = call.args.first() {
-                if arg.spread.is_some() {
-                    return Ok(None);
-                }
-                let tv = super::lower_expr(ctx, &arg.expr)?;
-                if matches!(tv.ty, ValTy::F64) {
-                    // f64: !=0.0 e !NaN. NaN != NaN, entao apenas 0.0 e' false.
-                    let zero = ctx.builder.ins().f64const(0.0);
-                    let ne_zero = ctx.builder.ins().fcmp(FloatCC::NotEqual, tv.val, zero);
-                    return Ok(Some(TypedVal::new(ne_zero, ValTy::Bool)));
-                }
-                let v = ctx.coerce_to_i64(tv).val;
-                let zero = ctx.builder.ins().iconst(cl::I64, 0);
-                let result = ctx.builder.ins().icmp(IntCC::NotEqual, v, zero);
-                return Ok(Some(TypedVal::new(result, ValTy::Bool)));
-            }
-            // Boolean() sem args -> false
-            let v = ctx.builder.ins().iconst(cl::I64, 0);
-            Ok(Some(TypedVal::new(v, ValTy::Bool)))
-        }
+        "isNaN" => lower_coerce_is_nan(ctx, call).map(Some),
+        "isFinite" => lower_coerce_is_finite(ctx, call).map(Some),
+        "Number" => lower_coerce_to_number(ctx, call),
+        "String" => lower_coerce_to_string(ctx, call),
+        "Boolean" => lower_coerce_to_boolean(ctx, call),
         // getPointer(fn) — materializa o endereço de uma user fn como i64.
         // Substitui o padrão `fn as unknown as number` nos call sites.
         "getPointer" => {
@@ -1773,6 +1694,14 @@ fn lower_var_member_call(
         .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
     let obj_h = ctx.coerce_to_i64(obj_tv).val;
 
+    // Builtins de Number (n.toFixed(), n.toString(), etc.) em receiver numeric.
+    if matches!(obj_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {
+        let recv_f = to_f64(ctx, obj_tv);
+        if let Some(tv) = lower_number_builtin(ctx, prop, recv_f, call)? {
+            return Ok(tv);
+        }
+    }
+
     // Builtins de string em receiver Handle: s.indexOf(...), s.startsWith(...), etc.
     // Tem que vir antes do map_get porque uma string handle nao e um map —
     // map_get retornaria lixo, e o call_indirect subsequente saltaria pra
@@ -2046,6 +1975,98 @@ fn lower_string_builtin(
         "isWellFormed" => {
             let v = call_h!("__RTS_FN_GL_STRING_IS_WELL_FORMED", &[cl::I64], Some(cl::I64), &[recv_h]);
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Number instance methods em receiver F64/I64 (n.toFixed(), n.toString(), etc.).
+/// Retorna `Some` quando reconheceu o metodo — semântica idêntica ao lower_string_builtin.
+fn lower_number_builtin(
+    ctx: &mut FnCtx,
+    method: &str,
+    recv_f: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    // arg[idx] como i64 (digits, radix)
+    fn arg_i64_opt(
+        ctx: &mut FnCtx,
+        call: &CallExpr,
+        idx: usize,
+        default: i64,
+    ) -> Result<cranelift_codegen::ir::Value> {
+        if let Some(arg) = call.args.get(idx) {
+            if arg.spread.is_some() {
+                return Ok(ctx.builder.ins().iconst(cl::I64, default));
+            }
+            let tv = lower_expr(ctx, &arg.expr)?;
+            Ok(ctx.coerce_to_i64(tv).val)
+        } else {
+            Ok(ctx.builder.ins().iconst(cl::I64, default))
+        }
+    }
+
+    macro_rules! call_num {
+        ($sym:expr, $params:expr, $ret:expr, $args:expr) => {{
+            let f = ctx.get_extern($sym, $params, $ret)?;
+            let i = ctx.builder.ins().call(f, $args);
+            ctx.builder.inst_results(i)[0]
+        }};
+    }
+
+    match method {
+        "toFixed" => {
+            let digits = arg_i64_opt(ctx, call, 0, 0)?;
+            let v = call_num!(
+                "__RTS_FN_GL_NUMBER_TO_FIXED",
+                &[cl::F64, cl::I64],
+                Some(cl::I64),
+                &[recv_f, digits]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "toPrecision" => {
+            let digits = arg_i64_opt(ctx, call, 0, 0)?;
+            let v = call_num!(
+                "__RTS_FN_GL_NUMBER_TO_PRECISION",
+                &[cl::F64, cl::I64],
+                Some(cl::I64),
+                &[recv_f, digits]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "toExponential" => {
+            let digits = arg_i64_opt(ctx, call, 0, 6)?;
+            let v = call_num!(
+                "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",
+                &[cl::F64, cl::I64],
+                Some(cl::I64),
+                &[recv_f, digits]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "toString" => {
+            // toString(radix?) — sem radix ou radix=10 usa string_from_f64.
+            // Com radix usa __RTS_FN_GL_NUMBER_TO_STRING_RADIX.
+            let radix = arg_i64_opt(ctx, call, 0, 10)?;
+            let v = call_num!(
+                "__RTS_FN_GL_NUMBER_TO_STRING_RADIX",
+                &[cl::F64, cl::I64],
+                Some(cl::I64),
+                &[recv_f, radix]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "valueOf" => Ok(Some(TypedVal::new(recv_f, ValTy::F64))),
+        "toLocaleString" => {
+            // Stub: mesma saída que toString() sem localização.
+            let v = call_num!(
+                "__RTS_FN_NS_GC_STRING_FROM_F64",
+                &[cl::F64],
+                Some(cl::I64),
+                &[recv_f]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         _ => Ok(None),
     }
@@ -2976,4 +2997,88 @@ pub(super) fn emit_namespace_constant(
         ));
     }
     Ok(Some(emit_constant_load(ctx, member)?))
+}
+
+fn lower_coerce_is_nan(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
+    use cranelift_codegen::ir::condcodes::FloatCC;
+    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+    let arg = call.args.first().ok_or_else(|| anyhow!("isNaN requires 1 arg"))?;
+    if arg.spread.is_some() {
+        return Err(anyhow!("isNaN: spread arg not supported"));
+    }
+    let tv = super::lower_expr(ctx, &arg.expr)?;
+    let f = super::operators::to_f64(ctx, tv);
+    let result = ctx.builder.ins().fcmp(FloatCC::Unordered, f, f);
+    Ok(TypedVal::new(result, ValTy::Bool))
+}
+
+fn lower_coerce_is_finite(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
+    use cranelift_codegen::ir::condcodes::FloatCC;
+    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+    let arg = call.args.first().ok_or_else(|| anyhow!("isFinite requires 1 arg"))?;
+    if arg.spread.is_some() {
+        return Err(anyhow!("isFinite: spread arg not supported"));
+    }
+    let tv = super::lower_expr(ctx, &arg.expr)?;
+    let f = super::operators::to_f64(ctx, tv);
+    let abs_f = ctx.builder.ins().fabs(f);
+    let inf = ctx.builder.ins().f64const(f64::INFINITY);
+    let result = ctx.builder.ins().fcmp(FloatCC::LessThan, abs_f, inf);
+    Ok(TypedVal::new(result, ValTy::Bool))
+}
+
+fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<TypedVal>> {
+    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+    if let Some(arg) = call.args.first() {
+        if arg.spread.is_some() {
+            return Ok(None);
+        }
+        let tv = super::lower_expr(ctx, &arg.expr)?;
+        if matches!(tv.ty, ValTy::Handle) {
+            // Delega para __RTS_FN_GL_NUMBER_FROM_STR(handle) -> f64
+            let from_str = ctx.get_extern("__RTS_FN_GL_NUMBER_FROM_STR", &[cl::I64], Some(cl::F64))?;
+            let inst = ctx.builder.ins().call(from_str, &[tv.val]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(TypedVal::new(v, ValTy::F64)));
+        }
+        let f = super::operators::to_f64(ctx, tv);
+        return Ok(Some(TypedVal::new(f, ValTy::F64)));
+    }
+    let v = ctx.builder.ins().f64const(0.0);
+    Ok(Some(TypedVal::new(v, ValTy::F64)))
+}
+
+fn lower_coerce_to_string(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<TypedVal>> {
+    if let Some(arg) = call.args.first() {
+        if arg.spread.is_some() {
+            return Ok(None);
+        }
+        let tv = super::lower_expr(ctx, &arg.expr)?;
+        let h = ctx.coerce_to_handle(tv)?;
+        return Ok(Some(h));
+    }
+    let h = ctx.emit_str_handle(b"")?;
+    Ok(Some(h))
+}
+
+fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<TypedVal>> {
+    use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
+    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+    if let Some(arg) = call.args.first() {
+        if arg.spread.is_some() {
+            return Ok(None);
+        }
+        let tv = super::lower_expr(ctx, &arg.expr)?;
+        if matches!(tv.ty, ValTy::F64) {
+            let zero = ctx.builder.ins().f64const(0.0);
+            let ne_zero = ctx.builder.ins().fcmp(FloatCC::NotEqual, tv.val, zero);
+            return Ok(Some(TypedVal::new(ne_zero, ValTy::Bool)));
+        }
+        let v = ctx.coerce_to_i64(tv).val;
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        let result = ctx.builder.ins().icmp(IntCC::NotEqual, v, zero);
+        return Ok(Some(TypedVal::new(result, ValTy::Bool)));
+    }
+    let v = ctx.builder.ins().iconst(cl::I64, 0);
+    Ok(Some(TypedVal::new(v, ValTy::Bool)))
 }
