@@ -1,12 +1,10 @@
 name: Benchmarks
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Build Artifacts"]
+    types: [completed]
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
     inputs:
       runs:
@@ -20,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: benchmarks-${{ github.ref }}
@@ -27,16 +26,44 @@ concurrency:
 
 jobs:
   bench:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Resolve build run
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "run_id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          else
+            run_id=$(gh run list --workflow "Build Artifacts" --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId')
+            sha=$(gh run list --workflow "Build Artifacts" --branch main --status success --limit 1 --json headSha -q '.[0].headSha')
+            echo "run_id=$run_id" >> $GITHUB_OUTPUT
+            echo "sha=$sha" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Download Windows RTS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rts-Windows-X64
+          path: rts-bin
+          run-id: ${{ steps.build.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Stage RTS binary
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target/release | Out-Null
+          $exe = Get-ChildItem rts-bin -Recurse -Filter rts.exe | Select-Object -First 1
+          if (-not $exe) { throw "rts.exe nao encontrado em rts-bin/" }
+          Copy-Item $exe.FullName target/release/rts.exe
+          & target/release/rts.exe --version
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -53,15 +80,12 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Build RTS (release)
-        run: cargo build --release
-
       - name: Run benchmarks
         shell: pwsh
         env:
           RUNS: ${{ github.event.inputs.runs || '20' }}
           WARMUP: ${{ github.event.inputs.warmup || '3' }}
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ steps.build.outputs.sha }}
         run: |
           New-Item -ItemType Directory -Force -Path bench-output | Out-Null
           ./bench/benchmark.ps1 -Runs ([int]$env:RUNS) -Warmup ([int]$env:WARMUP) -JsonOut bench-output/results.json
@@ -71,6 +95,6 @@ jobs:
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-${{ github.sha }}
+          name: benchmark-results-${{ steps.build.outputs.sha }}
           path: bench-output/results.json
           retention-days: 90
