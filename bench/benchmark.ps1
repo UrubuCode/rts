@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
 if (-not (Test-Path $RtsExe)) {
-  throw "RTS binary not found at $RtsExe — rode 'cargo build --release' antes."
+  throw "RTS binary not found at $RtsExe - rode 'cargo build --release' antes."
 }
 
 # -------------------------------------------------------------------
@@ -65,11 +65,11 @@ function Have-Cmd([string]$Name) {
 # Matriz de benches: id|rts_src|js_src (js_src vazio = so' RTS)
 # -------------------------------------------------------------------
 $Benches = @(
-  @{ id = "simple";               rts = "bench\rts_simple.ts";               js = "bench\bun_simple.ts" }
-  @{ id = "monte_carlo";          rts = "bench\monte_carlo_pi.ts";           js = "bench\monte_carlo_pi.js" }
-  @{ id = "pi_bigfloat";          rts = "bench\pi_bigfloat.ts";              js = "bench\pi_bigfloat.js" }
-  @{ id = "monte_carlo_threaded"; rts = "bench\monte_carlo_pi_threaded.ts";  js = "bench\monte_carlo_pi_threaded_bun.ts" }
-  @{ id = "pi_machin";            rts = "bench\pi_machin.ts";                js = "" }
+  @{ id = "simple";               rts = "bench\rts_simple.ts";               js = "bench\bun_simple.ts";                  jsRunners = @("bun","node","deno") }
+  @{ id = "monte_carlo";          rts = "bench\monte_carlo_pi.ts";           js = "bench\monte_carlo_pi.js";              jsRunners = @("bun","node","deno") }
+  @{ id = "pi_bigfloat";          rts = "bench\pi_bigfloat.ts";              js = "bench\pi_bigfloat.js";                 jsRunners = @("bun","node","deno") }
+  @{ id = "monte_carlo_threaded"; rts = "bench\monte_carlo_pi_threaded.ts";  js = "bench\monte_carlo_pi_threaded_bun.ts"; jsRunners = @("bun") }
+  @{ id = "pi_machin";            rts = "bench\pi_machin.ts";                js = "";                                     jsRunners = @() }
 )
 
 # -------------------------------------------------------------------
@@ -109,16 +109,16 @@ foreach ($b in $Benches) {
   $stats = Get-Stats (Measure-Suite "RTS AOT [$($b.id)]" { & $compiled *> $null } $Warmup $Runs)
   $runEntries += [PSCustomObject]@{ runner = "rts_aot"; source = $b.rts; stats = $stats }
 
-  if ($b.js) {
-    if ($HaveBun) {
+  if ($b.js -and $b.jsRunners.Count -gt 0) {
+    if ($HaveBun  -and $b.jsRunners -contains "bun") {
       $stats = Get-Stats (Measure-Suite "Bun  [$($b.id)]" { bun run $b.js *> $null } $Warmup $Runs)
       $runEntries += [PSCustomObject]@{ runner = "bun"; source = $b.js; stats = $stats }
     }
-    if ($HaveNode) {
+    if ($HaveNode -and $b.jsRunners -contains "node") {
       $stats = Get-Stats (Measure-Suite "Node [$($b.id)]" { node $b.js *> $null } $Warmup $Runs)
       $runEntries += [PSCustomObject]@{ runner = "node"; source = $b.js; stats = $stats }
     }
-    if ($HaveDeno) {
+    if ($HaveDeno -and $b.jsRunners -contains "deno") {
       $stats = Get-Stats (Measure-Suite "Deno [$($b.id)]" { deno run --quiet --allow-all $b.js *> $null } $Warmup $Runs)
       $runEntries += [PSCustomObject]@{ runner = "deno"; source = $b.js; stats = $stats }
     }
@@ -161,6 +161,8 @@ Write-Host "=== JSON ==="
 Write-Host $json
 
 if ($JsonOut) {
+  $dir = Split-Path -Parent $JsonOut
+  if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
   $json | Out-File -FilePath $JsonOut -Encoding utf8
   Write-Host "wrote $JsonOut"
 }
