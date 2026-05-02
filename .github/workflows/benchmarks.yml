@@ -63,7 +63,7 @@ jobs:
           $exe = Get-ChildItem rts-bin -Recurse -Filter rts.exe | Select-Object -First 1
           if (-not $exe) { throw "rts.exe nao encontrado em rts-bin/" }
           Copy-Item $exe.FullName target/release/rts.exe
-          & target/release/rts.exe --version
+          Write-Host "staged $($exe.FullName) -> target/release/rts.exe"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

@@ -133,8 +133,11 @@ foreach ($b in $Benches) {
 $sha = if ($env:GITHUB_SHA) { $env:GITHUB_SHA } else { (git rev-parse HEAD 2>$null) }
 if (-not $sha) { $sha = "unknown" }
 $shortSha = if ($sha.Length -ge 7) { $sha.Substring(0, 7) } else { $sha }
-$rtsVersion = (& $RtsExe --version 2>$null) -join " "
-if (-not $rtsVersion) { $rtsVersion = "unknown" }
+$rtsVersion = "unknown"
+try {
+  $v = (& $RtsExe --version 2>$null) -join " "
+  if ($LASTEXITCODE -eq 0 -and $v) { $rtsVersion = $v }
+} catch {}
 
 $report = [PSCustomObject]@{
   meta = [PSCustomObject]@{
