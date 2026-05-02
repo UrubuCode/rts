@@ -28,58 +28,72 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve build run id
-        id: run
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
-          else
-            RUN=$(gh run list --workflow "Build Artifacts" --branch main --status success --limit 1 --json databaseId,headSha)
-            echo "id=$(echo "$RUN" | jq -r '.[0].databaseId')" >> $GITHUB_OUTPUT
-            echo "sha=$(echo "$RUN" | jq -r '.[0].headSha')" >> $GITHUB_OUTPUT
-          fi
+      - name: Collect last N successful builds
         env:
           GH_TOKEN: ${{ github.token }}
-
-      - name: Download all build artifacts
+          REPO: ${{ github.repository }}
+          MAX_BUILDS: 10
         run: |
           mkdir -p site/downloads
-          gh run download ${{ steps.run.outputs.id }} -D _artifacts
-          for dir in _artifacts/rts-*; do
-            [ -d "$dir" ] || continue
-            name=$(basename "$dir")
-            mkdir -p "site/downloads/$name"
-            cp -r "$dir"/* "site/downloads/$name/"
-          done
-          ls -la site/downloads/
-        env:
-          GH_TOKEN: ${{ github.token }}
+          echo "[" > site/builds.json
+          first=1
 
-      - name: Generate index.html
-        run: |
-          cd site
-          COMMIT_SHA="${{ steps.run.outputs.sha }}"
-          SHORT_SHA="${COMMIT_SHA:0:7}"
-          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
-          REPO="${{ github.repository }}"
+          RUNS=$(gh run list --workflow "Build Artifacts" --branch main --status success --limit $MAX_BUILDS --json databaseId,headSha,createdAt,displayTitle)
+          echo "$RUNS" | jq -c '.[]' | while read -r run; do
+            run_id=$(echo "$run" | jq -r '.databaseId')
+            sha=$(echo "$run" | jq -r '.headSha')
+            short_sha=${sha:0:7}
+            created=$(echo "$run" | jq -r '.createdAt')
+            title=$(echo "$run" | jq -r '.displayTitle' | sed 's/"/\\"/g')
 
-          {
-            echo "["
-            first=1
-            for dir in downloads/rts-*; do
+            echo "Processing run $run_id ($short_sha)"
+            tmpdir=$(mktemp -d)
+            if ! gh run download "$run_id" -D "$tmpdir" 2>/dev/null; then
+              echo "  skip: artifacts expired or unavailable"
+              rm -rf "$tmpdir"
+              continue
+            fi
+
+            build_dir="site/downloads/$short_sha"
+            mkdir -p "$build_dir"
+            artifacts_json="["
+            first_art=1
+            for dir in "$tmpdir"/rts-*; do
               [ -d "$dir" ] || continue
               name=$(basename "$dir")
               file=$(ls "$dir" | head -1)
               [ -z "$file" ] && continue
-              size=$(stat -c%s "$dir/$file")
+              mkdir -p "$build_dir/$name"
+              cp "$dir/$file" "$build_dir/$name/$file"
+              size=$(stat -c%s "$build_dir/$name/$file")
               size_mb=$(awk "BEGIN { printf \"%.1f\", $size / 1048576 }")
-              [ $first -eq 0 ] && echo ","
-              echo "  {\"name\": \"$name\", \"file\": \"$file\", \"path\": \"$dir/$file\", \"size_mb\": \"$size_mb\"}"
-              first=0
+              [ $first_art -eq 0 ] && artifacts_json="$artifacts_json,"
+              artifacts_json="$artifacts_json{\"name\":\"$name\",\"file\":\"$file\",\"path\":\"downloads/$short_sha/$name/$file\",\"size_mb\":\"$size_mb\"}"
+              first_art=0
             done
-            echo "]"
-          } > artifacts.json
+            artifacts_json="$artifacts_json]"
+            rm -rf "$tmpdir"
+
+            if [ "$artifacts_json" = "[]" ]; then
+              rm -rf "$build_dir"
+              continue
+            fi
+
+            [ $first -eq 0 ] && echo "," >> site/builds.json
+            cat >> site/builds.json <<JSON
+          {"sha":"$sha","short_sha":"$short_sha","created":"$created","title":"$title","run_id":"$run_id","artifacts":$artifacts_json}
+          JSON
+            first=0
+          done
+          echo "]" >> site/builds.json
+          cat site/builds.json | jq . | head -40
+
+      - name: Generate index.html
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          cd site
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
 
           cat > index.html <<HTMLEOF
           <!DOCTYPE html>
@@ -107,7 +121,7 @@ jobs:
                 min-height: 100vh;
                 padding: 2rem 1rem;
               }
-              .container { max-width: 960px; margin: 0 auto; }
+              .container { max-width: 1100px; margin: 0 auto; }
               header { margin-bottom: 3rem; text-align: center; }
               h1 {
                 font-size: 3rem;
@@ -137,71 +151,104 @@ jobs:
                 border-bottom: 1px solid var(--border);
                 padding-bottom: 0.5rem;
               }
-              .cards {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-                gap: 1rem;
-                margin-bottom: 3rem;
-              }
-              .card {
+              .build {
                 background: var(--card);
                 border: 1px solid var(--border);
                 border-radius: 8px;
-                padding: 1.5rem;
-                transition: transform 0.15s, border-color 0.15s;
+                margin-bottom: 1rem;
+                overflow: hidden;
               }
-              .card:hover { transform: translateY(-2px); border-color: var(--accent); }
-              .platform {
+              .build.latest { border-color: var(--accent); }
+              .build-header {
+                padding: 1rem 1.5rem;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 1rem;
+                user-select: none;
+                transition: background 0.15s;
+              }
+              .build-header:hover { background: rgba(255,255,255,0.02); }
+              .build-info { flex: 1; min-width: 0; }
+              .build-title {
+                font-weight: 600;
+                margin-bottom: 0.25rem;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+              .build-meta {
+                font-size: 0.85rem;
+                color: var(--muted);
+                display: flex;
+                gap: 1rem;
+                flex-wrap: wrap;
+              }
+              .build-meta a { color: var(--link); text-decoration: none; font-family: 'SF Mono', monospace; }
+              .build-meta a:hover { text-decoration: underline; }
+              .badge {
+                background: var(--accent);
+                color: #fff;
+                font-size: 0.7rem;
+                padding: 0.15rem 0.5rem;
+                border-radius: 10px;
+                font-weight: 500;
+                text-transform: uppercase;
+              }
+              .toggle {
+                color: var(--muted);
                 font-size: 1.2rem;
+                transition: transform 0.2s;
+              }
+              .build.open .toggle { transform: rotate(90deg); }
+              .build-body {
+                display: none;
+                padding: 0 1.5rem 1.5rem;
+                border-top: 1px solid var(--border);
+              }
+              .build.open .build-body { display: block; }
+              .cards {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                gap: 0.75rem;
+                padding-top: 1rem;
+              }
+              .card {
+                background: var(--bg);
+                border: 1px solid var(--border);
+                border-radius: 6px;
+                padding: 1rem;
+              }
+              .platform {
+                font-size: 1rem;
                 font-weight: 600;
                 margin-bottom: 0.5rem;
                 display: flex;
                 align-items: center;
                 gap: 0.5rem;
               }
-              .icon { font-size: 1.4rem; }
+              .icon { font-size: 1.2rem; }
               .filename {
                 font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
-                font-size: 0.85rem;
+                font-size: 0.75rem;
                 color: var(--muted);
                 word-break: break-all;
-                margin-bottom: 0.5rem;
+                margin-bottom: 0.25rem;
               }
-              .size { font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
+              .size { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.75rem; }
               .download {
                 display: inline-block;
                 background: var(--accent);
                 color: #fff;
-                padding: 0.5rem 1rem;
-                border-radius: 6px;
+                padding: 0.4rem 0.8rem;
+                border-radius: 4px;
                 text-decoration: none;
                 font-weight: 500;
+                font-size: 0.85rem;
                 transition: opacity 0.15s;
               }
               .download:hover { opacity: 0.85; }
-              .info {
-                background: var(--card);
-                border: 1px solid var(--border);
-                border-radius: 8px;
-                padding: 1.5rem;
-                margin-bottom: 2rem;
-              }
-              .info code {
-                background: var(--bg);
-                padding: 0.2rem 0.4rem;
-                border-radius: 4px;
-                font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
-                font-size: 0.85rem;
-              }
-              .info pre {
-                background: var(--bg);
-                padding: 1rem;
-                border-radius: 6px;
-                overflow-x: auto;
-                margin-top: 0.5rem;
-                font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
-                font-size: 0.85rem;
-              }
               footer {
                 text-align: center;
                 color: var(--muted);
@@ -211,6 +258,11 @@ jobs:
                 border-top: 1px solid var(--border);
               }
               footer a { color: var(--link); text-decoration: none; }
+              .empty {
+                text-align: center;
+                padding: 3rem;
+                color: var(--muted);
+              }
             </style>
           </head>
           <body>
@@ -219,44 +271,60 @@ jobs:
                 <h1>RTS</h1>
                 <p class="tagline">TypeScript-to-native compiler &amp; runtime — Cranelift backend</p>
                 <div class="meta">
-                  <span>Build: <a href="https://github.com/$REPO/commit/$COMMIT_SHA"><code>$SHORT_SHA</code></a></span>
                   <span>Atualizado: $DATE</span>
                   <span><a href="https://github.com/$REPO">GitHub →</a></span>
                 </div>
               </header>
 
-              <h2>Downloads</h2>
-              <div class="cards" id="cards"></div>
-
-              <h2>Como usar</h2>
-              <div class="info">
-                <p>Baixe o binario para sua plataforma, torne executavel e rode:</p>
-                <pre>chmod +x rts        # Linux/macOS
-          ./rts run hello.ts
-          ./rts compile hello.ts hello
-          ./rts apis          # listar APIs disponiveis</pre>
-              </div>
+              <h2>Builds recentes</h2>
+              <div id="builds"><div class="empty">Carregando...</div></div>
 
               <footer>
-                <p>Builds gerados automaticamente pelo workflow <a href="https://github.com/$REPO/actions/workflows/build-artifacts.yml">Build Artifacts</a>.</p>
+                <p>Builds gerados pelo workflow <a href="https://github.com/$REPO/actions/workflows/build-artifacts.yml">Build Artifacts</a>. Clique num build pra expandir os downloads.</p>
               </footer>
             </div>
 
             <script>
               const ICONS = { Linux: '🐧', macOS: '🍎', Windows: '🪟' };
-              fetch('artifacts.json').then(r => r.json()).then(items => {
-                const cards = document.getElementById('cards');
-                cards.innerHTML = items.map(it => {
-                  const platform = it.name.replace('rts-', '').replace(/-X64\$/, '');
-                  const icon = ICONS[platform] || '📦';
+              const REPO = "$REPO";
+              fetch('builds.json').then(r => r.json()).then(builds => {
+                const container = document.getElementById('builds');
+                if (!builds.length) {
+                  container.innerHTML = '<div class="empty">Nenhum build com artefatos disponivel.</div>';
+                  return;
+                }
+                container.innerHTML = builds.map((b, idx) => {
+                  const dt = new Date(b.created);
+                  const dateStr = dt.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+                  const cards = b.artifacts.map(a => {
+                    const platform = a.name.replace('rts-', '').replace(/-X64\$/, '');
+                    const icon = ICONS[platform] || '📦';
+                    return \`
+                      <div class="card">
+                        <div class="platform"><span class="icon">\${icon}</span>\${platform}</div>
+                        <div class="filename">\${a.file}</div>
+                        <div class="size">\${a.size_mb} MB</div>
+                        <a class="download" href="\${a.path}" download>Download</a>
+                      </div>\`;
+                  }).join('');
+                  const latestBadge = idx === 0 ? '<span class="badge">latest</span>' : '';
                   return \`
-                    <div class="card">
-                      <div class="platform"><span class="icon">\${icon}</span>\${platform}</div>
-                      <div class="filename">\${it.file}</div>
-                      <div class="size">\${it.size_mb} MB</div>
-                      <a class="download" href="\${it.path}" download>Download</a>
-                    </div>
-                  \`;
+                    <div class="build \${idx === 0 ? 'open latest' : ''}">
+                      <div class="build-header" onclick="this.parentElement.classList.toggle('open')">
+                        <div class="build-info">
+                          <div class="build-title">\${b.title} \${latestBadge}</div>
+                          <div class="build-meta">
+                            <a href="https://github.com/\${REPO}/commit/\${b.sha}">\${b.short_sha}</a>
+                            <span>\${dateStr}</span>
+                            <a href="https://github.com/\${REPO}/actions/runs/\${b.run_id}">run #\${b.run_id}</a>
+                          </div>
+                        </div>
+                        <span class="toggle">▶</span>
+                      </div>
+                      <div class="build-body">
+                        <div class="cards">\${cards}</div>
+                      </div>
+                    </div>\`;
                 }).join('');
               });
             </script>
