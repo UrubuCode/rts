@@ -131,7 +131,7 @@ fn symlink_dir(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-fn install_bin(bin_dir: &Path, name: &str, target: &Path, _symlink_mode: bool) -> Result<()> {
+fn install_bin(bin_dir: &Path, name: &str, target: &Path, symlink_mode: bool) -> Result<()> {
     #[cfg(unix)]
     {
         let bin_path = bin_dir.join(name);
@@ -149,6 +149,7 @@ fn install_bin(bin_dir: &Path, name: &str, target: &Path, _symlink_mode: bool) -
     }
     #[cfg(windows)]
     {
+        let _ = symlink_mode;
         // .cmd wrapper for cmd.exe
         let cmd_path = bin_dir.join(format!("{name}.cmd"));
         let cmd_script = format!("@echo off\r\n\"{target}\" %*\r\n", target = target.display());
