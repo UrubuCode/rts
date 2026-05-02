@@ -87,7 +87,7 @@ target/release/rts.exe test       # suite TS via rts:test
 - **Build quebrado bloqueia merge.** Mesmo que "só warning". Investigar antes.
 - **1 teste falhando bloqueia merge.** Não importa se "não tem relação com o PR". Falha é falha.
 - **Não há excecão de "consertar depois".** Se a feature exige refator que quebra teste, refatore + corrija o teste **no mesmo PR**, com justificativa explícita no commit.
-- **Fixtures de codegen (`tests/fixtures/*.ts/.out`) são parte da suite.** Se mudou comportamento esperado, atualizar `.out` e justificar.
+- **Testes de codegen (`tests/*.test.ts`) são parte da suite.** Se mudou comportamento esperado, atualizar os `.test.ts` e justificar.
 - **PRs grandes que tocam várias áreas devem rodar a suite incrementalmente** durante o desenvolvimento, não só no fim. Se quebrou no meio, parar e corrigir antes de avançar.
 
 ### Por que essa regra existe
@@ -383,7 +383,7 @@ Exemplos de etapas tipicas (namespace novo):
 - 55% rt.rs criado
 - 70% registrado em SPECS + mod.rs + rt_all
 - 80% JIT registrado + build.rs atualizado
-- 90% build passou + fixture basico ok
+- 90% build passou + teste basico ok
 - 100% PR aberto/merged
 
 ## Assumindo issues do GitHub
@@ -428,21 +428,35 @@ sao bem-vindos pra cobrir variacoes sem inflar o numero de arquivos.
 ## Como testar
 
 ```bash
-cargo test                                        # testes unitarios + fixtures
+cargo test --lib                                  # testes unitarios Rust
 cargo build --release                             # build release
 target/release/rts.exe run file.ts                # executar via JIT in-memory
 target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
+target/release/rts.exe test tests/foo.test.ts     # rodar suite TS
 target/release/rts.exe apis                       # listar APIs disponiveis
 ```
 
-Fixtures de codegen vivem em `tests/fixtures/*.{ts,out}`. O teste
-`codegen_fixtures` compila o `.ts` e compara stdout com o `.out`
-byte-a-byte. Para adicionar nova fixture:
+Testes de codegen vivem em `tests/*.test.ts` (formato `rts:test`). Para
+adicionar novo teste, criar `tests/<name>.test.ts` com:
 
-1. `tests/fixtures/`<name>`.ts` — programa
-2. `tests/fixtures/`<name>`.out` — saida esperada (LF, sem CRLF)
-3. `#[test] fn fixture_<name>() { run_fixture("<name>") }` em
-   `tests/codegen_fixtures.rs`
+```ts
+import { describe, test, expect } from "rts:test";
+
+let out: string = "";
+function print(v: string): void { out += v + "\n"; }
+
+// codigo a testar no top-level (resultados pre-computados)
+const result = expr;
+
+describe("<name>", () => {
+  test("<caso>", () => expect(result).toBe(expected));
+  test("saida capturada", () => expect(out).toBe("...\n"));
+});
+```
+
+**Regra de ouro:** pre-computar valores no top-level (antes dos `describe`).
+Chamar metodos de instancia diretamente dentro de closures `test()` pode
+causar problemas de GC (handle coletado antes do uso).
 
 ## Debug do codegen — `rts ir`
 
@@ -559,7 +573,7 @@ Cada funcao de namespace e um simbolo `extern "C"` tipado.
 | Tipo TS  | `AbiType`    | Representacao Cranelift         | Observacao                                              |
 |----------|--------------|---------------------------------|---------------------------------------------------------|
 | `number` | `I64` / `F64`| `i64` / `f64`                   | bits nativos, sem boxing                                |
-| `bool`   | `Bool`       | `i8` (0/1)                      | 0 = false, 1 = true                                     |
+| `bool`   | `Bool`       | `i64` (0/1)                     | 0 = false, 1 = true; assinatura Cranelift usa I64        |
 | `string` | `StrPtr`     | 2 slots: `(i64 ptr, i64 len)`   | UTF-8; ptr estatica do codegen, ou buffer via handle GC |
 | handle   | `Handle`     | `u64`                           | `HandleTable` (gen:16 + slot:48)                        |
 | void    | `Void`       | —                               | sem retorno                                             |
