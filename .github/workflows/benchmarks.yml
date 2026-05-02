@@ -1,0 +1,85 @@
+name: Benchmarks
+
+on:
+  workflow_run:
+    workflows: ["Build Artifacts"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Numero de execucoes por benchmark"
+        required: false
+        default: "20"
+      warmup:
+        description: "Numero de warmup runs"
+        required: false
+        default: "3"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve commit SHA
+        id: sha
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Build RTS (release)
+        run: cargo build --release
+
+      - name: Run benchmarks
+        env:
+          RUNS: ${{ github.event.inputs.runs || '20' }}
+          WARMUP: ${{ github.event.inputs.warmup || '3' }}
+          GITHUB_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          chmod +x bench/benchmark.sh
+          mkdir -p bench-output
+          bash bench/benchmark.sh "$RUNS" "$WARMUP" > bench-output/results.json
+          echo "--- results.json ---"
+          cat bench-output/results.json | jq .
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ steps.sha.outputs.sha }}
+          path: bench-output/results.json
+          retention-days: 90
