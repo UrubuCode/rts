@@ -180,6 +180,12 @@ pub struct FunctionData {
     /// (método de classe não-estático). CALL/APPLY prepend effective_this
     /// antes de invoke_n quando este flag está ativo.
     pub has_this_param: bool,
+    /// Tipos ABI dos parâmetros (codificação: 0=i64, 1=f64, 2=bool, 3=i32).
+    /// Vazio = assume todos i64. Usado por invoke_n para coerção correta
+    /// quando método tem `number` (f64) ou outros tipos não-i64.
+    pub param_kinds: Vec<u8>,
+    /// Tipo ABI do retorno: 0=i64, 1=f64, 2=bool, 3=i32, 4=void. 0 default.
+    pub return_kind: u8,
     pub source: Option<Box<str>>,
     /// Mantem viva a JITModule de origem se a fn veio de `new Function`
     /// (compilada em runtime). Mutex existe so' por Sync — JITModule e'
