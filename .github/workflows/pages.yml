@@ -1,0 +1,277 @@
+name: Deploy Pages
+
+on:
+  workflow_run:
+    workflows: ["Build Artifacts"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve build run id
+        id: run
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          else
+            RUN=$(gh run list --workflow "Build Artifacts" --branch main --status success --limit 1 --json databaseId,headSha)
+            echo "id=$(echo "$RUN" | jq -r '.[0].databaseId')" >> $GITHUB_OUTPUT
+            echo "sha=$(echo "$RUN" | jq -r '.[0].headSha')" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Download all build artifacts
+        run: |
+          mkdir -p site/downloads
+          gh run download ${{ steps.run.outputs.id }} -D _artifacts
+          for dir in _artifacts/rts-*; do
+            [ -d "$dir" ] || continue
+            name=$(basename "$dir")
+            mkdir -p "site/downloads/$name"
+            cp -r "$dir"/* "site/downloads/$name/"
+          done
+          ls -la site/downloads/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Generate index.html
+        run: |
+          cd site
+          COMMIT_SHA="${{ steps.run.outputs.sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          REPO="${{ github.repository }}"
+
+          {
+            echo "["
+            first=1
+            for dir in downloads/rts-*; do
+              [ -d "$dir" ] || continue
+              name=$(basename "$dir")
+              file=$(ls "$dir" | head -1)
+              [ -z "$file" ] && continue
+              size=$(stat -c%s "$dir/$file")
+              size_mb=$(awk "BEGIN { printf \"%.1f\", $size / 1048576 }")
+              [ $first -eq 0 ] && echo ","
+              echo "  {\"name\": \"$name\", \"file\": \"$file\", \"path\": \"$dir/$file\", \"size_mb\": \"$size_mb\"}"
+              first=0
+            done
+            echo "]"
+          } > artifacts.json
+
+          cat > index.html <<HTMLEOF
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>RTS — Builds</title>
+            <style>
+              :root {
+                --bg: #0d1117;
+                --fg: #e6edf3;
+                --muted: #7d8590;
+                --accent: #f78166;
+                --card: #161b22;
+                --border: #30363d;
+                --link: #2f81f7;
+              }
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+                background: var(--bg);
+                color: var(--fg);
+                line-height: 1.6;
+                min-height: 100vh;
+                padding: 2rem 1rem;
+              }
+              .container { max-width: 960px; margin: 0 auto; }
+              header { margin-bottom: 3rem; text-align: center; }
+              h1 {
+                font-size: 3rem;
+                font-weight: 700;
+                background: linear-gradient(135deg, var(--accent), var(--link));
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                margin-bottom: 0.5rem;
+              }
+              .tagline { color: var(--muted); font-size: 1.1rem; }
+              .meta {
+                display: flex;
+                gap: 1rem;
+                justify-content: center;
+                flex-wrap: wrap;
+                margin-top: 1rem;
+                font-size: 0.9rem;
+                color: var(--muted);
+              }
+              .meta a { color: var(--link); text-decoration: none; }
+              .meta a:hover { text-decoration: underline; }
+              h2 {
+                font-size: 1.5rem;
+                margin-bottom: 1.5rem;
+                color: var(--fg);
+                border-bottom: 1px solid var(--border);
+                padding-bottom: 0.5rem;
+              }
+              .cards {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 1rem;
+                margin-bottom: 3rem;
+              }
+              .card {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 1.5rem;
+                transition: transform 0.15s, border-color 0.15s;
+              }
+              .card:hover { transform: translateY(-2px); border-color: var(--accent); }
+              .platform {
+                font-size: 1.2rem;
+                font-weight: 600;
+                margin-bottom: 0.5rem;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+              }
+              .icon { font-size: 1.4rem; }
+              .filename {
+                font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+                font-size: 0.85rem;
+                color: var(--muted);
+                word-break: break-all;
+                margin-bottom: 0.5rem;
+              }
+              .size { font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
+              .download {
+                display: inline-block;
+                background: var(--accent);
+                color: #fff;
+                padding: 0.5rem 1rem;
+                border-radius: 6px;
+                text-decoration: none;
+                font-weight: 500;
+                transition: opacity 0.15s;
+              }
+              .download:hover { opacity: 0.85; }
+              .info {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 1.5rem;
+                margin-bottom: 2rem;
+              }
+              .info code {
+                background: var(--bg);
+                padding: 0.2rem 0.4rem;
+                border-radius: 4px;
+                font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+                font-size: 0.85rem;
+              }
+              .info pre {
+                background: var(--bg);
+                padding: 1rem;
+                border-radius: 6px;
+                overflow-x: auto;
+                margin-top: 0.5rem;
+                font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+                font-size: 0.85rem;
+              }
+              footer {
+                text-align: center;
+                color: var(--muted);
+                font-size: 0.85rem;
+                margin-top: 3rem;
+                padding-top: 2rem;
+                border-top: 1px solid var(--border);
+              }
+              footer a { color: var(--link); text-decoration: none; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <header>
+                <h1>RTS</h1>
+                <p class="tagline">TypeScript-to-native compiler &amp; runtime — Cranelift backend</p>
+                <div class="meta">
+                  <span>Build: <a href="https://github.com/$REPO/commit/$COMMIT_SHA"><code>$SHORT_SHA</code></a></span>
+                  <span>Atualizado: $DATE</span>
+                  <span><a href="https://github.com/$REPO">GitHub →</a></span>
+                </div>
+              </header>
+
+              <h2>Downloads</h2>
+              <div class="cards" id="cards"></div>
+
+              <h2>Como usar</h2>
+              <div class="info">
+                <p>Baixe o binario para sua plataforma, torne executavel e rode:</p>
+                <pre>chmod +x rts        # Linux/macOS
+          ./rts run hello.ts
+          ./rts compile hello.ts hello
+          ./rts apis          # listar APIs disponiveis</pre>
+              </div>
+
+              <footer>
+                <p>Builds gerados automaticamente pelo workflow <a href="https://github.com/$REPO/actions/workflows/build-artifacts.yml">Build Artifacts</a>.</p>
+              </footer>
+            </div>
+
+            <script>
+              const ICONS = { Linux: '🐧', macOS: '🍎', Windows: '🪟' };
+              fetch('artifacts.json').then(r => r.json()).then(items => {
+                const cards = document.getElementById('cards');
+                cards.innerHTML = items.map(it => {
+                  const platform = it.name.replace('rts-', '').replace(/-X64\$/, '');
+                  const icon = ICONS[platform] || '📦';
+                  return \`
+                    <div class="card">
+                      <div class="platform"><span class="icon">\${icon}</span>\${platform}</div>
+                      <div class="filename">\${it.file}</div>
+                      <div class="size">\${it.size_mb} MB</div>
+                      <a class="download" href="\${it.path}" download>Download</a>
+                    </div>
+                  \`;
+                }).join('');
+              });
+            </script>
+          </body>
+          </html>
+          HTMLEOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
