@@ -100,31 +100,31 @@ $HaveDeno = Have-Cmd "deno"
 $benchResults = @()
 foreach ($b in $Benches) {
   Write-Host "=== bench: $($b.id) ==="
-  $runs = @()
+  $runEntries = @()
 
   $stats = Get-Stats (Measure-Suite "RTS JIT [$($b.id)]" { & $RtsExe run $b.rts *> $null } $Warmup $Runs)
-  $runs += [PSCustomObject]@{ runner = "rts_jit"; source = $b.rts; stats = $stats }
+  $runEntries += [PSCustomObject]@{ runner = "rts_jit"; source = $b.rts; stats = $stats }
 
   $compiled = $AotBin[$b.rts]
   $stats = Get-Stats (Measure-Suite "RTS AOT [$($b.id)]" { & $compiled *> $null } $Warmup $Runs)
-  $runs += [PSCustomObject]@{ runner = "rts_aot"; source = $b.rts; stats = $stats }
+  $runEntries += [PSCustomObject]@{ runner = "rts_aot"; source = $b.rts; stats = $stats }
 
   if ($b.js) {
     if ($HaveBun) {
       $stats = Get-Stats (Measure-Suite "Bun  [$($b.id)]" { bun run $b.js *> $null } $Warmup $Runs)
-      $runs += [PSCustomObject]@{ runner = "bun"; source = $b.js; stats = $stats }
+      $runEntries += [PSCustomObject]@{ runner = "bun"; source = $b.js; stats = $stats }
     }
     if ($HaveNode) {
       $stats = Get-Stats (Measure-Suite "Node [$($b.id)]" { node $b.js *> $null } $Warmup $Runs)
-      $runs += [PSCustomObject]@{ runner = "node"; source = $b.js; stats = $stats }
+      $runEntries += [PSCustomObject]@{ runner = "node"; source = $b.js; stats = $stats }
     }
     if ($HaveDeno) {
       $stats = Get-Stats (Measure-Suite "Deno [$($b.id)]" { deno run --quiet --allow-all $b.js *> $null } $Warmup $Runs)
-      $runs += [PSCustomObject]@{ runner = "deno"; source = $b.js; stats = $stats }
+      $runEntries += [PSCustomObject]@{ runner = "deno"; source = $b.js; stats = $stats }
     }
   }
 
-  $benchResults += [PSCustomObject]@{ id = $b.id; runs = $runs }
+  $benchResults += [PSCustomObject]@{ id = $b.id; runs = $runEntries }
 }
 
 # -------------------------------------------------------------------
