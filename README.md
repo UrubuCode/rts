@@ -2,7 +2,92 @@
 
 Compilador e runtime TypeScript-to-native baseado em Cranelift. Compila TS/JS
 para binarios nativos com runtime minimo em Rust e um contrato ABI unico para
-os namespaces builtin. Ha dois caminhos de execucao:
+os namespaces builtin.
+
+## ⚡ Performance — RTS vs Bun vs Node
+
+Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
+
+### Monte Carlo π — 10M iteracoes
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="https://raw.githubusercontent.com/oven-sh/bun/main/docs/logo.svg" width="80" alt="Bun"/><br/>
+<b>Bun</b><br/>
+<code>91.8 ms</code><br/>
+<sub>baseline</sub>
+</td>
+<td align="center" width="33%">
+<img src="https://nodejs.org/static/images/logo.svg" width="80" alt="Node.js"/><br/>
+<b>Node.js</b><br/>
+<code>113.9 ms</code><br/>
+<sub>1.24× mais lento que Bun</sub>
+</td>
+<td align="center" width="33%">
+<img src="https://rustacean.net/assets/rustacean-flat-happy.svg" width="80" alt="RTS"/><br/>
+<b>RTS AOT</b> 🦀<br/>
+<code>16.9 ms</code><br/>
+<sub><b>5.43× mais rapido que Bun</b><br/><b>6.74× mais rapido que Node</b></sub>
+</td>
+</tr>
+</table>
+
+### Monte Carlo π — 10M iteracoes (8 workers)
+
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="https://raw.githubusercontent.com/oven-sh/bun/main/docs/logo.svg" width="80" alt="Bun"/><br/>
+<b>Bun Workers</b><br/>
+<code>147.6 ms</code>
+</td>
+<td align="center" width="50%">
+<img src="https://rustacean.net/assets/rustacean-flat-happy.svg" width="80" alt="RTS"/><br/>
+<b>RTS multi-thread</b> 🦀<br/>
+<code>30.3 ms</code><br/>
+<sub><b>4.87× mais rapido que Bun Workers</b></sub>
+</td>
+</tr>
+</table>
+
+### HTTP Server — req/s (carga sustentada)
+
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="https://raw.githubusercontent.com/oven-sh/bun/main/docs/logo.svg" width="80" alt="Bun"/><br/>
+<b>Bun.serve</b><br/>
+<code>~14k req/s</code>
+</td>
+<td align="center" width="50%">
+<img src="https://rustacean.net/assets/rustacean-flat-happy.svg" width="80" alt="RTS"/><br/>
+<b>RTS http_server</b> 🦀<br/>
+<code>29k req/s</code><br/>
+<sub><b>2.07× mais rapido que Bun.serve</b><br/>78% do actix puro Rust</sub>
+</td>
+</tr>
+</table>
+
+### Resumo
+
+| Bench                          | Bun       | Node      | **RTS AOT** | RTS vs Bun | RTS vs Node |
+|--------------------------------|-----------|-----------|-------------|-----------:|------------:|
+| Monte Carlo 10M (1 thread)     | 91.8 ms   | 113.9 ms  | **16.9 ms** | **5.43×**  | **6.74×**   |
+| Monte Carlo 10M (8 threads)    | 147.6 ms  | —         | **30.3 ms** | **4.87×**  | —           |
+| HTTP throughput                | ~14k req/s| —         | **29k req/s** | **2.07×** | —           |
+
+**Por que mais rapido?** RTS compila TS para binario nativo via Cranelift —
+sem JIT warmup, sem GC pause, sem dispatch dinamico nos hot paths. Loops
+comuns reescrevem automaticamente para `parallel.*` (rayon) sem o user
+mencionar threads (silent parallelism). HandleTable shard-aware (32 shards
+lock-free) escala alocacao em paralelo.
+
+---
+
+## Caminhos de execucao
+
+Ha dois caminhos de execucao:
 
 - **JIT** (`rts run`) — compila direto para memoria executavel via `cranelift_jit`,
   sem disco e sem linker externo. Latencia de startup drasticamente menor, ideal
@@ -10,11 +95,12 @@ os namespaces builtin. Ha dois caminhos de execucao:
 - **AOT** (`rts compile`) — emite object file, linka com o linker do sistema,
   produz executavel standalone.
 
-Namespaces ativos (32): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
+Namespaces ativos (37): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`,
 `path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`,
 `net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`,
-`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`. Cobre `std::*`, paralelismo,
-HTTPS, UI nativa.
+`regex`, `runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`, `http_server`,
+`events`. Cobre `std::*`, paralelismo, HTTPS, UI nativa, JSON, Date, HTTP server,
+EventEmitter, async/await + Promise + Function class.
 
 ## Silent parallelism (zero esforço do user)
 
