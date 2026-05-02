@@ -4,7 +4,10 @@ use swc_ecma_ast::{Expr, Lit, MemberProp};
 
 use crate::abi::lookup;
 
-use super::calls::{AccessorKind, emit_namespace_constant, emit_virtual_accessor_dispatch, fn_name_has_this_param};
+use super::calls::{
+    AccessorKind, emit_namespace_constant, emit_user_fn_addr,
+    emit_virtual_accessor_dispatch, fn_name_has_this_param, resolve_method_owner,
+};
 use super::lower_expr;
 use crate::codegen::lower::ctx::{FieldSlot, FnCtx, TypedVal, ValTy, is_class_flat_enabled};
 
@@ -316,7 +319,6 @@ fn lower_user_fn_getter(
     prop: &str,
 ) -> Result<TypedVal> {
     use crate::codegen::lower::ctx::ValTy;
-    use super::calls::emit_user_fn_addr;
 
     let fn_ptr = emit_user_fn_addr(ctx, fn_name)?.val;
     let arity = ctx
@@ -364,6 +366,96 @@ fn lower_user_fn_getter(
             Ok(TypedVal::new(v, ValTy::I64))
         }
         _ => Err(anyhow!("user_fn_getter: prop {} nao suportado", prop)),
+    }
+}
+
+/// Reifica método de instância em handle Function pré-bindado.
+/// Usado quando codegen vê `obj.method` em posição de valor (não chamada
+/// direta): emite REIFY com has_this_param=true + BIND com receiver como this.
+fn emit_method_reify(
+    ctx: &mut FnCtx,
+    receiver_expr: &Expr,
+    fn_name: &str,
+    method_name: &str,
+) -> Result<TypedVal> {
+    let fn_ptr = emit_user_fn_addr(ctx, fn_name)?.val;
+    let arity = ctx
+        .user_fns
+        .get(fn_name)
+        .map(|f| f.params.len() as i64)
+        .unwrap_or(0);
+    let name_tv = ctx.emit_str_handle(method_name.as_bytes())?;
+    let name_h = ctx.coerce_to_i64(name_tv).val;
+    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+    let n_ptr = ctx.builder.inst_results(inst_p)[0];
+    let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+    let n_len = ctx.builder.inst_results(inst_l)[0];
+
+    let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let has_this_v = ctx.builder.ins().iconst(cl::I32, 1);
+    // Avalia receiver e usa diretamente como bound_this no REIFY_BOUND_TYPED.
+    let recv_tv = lower_expr(ctx, receiver_expr)?;
+    let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
+    let has_bound_v = ctx.builder.ins().iconst(cl::I32, 1);
+
+    // Coleta param_kinds + return_kind para invoke_typed dispatchar com
+    // signature correta (number → f64, etc).
+    let (param_kinds_bytes, return_kind_v): (Vec<u8>, i32) = {
+        let info = ctx.user_fns.get(fn_name);
+        let pks: Vec<u8> = info
+            .map(|f| f.params.iter().map(|t| val_ty_to_kind(*t)).collect())
+            .unwrap_or_default();
+        let rk: i32 = info
+            .and_then(|f| f.ret)
+            .map(|t| val_ty_to_kind(t) as i32)
+            .unwrap_or(4); // void = 4
+        (pks, rk)
+    };
+    let pk_ptr_v: cranelift_codegen::ir::Value;
+    let pk_len_v: cranelift_codegen::ir::Value;
+    if param_kinds_bytes.is_empty() {
+        pk_ptr_v = ctx.builder.ins().iconst(cl::I64, 0);
+        pk_len_v = ctx.builder.ins().iconst(cl::I64, 0);
+    } else {
+        let tv = ctx.emit_str_handle(&param_kinds_bytes)?;
+        let h = ctx.coerce_to_i64(tv).val;
+        let p = ctx.builder.ins().call(str_ptr_fn, &[h]);
+        let l = ctx.builder.ins().call(str_len_fn, &[h]);
+        pk_ptr_v = ctx.builder.inst_results(p)[0];
+        pk_len_v = ctx.builder.inst_results(l)[0];
+    }
+    let rk_v = ctx.builder.ins().iconst(cl::I32, return_kind_v as i64);
+
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED",
+        &[
+            cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32, cl::I64, cl::I32,
+            cl::I64, cl::I64, cl::I32,
+        ],
+        Some(cl::I64),
+    )?;
+    let inst_r = ctx.builder.ins().call(
+        reify_fn,
+        &[
+            fn_ptr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v,
+            recv_i64, has_bound_v, pk_ptr_v, pk_len_v, rk_v,
+        ],
+    );
+    let fn_handle = ctx.builder.inst_results(inst_r)[0];
+    Ok(TypedVal::new(fn_handle, ValTy::Handle))
+}
+
+fn val_ty_to_kind(ty: ValTy) -> u8 {
+    match ty {
+        ValTy::I64 => 0,
+        ValTy::F64 => 1,
+        ValTy::Bool => 2,
+        ValTy::I32 => 3,
+        ValTy::Handle => 0, // Handle e' u64 → cabe em i64 raw
+        ValTy::U64 => 0,
     }
 }
 
@@ -426,6 +518,17 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     let inst = ctx.builder.ins().call(fn_ref, &[recv_i64]);
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::from_abi(member.returns)));
+                }
+            }
+            // Reificação de método de instância (#359): `c.method` em
+            // posição de valor (não callee direto) → handle Function com
+            // bound_this = c. Habilita `c.method.bind(c)`, `c.method.call(c, ...)`,
+            // passar como callback. Método precisa estar em address_taken_fns
+            // (callconv C) — métodos de classe são marcados em compile_program.
+            if let Some(owner) = resolve_method_owner(ctx, cls, prop_name) {
+                let fn_name_str = format!("__class_{owner}_{prop_name}");
+                if ctx.user_fns.contains_key(&fn_name_str) {
+                    return emit_method_reify(ctx, &m.obj, &fn_name_str, prop_name);
                 }
             }
         }
@@ -957,6 +1060,20 @@ fn class_name_from_ts_type(ty: &swc_ecma_ast::TsType) -> Option<String> {
     None
 }
 
+fn resolve_method_owner_local(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if meta.methods.iter().any(|m| m == method) {
+            return Some(cur);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
 pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
@@ -987,7 +1104,15 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
                 MemberProp::PrivateName(pn) => pn.name.as_ref(),
                 MemberProp::Computed(_) => return None,
             };
-            field_class_in_hierarchy(ctx, &owner, prop)
+            if let Some(c) = field_class_in_hierarchy(ctx, &owner, prop) {
+                return Some(c);
+            }
+            // Method reified como Function handle (#359). Permite que
+            // `c.add.bind(c)` resolva o callee como Function class.
+            if resolve_method_owner_local(ctx, &owner, prop).is_some() {
+                return Some("Function".to_string());
+            }
+            None
         }
         Expr::Call(call) => {
             if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {

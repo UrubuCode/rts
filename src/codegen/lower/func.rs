@@ -5440,6 +5440,17 @@ pub fn compile_program(
     // Funções sintéticas do purity_pass (Level-1 parallel ForOf).
     address_taken_fns.extend(par_fn_names.iter().cloned());
 
+    // Métodos de classe (`__class_<C>_<m>`, exceto `__init`) são marcados
+    // como address-taken para permitir reificação via `obj.method` (Function
+    // class #359). Custo: perda de TCO em métodos. Benefício: `c.add.bind(c)`
+    // funciona como handle Function de primeira classe.
+    for fn_decl in &fn_decls {
+        let n = &fn_decl.name;
+        if n.starts_with("__class_") && !n.ends_with("__init") && !n.contains("_static_") {
+            address_taken_fns.insert(n.clone());
+        }
+    }
+
     // Phase 1: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     for fn_decl in &fn_decls {
@@ -6072,6 +6083,17 @@ fn infer_expr_ty(expr: Option<&Expr>) -> ValTy {
             if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
                 if let Some(ty) = infer_abi_member_ty(callee) {
                     return ty;
+                }
+                // Function global #359: `<expr>.bind/call/apply/toString`
+                // retornam handle Function (Handle). Sem isso o global
+                // recebe storage I64 e `f(...)` cai em lower_user_call
+                // em vez de indirect via FUNCTION_CALL.
+                if let Expr::Member(m) = callee.as_ref() {
+                    if let swc_ecma_ast::MemberProp::Ident(p) = &m.prop {
+                        if matches!(p.sym.as_ref(), "bind" | "toString") {
+                            return ValTy::Handle;
+                        }
+                    }
                 }
             }
             ValTy::I64

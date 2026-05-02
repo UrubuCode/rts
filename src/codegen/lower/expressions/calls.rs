@@ -190,6 +190,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                 }
                             }
                         }
+                        // (c) `<expr>.bind/call/apply/toString` onde <expr> não é
+                        // Ident — ex: `c.add.bind(c)`. Avalia obj e se for Handle,
+                        // despacha via FUNCTION_*.
+                        if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
+                            if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
+                                return Ok(tv);
+                            }
+                        }
                     }
                 }
             }
@@ -408,7 +416,7 @@ fn lower_js_global_call(
     }
 }
 
-fn resolve_method_owner(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {
+pub(super) fn resolve_method_owner(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {
     let mut cur = class.to_string();
     loop {
         let meta = ctx.classes.get(&cur)?;
@@ -2404,6 +2412,15 @@ fn lower_array_builtin(
 
 fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> Result<TypedVal> {
     let callee = lower_expr(ctx, callee_expr)?;
+
+    // Quando callee é Handle (var que recebeu fn handle de bind/REIFY/
+    // new Function), despacha via __RTS_FN_GL_FUNCTION_CALL — esse path
+    // entende bound_args, has_this_param, is_arrow, etc. Caso contrário
+    // trata como fn pointer raw (call_indirect direto).
+    if matches!(callee.ty, ValTy::Handle) {
+        return emit_function_handle_indirect_call(ctx, callee.val, call);
+    }
+
     let callee_val = ctx.coerce_to_i64(callee).val;
 
     // User fns address-taken (apply(double, ...), thread.spawn) sao
@@ -2435,6 +2452,73 @@ fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> 
         .copied()
         .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
     Ok(TypedVal::new(v, ValTy::I64))
+}
+
+/// Despacha chamada via handle Function (bind/REIFY/new Function) através
+/// de __RTS_FN_GL_FUNCTION_CALL. Empacota args em Vec collections.
+fn emit_function_handle_indirect_call(
+    ctx: &mut FnCtx,
+    handle_val: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    // Empacota args em Vec<i64>.
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst_v = ctx.builder.ins().call(vec_new, &[]);
+    let args_handle = ctx.builder.inst_results(inst_v)[0];
+    let vec_push = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
+    for a in &call.args {
+        if a.spread.is_some() {
+            return Err(anyhow!("spread em call de handle Function nao suportado"));
+        }
+        let tv = lower_expr(ctx, &a.expr)?;
+        // Args numéricos são empacotados como `f64::to_bits` (i64) para
+        // preservar precisão na travessia do Vec<i64>. O invoke_typed em
+        // runtime usa `f64::from_bits` quando param_kinds[i]=1 (F64).
+        // Handles/Bool ficam como i64 puro (param_kinds[i]=0).
+        let v = match tv.ty {
+            ValTy::F64 => ctx.builder.ins().bitcast(
+                cl::I64,
+                cranelift_codegen::ir::MemFlags::new(),
+                tv.val,
+            ),
+            ValTy::I32 | ValTy::I64 => {
+                // Literal int em TS é `number` (F64). Promove e empacota
+                // como bits para que invoke_typed leia f64 corretamente.
+                let as_f = ctx.coerce_to_f64(tv).val;
+                ctx.builder.ins().bitcast(
+                    cl::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    as_f,
+                )
+            }
+            ValTy::Bool | ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
+        };
+        ctx.builder.ins().call(vec_push, &[args_handle, v]);
+    }
+    // thisArg = 0 (chamada direta, sem this); FUNCTION_CALL respeita
+    // bound_this/has_this_param se setados em bind().
+    let this_zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let call_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_CALL",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst_c = ctx.builder.ins().call(call_fn, &[handle_val, this_zero, args_handle]);
+    let v_i64 = ctx.builder.inst_results(inst_c)[0];
+    // FUNCTION_CALL retorna i64 contendo bits f64 quando o método tem
+    // return_kind=1 (F64). Para métodos number (caso comum em RTS), bitcast
+    // para F64. Métodos void/i64 têm bits 0 — `to_bits` de 0.0 = 0, então
+    // F64 wraps continua semanticamente correto.
+    let v_f64 = ctx.builder.ins().bitcast(
+        cl::F64,
+        cranelift_codegen::ir::MemFlags::new(),
+        v_i64,
+    );
+    Ok(TypedVal::new(v_f64, ValTy::F64))
 }
 
 fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> Result<TypedVal> {

@@ -7,6 +7,87 @@
 use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry};
 
 unsafe fn invoke_n(fn_ptr: u64, args: &[i64]) -> i64 {
+    unsafe { invoke_typed(fn_ptr, args, &[], 0) }
+}
+
+/// Despacha por signature heterogênea. `param_kinds[i]` codifica:
+/// 0=i64, 1=f64, 2=bool, 3=i32. `return_kind` idem (4=void → retorna 0).
+/// Args entram como `i64` (representação carregada pelo handle Function);
+/// se o tipo for f64/i32/bool, faz transmute/cast no boundary.
+///
+/// Suporta combinações comuns para métodos de classe RTS:
+/// `(i64, ...mixed) -> mixed`. Assume primeiro param i64 (this) quando
+/// has_this_param dispara em CALL.
+unsafe fn invoke_typed(
+    fn_ptr: u64,
+    args: &[i64],
+    param_kinds: &[u8],
+    return_kind: u8,
+) -> i64 {
+    use std::mem::transmute;
+    // Quando param_kinds é vazio, todos os args são i64 (caminho rápido).
+    if param_kinds.is_empty() && return_kind == 0 {
+        return unsafe { invoke_all_i64(fn_ptr, args) };
+    }
+    // Caminho tipado: aridade ate 4 + (this i64) — cobre métodos de classe
+    // RTS comuns. Aumentar conforme necessário.
+    // Convenção: param_kinds[i] descreve args[i] (this incluso se for o caso).
+    let n = args.len();
+    // Coerções por param.
+    let a0_i64 = args.first().copied().unwrap_or(0);
+    let a1_i64 = args.get(1).copied().unwrap_or(0);
+    let a2_i64 = args.get(2).copied().unwrap_or(0);
+    let a3_i64 = args.get(3).copied().unwrap_or(0);
+    let a4_i64 = args.get(4).copied().unwrap_or(0);
+
+    let a0_f64 = i64_to_f64(a0_i64);
+    let a1_f64 = i64_to_f64(a1_i64);
+    let a2_f64 = i64_to_f64(a2_i64);
+    let a3_f64 = i64_to_f64(a3_i64);
+    let _a4_f64 = i64_to_f64(a4_i64);
+
+    let pk0 = param_kinds.first().copied().unwrap_or(0);
+    let pk1 = param_kinds.get(1).copied().unwrap_or(0);
+    let pk2 = param_kinds.get(2).copied().unwrap_or(0);
+    let pk3 = param_kinds.get(3).copied().unwrap_or(0);
+    let pk4 = param_kinds.get(4).copied().unwrap_or(0);
+
+    // Encode a tupla (n, pk0, pk1, ..., return_kind) num discriminador.
+    // Hot path: this (i64) + 1-3 args mistos + retorno mixed.
+    unsafe {
+        match (n, pk0, pk1, pk2, return_kind) {
+            // 0 args, retorno mixed
+            (0, _, _, _, 0) => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
+            (0, _, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn() -> f64>(fn_ptr)()),
+            // 1 arg
+            (1, 0, _, _, 0) => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(a0_i64),
+            (1, 0, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64) -> f64>(fn_ptr)(a0_i64)),
+            (1, 1, _, _, 0) => transmute::<u64, extern "C" fn(f64) -> i64>(fn_ptr)(a0_f64),
+            (1, 1, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(f64) -> f64>(fn_ptr)(a0_f64)),
+            // 2 args (this i64 + 1 outro)
+            (2, 0, 0, _, 0) => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(a0_i64, a1_i64),
+            (2, 0, 0, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, i64) -> f64>(fn_ptr)(a0_i64, a1_i64)),
+            (2, 0, 1, _, 0) => transmute::<u64, extern "C" fn(i64, f64) -> i64>(fn_ptr)(a0_i64, a1_f64),
+            (2, 0, 1, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64)),
+            (2, 1, 1, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(f64, f64) -> f64>(fn_ptr)(a0_f64, a1_f64)),
+            // 3 args (this + 2 outros)
+            (3, 0, 0, 0, 0) => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(a0_i64, a1_i64, a2_i64),
+            (3, 0, 1, 1, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64, a2_f64)),
+            (3, 0, 0, 1, 0) => transmute::<u64, extern "C" fn(i64, i64, f64) -> i64>(fn_ptr)(a0_i64, a1_i64, a2_f64),
+            (3, 0, 1, 0, 0) => transmute::<u64, extern "C" fn(i64, f64, i64) -> i64>(fn_ptr)(a0_i64, a1_f64, a2_i64),
+            (3, 0, 1, 1, 0) => transmute::<u64, extern "C" fn(i64, f64, f64) -> i64>(fn_ptr)(a0_i64, a1_f64, a2_f64),
+            // 4 args (this + 3 outros) — só combinações importantes
+            (4, 0, 1, 1, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64, f64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64, a2_f64, a3_f64)),
+            // Fallback: tudo i64 (perda de precisão se f64 esperado).
+            _ => {
+                let _ = (pk3, pk4, a3_i64, a4_i64);
+                invoke_all_i64(fn_ptr, args)
+            }
+        }
+    }
+}
+
+unsafe fn invoke_all_i64(fn_ptr: u64, args: &[i64]) -> i64 {
     use std::mem::transmute;
     unsafe {
         match args.len() {
@@ -41,7 +122,17 @@ unsafe fn invoke_n(fn_ptr: u64, args: &[i64]) -> i64 {
     }
 }
 
-fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bool)> {
+#[inline]
+fn i64_to_f64(v: i64) -> f64 {
+    f64::from_bits(v as u64)
+}
+
+#[inline]
+fn f64_to_i64(v: f64) -> i64 {
+    v.to_bits() as i64
+}
+
+fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bool, Vec<u8>, u8)> {
     with_entry(handle, |entry| {
         if let Some(Entry::Function(data)) = entry {
             Some((
@@ -51,6 +142,8 @@ fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bo
                 data.bound_this,
                 data.is_arrow,
                 data.has_this_param,
+                data.param_kinds.clone(),
+                data.return_kind,
             ))
         } else {
             None
@@ -83,6 +176,50 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY(
     is_arrow: i32,
     has_this_param: i32,
 ) -> u64 {
+    __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
+        fn_ptr, arity, name_ptr, name_len, is_arrow, has_this_param, 0, 0, 0, 0, 0,
+    )
+}
+
+/// REIFY com bound_this. Usado para reificação de método de instância:
+/// `c.add` em posição de valor → handle Function pré-bindado em `c`.
+/// Quando `bind_this != 0`, o handle resultante tem `has_bound_this=true`
+/// e `bound_this=bind_this`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND(
+    fn_ptr: u64,
+    arity: i64,
+    name_ptr: i64,
+    name_len: i64,
+    is_arrow: i32,
+    has_this_param: i32,
+    bound_this: i64,
+    has_bound_this: i32,
+) -> u64 {
+    __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
+        fn_ptr, arity, name_ptr, name_len, is_arrow, has_this_param,
+        bound_this, has_bound_this, 0, 0, 0,
+    )
+}
+
+/// REIFY_BOUND com signature ABI (`param_kinds_ptr/len`, `return_kind`).
+/// Usado para reificação de método de classe com tipos não-i64.
+/// `param_kinds` codifica cada param: 0=i64, 1=f64, 2=bool, 3=i32 (este
+/// codifica o param já incluindo `this` quando aplicável).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
+    fn_ptr: u64,
+    arity: i64,
+    name_ptr: i64,
+    name_len: i64,
+    is_arrow: i32,
+    has_this_param: i32,
+    bound_this: i64,
+    has_bound_this: i32,
+    param_kinds_ptr: i64,
+    param_kinds_len: i64,
+    return_kind: i32,
+) -> u64 {
     let name = if name_ptr != 0 && name_len > 0 {
         unsafe {
             let bytes = std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize);
@@ -91,15 +228,25 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY(
     } else {
         "anonymous".to_owned()
     };
+    let param_kinds = if param_kinds_ptr != 0 && param_kinds_len > 0 {
+        unsafe {
+            std::slice::from_raw_parts(param_kinds_ptr as *const u8, param_kinds_len as usize)
+                .to_vec()
+        }
+    } else {
+        Vec::new()
+    };
     alloc_entry(Entry::Function(Box::new(FunctionData {
         fn_ptr,
         arity: arity.clamp(0, 255) as u8,
         name: name.into_boxed_str(),
-        bound_this: 0,
-        has_bound_this: false,
+        bound_this,
+        has_bound_this: has_bound_this != 0,
         bound_args: Vec::new(),
         is_arrow: is_arrow != 0,
         has_this_param: has_this_param != 0,
+        param_kinds,
+        return_kind: return_kind.clamp(0, 4) as u8,
         source: None,
         keep_alive: None,
     })))
@@ -150,6 +297,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         bound_args: Vec::new(),
         is_arrow: false,
         has_this_param: false,
+        param_kinds: Vec::new(),
+        return_kind: 0,
         source: Some(format!("function anonymous({}) {{\n{}\n}}", params_str, body_str).into_boxed_str()),
         keep_alive: Some(compiled.keep_alive),
     })))
@@ -158,7 +307,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 /// `fn.call(thisArg, argsVec)`. Args vem como Vec handle (codegen empacota).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
-    let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param) =
+    let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind) =
         match read_function_data(handle) {
             Some(d) => d,
             None => return 0,
@@ -176,7 +325,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
         all_args.insert(0, effective_this);
     }
 
-    unsafe { invoke_n(fn_ptr, &all_args) }
+    unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, return_kind) }
 }
 
 /// `fn.apply(thisArg, argsArray)`. Mesmo dispatch de call.
@@ -201,6 +350,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
                 d.bound_args.clone(),
                 d.is_arrow,
                 d.has_this_param,
+                d.param_kinds.clone(),
+                d.return_kind,
                 d.source.clone(),
                 d.keep_alive.clone(),
                 d.has_bound_this,
@@ -210,7 +361,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
             None
         }
     });
-    let Some((fn_ptr, arity, name, mut bound_args, is_arrow, has_this_param, source, keep_alive, had_bound_this, prev_bound_this)) =
+    let Some((fn_ptr, arity, name, mut bound_args, is_arrow, has_this_param, param_kinds, return_kind, source, keep_alive, had_bound_this, prev_bound_this)) =
         original
     else {
         return 0;
@@ -234,6 +385,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
         bound_args,
         is_arrow,
         has_this_param,
+        param_kinds,
+        return_kind,
         source,
         keep_alive,
     })))
