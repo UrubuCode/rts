@@ -41,7 +41,7 @@ unsafe fn invoke_n(fn_ptr: u64, args: &[i64]) -> i64 {
     }
 }
 
-fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool)> {
+fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bool)> {
     with_entry(handle, |entry| {
         if let Some(Entry::Function(data)) = entry {
             Some((
@@ -50,6 +50,7 @@ fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool)> {
                 data.has_bound_this,
                 data.bound_this,
                 data.is_arrow,
+                data.has_this_param,
             ))
         } else {
             None
@@ -80,6 +81,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY(
     name_ptr: i64,
     name_len: i64,
     is_arrow: i32,
+    has_this_param: i32,
 ) -> u64 {
     let name = if name_ptr != 0 && name_len > 0 {
         unsafe {
@@ -97,6 +99,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY(
         has_bound_this: false,
         bound_args: Vec::new(),
         is_arrow: is_arrow != 0,
+        has_this_param: has_this_param != 0,
         source: None,
         keep_alive: None,
     })))
@@ -146,6 +149,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         has_bound_this: false,
         bound_args: Vec::new(),
         is_arrow: false,
+        has_this_param: false,
         source: Some(format!("function anonymous({}) {{\n{}\n}}", params_str, body_str).into_boxed_str()),
         keep_alive: Some(compiled.keep_alive),
     })))
@@ -154,7 +158,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 /// `fn.call(thisArg, argsVec)`. Args vem como Vec handle (codegen empacota).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
-    let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow) =
+    let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param) =
         match read_function_data(handle) {
             Some(d) => d,
             None => return 0,
@@ -163,17 +167,14 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
     let mut all_args = bound_args;
     all_args.extend(read_args_vec(args_handle));
 
-    // this binding: arrow ignora; com bound, usa bound_this; senao this_arg.
-    // RTS user fns nao tem slot reservado pra this — entao nao prepende.
-    // Mantemos this_arg disponivel pra extensao futura quando methods de
-    // classe forem reificaveis.
-    let _effective_this = if is_arrow {
-        0
-    } else if has_bound_this {
-        bound_this
-    } else {
-        this_arg
-    };
+    // Arrow ignora thisArg (lexical this). Non-arrow com has_this_param
+    // (método de classe compilado com `this` como primeiro parâmetro)
+    // recebe effective_this prepended. Plain functions não têm slot de
+    // this — não prepend.
+    if !is_arrow && has_this_param {
+        let effective_this = if has_bound_this { bound_this } else { this_arg };
+        all_args.insert(0, effective_this);
+    }
 
     unsafe { invoke_n(fn_ptr, &all_args) }
 }
@@ -199,6 +200,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
                 d.name.clone(),
                 d.bound_args.clone(),
                 d.is_arrow,
+                d.has_this_param,
                 d.source.clone(),
                 d.keep_alive.clone(),
                 d.has_bound_this,
@@ -208,7 +210,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
             None
         }
     });
-    let Some((fn_ptr, arity, name, mut bound_args, is_arrow, source, keep_alive, had_bound_this, prev_bound_this)) =
+    let Some((fn_ptr, arity, name, mut bound_args, is_arrow, has_this_param, source, keep_alive, had_bound_this, prev_bound_this)) =
         original
     else {
         return 0;
@@ -231,6 +233,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
         has_bound_this: final_has,
         bound_args,
         is_arrow,
+        has_this_param,
         source,
         keep_alive,
     })))

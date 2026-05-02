@@ -4,7 +4,7 @@ use swc_ecma_ast::{Expr, Lit, MemberProp};
 
 use crate::abi::lookup;
 
-use super::calls::{AccessorKind, emit_namespace_constant, emit_virtual_accessor_dispatch};
+use super::calls::{AccessorKind, emit_namespace_constant, emit_virtual_accessor_dispatch, fn_name_has_this_param};
 use super::lower_expr;
 use crate::codegen::lower::ctx::{FieldSlot, FnCtx, TypedVal, ValTy, is_class_flat_enabled};
 
@@ -335,15 +335,19 @@ fn lower_user_fn_getter(
 
     let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
     let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let has_this_v = ctx.builder.ins().iconst(
+        cl::I32,
+        i64::from(fn_name_has_this_param(fn_name)),
+    );
     let reify_fn = ctx.get_extern(
         "__RTS_FN_GL_FUNCTION_REIFY",
-        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32],
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
         Some(cl::I64),
     )?;
     let inst_r = ctx
         .builder
         .ins()
-        .call(reify_fn, &[fn_ptr, arity_v, n_ptr, n_len, is_arrow_v]);
+        .call(reify_fn, &[fn_ptr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
     let fn_handle = ctx.builder.inst_results(inst_r)[0];
 
     match prop {

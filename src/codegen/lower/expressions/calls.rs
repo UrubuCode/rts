@@ -1578,15 +1578,19 @@ fn lower_function_method_call(
 
     let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
     let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let has_this_v = ctx.builder.ins().iconst(
+        cl::I32,
+        i64::from(fn_name_has_this_param(fn_name)),
+    );
     let reify_fn = ctx.get_extern(
         "__RTS_FN_GL_FUNCTION_REIFY",
-        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32],
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
         Some(cl::I64),
     )?;
     let inst_r = ctx
         .builder
         .ins()
-        .call(reify_fn, &[fn_ptr, arity_v, n_ptr, n_len, is_arrow_v]);
+        .call(reify_fn, &[fn_ptr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
     let fn_handle = ctx.builder.inst_results(inst_r)[0];
 
     // 3. Despacha por metodo.
@@ -3081,4 +3085,13 @@ fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<Ty
     }
     let v = ctx.builder.ins().iconst(cl::I64, 0);
     Ok(Some(TypedVal::new(v, ValTy::Bool)))
+}
+
+/// Retorna true quando a função compilada tem `this` como primeiro parâmetro.
+/// Isso ocorre em métodos de classe não-estáticos: nome começa com `__class_`
+/// e não contém `_static_` e não é o init synthetic (`__init`).
+pub(super) fn fn_name_has_this_param(name: &str) -> bool {
+    name.starts_with("__class_")
+        && !name.contains("_static_")
+        && !name.ends_with("__init")
 }

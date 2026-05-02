@@ -176,6 +176,10 @@ pub struct FunctionData {
     pub has_bound_this: bool,
     pub bound_args: Vec<i64>,
     pub is_arrow: bool,
+    /// True quando a fn compilada tem `this` como primeiro parâmetro
+    /// (método de classe não-estático). CALL/APPLY prepend effective_this
+    /// antes de invoke_n quando este flag está ativo.
+    pub has_this_param: bool,
     pub source: Option<Box<str>>,
     /// Mantem viva a JITModule de origem se a fn veio de `new Function`
     /// (compilada em runtime). Mutex existe so' por Sync — JITModule e'
