@@ -2442,18 +2442,60 @@ fn hoist_fn_expressions(program: &mut Program) {
         params: &[swc_ecma_ast::Param],
         body_stmts: Vec<Stmt>,
     ) -> FunctionDecl {
-        let parameters = params
-            .iter()
-            .filter_map(|p| pat_to_param_name(&p.pat))
-            .map(|n| Parameter {
-                name: n,
-                type_annotation: None,
-                modifiers: MemberModifiers::default(),
-                variadic: false,
-                default: None,
-                span: Span::default(),
-            })
-            .collect();
+        // (#object_builtins) Suporte a destructuring em params de arrow/fn
+        // hoisted: \`forEach(([k,v]) => ...)\`. Geramos param sintetico por
+        // posicao e prepend \`const [k,v] = __destruct_param_N;\` ao body.
+        let mut prologue: Vec<Stmt> = Vec::new();
+        let mut parameters: Vec<Parameter> = Vec::with_capacity(params.len());
+        for (i, p) in params.iter().enumerate() {
+            let pat_for_destruct: Option<&Pat> = match &p.pat {
+                Pat::Array(_) | Pat::Object(_) => Some(&p.pat),
+                Pat::Assign(a) if matches!(a.left.as_ref(), Pat::Array(_) | Pat::Object(_)) => {
+                    Some(a.left.as_ref())
+                }
+                _ => None,
+            };
+            if let Some(pat) = pat_for_destruct {
+                let synth_name = format!("__hoist_destruct_{}_{}", name, i);
+                // const <pat> = <synth>;
+                let synth_ident = swc_ecma_ast::Ident::new(
+                    synth_name.as_str().into(),
+                    Default::default(),
+                    Default::default(),
+                );
+                let init = Expr::Ident(synth_ident);
+                let var_decl = swc_ecma_ast::VarDecl {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    kind: swc_ecma_ast::VarDeclKind::Const,
+                    declare: false,
+                    decls: vec![swc_ecma_ast::VarDeclarator {
+                        span: Default::default(),
+                        name: pat.clone(),
+                        init: Some(Box::new(init)),
+                        definite: false,
+                    }],
+                };
+                prologue.push(Stmt::Decl(swc_ecma_ast::Decl::Var(Box::new(var_decl))));
+                parameters.push(Parameter {
+                    name: synth_name,
+                    type_annotation: None,
+                    modifiers: MemberModifiers::default(),
+                    variadic: false,
+                    default: None,
+                    span: Span::default(),
+                });
+            } else if let Some(n) = pat_to_param_name(&p.pat) {
+                parameters.push(Parameter {
+                    name: n,
+                    type_annotation: None,
+                    modifiers: MemberModifiers::default(),
+                    variadic: false,
+                    default: None,
+                    span: Span::default(),
+                });
+            }
+        }
         // Heuristica: se body tem \`return <expr>\`, declaramos retorno
         // i64. Sem isso, declare_user_fn vira void e o codegen descarta
         // o valor retornado, quebrando \`apply(fn, x)\` e IIFE com retorno.
@@ -2462,7 +2504,9 @@ fn hoist_fn_expressions(program: &mut Program) {
         } else {
             None
         };
-        let body: Vec<Statement> = body_stmts
+        let mut all_stmts: Vec<Stmt> = prologue;
+        all_stmts.extend(body_stmts);
+        let body: Vec<Statement> = all_stmts
             .into_iter()
             .map(|s| {
                 Statement::Raw(
