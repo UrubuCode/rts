@@ -31,8 +31,8 @@ pub fn resolve_method_owner(ctx: &FnCtx, class_name: &str, method_name: &str) ->
         }
         
         // Verifica na cadeia de protótipos (herança)
-        if let Some(parent_class) = &meta.parent_class {
-            return resolve_method_owner(ctx, parent_class, method_name);
+        if let Some(super_class) = &meta.super_class {
+            return resolve_method_owner(ctx, super_class, method_name);
         }
     }
     None

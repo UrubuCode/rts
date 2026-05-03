@@ -15,7 +15,7 @@ use super::members::{
 use super::operators::to_f64;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 use crate::codegen::lower::func::{class_getter_name, class_setter_name, class_static_method_name};
-use crate::namespaces::globals::class::{fn_has_this_param, resolve_method_owner, should_have_this_param};
+use crate::namespaces::globals::class::{fn_has_this_param, should_have_this_param};
 
 pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     if matches!(&call.callee, Callee::Super(_)) {
@@ -529,17 +529,7 @@ fn lower_js_global_call(
 }
 
 pub(super) fn resolve_method_owner(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {
-    let mut cur = class.to_string();
-    loop {
-        let meta = ctx.classes.get(&cur)?;
-        if meta.methods.iter().any(|m| m == method) {
-            return Some(cur);
-        }
-        match &meta.super_class {
-            Some(parent) => cur = parent.clone(),
-            None => return None,
-        }
-    }
+    crate::namespaces::globals::class::resolve_method_owner(ctx, class, method)
 }
 
 fn resolve_init_owner(ctx: &FnCtx, class: &str) -> Option<String> {
