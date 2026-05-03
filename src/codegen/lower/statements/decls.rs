@@ -42,7 +42,23 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
 
         // Capture field types for object literals (used by enum string).
         if let Some(init) = decl.init.as_ref() {
-            if let swc_ecma_ast::Expr::Object(obj) = init.as_ref() {
+            // (#274) Peel TS-only wrappers (as/satisfies/as const/!) para
+            // que `const cfg = { port: 3000 } satisfies T` ainda registre
+            // os tipos de campo. Sem isso `cfg.port` cai em fallback de
+            // GLOBAL_CLASS_SPECS (URL.port) e retorna lixo.
+            fn peel_ts_init(e: &swc_ecma_ast::Expr) -> &swc_ecma_ast::Expr {
+                match e {
+                    swc_ecma_ast::Expr::TsAs(a) => peel_ts_init(&a.expr),
+                    swc_ecma_ast::Expr::TsSatisfies(a) => peel_ts_init(&a.expr),
+                    swc_ecma_ast::Expr::TsConstAssertion(a) => peel_ts_init(&a.expr),
+                    swc_ecma_ast::Expr::TsNonNull(n) => peel_ts_init(&n.expr),
+                    swc_ecma_ast::Expr::TsTypeAssertion(a) => peel_ts_init(&a.expr),
+                    swc_ecma_ast::Expr::Paren(p) => peel_ts_init(&p.expr),
+                    _ => e,
+                }
+            }
+            let init_peeled = peel_ts_init(init.as_ref());
+            if let swc_ecma_ast::Expr::Object(obj) = init_peeled {
                 let mut field_types: std::collections::HashMap<String, ValTy> =
                     std::collections::HashMap::new();
                 for prop in &obj.props {

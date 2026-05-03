@@ -626,7 +626,17 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             }
             // Fallback: receiver_class desconhecido mas Handle — tentar GlobalClassSpecs
             // por nome de propriedade. Cobre `resp.ok`, `resp.status`, etc. sem anotação.
-            if receiver_class.is_none() {
+            // (#274) NAO aplicar se o receiver eh ident de object literal local/global
+            // conhecido — senao `cfg.port` em `const cfg = { port: 3000 }` cai em
+            // `URL.port` e retorna lixo. Object literal sempre vai pro map_get abaixo.
+            let is_known_obj_lit = if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                let n = obj_id.sym.as_str();
+                ctx.local_obj_field_types.contains_key(n)
+                    || ctx.global_obj_field_types.contains_key(n)
+            } else {
+                false
+            };
+            if receiver_class.is_none() && !is_known_obj_lit {
                 for spec in crate::abi::GLOBAL_CLASS_SPECS {
                     if let Some(member) = spec.instance_method(key) {
                         if member.args.len() == 1 {
