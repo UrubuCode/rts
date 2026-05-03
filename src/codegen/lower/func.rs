@@ -258,8 +258,13 @@ fn lift_arrows_in_expr(
                 if let MemberProp::Ident(prop) = &m.prop {
                     let method = prop.sym.as_str();
                     let expected_arity = match method {
-                        "map" | "forEach" => Some((1usize, 1usize)),  // (n_args, arrow_arity)
+                        // (n_args, arrow_arity)
+                        "map" | "forEach" => Some((1usize, 1usize)),
                         "reduce" => Some((2usize, 2usize)),
+                        // (#208) Predicate methods: 1 arg, predicate de 1 param.
+                        "filter" | "find" | "findIndex" | "some" | "every" => {
+                            Some((1usize, 1usize))
+                        }
                         _ => None,
                     };
                     if let Some((n_args, arrow_arity)) = expected_arity {
@@ -550,6 +555,14 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         // arr.reduce(fn, init) — 2 args: fn primeiro,
                         // init segundo. parallel.reduce(arr, init, fn).
                         "reduce" if call.args.len() == 2 && arg0_is_user_fn => Some("reduce"),
+                        // (#208) Predicate methods sequenciais.
+                        "filter" if call.args.len() == 1 && arg0_is_user_fn => Some("filter"),
+                        "find" if call.args.len() == 1 && arg0_is_user_fn => Some("find"),
+                        "findIndex" if call.args.len() == 1 && arg0_is_user_fn => {
+                            Some("find_index")
+                        }
+                        "some" if call.args.len() == 1 && arg0_is_user_fn => Some("some"),
+                        "every" if call.args.len() == 1 && arg0_is_user_fn => Some("every"),
                         _ => None,
                     };
 
