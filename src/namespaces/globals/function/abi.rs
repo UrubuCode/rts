@@ -85,6 +85,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "prototype",
+        kind: MemberKind::InstanceGetter,
+        symbol: "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "fn.prototype — Map handle anexo a constructor function (lazy alloc).",
+        ts_signature: "prototype: any",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const FUNCTION_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
