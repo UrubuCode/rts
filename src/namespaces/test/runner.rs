@@ -99,8 +99,6 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_BEGIN(
 pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_END() {
     RUNNER.with(|r| {
         let mut r = r.borrow_mut();
-        let indent = r.indent();
-        let name = r.case_name.take().unwrap_or_default();
         if r.case_failed {
             r.failed += 1;
         } else {
@@ -166,7 +164,6 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY() {
         let r = r.borrow();
         let passed = r.passed;
         let failed = r.failed;
-        let total = passed + failed;
 
         // Only print summary if there are failures or if explicitly requested
         if failed > 0 {
