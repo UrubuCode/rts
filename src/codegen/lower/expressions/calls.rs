@@ -711,7 +711,20 @@ fn collect_method_overrides(ctx: &FnCtx, base: &str, method: &str) -> Vec<(Strin
 }
 
 pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedVal> {
-    let class_name = match new_expr.callee.as_ref() {
+    // (#264) Peel TsAs/Paren etc para suportar `new (Animal as any)(...)`.
+    let mut callee_expr: &Expr = new_expr.callee.as_ref();
+    loop {
+        match callee_expr {
+            Expr::TsAs(a) => callee_expr = &a.expr,
+            Expr::TsTypeAssertion(a) => callee_expr = &a.expr,
+            Expr::TsConstAssertion(a) => callee_expr = &a.expr,
+            Expr::TsSatisfies(a) => callee_expr = &a.expr,
+            Expr::TsNonNull(a) => callee_expr = &a.expr,
+            Expr::Paren(p) => callee_expr = &p.expr,
+            _ => break,
+        }
+    }
+    let class_name = match callee_expr {
         Expr::Ident(id) => id.sym.as_str().to_string(),
         _ => {
             return Err(anyhow!(
@@ -871,6 +884,55 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         ctx.builder.ins().call(set_fn, &[h, msg_kp, msg_kl, msg_handle]);
 
         return Ok(TypedVal::new(h, ValTy::Handle));
+    }
+
+    // (#264 PR3) Constructor function: `new Animal(name)` quando Animal eh
+    // user fn nao-classe. Aloca Map (instance), empilha como `this` no slot
+    // thread-local, chama Animal(args), desempilha. Retorna o Map handle.
+    //
+    // Limitacao desta PR: nao instala __proto__ chain — `instance.method()`
+    // ainda nao acha methods em Animal.prototype.method (PR 4 cobre).
+    // Mas `this.field = v` no body do constructor ja persiste no Map
+    // (assignment usa MAP_SET sobre o handle do `this`).
+    if !ctx.classes.contains_key(&class_name)
+        && ctx.user_fns.contains_key(&class_name)
+    {
+        // 1. Aloca Map vazio (instance).
+        let map_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(map_new, &[]);
+        let inst_h = ctx.builder.inst_results(inst)[0];
+
+        // 2. Push this slot (thread-local, usado por `Expr::This` no body).
+        let push_fn = ctx.get_extern(
+            "__RTS_FN_RT_THIS_PUSH",
+            &[cl::I64],
+            None,
+        )?;
+        ctx.builder.ins().call(push_fn, &[inst_h]);
+
+        // 3. Chama a user fn como call direto. Args sao os do new_expr.
+        // Reusa o caminho de chamada normal sintetizando um CallExpr.
+        let synthetic_callee = Box::new(Expr::Ident(swc_ecma_ast::Ident::new(
+            class_name.as_str().into(),
+            new_expr.span,
+            new_expr.ctxt,
+        )));
+        let synthetic_args = new_expr.args.clone().unwrap_or_default();
+        let synthetic_call = swc_ecma_ast::CallExpr {
+            span: new_expr.span,
+            ctxt: new_expr.ctxt,
+            callee: swc_ecma_ast::Callee::Expr(synthetic_callee),
+            args: synthetic_args,
+            type_args: new_expr.type_args.clone(),
+        };
+        let _call_result = lower_call(ctx, &synthetic_call)?;
+
+        // 4. Pop this slot.
+        let pop_fn = ctx.get_extern("__RTS_FN_RT_THIS_POP", &[], None)?;
+        ctx.builder.ins().call(pop_fn, &[]);
+
+        // 5. Retorna o instance handle.
+        return Ok(TypedVal::new(inst_h, ValTy::Handle));
     }
 
     let meta = ctx
