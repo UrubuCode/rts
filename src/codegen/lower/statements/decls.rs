@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{InstBuilder, types as cl};
+use std::collections::HashMap;
 use swc_ecma_ast::{Pat, VarDecl, VarDeclKind};
 
 use super::super::ctx::{FnCtx, TypedVal, ValTy};
@@ -94,13 +95,59 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             // campo `size`/`length` no #222 lookup).
                             match kv.value.as_ref() {
                                 swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) => {
-                                    field_types.insert(key, ValTy::Handle);
+                                    field_types.insert(key.clone(), ValTy::Handle);
                                 }
                                 swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(_)) => {
-                                    field_types.insert(key, ValTy::I64);
+                                    field_types.insert(key.clone(), ValTy::I64);
                                 }
                                 swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => {
-                                    field_types.insert(key, ValTy::Bool);
+                                    field_types.insert(key.clone(), ValTy::Bool);
+                                }
+                                // (#210) Sub-object literal: registra tipos
+                                // dos campos do nested para nested
+                                // destructuring conseguir inferir.
+                                swc_ecma_ast::Expr::Object(sub_obj) => {
+                                    let mut sub_types: std::collections::HashMap<
+                                        String,
+                                        ValTy,
+                                    > = std::collections::HashMap::new();
+                                    for sub_prop in &sub_obj.props {
+                                        if let swc_ecma_ast::PropOrSpread::Prop(sp) = sub_prop {
+                                            if let swc_ecma_ast::Prop::KeyValue(skv) = sp.as_ref() {
+                                                let sk = match &skv.key {
+                                                    swc_ecma_ast::PropName::Ident(id) => {
+                                                        id.sym.as_str().to_string()
+                                                    }
+                                                    swc_ecma_ast::PropName::Str(s) => {
+                                                        s.value.to_string_lossy().to_string()
+                                                    }
+                                                    _ => continue,
+                                                };
+                                                let sty = match skv.value.as_ref() {
+                                                    swc_ecma_ast::Expr::Lit(
+                                                        swc_ecma_ast::Lit::Str(_),
+                                                    ) => Some(ValTy::Handle),
+                                                    swc_ecma_ast::Expr::Lit(
+                                                        swc_ecma_ast::Lit::Num(_),
+                                                    ) => Some(ValTy::I64),
+                                                    swc_ecma_ast::Expr::Lit(
+                                                        swc_ecma_ast::Lit::Bool(_),
+                                                    ) => Some(ValTy::Bool),
+                                                    _ => None,
+                                                };
+                                                if let Some(t) = sty {
+                                                    sub_types.insert(sk, t);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    field_types.insert(key.clone(), ValTy::Handle);
+                                    if !sub_types.is_empty() {
+                                        ctx.local_nested_obj_field_types.insert(
+                                            (name.clone(), key.clone()),
+                                            sub_types,
+                                        );
+                                    }
                                 }
                                 _ => {}
                             }
@@ -121,9 +168,48 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                 if let Some(types) = ctx.local_obj_field_types.get(src_name).cloned() {
                     ctx.local_obj_field_types.insert(name.clone(), types);
                 }
+                // (#210) Aliasing: propaga nested types tambem, prefixados
+                // pelo novo nome — assim `const __d0 = cfg` herda
+                // os mesmos pares (cfg, key) sob (__d0, key).
+                let nested_clone: Vec<((String, String), HashMap<String, ValTy>)> = ctx
+                    .local_nested_obj_field_types
+                    .iter()
+                    .filter(|((on, _), _)| on == src_name)
+                    .map(|((_, k), v)| ((name.clone(), k.clone()), v.clone()))
+                    .collect();
+                for (k, v) in nested_clone {
+                    ctx.local_nested_obj_field_types.insert(k, v);
+                }
                 // Aliasing: const b = a — propaga local_class_ty.
                 if let Some(cn) = ctx.local_class_ty.get(src_name).cloned() {
                     ctx.local_class_ty.insert(name.clone(), cn);
+                }
+            }
+            // (#210) Nested destructuring — `const x = cfg.db` onde cfg
+            // tem nested object literal registrado. Recursivamente
+            // propaga tipos dos sub-campos. Sem isso, `const { db: { host } } = cfg`
+            // (depois de expand_destructuring vira `const __d1 = cfg.db; const { host } = __d1;`)
+            // perde o tipo de `host` e mostra handle bruto em template literal.
+            if let swc_ecma_ast::Expr::Member(m) = init.as_ref() {
+                if let (swc_ecma_ast::Expr::Ident(obj_id), swc_ecma_ast::MemberProp::Ident(prop)) =
+                    (m.obj.as_ref(), &m.prop)
+                {
+                    let obj_name = obj_id.sym.as_str();
+                    let key = prop.sym.as_str();
+                    // Procura tipos nested para `obj.key` registrados via
+                    // local_nested_obj_field_types. Sem essa estrutura,
+                    // tentamos heuristica: se o campo `key` em obj_name e'
+                    // Handle e o init original era objeto literal, podemos
+                    // propagar — mas isso exige tracking de literals nested.
+                    // Por hora, herda tipos default (Handle pra strings)
+                    // se obj_name aponta pra registro de literais nested.
+                    if let Some(nested) = ctx
+                        .local_nested_obj_field_types
+                        .get(&(obj_name.to_string(), key.to_string()))
+                        .cloned()
+                    {
+                        ctx.local_obj_field_types.insert(name.clone(), nested);
+                    }
                 }
             }
         }
