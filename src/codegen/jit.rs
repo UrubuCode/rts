@@ -995,6 +995,31 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_GL_ARRAY_FROM_VEC",
             vec::__RTS_FN_GL_ARRAY_FROM_VEC
         );
+        // (#208) Array methods adicionais.
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_SORT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_SORT
+        );
     }
 
     // ── namespaces::os ────────────────────────────────────────────────

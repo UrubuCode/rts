@@ -322,6 +322,119 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     alloc_entry(Entry::Vec(Box::new(out)))
 }
 
+/// (#208) `arr.findLast(fn)` — ultimo elemento que satisfaz, ou 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST(handle: u64, fn_ptr: u64) -> i64 {
+    let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    if fn_ptr == 0 { return 0; }
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    items.into_iter().rev().find(|&x| f(x) != 0).unwrap_or(0)
+}
+
+/// (#208) `arr.findLastIndex(fn)` — index do ultimo match, ou -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX(handle: u64, fn_ptr: u64) -> i64 {
+    let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    if fn_ptr == 0 { return -1; }
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let len = items.len();
+    for (i, x) in items.into_iter().enumerate().rev() {
+        if f(x) != 0 {
+            return i as i64;
+        }
+    }
+    let _ = len;
+    -1
+}
+
+/// (#208) `arr.reduceRight(fn, init)` — reduce da direita pra esquerda.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(
+    handle: u64,
+    init: i64,
+    fn_ptr: u64,
+) -> i64 {
+    let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    if fn_ptr == 0 { return init; }
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    items.into_iter().rev().fold(init, |a, b| f(a, b))
+}
+
+/// (#208) `arr.flatMap(fn)` — map + flat depth=1.
+/// Cada elemento de `fn(x)` deve ser handle de Vec; senao adiciona o
+/// proprio valor.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP(handle: u64, fn_ptr: u64) -> u64 {
+    let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    if fn_ptr == 0 {
+        return alloc_entry(Entry::Vec(Box::new(items)));
+    }
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let mut out: Vec<i64> = Vec::new();
+    for x in items {
+        let mapped = f(x);
+        let h = mapped as u64;
+        let inner: Option<Vec<i64>> = with_entry(h, |e| match e {
+            Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
+            _ => None,
+        });
+        match inner {
+            Some(v) => out.extend(v),
+            None => out.push(mapped),
+        }
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// (#208) `arr.copyWithin(target, start?, end?)` — copia secao do array
+/// pra outra posicao no mesmo array, in-place. Retorna o proprio handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(
+    handle: u64,
+    target: i64,
+    start: i64,
+    end: i64,
+) -> u64 {
+    with_vec_mut(handle, (), |v| {
+        let len = v.len() as i64;
+        let to = if target < 0 { (len + target).max(0) } else { target.min(len) } as usize;
+        let from_s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+        let from_e_eff = if end == i64::MIN { len }
+            else if end < 0 { (len + end).max(0) }
+            else { end.min(len) };
+        let from_e = (from_e_eff as usize).max(from_s);
+        let count = (from_e - from_s).min(v.len() - to);
+        // Snapshot pra evitar aliasing in-place quando ranges se sobrepoem.
+        let snapshot: Vec<i64> = v[from_s..from_s + count].to_vec();
+        for (i, val) in snapshot.into_iter().enumerate() {
+            v[to + i] = val;
+        }
+    });
+    handle
+}
+
+/// (#208) `arr.sort()` — sem comparator: ordem JS lexicografica de Number/string
+/// implementada como sort numerico ascendente em i64.
+/// `arr.sort(fn)` com comparator — fn(a,b) deve retornar negativo/0/positivo.
+/// Retorna o proprio handle (in-place).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> u64 {
+    if fn_ptr == 0 {
+        with_vec_mut(handle, (), |v| v.sort());
+    } else {
+        let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+        with_vec_mut(handle, (), |v| {
+            v.sort_by(|a, b| {
+                let r = f(*a, *b);
+                if r < 0 { std::cmp::Ordering::Less }
+                else if r > 0 { std::cmp::Ordering::Greater }
+                else { std::cmp::Ordering::Equal }
+            });
+        });
+    }
+    handle
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,5 +573,88 @@ mod tests {
         let cp = __RTS_FN_GL_ARRAY_FROM_VEC(src, 0);
         assert_eq!(handle_to_vec(cp), vec![10, 20, 30]);
         assert_ne!(cp, src);
+    }
+
+    #[test]
+    fn sort_default_ascending() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [3, 1, 4, 1, 5, 9, 2, 6] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        __RTS_FN_NS_COLLECTIONS_VEC_SORT(h, 0);
+        assert_eq!(handle_to_vec(h), vec![1, 1, 2, 3, 4, 5, 6, 9]);
+    }
+
+    extern "C" fn cmp_desc(a: i64, b: i64) -> i64 {
+        b - a
+    }
+
+    #[test]
+    fn sort_with_comparator() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [1, 5, 3] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        let fp = cmp_desc as *const () as u64;
+        __RTS_FN_NS_COLLECTIONS_VEC_SORT(h, fp);
+        assert_eq!(handle_to_vec(h), vec![5, 3, 1]);
+    }
+
+    extern "C" fn gt_two(x: i64) -> i64 {
+        if x > 2 { 1 } else { 0 }
+    }
+
+    #[test]
+    fn find_last_finds_from_end() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [1, 3, 5, 2, 4] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        let fp = gt_two as *const () as u64;
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST(h, fp), 4);
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX(h, fp), 4);
+    }
+
+    extern "C" fn add(a: i64, b: i64) -> i64 {
+        a + b
+    }
+
+    #[test]
+    fn reduce_right_works() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [1, 2, 3] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        let fp = add as *const () as u64;
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(h, 0, fp), 6);
+    }
+
+    extern "C" fn double_as_pair(x: i64) -> i64 {
+        let inner = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        __RTS_FN_NS_COLLECTIONS_VEC_PUSH(inner, x);
+        __RTS_FN_NS_COLLECTIONS_VEC_PUSH(inner, x * 2);
+        inner as i64
+    }
+
+    #[test]
+    fn flat_map_expands_pairs() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [1, 2, 3] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        let fp = double_as_pair as *const () as u64;
+        let r = __RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP(h, fp);
+        assert_eq!(handle_to_vec(r), vec![1, 2, 2, 4, 3, 6]);
+    }
+
+    #[test]
+    fn copy_within_basic() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [1, 2, 3, 4, 5] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        // copyWithin(0, 3) → copia elementos a partir do idx 3 pro idx 0
+        __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(h, 0, 3, i64::MIN);
+        assert_eq!(handle_to_vec(h), vec![4, 5, 3, 4, 5]);
     }
 }
