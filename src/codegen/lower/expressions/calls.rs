@@ -275,6 +275,34 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return Ok(TypedVal::new(acc, ValTy::Handle));
                 }
             }
+            // (#218) Reflect API v0: get/set/has/deleteProperty/ownKeys.
+            // Reusa as fns MAP_* (semantica identica a Object.*).
+            // Nota: ownKeys retorna sorted (mesma limitacao de Object.keys).
+            if let Some(method) = qualified.strip_prefix("Reflect.") {
+                match method {
+                    "get" if call.args.len() == 2 => {
+                        return lower_ns_call(ctx, "collections.map_get", call);
+                    }
+                    "has" if call.args.len() == 2 => {
+                        return lower_ns_call(ctx, "collections.map_has", call);
+                    }
+                    "ownKeys" if call.args.len() == 1 => {
+                        return lower_ns_call(ctx, "collections.map_keys", call);
+                    }
+                    "deleteProperty" if call.args.len() == 2 => {
+                        // map_delete retorna I64 (0/1). Reescreve como Bool.
+                        let tv = lower_ns_call(ctx, "collections.map_delete", call)?;
+                        return Ok(TypedVal::new(tv.val, ValTy::Bool));
+                    }
+                    "set" if call.args.len() == 3 => {
+                        // map_set eh Void. Faz a chamada e retorna true.
+                        let _ = lower_ns_call(ctx, "collections.map_set", call)?;
+                        let t = ctx.builder.ins().iconst(cl::I64, 1);
+                        return Ok(TypedVal::new(t, ValTy::Bool));
+                    }
+                    _ => {}
+                }
+            }
             // (#208 / #476) Array static globals: Array.isArray.
             // Array.from cobre arrayLike { length: N } — versao com mapper
             // vai em PR separada (precisa caminho de callback).
