@@ -3,16 +3,16 @@
 //! Muitas operacoes delegam para collections::vec, mas algumas precisam
 //! de implementacao especifica aqui (shift, unshift, indexOf, includes, etc).
 
-use crate::abi::handles::{StrHandle, alloc_str_handle, vec_from_handle, map_from_handle, alloc_vec_handle, modify_vec_handle};
+use crate::abi::handles::{alloc_str_handle, vec_from_handle, alloc_vec_handle, modify_vec_handle};
 
 /// Array() — creates an empty array (Vec handle).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_EMPTY() -> u64 {
     crate::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW()
 }
 
 /// Array(handle) — creates array from iterable handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_FROM_HANDLE(iterable: u64) -> u64 {
     // Se for um Vec, clona
     if let Some(vec) = vec_from_handle(iterable) {
@@ -24,19 +24,19 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_FROM_HANDLE(iterable: u64) -> u64 {
 }
 
 /// Array.from(iterable) — creates a new array from an iterable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_FROM(iterable: u64) -> u64 {
     __RTS_FN_GL_ARRAY_NEW_FROM_HANDLE(iterable)
 }
 
 /// Array.isArray(value) — returns true if value is an array (Vec handle).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_IS_ARRAY(value: u64) -> bool {
     vec_from_handle(value).is_some()
 }
 
 /// arr.shift() — removes and returns the first element.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_SHIFT(handle: u64) -> i64 {
     let mut result = 0i64;
     let mut removed = false;
@@ -53,7 +53,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_SHIFT(handle: u64) -> i64 {
 }
 
 /// arr.unshift(value) — inserts element at the beginning.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_UNSHIFT(handle: u64, value: i64) {
     modify_vec_handle(handle, |vec| {
         vec.insert(0, value);
@@ -61,7 +61,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_UNSHIFT(handle: u64, value: i64) {
 }
 
 /// arr.indexOf(value) — returns index of element or -1 if not found.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_INDEX_OF(handle: u64, value: i64) -> i64 {
     if let Some(vec) = vec_from_handle(handle) {
         match vec.iter().position(|&v| v == value) {
@@ -74,7 +74,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_INDEX_OF(handle: u64, value: i64) -> i64 {
 }
 
 /// arr.includes(value) — returns true if array includes the value.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_INCLUDES(handle: u64, value: i64) -> bool {
     if let Some(vec) = vec_from_handle(handle) {
         vec.contains(&value)
@@ -84,7 +84,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_INCLUDES(handle: u64, value: i64) -> bool {
 }
 
 /// arr.reverse() — reverses the array in place.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_REVERSE(handle: u64) {
     modify_vec_handle(handle, |vec| {
         vec.reverse();
@@ -92,7 +92,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_REVERSE(handle: u64) {
 }
 
 /// arr.slice(start, end) — returns a shallow copy from start to end.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_SLICE(handle: u64, start: i64, end: i64) -> u64 {
     if let Some(vec) = vec_from_handle(handle) {
         let len = vec.len() as i64;
@@ -112,7 +112,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_SLICE(handle: u64, start: i64, end: i64) -> 
 }
 
 /// arr.concat(other) — concatenates another array.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_CONCAT(handle: u64, other: u64) -> u64 {
     if let Some(vec) = vec_from_handle(handle) {
         let mut result = vec.clone();
@@ -126,7 +126,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_CONCAT(handle: u64, other: u64) -> u64 {
 }
 
 /// arr.flat(depth) — flattens nested arrays up to depth.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_FLAT(handle: u64, depth: i64) -> u64 {
     // Implementacao simplificada: se depth <= 0, retorna copia
     // Se depth > 0, tenta achatar um nivel por iteracao
@@ -156,7 +156,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FLAT(handle: u64, depth: i64) -> u64 {
 }
 
 /// arr.sort(comparator) — sorts array. comparator=0 para natural.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_SORT(handle: u64, _comparator: i64) {
     modify_vec_handle(handle, |vec| {
         vec.sort();
@@ -164,7 +164,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_SORT(handle: u64, _comparator: i64) {
 }
 
 /// arr.find(predicate_fn_ptr) — returns first element matching predicate.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_FIND(handle: u64, predicate_fn: i64) -> i64 {
     if let Some(vec) = vec_from_handle(handle) {
         // Chama o predicado para cada elemento
@@ -183,7 +183,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FIND(handle: u64, predicate_fn: i64) -> i64 
 }
 
 /// arr.findIndex(predicate_fn_ptr) — returns index of first match.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_FIND_INDEX(handle: u64, predicate_fn: i64) -> i64 {
     if let Some(vec) = vec_from_handle(handle) {
         for (idx, &val) in vec.iter().enumerate() {
@@ -200,7 +200,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FIND_INDEX(handle: u64, predicate_fn: i64) -
 }
 
 /// arr.every(predicate_fn_ptr) — returns true if all match.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_EVERY(handle: u64, predicate_fn: i64) -> bool {
     if let Some(vec) = vec_from_handle(handle) {
         if vec.is_empty() {
@@ -223,7 +223,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_EVERY(handle: u64, predicate_fn: i64) -> boo
 }
 
 /// arr.some(predicate_fn_ptr) — returns true if any matches.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_SOME(handle: u64, predicate_fn: i64) -> bool {
     if let Some(vec) = vec_from_handle(handle) {
         type PredFn = extern "C" fn(i64) -> i64;
