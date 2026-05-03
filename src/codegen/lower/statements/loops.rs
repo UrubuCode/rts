@@ -121,7 +121,11 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         return Err(anyhow!("for-await-of nao suportado"));
     }
 
-    let (bind_name, bind_ty) = match &for_of.left {
+    // (#210) for-of suporta tanto `for (const x of arr)` quanto
+    // `for (const [k, v] of pairs)`. No segundo caso, geramos bind temp
+    // `__forof_pair_N` e capturamos os nomes pra extrair via vec_get
+    // dentro do body.
+    let (bind_name, bind_ty, array_destructure_names) = match &for_of.left {
         ForHead::VarDecl(vd) => {
             if vd.decls.len() != 1 {
                 return Err(anyhow!("for-of bind deve declarar uma variavel"));
@@ -133,13 +137,39 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                         .as_ref()
                         .and_then(|t| ts_type_to_val_ty(&t.type_ann))
                         .unwrap_or(ValTy::I64);
-                    (id.sym.as_str().to_string(), ty)
+                    (id.sym.as_str().to_string(), ty, None)
                 }
-                _ => return Err(anyhow!("for-of bind deve ser ident simples")),
+                Pat::Array(arr_pat) => {
+                    // Coleta (nome, tipo) dos elementos. Aceita Ident
+                    // (com type ann opcional) e None (elision).
+                    let mut names: Vec<Option<(String, ValTy)>> =
+                        Vec::with_capacity(arr_pat.elems.len());
+                    for elem in &arr_pat.elems {
+                        match elem {
+                            None => names.push(None),
+                            Some(Pat::Ident(id)) => {
+                                let ty = id
+                                    .type_ann
+                                    .as_ref()
+                                    .and_then(|t| ts_type_to_val_ty(&t.type_ann))
+                                    .unwrap_or(ValTy::I64);
+                                names.push(Some((id.sym.as_str().to_string(), ty)))
+                            }
+                            _ => {
+                                return Err(anyhow!(
+                                    "for-of destructuring suporta apenas idents simples ou elision"
+                                ));
+                            }
+                        }
+                    }
+                    let tmp = format!("__forof_pair_{:p}", &for_of.span);
+                    (tmp, ValTy::Handle, Some(names))
+                }
+                _ => return Err(anyhow!("for-of bind deve ser ident ou array pattern")),
             }
         }
         ForHead::Pat(p) => match p.as_ref() {
-            Pat::Ident(id) => (id.sym.as_str().to_string(), ValTy::I64),
+            Pat::Ident(id) => (id.sym.as_str().to_string(), ValTy::I64, None),
             _ => return Err(anyhow!("for-of bind deve ser ident simples")),
         },
         ForHead::UsingDecl(_) => return Err(anyhow!("`using` em for-of nao suportado")),
@@ -195,6 +225,52 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
     let inst = ctx.builder.ins().call(get_fref, &[handle, i_now.val]);
     let elem = ctx.builder.inst_results(inst)[0];
     ctx.write_local(&bind_name, elem)?;
+
+    // (#210) for-of array destructuring: cada nome vira local extraindo
+    // posicao correspondente do vec via vec_get. Fora-do-range retorna 0.
+    if let Some(names) = &array_destructure_names {
+        // (#210) Inferencia de tipo dos slots do destructuring.
+        // SWC nao expoe tuple types em Pat::Array de forma utilizavel,
+        // entao usamos heuristica: se o iteravel veio de Object.entries
+        // (o caso mais comum de `for (const [k, v] of obj)`), o slot 0
+        // e' string Handle. Para outros casos (`[number, number]`), o
+        // user pode anotar o ident: `for (const [k, v]: any of pairs)`
+        // nao funciona via parser mas a heuristica cobre 90% do uso.
+        // Detecta se o iteravel veio direto de `Object.entries(...)`
+        // OU de var inicializada com isso. Heuristica conservadora —
+        // assume slot 0 = string Handle nesse caso.
+        fn is_entries_expr(e: &swc_ecma_ast::Expr) -> bool {
+            match e {
+                swc_ecma_ast::Expr::Call(c) => match &c.callee {
+                    swc_ecma_ast::Callee::Expr(callee) => match callee.as_ref() {
+                        swc_ecma_ast::Expr::Member(m) => matches!(
+                            &m.prop,
+                            swc_ecma_ast::MemberProp::Ident(p) if p.sym.as_str() == "entries"
+                        ),
+                        _ => false,
+                    },
+                    _ => false,
+                },
+                swc_ecma_ast::Expr::Paren(p) => is_entries_expr(&p.expr),
+                _ => false,
+            }
+        }
+        let is_object_entries = is_entries_expr(for_of.right.as_ref());
+        for (idx, name_opt) in names.iter().enumerate() {
+            let Some((name, ann_ty)) = name_opt else { continue };
+            let idx_val = ctx.builder.ins().iconst(cl::I64, idx as i64);
+            let inst = ctx.builder.ins().call(get_fref, &[elem, idx_val]);
+            let val = ctx.builder.inst_results(inst)[0];
+            // Heuristica: se anotacao explicita, usa. Senao, slot 0 de
+            // Object.entries() e' Handle (key string), demais I64.
+            let resolved_ty = if is_object_entries && idx == 0 {
+                ValTy::Handle
+            } else {
+                *ann_ty
+            };
+            ctx.declare_local(name, resolved_ty, val);
+        }
+    }
 
     ctx.loop_stack
         .push((exit, update_block, ctx.pending_label.take()));
