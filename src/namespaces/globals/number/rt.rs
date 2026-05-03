@@ -21,7 +21,7 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_FROM_STR(handle: u64) -> f64 {
         return f64::NAN;
     }
     if len == 0 {
-        return 0.0; // JS: Number("") === 0
+        return f64::NAN; // RTS: Number("") === NaN (parse de string vazia falha)
     }
     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     let s = match std::str::from_utf8(bytes) {
@@ -30,7 +30,7 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_FROM_STR(handle: u64) -> f64 {
     };
     let trimmed = s.trim();
     if trimmed.is_empty() {
-        return 0.0; // JS: Number("   ") === 0
+        return f64::NAN; // RTS: Number("   ") === NaN (so whitespace -> parse falha)
     }
     match trimmed.parse::<f64>() {
         Ok(v) => v,
