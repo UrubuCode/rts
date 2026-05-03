@@ -2,16 +2,19 @@
 //! + JSON, Date, console, globalThis, RegExp, Error family, timers, fetch,
 //! TextEncoder/Decoder, atob/btoa, structuredClone, URL, performance.
 
+pub mod array;
+pub mod boolean;
 pub mod class;
 pub mod console;
 pub mod date;
-pub mod number;
 pub mod error;
 pub mod events;
 pub mod fetch;
 pub mod function;
 pub mod global_this;
 pub mod json;
+pub mod number;
+pub mod object;
 pub mod performance;
 pub mod regexp;
 pub mod string;
