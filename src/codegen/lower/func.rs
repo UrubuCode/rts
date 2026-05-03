@@ -257,33 +257,41 @@ fn lift_arrows_in_expr(
             if let Expr::Member(m) = callee.as_ref() {
                 if let MemberProp::Ident(prop) = &m.prop {
                     let method = prop.sym.as_str();
-                    let expected_arity = match method {
-                        // (n_args, arrow_arity)
-                        "map" | "forEach" => Some((1usize, 1usize)),
-                        "reduce" => Some((2usize, 2usize)),
-                        // (#208) Predicate methods: 1 arg, predicate de 1 param.
+                    // (#208) Para `Array.from(arrayLike, arrow)` o callback
+                    // e' o segundo arg, e arrow tem 2 params (item, idx).
+                    let is_array_from = matches!(
+                        m.obj.as_ref(),
+                        Expr::Ident(id) if id.sym.as_str() == "Array"
+                    ) && method == "from";
+                    let lift_info: Option<(usize, usize, usize)> = match method {
+                        // (arg_idx_to_lift, n_args, arrow_arity)
+                        "map" | "forEach" => Some((0, 1, 1)),
+                        "reduce" => Some((0, 2, 2)),
                         "filter" | "find" | "findIndex" | "some" | "every" => {
-                            Some((1usize, 1usize))
+                            Some((0, 1, 1))
+                        }
+                        _ if is_array_from && call.args.len() == 2 => {
+                            // Array.from(arrayLike, mapper) — mapper e' arg 1, 2 params.
+                            Some((1, 2, 2))
                         }
                         _ => None,
                     };
-                    if let Some((n_args, arrow_arity)) = expected_arity {
-                        if call.args.len() == n_args {
-                            // Arg 0 deve ser arrow inline simples.
-                            let try_lift = match call.args[0].expr.as_ref() {
-                                Expr::Arrow(_) => true,
-                                _ => false,
-                            };
+                    if let Some((arg_idx, n_args, arrow_arity)) = lift_info {
+                        if call.args.len() == n_args && arg_idx < call.args.len() {
+                            let try_lift = matches!(
+                                call.args[arg_idx].expr.as_ref(),
+                                Expr::Arrow(_)
+                            );
                             if try_lift {
                                 if let Some(fn_name) = try_lift_arrow_arg(
-                                    &call.args[0].expr,
+                                    &call.args[arg_idx].expr,
                                     arrow_arity,
                                     user_fn_names,
                                     new_fns,
                                     counter,
                                 ) {
                                     // Substitui arg por Ident.
-                                    call.args[0].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                                    call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
                                         span: Default::default(),
                                         ctxt: Default::default(),
                                         sym: fn_name.into(),
