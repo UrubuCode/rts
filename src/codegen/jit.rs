@@ -366,6 +366,16 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_TPL_COERCE_AUTO", __RTS_FN_RT_TPL_COERCE_AUTO);
     }
 
+    // ── namespaces::globals::symbol (#216) ───────────────────────────
+    {
+        use crate::namespaces::globals::symbol::rt::*;
+        add_fn!("__RTS_FN_GL_SYMBOL_NEW", __RTS_FN_GL_SYMBOL_NEW);
+        add_fn!("__RTS_FN_GL_SYMBOL_FOR", __RTS_FN_GL_SYMBOL_FOR);
+        add_fn!("__RTS_FN_GL_SYMBOL_KEY_FOR", __RTS_FN_GL_SYMBOL_KEY_FOR);
+        add_fn!("__RTS_FN_GL_SYMBOL_DESCRIPTION", __RTS_FN_GL_SYMBOL_DESCRIPTION);
+        add_fn!("__RTS_FN_GL_SYMBOL_TO_STRING", __RTS_FN_GL_SYMBOL_TO_STRING);
+    }
+
     // ── namespaces::globals::text_encoding ───────────────────────────
     use crate::namespaces::globals::text_encoding::instance::*;
     add_fn!("__RTS_FN_GL_TEXTENC_ENCODE", __RTS_FN_GL_TEXTENC_ENCODE);

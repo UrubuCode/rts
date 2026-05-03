@@ -141,6 +141,10 @@ pub enum Entry {
     /// Sintetizada quando codegen ve member access em user fn ident, ou
     /// criada por `new Function("body")` via runtime.eval. Ver issue #359.
     Function(Box<FunctionData>),
+    /// Symbol primitive (#216). `description` opcional. Cada `Symbol(...)`
+    /// chamada cria handle unico — comparacao por identidade de handle.
+    /// Symbol.for usa registry separado pra retornar mesmo handle.
+    Symbol { description: Option<String> },
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

@@ -14,6 +14,7 @@ pub mod json;
 pub mod performance;
 pub mod regexp;
 pub mod string;
+pub mod symbol;
 pub mod text_encoding;
 pub mod timers;
 pub mod url;
