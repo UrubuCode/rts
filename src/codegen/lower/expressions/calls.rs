@@ -902,6 +902,54 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         let inst = ctx.builder.ins().call(map_new, &[]);
         let inst_h = ctx.builder.inst_results(inst)[0];
 
+        // 1.5 (#264 PR4) Instala __proto__ chain: aloca o prototype Map
+        // de Animal e armazena em instance.__proto__ pra lookup chain
+        // walk em member access subsequentes.
+        let proto_get = ctx.get_extern(
+            "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        // Para chamar PROTOTYPE_GET precisa do Function handle — reify
+        // a partir do user fn.
+        let fn_addr = emit_user_fn_addr(ctx, &class_name)?.val;
+        let arity = ctx
+            .user_fns
+            .get(&class_name)
+            .map(|f| f.params.len() as i64)
+            .unwrap_or(0);
+        let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+        let name_tv = ctx.emit_str_handle(class_name.as_bytes())?;
+        let name_h = ctx.coerce_to_i64(name_tv).val;
+        let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+        let n_ptr = ctx.builder.inst_results(inst_p)[0];
+        let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+        let n_len = ctx.builder.inst_results(inst_l)[0];
+        let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+        let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+        let reify_fn = ctx.get_extern(
+            "__RTS_FN_GL_FUNCTION_REIFY",
+            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
+            Some(cl::I64),
+        )?;
+        let inst_r = ctx
+            .builder
+            .ins()
+            .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+        let fn_handle = ctx.builder.inst_results(inst_r)[0];
+        let inst_proto = ctx.builder.ins().call(proto_get, &[fn_handle]);
+        let proto_h = ctx.builder.inst_results(inst_proto)[0];
+        // map_set(inst_h, "__proto__", proto_h)
+        let map_set_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+            &[cl::I64, cl::I64, cl::I64, cl::I64],
+            None,
+        )?;
+        let (proto_kp, proto_kl) = ctx.emit_str_literal(b"__proto__")?;
+        ctx.builder.ins().call(map_set_fn, &[inst_h, proto_kp, proto_kl, proto_h]);
+
         // 2. Push this slot (thread-local, usado por `Expr::This` no body).
         let push_fn = ctx.get_extern(
             "__RTS_FN_RT_THIS_PUSH",

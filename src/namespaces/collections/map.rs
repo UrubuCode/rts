@@ -101,6 +101,43 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(
     with_map(handle, 0, |m| m.get(key).copied().unwrap_or(0))
 }
 
+/// (#264 PR4) Retorna valor de `key` seguindo cadeia `__proto__`.
+/// Se a key nao existe no map, le `__proto__` (handle de outro Map) e
+/// recursa. Retorna 0 quando atinge o fim da cadeia ou tipo invalido.
+/// Guard contra ciclos: profundidade maxima 64.
+///
+/// Codifica o estado de busca em 2 valores: -1 = nao tem proto (parar),
+/// 0 = nao tem key mas tem proto (continuar), >0 = tem key (retornar).
+/// Na pratica nao distinguimos -1 e 0 porque ambos paramos em 0 retorno.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
+    handle: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> i64 {
+    let Some(key) = str_from_abi(key_ptr, key_len) else {
+        return 0;
+    };
+    let key_owned = key.to_string();
+    let mut current = handle;
+    let mut depth = 0u32;
+    while current != 0 && depth < 64 {
+        // 1. Tenta key no map current.
+        let found = with_map(current, 0i64, |m| m.get(&key_owned).copied().unwrap_or(0));
+        if found != 0 {
+            return found;
+        }
+        // 2. Le __proto__ pra continuar walk.
+        let next = with_map(current, 0i64, |m| m.get("__proto__").copied().unwrap_or(0));
+        if next == 0 {
+            return 0;
+        }
+        current = next as u64;
+        depth += 1;
+    }
+    0
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
     handle: u64,
