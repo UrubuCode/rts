@@ -145,6 +145,11 @@ pub enum Entry {
     /// chamada cria handle unico — comparacao por identidade de handle.
     /// Symbol.for usa registry separado pra retornar mesmo handle.
     Symbol { description: Option<String> },
+    /// WeakMap (#217 v0). v0 comporta como Map forte sem coleta automatica
+    /// quando a key e' freed — Box<HashMap<u64,i64>> indexado por handle.
+    WeakMap(Box<std::collections::HashMap<u64, i64>>),
+    /// WeakSet (#217 v0). v0 comporta como Set forte sem coleta automatica.
+    WeakSet(Box<std::collections::HashSet<u64>>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
