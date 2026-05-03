@@ -48,15 +48,10 @@ pub fn command(path: Option<String>) -> Result<()> {
     let exe = std::env::current_exe()
         .map_err(|e| anyhow::anyhow!("failed to locate rts executable: {e}"))?;
 
-    // Check if trace mode is enabled
-    let trace_enabled = std::env::var("RTS_TEST_TRACE").unwrap_or_default() == "1";
-
     for file in &files {
         total_files += 1;
         let label = relative_label(file, &root);
-        if trace_enabled {
-            eprintln!("\n{}", dim(&label));
-        }
+        eprintln!("\n{}", dim(&label));
 
         let output = std::process::Command::new(&exe)
             .arg("test")
@@ -84,21 +79,10 @@ pub fn command(path: Option<String>) -> Result<()> {
         // Re-emit child stderr (onde vai o output do rts test e' panics
         // do Rust). Sem o header de arquivo — ja' imprimimos acima.
         let stderr = String::from_utf8_lossy(&output.stderr);
-        
-        // Only emit output if there was an error or trace is enabled
+        emit_child_output(&stderr, &label);
+
+        // Parseia linha de resumo: " X tests passed" / " Y tests failed".
         let (file_passed, file_failed) = parse_summary_counts(&stderr);
-        let has_errors = file_failed > 0 || !output.status.success();
-        
-        if has_errors || trace_enabled {
-            if trace_enabled {
-                emit_child_output(&stderr, &label);
-            } else if has_errors {
-                // Print file path only when there's an error
-                eprintln!("{}", dim(&format!("\n{}", label)));
-                emit_child_output(&stderr, &label);
-            }
-        }
-        
         grand_passed += file_passed;
         grand_failed += file_failed;
 
@@ -112,9 +96,6 @@ pub fn command(path: Option<String>) -> Result<()> {
                 .code()
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "signal".to_string());
-            if !trace_enabled {
-                eprintln!("{}", dim(&format!("\n{}", label)));
-            }
             // Emite stdout do filho (prints do user TS antes do crash)
             // e stderr completo pra dar contexto. stderr ja' foi
             // re-emitido acima — aqui so' o stdout pra nao duplicar.
@@ -136,23 +117,22 @@ pub fn command(path: Option<String>) -> Result<()> {
         }
     }
 
-    // Grand summary - always print at the end like Bun
-    if total_files > 1 || trace_enabled {
+    // Grand summary when more than one file ran.
+    if total_files > 1 {
+        let sep = format!("\x1b[2m{}\x1b[0m", "─".repeat(40));
+        eprintln!("\n{sep}");
+        eprintln!(" Files  {} passed, {} failed, {} total",
+            grand_passed_label(failed_files == 0, total_files - failed_files),
+            failed_label(failed_files),
+            total_files,
+        );
         let total_tests = grand_passed + grand_failed;
-        if failed_files > 0 {
-            eprintln!(
-                "\n{} {} {}",
-                red("✗"),
-                red(&format!("{failed_files} file(s) failed")),
-                if grand_passed > 0 { format!("({} passed)", grand_passed) } else { String::new() }
-            );
-        } else if trace_enabled {
-            eprintln!(
-                "\n{} {} passed",
-                green("✓"),
-                green(&format!("{total_tests} test(s)"))
-            );
-        }
+        eprintln!(" Tests  {} passed, {} failed, {} total",
+            grand_passed_label(grand_failed == 0, grand_passed),
+            failed_label(grand_failed),
+            total_tests,
+        );
+        eprintln!();
     }
 
     if failed_files > 0 {
@@ -163,13 +143,7 @@ pub fn command(path: Option<String>) -> Result<()> {
 
 fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     let label = relative_label(file, root);
-    
-    // Check if trace mode is enabled
-    let trace_enabled = std::env::var("RTS_TEST_TRACE").unwrap_or_default() == "1";
-    
-    if trace_enabled {
-        eprintln!("\n{}", dim(&label));
-    }
+    eprintln!("\n{}", dim(&label));
 
     runner::reset_runner();
     crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();

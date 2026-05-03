@@ -1931,7 +1931,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
                 &missing.iter().take(3).collect::<Vec<_>>()
             );
         }
-        if !extras.is_empty() && std::env::var("RTS_TEST_TRACE").unwrap_or_default() == "1" {
+        if !extras.is_empty() {
             eprintln!(
                 "[info] {} fns registradas no JIT alem do contrato ABI \
                  (helpers internos do codegen, ex: try/catch slots). \
