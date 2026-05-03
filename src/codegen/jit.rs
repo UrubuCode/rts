@@ -805,6 +805,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN
         );
         add_fn!(
+            "__RTS_FN_GL_OBJECT_CREATE",
+            map::__RTS_FN_GL_OBJECT_CREATE
+        );
+        add_fn!(
+            "__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY",
+            map::__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_SET",
             map::__RTS_FN_NS_COLLECTIONS_MAP_SET
         );

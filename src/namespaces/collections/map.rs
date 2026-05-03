@@ -101,6 +101,35 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(
     with_map(handle, 0, |m| m.get(key).copied().unwrap_or(0))
 }
 
+/// (#264 PR5) Cria novo Map vazio com `__proto__` = proto_handle.
+/// Implementa `Object.create(proto)`. Quando `proto == 0`, equivale a
+/// `Object.create(null)` — Map sem chain.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_CREATE(proto: u64) -> u64 {
+    let h = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    if proto != 0 {
+        with_map_mut(h, (), |m| {
+            m.insert("__proto__".to_string(), proto as i64);
+        });
+    }
+    h
+}
+
+/// (#264 PR5) Verifica se `key` existe nas own props de `handle`
+/// (sem seguir __proto__). Implementa \`obj.hasOwnProperty(key)\`.
+/// Retorna 1 se own, 0 caso contrario.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
+    handle: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> i64 {
+    let Some(key) = str_from_abi(key_ptr, key_len) else {
+        return 0;
+    };
+    with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+}
+
 /// (#264 PR4) Retorna valor de `key` seguindo cadeia `__proto__`.
 /// Se a key nao existe no map, le `__proto__` (handle de outro Map) e
 /// recursa. Retorna 0 quando atinge o fim da cadeia ou tipo invalido.
