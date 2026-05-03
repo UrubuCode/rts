@@ -68,3 +68,43 @@ pub extern "C" fn __RTS_FN_NS_STRING_FIND(
         _ => -1,
     }
 }
+
+/// (#208) `str.match(pattern)` — primeiro match, retorna handle de string
+/// com o conteudo encontrado, ou 0 se nao acha. Pattern e' string regex.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_MATCH(
+    s_ptr: *const u8,
+    s_len: i64,
+    p_ptr: *const u8,
+    p_len: i64,
+) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, alloc_entry};
+    let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
+        return 0;
+    };
+    let Ok(rx) = regex::Regex::new(p) else {
+        return 0;
+    };
+    match rx.find(s) {
+        Some(m) => alloc_entry(Entry::String(m.as_str().as_bytes().to_vec())),
+        None => 0,
+    }
+}
+
+/// (#208) `str.search(pattern)` — index do primeiro match, ou -1.
+/// Pattern e' string regex.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_SEARCH(
+    s_ptr: *const u8,
+    s_len: i64,
+    p_ptr: *const u8,
+    p_len: i64,
+) -> i64 {
+    let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
+        return -1;
+    };
+    let Ok(rx) = regex::Regex::new(p) else {
+        return -1;
+    };
+    rx.find(s).map(|m| m.start() as i64).unwrap_or(-1)
+}

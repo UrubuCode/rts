@@ -354,10 +354,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                     return Ok(tv);
                                 }
                             }
-                            // (b) var handle (de bind ou new Function)
-                            if ctx.var_ty(obj_name).is_some() {
-                                if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
-                                    return Ok(tv);
+                            // (b) var handle (de bind ou new Function) — pula
+                            // primitivos (Bool/F64/I32) pra deixar dispatch
+                            // correto cair em lower_var_member_call.
+                            if let Some(var_ty) = ctx.var_ty(obj_name) {
+                                let is_primitive = matches!(
+                                    var_ty,
+                                    crate::codegen::lower::ctx::ValTy::Bool
+                                        | crate::codegen::lower::ctx::ValTy::F64
+                                        | crate::codegen::lower::ctx::ValTy::I32
+                                );
+                                if !is_primitive {
+                                    if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
+                                        return Ok(tv);
+                                    }
                                 }
                             }
                         }
@@ -2360,6 +2370,37 @@ fn lower_string_builtin(
             let sep = arg_handle(ctx, call, 0)?;
             let v = call_h!("__RTS_FN_GL_STRING_SPLIT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, sep]);
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        // (#208) `s.match(pattern)` — primeiro match, retorna string handle ou 0.
+        "match" => {
+            let pattern = arg_handle(ctx, call, 0)?;
+            // Converte recv_h e pattern de handle pra (ptr, len).
+            let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let p2 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[pattern]);
+            let l2 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[pattern]);
+            let v = call_h!(
+                "__RTS_FN_NS_STRING_MATCH",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+                &[p1, l1, p2, l2]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        // (#208) `s.search(pattern)` — index do primeiro match, ou -1.
+        "search" => {
+            let pattern = arg_handle(ctx, call, 0)?;
+            let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let p2 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[pattern]);
+            let l2 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[pattern]);
+            let v = call_h!(
+                "__RTS_FN_NS_STRING_SEARCH",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+                &[p1, l1, p2, l2]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "localeCompare" => {
             let other = arg_handle(ctx, call, 0)?;
