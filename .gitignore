@@ -1,47 +1,25 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+```
+# Rust build artifacts
+target/
+**/*.rs.bk
+**/*.rlib
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.dSYM/
+**/*.profraw
+**/*.gcda
+**/*.gcno
 
-__tmp_*
+# Cargo directories
+Cargo.lock
+**/.cargo/
 
-node_modules
-dist
-dist-ssr
-*.local
-.agent_example
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-target
-
-# Added by cargo
-
-/target
-debug_*
-.claude/settings.local.json
-
-# Stray binaries / temp scratch at repo root
-/*.exe
-/*.dll
-/*.so
-/tmp_*
-/.tmp-types-check
-
-# rts-types — gerado por rts emit-types, nao versionar
-rts-types/
-
-# Regras locais do desenvolvedor — pessoal, nao versionar
-local-rules.md
+# Debug and release builds
+**/debug/
+**/release/
+**/example/
+**/deps/
+**/incremental/
+**/build/
+```
