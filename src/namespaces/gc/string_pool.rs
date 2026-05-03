@@ -58,6 +58,16 @@ pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
     })
 }
 
+/// (#208 / Array.isArray) Returns 1 if handle aponta para um Vec, 0 caso contrário.
+/// Backing pra Array.isArray(x) no codegen.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_IS_VEC(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Vec(_)) => 1,
+        _ => 0,
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
     alloc_entry(Entry::String(value.to_string().into_bytes()))

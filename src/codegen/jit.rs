@@ -174,6 +174,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_STRING_PTR", __RTS_FN_NS_GC_STRING_PTR);
     add_fn!("__RTS_FN_NS_GC_STRING_FREE", __RTS_FN_NS_GC_STRING_FREE);
     add_fn!("__RTS_FN_NS_GC_HANDLE_LEN", __RTS_FN_NS_GC_HANDLE_LEN);
+    add_fn!("__RTS_FN_NS_GC_IS_VEC", __RTS_FN_NS_GC_IS_VEC);
     add_fn!(
         "__RTS_FN_NS_GC_STRING_FROM_I64",
         __RTS_FN_NS_GC_STRING_FROM_I64
@@ -881,6 +882,51 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_JOIN
+        );
+        // (#208 / #476) Array methods sem callback.
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_INCLUDES",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_INCLUDES
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_REVERSE",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_REVERSE
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_SHIFT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_SHIFT
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_SLICE",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_SLICE
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_CONCAT
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FILL",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FILL
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FLAT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FLAT
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE
         );
     }
 
