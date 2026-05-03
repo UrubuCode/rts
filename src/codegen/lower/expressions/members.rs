@@ -6,8 +6,9 @@ use crate::abi::lookup;
 
 use super::calls::{
     AccessorKind, emit_namespace_constant, emit_user_fn_addr,
-    emit_virtual_accessor_dispatch, fn_name_has_this_param, resolve_method_owner,
+    emit_virtual_accessor_dispatch,
 };
+use crate::namespaces::globals::class::{resolve_method_owner, fn_has_this_param};
 use super::lower_expr;
 use crate::codegen::lower::ctx::{FieldSlot, FnCtx, TypedVal, ValTy, is_class_flat_enabled};
 
@@ -367,7 +368,7 @@ fn lower_user_fn_getter(
     let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
     let has_this_v = ctx.builder.ins().iconst(
         cl::I32,
-        i64::from(fn_name_has_this_param(fn_name)),
+        i64::from(fn_has_this_param(fn_name)),
     );
     let reify_fn = ctx.get_extern(
         "__RTS_FN_GL_FUNCTION_REIFY",
@@ -1133,17 +1134,7 @@ fn class_name_from_ts_type(ty: &swc_ecma_ast::TsType) -> Option<String> {
 }
 
 fn resolve_method_owner_local(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {
-    let mut cur = class.to_string();
-    loop {
-        let meta = ctx.classes.get(&cur)?;
-        if meta.methods.iter().any(|m| m == method) {
-            return Some(cur);
-        }
-        match &meta.super_class {
-            Some(parent) => cur = parent.clone(),
-            None => return None,
-        }
-    }
+    resolve_method_owner(ctx, class, method)
 }
 
 pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {

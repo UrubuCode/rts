@@ -15,6 +15,7 @@ use super::members::{
 use super::operators::to_f64;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 use crate::codegen::lower::func::{class_getter_name, class_setter_name, class_static_method_name};
+use crate::namespaces::globals::class::{fn_has_this_param, should_have_this_param};
 
 pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     if matches!(&call.callee, Callee::Super(_)) {
@@ -636,17 +637,7 @@ fn lower_js_global_call(
 }
 
 pub(super) fn resolve_method_owner(ctx: &FnCtx, class: &str, method: &str) -> Option<String> {
-    let mut cur = class.to_string();
-    loop {
-        let meta = ctx.classes.get(&cur)?;
-        if meta.methods.iter().any(|m| m == method) {
-            return Some(cur);
-        }
-        match &meta.super_class {
-            Some(parent) => cur = parent.clone(),
-            None => return None,
-        }
-    }
+    crate::namespaces::globals::class::resolve_method_owner(ctx, class, method)
 }
 
 fn resolve_init_owner(ctx: &FnCtx, class: &str) -> Option<String> {
@@ -1910,6 +1901,9 @@ fn lower_function_method_call(
     let fn_ptr = emit_user_fn_addr(ctx, fn_name)?.val;
 
     // 2. Reify: __RTS_FN_GL_FUNCTION_REIFY(fn_ptr, arity, name_ptr, name_len, is_arrow).
+    // Nota: Para chamadas via .call/.apply, sempre marcamos has_this_param=true,
+    // pois o primeiro argumento eh o thisArg. Isso permite que funcoes plain
+    // usadas como construtores (ex: Animal.call(this, name)) funcionem corretamente.
     let arity = ctx
         .user_fns
         .get(fn_name)
@@ -1928,10 +1922,17 @@ fn lower_function_method_call(
 
     let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
     let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
-    let has_this_v = ctx.builder.ins().iconst(
-        cl::I32,
-        i64::from(fn_name_has_this_param(fn_name)),
-    );
+    // (#359) Funcoes plain chamadas via .call/.apply precisam de has_this_param=true
+    // para que o thisArg seja corretamente empilhado no thread-local slot.
+    // Usa a logica centralizada em globals::class
+    let has_this_v = if method == "call" || method == "apply" {
+        ctx.builder.ins().iconst(cl::I32, 1)
+    } else {
+        ctx.builder.ins().iconst(
+            cl::I32,
+            i64::from(should_have_this_param(fn_name, None)),
+        )
+    };
     let reify_fn = ctx.get_extern(
         "__RTS_FN_GL_FUNCTION_REIFY",
         &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
@@ -3733,8 +3734,7 @@ fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<Ty
 /// Retorna true quando a função compilada tem `this` como primeiro parâmetro.
 /// Isso ocorre em métodos de classe não-estáticos: nome começa com `__class_`
 /// e não contém `_static_` e não é o init synthetic (`__init`).
+#[deprecated(note = "Use crate::namespaces::globals::class::fn_has_this_param instead")]
 pub(super) fn fn_name_has_this_param(name: &str) -> bool {
-    name.starts_with("__class_")
-        && !name.contains("_static_")
-        && !name.ends_with("__init")
+    crate::namespaces::globals::class::fn_has_this_param(name)
 }

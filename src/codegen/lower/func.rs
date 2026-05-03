@@ -2321,8 +2321,8 @@ fn expand_await_exprs(program: &mut Program) {
 /// + settle automaticamente.
 fn expand_async_functions(program: &mut Program) {
     use swc_ecma_ast::{
-        BlockStmt, CallExpr, Callee, Expr, ExprOrSpread, ExprStmt, Ident, IdentName, Lit,
-        MemberExpr, MemberProp, ReturnStmt, Stmt, VarDecl, VarDeclKind, VarDeclarator,
+        BlockStmt, CallExpr, Callee, Expr, ExprOrSpread, ExprStmt, Ident, IdentName,
+        MemberExpr, MemberProp, ReturnStmt, VarDecl, VarDeclKind, VarDeclarator,
     };
 
     fn ident(name: &str) -> Ident {
@@ -2381,13 +2381,6 @@ fn expand_async_functions(program: &mut Program) {
     }
     fn raw_stmt(stmt: Stmt) -> Statement {
         Statement::Raw(RawStmt::new("<async-rewrite>".to_string(), Span::default()).with_stmt(stmt))
-    }
-    fn num_lit(v: i64) -> Expr {
-        Expr::Lit(Lit::Num(swc_ecma_ast::Number {
-            span: Default::default(),
-            value: v as f64,
-            raw: None,
-        }))
     }
 
     let _ = BlockStmt::default;
@@ -2666,19 +2659,17 @@ fn desugar_object_methods(program: &mut Program) {
         match item {
             crate::parser::ast::Item::Function(fdecl) => {
                 for stmt in fdecl.body.iter_mut() {
-                    if let crate::parser::ast::Statement::Raw(raw) = stmt {
-                        if let Some(s) = raw.stmt.as_mut() {
-                            visit_stmt(s);
-                        }
+                    let crate::parser::ast::Statement::Raw(raw) = stmt;
+                    if let Some(s) = raw.stmt.as_mut() {
+                        visit_stmt(s);
                     }
                 }
             }
             crate::parser::ast::Item::Class(_) => {}
             crate::parser::ast::Item::Statement(stmt) => {
-                if let crate::parser::ast::Statement::Raw(raw) = stmt {
-                    if let Some(s) = raw.stmt.as_mut() {
-                        visit_stmt(s);
-                    }
+                let crate::parser::ast::Statement::Raw(raw) = stmt;
+                if let Some(s) = raw.stmt.as_mut() {
+                    visit_stmt(s);
                 }
             }
             _ => {}
