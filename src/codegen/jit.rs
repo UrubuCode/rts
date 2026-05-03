@@ -426,6 +426,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_URL_HASH", __RTS_FN_GL_URL_HASH);
     add_fn!("__RTS_FN_GL_URL_ORIGIN", __RTS_FN_GL_URL_ORIGIN);
     add_fn!("__RTS_FN_GL_URL_FREE", __RTS_FN_GL_URL_FREE);
+    // (#373) URLSearchParams.
+    add_fn!("__RTS_FN_GL_USP_NEW", __RTS_FN_GL_USP_NEW);
+    add_fn!("__RTS_FN_GL_USP_GET", __RTS_FN_GL_USP_GET);
+    add_fn!("__RTS_FN_GL_USP_HAS", __RTS_FN_GL_USP_HAS);
+    add_fn!("__RTS_FN_GL_USP_SET", __RTS_FN_GL_USP_SET);
+    add_fn!("__RTS_FN_GL_USP_DELETE", __RTS_FN_GL_USP_DELETE);
+    add_fn!("__RTS_FN_GL_USP_TO_STRING", __RTS_FN_GL_USP_TO_STRING);
 
     // ── namespaces::date ──────────────────────────────────────────────
     use crate::namespaces::date::ops::*;
