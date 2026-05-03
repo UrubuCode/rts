@@ -159,6 +159,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_STACK_DEPTH", __RTS_FN_RT_STACK_DEPTH);
     }
 
+    // ── this binding slot (used by .call/.apply on plain fns) ─────────
+    {
+        use crate::namespaces::gc::this_slot::*;
+        add_fn!("__RTS_FN_RT_THIS_PUSH", __RTS_FN_RT_THIS_PUSH);
+        add_fn!("__RTS_FN_RT_THIS_POP", __RTS_FN_RT_THIS_POP);
+        add_fn!("__RTS_FN_RT_THIS_GET", __RTS_FN_RT_THIS_GET);
+    }
+
     // ── namespaces::gc ────────────────────────────────────────────────
     use crate::namespaces::gc::string_pool::*;
     add_fn!("__RTS_FN_NS_GC_STRING_NEW", __RTS_FN_NS_GC_STRING_NEW);

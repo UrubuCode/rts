@@ -318,14 +318,27 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
 
     // Arrow ignora thisArg (lexical this). Non-arrow com has_this_param
     // (método de classe compilado com `this` como primeiro parâmetro)
-    // recebe effective_this prepended. Plain functions não têm slot de
-    // this — não prepend.
-    if !is_arrow && has_this_param {
-        let effective_this = if has_bound_this { bound_this } else { this_arg };
+    // recebe effective_this prepended.
+    let effective_this = if has_bound_this { bound_this } else { this_arg };
+    let pushed_this_slot = if !is_arrow && has_this_param {
         all_args.insert(0, effective_this);
+        false
+    } else if !is_arrow {
+        // Plain fn (nao-classe): empilha thisArg no thread-local slot
+        // pra que `Expr::This` no body leia via __RTS_FN_RT_THIS_GET.
+        crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(effective_this);
+        true
+    } else {
+        false
+    };
+
+    let result = unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, return_kind) };
+
+    if pushed_this_slot {
+        crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
     }
 
-    unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, return_kind) }
+    result
 }
 
 /// `fn.apply(thisArg, argsArray)`. Mesmo dispatch de call.
