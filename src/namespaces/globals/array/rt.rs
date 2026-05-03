@@ -3,8 +3,7 @@
 //! Muitas operacoes delegam para collections::vec, mas algumas precisam
 //! de implementacao especifica aqui (shift, unshift, indexOf, includes, etc).
 
-use crate::abi::handles::{StrHandle, alloc_str_handle, vec_from_handle, map_from_handle, alloc_vec_handle};
-use crate::namespaces::gc::handles::{with_entry_mut, Entry};
+use crate::abi::handles::{StrHandle, alloc_str_handle, vec_from_handle, map_from_handle, alloc_vec_handle, modify_vec_handle};
 
 /// Array() — creates an empty array (Vec handle).
 #[no_mangle]
@@ -42,13 +41,11 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_SHIFT(handle: u64) -> i64 {
     let mut result = 0i64;
     let mut removed = false;
     
-    with_entry_mut(handle, |entry| {
-        if let Some(Entry::Vec(vec)) = entry {
-            if !vec.is_empty() {
-                result = vec[0];
-                vec.remove(0);
-                removed = true;
-            }
+    modify_vec_handle(handle, |vec| {
+        if !vec.is_empty() {
+            result = vec[0];
+            vec.remove(0);
+            removed = true;
         }
     });
     
@@ -58,10 +55,8 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_SHIFT(handle: u64) -> i64 {
 /// arr.unshift(value) — inserts element at the beginning.
 #[no_mangle]
 pub extern "C" fn __RTS_FN_GL_ARRAY_UNSHIFT(handle: u64, value: i64) {
-    with_entry_mut(handle, |entry| {
-        if let Some(Entry::Vec(vec)) = entry {
-            vec.insert(0, value);
-        }
+    modify_vec_handle(handle, |vec| {
+        vec.insert(0, value);
     });
 }
 
@@ -91,10 +86,8 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_INCLUDES(handle: u64, value: i64) -> bool {
 /// arr.reverse() — reverses the array in place.
 #[no_mangle]
 pub extern "C" fn __RTS_FN_GL_ARRAY_REVERSE(handle: u64) {
-    with_entry_mut(handle, |entry| {
-        if let Some(Entry::Vec(vec)) = entry {
-            vec.reverse();
-        }
+    modify_vec_handle(handle, |vec| {
+        vec.reverse();
     });
 }
 
@@ -165,10 +158,8 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FLAT(handle: u64, depth: i64) -> u64 {
 /// arr.sort(comparator) — sorts array. comparator=0 para natural.
 #[no_mangle]
 pub extern "C" fn __RTS_FN_GL_ARRAY_SORT(handle: u64, _comparator: i64) {
-    with_entry_mut(handle, |entry| {
-        if let Some(Entry::Vec(vec)) = entry {
-            vec.sort();
-        }
+    modify_vec_handle(handle, |vec| {
+        vec.sort();
     });
 }
 

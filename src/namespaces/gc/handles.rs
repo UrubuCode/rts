@@ -658,6 +658,24 @@ pub fn with_entry_mut<R>(handle: u64, f: impl FnOnce(Option<&mut Entry>) -> R) -
     f(guard.get_mut(handle))
 }
 
+/// Sets a Vec entry by handle (replaces the entire Vec).
+pub fn set_vec_entry(handle: u64, vec: Vec<i64>) {
+    with_entry_mut(handle, |entry| {
+        if let Some(e) = entry {
+            *e = Entry::Vec(Box::new(vec));
+        }
+    });
+}
+
+/// Sets a Map entry by handle (replaces the entire IndexMap).
+pub fn set_map_entry(handle: u64, map: indexmap::IndexMap<String, i64>) {
+    with_entry_mut(handle, |entry| {
+        if let Some(e) = entry {
+            *e = Entry::Map(Box::new(map));
+        }
+    });
+}
+
 /// Simultaneous immutable access to two entries.
 pub fn with_two_entries<R>(
     ha: u64,

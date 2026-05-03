@@ -10,8 +10,7 @@
 //! Mudancas aqui invalidam handles ja existentes — qualquer serializacao
 //! futura (debug dump, IPC) precisa versionar o layout.
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::namespaces::gc::handles::{Entry, alloc_entry, set_vec_entry, set_map_entry, with_entry};
 
 /// Numero de shards lock-free do `gc::HandleTable`.
 pub const HANDLE_N_SHARDS: usize = 32;
@@ -56,37 +55,20 @@ pub fn vec_from_handle(handle: u64) -> Option<std::vec::Vec<i64>> {
     })
 }
 
-/// Tenta obter uma referencia mutavel para um Vec<i64> a partir de um handle.
-/// # Safety
-/// O caller deve garantir que nenhum outro codigo tenha acesso mutavel ao mesmo handle.
+/// Modifica um Vec<i64> a partir de um handle usando uma funcao de fechamento.
+/// A funcao recebe uma copia do Vec, modifica e salva de volta atomicamente.
 #[inline]
-pub unsafe fn vec_from_handle_mut(handle: u64) -> Option<&mut Vec<i64>> {
-    // Nota: Esta funcao é insegura porque retorna uma referencia mutavel
-    // sem garantir exclusividade. Usar apenas em contextos controlados.
-    use std::cell::Cell;
-    thread_local! {
-        static LAST_VEC_HANDLE: Cell<Option<u64>> = const { Cell::new(None) };
-        static LAST_VEC_PTR: Cell<*mut Vec<i64>> = const { Cell::new(std::ptr::null_mut()) };
+pub fn modify_vec_handle<F>(handle: u64, f: F) -> bool
+where
+    F: FnOnce(&mut Vec<i64>),
+{
+    if let Some(mut vec) = vec_from_handle(handle) {
+        f(&mut vec);
+        set_vec_entry(handle, vec);
+        true
+    } else {
+        false
     }
-    
-    LAST_VEC_HANDLE.with(|last| {
-        if last.get() == Some(handle) {
-            let ptr = LAST_VEC_PTR.with(|p| p.get());
-            if !ptr.is_null() {
-                return Some(unsafe { &mut *ptr });
-            }
-        }
-    });
-    
-    with_entry_mut(handle, |entry| match entry {
-        Some(Entry::Vec(v)) => {
-            let ptr = v.as_mut() as *mut Vec<i64>;
-            LAST_VEC_HANDLE.with(|lh| lh.set(Some(handle)));
-            LAST_VEC_PTR.with(|lp| lp.set(ptr));
-            Some(v.as_mut())
-        }
-        _ => None,
-    })
 }
 
 /// Tenta obter um Map (IndexMap) a partir de um handle.
@@ -98,15 +80,20 @@ pub fn map_from_handle(handle: u64) -> Option<indexmap::IndexMap<String, i64>> {
     })
 }
 
-/// Tenta obter uma referencia mutavel para um Map a partir de um handle.
-/// # Safety
-/// O caller deve garantir que nenhum outro codigo tenha acesso mutavel ao mesmo handle.
+/// Modifica um Map (IndexMap) a partir de um handle usando uma funcao de fechamento.
+/// A funcao recebe uma copia do Map, modifica e salva de volta atomicamente.
 #[inline]
-pub unsafe fn map_from_handle_mut(handle: u64) -> Option<&mut indexmap::IndexMap<String, i64>> {
-    with_entry_mut(handle, |entry| match entry {
-        Some(Entry::Map(m)) => Some(m.as_mut()),
-        _ => None,
-    })
+pub fn modify_map_handle<F>(handle: u64, f: F) -> bool
+where
+    F: FnOnce(&mut indexmap::IndexMap<String, i64>),
+{
+    if let Some(mut map) = map_from_handle(handle) {
+        f(&mut map);
+        set_map_entry(handle, map);
+        true
+    } else {
+        false
+    }
 }
 
 /// StrHandle — wrapper type para handles de string.

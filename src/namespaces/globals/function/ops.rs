@@ -4,7 +4,8 @@
 //! por aridade ate 8. Funciona porque user fns com address taken usam
 //! default_call_conv (SystemV/Win64), igual extern "C" Rust.
 
-use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry, with_entry_mut};
+use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry};
+use crate::abi::handles::modify_map_handle;
 
 unsafe fn invoke_n(fn_ptr: u64, args: &[i64]) -> i64 {
     unsafe { invoke_typed(fn_ptr, args, &[], 0) }
