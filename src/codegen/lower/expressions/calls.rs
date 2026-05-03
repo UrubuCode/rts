@@ -754,15 +754,20 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                 }
             } else {
                 spec.constructor_for_arity(n_args)
+                    // Fallback: nenhum ctor com aridade exata. Pega o primeiro com
+                    // aridade >= n_args para preencher os faltantes com defaults
+                    // (e.g. `new Error()` resolve no ctor StrPtr passando ptr=0,
+                    // len=0 que `str_from_raw` trata como String::new()).
+                    .or_else(|| spec.constructors().find(|m| m.args.len() >= n_args))
             }
         }.ok_or_else(|| anyhow!("`new {}`: no constructor with {n_args} args", class_name))?;
         let sig = crate::abi::signature::lower_member(ctor);
         let mut arg_vals = Vec::new();
-        if let Some(args) = &new_expr.args {
-            for (idx, arg) in args.iter().enumerate() {
-                let expected = ctor.args[idx];
+        let provided_args = new_expr.args.as_deref().unwrap_or(&[]);
+        for (idx, expected) in ctor.args.iter().enumerate() {
+            if let Some(arg) = provided_args.get(idx) {
                 let tv = lower_expr(ctx, &arg.expr)?;
-                if expected == AbiType::StrPtr {
+                if *expected == AbiType::StrPtr {
                     // expand handle to (ptr, len)
                     let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
                     let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
@@ -776,6 +781,14 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                 } else {
                     arg_vals.push(ctx.coerce_to_i64(tv).val);
                 }
+            } else if *expected == AbiType::StrPtr {
+                // Arg omitido: passa (ptr=0, len=0) — runtime trata como string vazia.
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                arg_vals.push(zero);
+                arg_vals.push(zero);
+            } else {
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                arg_vals.push(zero);
             }
         }
         let fn_ref = ctx.get_extern(ctor.symbol, &sig.params, sig.ret)?;
