@@ -5,12 +5,13 @@ function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// (#271) \`obj?.prop\` agora null-guard: retorna 0 (representando undefined)
-// quando obj e' null/0, em vez de chamar member_expr direto.
+// (#271 + #456) `obj?.prop` em obj null produz "undefined" quando coerced
+// em template literal (alinhado a JS); o valor SSA subjacente continua 0
+// para curto-circuitar cadeias `a?.b?.c`.
 
-// 1. Null obj — retorna 0
+// 1. Null obj — retorna "undefined" em template literal
 const nullObj: { a: number } | null = null;
-print(`${nullObj?.a}`);    // 0 (representa undefined)
+print(`${nullObj?.a}`);    // "undefined"
 
 // 2. Obj normal — acessa
 const obj = { a: 42, b: 99 };
@@ -33,24 +34,24 @@ print(`${o?.val}`);  // 100
 
 const cond2: boolean = false;
 const o2 = cond2 ? { val: 200 } : null;
-print(`${o2?.val}`);  // 0
+print(`${o2?.val}`);  // "undefined"
 
 // 5. Em classe
 class Container {
   data: { count: number } | null = null;
 }
 const c = new Container();
-print(`${c.data?.count}`);    // 0 (data e' null)
+print(`${c.data?.count}`);    // "undefined" (data e' null)
 c.data = { count: 5 };
 print(`${c.data?.count}`);    // 5
 
 describe("opt_chain_member", () => {
   test("null guard funcional", () =>
     expect(__rtsCapturedOutput).toBe(
-      "0\n" +              // 1
+      "undefined\n" +      // 1
       "42\n99\n" +         // 2
       "7\n-1\n" +          // 3
-      "100\n0\n" +         // 4
-      "0\n5\n"             // 5
+      "100\nundefined\n" + // 4
+      "undefined\n5\n"     // 5
     ));
 });
