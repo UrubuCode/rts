@@ -1427,6 +1427,27 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_PARALLEL_NUM_THREADS",
             parallel_ops::__RTS_FN_NS_PARALLEL_NUM_THREADS
         );
+        // (#208) Predicate methods — backing pra arr.filter/find/findIndex/some/every.
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FILTER",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FILTER
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FIND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FIND
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FIND_INDEX",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FIND_INDEX
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_SOME",
+            parallel_ops::__RTS_FN_NS_PARALLEL_SOME
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_EVERY",
+            parallel_ops::__RTS_FN_NS_PARALLEL_EVERY
+        );
     }
 
     // ── namespaces::path ──────────────────────────────────────────────
