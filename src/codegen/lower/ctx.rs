@@ -427,6 +427,13 @@ pub struct FnCtx<'m, 'fb> {
     /// para evitar usar Values de blocos não-dominadores.
     pub num_val_cache: HashMap<(u64, u8, cranelift_codegen::ir::Block), cranelift_codegen::ir::Value>,
 
+    /// (#208) Vars declaradas como `T[]` / `Array<T>` (qualquer T).
+    /// Usado em `lower_var_member_call` para preferir `lower_array_builtin`
+    /// antes de `lower_string_builtin` quando o tipo estatico indica array.
+    /// Sem isso, `arr.indexOf(x)` em `let arr: number[] = [...]` cai em
+    /// string builtin (`__RTS_FN_GL_STRING_INDEX_OF`) e retorna lixo.
+    pub local_array_vars: std::collections::HashSet<String>,
+
     /// Counter para gerar nomes únicos de locals temporários em
     /// optional chain calls aninhadas (#481). Usado por
     /// `lower_opt_chain` quando o receiver é uma expressão complexa
@@ -490,6 +497,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             str_data_cache: HashMap::new(),
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),
+            local_array_vars: std::collections::HashSet::new(),
             opt_chain_temp_counter: 0,
         }
     }

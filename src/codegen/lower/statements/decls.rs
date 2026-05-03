@@ -36,6 +36,18 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             ctx.local_array_class_ty.insert(name.clone(), cn);
                         }
                     }
+                    // (#208) Marca a var como array independente do tipo de elemento,
+                    // pra que `lower_var_member_call` prefira `lower_array_builtin`.
+                    ctx.local_array_vars.insert(name.clone());
+                }
+                // Também `Array<T>` / `ReadonlyArray<T>` via TsTypeRef.
+                if let swc_ecma_ast::TsType::TsTypeRef(tref) = ann.type_ann.as_ref() {
+                    if let swc_ecma_ast::TsEntityName::Ident(id) = &tref.type_name {
+                        let n = id.sym.as_str();
+                        if matches!(n, "Array" | "ReadonlyArray") {
+                            ctx.local_array_vars.insert(name.clone());
+                        }
+                    }
                 }
             }
         }
@@ -58,6 +70,11 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                 }
             }
             let init_peeled = peel_ts_init(init.as_ref());
+            // (#208) `const a = [1,2,3]` — sem anotacao mas init e' literal
+            // array. Marca pra preferir lower_array_builtin.
+            if matches!(init_peeled, swc_ecma_ast::Expr::Array(_)) {
+                ctx.local_array_vars.insert(name.clone());
+            }
             if let swc_ecma_ast::Expr::Object(obj) = init_peeled {
                 let mut field_types: std::collections::HashMap<String, ValTy> =
                     std::collections::HashMap::new();
