@@ -28,6 +28,39 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         if let Expr::SuperProp(sp) = callee.as_ref() {
             return lower_super_method_call(ctx, sp, call);
         }
+        // (#264 PR5) Fast path: `(var as any).method(...)` — TsAs/Paren etc
+        // antes do member. Peel e despacha como var.method().
+        if let Expr::Member(m) = callee.as_ref() {
+            let mut obj_e: &Expr = m.obj.as_ref();
+            loop {
+                match obj_e {
+                    Expr::TsAs(a) => obj_e = &a.expr,
+                    Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                    Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                    Expr::TsSatisfies(a) => obj_e = &a.expr,
+                    Expr::TsNonNull(a) => obj_e = &a.expr,
+                    Expr::Paren(p) => obj_e = &p.expr,
+                    _ => break,
+                }
+            }
+            // Se peel produziu um Ident e o obj original NAO era Ident,
+            // re-rola como var.member chamando lower_var_member_call diretamente.
+            // (Para Ident puro, deixa fluir pelo caminho existente.)
+            if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
+                if let Expr::Ident(obj_id) = obj_e {
+                    if ctx.var_ty(obj_id.sym.as_str()).is_some() {
+                        if let MemberProp::Ident(prop) = &m.prop {
+                            return lower_var_member_call(
+                                ctx,
+                                obj_id.sym.as_str(),
+                                prop.sym.as_str(),
+                                call,
+                            );
+                        }
+                    }
+                }
+            }
+        }
         if let Expr::Member(m) = callee.as_ref() {
             if let Expr::Ident(obj_id) = m.obj.as_ref() {
                 let cn = obj_id.sym.as_str();
@@ -166,6 +199,19 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 if !target.is_empty() && lookup(target).is_some() {
                     return lower_ns_call(ctx, target, call);
                 }
+                // (#264 PR5) Object.create(proto) — aloca Map com __proto__.
+                if method == "create" && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let proto_h = ctx.coerce_to_i64(arg_tv).val;
+                    let create_fn = ctx.get_extern(
+                        "__RTS_FN_GL_OBJECT_CREATE",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(create_fn, &[proto_h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
             }
             // Function global (#359): `<fn>.call/.apply/.bind/.toString(...)`.
             // Dois caminhos:
@@ -204,8 +250,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // Fallback: ident.fn(...) onde ident e var (ex: namespace TS
             // desugared para const Foo = { ... }). Faz map_get pela key
             // e despacha via call_indirect.
+            // (#264 PR5) Peel TsAs/Paren no obj para `(c as any).method(...)`.
             if let Expr::Member(m) = callee.as_ref() {
-                if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                let mut obj_e: &Expr = m.obj.as_ref();
+                loop {
+                    match obj_e {
+                        Expr::TsAs(a) => obj_e = &a.expr,
+                        Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                        Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                        Expr::TsSatisfies(a) => obj_e = &a.expr,
+                        Expr::TsNonNull(a) => obj_e = &a.expr,
+                        Expr::Paren(p) => obj_e = &p.expr,
+                        _ => break,
+                    }
+                }
+                if let Expr::Ident(obj_id) = obj_e {
                     if ctx.var_ty(obj_id.sym.as_str()).is_some() {
                         if let MemberProp::Ident(prop) = &m.prop {
                             return lower_var_member_call(
@@ -1860,9 +1919,31 @@ fn lower_var_member_call(
         return Ok(tv);
     }
 
+    // (#264 PR5) `obj.hasOwnProperty(key)` — verifica own props sem chain.
+    if prop == "hasOwnProperty" && call.args.len() == 1 {
+        let key_tv = lower_expr(ctx, &call.args[0].expr)?;
+        let key_h = ctx.coerce_to_i64(key_tv).val;
+        let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let inst_p = ctx.builder.ins().call(str_ptr_fn, &[key_h]);
+        let kptr = ctx.builder.inst_results(inst_p)[0];
+        let inst_l = ctx.builder.ins().call(str_len_fn, &[key_h]);
+        let klen = ctx.builder.inst_results(inst_l)[0];
+        let has_own = ctx.get_extern(
+            "__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(has_own, &[obj_h, kptr, klen]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(v, ValTy::Bool));
+    }
+
     let (kp, kl) = ctx.emit_str_literal(prop.as_bytes())?;
+    // (#264 PR5) MAP_GET_CHAIN: lookup own + __proto__ chain. Permite
+    // `instance.method()` resolver methods em \`Animal.prototype.method\`.
     let map_get = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN",
         &[cl::I64, cl::I64, cl::I64],
         Some(cl::I64),
     )?;
