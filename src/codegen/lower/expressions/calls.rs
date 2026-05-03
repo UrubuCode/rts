@@ -191,6 +191,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                 }
             }
+            // (#208) `Math.X` → `math.X` (lowercase namespace). RTS usa
+            // `math` namespace pra tudo; expor JS-style `Math.sqrt` etc.
+            // sem duplicar codigo de impl.
+            if let Some(method) = qualified.strip_prefix("Math.") {
+                let target = format!("math.{method}");
+                if lookup(&target).is_some() {
+                    return lower_ns_call(ctx, &target, call);
+                }
+            }
             // (#266) Object globals: Object.keys, Object.values, Object.hasOwn.
             if let Some(method) = qualified.strip_prefix("Object.") {
                 let target = match method {
