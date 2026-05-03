@@ -2613,6 +2613,37 @@ fn lower_map_set_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
+        // (#222) Map iteration methods. Reusam fns de Object.keys/values/entries.
+        "entries" if call.args.is_empty() => {
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "keys" if call.args.is_empty() => {
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "values" if call.args.is_empty() => {
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
         _ => Ok(None),
     }
 }
