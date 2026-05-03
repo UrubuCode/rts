@@ -408,46 +408,71 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
     })))
 }
 
+/// (#264) Registry global `fn_ptr → prototype_handle`. Indexa pelo
+/// endereco de codigo da user fn (estavel ao longo da execucao do JIT).
+/// Necessario porque cada `Animal.prototype` no codigo TS cria nova
+/// Entry::Function via REIFY — armazenar prototype dentro da Entry
+/// faria cada acesso retornar Map diferente.
+static FN_PROTOTYPE_REGISTRY: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<u64, u64>>,
+> = std::sync::OnceLock::new();
+
+fn proto_registry() -> &'static std::sync::Mutex<std::collections::HashMap<u64, u64>> {
+    FN_PROTOTYPE_REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 /// (#264) Lazy-aloca e retorna o handle de `fn.prototype`.
 /// Constructor functions usam isto pra anexar metodos compartilhados.
-/// Primeiro acesso aloca um Map vazio; chamadas subsequentes retornam o mesmo.
+/// Primeiro acesso aloca um Map vazio; chamadas subsequentes retornam o mesmo
+/// (indexado pelo fn_ptr da Function entry, estavel entre REIFYs).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
-    // Tenta ler primeiro (caminho rapido — ja alocado).
-    let existing = with_entry(handle, |e| {
+    let fn_ptr = with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
-            Some(d.prototype_handle)
+            Some(d.fn_ptr)
         } else {
             None
         }
     });
-    match existing {
-        Some(h) if h != 0 => return h,
-        Some(_) => {}  // existe a Function mas prototype eh 0 — alocar
-        None => return 0, // handle invalido ou nao e' Function
-    }
-    // Aloca novo Map vazio. Map handle precisa ser alocado FORA do
-    // with_entry_mut porque alloc_entry pode chamar shard locks.
-    let new_proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
-    // Atualiza o slot. Outra thread podera ter alocado entre a leitura e o
-    // write — nesse caso descarta o nosso (race benigna; libera o duplicado).
-    let final_h = with_entry_mut(handle, |e| {
-        if let Some(Entry::Function(d)) = e {
-            if d.prototype_handle != 0 {
-                d.prototype_handle
-            } else {
-                d.prototype_handle = new_proto;
-                new_proto
-            }
-        } else {
-            0
+    let fn_ptr = match fn_ptr {
+        Some(p) => p,
+        None => return 0,
+    };
+    // Caminho rapido: ja existe.
+    {
+        let registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(&h) = registry.get(&fn_ptr) {
+            return h;
         }
-    });
-    if final_h != new_proto {
-        // outra thread venceu — libera nosso
-        let _ = crate::namespaces::gc::handles::free_handle(new_proto);
     }
-    final_h
+    // Aloca novo Map FORA do lock pra evitar reentrant locks com shards.
+    let new_proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+    // Insere; se outra thread venceu a corrida, descarta o nosso.
+    let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&existing) = registry.get(&fn_ptr) {
+        drop(registry);
+        let _ = crate::namespaces::gc::handles::free_handle(new_proto);
+        return existing;
+    }
+    registry.insert(fn_ptr, new_proto);
+    // Tambem atualiza o slot (mantido para tracing GC transitivo via mark).
+    drop(registry);
+    let _ = with_entry_mut(handle, |e| {
+        if let Some(Entry::Function(d)) = e {
+            d.prototype_handle = new_proto;
+        }
+        ()
+    });
+    new_proto
+}
+
+/// Helper interno para o GC scanner: dado um fn_ptr, retorna o
+/// prototype_handle se existir (sem alocar). Chamado durante mark
+/// para propagar marca a partir de Function entries cujo
+/// prototype_handle pode estar 0 mas existir no registry.
+pub(crate) fn lookup_prototype_for_fn_ptr(fn_ptr: u64) -> Option<u64> {
+    let registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
+    registry.get(&fn_ptr).copied().filter(|&h| h != 0)
 }
 
 #[unsafe(no_mangle)]

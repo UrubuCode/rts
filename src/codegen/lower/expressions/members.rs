@@ -489,15 +489,29 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
         }
     }
 
-    // Function global (#359): `<userFn>.name/.length` — reify e chama getter.
-    if let (Expr::Ident(obj_id), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
-        let obj_name = obj_id.sym.as_str();
+    // Function global (#359): `<userFn>.name/.length/.prototype` — reify e chama getter.
+    // (#264) Peel TsAs/Paren para suportar `(Animal as any).prototype`.
+    if let MemberProp::Ident(prop) = &m.prop {
         let prop_name = prop.sym.as_str();
-        if matches!(prop_name, "name" | "length" | "prototype")
-            && ctx.user_fns.contains_key(obj_name)
-            && ctx.var_ty(obj_name).is_none()
-        {
-            return lower_user_fn_getter(ctx, obj_name, prop_name);
+        if matches!(prop_name, "name" | "length" | "prototype") {
+            let mut obj_e: &Expr = m.obj.as_ref();
+            loop {
+                match obj_e {
+                    Expr::TsAs(a) => obj_e = &a.expr,
+                    Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                    Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                    Expr::TsSatisfies(a) => obj_e = &a.expr,
+                    Expr::TsNonNull(a) => obj_e = &a.expr,
+                    Expr::Paren(p) => obj_e = &p.expr,
+                    _ => break,
+                }
+            }
+            if let Expr::Ident(obj_id) = obj_e {
+                let obj_name = obj_id.sym.as_str();
+                if ctx.user_fns.contains_key(obj_name) && ctx.var_ty(obj_name).is_none() {
+                    return lower_user_fn_getter(ctx, obj_name, prop_name);
+                }
+            }
         }
     }
 
