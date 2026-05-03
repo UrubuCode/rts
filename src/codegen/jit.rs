@@ -1048,6 +1048,19 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_VEC_SORT",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_SORT
         );
+        // (#208) Iterators eager: arr.values()/keys()/entries().
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_VALUES",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_VALUES
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_KEYS",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_KEYS
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES
+        );
     }
 
     // ── namespaces::os ────────────────────────────────────────────────

@@ -435,6 +435,37 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> 
     handle
 }
 
+/// (#208) `arr.values()` — Vec eager com copia dos valores.
+/// Em JS spec retorna Array Iterator; v0 RTS retorna Vec direto
+/// (compativel com `for-of` e `.join()`). Iterator real exige
+/// Symbol.iterator (PR separada).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
+    let copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    alloc_entry(Entry::Vec(Box::new(copy)))
+}
+
+/// (#208) `arr.keys()` — Vec [0, 1, ..., len-1].
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
+    let len = with_vec(handle, 0, |v| v.len());
+    let keys: Vec<i64> = (0..len as i64).collect();
+    alloc_entry(Entry::Vec(Box::new(keys)))
+}
+
+/// (#208) `arr.entries()` — Vec de Vec[[idx, value], ...].
+/// Cada entry e' um Vec<i64> com 2 elementos.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_ENTRIES(handle: u64) -> u64 {
+    let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let mut out: Vec<i64> = Vec::with_capacity(items.len());
+    for (i, val) in items.into_iter().enumerate() {
+        let pair = alloc_entry(Entry::Vec(Box::new(vec![i as i64, val])));
+        out.push(pair as i64);
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -656,5 +687,39 @@ mod tests {
         // copyWithin(0, 3) → copia elementos a partir do idx 3 pro idx 0
         __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(h, 0, 3, i64::MIN);
         assert_eq!(handle_to_vec(h), vec![4, 5, 3, 4, 5]);
+    }
+
+    #[test]
+    fn values_returns_copy() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [10, 20, 30] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        let cp = __RTS_FN_NS_COLLECTIONS_VEC_VALUES(h);
+        assert_eq!(handle_to_vec(cp), vec![10, 20, 30]);
+        assert_ne!(cp, h);
+    }
+
+    #[test]
+    fn keys_returns_indices() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [10, 20, 30, 40] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        let k = __RTS_FN_NS_COLLECTIONS_VEC_KEYS(h);
+        assert_eq!(handle_to_vec(k), vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn entries_returns_pairs() {
+        let h = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [100, 200] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, x);
+        }
+        let entries = __RTS_FN_NS_COLLECTIONS_VEC_ENTRIES(h);
+        let outer = handle_to_vec(entries);
+        assert_eq!(outer.len(), 2);
+        assert_eq!(handle_to_vec(outer[0] as u64), vec![0, 100]);
+        assert_eq!(handle_to_vec(outer[1] as u64), vec![1, 200]);
     }
 }
