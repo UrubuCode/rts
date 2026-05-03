@@ -105,7 +105,7 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_END() {
             r.failed += 1;
         } else {
             r.passed += 1;
-            eprintln!("{indent}{} {}", green("✓"), dim(&name));
+            // Don't print success message - only show failures
         }
         r.case_failed = false;
     });
@@ -168,32 +168,15 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY() {
         let failed = r.failed;
         let total = passed + failed;
 
-        eprintln!("{}", dim(&"─".repeat(40)));
-
-        if failed == 0 {
+        // Only print summary if there are failures or if explicitly requested
+        if failed > 0 {
             eprintln!(
-                " {} {}",
-                green("✓"),
-                green(&format!("{total} test{} passed", plural(total)))
+                "\n{} {} {}",
+                red("✗"),
+                red(&format!("{failed} test{} failed", plural(failed))),
+                if passed > 0 { format!("({} passed)", passed) } else { String::new() }
             );
-        } else {
-            if failed > 0 {
-                eprintln!(
-                    " {} {}",
-                    red("✗"),
-                    red(&format!("{failed} test{} failed", plural(failed)))
-                );
-            }
-            if passed > 0 {
-                eprintln!(
-                    " {} {}",
-                    green("✓"),
-                    green(&format!("{passed} test{} passed", plural(passed)))
-                );
-            }
-            eprintln!(" {} {total} total", dim("·"));
         }
-        eprintln!();
     });
 }
 

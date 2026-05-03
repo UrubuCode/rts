@@ -132,7 +132,8 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     // Quando rodando como child de `rts test`, marca cada etapa pra que
     // um segfault subsequente identifique exatamente onde morreu (#314).
     // Pai liga via RTS_TEST_TRACE_STAGES=1.
-    let trace = std::env::var_os("RTS_TEST_TRACE_STAGES").is_some();
+    // Trace stages only when RTS_TEST_TRACE is enabled (debug flag)
+    let trace = std::env::var("RTS_TEST_TRACE").unwrap_or_default() == "1";
     let mark = |stage: &str| {
         if trace {
             let _ = writeln!(std::io::stderr(), "  [trace] {stage}");
