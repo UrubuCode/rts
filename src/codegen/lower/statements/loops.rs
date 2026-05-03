@@ -237,25 +237,43 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         // user pode anotar o ident: `for (const [k, v]: any of pairs)`
         // nao funciona via parser mas a heuristica cobre 90% do uso.
         // Detecta se o iteravel veio direto de `Object.entries(...)`
-        // OU de var inicializada com isso. Heuristica conservadora —
-        // assume slot 0 = string Handle nesse caso.
-        fn is_entries_expr(e: &swc_ecma_ast::Expr) -> bool {
+        // OU de `map.entries()` (NAO `arr.entries()` — array.entries
+        // tem slot 0 = i64 indice, nao Handle). (#208 + #494)
+        fn is_object_entries_expr(e: &swc_ecma_ast::Expr, ctx: &FnCtx) -> bool {
             match e {
                 swc_ecma_ast::Expr::Call(c) => match &c.callee {
                     swc_ecma_ast::Callee::Expr(callee) => match callee.as_ref() {
-                        swc_ecma_ast::Expr::Member(m) => matches!(
-                            &m.prop,
-                            swc_ecma_ast::MemberProp::Ident(p) if p.sym.as_str() == "entries"
-                        ),
+                        swc_ecma_ast::Expr::Member(m) => {
+                            // Confirma prop.entries.
+                            let is_entries = matches!(
+                                &m.prop,
+                                swc_ecma_ast::MemberProp::Ident(p) if p.sym.as_str() == "entries"
+                            );
+                            if !is_entries {
+                                return false;
+                            }
+                            // Object.entries(obj) — slot 0 e' string Handle.
+                            // map.entries() — slot 0 e' string Handle.
+                            // arr.entries() — slot 0 e' i64 indice → falso.
+                            match m.obj.as_ref() {
+                                // Object.entries — explicito.
+                                swc_ecma_ast::Expr::Ident(id) if id.sym.as_str() == "Object" => true,
+                                // var ident: se for marcado como array, falso.
+                                swc_ecma_ast::Expr::Ident(id) => {
+                                    !ctx.local_array_vars.contains(id.sym.as_str())
+                                }
+                                _ => true, // conservador
+                            }
+                        }
                         _ => false,
                     },
                     _ => false,
                 },
-                swc_ecma_ast::Expr::Paren(p) => is_entries_expr(&p.expr),
+                swc_ecma_ast::Expr::Paren(p) => is_object_entries_expr(&p.expr, ctx),
                 _ => false,
             }
         }
-        let is_object_entries = is_entries_expr(for_of.right.as_ref());
+        let is_object_entries = is_object_entries_expr(for_of.right.as_ref(), ctx);
         for (idx, name_opt) in names.iter().enumerate() {
             let Some((name, ann_ty)) = name_opt else { continue };
             let idx_val = ctx.builder.ins().iconst(cl::I64, idx as i64);

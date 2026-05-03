@@ -3329,6 +3329,37 @@ fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
+        // (#208) Iterators eager: values()/keys()/entries().
+        "values" if call.args.is_empty() => {
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_VALUES",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "keys" if call.args.is_empty() => {
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_KEYS",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "entries" if call.args.is_empty() => {
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
         "flatMap" => {
             if call.args.len() != 1 || call.args[0].spread.is_some() {
                 return Ok(None);
