@@ -998,7 +998,13 @@ pub(super) fn map_get_static_typed(
         )),
         Some(ValTy::Handle) => Ok(TypedVal::new(v, ValTy::Handle)),
         Some(ValTy::Bool) => Ok(TypedVal::new(v, ValTy::Bool)),
-        _ => Ok(TypedVal::new(v, ValTy::I64)),
+        _ => {
+            // (#proto-method) Sem tipo declarado, marcar como
+            // var_member_call_values para que template literal use
+            // TPL_COERCE_AUTO (detecta string handle em runtime).
+            ctx.var_member_call_values.insert(v);
+            Ok(TypedVal::new(v, ValTy::I64))
+        }
     }
 }
 

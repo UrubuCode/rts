@@ -2011,43 +2011,39 @@ fn lower_var_member_call(
         .ins()
         .trapz(callee_val, cranelift_codegen::ir::TrapCode::user(1).unwrap());
 
-    // (#261) Empilha receiver no this slot antes do call. Method
-    // shorthand em obj literal usa \`this\` via slot thread-local
-    // (PR #451). Para fns que nao usam this, push/pop sao no-op
-    // overhead.
-    let push_fn = ctx.get_extern("__RTS_FN_RT_THIS_PUSH", &[cl::I64], None)?;
-    ctx.builder.ins().call(push_fn, &[obj_h]);
-
-    // namespace fns address-taken sao SystemV/Win64 (ver
-    // user_call_conv). call_indirect tem que casar a callconv da
-    // target ou args/return chegam corrompidos.
-    let cc = ctx.module.isa().default_call_conv();
-    let mut sig = Signature::new(cc);
-    for _ in &call.args {
-        sig.params.push(AbiParam::new(cl::I64));
-    }
-    sig.returns.push(AbiParam::new(cl::I64));
-    let sig_ref = ctx.builder.import_signature(sig);
-
-    let mut args = Vec::with_capacity(call.args.len());
+    // (#proto-method) Empacota args em Vec<i64> handle e chama
+    // INVOKE_AUTO que decide entre handle Function (typed via
+    // invoke_typed com return_kind) e fn ptr raw (invoke_n i64-only).
+    // Cobre o caso de \`Animal.prototype.x = userFn\` armazenado como
+    // handle Function (PR proto-method).
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst_v = ctx.builder.ins().call(vec_new, &[]);
+    let args_h = ctx.builder.inst_results(inst_v)[0];
+    let vec_push = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
     for arg in &call.args {
         if arg.spread.is_some() {
             return Err(anyhow!("spread not supported in var.member call"));
         }
         let tv = lower_expr(ctx, &arg.expr)?;
-        args.push(ctx.coerce_to_i64(tv).val);
+        let v = ctx.coerce_to_i64(tv).val;
+        ctx.builder.ins().call(vec_push, &[args_h, v]);
     }
 
-    let inst = ctx.builder.ins().call_indirect(sig_ref, callee_val, &args);
-    let results = ctx.builder.inst_results(inst);
-    let v = results
-        .first()
-        .copied()
-        .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
+    let invoke_auto = ctx.get_extern(
+        "__RTS_FN_RT_INVOKE_AUTO",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(invoke_auto, &[callee_val, obj_h, args_h]);
+    let v = ctx.builder.inst_results(inst)[0];
 
-    // (#261) Pop this slot apos call.
-    let pop_fn = ctx.get_extern("__RTS_FN_RT_THIS_POP", &[], None)?;
-    ctx.builder.ins().call(pop_fn, &[]);
+    // (#proto-method) Marca o resultado para que lower_tpl use
+    // TPL_COERCE_AUTO (detecta handle de string em runtime).
+    ctx.var_member_call_values.insert(v);
 
     Ok(TypedVal::new(v, ValTy::I64))
 }
