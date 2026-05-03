@@ -500,6 +500,15 @@ fn val_ty_to_kind(ty: ValTy) -> u8 {
 
 pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<TypedVal> {
     if let Some(qualified) = qualified_member_name(&Expr::Member(m.clone())) {
+        // (#208) `Math.X` (uppercase JS-style) → `math.X` (lowercase RTS namespace).
+        if let Some(prop) = qualified.strip_prefix("Math.") {
+            let target = format!("math.{prop}");
+            if lookup(&target).is_some() {
+                if let Some(tv) = emit_namespace_constant(ctx, &target)? {
+                    return Ok(tv);
+                }
+            }
+        }
         if lookup(&qualified).is_some() {
             if let Some(tv) = emit_namespace_constant(ctx, &qualified)? {
                 return Ok(tv);
