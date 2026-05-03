@@ -18,3 +18,5 @@ pub mod symbol;
 pub mod text_encoding;
 pub mod timers;
 pub mod url;
+pub mod weakmap;
+pub mod weakset;

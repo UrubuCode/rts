@@ -45,6 +45,8 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::url::class_spec::URL_CLASS_SPEC,
     &crate::namespaces::globals::function::abi::FUNCTION_CLASS_SPEC,
     &crate::namespaces::globals::symbol::SYMBOL_CLASS_SPEC,
+    &crate::namespaces::globals::weakmap::WEAKMAP_CLASS_SPEC,
+    &crate::namespaces::globals::weakset::WEAKSET_CLASS_SPEC,
 ];
 
 /// Looks up a global class spec by JS class name (e.g. `"Date"`).

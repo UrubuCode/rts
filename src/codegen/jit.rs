@@ -376,6 +376,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_SYMBOL_TO_STRING", __RTS_FN_GL_SYMBOL_TO_STRING);
     }
 
+    // ── namespaces::globals::weakmap (#217 v0) ───────────────────────
+    {
+        use crate::namespaces::globals::weakmap::rt::*;
+        add_fn!("__RTS_FN_GL_WEAKMAP_NEW", __RTS_FN_GL_WEAKMAP_NEW);
+        add_fn!("__RTS_FN_GL_WEAKMAP_SET", __RTS_FN_GL_WEAKMAP_SET);
+        add_fn!("__RTS_FN_GL_WEAKMAP_GET", __RTS_FN_GL_WEAKMAP_GET);
+        add_fn!("__RTS_FN_GL_WEAKMAP_HAS", __RTS_FN_GL_WEAKMAP_HAS);
+        add_fn!("__RTS_FN_GL_WEAKMAP_DELETE", __RTS_FN_GL_WEAKMAP_DELETE);
+    }
+
+    // ── namespaces::globals::weakset (#217 v0) ───────────────────────
+    {
+        use crate::namespaces::globals::weakset::rt::*;
+        add_fn!("__RTS_FN_GL_WEAKSET_NEW", __RTS_FN_GL_WEAKSET_NEW);
+        add_fn!("__RTS_FN_GL_WEAKSET_ADD", __RTS_FN_GL_WEAKSET_ADD);
+        add_fn!("__RTS_FN_GL_WEAKSET_HAS", __RTS_FN_GL_WEAKSET_HAS);
+        add_fn!("__RTS_FN_GL_WEAKSET_DELETE", __RTS_FN_GL_WEAKSET_DELETE);
+    }
+
     // ── namespaces::globals::text_encoding ───────────────────────────
     use crate::namespaces::globals::text_encoding::instance::*;
     add_fn!("__RTS_FN_GL_TEXTENC_ENCODE", __RTS_FN_GL_TEXTENC_ENCODE);
