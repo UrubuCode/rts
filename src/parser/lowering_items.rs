@@ -216,7 +216,18 @@ fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec
                 pending.push(lower_function(cm, &name, &function, span));
             }
             Expr::Arrow(arrow) => {
-                let synthetic = arrow_to_function(arrow);
+                let mut synthetic = arrow_to_function(arrow);
+                // (#455) Quando a binding tem annotation `() => T` mas o arrow
+                // nao tem `: T` proprio, propaga o return type. Sem isto,
+                // codegen inferia `i64` por heuristica e `fn()` retornava 0
+                // pra arrows que retornam f64.
+                if synthetic.return_type.is_none() {
+                    if let Some(ann) = &binding.type_ann {
+                        if let Some(ret) = extract_fn_return_type_ann(&ann.type_ann) {
+                            synthetic.return_type = Some(ret);
+                        }
+                    }
+                }
                 pending.push(lower_function(cm, &name, &synthetic, arrow.span));
             }
             _ => return false,
@@ -226,6 +237,25 @@ fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec
         out.push(Item::Function(fn_decl));
     }
     true
+}
+
+/// (#455) Extrai o return type annotation de uma TS function type
+/// (\`() => T\` ou \`(x) => T\`). Retorna `Some(Box<TsTypeAnn>)` que
+/// pode ser plugado no \`SwcFunction.return_type\` do arrow synthetic.
+fn extract_fn_return_type_ann(ts_type: &swc_ecma_ast::TsType) -> Option<Box<swc_ecma_ast::TsTypeAnn>> {
+    use swc_ecma_ast::{TsFnOrConstructorType, TsType, TsUnionOrIntersectionType};
+    match ts_type {
+        TsType::TsFnOrConstructorType(TsFnOrConstructorType::TsFnType(fn_type)) => {
+            Some(fn_type.type_ann.clone())
+        }
+        // `(() => T) | null` ou `(() => T) | undefined` — extrai o primeiro
+        // TsFnType da uniao.
+        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(u)) => {
+            u.types.iter().find_map(|t| extract_fn_return_type_ann(t))
+        }
+        TsType::TsParenthesizedType(inner) => extract_fn_return_type_ann(&inner.type_ann),
+        _ => None,
+    }
 }
 
 /// Builds a `swc_ecma_ast::Function` from an `ArrowExpr` so it can flow
