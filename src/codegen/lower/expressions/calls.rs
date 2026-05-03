@@ -2769,10 +2769,31 @@ fn lower_ns_call_body(
                 // entao fcvt_to_uint_sat recupera o inteiro original.
                 // Bitcast daria o bit-pattern IEEE 754, que e' um valor
                 // completamente diferente — causaria handles invalidos.
-                // Nota: thread.spawn(fp, 3.14) nao passa float cru por
-                // U64; o worker recebe i64 e usa f64::from_bits explicitamente.
+                //
+                // Excecao (#435): `thread.spawn*(fp, arg)` — quando o
+                // worker pede `arg: number` (f64), o lifter cria
+                // trampolim com param `__rts_spawn_arg_f64` que faz
+                // bitcast i64→f64 ao receber. Nesse caso o caller deve
+                // passar os BITS do f64, nao a conversao numerica.
+                // Detectado pelo simbolo do membro (todas variantes
+                // de spawn que aceitam fn_ptr+arg).
+                let is_spawn_arg = matches!(
+                    member.symbol,
+                    "__RTS_FN_NS_THREAD_SPAWN"
+                    | "__RTS_FN_NS_THREAD_SPAWN_ASYNC"
+                    | "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN"
+                    | "__RTS_FN_NS_THREAD_SPAWN_DETACHED"
+                    | "__RTS_FN_NS_THREAD_SPAWN_WITH_UD"
+                ) && values.len() == 1; // segundo arg = `arg` (apos fn_ptr)
                 let tv = lower_expr(ctx, &arg.expr)?;
                 let v = match tv.ty {
+                    crate::codegen::lower::ctx::ValTy::F64 if is_spawn_arg => {
+                        ctx.builder.ins().bitcast(
+                            cl::I64,
+                            cranelift_codegen::ir::MemFlags::new(),
+                            tv.val,
+                        )
+                    }
                     crate::codegen::lower::ctx::ValTy::F64 => {
                         ctx.builder.ins().fcvt_to_uint_sat(cl::I64, tv.val)
                     }
