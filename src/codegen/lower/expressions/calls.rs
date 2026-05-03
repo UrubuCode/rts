@@ -3141,6 +3141,144 @@ fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
+        // (#208) `arr.sort()` sem comparator. `arr.sort(fn)` com comparator
+        // precisa do lifter de arrow (PR separada — usuario passa Ident
+        // de user fn por enquanto, que `address_taken_fns` captura).
+        "sort" => {
+            let fn_ptr = if let Some(arg) = call.args.first() {
+                if arg.spread.is_some() { return Ok(None); }
+                if let Expr::Ident(id) = arg.expr.as_ref() {
+                    let fn_name = id.sym.as_str().to_string();
+                    if ctx.user_fns.contains_key(&fn_name) && ctx.var_ty(&fn_name).is_none() {
+                        let tv = emit_user_fn_addr(ctx, &fn_name)?;
+                        ctx.coerce_to_i64(tv).val
+                    } else {
+                        ctx.builder.ins().iconst(cl::I64, 0)
+                    }
+                } else {
+                    return Ok(None);
+                }
+            } else {
+                ctx.builder.ins().iconst(cl::I64, 0)
+            };
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_SORT",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        // (#208) `arr.copyWithin(target, start?, end?)` — args concretos.
+        "copyWithin" => {
+            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
+                return Ok(None);
+            }
+            let target_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let target = ctx.coerce_to_i64(target_tv).val;
+            let start = if let Some(arg) = call.args.get(1) {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                ctx.coerce_to_i64(tv).val
+            } else {
+                ctx.builder.ins().iconst(cl::I64, 0)
+            };
+            let end = if let Some(arg) = call.args.get(2) {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                ctx.coerce_to_i64(tv).val
+            } else {
+                ctx.builder.ins().iconst(cl::I64, i64::MIN)
+            };
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, target, start, end]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        // (#208) `arr.findLast/findLastIndex/reduceRight/flatMap` com user fn ident.
+        // Lifting de arrow inline pra esses fica pra outra PR — segue padrao
+        // do lift_inline_arrows_in_array_methods em func.rs.
+        "findLast" | "findLastIndex" => {
+            if call.args.len() != 1 || call.args[0].spread.is_some() {
+                return Ok(None);
+            }
+            let fn_ptr = match call.args[0].expr.as_ref() {
+                Expr::Ident(id) => {
+                    let fn_name = id.sym.as_str().to_string();
+                    if ctx.user_fns.contains_key(&fn_name) && ctx.var_ty(&fn_name).is_none() {
+                        let tv = emit_user_fn_addr(ctx, &fn_name)?;
+                        ctx.coerce_to_i64(tv).val
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                _ => return Ok(None),
+            };
+            let sym = if method == "findLast" {
+                "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST"
+            } else {
+                "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX"
+            };
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "reduceRight" => {
+            if call.args.len() != 2 || call.args.iter().any(|a| a.spread.is_some()) {
+                return Ok(None);
+            }
+            let fn_ptr = match call.args[0].expr.as_ref() {
+                Expr::Ident(id) => {
+                    let fn_name = id.sym.as_str().to_string();
+                    if ctx.user_fns.contains_key(&fn_name) && ctx.var_ty(&fn_name).is_none() {
+                        let tv = emit_user_fn_addr(ctx, &fn_name)?;
+                        ctx.coerce_to_i64(tv).val
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                _ => return Ok(None),
+            };
+            let init_tv = lower_expr(ctx, &call.args[1].expr)?;
+            let init = ctx.coerce_to_i64(init_tv).val;
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, init, fn_ptr]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "flatMap" => {
+            if call.args.len() != 1 || call.args[0].spread.is_some() {
+                return Ok(None);
+            }
+            let fn_ptr = match call.args[0].expr.as_ref() {
+                Expr::Ident(id) => {
+                    let fn_name = id.sym.as_str().to_string();
+                    if ctx.user_fns.contains_key(&fn_name) && ctx.var_ty(&fn_name).is_none() {
+                        let tv = emit_user_fn_addr(ctx, &fn_name)?;
+                        ctx.coerce_to_i64(tv).val
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                _ => return Ok(None),
+            };
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
         _ => Ok(None),
     }
 }
