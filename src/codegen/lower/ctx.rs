@@ -427,6 +427,14 @@ pub struct FnCtx<'m, 'fb> {
     /// para evitar usar Values de blocos não-dominadores.
     pub num_val_cache: HashMap<(u64, u8, cranelift_codegen::ir::Block), cranelift_codegen::ir::Value>,
 
+    /// (#210) Para nested object literals: armazena tipos dos campos
+    /// dos sub-objetos. Chave: (var_name, field_name) → tipos do
+    /// sub-objeto. Permite que `const { db: { host } } = cfg` (apos
+    /// desugaring) consiga inferir tipo de `host` quando cfg foi
+    /// declarado como `const cfg = { db: { host: "x" } }`.
+    pub local_nested_obj_field_types:
+        HashMap<(String, String), HashMap<String, ValTy>>,
+
     /// (#208) Vars declaradas como `T[]` / `Array<T>` (qualquer T).
     /// Usado em `lower_var_member_call` para preferir `lower_array_builtin`
     /// antes de `lower_string_builtin` quando o tipo estatico indica array.
@@ -498,6 +506,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),
             local_array_vars: std::collections::HashSet::new(),
+            local_nested_obj_field_types: HashMap::new(),
             opt_chain_temp_counter: 0,
         }
     }
