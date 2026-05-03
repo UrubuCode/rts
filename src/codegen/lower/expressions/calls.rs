@@ -1959,6 +1959,13 @@ fn lower_var_member_call(
         .ins()
         .trapz(callee_val, cranelift_codegen::ir::TrapCode::user(1).unwrap());
 
+    // (#261) Empilha receiver no this slot antes do call. Method
+    // shorthand em obj literal usa \`this\` via slot thread-local
+    // (PR #451). Para fns que nao usam this, push/pop sao no-op
+    // overhead.
+    let push_fn = ctx.get_extern("__RTS_FN_RT_THIS_PUSH", &[cl::I64], None)?;
+    ctx.builder.ins().call(push_fn, &[obj_h]);
+
     // namespace fns address-taken sao SystemV/Win64 (ver
     // user_call_conv). call_indirect tem que casar a callconv da
     // target ou args/return chegam corrompidos.
@@ -1985,6 +1992,11 @@ fn lower_var_member_call(
         .first()
         .copied()
         .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
+
+    // (#261) Pop this slot apos call.
+    let pop_fn = ctx.get_extern("__RTS_FN_RT_THIS_POP", &[], None)?;
+    ctx.builder.ins().call(pop_fn, &[]);
+
     Ok(TypedVal::new(v, ValTy::I64))
 }
 
