@@ -43,6 +43,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::fetch::class_spec::RESPONSE_CLASS_SPEC,
     &crate::namespaces::globals::fetch::class_spec::PROMISE_CLASS_SPEC,
     &crate::namespaces::globals::url::class_spec::URL_CLASS_SPEC,
+    &crate::namespaces::globals::url::class_spec::URLSP_CLASS_SPEC,
     &crate::namespaces::globals::function::abi::FUNCTION_CLASS_SPEC,
     &crate::namespaces::globals::symbol::SYMBOL_CLASS_SPEC,
     &crate::namespaces::globals::weakmap::WEAKMAP_CLASS_SPEC,
