@@ -153,6 +153,7 @@ pub extern "C" fn __RTS_FN_GL_TEXTDEC_NEW() -> u64 {
 }
 
 // Instance method variants: (self_handle, ptr, len) — self ignored.
+// Usados pelos GlobalClassSpec (encode/decode em receiver this).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE_INSTANCE(
     _self_h: u64,
