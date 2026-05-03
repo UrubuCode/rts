@@ -108,3 +108,29 @@ pub extern "C" fn __RTS_FN_NS_STRING_SEARCH(
     };
     rx.find(s).map(|m| m.start() as i64).unwrap_or(-1)
 }
+
+/// (#208) `str.matchAll(pattern)` — retorna handle de Vec<u64> com handles
+/// de strings, um por match. Em JS retorna iterator de RegExpExecArray; em
+/// RTS v0 retorna Vec eager (cada elemento e' o conteudo do match).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL(
+    s_ptr: *const u8,
+    s_len: i64,
+    p_ptr: *const u8,
+    p_len: i64,
+) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, alloc_entry};
+    let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
+        return empty_vec();
+    };
+    let Ok(rx) = regex::Regex::new(p) else {
+        return empty_vec();
+    };
+    let mut handles: Vec<i64> = Vec::new();
+    for m in rx.find_iter(s) {
+        let h = alloc_entry(Entry::String(m.as_str().as_bytes().to_vec()));
+        handles.push(h as i64);
+    }
+    alloc_entry(Entry::Vec(Box::new(handles)))
+}

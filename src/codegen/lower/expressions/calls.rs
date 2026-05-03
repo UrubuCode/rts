@@ -2587,6 +2587,21 @@ fn lower_string_builtin(
             );
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
+        // (#208) `s.matchAll(pattern)` — Vec de string handles, um por match.
+        "matchAll" => {
+            let pattern = arg_handle(ctx, call, 0)?;
+            let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let p2 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[pattern]);
+            let l2 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[pattern]);
+            let v = call_h!(
+                "__RTS_FN_NS_STRING_MATCH_ALL",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+                &[p1, l1, p2, l2]
+            );
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
         "localeCompare" => {
             let other = arg_handle(ctx, call, 0)?;
             let v = call_h!("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, other]);
