@@ -3,8 +3,8 @@
 //! Muitas operacoes delegam para collections::vec, mas algumas precisam
 //! de implementacao especifica aqui (shift, unshift, indexOf, includes, etc).
 
-use std::collections::HashMap;
-use crate::abi::handles::{StrHandle, alloc_str_handle, vec_from_handle, map_from_handle};
+use crate::abi::handles::{StrHandle, alloc_str_handle, vec_from_handle, map_from_handle, alloc_vec_handle};
+use crate::namespaces::gc::handles::{with_entry_mut, Entry};
 
 /// Array() — creates an empty array (Vec handle).
 #[no_mangle]
@@ -17,8 +17,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_EMPTY() -> u64 {
 pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_FROM_HANDLE(iterable: u64) -> u64 {
     // Se for um Vec, clona
     if let Some(vec) = vec_from_handle(iterable) {
-        let new_vec: Vec<i64> = vec.clone();
-        crate::abi::handles::alloc_vec_handle(&new_vec)
+        alloc_vec_handle(&vec)
     } else {
         // Fallback: retorna vazio
         crate::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW()
@@ -40,32 +39,30 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_IS_ARRAY(value: u64) -> bool {
 /// arr.shift() — removes and returns the first element.
 #[no_mangle]
 pub extern "C" fn __RTS_FN_GL_ARRAY_SHIFT(handle: u64) -> i64 {
-    if let Some(vec) = vec_from_handle(handle) {
-        if !vec.is_empty() {
-            let first = vec[0];
-            // Remove o primeiro elemento (ineficiente O(n), mas funcional)
-            unsafe {
-                let vec_mut = &mut *(handle as *mut Vec<i64>);
-                vec_mut.remove(0);
+    let mut result = 0i64;
+    let mut removed = false;
+    
+    with_entry_mut(handle, |entry| {
+        if let Some(Entry::Vec(vec)) = entry {
+            if !vec.is_empty() {
+                result = vec[0];
+                vec.remove(0);
+                removed = true;
             }
-            first
-        } else {
-            0
         }
-    } else {
-        0
-    }
+    });
+    
+    if !removed { 0 } else { result }
 }
 
 /// arr.unshift(value) — inserts element at the beginning.
 #[no_mangle]
 pub extern "C" fn __RTS_FN_GL_ARRAY_UNSHIFT(handle: u64, value: i64) {
-    if let Some(_) = vec_from_handle(handle) {
-        unsafe {
-            let vec_mut = &mut *(handle as *mut Vec<i64>);
-            vec_mut.insert(0, value);
+    with_entry_mut(handle, |entry| {
+        if let Some(Entry::Vec(vec)) = entry {
+            vec.insert(0, value);
         }
-    }
+    });
 }
 
 /// arr.indexOf(value) — returns index of element or -1 if not found.
@@ -94,12 +91,11 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_INCLUDES(handle: u64, value: i64) -> bool {
 /// arr.reverse() — reverses the array in place.
 #[no_mangle]
 pub extern "C" fn __RTS_FN_GL_ARRAY_REVERSE(handle: u64) {
-    if let Some(_) = vec_from_handle(handle) {
-        unsafe {
-            let vec_mut = &mut *(handle as *mut Vec<i64>);
-            vec_mut.reverse();
+    with_entry_mut(handle, |entry| {
+        if let Some(Entry::Vec(vec)) = entry {
+            vec.reverse();
         }
-    }
+    });
 }
 
 /// arr.slice(start, end) — returns a shallow copy from start to end.
@@ -115,7 +111,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_SLICE(handle: u64, start: i64, end: i64) -> 
             crate::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW()
         } else {
             let slice: Vec<i64> = vec[start_idx..end_idx].to_vec();
-            crate::abi::handles::alloc_vec_handle(&slice)
+            alloc_vec_handle(&slice)
         }
     } else {
         crate::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW()
@@ -130,7 +126,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_CONCAT(handle: u64, other: u64) -> u64 {
         if let Some(other_vec) = vec_from_handle(other) {
             result.extend(other_vec.iter());
         }
-        crate::abi::handles::alloc_vec_handle(&result)
+        alloc_vec_handle(&result)
     } else {
         crate::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW()
     }
@@ -143,7 +139,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FLAT(handle: u64, depth: i64) -> u64 {
     // Se depth > 0, tenta achatar um nivel por iteracao
     if let Some(vec) = vec_from_handle(handle) {
         if depth <= 0 {
-            return crate::abi::handles::alloc_vec_handle(vec);
+            return alloc_vec_handle(&vec);
         }
         // Achata um nivel: se elemento for handle de vec, expande
         let mut result = Vec::new();
@@ -157,10 +153,10 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FLAT(handle: u64, depth: i64) -> u64 {
         }
         // Se depth > 1, recursivamente achata
         if depth > 1 {
-            let flat_handle = crate::abi::handles::alloc_vec_handle(&result);
+            let flat_handle = alloc_vec_handle(&result);
             return __RTS_FN_GL_ARRAY_FLAT(flat_handle, depth - 1);
         }
-        crate::abi::handles::alloc_vec_handle(&result)
+        alloc_vec_handle(&result)
     } else {
         crate::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW()
     }
@@ -169,13 +165,11 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FLAT(handle: u64, depth: i64) -> u64 {
 /// arr.sort(comparator) — sorts array. comparator=0 para natural.
 #[no_mangle]
 pub extern "C" fn __RTS_FN_GL_ARRAY_SORT(handle: u64, _comparator: i64) {
-    if let Some(_) = vec_from_handle(handle) {
-        unsafe {
-            let vec_mut = &mut *(handle as *mut Vec<i64>);
-            // Sort natural (ascendente)
-            vec_mut.sort();
+    with_entry_mut(handle, |entry| {
+        if let Some(Entry::Vec(vec)) = entry {
+            vec.sort();
         }
-    }
+    });
 }
 
 /// arr.find(predicate_fn_ptr) — returns first element matching predicate.
