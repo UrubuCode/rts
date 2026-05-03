@@ -215,6 +215,65 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (#208 / #479) Object.entries(obj).
+                if method == "entries" && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
+                // (#208 / #479) Object.freeze(obj) — v0 no-op, retorna handle.
+                if method == "freeze" && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_FREEZE",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
+                // (#208 / #479) Object.fromEntries(arr).
+                if method == "fromEntries" && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
+                // (#208 / #479) Object.assign(target, ...sources). Loop por cada source.
+                if method == "assign" && call.args.len() >= 2 {
+                    let target_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let mut acc = ctx.coerce_to_i64(target_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_ASSIGN",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    for arg in &call.args[1..] {
+                        if arg.spread.is_some() {
+                            return Err(anyhow!("spread not supported in Object.assign"));
+                        }
+                        let s_tv = lower_expr(ctx, &arg.expr)?;
+                        let s = ctx.coerce_to_i64(s_tv).val;
+                        let inst = ctx.builder.ins().call(f, &[acc, s]);
+                        acc = ctx.builder.inst_results(inst)[0];
+                    }
+                    return Ok(TypedVal::new(acc, ValTy::Handle));
+                }
             }
             // (#208 / #476) Array static globals: Array.isArray.
             // Array.from cobre arrayLike { length: N } — versao com mapper

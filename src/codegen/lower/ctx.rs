@@ -433,6 +433,12 @@ pub struct FnCtx<'m, 'fb> {
     /// Sem isso, `arr.indexOf(x)` em `let arr: number[] = [...]` cai em
     /// string builtin (`__RTS_FN_GL_STRING_INDEX_OF`) e retorna lixo.
     pub local_array_vars: std::collections::HashSet<String>,
+
+    /// Counter para gerar nomes únicos de locals temporários em
+    /// optional chain calls aninhadas (#481). Usado por
+    /// `lower_opt_chain` quando o receiver é uma expressão complexa
+    /// que não casa com Member.obj=Ident no path coberto de lower_call.
+    pub opt_chain_temp_counter: u32,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -492,7 +498,15 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),
             local_array_vars: std::collections::HashSet::new(),
+            opt_chain_temp_counter: 0,
         }
+    }
+
+    /// Próximo id único pra nome temporário em optional chain (#481).
+    pub fn next_opt_chain_temp_id(&mut self) -> u32 {
+        let id = self.opt_chain_temp_counter;
+        self.opt_chain_temp_counter += 1;
+        id
     }
 
     /// Resolve `fn_id` a um FuncRef na fn atual, cacheando.

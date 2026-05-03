@@ -167,6 +167,299 @@ fn make_par_foreach_stmt(arr_expr: &Expr, fn_name: &str) -> Stmt {
     })
 }
 
+/// Lift de arrows inline em call sites de array methods (`map`, `forEach`,
+/// `reduce`). Para cada arrow simples (1 ou 2 params, body = expr ou
+/// `{ return expr; }`, sem captura de locals), cria um
+/// `Item::Function(__lifted_arrow_N)` top-level e substitui o arg pelo
+/// Ident. Roda antes de `array_methods_pass`, que entao reconhece o
+/// arg como user fn ident e reescreve para `parallel.*`.
+fn lift_inline_arrows_in_array_methods(program: &mut Program) {
+    use std::sync::atomic::AtomicU32;
+    let counter: AtomicU32 = AtomicU32::new(0);
+
+    // Snapshot inicial de user fn names (top-level). Usado pra
+    // detectar captura: se ident referenciado no body nao for param
+    // da arrow nem user fn nem builtin namespace, skip lift.
+    let mut user_fn_names: HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(f) => Some(f.name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut new_fns: Vec<Item> = Vec::new();
+
+    // Top-level statements.
+    let n_items = program.items.len();
+    for i in 0..n_items {
+        let Item::Statement(Statement::Raw(raw)) = &mut program.items[i] else { continue };
+        if let Some(stmt) = raw.stmt.as_mut() {
+            lift_arrows_in_stmt(stmt, &mut user_fn_names, &mut new_fns, &counter);
+        }
+    }
+
+    // Bodies de user fns.
+    let fn_indices: Vec<usize> = program.items.iter().enumerate()
+        .filter_map(|(i, it)| if matches!(it, Item::Function(_)) { Some(i) } else { None })
+        .collect();
+    for i in fn_indices {
+        if let Item::Function(f) = &mut program.items[i] {
+            for stmt_raw in &mut f.body {
+                let Statement::Raw(raw) = stmt_raw;
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    lift_arrows_in_stmt(stmt, &mut user_fn_names, &mut new_fns, &counter);
+                }
+            }
+        }
+    }
+
+    // Prepend novas fns para que `array_methods_pass` veja-as no
+    // user_fn_names snapshot inicial.
+    for fn_item in new_fns.into_iter().rev() {
+        program.items.insert(0, fn_item);
+    }
+}
+
+fn lift_arrows_in_stmt(
+    stmt: &mut Stmt,
+    user_fn_names: &mut HashSet<String>,
+    new_fns: &mut Vec<Item>,
+    counter: &std::sync::atomic::AtomicU32,
+) {
+    match stmt {
+        Stmt::Expr(e) => lift_arrows_in_expr(&mut e.expr, user_fn_names, new_fns, counter),
+        Stmt::Decl(Decl::Var(vd)) => {
+            for d in &mut vd.decls {
+                if let Some(init) = d.init.as_deref_mut() {
+                    lift_arrows_in_expr(init, user_fn_names, new_fns, counter);
+                }
+            }
+        }
+        Stmt::Return(r) => {
+            if let Some(arg) = r.arg.as_deref_mut() {
+                lift_arrows_in_expr(arg, user_fn_names, new_fns, counter);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn lift_arrows_in_expr(
+    expr: &mut Expr,
+    user_fn_names: &mut HashSet<String>,
+    new_fns: &mut Vec<Item>,
+    counter: &std::sync::atomic::AtomicU32,
+) {
+    if let Expr::Call(call) = expr {
+        if let Callee::Expr(callee) = &call.callee {
+            if let Expr::Member(m) = callee.as_ref() {
+                if let MemberProp::Ident(prop) = &m.prop {
+                    let method = prop.sym.as_str();
+                    let expected_arity = match method {
+                        "map" | "forEach" => Some((1usize, 1usize)),  // (n_args, arrow_arity)
+                        "reduce" => Some((2usize, 2usize)),
+                        _ => None,
+                    };
+                    if let Some((n_args, arrow_arity)) = expected_arity {
+                        if call.args.len() == n_args {
+                            // Arg 0 deve ser arrow inline simples.
+                            let try_lift = match call.args[0].expr.as_ref() {
+                                Expr::Arrow(_) => true,
+                                _ => false,
+                            };
+                            if try_lift {
+                                if let Some(fn_name) = try_lift_arrow_arg(
+                                    &call.args[0].expr,
+                                    arrow_arity,
+                                    user_fn_names,
+                                    new_fns,
+                                    counter,
+                                ) {
+                                    // Substitui arg por Ident.
+                                    call.args[0].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                                        span: Default::default(),
+                                        ctxt: Default::default(),
+                                        sym: fn_name.into(),
+                                        optional: false,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Recursa em sub-args.
+        for a in &mut call.args {
+            lift_arrows_in_expr(&mut a.expr, user_fn_names, new_fns, counter);
+        }
+    }
+}
+
+/// Tenta liftar arrow para top-level fn. Retorna Some(name) em caso
+/// de sucesso, None se a arrow nao casa o padrao simples.
+fn try_lift_arrow_arg(
+    arg: &Expr,
+    expected_arity: usize,
+    user_fn_names: &mut HashSet<String>,
+    new_fns: &mut Vec<Item>,
+    counter: &std::sync::atomic::AtomicU32,
+) -> Option<String> {
+    use swc_ecma_ast::BlockStmtOrExpr;
+    let arrow = match arg {
+        Expr::Arrow(a) => a,
+        _ => return None,
+    };
+
+    if arrow.params.len() != expected_arity {
+        return None;
+    }
+
+    // Coleta nomes dos params (devem ser Pat::Ident simples).
+    let mut param_names: Vec<String> = Vec::with_capacity(expected_arity);
+    for p in &arrow.params {
+        let name = match p {
+            Pat::Ident(bi) => bi.id.sym.to_string(),
+            _ => return None,
+        };
+        param_names.push(name);
+    }
+
+    // Body: Expr direto OU BlockStmt com 1 return.
+    let body_expr: Expr = match arrow.body.as_ref() {
+        BlockStmtOrExpr::Expr(e) => (**e).clone(),
+        BlockStmtOrExpr::BlockStmt(b) => {
+            if b.stmts.len() != 1 {
+                return None;
+            }
+            match &b.stmts[0] {
+                Stmt::Return(r) => match r.arg.as_deref() {
+                    Some(e) => e.clone(),
+                    None => return None,
+                },
+                _ => return None,
+            }
+        }
+    };
+
+    // Captura check: idents no body devem ser params, user fns,
+    // builtins de namespaces, ou nomes de classes globais. Senao skip.
+    if has_capture(&body_expr, &param_names, user_fn_names) {
+        return None;
+    }
+
+    let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let fn_name = format!("__lifted_arr_method_{}", n);
+
+    let parameters: Vec<Parameter> = param_names
+        .iter()
+        .map(|n| Parameter {
+            name: n.clone(),
+            type_annotation: Some("i64".to_string()),
+            modifiers: MemberModifiers::default(),
+            variadic: false,
+            default: None,
+            span: Span::default(),
+        })
+        .collect();
+
+    let return_stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
+        span: Default::default(),
+        arg: Some(Box::new(body_expr)),
+    });
+    let body_stmts = vec![Statement::Raw(
+        RawStmt::new("<lifted-arrow>".to_string(), Span::default()).with_stmt(return_stmt),
+    )];
+
+    new_fns.push(Item::Function(FunctionDecl {
+        name: fn_name.clone(),
+        parameters,
+        return_type: Some("i64".to_string()),
+        body: body_stmts,
+        span: Span::default(),
+        is_async: false,
+    }));
+    user_fn_names.insert(fn_name.clone());
+    Some(fn_name)
+}
+
+/// Conjunto conservador de namespace/builtin idents que sao OK
+/// referenciar do body sem caracterizar captura de local.
+fn is_known_global_ident(name: &str) -> bool {
+    matches!(
+        name,
+        "math" | "string" | "num" | "fmt" | "path" | "hash" | "mem"
+        | "io" | "fs" | "gc" | "buffer" | "time" | "env" | "os"
+        | "collections" | "crypto" | "regex" | "json" | "date"
+        | "Math" | "String" | "Number" | "Date" | "JSON" | "RegExp"
+        | "Error" | "TypeError" | "RangeError" | "SyntaxError"
+        | "Array" | "Object" | "Boolean" | "Symbol"
+        | "console" | "performance" | "globalThis"
+        | "undefined" | "null" | "NaN" | "Infinity"
+        | "true" | "false"
+        | "isNaN" | "isFinite" | "parseInt" | "parseFloat"
+    )
+}
+
+fn has_capture(expr: &Expr, params: &[String], user_fn_names: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Ident(i) => {
+            let n = i.sym.as_str();
+            if params.iter().any(|p| p == n) { return false; }
+            if user_fn_names.contains(n) { return false; }
+            if is_known_global_ident(n) { return false; }
+            true
+        }
+        Expr::Lit(_) => false,
+        Expr::This(_) => true,
+        Expr::Bin(b) => has_capture(&b.left, params, user_fn_names) || has_capture(&b.right, params, user_fn_names),
+        Expr::Unary(u) => has_capture(&u.arg, params, user_fn_names),
+        Expr::Paren(p) => has_capture(&p.expr, params, user_fn_names),
+        Expr::Cond(c) => has_capture(&c.test, params, user_fn_names)
+            || has_capture(&c.cons, params, user_fn_names)
+            || has_capture(&c.alt, params, user_fn_names),
+        Expr::Member(m) => {
+            // obj pode ser ident; prop nao conta.
+            has_capture(&m.obj, params, user_fn_names)
+        }
+        Expr::Call(c) => {
+            let callee_cap = match &c.callee {
+                Callee::Expr(e) => has_capture(e, params, user_fn_names),
+                _ => false,
+            };
+            if callee_cap { return true; }
+            for a in &c.args {
+                if a.spread.is_some() { return true; }
+                if has_capture(&a.expr, params, user_fn_names) { return true; }
+            }
+            false
+        }
+        Expr::Tpl(t) => {
+            for e in &t.exprs {
+                if has_capture(e, params, user_fn_names) { return true; }
+            }
+            false
+        }
+        Expr::Array(a) => {
+            for el in &a.elems {
+                if let Some(el) = el {
+                    if el.spread.is_some() { return true; }
+                    if has_capture(&el.expr, params, user_fn_names) { return true; }
+                }
+            }
+            false
+        }
+        Expr::TsAs(t) => has_capture(&t.expr, params, user_fn_names),
+        Expr::TsTypeAssertion(t) => has_capture(&t.expr, params, user_fn_names),
+        Expr::TsConstAssertion(t) => has_capture(&t.expr, params, user_fn_names),
+        Expr::TsNonNull(t) => has_capture(&t.expr, params, user_fn_names),
+        // Conservador: qualquer outra forma (Fn, Arrow nested, Assign, Update, etc) → trata como captura.
+        _ => true,
+    }
+}
+
 /// Level-1 silent array methods: reescreve `arr.map(fn)`,
 /// `arr.forEach(fn)`, `arr.reduce(fn, init)` para `parallel.map(arr, fn)`,
 /// `parallel.for_each(arr, fn)`, `parallel.reduce(arr, init, fn)` quando
@@ -5619,6 +5912,7 @@ pub fn compile_program(
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
     expand_static_fields(program);
+    lift_inline_arrows_in_array_methods(program);
     array_methods_pass(program);
     let mut par_fn_names = reduce_pass(program);
     par_fn_names.extend(purity_pass(program));

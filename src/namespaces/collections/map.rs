@@ -287,3 +287,149 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
         crate::namespaces::gc::handles::Entry::Vec(Box::new(vals)),
     )
 }
+
+/// (#208 / #479) `Object.entries(obj)` — retorna Vec de Vec [key_handle, value].
+/// Cada par e' um Vec<i64> com 2 elementos: handle de string da key, e o
+/// valor i64. Ordem: keys sorted asc.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
+    let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
+        let mut entries: Vec<(String, i64)> = m.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries
+    });
+    let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
+    for (k, v) in pairs {
+        let key_h = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            k.as_ptr(),
+            k.len() as i64,
+        );
+        let inner = crate::namespaces::gc::handles::alloc_entry(
+            crate::namespaces::gc::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
+        );
+        outer.push(inner as i64);
+    }
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::Vec(Box::new(outer)),
+    )
+}
+
+/// (#208 / #479) `Object.assign(target, source)` — copia own props de source
+/// pra target. Retorna handle do target. Versao com multiplos sources e'
+/// chamada repetidamente pelo codegen.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -> u64 {
+    let pairs: Vec<(String, i64)> = with_map(source, Vec::new(), |m| {
+        m.iter().map(|(k, v)| (k.clone(), *v)).collect()
+    });
+    with_map_mut(target, (), |m| {
+        for (k, v) in pairs {
+            m.insert(k, v);
+        }
+    });
+    target
+}
+
+/// (#208 / #479) `Object.freeze(obj)` — v0 sem flag de frozen no Entry.
+/// Retorna o proprio handle. Mutacoes subsequentes nao sao bloqueadas
+/// (JS non-strict mode behavior). Issue separada cobrira freeze real.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(handle: u64) -> u64 {
+    handle
+}
+
+/// (#208 / #479) `Object.fromEntries(arr)` — recebe Vec de pares
+/// [key_handle, value] e cria Map. Inverso de Object.entries.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, with_entry};
+    let pair_handles: Vec<i64> = with_entry(arr, |entry| match entry {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let m = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    for ph in pair_handles {
+        let pair_h = ph as u64;
+        let kv: Option<(String, i64)> = with_entry(pair_h, |entry| match entry {
+            Some(Entry::Vec(pair)) if pair.len() >= 2 => {
+                let key_h = pair[0] as u64;
+                let key_str: Option<String> = with_entry(key_h, |ke| match ke {
+                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                    _ => None,
+                });
+                key_str.map(|k| (k, pair[1]))
+            }
+            _ => None,
+        });
+        if let Some((k, v)) = kv {
+            with_map_mut(m, (), |mm| {
+                mm.insert(k, v);
+            });
+        }
+    }
+    m
+}
+
+#[cfg(test)]
+mod object_tests {
+    use super::*;
+    use crate::namespaces::gc::handles::{Entry, with_entry};
+
+    fn read_str(h: u64) -> Option<String> {
+        with_entry(h, |e| match e {
+            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+            _ => None,
+        })
+    }
+
+    fn read_vec(h: u64) -> Vec<i64> {
+        with_entry(h, |e| match e {
+            Some(Entry::Vec(v)) => v.as_ref().clone(),
+            _ => Vec::new(),
+        })
+    }
+
+    fn map_with(pairs: &[(&str, i64)]) -> u64 {
+        let h = __RTS_FN_NS_COLLECTIONS_MAP_NEW();
+        for (k, v) in pairs {
+            with_map_mut(h, (), |m| {
+                m.insert((*k).to_string(), *v);
+            });
+        }
+        h
+    }
+
+    #[test]
+    fn entries_returns_pairs_sorted() {
+        let m = map_with(&[("b", 2), ("a", 1), ("c", 3)]);
+        let entries = __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(m);
+        let outer = read_vec(entries);
+        assert_eq!(outer.len(), 3);
+        let p0 = read_vec(outer[0] as u64);
+        assert_eq!(read_str(p0[0] as u64).unwrap(), "a");
+        assert_eq!(p0[1], 1);
+    }
+
+    #[test]
+    fn assign_copies_source_to_target() {
+        let target = map_with(&[("x", 1)]);
+        let source = map_with(&[("y", 2), ("z", 3)]);
+        let result = __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target, source);
+        assert_eq!(result, target);
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_MAP_LEN(target), 3);
+    }
+
+    #[test]
+    fn from_entries_roundtrip() {
+        let m = map_with(&[("a", 1), ("b", 2)]);
+        let entries = __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(m);
+        let back = __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(entries);
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_MAP_LEN(back), 2);
+    }
+
+    #[test]
+    fn freeze_returns_same_handle() {
+        let m = map_with(&[("a", 1)]);
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_MAP_FREEZE(m), m);
+    }
+}
