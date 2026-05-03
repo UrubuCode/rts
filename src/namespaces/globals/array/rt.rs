@@ -3,7 +3,7 @@
 //! Muitas operacoes delegam para collections::vec, mas algumas precisam
 //! de implementacao especifica aqui (shift, unshift, indexOf, includes, etc).
 
-use crate::abi::handles::{alloc_str_handle, vec_from_handle, alloc_vec_handle, modify_vec_handle};
+use crate::abi::handles::{vec_from_handle, alloc_vec_handle, modify_vec_handle};
 
 /// Array() — creates an empty array (Vec handle).
 #[unsafe(no_mangle)]

@@ -31,10 +31,8 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_ASSIGN(target: u64, source: u64) {
     if let Some(source_map) = map_from_handle(source) {
         let source_clone: Vec<(String, i64)> = source_map.iter().map(|(k, v)| (k.clone(), *v)).collect();
         modify_map_handle(target, |map| {
-            if let Some(m) = map {
-                for (key, value) in source_clone.iter() {
-                    m.insert(key.clone(), *value);
-                }
+            for (key, value) in source_clone.iter() {
+                map.insert(key.clone(), *value);
             }
         });
     }
@@ -69,9 +67,7 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_DEFINE_PROP(handle: u64, prop_ptr: u64, pro
     let prop_bytes = unsafe { slice::from_raw_parts(prop_ptr as *const u8, prop_len as usize) };
     if let Ok(prop) = std::str::from_utf8(prop_bytes) {
         modify_map_handle(handle, |map| {
-            if let Some(m) = map {
-                m.insert(prop.to_string(), value);
-            }
+            map.insert(prop.to_string(), value);
         });
     }
 }
