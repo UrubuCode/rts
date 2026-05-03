@@ -278,6 +278,50 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(
     alloc_entry(Entry::Vec(Box::new(removed)))
 }
 
+/// (#208) `Array.from({length: n}, fn?)` — gera Vec [fn(0), fn(1), ...].
+/// Se fn_ptr == 0, gera [0, 1, ..., n-1] (sem mapeamento).
+/// fn_ptr e' `extern "C" fn(item: i64, idx: i64) -> i64`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
+    if n < 0 || n > VEC_MAX_LEN as i64 {
+        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    }
+    let n = n as usize;
+    let mut out: Vec<i64> = Vec::with_capacity(n);
+    if fn_ptr == 0 {
+        for i in 0..n {
+            out.push(i as i64);
+        }
+    } else {
+        // SAFETY: fn_ptr e' `extern "C" fn(i64, i64) -> i64`.
+        // Em JS Array.from(arrayLike, mapFn) chama mapFn(undefined, idx)
+        // pra cada slot vazio. Aqui passamos (idx, idx) pra simplificar
+        // — mapper tipico em RTS recebe `(_, i) => ...` e usa so' i.
+        let f: extern "C" fn(i64, i64) -> i64 =
+            unsafe { std::mem::transmute(fn_ptr as usize) };
+        for i in 0..n {
+            out.push(f(i as i64, i as i64));
+        }
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// (#208) `Array.from(vecHandle, fn?)` — converte Vec existente, opcionalmente
+/// mapeando cada elemento. Sem fn, retorna copia rasa.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
+    let src_items: Vec<i64> = with_vec(src, Vec::new(), |v| v.clone());
+    if fn_ptr == 0 {
+        return alloc_entry(Entry::Vec(Box::new(src_items)));
+    }
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let mut out: Vec<i64> = Vec::with_capacity(src_items.len());
+    for (i, item) in src_items.into_iter().enumerate() {
+        out.push(f(item, i as i64));
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,5 +432,33 @@ mod tests {
         let removed = __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(h, 1, 2);
         assert_eq!(handle_to_vec(removed), vec![2, 3]);
         assert_eq!(handle_to_vec(h), vec![1, 4, 5]);
+    }
+
+    #[test]
+    fn array_from_length_no_fn() {
+        let h = __RTS_FN_GL_ARRAY_FROM_LENGTH(4, 0);
+        assert_eq!(handle_to_vec(h), vec![0, 1, 2, 3]);
+    }
+
+    extern "C" fn triple(_item: i64, idx: i64) -> i64 {
+        idx * 3
+    }
+
+    #[test]
+    fn array_from_length_with_fn() {
+        let fp = triple as *const () as u64;
+        let h = __RTS_FN_GL_ARRAY_FROM_LENGTH(4, fp);
+        assert_eq!(handle_to_vec(h), vec![0, 3, 6, 9]);
+    }
+
+    #[test]
+    fn array_from_vec_no_fn() {
+        let src = __RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for x in [10, 20, 30] {
+            __RTS_FN_NS_COLLECTIONS_VEC_PUSH(src, x);
+        }
+        let cp = __RTS_FN_GL_ARRAY_FROM_VEC(src, 0);
+        assert_eq!(handle_to_vec(cp), vec![10, 20, 30]);
+        assert_ne!(cp, src);
     }
 }

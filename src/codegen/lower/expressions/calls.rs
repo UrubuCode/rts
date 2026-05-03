@@ -303,15 +303,11 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     _ => {}
                 }
             }
-            // (#208 / #476) Array static globals: Array.isArray.
-            // Array.from cobre arrayLike { length: N } — versao com mapper
-            // vai em PR separada (precisa caminho de callback).
+            // (#208 / #476) Array static globals: isArray, from.
             if let Some(method) = qualified.strip_prefix("Array.") {
                 if method == "isArray" && call.args.len() == 1
                     && call.args[0].spread.is_none()
                 {
-                    // arr.isArray(x): true se x e' handle valido cujo Entry::Vec.
-                    // Reusa __RTS_FN_NS_GC_IS_VEC se existir, senao via tag.
                     let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let arg_h = ctx.coerce_to_i64(arg_tv).val;
                     let is_vec_fn = ctx.get_extern(
@@ -322,6 +318,83 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let inst = ctx.builder.ins().call(is_vec_fn, &[arg_h]);
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Bool));
+                }
+                // (#208) Array.from(arrayLike, mapper?). Aceita 2 formas:
+                //   1. Array.from({length: N}, fn?) — gera Vec [fn(0,0), fn(1,1), ...]
+                //      Detecta object literal com unica key "length".
+                //   2. Array.from(vecHandle, fn?) — converte/mapeia Vec existente.
+                // mapper e' Ident de user fn (lift de arrow inline fica em
+                // PR separada — usuario pode definir `function f(_, i)` antes).
+                if method == "from" && (call.args.len() == 1 || call.args.len() == 2) {
+                    let first = &call.args[0];
+                    if first.spread.is_some() {
+                        return Err(anyhow!("spread not supported in Array.from"));
+                    }
+                    // Resolve mapper fn_ptr (0 se ausente).
+                    let fn_ptr = if call.args.len() == 2 {
+                        let arg = &call.args[1];
+                        if arg.spread.is_some() {
+                            return Err(anyhow!("spread not supported in Array.from"));
+                        }
+                        match arg.expr.as_ref() {
+                            Expr::Ident(id) => {
+                                let fn_name = id.sym.as_str().to_string();
+                                if ctx.user_fns.contains_key(&fn_name)
+                                    && ctx.var_ty(&fn_name).is_none()
+                                {
+                                    let tv = emit_user_fn_addr(ctx, &fn_name)?;
+                                    ctx.coerce_to_i64(tv).val
+                                } else {
+                                    ctx.builder.ins().iconst(cl::I64, 0)
+                                }
+                            }
+                            _ => ctx.builder.ins().iconst(cl::I64, 0),
+                        }
+                    } else {
+                        ctx.builder.ins().iconst(cl::I64, 0)
+                    };
+                    // Detecta `{length: N}` literal.
+                    if let Expr::Object(obj_lit) = first.expr.as_ref() {
+                        let mut length_lit: Option<i64> = None;
+                        for prop in &obj_lit.props {
+                            if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                                if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                                    let key = match &kv.key {
+                                        swc_ecma_ast::PropName::Ident(i) => Some(i.sym.as_str().to_string()),
+                                        swc_ecma_ast::PropName::Str(s) => Some(s.value.to_string_lossy().to_string()),
+                                        _ => None,
+                                    };
+                                    if key.as_deref() == Some("length") {
+                                        if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = kv.value.as_ref() {
+                                            length_lit = Some(n.value as i64);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(n_lit) = length_lit {
+                            let n = ctx.builder.ins().iconst(cl::I64, n_lit);
+                            let f = ctx.get_extern(
+                                "__RTS_FN_GL_ARRAY_FROM_LENGTH",
+                                &[cl::I64, cl::I64],
+                                Some(cl::I64),
+                            )?;
+                            let inst = ctx.builder.ins().call(f, &[n, fn_ptr]);
+                            let v = ctx.builder.inst_results(inst)[0];
+                            return Ok(TypedVal::new(v, ValTy::Handle));
+                        }
+                    }
+                    // Fallback: src e' Vec handle.
+                    let src_tv = lower_expr(ctx, &first.expr)?;
+                    let src = ctx.coerce_to_i64(src_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_GL_ARRAY_FROM_VEC",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[src, fn_ptr]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
                 }
             }
             // Function global (#359): `<fn>.call/.apply/.bind/.toString(...)`.

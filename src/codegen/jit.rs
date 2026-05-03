@@ -974,6 +974,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE
         );
+        // (#208) Array.from variants.
+        add_fn!(
+            "__RTS_FN_GL_ARRAY_FROM_LENGTH",
+            vec::__RTS_FN_GL_ARRAY_FROM_LENGTH
+        );
+        add_fn!(
+            "__RTS_FN_GL_ARRAY_FROM_VEC",
+            vec::__RTS_FN_GL_ARRAY_FROM_VEC
+        );
     }
 
     // ── namespaces::os ────────────────────────────────────────────────
