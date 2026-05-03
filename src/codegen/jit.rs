@@ -1054,6 +1054,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         search::__RTS_FN_NS_STRING_ENDS_WITH
     );
     add_fn!("__RTS_FN_NS_STRING_FIND", search::__RTS_FN_NS_STRING_FIND);
+    // (#208) match/search via regex.
+    add_fn!("__RTS_FN_NS_STRING_MATCH", search::__RTS_FN_NS_STRING_MATCH);
+    add_fn!("__RTS_FN_NS_STRING_SEARCH", search::__RTS_FN_NS_STRING_SEARCH);
     add_fn!(
         "__RTS_FN_NS_STRING_TO_UPPER",
         transform::__RTS_FN_NS_STRING_TO_UPPER
