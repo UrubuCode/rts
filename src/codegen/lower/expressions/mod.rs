@@ -119,6 +119,73 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
     }
 
     if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
+        // (#264 PR4+) Intercepta `<UserFn>.prototype = X` para chamar
+        // FUNCTION_PROTOTYPE_SET que atualiza o registry global. Sem isso,
+        // \`Dog.prototype = Object.create(...)\` faz MAP_SET em handle Function
+        // (nao Map) e o registry continua com o Map antigo.
+        if matches!(a.op, AssignOp::Assign) {
+            if let MemberProp::Ident(prop) = &m.prop {
+                if prop.sym.as_str() == "prototype" {
+                    // Peel TsAs/Paren no obj.
+                    let mut obj_e: &Expr = m.obj.as_ref();
+                    loop {
+                        match obj_e {
+                            Expr::TsAs(a) => obj_e = &a.expr,
+                            Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                            Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                            Expr::TsSatisfies(a) => obj_e = &a.expr,
+                            Expr::TsNonNull(a) => obj_e = &a.expr,
+                            Expr::Paren(p) => obj_e = &p.expr,
+                            _ => break,
+                        }
+                    }
+                    if let Expr::Ident(id) = obj_e {
+                        let name = id.sym.as_str();
+                        if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
+                            // Reify Function handle.
+                            let fn_handle_tv = self::calls::emit_user_fn_addr(ctx, name)?;
+                            let fn_addr = fn_handle_tv.val;
+                            let arity = ctx
+                                .user_fns
+                                .get(name)
+                                .map(|f| f.params.len() as i64)
+                                .unwrap_or(0);
+                            let arity_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I64, arity);
+                            let name_tv = ctx.emit_str_handle(name.as_bytes())?;
+                            let name_h = ctx.coerce_to_i64(name_tv).val;
+                            let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+                            let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+                            let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+                            let n_ptr = ctx.builder.inst_results(inst_p)[0];
+                            let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+                            let n_len = ctx.builder.inst_results(inst_l)[0];
+                            let is_arrow_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+                            let has_this_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+                            let reify_fn = ctx.get_extern(
+                                "__RTS_FN_GL_FUNCTION_REIFY",
+                                &[cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I32, cranelift_codegen::ir::types::I32],
+                                Some(cranelift_codegen::ir::types::I64),
+                            )?;
+                            let inst_r = ctx
+                                .builder
+                                .ins()
+                                .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+                            let fn_handle = ctx.builder.inst_results(inst_r)[0];
+                            // Lower RHS.
+                            let rhs_tv = lower_expr(ctx, &a.right)?;
+                            let rhs_h = ctx.coerce_to_i64(rhs_tv).val;
+                            let set_proto = ctx.get_extern(
+                                "__RTS_FN_GL_FUNCTION_PROTOTYPE_SET",
+                                &[cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64],
+                                None,
+                            )?;
+                            ctx.builder.ins().call(set_proto, &[fn_handle, rhs_h]);
+                            return Ok(TypedVal::new(rhs_h, ValTy::Handle));
+                        }
+                    }
+                }
+            }
+        }
         let final_rhs_expr: Box<Expr> = if matches!(a.op, AssignOp::Assign) {
             a.right.clone()
         } else {

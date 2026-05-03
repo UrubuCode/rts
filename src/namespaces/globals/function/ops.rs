@@ -475,6 +475,31 @@ pub(crate) fn lookup_prototype_for_fn_ptr(fn_ptr: u64) -> Option<u64> {
     registry.get(&fn_ptr).copied().filter(|&h| h != 0)
 }
 
+/// (#264 PR4+) Substitui o prototype Map de uma user fn.
+/// \`Dog.prototype = Object.create(Animal.prototype)\` precisa atualizar
+/// o registry para que \`new Dog\` instale a chain correta.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_SET(handle: u64, new_proto: u64) {
+    let fn_ptr = with_entry(handle, |e| {
+        if let Some(Entry::Function(d)) = e {
+            Some(d.fn_ptr)
+        } else {
+            None
+        }
+    });
+    let Some(fn_ptr) = fn_ptr else { return };
+    let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
+    registry.insert(fn_ptr, new_proto);
+    drop(registry);
+    // Atualiza tambem o slot da Function para tracing GC continuar valido.
+    let _ = with_entry_mut(handle, |e| {
+        if let Some(Entry::Function(d)) = e {
+            d.prototype_handle = new_proto;
+        }
+        ()
+    });
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_NAME(handle: u64) -> u64 {
     let name = with_entry(handle, |e| {

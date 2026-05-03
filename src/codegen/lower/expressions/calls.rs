@@ -221,7 +221,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 if let MemberProp::Ident(prop) = &m.prop {
                     let prop_name = prop.sym.as_str();
                     if matches!(prop_name, "call" | "apply" | "bind" | "toString") {
-                        if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                        // Peel TsAs/Paren em obj para suportar
+                        // \`(Animal as any).call(this, ...)\`.
+                        let mut obj_e: &Expr = m.obj.as_ref();
+                        loop {
+                            match obj_e {
+                                Expr::TsAs(a) => obj_e = &a.expr,
+                                Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                                Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                                Expr::TsSatisfies(a) => obj_e = &a.expr,
+                                Expr::TsNonNull(a) => obj_e = &a.expr,
+                                Expr::Paren(p) => obj_e = &p.expr,
+                                _ => break,
+                            }
+                        }
+                        if let Expr::Ident(obj_id) = obj_e {
                             let obj_name = obj_id.sym.as_str();
                             // (a) user fn direta
                             if ctx.user_fns.contains_key(obj_name) && ctx.var_ty(obj_name).is_none() {
@@ -239,7 +253,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         // (c) `<expr>.bind/call/apply/toString` onde <expr> não é
                         // Ident — ex: `c.add.bind(c)`. Avalia obj e se for Handle,
                         // despacha via FUNCTION_*.
-                        if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
+                        if !matches!(obj_e, Expr::Ident(_)) {
                             if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
                                 return Ok(tv);
                             }
@@ -278,6 +292,41 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
             return lower_ns_call(ctx, &qualified, call);
+        }
+        // (#264) Fallback fora do qualified path: \`(Animal as any).call(this, ...)\`
+        // — qualified_member_name retorna None por causa do TsAs, entao
+        // este block roda separado pra peelar e roteár.
+        if let Expr::Member(m) = callee.as_ref() {
+            if let MemberProp::Ident(prop) = &m.prop {
+                let prop_name = prop.sym.as_str();
+                if matches!(prop_name, "call" | "apply" | "bind" | "toString") {
+                    let mut obj_e: &Expr = m.obj.as_ref();
+                    loop {
+                        match obj_e {
+                            Expr::TsAs(a) => obj_e = &a.expr,
+                            Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                            Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                            Expr::TsSatisfies(a) => obj_e = &a.expr,
+                            Expr::TsNonNull(a) => obj_e = &a.expr,
+                            Expr::Paren(p) => obj_e = &p.expr,
+                            _ => break,
+                        }
+                    }
+                    if let Expr::Ident(obj_id) = obj_e {
+                        let obj_name = obj_id.sym.as_str();
+                        if ctx.user_fns.contains_key(obj_name) && ctx.var_ty(obj_name).is_none() {
+                            if let Some(tv) = lower_function_method_call(ctx, obj_name, prop_name, call)? {
+                                return Ok(tv);
+                            }
+                        }
+                        if ctx.var_ty(obj_name).is_some() {
+                            if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
+                                return Ok(tv);
+                            }
+                        }
+                    }
+                }
+            }
         }
         if let Expr::Ident(id) = callee.as_ref() {
             let name = id.sym.as_str();
