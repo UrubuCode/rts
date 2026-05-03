@@ -48,6 +48,18 @@ impl ValTy {
             "string" | "str" => return ValTy::Handle,
             _ => {}
         }
+        // Tipos de array (`T[]`, `Array<T>`, `ReadonlyArray<T>`) sao
+        // representados como handles GC (Vec<i64>) — `.length`, `.push`,
+        // `for...of` dispatcham via gc.handle_len/vec_*.
+        if trimmed.ends_with("[]") {
+            return ValTy::Handle;
+        }
+        if trimmed.starts_with("Array<")
+            || trimmed.starts_with("ReadonlyArray<")
+            || trimmed.starts_with("readonly ")
+        {
+            return ValTy::Handle;
+        }
         // \`Promise<X>\` (resultado tipico de async fn): RTS nao tem
         // Promise propria — async vira sync stripped, entao o tipo
         // efetivo eh X. Cobre \`Promise<string>\`, \`Promise<number>\`, etc.

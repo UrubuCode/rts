@@ -267,6 +267,10 @@ pub(super) fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
     if let TsType::TsParenthesizedType(p) = ty {
         return ts_type_to_val_ty(&p.type_ann);
     }
+    // `T[]` e `Array<T>` sao handles GC (Vec<i64>).
+    if let TsType::TsArrayType(_) = ty {
+        return Some(ValTy::Handle);
+    }
     None
 }
 
