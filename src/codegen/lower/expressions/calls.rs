@@ -30,32 +30,35 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         }
         // (#264 PR5) Fast path: `(var as any).method(...)` — TsAs/Paren etc
         // antes do member. Peel e despacha como var.method().
+        // (#fix) NAO sequestra quando \`lhs_static_class\` resolve via TsAs
+        // para uma classe — esse caso deve ir pelo caminho de class method
+        // (lower_class_method_call_with_recv) via lhs_static_class.
         if let Expr::Member(m) = callee.as_ref() {
-            let mut obj_e: &Expr = m.obj.as_ref();
-            loop {
-                match obj_e {
-                    Expr::TsAs(a) => obj_e = &a.expr,
-                    Expr::TsTypeAssertion(a) => obj_e = &a.expr,
-                    Expr::TsConstAssertion(a) => obj_e = &a.expr,
-                    Expr::TsSatisfies(a) => obj_e = &a.expr,
-                    Expr::TsNonNull(a) => obj_e = &a.expr,
-                    Expr::Paren(p) => obj_e = &p.expr,
-                    _ => break,
+            let class_via_assertion = lhs_static_class(ctx, &m.obj);
+            if class_via_assertion.is_none() {
+                let mut obj_e: &Expr = m.obj.as_ref();
+                loop {
+                    match obj_e {
+                        Expr::TsAs(a) => obj_e = &a.expr,
+                        Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                        Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                        Expr::TsSatisfies(a) => obj_e = &a.expr,
+                        Expr::TsNonNull(a) => obj_e = &a.expr,
+                        Expr::Paren(p) => obj_e = &p.expr,
+                        _ => break,
+                    }
                 }
-            }
-            // Se peel produziu um Ident e o obj original NAO era Ident,
-            // re-rola como var.member chamando lower_var_member_call diretamente.
-            // (Para Ident puro, deixa fluir pelo caminho existente.)
-            if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
-                if let Expr::Ident(obj_id) = obj_e {
-                    if ctx.var_ty(obj_id.sym.as_str()).is_some() {
-                        if let MemberProp::Ident(prop) = &m.prop {
-                            return lower_var_member_call(
-                                ctx,
-                                obj_id.sym.as_str(),
-                                prop.sym.as_str(),
-                                call,
-                            );
+                if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
+                    if let Expr::Ident(obj_id) = obj_e {
+                        if ctx.var_ty(obj_id.sym.as_str()).is_some() {
+                            if let MemberProp::Ident(prop) = &m.prop {
+                                return lower_var_member_call(
+                                    ctx,
+                                    obj_id.sym.as_str(),
+                                    prop.sym.as_str(),
+                                    call,
+                                );
+                            }
                         }
                     }
                 }
