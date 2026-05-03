@@ -15,7 +15,7 @@ pub const TEXT_ENCODER_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "encode",
         kind: MemberKind::InstanceMethod,
-        symbol: "__RTS_FN_GL_TEXTENC_ENCODE",
+        symbol: "__RTS_FN_GL_TEXTENC_ENCODE_INSTANCE",
         args: &[AbiType::Handle, AbiType::StrPtr],
         returns: AbiType::Handle,
         doc: "encoder.encode(text) — UTF-8 bytes como Buffer handle.",
@@ -46,7 +46,7 @@ pub const TEXT_DECODER_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "decode",
         kind: MemberKind::InstanceMethod,
-        symbol: "__RTS_FN_GL_TEXTENC_DECODE",
+        symbol: "__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE",
         args: &[AbiType::Handle, AbiType::Handle],
         returns: AbiType::Handle,
         doc: "decoder.decode(buf) — Buffer handle para string handle.",
