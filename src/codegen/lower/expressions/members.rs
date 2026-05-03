@@ -267,9 +267,37 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
                 }));
                 (KeySrc::Static(name), synthetic)
             }
-            Prop::Method(_) | Prop::Getter(_) | Prop::Setter(_) | Prop::Assign(_) => {
+            // (#261) Method shorthand: \`{ greet() { ... } }\` desugara
+            // pra \`{ greet: function() { ... } }\`. \`this\` no body usa
+            // slot thread-local (PR #451), populado pelo call site
+            // que faz THIS_PUSH antes do invoke (\`obj.greet()\`).
+            Prop::Method(method) => {
+                let name = match &method.key {
+                    PropName::Ident(id) => id.sym.as_str().to_string(),
+                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                    PropName::Num(n) => n.value.to_string(),
+                    PropName::Computed(c) => {
+                        if let Expr::Lit(swc_ecma_ast::Lit::Str(s)) = c.expr.as_ref() {
+                            s.value.to_string_lossy().to_string()
+                        } else {
+                            return Err(anyhow!(
+                                "computed key dynamic em method shorthand ainda nao suportado"
+                            ));
+                        }
+                    }
+                    PropName::BigInt(_) => {
+                        return Err(anyhow!("bigint key em method nao suportado"));
+                    }
+                };
+                let fn_expr = swc_ecma_ast::FnExpr {
+                    ident: None,
+                    function: method.function.clone(),
+                };
+                (KeySrc::Static(name), Box::new(Expr::Fn(fn_expr)))
+            }
+            Prop::Getter(_) | Prop::Setter(_) | Prop::Assign(_) => {
                 return Err(anyhow!(
-                    "method/get/set/assign em object literal nao suportado (MVP)"
+                    "get/set/assign em object literal nao suportado (MVP)"
                 ));
             }
         };
