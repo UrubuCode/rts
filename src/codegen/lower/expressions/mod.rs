@@ -43,9 +43,21 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
         Expr::OptChain(opt) => lower_opt_chain(ctx, opt),
         Expr::SuperProp(sp) => lower_super_prop_read(ctx, sp),
         Expr::New(new_expr) => lower_new(ctx, new_expr),
-        Expr::This(_) => ctx
-            .read_local("this")
-            .ok_or_else(|| anyhow!("`this` unavailable in current context")),
+        Expr::This(_) => {
+            // Em metodo de classe (compilado com `this` como param real),
+            // ler o local. Em fn plain nao-arrow, ler do thread-local
+            // `this` slot (populado por Function.call/.apply em runtime).
+            // Em arrow plain top-level, slot retorna 0 (=undefined).
+            if let Some(v) = ctx.read_local("this") {
+                Ok(v)
+            } else {
+                let fref =
+                    ctx.get_extern("__RTS_FN_RT_THIS_GET", &[], Some(cranelift_codegen::ir::types::I64))?;
+                let inst = ctx.builder.ins().call(fref, &[]);
+                let v = ctx.builder.inst_results(inst)[0];
+                Ok(TypedVal::new(v, ValTy::I64))
+            }
+        }
         Expr::TsAs(a) => lower_expr(ctx, &a.expr),
         Expr::TsTypeAssertion(a) => lower_expr(ctx, &a.expr),
         Expr::TsConstAssertion(a) => lower_expr(ctx, &a.expr),
