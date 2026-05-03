@@ -584,6 +584,9 @@ pub(super) fn lower_opt_chain(
 
             ctx.builder.switch_to_block(merge);
             ctx.builder.seal_block(merge);
+            // (#432) Marca o result para que lower_tpl emita "undefined"
+            // em vez de "0" quando este valor cair em template literal.
+            ctx.optional_chain_values.insert(result);
             Ok(TypedVal::new(result, access_ty))
         }
         swc_ecma_ast::OptChainBase::Call(call) => {
@@ -638,6 +641,7 @@ pub(super) fn lower_opt_chain(
 
                     ctx.builder.switch_to_block(merge);
                     ctx.builder.seal_block(merge);
+                    ctx.optional_chain_values.insert(result);
                     return Ok(TypedVal::new(result, ValTy::I64));
                 }
             }
@@ -679,6 +683,7 @@ pub(super) fn lower_opt_chain(
 
             ctx.builder.switch_to_block(merge);
             ctx.builder.seal_block(merge);
+            ctx.optional_chain_values.insert(result);
             Ok(TypedVal::new(result, ValTy::I64))
         }
     }
