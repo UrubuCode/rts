@@ -901,6 +901,27 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_MAP_FREEZE",
             map::__RTS_FN_NS_COLLECTIONS_MAP_FREEZE
         );
+        // (#208) Object.seal/isFrozen/isSealed/getPrototypeOf/defineProperty.
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_SEAL",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_SEAL
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY
+        );
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES",
             map::__RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES
