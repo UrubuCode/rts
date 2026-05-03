@@ -601,6 +601,14 @@ pub(super) fn lower_opt_chain(
                 if let swc_ecma_ast::OptChainBase::Member(inner_member) =
                     inner_opt.base.as_ref()
                 {
+                    // Avalia `obj` UMA VEZ. Quando `inner_member.obj` é
+                    // expressao complexa (OptChain aninhada, Call, etc),
+                    // materializa em local temp e usa Ident sintetico —
+                    // assim `lower_call` ve `Member(obj=Ident, prop=Ident)`,
+                    // forma coberta. Sem isso, lower_call retorna
+                    // "unsupported call expression form" pra `Member.obj=OptChain`,
+                    // o `?` propaga e os blocks ja criados ficam orfaos
+                    // (Verifier: "invalid block reference"). #481
                     let obj_tv = lower_expr(ctx, &inner_member.obj)?;
                     let obj_i64 = ctx.coerce_to_i64(obj_tv).val;
                     let zero = ctx.builder.ins().iconst(cl::I64, 0);
@@ -620,10 +628,32 @@ pub(super) fn lower_opt_chain(
 
                     ctx.builder.switch_to_block(call_block);
                     ctx.builder.seal_block(call_block);
+
+                    // Decide se reusa o ident original (obj simples) ou
+                    // materializa em temp. Reuso evita declare_local extra.
+                    let obj_for_synth: Box<Expr> = if matches!(
+                        inner_member.obj.as_ref(),
+                        Expr::Ident(_)
+                    ) {
+                        inner_member.obj.clone()
+                    } else {
+                        let tmp_name = format!(
+                            "__opt_recv_{}",
+                            ctx.next_opt_chain_temp_id()
+                        );
+                        ctx.declare_local(&tmp_name, ValTy::I64, obj_i64);
+                        Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: tmp_name.into(),
+                            optional: false,
+                        }))
+                    };
+
                     // Constroi `obj.method(args)` sintetico (sem `?`).
                     let synthetic_member = swc_ecma_ast::MemberExpr {
                         span: inner_member.span,
-                        obj: inner_member.obj.clone(),
+                        obj: obj_for_synth,
                         prop: inner_member.prop.clone(),
                     };
                     let synthetic_callee =

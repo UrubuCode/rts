@@ -426,6 +426,12 @@ pub struct FnCtx<'m, 'fb> {
     /// Keyed por (bits, is_float, block) — per-block como str_handle_cache,
     /// para evitar usar Values de blocos não-dominadores.
     pub num_val_cache: HashMap<(u64, u8, cranelift_codegen::ir::Block), cranelift_codegen::ir::Value>,
+
+    /// Counter para gerar nomes únicos de locals temporários em
+    /// optional chain calls aninhadas (#481). Usado por
+    /// `lower_opt_chain` quando o receiver é uma expressão complexa
+    /// que não casa com Member.obj=Ident no path coberto de lower_call.
+    pub opt_chain_temp_counter: u32,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -484,7 +490,15 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             str_data_cache: HashMap::new(),
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),
+            opt_chain_temp_counter: 0,
         }
+    }
+
+    /// Próximo id único pra nome temporário em optional chain (#481).
+    pub fn next_opt_chain_temp_id(&mut self) -> u32 {
+        let id = self.opt_chain_temp_counter;
+        self.opt_chain_temp_counter += 1;
+        id
     }
 
     /// Resolve `fn_id` a um FuncRef na fn atual, cacheando.
