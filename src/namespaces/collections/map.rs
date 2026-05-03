@@ -338,6 +338,46 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(handle: u64) -> u64 {
     handle
 }
 
+/// (#208) `Object.seal(obj)` — v0 no-op. JS non-strict.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SEAL(handle: u64) -> u64 {
+    handle
+}
+
+/// (#208) `Object.isFrozen(obj)` — v0 sempre false (sem flag).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN(_handle: u64) -> i64 {
+    0
+}
+
+/// (#208) `Object.isSealed(obj)` — v0 sempre false.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(_handle: u64) -> i64 {
+    0
+}
+
+/// (#208) `Object.getPrototypeOf(obj)` — retorna handle de `__proto__` ou 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
+    let proto: i64 = with_map(handle, 0, |m| m.get("__proto__").copied().unwrap_or(0));
+    proto as u64
+}
+
+/// (#208) `Object.defineProperty(obj, key, descriptor)` — v0 simples.
+/// Suporta apenas `{ value: x }`. Demais (get/set/writable/enumerable)
+/// caem em PR separada.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
+    obj: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+    descriptor: u64,
+) -> u64 {
+    let value: i64 = with_map(descriptor, 0, |m| m.get("value").copied().unwrap_or(0));
+    __RTS_FN_NS_COLLECTIONS_MAP_SET(obj, key_ptr, key_len, value);
+    obj
+}
+
 /// (#208 / #479) `Object.fromEntries(arr)` — recebe Vec de pares
 /// [key_handle, value] e cria Map. Inverso de Object.entries.
 #[unsafe(no_mangle)]

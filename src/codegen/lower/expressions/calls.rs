@@ -237,16 +237,76 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
-                // (#208 / #479) Object.freeze(obj) — v0 no-op, retorna handle.
-                if method == "freeze" && call.args.len() == 1 {
+                // (#208 / #479) Object.freeze/seal — v0 no-op, retorna handle.
+                if (method == "freeze" || method == "seal") && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let sym = if method == "freeze" {
+                        "__RTS_FN_NS_COLLECTIONS_MAP_FREEZE"
+                    } else {
+                        "__RTS_FN_NS_COLLECTIONS_MAP_SEAL"
+                    };
+                    let f = ctx.get_extern(sym, &[cl::I64], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
+                // (#208) Object.isFrozen/isSealed — v0 sempre false.
+                if (method == "isFrozen" || method == "isSealed") && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let sym = if method == "isFrozen" {
+                        "__RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN"
+                    } else {
+                        "__RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED"
+                    };
+                    let f = ctx.get_extern(sym, &[cl::I64], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Bool));
+                }
+                // (#208) Object.getPrototypeOf(obj) — handle de __proto__ ou 0.
+                if method == "getPrototypeOf" && call.args.len() == 1 {
                     let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let h = ctx.coerce_to_i64(arg_tv).val;
                     let f = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_MAP_FREEZE",
+                        "__RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO",
                         &[cl::I64],
                         Some(cl::I64),
                     )?;
                     let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
+                // (#208) Object.defineProperty(obj, key, descriptor) — v0
+                // suporta apenas { value: x }.
+                if method == "defineProperty" && call.args.len() == 3 {
+                    let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let obj = ctx.coerce_to_i64(obj_tv).val;
+                    let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let key_h = ctx.coerce_to_i64(key_tv).val;
+                    let desc_tv = lower_expr(ctx, &call.args[2].expr)?;
+                    let desc = ctx.coerce_to_i64(desc_tv).val;
+                    let kp_fn = ctx.get_extern(
+                        "__RTS_FN_NS_GC_STRING_PTR",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let kl_fn = ctx.get_extern(
+                        "__RTS_FN_NS_GC_STRING_LEN",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst_p = ctx.builder.ins().call(kp_fn, &[key_h]);
+                    let kp = ctx.builder.inst_results(inst_p)[0];
+                    let inst_l = ctx.builder.ins().call(kl_fn, &[key_h]);
+                    let kl = ctx.builder.inst_results(inst_l)[0];
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY",
+                        &[cl::I64, cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[obj, kp, kl, desc]);
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
