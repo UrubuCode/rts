@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { promise, collections } from "rts";
+import { promise, collections, time } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -7,7 +7,9 @@ function print(value: string): void {
 }
 
 async function fail(msg: string): i64 { throw msg; }
-async function ok(x: i64): i64 { return x; }
+// (#determinismo) ok() com delay artificial para que race seja
+// deterministico: fast_fail sempre vence porque resolve imediato.
+async function ok(x: i64): i64 { time.sleep_ms(20); return x; }
 
 // 1. promise.all rejeita na primeira falha.
 const v1 = collections.vec_new();
