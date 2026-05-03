@@ -801,6 +801,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_GET
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_SET",
             map::__RTS_FN_NS_COLLECTIONS_MAP_SET
         );

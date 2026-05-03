@@ -953,8 +953,11 @@ pub(super) fn map_get_static_typed(
     declared_ty: Option<ValTy>,
 ) -> Result<TypedVal> {
     let (kptr, klen) = ctx.emit_str_literal(key)?;
+    // (#264 PR4) Usa MAP_GET_CHAIN: busca primeiro nas own props, depois
+    // segue __proto__ chain. Para Maps sem __proto__ (classes ES6, objetos
+    // literais), o overhead eh um lookup extra que falha — sem regressao.
     let get_fn = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN",
         &[cl::I64, cl::I64, cl::I64],
         Some(cl::I64),
     )?;
