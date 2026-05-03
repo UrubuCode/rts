@@ -260,7 +260,98 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
             }
         }
 
-        let rhs = lower_expr(ctx, &final_rhs_expr)?;
+        // (#264 PR5+) Quando o RHS eh ident de user fn E o LHS eh
+        // \`<UserFn>.prototype.X\` (member chain de prototype), reify
+        // o ident em handle Function antes do MAP_SET. Isso permite
+        // que call sites futuros (\`instance.X(...)\`) usem
+        // FUNCTION_CALL com return_kind correto.
+        let reify_rhs = matches!(a.op, AssignOp::Assign)
+            && {
+                // Detecta lhs: <UserFn>.prototype.X
+                if let MemberProp::Ident(_) = &m.prop {
+                    if let Expr::Member(inner) = m.obj.as_ref() {
+                        if let MemberProp::Ident(p) = &inner.prop {
+                            if p.sym.as_str() == "prototype" {
+                                let mut o: &Expr = inner.obj.as_ref();
+                                loop {
+                                    match o {
+                                        Expr::TsAs(a) => o = &a.expr,
+                                        Expr::Paren(p) => o = &p.expr,
+                                        _ => break,
+                                    }
+                                }
+                                if let Expr::Ident(id) = o {
+                                    let n = id.sym.as_str();
+                                    ctx.user_fns.contains_key(n) && ctx.var_ty(n).is_none()
+                                } else { false }
+                            } else { false }
+                        } else { false }
+                    } else { false }
+                } else { false }
+            }
+            && {
+                // RHS eh ident de user fn? Peel TsAs.
+                let mut e: &Expr = final_rhs_expr.as_ref();
+                loop {
+                    match e {
+                        Expr::TsAs(a) => e = &a.expr,
+                        Expr::Paren(p) => e = &p.expr,
+                        _ => break,
+                    }
+                }
+                if let Expr::Ident(id) = e {
+                    let n = id.sym.as_str();
+                    ctx.user_fns.contains_key(n) && ctx.var_ty(n).is_none()
+                } else { false }
+            };
+
+        let rhs = if reify_rhs {
+            // Extrai o nome da user fn (peel TsAs).
+            let mut e: &Expr = final_rhs_expr.as_ref();
+            loop {
+                match e {
+                    Expr::TsAs(a) => e = &a.expr,
+                    Expr::Paren(p) => e = &p.expr,
+                    _ => break,
+                }
+            }
+            let fn_name = if let Expr::Ident(id) = e {
+                id.sym.as_str().to_string()
+            } else {
+                unreachable!()
+            };
+            // Reify em handle Function.
+            let fn_addr = self::calls::emit_user_fn_addr(ctx, &fn_name)?.val;
+            let arity = ctx
+                .user_fns
+                .get(&fn_name)
+                .map(|f| f.params.len() as i64)
+                .unwrap_or(0);
+            let arity_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I64, arity);
+            let name_tv = ctx.emit_str_handle(fn_name.as_bytes())?;
+            let name_h = ctx.coerce_to_i64(name_tv).val;
+            let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+            let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+            let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+            let n_ptr = ctx.builder.inst_results(inst_p)[0];
+            let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+            let n_len = ctx.builder.inst_results(inst_l)[0];
+            let is_arrow_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+            let has_this_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+            let reify_fn = ctx.get_extern(
+                "__RTS_FN_GL_FUNCTION_REIFY",
+                &[cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I32, cranelift_codegen::ir::types::I32],
+                Some(cranelift_codegen::ir::types::I64),
+            )?;
+            let inst_r = ctx
+                .builder
+                .ins()
+                .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+            let v = ctx.builder.inst_results(inst_r)[0];
+            TypedVal::new(v, ValTy::Handle)
+        } else {
+            lower_expr(ctx, &final_rhs_expr)?
+        };
 
         // Dual-path #147 passo 7: escrita tipada em campo flat. Preserva
         // o tipo do RHS para coercao no slot exato (i32/f64/i64/handle).

@@ -63,6 +63,22 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
     alloc_entry(Entry::String(value.to_string().into_bytes()))
 }
 
+/// (#proto-method) Coerce inteligente para template literal:
+/// se \`value\` (i64) eh handle valido para Entry::String, retorna o
+/// proprio handle. Senao, formata como integer (\`STRING_FROM_I64\`).
+/// Usado pra \`${expr}\` quando \`expr\` veio de var_member_call cujo
+/// retorno tem tipo dinamico.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
+    let h = value as u64;
+    let is_string = with_entry(h, |e| matches!(e, Some(Entry::String(_))));
+    if is_string {
+        h
+    } else {
+        alloc_entry(Entry::String(value.to_string().into_bytes()))
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_F64(value: f64) -> u64 {
     let s = if value.is_nan() {

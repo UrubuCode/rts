@@ -475,6 +475,51 @@ pub(crate) fn lookup_prototype_for_fn_ptr(fn_ptr: u64) -> Option<u64> {
     registry.get(&fn_ptr).copied().filter(|&h| h != 0)
 }
 
+/// (#proto-method) Auto-dispatch: se \`callee\` eh handle Function valido,
+/// chama via invoke_typed (com return_kind correto). Senao trata como
+/// fn_ptr cru e faz invoke_n (todos i64). Usado por
+/// \`lower_var_member_call\` quando member access em handle pode resolver
+/// para fn ptr OU para handle Function (depende se foi REIFY-ed).
+///
+/// `this_arg` so eh empilhado quando callee eh Function handle (caminho
+/// classes). Args vem de Vec<i64> handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(
+    callee: i64,
+    this_arg: i64,
+    args_handle: u64,
+) -> i64 {
+    // Tenta como handle Function primeiro.
+    if let Some((fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind)) =
+        read_function_data(callee as u64)
+    {
+        let mut all_args = bound_args;
+        all_args.extend(read_args_vec(args_handle));
+        let pushed_this = if !is_arrow && has_this_param {
+            let effective = if has_bound_this { bound_this } else { this_arg };
+            all_args.insert(0, effective);
+            false
+        } else if !is_arrow {
+            let effective = if has_bound_this { bound_this } else { this_arg };
+            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(effective);
+            true
+        } else {
+            false
+        };
+        let r = unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, return_kind) };
+        if pushed_this {
+            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+        }
+        return r;
+    }
+    // Fn ptr raw — invoke_n com args vec.
+    let args_v = read_args_vec(args_handle);
+    crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
+    let r = unsafe { invoke_n(callee as u64, &args_v) };
+    crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+    r
+}
+
 /// (#264 PR4+) Substitui o prototype Map de uma user fn.
 /// \`Dog.prototype = Object.create(Animal.prototype)\` precisa atualizar
 /// o registry para que \`new Dog\` instale a chain correta.
