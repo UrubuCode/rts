@@ -254,6 +254,49 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (#208) Object.is(a, b) — egal-style equality:
+                //   - NaN === NaN
+                //   - 0 !== -0
+                //   - mesma identidade caso contrario
+                if method == "is" && call.args.len() == 2 {
+                    use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
+                    let a_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let b_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    // Se ambos sao F64, faz bitwise comparison (cobre NaN==NaN
+                    // e 0!=-0 corretamente).
+                    if matches!(a_tv.ty, ValTy::F64) || matches!(b_tv.ty, ValTy::F64) {
+                        let af = if matches!(a_tv.ty, ValTy::F64) {
+                            a_tv.val
+                        } else {
+                            let i = ctx.coerce_to_i64(a_tv).val;
+                            ctx.builder.ins().fcvt_from_sint(cl::F64, i)
+                        };
+                        let bf = if matches!(b_tv.ty, ValTy::F64) {
+                            b_tv.val
+                        } else {
+                            let i = ctx.coerce_to_i64(b_tv).val;
+                            ctx.builder.ins().fcvt_from_sint(cl::F64, i)
+                        };
+                        // Bitwise: bitcast f64 → i64 e compara.
+                        let abits = ctx.builder.ins().bitcast(cl::I64, cranelift_codegen::ir::MemFlags::new(), af);
+                        let bbits = ctx.builder.ins().bitcast(cl::I64, cranelift_codegen::ir::MemFlags::new(), bf);
+                        let eq = ctx.builder.ins().icmp(IntCC::Equal, abits, bbits);
+                        // Excecao JS: NaN.is(NaN) === true. Bitwise sao iguais
+                        // se sao a mesma representacao de NaN, mas spec diz
+                        // que QUALQUER NaN.is(QUALQUER NaN). Detectamos via
+                        // is_nan && is_nan.
+                        let a_nan = ctx.builder.ins().fcmp(FloatCC::NotEqual, af, af);
+                        let b_nan = ctx.builder.ins().fcmp(FloatCC::NotEqual, bf, bf);
+                        let both_nan = ctx.builder.ins().band(a_nan, b_nan);
+                        let result = ctx.builder.ins().bor(eq, both_nan);
+                        return Ok(TypedVal::new(result, ValTy::Bool));
+                    }
+                    // Ambos integers — compara diretamente.
+                    let a = ctx.coerce_to_i64(a_tv).val;
+                    let b = ctx.coerce_to_i64(b_tv).val;
+                    let eq = ctx.builder.ins().icmp(IntCC::Equal, a, b);
+                    return Ok(TypedVal::new(eq, ValTy::Bool));
+                }
                 // (#208 / #479) Object.assign(target, ...sources). Loop por cada source.
                 if method == "assign" && call.args.len() >= 2 {
                     let target_tv = lower_expr(ctx, &call.args[0].expr)?;
