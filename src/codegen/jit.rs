@@ -357,6 +357,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FUNCTION_NAME", __RTS_FN_GL_FUNCTION_NAME);
     add_fn!("__RTS_FN_GL_FUNCTION_LENGTH", __RTS_FN_GL_FUNCTION_LENGTH);
     add_fn!("__RTS_FN_GL_FUNCTION_TO_STRING", __RTS_FN_GL_FUNCTION_TO_STRING);
+    add_fn!("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET", __RTS_FN_GL_FUNCTION_PROTOTYPE_GET);
 
     // ── namespaces::globals::text_encoding ───────────────────────────
     use crate::namespaces::globals::text_encoding::instance::*;

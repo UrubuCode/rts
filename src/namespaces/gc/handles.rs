@@ -192,6 +192,11 @@ pub struct FunctionData {
     /// Send mas nao Sync, e Entry precisa ser Sync pra atravessar shards.
     /// Nunca destravado em runtime — overhead zero no hot path.
     pub keep_alive: Option<std::sync::Arc<std::sync::Mutex<dyn std::any::Any + Send>>>,
+    /// (#264) Handle do object usado como `fn.prototype` (constructor function).
+    /// 0 = ainda nao alocado. Lazy alloc no primeiro acesso a member `prototype`
+    /// via `__RTS_FN_GL_FUNCTION_PROTOTYPE_GET`. Eh um Map handle (collections)
+    /// onde callers fazem `fn.prototype.method = handle`.
+    pub prototype_handle: u64,
 }
 
 /// Cleanup ativo de recursos do SO quando um Entry e' descartado (#279).
@@ -223,6 +228,10 @@ fn cleanup_entry(entry: &mut Entry) {
         Entry::TlsClient(tls) => {
             let _ = tls.tcp.shutdown(std::net::Shutdown::Both);
         }
+        // Nota (#264): Entry::Function.prototype_handle nao precisa de
+        // cleanup explicito aqui — o GC scanner via mark_handle propaga
+        // marca transitiva, entao o Map prototype eh coletado no proximo
+        // sweep depois que a Function for coletada.
         _ => {}
     }
 }
@@ -430,9 +439,13 @@ impl HandleTable {
     }
 
     /// Mark a handle as reachable (GC root). No-op for invalid/freed handles.
-    pub fn mark(&mut self, handle: u64) {
-        let Some((expected_gen, _, table_slot)) = decode(handle) else { return };
-        let Some(slot) = self.slots.get_mut(table_slot as usize) else { return };
+    /// Returns Some(prototype_handle) quando a entry eh Function com prototype
+    /// alocado — caller (mark_handle global) propaga marca transitiva para
+    /// o Map de prototype, evitando que sweep colete o Map enquanto a
+    /// Function viva continua referenciando.
+    pub fn mark(&mut self, handle: u64) -> Option<u64> {
+        let Some((expected_gen, _, table_slot)) = decode(handle) else { return None };
+        let Some(slot) = self.slots.get_mut(table_slot as usize) else { return None };
         if slot.generation == expected_gen && !matches!(slot.entry, Entry::Free) {
             if super::debug::is_enabled()
                 && matches!(slot.entry, Entry::TcpListener(_) | Entry::TcpStream(_))
@@ -440,7 +453,14 @@ impl HandleTable {
                 eprintln!("[gc] MARK handle={handle:#x} slot={table_slot} kind=Tcp*");
             }
             slot.marked = true;
+            // (#264) Tracing transitivo minimo: prototype Map de Function.
+            if let Entry::Function(d) = &slot.entry {
+                if d.prototype_handle != 0 {
+                    return Some(d.prototype_handle);
+                }
+            }
         }
+        None
     }
 
     /// Sweep: free all unmarked live entries, then reset all mark bits.
@@ -571,14 +591,28 @@ pub fn alloc_entry(entry: Entry) -> u64 {
 }
 
 /// Mark a handle as reachable in the current GC cycle.
+/// Propaga marca transitivamente para handles internos relevantes
+/// (ex: Function.prototype_handle, ver #264).
 pub fn mark_handle(handle: u64) {
-    if handle == 0 {
-        return;
+    let mut worklist = vec![handle];
+    let mut depth = 0u32;
+    while let Some(h) = worklist.pop() {
+        if h == 0 {
+            continue;
+        }
+        // Guard contra ciclos pathologicos (limite generoso).
+        depth += 1;
+        if depth > 10_000 {
+            break;
+        }
+        let transitive = shard_for_handle(h)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .mark(h);
+        if let Some(child) = transitive {
+            worklist.push(child);
+        }
     }
-    shard_for_handle(handle)
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .mark(handle);
 }
 
 /// Sweep all shards: free unmarked entries and reset mark bits.

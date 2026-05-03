@@ -4,7 +4,7 @@
 //! por aridade ate 8. Funciona porque user fns com address taken usam
 //! default_call_conv (SystemV/Win64), igual extern "C" Rust.
 
-use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry};
+use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry, with_entry_mut};
 
 unsafe fn invoke_n(fn_ptr: u64, args: &[i64]) -> i64 {
     unsafe { invoke_typed(fn_ptr, args, &[], 0) }
@@ -249,6 +249,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
         return_kind: return_kind.clamp(0, 4) as u8,
         source: None,
         keep_alive: None,
+        prototype_handle: 0,
     })))
 }
 
@@ -301,6 +302,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         return_kind: 0,
         source: Some(format!("function anonymous({}) {{\n{}\n}}", params_str, body_str).into_boxed_str()),
         keep_alive: Some(compiled.keep_alive),
+        prototype_handle: 0,
     })))
 }
 
@@ -402,7 +404,50 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
         return_kind,
         source,
         keep_alive,
+        prototype_handle: 0,
     })))
+}
+
+/// (#264) Lazy-aloca e retorna o handle de `fn.prototype`.
+/// Constructor functions usam isto pra anexar metodos compartilhados.
+/// Primeiro acesso aloca um Map vazio; chamadas subsequentes retornam o mesmo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
+    // Tenta ler primeiro (caminho rapido — ja alocado).
+    let existing = with_entry(handle, |e| {
+        if let Some(Entry::Function(d)) = e {
+            Some(d.prototype_handle)
+        } else {
+            None
+        }
+    });
+    match existing {
+        Some(h) if h != 0 => return h,
+        Some(_) => {}  // existe a Function mas prototype eh 0 — alocar
+        None => return 0, // handle invalido ou nao e' Function
+    }
+    // Aloca novo Map vazio. Map handle precisa ser alocado FORA do
+    // with_entry_mut porque alloc_entry pode chamar shard locks.
+    let new_proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+    // Atualiza o slot. Outra thread podera ter alocado entre a leitura e o
+    // write — nesse caso descarta o nosso (race benigna; libera o duplicado).
+    let final_h = with_entry_mut(handle, |e| {
+        if let Some(Entry::Function(d)) = e {
+            if d.prototype_handle != 0 {
+                d.prototype_handle
+            } else {
+                d.prototype_handle = new_proto;
+                new_proto
+            }
+        } else {
+            0
+        }
+    });
+    if final_h != new_proto {
+        // outra thread venceu — libera nosso
+        let _ = crate::namespaces::gc::handles::free_handle(new_proto);
+    }
+    final_h
 }
 
 #[unsafe(no_mangle)]

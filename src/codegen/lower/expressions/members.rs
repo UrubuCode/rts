@@ -365,6 +365,17 @@ fn lower_user_fn_getter(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(TypedVal::new(v, ValTy::I64))
         }
+        "prototype" => {
+            // (#264) Lazy alloc handle de Map para o constructor.
+            let getter = ctx.get_extern(
+                "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(getter, &[fn_handle]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(TypedVal::new(v, ValTy::Handle))
+        }
         _ => Err(anyhow!("user_fn_getter: prop {} nao suportado", prop)),
     }
 }
@@ -482,7 +493,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
     if let (Expr::Ident(obj_id), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
         let obj_name = obj_id.sym.as_str();
         let prop_name = prop.sym.as_str();
-        if matches!(prop_name, "name" | "length")
+        if matches!(prop_name, "name" | "length" | "prototype")
             && ctx.user_fns.contains_key(obj_name)
             && ctx.var_ty(obj_name).is_none()
         {
