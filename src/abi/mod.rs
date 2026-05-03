@@ -30,6 +30,9 @@ pub use types::AbiType;
 pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::string::abi::STRING_CLASS_SPEC,
     &crate::namespaces::globals::number::abi::NUMBER_CLASS_SPEC,
+    &crate::namespaces::globals::boolean::abi::BOOLEAN_CLASS_SPEC,
+    &crate::namespaces::globals::array::abi::ARRAY_CLASS_SPEC,
+    &crate::namespaces::globals::object::abi::OBJECT_CLASS_SPEC,
     &crate::namespaces::globals::date::abi::CLASS_SPEC,
     &crate::namespaces::globals::regexp::abi::CLASS_SPEC,
     &crate::namespaces::globals::error::abi::CLASS_SPEC,

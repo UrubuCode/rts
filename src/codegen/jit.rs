@@ -811,14 +811,6 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN
         );
         add_fn!(
-            "__RTS_FN_GL_OBJECT_CREATE",
-            map::__RTS_FN_GL_OBJECT_CREATE
-        );
-        add_fn!(
-            "__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY",
-            map::__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY
-        );
-        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_SET",
             map::__RTS_FN_NS_COLLECTIONS_MAP_SET
         );
@@ -1042,6 +1034,39 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_LOCALE_COMPARE",   rt::__RTS_FN_GL_STRING_LOCALE_COMPARE);
     add_fn!("__RTS_FN_GL_STRING_TO_STRING",        rt::__RTS_FN_GL_STRING_TO_STRING);
     add_fn!("__RTS_FN_GL_STRING_IS_WELL_FORMED",   rt::__RTS_FN_GL_STRING_IS_WELL_FORMED);
+
+    // ── namespaces::globals::boolean ───────────────────────────────────
+    use crate::namespaces::globals::boolean::rt as bool_rt;
+    add_fn!("__RTS_FN_GL_BOOLEAN_TO_STRING", bool_rt::__RTS_FN_GL_BOOLEAN_TO_STRING);
+    add_fn!("__RTS_FN_GL_BOOLEAN_VALUE_OF",  bool_rt::__RTS_FN_GL_BOOLEAN_VALUE_OF);
+
+    // ── namespaces::globals::array ─────────────────────────────────────
+    use crate::namespaces::globals::array::rt as array_rt;
+    add_fn!("__RTS_FN_GL_ARRAY_NEW_EMPTY",        array_rt::__RTS_FN_GL_ARRAY_NEW_EMPTY);
+    add_fn!("__RTS_FN_GL_ARRAY_NEW_FROM_HANDLE",  array_rt::__RTS_FN_GL_ARRAY_NEW_FROM_HANDLE);
+    add_fn!("__RTS_FN_GL_ARRAY_FROM",             array_rt::__RTS_FN_GL_ARRAY_FROM);
+    add_fn!("__RTS_FN_GL_ARRAY_IS_ARRAY",         array_rt::__RTS_FN_GL_ARRAY_IS_ARRAY);
+    add_fn!("__RTS_FN_GL_ARRAY_SHIFT",            array_rt::__RTS_FN_GL_ARRAY_SHIFT);
+    add_fn!("__RTS_FN_GL_ARRAY_UNSHIFT",          array_rt::__RTS_FN_GL_ARRAY_UNSHIFT);
+    add_fn!("__RTS_FN_GL_ARRAY_INDEX_OF",         array_rt::__RTS_FN_GL_ARRAY_INDEX_OF);
+    add_fn!("__RTS_FN_GL_ARRAY_INCLUDES",         array_rt::__RTS_FN_GL_ARRAY_INCLUDES);
+    add_fn!("__RTS_FN_GL_ARRAY_REVERSE",          array_rt::__RTS_FN_GL_ARRAY_REVERSE);
+    add_fn!("__RTS_FN_GL_ARRAY_SLICE",            array_rt::__RTS_FN_GL_ARRAY_SLICE);
+    add_fn!("__RTS_FN_GL_ARRAY_CONCAT",           array_rt::__RTS_FN_GL_ARRAY_CONCAT);
+    add_fn!("__RTS_FN_GL_ARRAY_FLAT",             array_rt::__RTS_FN_GL_ARRAY_FLAT);
+    add_fn!("__RTS_FN_GL_ARRAY_SORT",             array_rt::__RTS_FN_GL_ARRAY_SORT);
+    add_fn!("__RTS_FN_GL_ARRAY_FIND",             array_rt::__RTS_FN_GL_ARRAY_FIND);
+    add_fn!("__RTS_FN_GL_ARRAY_FIND_INDEX",       array_rt::__RTS_FN_GL_ARRAY_FIND_INDEX);
+    add_fn!("__RTS_FN_GL_ARRAY_EVERY",            array_rt::__RTS_FN_GL_ARRAY_EVERY);
+    add_fn!("__RTS_FN_GL_ARRAY_SOME",             array_rt::__RTS_FN_GL_ARRAY_SOME);
+
+    // ── namespaces::globals::object ────────────────────────────────────
+    use crate::namespaces::globals::object::rt as obj_rt;
+    add_fn!("__RTS_FN_GL_OBJECT_CREATE",      obj_rt::__RTS_FN_GL_OBJECT_CREATE);
+    add_fn!("__RTS_FN_GL_OBJECT_ENTRIES",     obj_rt::__RTS_FN_GL_OBJECT_ENTRIES);
+    add_fn!("__RTS_FN_GL_OBJECT_ASSIGN",      obj_rt::__RTS_FN_GL_OBJECT_ASSIGN);
+    add_fn!("__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY", obj_rt::__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY);
+    add_fn!("__RTS_FN_GL_OBJECT_TO_STRING",   obj_rt::__RTS_FN_GL_OBJECT_TO_STRING);
 
     // ── namespaces::globals::number ───────────────────────────────────
     use crate::namespaces::globals::number::rt as num_rt;
