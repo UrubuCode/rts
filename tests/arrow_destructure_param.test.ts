@@ -1,28 +1,17 @@
 import { describe, test, expect } from "rts:test";
 
-let __rtsCapturedOutput: string = "";
-function print(value: string): void {
-  __rtsCapturedOutput += value + "\n";
-}
+// (#568) Arrow callback com destructure no param: forEach/map.
+// reduce com destructure no 2o param tem partial coverage — issue separada.
 
-// Arrow com destructuring de array no param.
-// Antes: \`forEach(([k,v]) => ...)\` crashava com "undefined variable k"
-// no __hoisted_fn_0. Fix: build_fn_decl agora gera prologue
-// \`const [k,v] = __hoist_destruct_N_0;\` e renomeia o param para
-// __hoist_destruct_N_0.
+const pairs: [number, number][] = [[1, 10], [2, 20], [3, 30]];
 
-const pairs: number[][] = [[1, 10], [2, 20], [3, 30]];
+const sums = pairs.map(([a, b]) => a + b);
 
-const callback = ([k, v]: number[]): number => k + v;
-const sum1: number = callback(pairs[0]);
-const sum2: number = callback(pairs[1]);
-print("p0=" + sum1);
-print("p1=" + sum2);
+let collected: number = 0;
+function add(n: number): void { collected += n; }
+pairs.forEach(([a, b]) => add(a + b));
 
-describe("arrow com destructuring de array param", () => {
-  test("[k,v] destructure prologue funciona", () =>
-    expect(__rtsCapturedOutput).toBe(
-      "p0=11\n" +
-      "p1=22\n"
-    ));
+describe("arrow_destructure_param", () => {
+  test("map com destructure (#568)", () => expect(sums.join(",")).toBe("11,22,33"));
+  test("forEach com destructure (#568)", () => expect(collected).toBe(66));
 });
