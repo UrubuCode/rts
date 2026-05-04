@@ -76,6 +76,40 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             if matches!(init_peeled, swc_ecma_ast::Expr::Array(_)) {
                 ctx.local_array_vars.insert(name.clone());
             }
+            // (#592) Array de object literals — extrai field types do
+            // primeiro elemento (heuristica: arrays homogeneos).
+            if let swc_ecma_ast::Expr::Array(arr) = init_peeled {
+                if let Some(Some(first)) = arr.elems.first() {
+                    let inner = peel_ts_init(&first.expr);
+                    if let swc_ecma_ast::Expr::Object(obj_lit) = inner {
+                        let mut elem_field_types: std::collections::HashMap<String, ValTy> =
+                            std::collections::HashMap::new();
+                        for prop in &obj_lit.props {
+                            if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                                if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                                    let key = match &kv.key {
+                                        swc_ecma_ast::PropName::Ident(id) => id.sym.as_str().to_string(),
+                                        swc_ecma_ast::PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                                        _ => continue,
+                                    };
+                                    let ty = match kv.value.as_ref() {
+                                        swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) => ValTy::Handle,
+                                        swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(_)) => ValTy::I64,
+                                        swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => ValTy::Bool,
+                                        swc_ecma_ast::Expr::Tpl(_) => ValTy::Handle,
+                                        _ => ValTy::I64,
+                                    };
+                                    elem_field_types.insert(key, ty);
+                                }
+                            }
+                        }
+                        if !elem_field_types.is_empty() {
+                            ctx.local_array_obj_field_types
+                                .insert(name.clone(), elem_field_types);
+                        }
+                    }
+                }
+            }
             if let swc_ecma_ast::Expr::Object(obj) = init_peeled {
                 let mut field_types: std::collections::HashMap<String, ValTy> =
                     std::collections::HashMap::new();
@@ -183,6 +217,18 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                 // Aliasing: const b = a — propaga local_class_ty.
                 if let Some(cn) = ctx.local_class_ty.get(src_name).cloned() {
                     ctx.local_class_ty.insert(name.clone(), cn);
+                }
+            }
+            // (#592) `const u = users[i]` onde users tem
+            // local_array_obj_field_types registrado — propaga os tipos.
+            if let swc_ecma_ast::Expr::Member(m) = init.as_ref() {
+                if matches!(&m.prop, swc_ecma_ast::MemberProp::Computed(_)) {
+                    if let swc_ecma_ast::Expr::Ident(arr_id) = m.obj.as_ref() {
+                        let arr_name = arr_id.sym.as_str();
+                        if let Some(types) = ctx.local_array_obj_field_types.get(arr_name).cloned() {
+                            ctx.local_obj_field_types.insert(name.clone(), types);
+                        }
+                    }
                 }
             }
             // (#210) Nested destructuring — `const x = cfg.db` onde cfg

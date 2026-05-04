@@ -196,6 +196,10 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         if let Some(elem_cls) = ctx.local_array_class_ty.get(arr_name).cloned() {
             ctx.local_class_ty.insert(bind_name.clone(), elem_cls);
         }
+        // (#592) Array de object literals: propaga field types pra bind.
+        if let Some(types) = ctx.local_array_obj_field_types.get(arr_name).cloned() {
+            ctx.local_obj_field_types.insert(bind_name.clone(), types);
+        }
     }
 
     let counter_name = format!("__rts_for_of_i_{:p}", &for_of.span);
