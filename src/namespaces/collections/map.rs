@@ -177,8 +177,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return;
     };
+    // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.
+    if is_map_frozen(handle) {
+        return;
+    }
     let key_owned = key.to_string();
+    let sealed = is_map_sealed(handle);
     with_map_mut(handle, (), |m| {
+        if sealed && !m.contains_key(&key_owned) {
+            return;
+        }
         m.insert(key_owned, value);
     });
 }
@@ -193,6 +201,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
+    // sealed/frozen impedem delete.
+    if is_map_sealed(handle) {
+        return 0;
+    }
     with_map_mut(handle, 0, |m| if m.shift_remove(key).is_some() { 1 } else { 0 })
 }
 
