@@ -282,6 +282,21 @@ fn lift_arrows_in_expr(
                                 call.args[arg_idx].expr.as_ref(),
                                 Expr::Arrow(_)
                             );
+                            // (#479 follow-up) Se o receiver e' Object.entries(...),
+                            // o param recebe [string, V] — slot 0 do destructure
+                            // deveria ser Handle, nao I64.
+                            let recv_is_object_entries = matches!(
+                                m.obj.as_ref(),
+                                Expr::Call(c) if matches!(&c.callee,
+                                    swc_ecma_ast::Callee::Expr(e) if matches!(e.as_ref(),
+                                        Expr::Member(mi) if matches!(&mi.prop,
+                                            MemberProp::Ident(p) if p.sym.as_str() == "entries"
+                                        ) && matches!(mi.obj.as_ref(),
+                                            Expr::Ident(id) if id.sym.as_str() == "Object"
+                                        )
+                                    )
+                                )
+                            );
                             if try_lift {
                                 if let Some(fn_name) = try_lift_arrow_arg(
                                     &call.args[arg_idx].expr,
@@ -290,6 +305,7 @@ fn lift_arrows_in_expr(
                                     new_fns,
                                     counter,
                                     method == "forEach",
+                                    recv_is_object_entries,
                                 ) {
                                     // Substitui arg por Ident.
                                     call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -347,6 +363,7 @@ fn try_lift_arrow_arg(
     new_fns: &mut Vec<Item>,
     counter: &std::sync::atomic::AtomicU32,
     is_void_callback: bool,
+    slot0_is_handle: bool,
 ) -> Option<String> {
     use swc_ecma_ast::BlockStmtOrExpr;
     let arrow = match arg {
@@ -372,8 +389,28 @@ fn try_lift_arrow_arg(
                 let synth = format!("__p_{}_{}", counter.load(std::sync::atomic::Ordering::Relaxed), destruct_counter);
                 destruct_counter += 1;
                 param_names.push(synth.clone());
+                // (#479) Quando slot0_is_handle (e.g. Object.entries), reescreve
+                // o pattern para anotar slot 0 como string. Sem isso o slot 0
+                // herda I64 default e templates printam handle bruto.
+                let mut adjusted_pat = arr_pat.clone();
+                if slot0_is_handle {
+                    if let Some(Some(Pat::Ident(bi))) = adjusted_pat.elems.first().cloned() {
+                        adjusted_pat.elems[0] = Some(Pat::Ident(swc_ecma_ast::BindingIdent {
+                            id: bi.id.clone(),
+                            type_ann: Some(Box::new(swc_ecma_ast::TsTypeAnn {
+                                span: Default::default(),
+                                type_ann: Box::new(swc_ecma_ast::TsType::TsKeywordType(
+                                    swc_ecma_ast::TsKeywordType {
+                                        span: Default::default(),
+                                        kind: swc_ecma_ast::TsKeywordTypeKind::TsStringKeyword,
+                                    }
+                                )),
+                            })),
+                        }));
+                    }
+                }
                 // Coleta names de elementos Ident para has_capture.
-                for el in &arr_pat.elems {
+                for el in &adjusted_pat.elems {
                     if let Some(Pat::Ident(bi)) = el {
                         destructured_names.push(bi.id.sym.to_string());
                     }
@@ -385,7 +422,7 @@ fn try_lift_arrow_arg(
                     declare: false,
                     decls: vec![swc_ecma_ast::VarDeclarator {
                         span: Default::default(),
-                        name: p.clone(),
+                        name: Pat::Array(adjusted_pat),
                         init: Some(Box::new(Expr::Ident(swc_ecma_ast::Ident {
                             span: Default::default(),
                             ctxt: Default::default(),
