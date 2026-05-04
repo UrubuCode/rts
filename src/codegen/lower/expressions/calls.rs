@@ -531,6 +531,30 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Bool));
                 }
+                // (#208) Array.of(...args) — cria Vec com cada arg.
+                if method == "of" {
+                    if call.args.iter().any(|a| a.spread.is_some()) {
+                        return Err(anyhow!("spread not supported in Array.of"));
+                    }
+                    let new_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+                        &[],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(new_fn, &[]);
+                    let vec_h = ctx.builder.inst_results(inst)[0];
+                    let push_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                        &[cl::I64, cl::I64],
+                        None,
+                    )?;
+                    for arg in &call.args {
+                        let tv = lower_expr(ctx, &arg.expr)?;
+                        let v = ctx.coerce_to_i64(tv).val;
+                        ctx.builder.ins().call(push_fn, &[vec_h, v]);
+                    }
+                    return Ok(TypedVal::new(vec_h, ValTy::Handle));
+                }
                 // (#208) Array.from(arrayLike, mapper?). Aceita 2 formas:
                 //   1. Array.from({length: N}, fn?) — gera Vec [fn(0,0), fn(1,1), ...]
                 //      Detecta object literal com unica key "length".
