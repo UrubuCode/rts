@@ -80,6 +80,69 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_DESCRIPTION(sym: u64) -> u64 {
     }
 }
 
+// (#216) Well-known symbols: handles cacheados, criados sob demanda.
+// Cada um tem description "Symbol.iterator", "Symbol.asyncIterator", etc,
+// e e' garantido retornar mesmo handle em chamadas subsequentes.
+
+fn well_known_handle(name: &str) -> u64 {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<&'static str, u64>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+    let key: &'static str = match name {
+        "iterator" => "iterator",
+        "asyncIterator" => "asyncIterator",
+        "hasInstance" => "hasInstance",
+        "toPrimitive" => "toPrimitive",
+        "toStringTag" => "toStringTag",
+        "isConcatSpreadable" => "isConcatSpreadable",
+        "match" => "match",
+        "replace" => "replace",
+        "search" => "search",
+        "split" => "split",
+        "species" => "species",
+        "unscopables" => "unscopables",
+        _ => return 0,
+    };
+
+    let mut guard = cache.lock().unwrap();
+    if let Some(&h) = guard.get(key) {
+        return h;
+    }
+    let desc = format!("Symbol.{key}");
+    let h = alloc_entry(Entry::Symbol {
+        description: Some(desc),
+    });
+    guard.insert(key, h);
+    h
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_ITERATOR() -> u64 {
+    well_known_handle("iterator")
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_ASYNC_ITERATOR() -> u64 {
+    well_known_handle("asyncIterator")
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_HAS_INSTANCE() -> u64 {
+    well_known_handle("hasInstance")
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_PRIMITIVE() -> u64 {
+    well_known_handle("toPrimitive")
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING_TAG() -> u64 {
+    well_known_handle("toStringTag")
+}
+
 /// `sym.toString()` — "Symbol(description)" ou "Symbol()".
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING(sym: u64) -> u64 {
