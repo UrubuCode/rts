@@ -12,7 +12,7 @@ print(`${Number("42")}`);          // 42
 print(`${Number("3.14")}`);        // 3.14
 print(`${Number("-7")}`);          // -7
 print(`${Number("abc")}`);         // NaN
-print(`${Number("")}`);            // NaN (string vazia parse falha)
+print(`${Number("")}`);            // 0 (JS spec)
 print(`${Number(true)}`);          // 1
 print(`${Number(false)}`);         // 0
 print(`${Number(0)}`);             // 0
@@ -64,7 +64,7 @@ print(`${total}`);  // 30
 describe("js_conversions", () => {
   test("Number/String/Boolean globais", () =>
     expect(__rtsCapturedOutput).toBe(
-      "42\n3.14\n-7\nNaN\nNaN\n1\n0\n0\n" +              // 1
+      "42\n3.14\n-7\nNaN\n0\n1\n0\n0\n" +                 // 1 (JS: Number('') = 0)
       "0\n123\n-1\ntrue\nfalse\nalready\n" +              // 2
       "false\ntrue\ntrue\ntrue\nfalse\n" +                // 3
       "25\n-1\n" +                                        // 4
