@@ -272,7 +272,8 @@ pub fn number_const_value(name: &str) -> Option<f64> {
         "MAX_SAFE_INTEGER" => Some(9_007_199_254_740_991.0_f64),
         "MIN_SAFE_INTEGER" => Some(-9_007_199_254_740_991.0_f64),
         "MAX_VALUE" => Some(f64::MAX),
-        "MIN_VALUE" => Some(f64::MIN_POSITIVE),
+        // JS spec: smallest positive subnormal = 5e-324 (Number.MIN_VALUE).
+        "MIN_VALUE" => Some(5e-324),
         "EPSILON" => Some(f64::EPSILON),
         "POSITIVE_INFINITY" => Some(f64::INFINITY),
         "NEGATIVE_INFINITY" => Some(f64::NEG_INFINITY),
