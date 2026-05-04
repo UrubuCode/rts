@@ -141,6 +141,24 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 // at the outer dispatch path which has the global_class_lookup).
                 if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
                     let recv_tv = lower_expr(ctx, &m.obj)?;
+                    // (#550 parte 2) (true).toString() / (false).valueOf() em literal.
+                    if matches!(recv_tv.ty, ValTy::Bool) && call.args.is_empty() {
+                        use cranelift_codegen::ir::condcodes::IntCC;
+                        match method_name.as_str() {
+                            "toString" => {
+                                let true_h = ctx.emit_str_handle(b"true")?.val;
+                                let false_h = ctx.emit_str_handle(b"false")?.val;
+                                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                                let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, recv_tv.val, zero);
+                                let r = ctx.builder.ins().select(is_true, true_h, false_h);
+                                return Ok(TypedVal::new(r, ValTy::Handle));
+                            }
+                            "valueOf" => {
+                                return Ok(recv_tv);
+                            }
+                            _ => {}
+                        }
+                    }
                     if matches!(recv_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {
                         let recv_f = to_f64(ctx, recv_tv);
                         if let Some(tv) = lower_number_builtin(ctx, &method_name, recv_f, call)? {
