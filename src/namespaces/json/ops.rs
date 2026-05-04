@@ -41,14 +41,92 @@ fn with_json<R>(handle: u64, default: R, f: impl FnOnce(&Value) -> R) -> R {
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(handle: u64) -> u64 {
-    with_json(handle, 0, |v| {
-        match serde_json::to_string(v) {
-            Ok(s) => alloc_entry(Entry::String(s.into_bytes())),
-            Err(_) => 0,
+/// Serializa um handle de qualquer tipo conhecido (Map/Vec/String/Json) ou
+/// devolve "" se nao reconhecido. Valores i64 dentro de Map/Vec sao tratados
+/// como numero por padrao — nao ha como saber em runtime se i64 e' handle
+/// string/map sem corromper interpretacao numerica.
+fn stringify_any_inner(handle: u64) -> Option<String> {
+    use std::fmt::Write;
+    with_entry(handle, |e| {
+        let v = e?;
+        let mut out = String::new();
+        match v {
+            Entry::String(b) => {
+                out.push('"');
+                for &c in b {
+                    match c {
+                        b'"' => out.push_str("\\\""),
+                        b'\\' => out.push_str("\\\\"),
+                        b'\n' => out.push_str("\\n"),
+                        b'\r' => out.push_str("\\r"),
+                        b'\t' => out.push_str("\\t"),
+                        0x00..=0x1f => { let _ = write!(out, "\\u{:04x}", c); }
+                        _ => out.push(c as char),
+                    }
+                }
+                out.push('"');
+                Some(out)
+            }
+            Entry::Map(m) => {
+                out.push('{');
+                let mut first = true;
+                for (k, val) in m.iter() {
+                    if k == "__proto__" { continue; }
+                    if !first { out.push(','); }
+                    first = false;
+                    out.push('"');
+                    for c in k.bytes() {
+                        match c {
+                            b'"' => out.push_str("\\\""),
+                            b'\\' => out.push_str("\\\\"),
+                            _ => out.push(c as char),
+                        }
+                    }
+                    out.push_str("\":");
+                    out.push_str(&stringify_value_i64(*val));
+                }
+                out.push('}');
+                Some(out)
+            }
+            Entry::Vec(arr) => {
+                out.push('[');
+                for (i, val) in arr.iter().enumerate() {
+                    if i > 0 { out.push(','); }
+                    out.push_str(&stringify_value_i64(*val));
+                }
+                out.push(']');
+                Some(out)
+            }
+            Entry::Json(j) => serde_json::to_string(j.as_ref()).ok(),
+            _ => None,
         }
     })
+}
+
+/// Tenta interpretar um i64 dentro de Map/Vec: se o handle apontar para
+/// String/Map/Vec/Json, recurse; senao, formata como numero.
+fn stringify_value_i64(v: i64) -> String {
+    let h = v as u64;
+    // Heuristica: handles RTS tem bits altos setados (gen+slot). Inteiros
+    // pequenos (<= 2^31) tipicamente sao numeros, nao handles.
+    if h > 0xFFFF_FFFF {
+        if let Some(s) = stringify_any_inner(h) {
+            return s;
+        }
+    }
+    v.to_string()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(handle: u64) -> u64 {
+    if let Some(s) = stringify_any_inner(handle) {
+        return alloc_entry(Entry::String(s.into_bytes()));
+    }
+    // Fallback: handle 0 ou desconhecido vira "null".
+    if handle == 0 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
+    alloc_entry(Entry::String(handle.to_string().into_bytes()))
 }
 
 #[unsafe(no_mangle)]
