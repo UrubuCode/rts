@@ -420,7 +420,37 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> u64 {
     if fn_ptr == 0 {
-        with_vec_mut(handle, (), |v| v.sort());
+        // Detecta se elementos sao string handles; se sim, sort lexico-
+        // grafico. Senao, sort numerico i64 default.
+        let all_strings = with_vec(handle, false, |v| {
+            !v.is_empty() && v.iter().all(|x| {
+                with_entry(*x as u64, |e| matches!(e, Some(Entry::String(_))))
+            })
+        });
+        if all_strings {
+            // Snapshot bytes pra evitar nested locks.
+            let pairs: Vec<(i64, Vec<u8>)> = with_vec(handle, Vec::new(), |v| {
+                v.iter()
+                    .map(|x| {
+                        let bytes: Vec<u8> = with_entry(*x as u64, |e| match e {
+                            Some(Entry::String(b)) => b.clone(),
+                            _ => Vec::new(),
+                        });
+                        (*x, bytes)
+                    })
+                    .collect()
+            });
+            let mut sorted = pairs;
+            sorted.sort_by(|a, b| a.1.cmp(&b.1));
+            with_vec_mut(handle, (), |v| {
+                v.clear();
+                for (h, _) in sorted {
+                    v.push(h);
+                }
+            });
+        } else {
+            with_vec_mut(handle, (), |v| v.sort());
+        }
     } else {
         let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
         with_vec_mut(handle, (), |v| {
