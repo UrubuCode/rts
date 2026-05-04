@@ -149,7 +149,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                     if matches!(recv_tv.ty, ValTy::Handle) {
                         let recv_h = ctx.coerce_to_i64(recv_tv).val;
+                        // (#549) Array literal/expr como receiver: tentar
+                        // array_builtin antes de string_builtin. Heuristica:
+                        // se m.obj e' Expr::Array OU Expr::Call cuja propria
+                        // chamada retorna Handle (ex: outro .reverse()),
+                        // tratamos como array. Para garantir, tenta array primeiro.
+                        if matches!(m.obj.as_ref(), Expr::Array(_) | Expr::Call(_)) {
+                            if let Some(tv) = lower_array_builtin(ctx, &method_name, recv_h, call)? {
+                                return Ok(tv);
+                            }
+                        }
                         if let Some(tv) = lower_string_builtin(ctx, &method_name, recv_h, call)? {
+                            return Ok(tv);
+                        }
+                        // Fallback array para chains (call que pode ser map/filter/etc).
+                        if let Some(tv) = lower_array_builtin(ctx, &method_name, recv_h, call)? {
                             return Ok(tv);
                         }
                     }
