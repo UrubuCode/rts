@@ -147,9 +147,37 @@ pub extern "C" fn __RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET(_handle: u64) -> i64 {
     0
 }
 
+/// (#552) `toUTCString()` — formato RFC 1123: "Day, DD Mon YYYY HH:MM:SS GMT".
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_DATE_TO_UTC_STRING(handle: u64) -> u64 {
-    __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
+    use crate::namespaces::date::ops::*;
+    let ms = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(v)) => *v,
+        _ => 0,
+    });
+    let year = __RTS_FN_NS_DATE_YEAR(ms);
+    let month = __RTS_FN_NS_DATE_MONTH(ms);
+    let day = __RTS_FN_NS_DATE_DAY(ms);
+    let hour = __RTS_FN_NS_DATE_HOUR(ms);
+    let minute = __RTS_FN_NS_DATE_MINUTE(ms);
+    let second = __RTS_FN_NS_DATE_SECOND(ms);
+    let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
+    let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    let mon_names = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let s = format!(
+        "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
+        day_names[dow.clamp(0, 6) as usize],
+        day,
+        mon_names[(month.clamp(1, 12) - 1) as usize],
+        year,
+        hour,
+        minute,
+        second,
+    );
+    alloc_entry(Entry::String(s.into_bytes()))
 }
 
 /// (#220) `toDateString()` — pega ate o 'T' do ISO.
