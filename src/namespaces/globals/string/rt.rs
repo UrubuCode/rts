@@ -96,6 +96,26 @@ pub extern "C" fn __RTS_FN_GL_STRING_ENDS_WITH(recv: u64, suffix: u64) -> i64 {
     }
 }
 
+/// (#208) startsWith com `position` opcional.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_STARTS_WITH_AT(recv: u64, prefix: u64, pos: i64) -> i64 {
+    let (Some(s), Some(p)) = (handle_to_str(recv), handle_to_str(prefix)) else {
+        return 0;
+    };
+    let start = if pos < 0 { 0 } else { (pos as usize).min(s.len()) };
+    s[start..].starts_with(p) as i64
+}
+
+/// (#208) endsWith com `endPosition` opcional — limita ate qual indice considerar.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_ENDS_WITH_AT(recv: u64, suffix: u64, end_pos: i64) -> i64 {
+    let (Some(s), Some(p)) = (handle_to_str(recv), handle_to_str(suffix)) else {
+        return 0;
+    };
+    let end = if end_pos < 0 { 0 } else { (end_pos as usize).min(s.len()) };
+    s[..end].ends_with(p) as i64
+}
+
 // ── Indexing methods ───────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
