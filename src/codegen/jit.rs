@@ -541,6 +541,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_ASINH", basic::__RTS_FN_NS_MATH_ASINH);
     add_fn!("__RTS_FN_NS_MATH_ACOSH", basic::__RTS_FN_NS_MATH_ACOSH);
     add_fn!("__RTS_FN_NS_MATH_ATANH", basic::__RTS_FN_NS_MATH_ATANH);
+    add_fn!("__RTS_FN_NS_MATH_IMUL", basic::__RTS_FN_NS_MATH_IMUL);
+    add_fn!("__RTS_FN_NS_MATH_CLZ32", basic::__RTS_FN_NS_MATH_CLZ32);
     add_fn!("__RTS_FN_NS_MATH_SIN", trig::__RTS_FN_NS_MATH_SIN);
     add_fn!("__RTS_FN_NS_MATH_COS", trig::__RTS_FN_NS_MATH_COS);
     add_fn!("__RTS_FN_NS_MATH_TAN", trig::__RTS_FN_NS_MATH_TAN);

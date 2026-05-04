@@ -120,3 +120,16 @@ pub extern "C" fn __RTS_FN_NS_MATH_ASINH(x: f64) -> f64 { x.asinh() }
 pub extern "C" fn __RTS_FN_NS_MATH_ACOSH(x: f64) -> f64 { x.acosh() }
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_MATH_ATANH(x: f64) -> f64 { x.atanh() }
+
+/// (#208) `Math.imul(a, b)` — multiplicacao C-style 32-bit signed.
+/// Args sao truncados pra i32 antes de multiplicar (wrapping).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_MATH_IMUL(a: i64, b: i64) -> i64 {
+    ((a as i32).wrapping_mul(b as i32)) as i64
+}
+
+/// (#208) `Math.clz32(x)` — count leading zeros em uint32.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_MATH_CLZ32(x: i64) -> i64 {
+    (x as u32).leading_zeros() as i64
+}
