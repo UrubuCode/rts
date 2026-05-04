@@ -2523,6 +2523,26 @@ fn lower_var_member_call(
         .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
     let obj_h = ctx.coerce_to_i64(obj_tv).val;
 
+    // (#208) Boolean.prototype methods em receiver Bool.
+    if matches!(obj_tv.ty, ValTy::Bool) {
+        match prop {
+            "toString" if call.args.is_empty() => {
+                // Emite condicional: bool ? "true" : "false".
+                use cranelift_codegen::ir::condcodes::IntCC;
+                let true_h = ctx.emit_str_handle(b"true")?.val;
+                let false_h = ctx.emit_str_handle(b"false")?.val;
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, obj_h, zero);
+                let result = ctx.builder.ins().select(is_true, true_h, false_h);
+                return Ok(TypedVal::new(result, ValTy::Handle));
+            }
+            "valueOf" if call.args.is_empty() => {
+                return Ok(TypedVal::new(obj_h, ValTy::Bool));
+            }
+            _ => {}
+        }
+    }
+
     // Builtins de Number (n.toFixed(), n.toString(), etc.) em receiver numeric.
     if matches!(obj_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {
         let recv_f = to_f64(ctx, obj_tv);
