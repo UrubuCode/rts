@@ -274,6 +274,18 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: Some(Intrinsic::AbsI64),
         pure: true,
     },
+    // (#208) Aliases JS-style sem sufixo (default f64).
+    NamespaceMember {
+        name: "abs",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_MATH_ABS_F64",
+        args: &[AbiType::F64],
+        returns: AbiType::F64,
+        doc: "Math.abs(x) — alias de abs_f64.",
+        ts_signature: "abs(x: number): number",
+        intrinsic: Some(Intrinsic::AbsF64),
+        pure: true,
+    },
     // ── Trig ──────────────────────────────────────────────────────────────
     NamespaceMember {
         name: "sin",
@@ -384,6 +396,30 @@ pub const MEMBERS: &[NamespaceMember] = &[
         doc: "Minimum of two i64 values.",
         ts_signature: "min_i64(a: number, b: number): number",
         intrinsic: Some(Intrinsic::MinI64),
+        pure: true,
+    },
+    // (#208) Math.min/max aliases f64 (2-arg). Variadico fica em
+    // dispatch ad-hoc no codegen — JS aceita N args, namespace fixa em 2.
+    NamespaceMember {
+        name: "min",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_MATH_MIN_F64",
+        args: &[AbiType::F64, AbiType::F64],
+        returns: AbiType::F64,
+        doc: "Math.min(a, b) — alias de min_f64.",
+        ts_signature: "min(a: number, b: number): number",
+        intrinsic: Some(Intrinsic::MinF64),
+        pure: true,
+    },
+    NamespaceMember {
+        name: "max",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_MATH_MAX_F64",
+        args: &[AbiType::F64, AbiType::F64],
+        returns: AbiType::F64,
+        doc: "Math.max(a, b) — alias de max_f64.",
+        ts_signature: "max(a: number, b: number): number",
+        intrinsic: Some(Intrinsic::MaxF64),
         pure: true,
     },
     NamespaceMember {
