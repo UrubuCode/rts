@@ -236,19 +236,14 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             // propaga tipos dos sub-campos. Sem isso, `const { db: { host } } = cfg`
             // (depois de expand_destructuring vira `const __d1 = cfg.db; const { host } = __d1;`)
             // perde o tipo de `host` e mostra handle bruto em template literal.
-            if let swc_ecma_ast::Expr::Member(m) = init.as_ref() {
-                if let (swc_ecma_ast::Expr::Ident(obj_id), swc_ecma_ast::MemberProp::Ident(prop)) =
-                    (m.obj.as_ref(), &m.prop)
+            // Member access (\`cfg.server\`) ou OptChain (\`cfg?.server\`)
+            // — propaga nested types pra var.
+            let propagate_member = |obj: &swc_ecma_ast::Expr, prop: &swc_ecma_ast::MemberProp, ctx: &mut crate::codegen::lower::ctx::FnCtx| {
+                if let (swc_ecma_ast::Expr::Ident(obj_id), swc_ecma_ast::MemberProp::Ident(p)) =
+                    (obj, prop)
                 {
                     let obj_name = obj_id.sym.as_str();
-                    let key = prop.sym.as_str();
-                    // Procura tipos nested para `obj.key` registrados via
-                    // local_nested_obj_field_types. Sem essa estrutura,
-                    // tentamos heuristica: se o campo `key` em obj_name e'
-                    // Handle e o init original era objeto literal, podemos
-                    // propagar — mas isso exige tracking de literals nested.
-                    // Por hora, herda tipos default (Handle pra strings)
-                    // se obj_name aponta pra registro de literais nested.
+                    let key = p.sym.as_str();
                     if let Some(nested) = ctx
                         .local_nested_obj_field_types
                         .get(&(obj_name.to_string(), key.to_string()))
@@ -256,6 +251,14 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                     {
                         ctx.local_obj_field_types.insert(name.clone(), nested);
                     }
+                }
+            };
+            if let swc_ecma_ast::Expr::Member(m) = init.as_ref() {
+                propagate_member(m.obj.as_ref(), &m.prop, ctx);
+            }
+            if let swc_ecma_ast::Expr::OptChain(opt) = init.as_ref() {
+                if let swc_ecma_ast::OptChainBase::Member(m) = opt.base.as_ref() {
+                    propagate_member(m.obj.as_ref(), &m.prop, ctx);
                 }
             }
         }
