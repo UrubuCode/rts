@@ -3319,12 +3319,32 @@ fn lower_console_call(
         Some(cl::I64),
     )?;
 
+    // (#573) Para Handle ambiguo (retorno de var member call, WeakMap.get,
+    // ?? heterogeneo, etc.), usa TPL_COERCE_AUTO que detecta string vs
+    // numero em runtime. Literals string/template ja sao Handle conhecido,
+    // skip da coercao auto via heuristica simples: arg e' Lit::Str ou Tpl.
+    let auto_coerce = ctx.get_extern(
+        "__RTS_FN_RT_TPL_COERCE_AUTO",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
     for arg in &call.args {
         if arg.spread.is_some() {
             return Err(anyhow!("spread not supported in console.* args"));
         }
+        let is_known_str = matches!(
+            arg.expr.as_ref(),
+            Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+        );
         let tv = lower_expr(ctx, &arg.expr)?;
+        let needs_auto = matches!(tv.ty, ValTy::Handle) && !is_known_str;
         let h = ctx.coerce_to_handle(tv)?.val;
+        let h = if needs_auto {
+            let inst = ctx.builder.ins().call(auto_coerce, &[h]);
+            ctx.builder.inst_results(inst)[0]
+        } else {
+            h
+        };
         acc = Some(match acc {
             None => h,
             Some(prev) => {
