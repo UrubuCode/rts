@@ -342,30 +342,45 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -
     target
 }
 
-/// (#208 / #479) `Object.freeze(obj)` — v0 sem flag de frozen no Entry.
-/// Retorna o proprio handle. Mutacoes subsequentes nao sao bloqueadas
-/// (JS non-strict mode behavior). Issue separada cobrira freeze real.
+// (#479 follow-up) Frozen/sealed tracking via thread-local set de handles.
+// JS non-strict: mutacoes silenciosamente ignoradas; isFrozen reporta correto.
+use std::cell::RefCell;
+use std::collections::HashSet;
+
+thread_local! {
+    static FROZEN_MAPS: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
+    static SEALED_MAPS: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
+}
+
+pub(crate) fn is_map_frozen(handle: u64) -> bool {
+    FROZEN_MAPS.with(|s| s.borrow().contains(&handle))
+}
+
+pub(crate) fn is_map_sealed(handle: u64) -> bool {
+    SEALED_MAPS.with(|s| s.borrow().contains(&handle))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(handle: u64) -> u64 {
+    FROZEN_MAPS.with(|s| s.borrow_mut().insert(handle));
+    SEALED_MAPS.with(|s| s.borrow_mut().insert(handle));
     handle
 }
 
-/// (#208) `Object.seal(obj)` — v0 no-op. JS non-strict.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SEAL(handle: u64) -> u64 {
+    SEALED_MAPS.with(|s| s.borrow_mut().insert(handle));
     handle
 }
 
-/// (#208) `Object.isFrozen(obj)` — v0 sempre false (sem flag).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN(_handle: u64) -> i64 {
-    0
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN(handle: u64) -> i64 {
+    if is_map_frozen(handle) { 1 } else { 0 }
 }
 
-/// (#208) `Object.isSealed(obj)` — v0 sempre false.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(_handle: u64) -> i64 {
-    0
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
+    if is_map_sealed(handle) { 1 } else { 0 }
 }
 
 /// (#208) `Object.getPrototypeOf(obj)` — retorna handle de `__proto__` ou 0.

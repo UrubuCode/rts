@@ -4,13 +4,14 @@ let out = "";
 
 const obj = { a: 1, b: 2 };
 
-// seal — v0 no-op, retorna handle
+// seal — marca handle como sealed; isSealed retorna true depois.
 const sealed = Object.seal(obj);
 out += ((sealed as any).a + 0) + "\n";   // 1
 
-// isFrozen / isSealed — v0 sempre false
+// isFrozen — sealed nao implica frozen.
+// isSealed — true apos seal()
 out += (Object.isFrozen(obj) ? "y" : "n") + "\n";  // n
-out += (Object.isSealed(obj) ? "y" : "n") + "\n";  // n
+out += (Object.isSealed(obj) ? "y" : "n") + "\n";  // y
 
 // getPrototypeOf — sem __proto__ retorna 0
 const proto = { greet: 0 };  // simplified — nao testa method em proto
@@ -24,7 +25,7 @@ Object.defineProperty(target, "x", { value: 42 });
 out += (target as any).x + "\n";  // 42
 
 describe("object_more_methods", () => {
-  test("seal/isFrozen/isSealed/getPrototypeOf/defineProperty (#208 v0)", () => expect(out).toBe(
-    "1\nn\nn\nhas-proto\n42\n"
+  test("seal/isFrozen/isSealed/getPrototypeOf/defineProperty", () => expect(out).toBe(
+    "1\nn\ny\nhas-proto\n42\n"
   ));
 });
