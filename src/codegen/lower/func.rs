@@ -3402,15 +3402,27 @@ fn expand_destruct_decl(
                         expand_destruct_decl(&inner_pat, Some(&access), kind, counter, out);
                     }
                     swc_ecma_ast::ObjectPatProp::KeyValue(kvp) => {
-                        // \`{ x: a }\` — alias
+                        // \`{ x: a }\` — alias; tambem \`{ x: a = default }\`
+                        // (#551) SWC representa default em KeyValue como
+                        // value=Pat::Assign{left,right=default}.
                         let key = match &kvp.key {
                             swc_ecma_ast::PropName::Ident(id) => id.sym.to_string(),
                             swc_ecma_ast::PropName::Str(s) => s.value.to_string_lossy().to_string(),
                             _ => continue,
                         };
                         consumed_keys.push(key.clone());
-                        let access = make_member_access(&tmp_name, &key);
-                        expand_destruct_decl(&kvp.value, Some(&access), kind, counter, out);
+                        let (target_pat, access) = if let Pat::Assign(ap) = kvp.value.as_ref() {
+                            let acc = make_member_access_with_default(
+                                &tmp_name,
+                                &key,
+                                ap.right.as_ref(),
+                            );
+                            (ap.left.as_ref(), acc)
+                        } else {
+                            let acc = make_member_access(&tmp_name, &key);
+                            (kvp.value.as_ref(), acc)
+                        };
+                        expand_destruct_decl(target_pat, Some(&access), kind, counter, out);
                     }
                     swc_ecma_ast::ObjectPatProp::Rest(rest) => {
                         rest_pat = Some(rest.arg.as_ref());
