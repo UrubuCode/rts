@@ -483,6 +483,80 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
     alloc_entry(Entry::Vec(Box::new(keys)))
 }
 
+/// (#208 ES2023) `arr.toSorted()` — sort imutavel: clona, ordena, retorna novo handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED(handle: u64, fn_ptr: u64) -> u64 {
+    let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    if fn_ptr == 0 {
+        // Detecta string handles e ordena lexico (mesma logica do sort).
+        let all_strings = !copy.is_empty()
+            && copy.iter().all(|x| {
+                with_entry(*x as u64, |e| matches!(e, Some(Entry::String(_))))
+            });
+        if all_strings {
+            let pairs: Vec<(i64, Vec<u8>)> = copy
+                .iter()
+                .map(|x| {
+                    let bytes: Vec<u8> = with_entry(*x as u64, |e| match e {
+                        Some(Entry::String(b)) => b.clone(),
+                        _ => Vec::new(),
+                    });
+                    (*x, bytes)
+                })
+                .collect();
+            let mut sorted = pairs;
+            sorted.sort_by(|a, b| a.1.cmp(&b.1));
+            copy = sorted.into_iter().map(|(h, _)| h).collect();
+        } else {
+            copy.sort();
+        }
+    } else {
+        let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+        copy.sort_by(|a, b| {
+            let r = f(*a, *b);
+            if r < 0 { std::cmp::Ordering::Less }
+            else if r > 0 { std::cmp::Ordering::Greater }
+            else { std::cmp::Ordering::Equal }
+        });
+    }
+    alloc_entry(Entry::Vec(Box::new(copy)))
+}
+
+/// (#208 ES2023) `arr.toReversed()` — reverse imutavel.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED(handle: u64) -> u64 {
+    let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    copy.reverse();
+    alloc_entry(Entry::Vec(Box::new(copy)))
+}
+
+/// (#208 ES2023) `arr.toSpliced(start, deleteCount)` — splice imutavel.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED(
+    handle: u64,
+    start: i64,
+    delete_count: i64,
+) -> u64 {
+    let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let len = copy.len() as i64;
+    let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+    let count = delete_count.max(0).min(len - s as i64) as usize;
+    copy.drain(s..s + count);
+    alloc_entry(Entry::Vec(Box::new(copy)))
+}
+
+/// (#208 ES2023) `arr.with(idx, value)` — substitui elemento, retorna novo Vec.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value: i64) -> u64 {
+    let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let len = copy.len() as i64;
+    let i = if idx < 0 { (len + idx).max(0) } else { idx.min(len - 1) } as usize;
+    if i < copy.len() {
+        copy[i] = value;
+    }
+    alloc_entry(Entry::Vec(Box::new(copy)))
+}
+
 /// (#208) `arr.entries()` — Vec de Vec[[idx, value], ...].
 /// Cada entry e' um Vec<i64> com 2 elementos.
 #[unsafe(no_mangle)]

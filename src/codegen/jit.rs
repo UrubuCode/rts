@@ -1112,6 +1112,23 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES
         );
+        // (#208 ES2023) Immutable variants.
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_WITH",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_WITH
+        );
     }
 
     // ── namespaces::os ────────────────────────────────────────────────
