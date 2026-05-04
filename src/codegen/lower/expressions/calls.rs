@@ -183,18 +183,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // JSON global (#215): JSON.* — spec name="JSON" is in SPECS, so
             // `lookup("JSON.parse")` resolves directly above. No fallback needed.
 
-            // (#208) String.fromCharCode(c1, c2, ...) — variadico.
+            // (#208) String.fromCharCode/fromCodePoint variadico.
             // Default em GlobalClassSpec aceita so 1 arg; aqui suportamos N
-            // chamando STRING_FROM_CHAR_CODE pra cada e concatenando.
-            if qualified == "String.fromCharCode" && call.args.len() > 1 {
+            // chamando a fn unitaria pra cada e concatenando.
+            if (qualified == "String.fromCharCode" || qualified == "String.fromCodePoint")
+                && call.args.len() > 1
+            {
                 if call.args.iter().any(|a| a.spread.is_some()) {
-                    return Err(anyhow!("spread not supported in String.fromCharCode"));
+                    return Err(anyhow!("spread not supported in String.fromXxx"));
                 }
-                let single_fn = ctx.get_extern(
-                    "__RTS_FN_GL_STRING_FROM_CHAR_CODE",
-                    &[cl::I64],
-                    Some(cl::I64),
-                )?;
+                let single_sym = if qualified == "String.fromCharCode" {
+                    "__RTS_FN_GL_STRING_FROM_CHAR_CODE"
+                } else {
+                    "__RTS_FN_GL_STRING_FROM_CODE_POINT"
+                };
+                let single_fn = ctx.get_extern(single_sym, &[cl::I64], Some(cl::I64))?;
                 let concat_fn = ctx.get_extern(
                     "__RTS_FN_NS_GC_STRING_CONCAT",
                     &[cl::I64, cl::I64],
