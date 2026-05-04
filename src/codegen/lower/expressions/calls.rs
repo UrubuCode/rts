@@ -944,6 +944,33 @@ fn lower_js_global_call(
         "Number" => lower_coerce_to_number(ctx, call),
         "String" => lower_coerce_to_string(ctx, call),
         "Boolean" => lower_coerce_to_boolean(ctx, call),
+        // (#216 partial) Symbol("desc") chamado como funcao em vez de
+        // global member. Encaminha para __RTS_FN_GL_SYMBOL_NEW(ptr, len).
+        "Symbol" if call.args.len() <= 1 && call.args.iter().all(|a| a.spread.is_none()) => {
+            let (ptr_v, len_v) = if let Some(arg) = call.args.first() {
+                let tv = super::lower_expr(ctx, &arg.expr)?;
+                let h = ctx.coerce_to_handle(tv)?.val;
+                let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let ip = ctx.builder.ins().call(ptr_fn, &[h]);
+                let p = ctx.builder.inst_results(ip)[0];
+                let il = ctx.builder.ins().call(len_fn, &[h]);
+                let l = ctx.builder.inst_results(il)[0];
+                (p, l)
+            } else {
+                let z = ctx.builder.ins().iconst(cl::I64, 0);
+                let neg = ctx.builder.ins().iconst(cl::I64, -1);
+                (z, neg)
+            };
+            let sym_new = ctx.get_extern(
+                "__RTS_FN_GL_SYMBOL_NEW",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(sym_new, &[ptr_v, len_v]);
+            let r = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(r, ValTy::Handle)))
+        }
         // (#208) parseInt(s, radix?) — JS spec com radix opcional, tolerante.
         "parseInt" if (1..=2).contains(&call.args.len())
             && call.args.iter().all(|a| a.spread.is_none()) =>
