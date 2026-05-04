@@ -1098,7 +1098,20 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         Expr::Ident(id) => id.sym.as_str().to_string(),
         _ => return Err(anyhow!("instanceof RHS must be a class identifier")),
     };
+
+    // Global classes: dispatch para runtime check via Entry tipo do handle.
+    // Array → Entry::Vec; Object → Map ou qualquer; Date → DateMs;
+    // RegExp → Regex; Map → Map; Set → Map (set usa Map storage); Error*
+    // → Map com __rts_class. String/Number/Boolean → primitives sao falsy.
     if !ctx.classes.contains_key(&class_name) {
+        let known_global = crate::abi::global_class_lookup(&class_name).is_some()
+            || matches!(
+                class_name.as_str(),
+                "Array" | "Object" | "Map" | "Set" | "Boolean" | "Function"
+            );
+        if known_global {
+            return lower_global_instanceof(ctx, &class_name, &bin.left);
+        }
         return Err(anyhow!("instanceof RHS `{class_name}` is not a known class"));
     }
 
@@ -1151,4 +1164,81 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     }
 
     Ok(TypedVal::new(acc, ValTy::Bool))
+}
+
+/// `lhs instanceof <GlobalClass>` — dispatcha para runtime fn que detecta
+/// Entry type. Array → Vec; Date → DateMs; RegExp → Regex; Map/Set → Map;
+/// Error* → Map com tag `__rts_class` correspondente; Object → qualquer
+/// handle nao primitivo; primitives nunca sao instance.
+fn lower_global_instanceof(
+    ctx: &mut FnCtx,
+    class_name: &str,
+    lhs_expr: &Expr,
+) -> Result<TypedVal> {
+    use super::members::emit_class_tag_read;
+    let lhs = lower_expr(ctx, lhs_expr)?;
+    // Primitives (F64/I64/I32/Bool) nunca passam instanceof <class>.
+    if !matches!(lhs.ty, ValTy::Handle) {
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        return Ok(TypedVal::new(zero, ValTy::Bool));
+    }
+    let recv = ctx.coerce_to_i64(lhs).val;
+
+    // Error: qualquer Entry::ErrorObj passa.
+    if class_name == "Error" {
+        let f = ctx.get_extern("__RTS_FN_GL_IS_ERROR", &[cl::I64], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(f, &[recv]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(v, ValTy::Bool));
+    }
+    // TypeError/RangeError/etc.: checa name field exato.
+    if matches!(
+        class_name,
+        "TypeError" | "RangeError" | "SyntaxError" | "ReferenceError"
+    ) {
+        let (np, nl) = ctx.emit_str_literal(class_name.as_bytes())?;
+        let f = ctx.get_extern(
+            "__RTS_FN_GL_IS_ERROR_NAMED",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(f, &[recv, np, nl]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(v, ValTy::Bool));
+    }
+
+    // Object: qualquer handle nao-primitivo eh "object" em JS — Map e Vec
+    // ambos passam. Verificacao via 2 calls com OR.
+    if class_name == "Object" {
+        let is_map = ctx.get_extern("__RTS_FN_NS_GC_IS_MAP_LIKE", &[cl::I64], Some(cl::I64))?;
+        let is_vec = ctx.get_extern("__RTS_FN_NS_GC_IS_VEC", &[cl::I64], Some(cl::I64))?;
+        let inst1 = ctx.builder.ins().call(is_map, &[recv]);
+        let m = ctx.builder.inst_results(inst1)[0];
+        let inst2 = ctx.builder.ins().call(is_vec, &[recv]);
+        let v = ctx.builder.inst_results(inst2)[0];
+        let or = ctx.builder.ins().bor(m, v);
+        return Ok(TypedVal::new(or, ValTy::Bool));
+    }
+    // Outros: chama runtime fn por tipo.
+    let sym = match class_name {
+        "Array" => "__RTS_FN_NS_GC_IS_VEC",
+        "Date" => "__RTS_FN_NS_GC_IS_DATE",
+        "RegExp" => "__RTS_FN_NS_GC_IS_REGEX",
+        "Map" | "Set" | "WeakMap" | "WeakSet" | "Function" => "__RTS_FN_NS_GC_IS_MAP_LIKE",
+        "Promise" => "__RTS_FN_NS_GC_IS_PROMISE",
+        // String/Number/Boolean: instances primitivas, sempre false em handle nao-string.
+        // Permite "x" instanceof String === false (string primitive).
+        "String" | "Number" | "Boolean" | "Symbol" => {
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            return Ok(TypedVal::new(zero, ValTy::Bool));
+        }
+        _ => {
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            return Ok(TypedVal::new(zero, ValTy::Bool));
+        }
+    };
+    let f = ctx.get_extern(sym, &[cl::I64], Some(cl::I64))?;
+    let inst = ctx.builder.ins().call(f, &[recv]);
+    let v = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(v, ValTy::Bool))
 }

@@ -68,6 +68,43 @@ pub extern "C" fn __RTS_FN_NS_GC_IS_VEC(handle: u64) -> i64 {
     })
 }
 
+/// instanceof Date — handle aponta para Entry::DateMs.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_IS_DATE(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::DateMs(_)) => 1,
+        _ => 0,
+    })
+}
+
+/// instanceof RegExp — handle aponta para Entry::Regex.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_IS_REGEX(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(_)) => 1,
+        _ => 0,
+    })
+}
+
+/// instanceof Map/Set/WeakMap/WeakSet/Object — handle aponta para Entry::Map
+/// ou WeakMap/WeakSet (todos sao map-like). Object aceita qualquer Map.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_IS_MAP_LIKE(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Map(_)) | Some(Entry::WeakMap(_)) => 1,
+        _ => 0,
+    })
+}
+
+/// instanceof Promise — handle aponta para Entry::PromiseAsync.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_IS_PROMISE(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::PromiseAsync(_)) => 1,
+        _ => 0,
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
     alloc_entry(Entry::String(value.to_string().into_bytes()))

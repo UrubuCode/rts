@@ -1779,6 +1779,7 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         let name_handle = ctx.builder.inst_results(inst)[0];
         ctx.builder.ins().call(set_fn, &[h, name_kp, name_kl, name_handle]);
 
+
         // Set message = primeiro argumento (string) ou "" se sem args.
         let msg_handle = if let Some(arg) = new_expr.args.as_ref().and_then(|args| args.first()) {
             if arg.spread.is_none() {
