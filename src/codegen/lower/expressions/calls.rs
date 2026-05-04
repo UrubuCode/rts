@@ -2728,11 +2728,33 @@ fn lower_string_builtin(
         }
         "startsWith" | "starts_with" => {
             let prefix = arg_handle(ctx, call, 0)?;
+            // (#208) startsWith(prefix, position?).
+            if call.args.len() >= 2 {
+                let pos = arg_i64(ctx, call, 1)?;
+                let v = call_h!(
+                    "__RTS_FN_GL_STRING_STARTS_WITH_AT",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                    &[recv_h, prefix, pos]
+                );
+                return Ok(Some(TypedVal::new(v, ValTy::Bool)));
+            }
             let v = call_h!("__RTS_FN_GL_STRING_STARTS_WITH", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, prefix]);
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
         "endsWith" | "ends_with" => {
             let suffix = arg_handle(ctx, call, 0)?;
+            // (#208) endsWith(suffix, endPosition?).
+            if call.args.len() >= 2 {
+                let end_pos = arg_i64(ctx, call, 1)?;
+                let v = call_h!(
+                    "__RTS_FN_GL_STRING_ENDS_WITH_AT",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                    &[recv_h, suffix, end_pos]
+                );
+                return Ok(Some(TypedVal::new(v, ValTy::Bool)));
+            }
             let v = call_h!("__RTS_FN_GL_STRING_ENDS_WITH", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, suffix]);
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
