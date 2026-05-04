@@ -136,6 +136,19 @@ pub extern "C" fn __RTS_FN_GL_URL_HASH(h: u64) -> u64     { url_field(h, 7) }
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_ORIGIN(h: u64) -> u64   { url_field(h, 8) }
 
+/// (#373) `url.searchParams` — constroi URLSearchParams a partir do
+/// `search` da URL. Cada chamada cria novo handle (sem cache vinculado).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SEARCH_PARAMS(handle: u64) -> u64 {
+    let search_h = url_field(handle, 6);
+    let search: String = with_entry(search_h, |e| match e {
+        Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+        _ => String::new(),
+    });
+    // O search inclui o '?' inicial; parse_query strip-prefix
+    alloc_search_params(parse_query(&search))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_FREE(handle: u64) {
     // Collect inner string handles outside any with_entry closure to avoid

@@ -122,6 +122,18 @@ pub const URL_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    // (#373) url.searchParams — constroi URLSearchParams a partir de search.
+    NamespaceMember {
+        name: "searchParams",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_URL_SEARCH_PARAMS",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "url.searchParams — URLSearchParams parseada do search query.",
+        ts_signature: "readonly searchParams: URLSearchParams",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const URL_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
