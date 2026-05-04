@@ -555,6 +555,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         consts::__RTS_FN_NS_MATH_INFINITY
     );
     add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
+    // (#208) Math constants extras.
+    add_fn!("__RTS_FN_NS_MATH_SQRT2", consts::__RTS_FN_NS_MATH_SQRT2);
+    add_fn!("__RTS_FN_NS_MATH_SQRT1_2", consts::__RTS_FN_NS_MATH_SQRT1_2);
+    add_fn!("__RTS_FN_NS_MATH_LN2", consts::__RTS_FN_NS_MATH_LN2);
+    add_fn!("__RTS_FN_NS_MATH_LN10", consts::__RTS_FN_NS_MATH_LN10);
+    add_fn!("__RTS_FN_NS_MATH_LOG2E", consts::__RTS_FN_NS_MATH_LOG2E);
+    add_fn!("__RTS_FN_NS_MATH_LOG10E", consts::__RTS_FN_NS_MATH_LOG10E);
 
     // ── namespaces::num ───────────────────────────────────────────────
     {
