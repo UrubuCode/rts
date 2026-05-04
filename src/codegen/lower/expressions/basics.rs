@@ -256,6 +256,7 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
         // (#proto-method) Se veio de var_member_call, use coerce auto que
         // detecta string handle em runtime.
         let is_var_member_call = ctx.var_member_call_values.contains(&val.val);
+        let val_ty = val.ty;
         let rhs = if is_opt_chain {
             let undef_h = ctx.emit_str_handle(b"undefined")?.val;
             let val_i64 = ctx.coerce_to_i64(val).val;
@@ -263,7 +264,8 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
             let is_null = ctx.builder.ins().icmp(IntCC::Equal, val_i64, zero);
             ctx.builder.ins().select(is_null, undef_h, normal_h)
-        } else if is_var_member_call {
+        } else if is_var_member_call || matches!(val_ty, ValTy::Handle) {
+            // (#573) Handle ambiguo (string/numero embutido) usa COERCE_AUTO.
             let val_i64 = ctx.coerce_to_i64(val).val;
             let coerce_fn = ctx.get_extern(
                 "__RTS_FN_RT_TPL_COERCE_AUTO",
