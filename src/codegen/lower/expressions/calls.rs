@@ -204,6 +204,48 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             return Ok(tv);
                         }
                     }
+                    // (#480 chain) Method chain em Call result: \`c.add(5).add(3)\`.
+                    // Receiver i64 (return this) que e' handle de Map. Faz map_get +
+                    // INVOKE_AUTO em qualquer Call obj.
+                    if matches!(m.obj.as_ref(), Expr::Call(_)) {
+                        let recv_h = ctx.coerce_to_i64(recv_tv).val;
+                        let (kp, kl) = ctx.emit_str_literal(method_name.as_bytes())?;
+                        let map_get = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+                            &[cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst_g = ctx.builder.ins().call(map_get, &[recv_h, kp, kl]);
+                        let callee_val = ctx.builder.inst_results(inst_g)[0];
+                        ctx.builder.ins().trapz(
+                            callee_val,
+                            cranelift_codegen::ir::TrapCode::user(1).unwrap(),
+                        );
+                        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+                        let inst_v = ctx.builder.ins().call(vec_new, &[]);
+                        let args_h = ctx.builder.inst_results(inst_v)[0];
+                        let vec_push = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                            &[cl::I64, cl::I64],
+                            None,
+                        )?;
+                        for arg in &call.args {
+                            if arg.spread.is_some() {
+                                return Err(anyhow!("spread not supported in chained method call"));
+                            }
+                            let tv = lower_expr(ctx, &arg.expr)?;
+                            let v = ctx.coerce_to_i64(tv).val;
+                            ctx.builder.ins().call(vec_push, &[args_h, v]);
+                        }
+                        let invoke_auto = ctx.get_extern(
+                            "__RTS_FN_RT_INVOKE_AUTO",
+                            &[cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(invoke_auto, &[callee_val, recv_h, args_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::I64));
+                    }
                 }
             }
         }
