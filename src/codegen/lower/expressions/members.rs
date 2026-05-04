@@ -718,7 +718,22 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             } else {
                 false
             };
-            if receiver_class.is_none() && !is_known_obj_lit {
+            // (#601) Skip getter fallback para "name"/"length"/"prototype"
+            // quando obj nao e' Ident de user fn. Esses sao Function metadata
+            // — sem receiver_class identificavel, podem colidir com fields
+            // legitimos de instance. Mantem behavior so' para idents de user
+            // fn (Animal.name, etc.) via lower_user_fn_getter acima.
+            let is_function_meta_prop = matches!(
+                key, "name" | "length" | "prototype"
+            );
+            let obj_is_user_fn_ident = if let Expr::Ident(id) = m.obj.as_ref() {
+                ctx.user_fns.contains_key(id.sym.as_str())
+                    && ctx.var_ty(id.sym.as_str()).is_none()
+            } else {
+                false
+            };
+            let skip_function_meta = is_function_meta_prop && !obj_is_user_fn_ident;
+            if receiver_class.is_none() && !is_known_obj_lit && !skip_function_meta {
                 // (#216) Tenta instance_getter primeiro (description, source, flags, etc.)
                 for spec in crate::abi::GLOBAL_CLASS_SPECS {
                     if let Some(member) = spec.instance_getter(key) {
