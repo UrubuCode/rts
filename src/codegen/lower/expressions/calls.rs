@@ -240,6 +240,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
                 return Ok(TypedVal::new(acc.unwrap(), ValTy::F64));
             }
+            // Math.max() = -Infinity; Math.min() = +Infinity (JS spec).
+            if qualified == "Math.max" && call.args.is_empty() {
+                let v = ctx.builder.ins().f64const(f64::NEG_INFINITY);
+                return Ok(TypedVal::new(v, ValTy::F64));
+            }
+            if qualified == "Math.min" && call.args.is_empty() {
+                let v = ctx.builder.ins().f64const(f64::INFINITY);
+                return Ok(TypedVal::new(v, ValTy::F64));
+            }
             // (#208) Math.max/min variadico — JS spec aceita N args.
             // ABI namespace fixou em 2 args; aqui suportamos N reduzindo
             // pairwise.
