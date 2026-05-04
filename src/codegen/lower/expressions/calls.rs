@@ -3978,19 +3978,47 @@ fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             return Ok(Some(TypedVal::new(v, ValTy::Handle)));
         }
-        "toSpliced" if call.args.len() == 2
+        "toSpliced" if call.args.len() >= 2
             && call.args.iter().all(|a| a.spread.is_none()) =>
         {
             let start_tv = lower_expr(ctx, &call.args[0].expr)?;
             let start = ctx.coerce_to_i64(start_tv).val;
             let count_tv = lower_expr(ctx, &call.args[1].expr)?;
             let count = ctx.coerce_to_i64(count_tv).val;
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED",
-                &[cl::I64, cl::I64, cl::I64],
+            if call.args.len() == 2 {
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, start, count]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+            }
+            // toSpliced com inserts.
+            let new_vec = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+                &[],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h, start, count]);
+            let push = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                &[cl::I64, cl::I64],
+                None,
+            )?;
+            let new_inst = ctx.builder.ins().call(new_vec, &[]);
+            let items_h = ctx.builder.inst_results(new_inst)[0];
+            for arg in &call.args[2..] {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let v = ctx.coerce_to_i64(tv).val;
+                ctx.builder.ins().call(push, &[items_h, v]);
+            }
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, start, count, items_h]);
             let v = ctx.builder.inst_results(inst)[0];
             return Ok(Some(TypedVal::new(v, ValTy::Handle)));
         }

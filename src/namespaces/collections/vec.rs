@@ -631,6 +631,29 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED(
     alloc_entry(Entry::Vec(Box::new(copy)))
 }
 
+/// `arr.toSpliced(start, deleteCount, ...items)` com inserts.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT(
+    handle: u64,
+    start: i64,
+    delete_count: i64,
+    items_handle: u64,
+) -> u64 {
+    let items: Vec<i64> = with_entry(items_handle, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let len = copy.len() as i64;
+    let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+    let count = delete_count.max(0).min(len - s as i64) as usize;
+    copy.drain(s..s + count);
+    for (i, item) in items.into_iter().enumerate() {
+        copy.insert(s + i, item);
+    }
+    alloc_entry(Entry::Vec(Box::new(copy)))
+}
+
 /// (#208 ES2023) `arr.with(idx, value)` — substitui elemento, retorna novo Vec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value: i64) -> u64 {
