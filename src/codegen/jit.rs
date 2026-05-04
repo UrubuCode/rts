@@ -399,6 +399,12 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_SYMBOL_KEY_FOR", __RTS_FN_GL_SYMBOL_KEY_FOR);
         add_fn!("__RTS_FN_GL_SYMBOL_DESCRIPTION", __RTS_FN_GL_SYMBOL_DESCRIPTION);
         add_fn!("__RTS_FN_GL_SYMBOL_TO_STRING", __RTS_FN_GL_SYMBOL_TO_STRING);
+        // Well-known symbols.
+        add_fn!("__RTS_FN_GL_SYMBOL_ITERATOR", __RTS_FN_GL_SYMBOL_ITERATOR);
+        add_fn!("__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR", __RTS_FN_GL_SYMBOL_ASYNC_ITERATOR);
+        add_fn!("__RTS_FN_GL_SYMBOL_HAS_INSTANCE", __RTS_FN_GL_SYMBOL_HAS_INSTANCE);
+        add_fn!("__RTS_FN_GL_SYMBOL_TO_PRIMITIVE", __RTS_FN_GL_SYMBOL_TO_PRIMITIVE);
+        add_fn!("__RTS_FN_GL_SYMBOL_TO_STRING_TAG", __RTS_FN_GL_SYMBOL_TO_STRING_TAG);
     }
 
     // (#208) encodeURIComponent / decodeURIComponent globais.
