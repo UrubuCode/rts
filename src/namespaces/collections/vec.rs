@@ -180,6 +180,28 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(handle: u64, needle:
     })
 }
 
+/// (#208) `arr.lastIndexOf(needle, fromIndex)` — busca de tras pra frente,
+/// comecando em `from` (inclusive). Negativo = relativo ao fim.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
+    handle: u64,
+    needle: i64,
+    from: i64,
+) -> i64 {
+    with_vec(handle, -1, |v| {
+        let len = v.len() as i64;
+        let end = if from < 0 { (len + from).max(-1) + 1 } else { (from + 1).min(len) } as usize;
+        if end == 0 {
+            return -1;
+        }
+        v[..end]
+            .iter()
+            .rposition(|x| *x == needle)
+            .map(|i| i as i64)
+            .unwrap_or(-1)
+    })
+}
+
 /// `arr.includes(needle)` → 1 ou 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64) -> i64 {
