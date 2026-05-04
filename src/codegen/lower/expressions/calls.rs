@@ -183,6 +183,39 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // JSON global (#215): JSON.* — spec name="JSON" is in SPECS, so
             // `lookup("JSON.parse")` resolves directly above. No fallback needed.
 
+            // (#208) String.fromCharCode(c1, c2, ...) — variadico.
+            // Default em GlobalClassSpec aceita so 1 arg; aqui suportamos N
+            // chamando STRING_FROM_CHAR_CODE pra cada e concatenando.
+            if qualified == "String.fromCharCode" && call.args.len() > 1 {
+                if call.args.iter().any(|a| a.spread.is_some()) {
+                    return Err(anyhow!("spread not supported in String.fromCharCode"));
+                }
+                let single_fn = ctx.get_extern(
+                    "__RTS_FN_GL_STRING_FROM_CHAR_CODE",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let concat_fn = ctx.get_extern(
+                    "__RTS_FN_NS_GC_STRING_CONCAT",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let mut acc: Option<cranelift_codegen::ir::Value> = None;
+                for a in &call.args {
+                    let tv = lower_expr(ctx, &a.expr)?;
+                    let code = ctx.coerce_to_i64(tv).val;
+                    let inst = ctx.builder.ins().call(single_fn, &[code]);
+                    let part = ctx.builder.inst_results(inst)[0];
+                    acc = Some(match acc {
+                        None => part,
+                        Some(prev) => {
+                            let i = ctx.builder.ins().call(concat_fn, &[prev, part]);
+                            ctx.builder.inst_results(i)[0]
+                        }
+                    });
+                }
+                return Ok(TypedVal::new(acc.unwrap(), ValTy::Handle));
+            }
             // (#220) Date.UTC(year, month, day?, hour?, min?, sec?, ms?) —
             // arity 1-7, fill defaults: month=0 nao aceito (spec ECMA),
             // day=1, demais=0.
