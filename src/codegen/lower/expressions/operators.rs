@@ -757,11 +757,13 @@ pub(super) fn lower_cond(ctx: &mut FnCtx, cond: &swc_ecma_ast::CondExpr) -> Resu
 
 fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     let lhs = lower_expr(ctx, &bin.left)?;
+    let lhs_ty = lhs.ty;
     let lhs_i64 = ctx.coerce_to_i64(lhs).val;
     let zero = ctx.builder.ins().iconst(cl::I64, 0);
     let merge = ctx.builder.create_block();
     let result = ctx.builder.append_block_param(merge, cl::I64);
 
+    let mut rhs_ty: ValTy = lhs_ty;
     match bin.op {
         BinaryOp::LogicalAnd => {
             let rhs_block = ctx.builder.create_block();
@@ -772,6 +774,7 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             ctx.builder.switch_to_block(rhs_block);
             ctx.builder.seal_block(rhs_block);
             let rhs = lower_expr(ctx, &bin.right)?;
+            rhs_ty = rhs.ty;
             let rhs_i64 = ctx.coerce_to_i64(rhs).val;
             ctx.builder.ins().jump(merge, &[rhs_i64.into()]);
         }
@@ -784,6 +787,7 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             ctx.builder.switch_to_block(rhs_block);
             ctx.builder.seal_block(rhs_block);
             let rhs = lower_expr(ctx, &bin.right)?;
+            rhs_ty = rhs.ty;
             let rhs_i64 = ctx.coerce_to_i64(rhs).val;
             ctx.builder.ins().jump(merge, &[rhs_i64.into()]);
         }
@@ -796,6 +800,7 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             ctx.builder.switch_to_block(rhs_block);
             ctx.builder.seal_block(rhs_block);
             let rhs = lower_expr(ctx, &bin.right)?;
+            rhs_ty = rhs.ty;
             let rhs_i64 = ctx.coerce_to_i64(rhs).val;
             ctx.builder.ins().jump(merge, &[rhs_i64.into()]);
         }
@@ -804,7 +809,13 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
 
     ctx.builder.switch_to_block(merge);
     ctx.builder.seal_block(merge);
-    Ok(TypedVal::new(result, ValTy::I64))
+    // Tipo de resultado: se lhs ou rhs era Handle, propaga Handle.
+    let out_ty = if matches!(lhs_ty, ValTy::Handle) || matches!(rhs_ty, ValTy::Handle) {
+        ValTy::Handle
+    } else {
+        ValTy::I64
+    };
+    Ok(TypedVal::new(result, out_ty))
 }
 
 fn promote_numeric(
