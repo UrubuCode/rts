@@ -321,6 +321,36 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT(handle: u64) -> u64 {
     alloc_entry(Entry::Vec(Box::new(out)))
 }
 
+/// `arr.flat(depth)` recursivo. depth < 0 trata como 0; depth grande
+/// (> 1024) e' clamp pra 1024 (proxy de Infinity).
+fn flat_recursive(elems: &[i64], depth: i64, out: &mut Vec<i64>) {
+    for &e in elems {
+        if depth <= 0 {
+            out.push(e);
+            continue;
+        }
+        let h = e as u64;
+        let inner: Option<Vec<i64>> = with_entry(h, |entry| match entry {
+            Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
+            _ => None,
+        });
+        if let Some(v) = inner {
+            flat_recursive(&v, depth - 1, out);
+        } else {
+            out.push(e);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH(handle: u64, depth: i64) -> u64 {
+    let elems: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let depth = depth.clamp(0, 1024);
+    let mut out: Vec<i64> = Vec::new();
+    flat_recursive(&elems, depth, &mut out);
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
 /// `arr.splice(start, deleteCount)` — remove `deleteCount` elementos a
 /// partir de `start` in-place. Retorna handle de Vec com os removidos.
 #[unsafe(no_mangle)]

@@ -3688,12 +3688,21 @@ fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ty)))
         }
         "reverse" | "flat" => {
-            if !call.args.is_empty() {
-                // flat(depth) e reverse() ambos sem args na versao v0.
-                // depth diferente de 1 cai em outro PR.
-                if method == "reverse" {
-                    return Ok(None);
-                }
+            // flat(depth) com 1 arg: usa VEC_FLAT_DEPTH.
+            if method == "flat" && call.args.len() == 1 && call.args[0].spread.is_none() {
+                let d_tv = lower_expr(ctx, &call.args[0].expr)?;
+                let depth = ctx.coerce_to_i64(d_tv).val;
+                let fref = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(fref, &[obj_h, depth]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+            }
+            if !call.args.is_empty() && method == "reverse" {
+                return Ok(None);
             }
             let sym = match method {
                 "reverse" => "__RTS_FN_NS_COLLECTIONS_VEC_REVERSE",

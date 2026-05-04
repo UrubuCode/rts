@@ -1084,6 +1084,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_FLAT
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE
         );
