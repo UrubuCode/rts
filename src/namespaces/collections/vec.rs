@@ -208,6 +208,23 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64)
     with_vec(handle, 0, |v| if v.contains(&needle) { 1 } else { 0 })
 }
 
+/// (#208) `arr.includes(needle, fromIndex)` — busca a partir de `from`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM(
+    handle: u64,
+    needle: i64,
+    from: i64,
+) -> i64 {
+    with_vec(handle, 0, |v| {
+        let len = v.len() as i64;
+        let start = if from < 0 { (len + from).max(0) } else { from } as usize;
+        if start >= v.len() {
+            return 0;
+        }
+        if v[start..].contains(&needle) { 1 } else { 0 }
+    })
+}
+
 /// `arr.reverse()` in-place. Retorna o proprio handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REVERSE(handle: u64) -> u64 {

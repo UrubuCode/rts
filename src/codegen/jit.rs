@@ -1040,6 +1040,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF
         );
