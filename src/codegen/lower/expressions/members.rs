@@ -793,6 +793,44 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         }
                     }
                 }
+                // Chained nested: \`cfg.server.host\` ou \`cfg?.server?.host\`.
+                // obj e' Member/OptChain — navega para descobrir tipos.
+                if field_ty.is_none() {
+                    fn chain_root_path(e: &Expr) -> Option<(String, Vec<String>)> {
+                        match e {
+                            Expr::Ident(id) => Some((id.sym.to_string(), Vec::new())),
+                            Expr::Member(mi) => {
+                                if let MemberProp::Ident(p) = &mi.prop {
+                                    let (root, mut path) = chain_root_path(&mi.obj)?;
+                                    path.push(p.sym.to_string());
+                                    Some((root, path))
+                                } else { None }
+                            }
+                            Expr::OptChain(o) => {
+                                if let swc_ecma_ast::OptChainBase::Member(mi) = o.base.as_ref() {
+                                    if let MemberProp::Ident(p) = &mi.prop {
+                                        let (root, mut path) = chain_root_path(&mi.obj)?;
+                                        path.push(p.sym.to_string());
+                                        Some((root, path))
+                                    } else { None }
+                                } else { None }
+                            }
+                            _ => None,
+                        }
+                    }
+                    if let Some((root, path)) = chain_root_path(m.obj.as_ref()) {
+                        if !path.is_empty() {
+                            let last_key = path.last().unwrap().clone();
+                            if let Some(nested) = ctx
+                                .local_nested_obj_field_types
+                                .get(&(root, last_key))
+                                .cloned()
+                            {
+                                field_ty = nested.get(key).copied();
+                            }
+                        }
+                    }
+                }
             }
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
