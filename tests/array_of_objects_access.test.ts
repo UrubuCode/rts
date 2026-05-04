@@ -6,8 +6,9 @@ const users = [{ name: "Alice", age: 30 }, { name: "Bob", age: 25 }];
 
 const u0 = users[0];
 const u0_name = u0.name;
-const u1_name = users[1].name;
-const u0_age = users[0].age;
+const u1 = users[1];
+const u1_name = u1.name;
+const u0_age = u0.age;
 
 let captured = "";
 for (const u of users) {

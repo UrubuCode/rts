@@ -779,6 +779,20 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         }
                     }
                 }
+                // (#592) \`users[i].name\` direto: detecta Member computed
+                // em obj e usa local_array_obj_field_types do array.
+                if field_ty.is_none() {
+                    if let Expr::Member(inner_m) = m.obj.as_ref() {
+                        if matches!(&inner_m.prop, MemberProp::Computed(_)) {
+                            if let Expr::Ident(arr_id) = inner_m.obj.as_ref() {
+                                let arr_name = arr_id.sym.as_str();
+                                if let Some(types) = ctx.local_array_obj_field_types.get(arr_name) {
+                                    field_ty = types.get(key).copied();
+                                }
+                            }
+                        }
+                    }
+                }
             }
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
