@@ -801,6 +801,24 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             return Ok(TypedVal::new(v, ValTy::Handle));
                         }
                     }
+                    // Array.from(string): split em chars via STRING_SPLIT(s, "").
+                    let is_string_arg = matches!(
+                        first.expr.as_ref(),
+                        Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+                    );
+                    if is_string_arg {
+                        let s_tv = lower_expr(ctx, &first.expr)?;
+                        let s_h = ctx.coerce_to_handle(s_tv)?.val;
+                        let empty = ctx.emit_str_handle(b"")?.val;
+                        let split_fn = ctx.get_extern(
+                            "__RTS_FN_GL_STRING_SPLIT",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(split_fn, &[s_h, empty]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Handle));
+                    }
                     // Fallback: src e' Vec handle.
                     let src_tv = lower_expr(ctx, &first.expr)?;
                     let src = ctx.coerce_to_i64(src_tv).val;
