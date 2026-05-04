@@ -307,6 +307,58 @@ pub extern "C" fn __RTS_FN_GL_USP_DELETE(
     self_h
 }
 
+/// (#373) `usp.append(key, value)` — v0 limitacao: backing IndexMap
+/// nao permite multiple values por key, entao append faz overwrite
+/// (mesma semantica de set). JS spec real apendaria nova entry.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_APPEND(
+    self_h: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+    value_ptr: i64,
+    value_len: i64,
+) -> u64 {
+    __RTS_FN_GL_USP_SET(self_h, key_ptr, key_len, value_ptr, value_len)
+}
+
+/// (#373) `usp.getAll(key)` — v0 retorna Vec com 0 ou 1 elemento.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_GET_ALL(
+    self_h: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> u64 {
+    let v_h = __RTS_FN_GL_USP_GET(self_h, key_ptr, key_len);
+    let mut out: Vec<i64> = Vec::new();
+    if v_h != 0 {
+        out.push(v_h as i64);
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// (#373) `usp.keys()` — Vec de string handles com keys.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
+    let keys: Vec<String> = with_search_map(self_h, Vec::new(), |m| {
+        m.keys().cloned().collect()
+    });
+    let mut out: Vec<i64> = Vec::with_capacity(keys.len());
+    for k in keys {
+        let h = alloc_entry(Entry::String(k.into_bytes()));
+        out.push(h as i64);
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// (#373) `usp.values()` — Vec de string handles com values.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
+    let vals: Vec<i64> = with_search_map(self_h, Vec::new(), |m| {
+        m.values().copied().collect()
+    });
+    alloc_entry(Entry::Vec(Box::new(vals)))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_USP_TO_STRING(self_h: u64) -> u64 {
     let pairs: Vec<(String, String)> = with_search_map(self_h, Vec::new(), |m| {
