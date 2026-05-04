@@ -82,6 +82,25 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
                     return Ok(tv);
                 }
+                // JSON.stringify(value, replacer, indent) — JS 3-arg form.
+                // Replacer ignorado (v0); indent vai pra STRINGIFY_PRETTY.
+                if qualified == "JSON.stringify" && call.args.len() >= 3 {
+                    if call.args.iter().any(|a| a.spread.is_some()) {
+                        return Err(anyhow!("spread not supported in JSON.stringify"));
+                    }
+                    let v_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let v_h = ctx.coerce_to_i64(v_tv).val;
+                    let i_tv = lower_expr(ctx, &call.args[2].expr)?;
+                    let indent = ctx.coerce_to_i64(i_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_JSON_STRINGIFY_PRETTY",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[v_h, indent]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(crate::codegen::lower::ctx::TypedVal::new(v, crate::codegen::lower::ctx::ValTy::Handle));
+                }
                 if lookup(&qualified).is_some() {
                     return lower_ns_call(ctx, &qualified, call);
                 }
@@ -197,6 +216,26 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // dispararia "StrPtr argument must be a string value".
             if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
                 return Ok(tv);
+            }
+            // JSON.stringify(value, replacer, indent) — JS 3-arg form.
+            // Replacer ignorado (v0); indent vai pra STRINGIFY_PRETTY.
+            // Tem que ser ANTES de lookup (que resolveria a forma 1-arg).
+            if qualified == "JSON.stringify" && call.args.len() >= 3 {
+                if call.args.iter().any(|a| a.spread.is_some()) {
+                    return Err(anyhow!("spread not supported in JSON.stringify"));
+                }
+                let v_tv = lower_expr(ctx, &call.args[0].expr)?;
+                let v_h = ctx.coerce_to_i64(v_tv).val;
+                let i_tv = lower_expr(ctx, &call.args[2].expr)?;
+                let indent = ctx.coerce_to_i64(i_tv).val;
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_JSON_STRINGIFY_PRETTY",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[v_h, indent]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(v, ValTy::Handle));
             }
             if lookup(&qualified).is_some() {
                 return lower_ns_call(ctx, &qualified, call);

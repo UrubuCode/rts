@@ -129,19 +129,97 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(handle: u64) -> u64 {
     alloc_entry(Entry::String(handle.to_string().into_bytes()))
 }
 
+/// Pretty-printer recursivo para Map/Vec/String/Json com indent.
+fn stringify_pretty_inner(handle: u64, indent: usize, depth: usize) -> Option<String> {
+    use std::fmt::Write;
+    let pad_outer = " ".repeat(indent * depth);
+    let pad_inner = " ".repeat(indent * (depth + 1));
+    with_entry(handle, |e| {
+        let v = e?;
+        let mut out = String::new();
+        match v {
+            Entry::String(_) => stringify_any_inner(handle),
+            Entry::Map(m) => {
+                let entries: Vec<(&String, &i64)> = m.iter()
+                    .filter(|(k, _)| k.as_str() != "__proto__")
+                    .collect();
+                if entries.is_empty() {
+                    out.push_str("{}");
+                    return Some(out);
+                }
+                out.push_str("{\n");
+                for (i, (k, val)) in entries.iter().enumerate() {
+                    out.push_str(&pad_inner);
+                    out.push('"');
+                    for c in k.bytes() {
+                        match c {
+                            b'"' => out.push_str("\\\""),
+                            b'\\' => out.push_str("\\\\"),
+                            _ => out.push(c as char),
+                        }
+                    }
+                    out.push_str("\": ");
+                    out.push_str(&stringify_pretty_value_i64(**val, indent, depth + 1));
+                    if i + 1 < entries.len() { out.push(','); }
+                    out.push('\n');
+                }
+                out.push_str(&pad_outer);
+                out.push('}');
+                Some(out)
+            }
+            Entry::Vec(arr) => {
+                if arr.is_empty() {
+                    out.push_str("[]");
+                    return Some(out);
+                }
+                out.push_str("[\n");
+                for (i, val) in arr.iter().enumerate() {
+                    out.push_str(&pad_inner);
+                    out.push_str(&stringify_pretty_value_i64(*val, indent, depth + 1));
+                    if i + 1 < arr.len() { out.push(','); }
+                    out.push('\n');
+                }
+                out.push_str(&pad_outer);
+                out.push(']');
+                Some(out)
+            }
+            Entry::Json(j) => {
+                let pad = " ".repeat(indent);
+                let mut buf = Vec::with_capacity(64);
+                let formatter = serde_json::ser::PrettyFormatter::with_indent(pad.as_bytes());
+                let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
+                serde::Serialize::serialize(j.as_ref(), &mut ser).ok()?;
+                let _ = write!(out, "{}", String::from_utf8(buf).ok()?);
+                Some(out)
+            }
+            _ => None,
+        }
+    })
+}
+
+fn stringify_pretty_value_i64(v: i64, indent: usize, depth: usize) -> String {
+    let h = v as u64;
+    if h > 0xFFFF_FFFF {
+        if let Some(s) = stringify_pretty_inner(h, indent, depth) {
+            return s;
+        }
+    }
+    v.to_string()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY(handle: u64, indent: i64) -> u64 {
     let indent = indent.max(0).min(16) as usize;
-    with_json(handle, 0, |v| {
-        let pad = " ".repeat(indent);
-        let mut buf = Vec::with_capacity(64);
-        let formatter = serde_json::ser::PrettyFormatter::with_indent(pad.as_bytes());
-        let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
-        match serde::Serialize::serialize(v, &mut ser) {
-            Ok(()) => alloc_entry(Entry::String(buf)),
-            Err(_) => 0,
-        }
-    })
+    if indent == 0 {
+        return __RTS_FN_NS_JSON_STRINGIFY(handle);
+    }
+    if let Some(s) = stringify_pretty_inner(handle, indent, 0) {
+        return alloc_entry(Entry::String(s.into_bytes()));
+    }
+    if handle == 0 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
+    alloc_entry(Entry::String(handle.to_string().into_bytes()))
 }
 
 #[unsafe(no_mangle)]
