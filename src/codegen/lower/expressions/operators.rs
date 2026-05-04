@@ -544,13 +544,34 @@ pub(super) fn lower_opt_chain(
             // bloco non-null faz member_expr normal. Resultado merged
             // preservando o tipo do access (Handle, F64, I32, etc).
             //
-            // Limitacao: \`cfg?.server?.host\` em object literal aninhado
-            // ainda retorna handle bruto, mas isso e' problema de chained
-            // member access em general — bug separado.
+            // (#592 follow-up) Dupla avaliacao do obj quando m.obj e' OptChain
+            // ou expressao com side effects. Materializa obj em var temp e
+            // reescreve o member sintetico para usar a temp — assim
+            // lower_member_expr nao re-evalua a chain.
             let obj_tv = lower_expr(ctx, &member.obj)?;
             let obj_i64 = ctx.coerce_to_i64(obj_tv).val;
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
             let is_null = ctx.builder.ins().icmp(IntCC::Equal, obj_i64, zero);
+
+            // (#592 follow-up) Materializa obj em var temp ANTES do brif
+            // para evitar re-avaliacao em lower_member_expr quando member.obj
+            // e' OptChain/Call/etc. Para Ident simples nao precisa.
+            let synthetic_member = if matches!(member.obj.as_ref(), Expr::Ident(_)) {
+                member.clone()
+            } else {
+                let tmp_name = format!("__opt_recv_{}", ctx.next_opt_chain_temp_id());
+                ctx.declare_local(&tmp_name, ValTy::Handle, obj_i64);
+                swc_ecma_ast::MemberExpr {
+                    span: member.span,
+                    obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                        span: Default::default(),
+                        ctxt: Default::default(),
+                        sym: tmp_name.into(),
+                        optional: false,
+                    })),
+                    prop: member.prop.clone(),
+                }
+            };
 
             let null_block = ctx.builder.create_block();
             let access_block = ctx.builder.create_block();
@@ -559,7 +580,7 @@ pub(super) fn lower_opt_chain(
 
             ctx.builder.switch_to_block(access_block);
             ctx.builder.seal_block(access_block);
-            let access_tv = super::members::lower_member_expr(ctx, member)?;
+            let access_tv = super::members::lower_member_expr(ctx, &synthetic_member)?;
             let access_ty = access_tv.ty;
             let access_val = match access_ty {
                 ValTy::F64 | ValTy::I32 => access_tv.val,
