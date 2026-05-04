@@ -4583,6 +4583,21 @@ fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<Ty
             return Ok(None);
         }
         let tv = super::lower_expr(ctx, &arg.expr)?;
+        // (#550) String coerce: empty string e' falsy. Handle aponta para
+        // Entry::String — usar gc.string_len(handle) > 0.
+        if matches!(tv.ty, ValTy::Handle) {
+            // Caminho generico: chama gc.string_len(handle) e compara > 0.
+            // Para handles nao-string o len volta 0, o que coincide com
+            // Boolean({}) === true em JS — mas em RTS objetos nao-string-like
+            // sao raros como input direto de Boolean(); aceitamos para empty
+            // string virar false (caso comum).
+            let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+            let inst_l = ctx.builder.ins().call(str_len_fn, &[tv.val]);
+            let len = ctx.builder.inst_results(inst_l)[0];
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let result = ctx.builder.ins().icmp(IntCC::NotEqual, len, zero);
+            return Ok(Some(TypedVal::new(result, ValTy::Bool)));
+        }
         if matches!(tv.ty, ValTy::F64) {
             // (#208 fix): NaN deve ser falsy. fcmp NotEqual retorna false
             // pra NaN (NaN != X e' Unordered, nao true). Use OrderedNotEqual
