@@ -441,6 +441,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_USP_SET", __RTS_FN_GL_USP_SET);
     add_fn!("__RTS_FN_GL_USP_DELETE", __RTS_FN_GL_USP_DELETE);
     add_fn!("__RTS_FN_GL_USP_TO_STRING", __RTS_FN_GL_USP_TO_STRING);
+    add_fn!("__RTS_FN_GL_USP_APPEND", __RTS_FN_GL_USP_APPEND);
+    add_fn!("__RTS_FN_GL_USP_GET_ALL", __RTS_FN_GL_USP_GET_ALL);
+    add_fn!("__RTS_FN_GL_USP_KEYS", __RTS_FN_GL_USP_KEYS);
+    add_fn!("__RTS_FN_GL_USP_VALUES", __RTS_FN_GL_USP_VALUES);
 
     // ── namespaces::date ──────────────────────────────────────────────
     use crate::namespaces::date::ops::*;
