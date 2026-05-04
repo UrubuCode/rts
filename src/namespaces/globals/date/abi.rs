@@ -26,6 +26,21 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    // (#220) Date.UTC(year, month, day?, hour?, min?, sec?, ms?) — ms since epoch UTC.
+    NamespaceMember {
+        name: "UTC",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_FROM_PARTS",
+        args: &[
+            AbiType::I64, AbiType::I64, AbiType::I64,
+            AbiType::I64, AbiType::I64, AbiType::I64, AbiType::I64,
+        ],
+        returns: AbiType::I64,
+        doc: "Date.UTC(year, month, day?, hour?, min?, sec?, ms?) — ms since epoch.",
+        ts_signature: "UTC(year: number, month: number, day?: number, hour?: number, min?: number, sec?: number, ms?: number): number",
+        intrinsic: None,
+        pure: true,
+    },
     // ── Constructors (distinguished by arity) ─────────────────────────────────
     NamespaceMember {
         name: "new",
