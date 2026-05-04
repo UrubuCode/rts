@@ -467,6 +467,18 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false, // mutates thread-local RNG state
     },
+    // (#208) JS-style alias: Math.random() → Math.random_f64().
+    NamespaceMember {
+        name: "random",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_MATH_RANDOM_F64",
+        args: &[],
+        returns: AbiType::F64,
+        doc: "Math.random() — alias de random_f64. Uniform [0, 1).",
+        ts_signature: "random(): number",
+        intrinsic: None,
+        pure: false,
+    },
     NamespaceMember {
         name: "random_i64_range",
         kind: MemberKind::Function,
