@@ -183,6 +183,37 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // JSON global (#215): JSON.* — spec name="JSON" is in SPECS, so
             // `lookup("JSON.parse")` resolves directly above. No fallback needed.
 
+            // (#220) Date.UTC(year, month, day?, hour?, min?, sec?, ms?) —
+            // arity 1-7, fill defaults: month=0 nao aceito (spec ECMA),
+            // day=1, demais=0.
+            if qualified == "Date.UTC" && (1..=7).contains(&call.args.len()) {
+                if call.args.iter().any(|a| a.spread.is_some()) {
+                    return Err(anyhow!("spread not supported in Date.UTC"));
+                }
+                let mut vals: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(7);
+                for a in &call.args {
+                    let tv = lower_expr(ctx, &a.expr)?;
+                    vals.push(ctx.coerce_to_i64(tv).val);
+                }
+                // Pad com defaults: day=1, demais=0.
+                while vals.len() < 7 {
+                    let default = if vals.len() == 2 {
+                        // day default = 1
+                        ctx.builder.ins().iconst(cl::I64, 1)
+                    } else {
+                        ctx.builder.ins().iconst(cl::I64, 0)
+                    };
+                    vals.push(default);
+                }
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_DATE_FROM_PARTS",
+                    &[cl::I64; 7],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &vals);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(v, ValTy::I64));
+            }
             // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
             if let Some((cls, method)) = qualified.split_once('.') {
                 if let Some(spec) = crate::abi::global_class_lookup(cls) {
