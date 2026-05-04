@@ -309,6 +309,32 @@ fn lift_arrows_in_expr(
         for a in &mut call.args {
             lift_arrows_in_expr(&mut a.expr, user_fn_names, new_fns, counter);
         }
+        return;
+    }
+    // (#593) Descer em Tpl/Bin/Cond/Paren/Unary para que arrows em
+    // \`${arr.find(x => ...)}\` e similares sejam liftados.
+    match expr {
+        Expr::Tpl(tpl) => {
+            for e in &mut tpl.exprs {
+                lift_arrows_in_expr(e, user_fn_names, new_fns, counter);
+            }
+        }
+        Expr::Bin(b) => {
+            lift_arrows_in_expr(&mut b.left, user_fn_names, new_fns, counter);
+            lift_arrows_in_expr(&mut b.right, user_fn_names, new_fns, counter);
+        }
+        Expr::Cond(c) => {
+            lift_arrows_in_expr(&mut c.test, user_fn_names, new_fns, counter);
+            lift_arrows_in_expr(&mut c.cons, user_fn_names, new_fns, counter);
+            lift_arrows_in_expr(&mut c.alt, user_fn_names, new_fns, counter);
+        }
+        Expr::Paren(p) => {
+            lift_arrows_in_expr(&mut p.expr, user_fn_names, new_fns, counter);
+        }
+        Expr::Unary(u) => {
+            lift_arrows_in_expr(&mut u.arg, user_fn_names, new_fns, counter);
+        }
+        _ => {}
     }
 }
 
@@ -648,6 +674,37 @@ fn rewrite_array_methods_in_stmt(stmt: &mut Stmt, user_fn_names: &HashSet<String
 }
 
 fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String>) {
+    // (#593) Descer em Tpl/Bin/Cond/etc. para que \`${arr.find(...)}\` em
+    // template literal seja reescrito antes de chegar no codegen, evitando
+    // que find caia em lower_var_member_call que marca como ambiguo.
+    match expr {
+        Expr::Tpl(tpl) => {
+            for e in &mut tpl.exprs {
+                rewrite_array_methods_in_expr(e, user_fn_names);
+            }
+            return;
+        }
+        Expr::Bin(b) => {
+            rewrite_array_methods_in_expr(&mut b.left, user_fn_names);
+            rewrite_array_methods_in_expr(&mut b.right, user_fn_names);
+            return;
+        }
+        Expr::Cond(c) => {
+            rewrite_array_methods_in_expr(&mut c.test, user_fn_names);
+            rewrite_array_methods_in_expr(&mut c.cons, user_fn_names);
+            rewrite_array_methods_in_expr(&mut c.alt, user_fn_names);
+            return;
+        }
+        Expr::Paren(p) => {
+            rewrite_array_methods_in_expr(&mut p.expr, user_fn_names);
+            return;
+        }
+        Expr::Unary(u) => {
+            rewrite_array_methods_in_expr(&mut u.arg, user_fn_names);
+            return;
+        }
+        _ => {}
+    }
     // Recursa em sub-expressoes simples primeiro.
     if let Expr::Call(call) = expr {
         if let Callee::Expr(callee) = &call.callee {
