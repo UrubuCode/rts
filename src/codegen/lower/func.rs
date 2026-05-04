@@ -289,6 +289,7 @@ fn lift_arrows_in_expr(
                                     user_fn_names,
                                     new_fns,
                                     counter,
+                                    method == "forEach",
                                 ) {
                                     // Substitui arg por Ident.
                                     call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -319,6 +320,7 @@ fn try_lift_arrow_arg(
     user_fn_names: &mut HashSet<String>,
     new_fns: &mut Vec<Item>,
     counter: &std::sync::atomic::AtomicU32,
+    is_void_callback: bool,
 ) -> Option<String> {
     use swc_ecma_ast::BlockStmtOrExpr;
     let arrow = match arg {
@@ -330,14 +332,80 @@ fn try_lift_arrow_arg(
         return None;
     }
 
-    // Coleta nomes dos params (devem ser Pat::Ident simples).
+    // Coleta nomes dos params. Aceita Pat::Ident e Pat::Array/Object
+    // (destructure). #568 — \`forEach(([k, v]) => ...)\`. Renomeia o
+    // param para __p_N e injeta `const [k, v] = __p_N;` no inicio do body.
     let mut param_names: Vec<String> = Vec::with_capacity(expected_arity);
+    let mut destructure_prelude: Vec<Stmt> = Vec::new();
+    let mut destructured_names: Vec<String> = Vec::new();
+    let mut destruct_counter: u32 = 0;
     for p in &arrow.params {
-        let name = match p {
-            Pat::Ident(bi) => bi.id.sym.to_string(),
+        match p {
+            Pat::Ident(bi) => param_names.push(bi.id.sym.to_string()),
+            Pat::Array(arr_pat) => {
+                let synth = format!("__p_{}_{}", counter.load(std::sync::atomic::Ordering::Relaxed), destruct_counter);
+                destruct_counter += 1;
+                param_names.push(synth.clone());
+                // Coleta names de elementos Ident para has_capture.
+                for el in &arr_pat.elems {
+                    if let Some(Pat::Ident(bi)) = el {
+                        destructured_names.push(bi.id.sym.to_string());
+                    }
+                }
+                destructure_prelude.push(Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    kind: swc_ecma_ast::VarDeclKind::Const,
+                    declare: false,
+                    decls: vec![swc_ecma_ast::VarDeclarator {
+                        span: Default::default(),
+                        name: p.clone(),
+                        init: Some(Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: synth.into(),
+                            optional: false,
+                        }))),
+                        definite: false,
+                    }],
+                }))));
+            }
+            Pat::Object(obj_pat) => {
+                let synth = format!("__p_{}_{}", counter.load(std::sync::atomic::Ordering::Relaxed), destruct_counter);
+                destruct_counter += 1;
+                param_names.push(synth.clone());
+                for prop in &obj_pat.props {
+                    use swc_ecma_ast::ObjectPatProp;
+                    match prop {
+                        ObjectPatProp::Assign(a) => destructured_names.push(a.key.id.sym.to_string()),
+                        ObjectPatProp::KeyValue(kv) => {
+                            if let Pat::Ident(bi) = kv.value.as_ref() {
+                                destructured_names.push(bi.id.sym.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                destructure_prelude.push(Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    kind: swc_ecma_ast::VarDeclKind::Const,
+                    declare: false,
+                    decls: vec![swc_ecma_ast::VarDeclarator {
+                        span: Default::default(),
+                        name: p.clone(),
+                        init: Some(Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: synth.into(),
+                            optional: false,
+                        }))),
+                        definite: false,
+                    }],
+                }))));
+            }
             _ => return None,
-        };
-        param_names.push(name);
+        }
     }
 
     // Body: Expr direto OU BlockStmt com 1 return.
@@ -359,7 +427,9 @@ fn try_lift_arrow_arg(
 
     // Captura check: idents no body devem ser params, user fns,
     // builtins de namespaces, ou nomes de classes globais. Senao skip.
-    if has_capture(&body_expr, &param_names, user_fn_names) {
+    let mut all_bound = param_names.clone();
+    all_bound.extend(destructured_names.iter().cloned());
+    if has_capture(&body_expr, &all_bound, user_fn_names) {
         return None;
     }
 
@@ -378,13 +448,46 @@ fn try_lift_arrow_arg(
         })
         .collect();
 
-    let return_stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
-        span: Default::default(),
-        arg: Some(Box::new(body_expr)),
-    });
-    let body_stmts = vec![Statement::Raw(
-        RawStmt::new("<lifted-arrow>".to_string(), Span::default()).with_stmt(return_stmt),
-    )];
+    // Heuristica: lifted arrow tem return_type=i64. Se o body e' uma Call
+    // (print/console.log/user fn de retorno desconhecido), nao envolver em
+    // Return — usa Stmt::Expr seguido de `return 0` para satisfazer signature
+    // sem tail-call mismatch. (forEach descarta retorno mesmo.)
+    // Para forEach, body Call e' descartado — usar Stmt::Expr + return 0.
+    let is_call_expr = is_void_callback && matches!(&body_expr, Expr::Call(_));
+    let mut body_stmts: Vec<Statement> = Vec::new();
+    for d in destructure_prelude {
+        body_stmts.push(Statement::Raw(
+            RawStmt::new("<lifted-arrow-destructure>".to_string(), Span::default()).with_stmt(d),
+        ));
+    }
+    if is_call_expr {
+        let expr_stmt = Stmt::Expr(swc_ecma_ast::ExprStmt {
+            span: Default::default(),
+            expr: Box::new(body_expr),
+        });
+        body_stmts.push(Statement::Raw(
+            RawStmt::new("<lifted-arrow-call>".to_string(), Span::default()).with_stmt(expr_stmt),
+        ));
+        let zero_ret = Stmt::Return(swc_ecma_ast::ReturnStmt {
+            span: Default::default(),
+            arg: Some(Box::new(Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                span: Default::default(),
+                value: 0.0,
+                raw: None,
+            })))),
+        });
+        body_stmts.push(Statement::Raw(
+            RawStmt::new("<lifted-arrow-zero>".to_string(), Span::default()).with_stmt(zero_ret),
+        ));
+    } else {
+        let return_stmt = Stmt::Return(swc_ecma_ast::ReturnStmt {
+            span: Default::default(),
+            arg: Some(Box::new(body_expr)),
+        });
+        body_stmts.push(Statement::Raw(
+            RawStmt::new("<lifted-arrow>".to_string(), Span::default()).with_stmt(return_stmt),
+        ));
+    }
 
     new_fns.push(Item::Function(FunctionDecl {
         name: fn_name.clone(),
