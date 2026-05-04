@@ -339,6 +339,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_DATE_SET_SECONDS", __RTS_FN_GL_DATE_SET_SECONDS);
     add_fn!("__RTS_FN_GL_DATE_SET_MILLISECONDS", __RTS_FN_GL_DATE_SET_MILLISECONDS);
     add_fn!("__RTS_FN_GL_DATE_SET_TIME", __RTS_FN_GL_DATE_SET_TIME);
+    add_fn!("__RTS_FN_GL_DATE_TO_JSON", __RTS_FN_GL_DATE_TO_JSON);
+    add_fn!("__RTS_FN_GL_DATE_TO_LOCALE_STRING", __RTS_FN_GL_DATE_TO_LOCALE_STRING);
+    add_fn!("__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING", __RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING);
+    add_fn!("__RTS_FN_GL_DATE_TO_TIME_STRING", __RTS_FN_GL_DATE_TO_TIME_STRING);
 
     // ── namespaces::globals::timers ───────────────────────────────────
     use crate::namespaces::globals::timers::instance::*;
