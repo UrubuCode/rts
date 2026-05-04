@@ -1152,6 +1152,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_WITH",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_WITH
         );
