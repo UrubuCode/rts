@@ -3608,10 +3608,8 @@ fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "splice" => {
-            // splice(start, deleteCount). Versao com ...items vai em PR separada.
-            if call.args.is_empty() || call.args.len() > 2
-                || call.args.iter().any(|a| a.spread.is_some())
-            {
+            // splice(start, deleteCount, ...items)
+            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
             let start_tv = lower_expr(ctx, &call.args[0].expr)?;
@@ -3620,15 +3618,42 @@ fn lower_array_builtin(
                 let tv = lower_expr(ctx, &arg.expr)?;
                 ctx.coerce_to_i64(tv).val
             } else {
-                // splice(start) sem count = remove tudo do start em diante.
                 ctx.builder.ins().iconst(cl::I64, i64::MAX)
             };
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE",
-                &[cl::I64, cl::I64, cl::I64],
+            if call.args.len() <= 2 {
+                let fref = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(fref, &[obj_h, start, count]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+            }
+            // splice com ...items: aloca vec novo e usa VEC_SPLICE_INSERT.
+            let new_vec = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+                &[],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, start, count]);
+            let push = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                &[cl::I64, cl::I64],
+                None,
+            )?;
+            let new_inst = ctx.builder.ins().call(new_vec, &[]);
+            let items_h = ctx.builder.inst_results(new_inst)[0];
+            for arg in &call.args[2..] {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let v = ctx.coerce_to_i64(tv).val;
+                ctx.builder.ins().call(push, &[items_h, v]);
+            }
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[obj_h, start, count, items_h]);
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }

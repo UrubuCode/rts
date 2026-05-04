@@ -323,7 +323,6 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT(handle: u64) -> u64 {
 
 /// `arr.splice(start, deleteCount)` — remove `deleteCount` elementos a
 /// partir de `start` in-place. Retorna handle de Vec com os removidos.
-/// Versao sem `...items` (insercao). Items vao em PR separada.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(
     handle: u64,
@@ -335,6 +334,32 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(
         let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
         let count = delete_count.max(0).min(len - s as i64) as usize;
         v.drain(s..s + count).collect()
+    });
+    alloc_entry(Entry::Vec(Box::new(removed)))
+}
+
+/// `arr.splice(start, deleteCount, ...items)` — remove `deleteCount` elementos
+/// e insere `items_handle` (Vec) na mesma posicao. Retorna Vec dos removidos.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
+    handle: u64,
+    start: i64,
+    delete_count: i64,
+    items_handle: u64,
+) -> u64 {
+    let items: Vec<i64> = with_entry(items_handle, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let removed: Vec<i64> = with_vec_mut(handle, Vec::new(), |v| {
+        let len = v.len() as i64;
+        let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+        let count = delete_count.max(0).min(len - s as i64) as usize;
+        let drained: Vec<i64> = v.drain(s..s + count).collect();
+        for (i, item) in items.into_iter().enumerate() {
+            v.insert(s + i, item);
+        }
+        drained
     });
     alloc_entry(Entry::Vec(Box::new(removed)))
 }
