@@ -260,3 +260,36 @@ pub extern "C" fn __RTS_FN_GL_DATE_SET_TIME(handle: u64, ms_in: i64) -> i64 {
     set_ms(handle, ms_in);
     ms_in
 }
+
+/// `toJSON()` — alias de toISOString (JS spec retorna ISO).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_TO_JSON(handle: u64) -> u64 {
+    __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
+}
+
+/// `toLocaleString()` — alias de toISOString (sem locale support).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_STRING(handle: u64) -> u64 {
+    __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
+}
+
+/// `toLocaleTimeString()` — pega depois do 'T' do ISO.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING(handle: u64) -> u64 {
+    __RTS_FN_GL_DATE_TO_TIME_STRING(handle)
+}
+
+/// `toTimeString()` — pega depois do 'T' do ISO.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_TO_TIME_STRING(handle: u64) -> u64 {
+    let iso_h = __RTS_FN_GL_DATE_TO_ISO_STRING(handle);
+    let bytes: Vec<u8> = with_entry(iso_h, |e| match e {
+        Some(Entry::String(b)) => b.clone(),
+        _ => Vec::new(),
+    });
+    if let Some(t_pos) = bytes.iter().position(|&b| b == b'T') {
+        alloc_entry(Entry::String(bytes[t_pos + 1..].to_vec()))
+    } else {
+        alloc_entry(Entry::String(bytes))
+    }
+}
