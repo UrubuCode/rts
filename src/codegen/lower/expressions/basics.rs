@@ -119,12 +119,43 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
         },
         UnaryOp::Plus => Ok(operand),
         UnaryOp::Bang => {
+            use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
+            // (#550) Handle: !handle === true quando handle == 0 OU handle
+            // aponta para Entry::String vazia. Caso contrario falsy.
+            // Esquema:
+            //   handle == 0      -> falsy   -> !x = true
+            //   string_len > 0   -> truthy  -> !x = false
+            //   string_len == 0  -> falsy   -> !x = true
+            //   string_len < 0 (nao-string handle) -> truthy -> !x = false
+            if matches!(operand.ty, ValTy::Handle) {
+                let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                let is_zero_h = ctx.builder.ins().icmp(IntCC::Equal, operand.val, zero);
+                let inst = ctx.builder.ins().call(str_len, &[operand.val]);
+                let len = ctx.builder.inst_results(inst)[0];
+                let is_empty_str = ctx.builder.ins().icmp(IntCC::Equal, len, zero);
+                let falsy = ctx.builder.ins().bor(is_zero_h, is_empty_str);
+                return Ok(TypedVal::new(
+                    ctx.builder.ins().uextend(cl::I64, falsy),
+                    ValTy::Bool,
+                ));
+            }
+            // F64: NaN tambem e' falsy. fcmp NotEqual e' false para NaN.
+            if matches!(operand.ty, ValTy::F64) {
+                let zero = ctx.builder.ins().f64const(0.0);
+                let ne = ctx.builder.ins().fcmp(FloatCC::OrderedNotEqual, operand.val, zero);
+                // !truthy = falsy. ne=true significa truthy, queremos negar.
+                let one = ctx.builder.ins().iconst(cl::I64, 1);
+                let ne_i = ctx.builder.ins().uextend(cl::I64, ne);
+                let neg = ctx.builder.ins().bxor(ne_i, one);
+                return Ok(TypedVal::new(neg, ValTy::Bool));
+            }
             let value = ctx.coerce_to_i64(operand).val;
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
             let is_zero =
                 ctx.builder
                     .ins()
-                    .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, value, zero);
+                    .icmp(IntCC::Equal, value, zero);
             Ok(TypedVal::new(
                 ctx.builder.ins().uextend(cl::I64, is_zero),
                 ValTy::Bool,
