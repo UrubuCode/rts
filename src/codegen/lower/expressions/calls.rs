@@ -2745,6 +2745,17 @@ fn lower_string_builtin(
         }
         "split" => {
             let sep = arg_handle(ctx, call, 0)?;
+            // (#208) split(sep, limit?) — limit truncamento opcional.
+            if call.args.len() >= 2 {
+                let limit = arg_i64(ctx, call, 1)?;
+                let v = call_h!(
+                    "__RTS_FN_GL_STRING_SPLIT_LIMIT",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                    &[recv_h, sep, limit]
+                );
+                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+            }
             let v = call_h!("__RTS_FN_GL_STRING_SPLIT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, sep]);
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
