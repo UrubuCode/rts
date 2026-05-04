@@ -1640,14 +1640,92 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
     // #222 Map/Set v0 — `new Map()` e `new Set()` mapeiam para
     // collections.map_new (mesmo backing store HashMap<string, i64>).
     // Set usa value=1 sentinel; metodos respectivos sao lower em
-    // lower_var_member_call. v0 nao suporta entries iniciais
-    // (`new Map([["a",1]])`) nem iteradores.
+    // lower_var_member_call.
     if class_name == "Map" || class_name == "Set" {
         if !ctx.classes.contains_key(&class_name) {
             let new_fn =
                 ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
             let inst = ctx.builder.ins().call(new_fn, &[]);
             let h = ctx.builder.inst_results(inst)[0];
+            // Initial entries: \`new Set([1,2,3])\` ou \`new Map([[\"a\",1],[\"b\",2]])\`.
+            // v0: aceita Expr::Array literal; outros casos sao no-op.
+            let init_arg = new_expr.args.as_ref().and_then(|args| args.first());
+            if let Some(arg) = init_arg {
+                if let Expr::Array(arr) = arg.expr.as_ref() {
+                    if class_name == "Set" {
+                        // add(elem) para cada item.
+                        let from_i64 = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_FROM_I64",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let str_ptr = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_PTR",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let str_len = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_LEN",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let map_set = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        let one = ctx.builder.ins().iconst(cl::I64, 1);
+                        for elem in arr.elems.iter().flatten() {
+                            if elem.spread.is_some() { continue; }
+                            let tv = lower_expr(ctx, &elem.expr)?;
+                            let i = ctx.coerce_to_i64(tv).val;
+                            // Converte i64 para string-key.
+                            let inst_s = ctx.builder.ins().call(from_i64, &[i]);
+                            let key_h = ctx.builder.inst_results(inst_s)[0];
+                            let inst_p = ctx.builder.ins().call(str_ptr, &[key_h]);
+                            let kp = ctx.builder.inst_results(inst_p)[0];
+                            let inst_l = ctx.builder.ins().call(str_len, &[key_h]);
+                            let kl = ctx.builder.inst_results(inst_l)[0];
+                            ctx.builder.ins().call(map_set, &[h, kp, kl, one]);
+                        }
+                    } else {
+                        // Map: cada elem e' [key, value].
+                        let str_ptr = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_PTR",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let str_len = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_LEN",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let map_set = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        for entry in arr.elems.iter().flatten() {
+                            if entry.spread.is_some() { continue; }
+                            if let Expr::Array(pair) = entry.expr.as_ref() {
+                                if pair.elems.len() != 2 { continue; }
+                                let k_el = pair.elems[0].as_ref();
+                                let v_el = pair.elems[1].as_ref();
+                                let (Some(k), Some(v)) = (k_el, v_el) else { continue; };
+                                let k_tv = lower_expr(ctx, &k.expr)?;
+                                let key_h = ctx.coerce_to_handle(k_tv)?.val;
+                                let inst_p = ctx.builder.ins().call(str_ptr, &[key_h]);
+                                let kp = ctx.builder.inst_results(inst_p)[0];
+                                let inst_l = ctx.builder.ins().call(str_len, &[key_h]);
+                                let kl = ctx.builder.inst_results(inst_l)[0];
+                                let v_tv = lower_expr(ctx, &v.expr)?;
+                                let v_i = ctx.coerce_to_i64(v_tv).val;
+                                ctx.builder.ins().call(map_set, &[h, kp, kl, v_i]);
+                            }
+                        }
+                    }
+                }
+            }
             return Ok(TypedVal::new(h, ValTy::Handle));
         }
     }
