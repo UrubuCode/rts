@@ -278,6 +278,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (#208) Object.isExtensible/preventExtensions — v0 stubs
+                // (sempre true; preventExtensions e' no-op).
+                if method == "isExtensible" && call.args.len() == 1 {
+                    let _ = lower_expr(ctx, &call.args[0].expr)?;
+                    let t = ctx.builder.ins().iconst(cl::I64, 1);
+                    return Ok(TypedVal::new(t, ValTy::Bool));
+                }
+                if method == "preventExtensions" && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    return Ok(TypedVal::new(h, ValTy::Handle));
+                }
                 // (#208) Object.defineProperty(obj, key, descriptor) — v0
                 // suporta apenas { value: x }.
                 if method == "defineProperty" && call.args.len() == 3 {
