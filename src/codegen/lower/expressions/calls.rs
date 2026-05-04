@@ -796,6 +796,28 @@ fn lower_js_global_call(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::F64)))
         }
+        // (#208) encodeURIComponent / decodeURIComponent globais.
+        "encodeURIComponent" | "decodeURIComponent"
+            if call.args.len() == 1 && call.args[0].spread.is_none() =>
+        {
+            let arg_tv = super::lower_expr(ctx, &call.args[0].expr)?;
+            let h = ctx.coerce_to_handle(arg_tv)?.val;
+            let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+            let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+            let ip = ctx.builder.ins().call(ptr_fn, &[h]);
+            let p = ctx.builder.inst_results(ip)[0];
+            let il = ctx.builder.ins().call(len_fn, &[h]);
+            let l = ctx.builder.inst_results(il)[0];
+            let sym = if name == "encodeURIComponent" {
+                "__RTS_FN_GL_ENCODE_URI_COMPONENT"
+            } else {
+                "__RTS_FN_GL_DECODE_URI_COMPONENT"
+            };
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(f, &[p, l]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
         // getPointer(fn) — materializa o endereço de uma user fn como i64.
         // Substitui o padrão `fn as unknown as number` nos call sites.
         "getPointer" => {

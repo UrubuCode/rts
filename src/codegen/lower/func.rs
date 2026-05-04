@@ -413,6 +413,8 @@ fn is_known_global_ident(name: &str) -> bool {
         | "undefined" | "null" | "NaN" | "Infinity"
         | "true" | "false"
         | "isNaN" | "isFinite" | "parseInt" | "parseFloat"
+        | "encodeURIComponent" | "decodeURIComponent"
+        | "atob" | "btoa" | "structuredClone"
     )
 }
 

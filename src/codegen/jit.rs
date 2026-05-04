@@ -376,6 +376,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_SYMBOL_TO_STRING", __RTS_FN_GL_SYMBOL_TO_STRING);
     }
 
+    // (#208) encodeURIComponent / decodeURIComponent globais.
+    {
+        use crate::namespaces::globals::global_this::rt::*;
+        add_fn!("__RTS_FN_GL_ENCODE_URI_COMPONENT", __RTS_FN_GL_ENCODE_URI_COMPONENT);
+        add_fn!("__RTS_FN_GL_DECODE_URI_COMPONENT", __RTS_FN_GL_DECODE_URI_COMPONENT);
+    }
+
     // ── namespaces::globals::weakmap (#217 v0) ───────────────────────
     {
         use crate::namespaces::globals::weakmap::rt::*;
