@@ -3357,11 +3357,27 @@ fn lower_array_builtin(
         }
         // (#208 / #476) Array methods sem callback — args concretos só.
         "indexOf" | "lastIndexOf" | "includes" => {
-            if call.args.len() != 1 || call.args[0].spread.is_some() {
+            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
             let needle_tv = lower_expr(ctx, &call.args[0].expr)?;
             let needle = ctx.coerce_to_i64(needle_tv).val;
+            // (#208) indexOf(needle, fromIndex) — variant 2-arg.
+            if method == "indexOf" && call.args.len() == 2 {
+                let from_tv = lower_expr(ctx, &call.args[1].expr)?;
+                let from = ctx.coerce_to_i64(from_tv).val;
+                let fref = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(fref, &[obj_h, needle, from]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(Some(TypedVal::new(v, ValTy::I64)));
+            }
+            if call.args.len() != 1 {
+                return Ok(None);
+            }
             let sym = match method {
                 "indexOf" => "__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF",
                 "lastIndexOf" => "__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF",

@@ -150,6 +150,28 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(handle: u64, needle: i64)
     })
 }
 
+/// (#208) `arr.indexOf(needle, fromIndex)` — busca a partir de `from`.
+/// Negativo = relativo ao fim. Fora do range = retorna -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM(
+    handle: u64,
+    needle: i64,
+    from: i64,
+) -> i64 {
+    with_vec(handle, -1, |v| {
+        let len = v.len() as i64;
+        let start = if from < 0 { (len + from).max(0) } else { from } as usize;
+        if start >= v.len() {
+            return -1;
+        }
+        v[start..]
+            .iter()
+            .position(|x| *x == needle)
+            .map(|i| (i + start) as i64)
+            .unwrap_or(-1)
+    })
+}
+
 /// `arr.lastIndexOf(needle)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(handle: u64, needle: i64) -> i64 {
