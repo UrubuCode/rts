@@ -725,6 +725,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_FMT_PARSE_I64",
             parse::__RTS_FN_NS_FMT_PARSE_I64
         );
+        // (#208) parseInt JS-spec com radix.
+        add_fn!(
+            "__RTS_FN_NS_FMT_PARSE_INT_RADIX",
+            parse::__RTS_FN_NS_FMT_PARSE_INT_RADIX
+        );
         add_fn!(
             "__RTS_FN_NS_FMT_PARSE_F64",
             parse::__RTS_FN_NS_FMT_PARSE_F64
