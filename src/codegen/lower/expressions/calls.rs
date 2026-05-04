@@ -3422,16 +3422,28 @@ fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "at" => {
-            // Negative indexing seria mais complexo; v0 so aceita non-negative.
+            use cranelift_codegen::ir::condcodes::IntCC;
             let idx_arg = call.args.first().ok_or_else(|| anyhow!("at requires index"))?;
             let tv = lower_expr(ctx, &idx_arg.expr)?;
             let idx = ctx.coerce_to_i64(tv).val;
+            // Negative indexing: idx = len + idx quando idx < 0.
+            let len_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let len_inst = ctx.builder.ins().call(len_fn, &[obj_h]);
+            let len = ctx.builder.inst_results(len_inst)[0];
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_neg = ctx.builder.ins().icmp(IntCC::SignedLessThan, idx, zero);
+            let adjusted = ctx.builder.ins().iadd(len, idx);
+            let final_idx = ctx.builder.ins().select(is_neg, adjusted, idx);
             let get_fn = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_VEC_GET",
                 &[cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(get_fn, &[obj_h, idx]);
+            let inst = ctx.builder.ins().call(get_fn, &[obj_h, final_idx]);
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
