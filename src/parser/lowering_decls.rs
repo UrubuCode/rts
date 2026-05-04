@@ -16,7 +16,57 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                     .filter_map(|parameter| lower_constructor_param(cm, parameter))
                     .collect::<Vec<_>>();
 
-                let body = lower_block_body(cm, constructor.body.as_ref());
+                let mut body = lower_block_body(cm, constructor.body.as_ref());
+
+                // (#585) Parameter properties: para cada param com visibility,
+                // prepend \`this.<name> = <name>\` ao body.
+                let mut prologue: Vec<Statement> = Vec::new();
+                for p in &parameters {
+                    if p.modifiers.visibility.is_none() && !p.modifiers.readonly {
+                        continue;
+                    }
+                    if p.modifiers.visibility.is_some() || p.modifiers.readonly {
+                        let assign = swc_ecma_ast::ExprStmt {
+                            span: Default::default(),
+                            expr: Box::new(swc_ecma_ast::Expr::Assign(swc_ecma_ast::AssignExpr {
+                                span: Default::default(),
+                                op: swc_ecma_ast::AssignOp::Assign,
+                                left: swc_ecma_ast::AssignTarget::Simple(
+                                    swc_ecma_ast::SimpleAssignTarget::Member(
+                                        swc_ecma_ast::MemberExpr {
+                                            span: Default::default(),
+                                            obj: Box::new(swc_ecma_ast::Expr::This(
+                                                swc_ecma_ast::ThisExpr { span: Default::default() }
+                                            )),
+                                            prop: swc_ecma_ast::MemberProp::Ident(
+                                                swc_ecma_ast::IdentName {
+                                                    span: Default::default(),
+                                                    sym: p.name.clone().into(),
+                                                }
+                                            ),
+                                        }
+                                    )
+                                ),
+                                right: Box::new(swc_ecma_ast::Expr::Ident(swc_ecma_ast::Ident {
+                                    span: Default::default(),
+                                    ctxt: Default::default(),
+                                    sym: p.name.clone().into(),
+                                    optional: false,
+                                })),
+                            })),
+                        };
+                        prologue.push(Statement::Raw(
+                            crate::parser::ast::RawStmt::new(
+                                format!("this.{} = {}", p.name, p.name),
+                                p.span,
+                            ).with_stmt(swc_ecma_ast::Stmt::Expr(assign))
+                        ));
+                    }
+                }
+                if !prologue.is_empty() {
+                    prologue.extend(body);
+                    body = prologue;
+                }
 
                 members.push(ClassMember::Constructor(ConstructorDecl {
                     parameters,
