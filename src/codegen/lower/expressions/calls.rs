@@ -757,10 +757,10 @@ fn lower_js_global_call(
         "Number" => lower_coerce_to_number(ctx, call),
         "String" => lower_coerce_to_string(ctx, call),
         "Boolean" => lower_coerce_to_boolean(ctx, call),
-        // (#208) parseInt/parseFloat globais — alias de Number.parseInt/parseFloat.
-        // Reusa diretamente __RTS_FN_NS_FMT_PARSE_I64/F64 que ja sao
-        // chamados via Number.* ABI.
-        "parseInt" if call.args.len() == 1 && call.args[0].spread.is_none() => {
+        // (#208) parseInt(s, radix?) — JS spec com radix opcional, tolerante.
+        "parseInt" if (1..=2).contains(&call.args.len())
+            && call.args.iter().all(|a| a.spread.is_none()) =>
+        {
             let arg_tv = super::lower_expr(ctx, &call.args[0].expr)?;
             let h = ctx.coerce_to_handle(arg_tv)?.val;
             let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
@@ -769,12 +769,19 @@ fn lower_js_global_call(
             let p = ctx.builder.inst_results(ip)[0];
             let il = ctx.builder.ins().call(len_fn, &[h]);
             let l = ctx.builder.inst_results(il)[0];
+            // Radix arg ou 0 (auto-detect).
+            let radix = if call.args.len() == 2 {
+                let r_tv = super::lower_expr(ctx, &call.args[1].expr)?;
+                ctx.coerce_to_i64(r_tv).val
+            } else {
+                ctx.builder.ins().iconst(cl::I64, 0)
+            };
             let f = ctx.get_extern(
-                "__RTS_FN_NS_FMT_PARSE_I64",
-                &[cl::I64, cl::I64],
+                "__RTS_FN_NS_FMT_PARSE_INT_RADIX",
+                &[cl::I64, cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(f, &[p, l]);
+            let inst = ctx.builder.ins().call(f, &[p, l, radix]);
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }

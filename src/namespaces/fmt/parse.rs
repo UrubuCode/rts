@@ -28,6 +28,124 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_F64(ptr: *const u8, len: i64) -> f64 {
     }
 }
 
+/// (#208) `parseInt(s, radix?)` — JS spec:
+/// - Skip leading whitespace.
+/// - Optional `+`/`-` sign.
+/// - radix=0 ou ausente: detecta `0x`/`0X` (16) ou default 10.
+/// - Para no primeiro char invalido (tolerante a trailing chars).
+/// - Retorna i64::MIN sentinel em erro (codegen mapeia pra NaN).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FMT_PARSE_INT_RADIX(
+    ptr: *const u8,
+    len: i64,
+    radix: i64,
+) -> i64 {
+    let Some(s) = str_from_abi(ptr, len) else {
+        return i64::MIN;
+    };
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    // Skip whitespace.
+    while i < bytes.len() && (bytes[i] as char).is_whitespace() {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return i64::MIN;
+    }
+    // Sign.
+    let negative = match bytes[i] {
+        b'+' => { i += 1; false }
+        b'-' => { i += 1; true }
+        _ => false,
+    };
+    if i >= bytes.len() {
+        return i64::MIN;
+    }
+    // Detect radix.
+    let mut effective_radix: u32 = if radix == 0 { 10 } else { radix as u32 };
+    if (radix == 0 || radix == 16)
+        && i + 1 < bytes.len()
+        && bytes[i] == b'0'
+        && (bytes[i + 1] == b'x' || bytes[i + 1] == b'X')
+    {
+        effective_radix = 16;
+        i += 2;
+    }
+    if !(2..=36).contains(&effective_radix) {
+        return i64::MIN;
+    }
+    // Parse chars enquanto validos no radix.
+    let mut acc: i64 = 0;
+    let mut any_digit = false;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        let Some(d) = c.to_digit(effective_radix) else {
+            break;
+        };
+        // Check overflow.
+        let Some(next) = acc.checked_mul(effective_radix as i64).and_then(|v| v.checked_add(d as i64)) else {
+            return i64::MIN;
+        };
+        acc = next;
+        any_digit = true;
+        i += 1;
+    }
+    if !any_digit {
+        return i64::MIN;
+    }
+    if negative { -acc } else { acc }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p(s: &str, radix: i64) -> i64 {
+        __RTS_FN_NS_FMT_PARSE_INT_RADIX(s.as_ptr(), s.len() as i64, radix)
+    }
+
+    #[test]
+    fn radix_10_default() {
+        assert_eq!(p("100", 0), 100);
+        assert_eq!(p("100", 10), 100);
+        assert_eq!(p("-42", 0), -42);
+        assert_eq!(p("+42", 0), 42);
+    }
+
+    #[test]
+    fn radix_16_hex() {
+        assert_eq!(p("FF", 16), 255);
+        assert_eq!(p("ff", 16), 255);
+        assert_eq!(p("0xFF", 16), 255);
+        assert_eq!(p("0xff", 0), 255);
+    }
+
+    #[test]
+    fn radix_2_binary() {
+        assert_eq!(p("101", 2), 5);
+        assert_eq!(p("1111", 2), 15);
+    }
+
+    #[test]
+    fn tolerant_trailing_chars() {
+        assert_eq!(p("42abc", 10), 42);
+        assert_eq!(p("100xyz", 0), 100);
+    }
+
+    #[test]
+    fn whitespace_stripped() {
+        assert_eq!(p("  42", 0), 42);
+        assert_eq!(p("\t-7", 10), -7);
+    }
+
+    #[test]
+    fn empty_or_invalid_returns_sentinel() {
+        assert_eq!(p("", 0), i64::MIN);
+        assert_eq!(p("xyz", 10), i64::MIN);
+        assert_eq!(p("   ", 10), i64::MIN);
+    }
+}
+
 /// "true" / "false" (case-insensitive) → 1 / 0. Qualquer outra coisa
 /// retorna -1.
 #[unsafe(no_mangle)]
