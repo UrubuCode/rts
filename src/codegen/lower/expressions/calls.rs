@@ -401,8 +401,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
             // (#266) Object globals: Object.keys, Object.values, Object.hasOwn.
             if let Some(method) = qualified.strip_prefix("Object.") {
+                // Object.keys: usa OBJECT_KEYS_AUTO que cobre Map e Vec
+                // (arrays retornam ["0","1",...] como JS spec).
+                if method == "keys" && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
                 let target = match method {
-                    "keys" => "collections.map_keys",
                     "values" => "collections.map_values",
                     "hasOwn" => "collections.map_has",
                     _ => "",

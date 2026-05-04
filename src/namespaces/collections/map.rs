@@ -354,6 +354,30 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -
     target
 }
 
+/// Object.keys auto: se handle e' Map retorna keys; se Vec retorna ["0","1",...].
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
+    let result: Vec<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Map(m)) => {
+            m.keys()
+                .filter(|k| k.as_str() != "__proto__")
+                .map(|k| {
+                    alloc_entry(Entry::String(k.as_bytes().to_vec())) as i64
+                })
+                .collect()
+        }
+        Some(Entry::Vec(v)) => {
+            (0..v.len())
+                .map(|i| {
+                    alloc_entry(Entry::String(i.to_string().into_bytes())) as i64
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    });
+    alloc_entry(Entry::Vec(Box::new(result)))
+}
+
 // (#479 follow-up) Frozen/sealed tracking via thread-local set de handles.
 // JS non-strict: mutacoes silenciosamente ignoradas; isFrozen reporta correto.
 use std::cell::RefCell;
