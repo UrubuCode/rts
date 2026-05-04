@@ -3532,6 +3532,75 @@ fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
+        // (#208 ES2023) Immutable variants.
+        "toReversed" if call.args.is_empty() => {
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+        }
+        "toSorted" => {
+            let fn_ptr = if let Some(arg) = call.args.first() {
+                if arg.spread.is_some() { return Ok(None); }
+                if let Expr::Ident(id) = arg.expr.as_ref() {
+                    let fn_name = id.sym.as_str().to_string();
+                    if ctx.user_fns.contains_key(&fn_name) && ctx.var_ty(&fn_name).is_none() {
+                        let tv = emit_user_fn_addr(ctx, &fn_name)?;
+                        ctx.coerce_to_i64(tv).val
+                    } else {
+                        ctx.builder.ins().iconst(cl::I64, 0)
+                    }
+                } else {
+                    return Ok(None);
+                }
+            } else {
+                ctx.builder.ins().iconst(cl::I64, 0)
+            };
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+        }
+        "toSpliced" if call.args.len() == 2
+            && call.args.iter().all(|a| a.spread.is_none()) =>
+        {
+            let start_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let start = ctx.coerce_to_i64(start_tv).val;
+            let count_tv = lower_expr(ctx, &call.args[1].expr)?;
+            let count = ctx.coerce_to_i64(count_tv).val;
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, start, count]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+        }
+        "with" if call.args.len() == 2
+            && call.args.iter().all(|a| a.spread.is_none()) =>
+        {
+            let idx_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let idx = ctx.coerce_to_i64(idx_tv).val;
+            let val_tv = lower_expr(ctx, &call.args[1].expr)?;
+            let val = ctx.coerce_to_i64(val_tv).val;
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_WITH",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, idx, val]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+        }
         // (#208) Iterators eager: values()/keys()/entries().
         "values" if call.args.is_empty() => {
             let f = ctx.get_extern(
