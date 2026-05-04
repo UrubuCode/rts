@@ -412,6 +412,63 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let t = ctx.builder.ins().iconst(cl::I64, 1);
                         return Ok(TypedVal::new(t, ValTy::Bool));
                     }
+                    // (#218) Reflect.getPrototypeOf — reusa Object.getPrototypeOf.
+                    "getPrototypeOf" if call.args.len() == 1 => {
+                        let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let h = ctx.coerce_to_i64(arg_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Handle));
+                    }
+                    // (#218) Reflect.setPrototypeOf — escreve __proto__ no map.
+                    // Retorna sempre true (sem tracking de extensibilidade v0).
+                    "setPrototypeOf" if call.args.len() == 2 => {
+                        let target_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let target = ctx.coerce_to_i64(target_tv).val;
+                        let proto_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let proto = ctx.coerce_to_i64(proto_tv).val;
+                        let key_h = ctx.emit_str_handle(b"__proto__")?.val;
+                        let kp_fn = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_PTR",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let kl_fn = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_LEN",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst_p = ctx.builder.ins().call(kp_fn, &[key_h]);
+                        let kp = ctx.builder.inst_results(inst_p)[0];
+                        let inst_l = ctx.builder.ins().call(kl_fn, &[key_h]);
+                        let kl = ctx.builder.inst_results(inst_l)[0];
+                        let set_fn = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(set_fn, &[target, kp, kl, proto]);
+                        let t = ctx.builder.ins().iconst(cl::I64, 1);
+                        return Ok(TypedVal::new(t, ValTy::Bool));
+                    }
+                    // (#218) Reflect.isExtensible — v0 sempre true.
+                    "isExtensible" if call.args.len() == 1 => {
+                        // Avalia arg pra side-effects mas ignora.
+                        let _ = lower_expr(ctx, &call.args[0].expr)?;
+                        let t = ctx.builder.ins().iconst(cl::I64, 1);
+                        return Ok(TypedVal::new(t, ValTy::Bool));
+                    }
+                    // (#218) Reflect.preventExtensions — v0 no-op, retorna true.
+                    "preventExtensions" if call.args.len() == 1 => {
+                        let _ = lower_expr(ctx, &call.args[0].expr)?;
+                        let t = ctx.builder.ins().iconst(cl::I64, 1);
+                        return Ok(TypedVal::new(t, ValTy::Bool));
+                    }
                     _ => {}
                 }
             }
