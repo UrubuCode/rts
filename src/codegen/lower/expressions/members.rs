@@ -719,6 +719,21 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 false
             };
             if receiver_class.is_none() && !is_known_obj_lit {
+                // (#216) Tenta instance_getter primeiro (description, source, flags, etc.)
+                for spec in crate::abi::GLOBAL_CLASS_SPECS {
+                    if let Some(member) = spec.instance_getter(key) {
+                        let sig = crate::abi::signature::lower_member(member);
+                        let f = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                        let inst = ctx.builder.ins().call(f, &[obj_handle]);
+                        let ret_ty = ValTy::from_abi(member.returns);
+                        let v = if sig.ret.is_some() {
+                            ctx.builder.inst_results(inst)[0]
+                        } else {
+                            ctx.builder.ins().iconst(cl::I64, 0)
+                        };
+                        return Ok(TypedVal::new(v, ret_ty));
+                    }
+                }
                 for spec in crate::abi::GLOBAL_CLASS_SPECS {
                     if let Some(member) = spec.instance_method(key) {
                         if member.args.len() == 1 {
