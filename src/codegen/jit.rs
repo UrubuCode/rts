@@ -330,6 +330,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET", __RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET);
     add_fn!("__RTS_FN_GL_DATE_TO_UTC_STRING", __RTS_FN_GL_DATE_TO_UTC_STRING);
     add_fn!("__RTS_FN_GL_DATE_TO_DATE_STRING", __RTS_FN_GL_DATE_TO_DATE_STRING);
+    // (#220) Setters.
+    add_fn!("__RTS_FN_GL_DATE_SET_FULL_YEAR", __RTS_FN_GL_DATE_SET_FULL_YEAR);
+    add_fn!("__RTS_FN_GL_DATE_SET_MONTH", __RTS_FN_GL_DATE_SET_MONTH);
+    add_fn!("__RTS_FN_GL_DATE_SET_DATE", __RTS_FN_GL_DATE_SET_DATE);
+    add_fn!("__RTS_FN_GL_DATE_SET_HOURS", __RTS_FN_GL_DATE_SET_HOURS);
+    add_fn!("__RTS_FN_GL_DATE_SET_MINUTES", __RTS_FN_GL_DATE_SET_MINUTES);
+    add_fn!("__RTS_FN_GL_DATE_SET_SECONDS", __RTS_FN_GL_DATE_SET_SECONDS);
+    add_fn!("__RTS_FN_GL_DATE_SET_MILLISECONDS", __RTS_FN_GL_DATE_SET_MILLISECONDS);
+    add_fn!("__RTS_FN_GL_DATE_SET_TIME", __RTS_FN_GL_DATE_SET_TIME);
 
     // ── namespaces::globals::timers ───────────────────────────────────
     use crate::namespaces::globals::timers::instance::*;
