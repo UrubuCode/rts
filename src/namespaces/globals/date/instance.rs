@@ -163,3 +163,100 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_DATE_STRING(handle: u64) -> u64 {
     let take = bytes.iter().position(|&b| b == b'T').unwrap_or(bytes.len());
     alloc_entry(Entry::String(bytes[..take].to_vec()))
 }
+
+// (#220) Date setters — mutate Entry::DateMs in-place.
+// Cada setter le os parts atuais, substitui o slot, recompoe ms,
+// escreve de volta no slot. Retorna novos ms (JS spec).
+
+use crate::namespaces::gc::handles::with_entry_mut;
+
+fn ms_to_parts(ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
+    use crate::namespaces::date::ops::*;
+    (
+        __RTS_FN_NS_DATE_YEAR(ms),
+        __RTS_FN_NS_DATE_MONTH(ms),
+        __RTS_FN_NS_DATE_DAY(ms),
+        __RTS_FN_NS_DATE_HOUR(ms),
+        __RTS_FN_NS_DATE_MINUTE(ms),
+        __RTS_FN_NS_DATE_SECOND(ms),
+        __RTS_FN_NS_DATE_MILLISECOND(ms),
+    )
+}
+
+fn set_ms(handle: u64, new_ms: i64) {
+    with_entry_mut(handle, |e| {
+        if let Some(Entry::DateMs(slot)) = e {
+            *slot = new_ms;
+        }
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(handle: u64, year: i64) -> i64 {
+    use crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS;
+    let (_, mo, d, h, mi, s, ms) = ms_to_parts(get_ms(handle));
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(year, mo, d, h, mi, s, ms);
+    set_ms(handle, new_ms);
+    new_ms
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: i64) -> i64 {
+    use crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS;
+    let (y, _, d, h, mi, s, ms) = ms_to_parts(get_ms(handle));
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, month, d, h, mi, s, ms);
+    set_ms(handle, new_ms);
+    new_ms
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_DATE(handle: u64, day: i64) -> i64 {
+    use crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS;
+    let (y, mo, _, h, mi, s, ms) = ms_to_parts(get_ms(handle));
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, day, h, mi, s, ms);
+    set_ms(handle, new_ms);
+    new_ms
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(handle: u64, hour: i64) -> i64 {
+    use crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS;
+    let (y, mo, d, _, mi, s, ms) = ms_to_parts(get_ms(handle));
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, hour, mi, s, ms);
+    set_ms(handle, new_ms);
+    new_ms
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: i64) -> i64 {
+    use crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS;
+    let (y, mo, d, h, _, s, ms) = ms_to_parts(get_ms(handle));
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, min, s, ms);
+    set_ms(handle, new_ms);
+    new_ms
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: i64) -> i64 {
+    use crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS;
+    let (y, mo, d, h, mi, _, ms) = ms_to_parts(get_ms(handle));
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, sec, ms);
+    set_ms(handle, new_ms);
+    new_ms
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MILLISECONDS(handle: u64, ms_in: i64) -> i64 {
+    use crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS;
+    let (y, mo, d, h, mi, s, _) = ms_to_parts(get_ms(handle));
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, ms_in);
+    set_ms(handle, new_ms);
+    new_ms
+}
+
+/// `setTime(ms)` — substitui timestamp completo. Retorna ms.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_SET_TIME(handle: u64, ms_in: i64) -> i64 {
+    set_ms(handle, ms_in);
+    ms_in
+}
