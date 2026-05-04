@@ -20,6 +20,27 @@
 - async/await com pipeline Promise-centric (ver secao abaixo).
 - Function class — `.call/.apply/.bind/.toString` + `.name/.length`
   + `new Function("body")` via eval em runtime.
+- Destructuring (#210): array/objeto, defaults, rest, aninhado,
+  em params de fn/arrow, em for-of, em catch, alias `{a: b}`.
+- Builtins JS expandidos (epic #226 em progresso): Array
+  (indexOf/lastIndexOf/includes com fromIndex, reverse, shift/
+  unshift, slice, concat, fill, flat/flatMap, splice, findLast/
+  findLastIndex, reduceRight, copyWithin, sort com strings,
+  values/keys/entries, toSorted/toReversed/toSpliced/with,
+  Array.from(length) e Array.from(arr)); Object (entries, assign,
+  freeze, fromEntries, seal, isFrozen, isSealed, getPrototypeOf,
+  defineProperty); Math (sign, hypot, expm1, log1p, fround,
+  sinh/cosh/tanh/asinh/acosh/atanh, imul, clz32 + SQRT2/SQRT1_2/
+  LN2/LN10/LOG2E/LOG10E); String (split com limit, startsWith/
+  endsWith com offset, match/search/matchAll via regex); Symbol
+  (Symbol/Symbol.for/keyFor/description + well-known iterator/
+  asyncIterator/hasInstance/toPrimitive/toStringTag); URL/
+  URLSearchParams completos; Date setters (setFullYear/Month/Date/
+  Hours/Minutes/Seconds + UTC variants), getTimezoneOffset,
+  toUTCString/toDateString/toJSON/toLocaleString/toTimeString;
+  TextEncoder/TextDecoder; encodeURIComponent/decodeURIComponent;
+  WeakMap/WeakSet (semantica strong por enquanto, #217); Boolean
+  class com toString/valueOf; parseInt com radix.
 
 ## Silent parallelism (Level-1)
 
