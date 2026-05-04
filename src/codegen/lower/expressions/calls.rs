@@ -3362,12 +3362,17 @@ fn lower_array_builtin(
             }
             let needle_tv = lower_expr(ctx, &call.args[0].expr)?;
             let needle = ctx.coerce_to_i64(needle_tv).val;
-            // (#208) indexOf(needle, fromIndex) — variant 2-arg.
-            if method == "indexOf" && call.args.len() == 2 {
+            // (#208) indexOf/lastIndexOf(needle, fromIndex) — variant 2-arg.
+            if (method == "indexOf" || method == "lastIndexOf") && call.args.len() == 2 {
                 let from_tv = lower_expr(ctx, &call.args[1].expr)?;
                 let from = ctx.coerce_to_i64(from_tv).val;
+                let sym = if method == "indexOf" {
+                    "__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM"
+                } else {
+                    "__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM"
+                };
                 let fref = ctx.get_extern(
-                    "__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM",
+                    sym,
                     &[cl::I64, cl::I64, cl::I64],
                     Some(cl::I64),
                 )?;
