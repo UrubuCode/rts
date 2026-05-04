@@ -175,6 +175,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_STRING_FREE", __RTS_FN_NS_GC_STRING_FREE);
     add_fn!("__RTS_FN_NS_GC_HANDLE_LEN", __RTS_FN_NS_GC_HANDLE_LEN);
     add_fn!("__RTS_FN_NS_GC_IS_VEC", __RTS_FN_NS_GC_IS_VEC);
+    add_fn!("__RTS_FN_NS_GC_IS_DATE", __RTS_FN_NS_GC_IS_DATE);
+    add_fn!("__RTS_FN_NS_GC_IS_REGEX", __RTS_FN_NS_GC_IS_REGEX);
+    add_fn!("__RTS_FN_NS_GC_IS_MAP_LIKE", __RTS_FN_NS_GC_IS_MAP_LIKE);
+    add_fn!("__RTS_FN_NS_GC_IS_PROMISE", __RTS_FN_NS_GC_IS_PROMISE);
     add_fn!(
         "__RTS_FN_NS_GC_STRING_FROM_I64",
         __RTS_FN_NS_GC_STRING_FROM_I64
@@ -299,6 +303,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_ERROR_MESSAGE", __RTS_FN_GL_ERROR_MESSAGE);
     add_fn!("__RTS_FN_GL_ERROR_NAME", __RTS_FN_GL_ERROR_NAME);
     add_fn!("__RTS_FN_GL_ERROR_TO_STRING", __RTS_FN_GL_ERROR_TO_STRING);
+    add_fn!("__RTS_FN_GL_IS_ERROR", __RTS_FN_GL_IS_ERROR);
+    add_fn!("__RTS_FN_GL_IS_ERROR_NAMED", __RTS_FN_GL_IS_ERROR_NAMED);
 
     // ── namespaces::globals::date (Date global class) ─────────────────
     use crate::namespaces::globals::date::instance::*;

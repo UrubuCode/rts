@@ -72,6 +72,27 @@ pub extern "C" fn __RTS_FN_GL_SYNTAX_ERROR_NEW(ptr: i64, len: i64) -> u64 {
 
 // ── Instance methods ──────────────────────────────────────────────────────────
 
+/// `instanceof Error` (any subtype) — handle aponta para Entry::ErrorObj.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_IS_ERROR(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::ErrorObj { .. }) => 1,
+        _ => 0,
+    })
+}
+
+/// `instanceof TypeError` etc. — checa name field exato.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_len: i64) -> i64 {
+    if name_ptr == 0 || name_len <= 0 { return 0; }
+    let want = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
+    let want_s = match std::str::from_utf8(want) { Ok(s) => s, Err(_) => return 0 };
+    with_entry(handle, |entry| match entry {
+        Some(Entry::ErrorObj { name, .. }) => if name == want_s { 1 } else { 0 },
+        _ => 0,
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ERROR_MESSAGE(handle: u64) -> u64 {
     alloc_str(get_field(handle, "message"))
