@@ -257,7 +257,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(handle: u64, idx: i64) -> u
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
     let keys: Vec<String> = with_map(handle, Vec::new(), |m| {
-        let mut ks: Vec<String> = m.keys().cloned().collect();
+        // (#208) Filtra `__proto__` — JS spec: Object.keys retorna so
+        // own enumeravel, e __proto__ nao deve aparecer em iteracao.
+        let mut ks: Vec<String> = m.keys()
+            .filter(|k| k.as_str() != "__proto__")
+            .cloned()
+            .collect();
         ks.sort();
         ks
     });
@@ -279,7 +284,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
     let vals: Vec<i64> = with_map(handle, Vec::new(), |m| {
-        let mut entries: Vec<(&String, &i64)> = m.iter().collect();
+        // (#208) Filtra `__proto__` — JS spec.
+        let mut entries: Vec<(&String, &i64)> = m.iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .collect();
         entries.sort_by(|a, b| a.0.cmp(b.0));
         entries.into_iter().map(|(_, v)| *v).collect()
     });
@@ -294,7 +302,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
     let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
-        let mut entries: Vec<(String, i64)> = m.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        // (#208) Filtra `__proto__` — JS spec.
+        let mut entries: Vec<(String, i64)> = m.iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         entries
     });
