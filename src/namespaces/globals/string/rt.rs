@@ -277,6 +277,21 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT(recv: u64, sep: u64) -> u64 {
     vec_h
 }
 
+/// (#208) str.split(sep, limit) — variant com truncamento.
+/// Pega ate `limit` partes (cortando o resto). Limit < 0 ignora.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_LIMIT(recv: u64, sep: u64, limit: i64) -> u64 {
+    let s = handle_to_str(recv).unwrap_or("");
+    let delim = handle_to_str(sep).unwrap_or("");
+    let vec_h = unsafe { __RTS_FN_NS_COLLECTIONS_VEC_NEW() };
+    let take = if limit < 0 { usize::MAX } else { limit as usize };
+    for part in s.split(delim).take(take) {
+        let h = alloc_str(part) as i64;
+        unsafe { __RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec_h, h) };
+    }
+    vec_h
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_LOCALE_COMPARE(recv: u64, other: u64) -> i64 {
     match (handle_to_str(recv), handle_to_str(other)) {

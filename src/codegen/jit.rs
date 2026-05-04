@@ -1273,6 +1273,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_PAD_START",        rt::__RTS_FN_GL_STRING_PAD_START);
     add_fn!("__RTS_FN_GL_STRING_PAD_END",          rt::__RTS_FN_GL_STRING_PAD_END);
     add_fn!("__RTS_FN_GL_STRING_SPLIT",            rt::__RTS_FN_GL_STRING_SPLIT);
+    add_fn!("__RTS_FN_GL_STRING_SPLIT_LIMIT",      rt::__RTS_FN_GL_STRING_SPLIT_LIMIT);
     add_fn!("__RTS_FN_GL_STRING_LOCALE_COMPARE",   rt::__RTS_FN_GL_STRING_LOCALE_COMPARE);
     add_fn!("__RTS_FN_GL_STRING_TO_STRING",        rt::__RTS_FN_GL_STRING_TO_STRING);
     add_fn!("__RTS_FN_GL_STRING_IS_WELL_FORMED",   rt::__RTS_FN_GL_STRING_IS_WELL_FORMED);
