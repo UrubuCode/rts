@@ -137,6 +137,19 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => {
                                     field_types.insert(key.clone(), ValTy::Bool);
                                 }
+                                // (#480) Method shorthand: \`{ add(n) {...} }\`
+                                // apos hoist_fn_expressions vira KeyValue com
+                                // value=Fn/Arrow/Ident("__hoisted_fn_N").
+                                // Registra como I64 fn ptr para gating em
+                                // lower_var_member_call (skip Set.add hijack).
+                                swc_ecma_ast::Expr::Fn(_) | swc_ecma_ast::Expr::Arrow(_) => {
+                                    field_types.insert(key.clone(), ValTy::I64);
+                                }
+                                swc_ecma_ast::Expr::Ident(id)
+                                    if id.sym.as_str().starts_with("__hoisted_fn_") =>
+                                {
+                                    field_types.insert(key.clone(), ValTy::I64);
+                                }
                                 // (#210) Sub-object literal: registra tipos
                                 // dos campos do nested para nested
                                 // destructuring conseguir inferir.

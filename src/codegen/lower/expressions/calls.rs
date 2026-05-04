@@ -2792,8 +2792,18 @@ fn lower_var_member_call(
         // com classes do usuario. Ergonomia v0 — usuario que tem classe
         // chamada `set()` em var Handle precisa anotar tipo da var pra
         // resolver dispatch antes do builtin.
-        if let Some(tv) = lower_map_set_builtin(ctx, prop, obj_h, call)? {
-            return Ok(tv);
+        // (#480) Skip se obj_name e' object literal local com o prop como
+        // field key registrado — significa user definiu \`obj.add()\` como
+        // method, nao Set.add.
+        let user_method_field = ctx
+            .local_obj_field_types
+            .get(obj_name)
+            .map(|fs| fs.contains_key(prop))
+            .unwrap_or(false);
+        if !user_method_field {
+            if let Some(tv) = lower_map_set_builtin(ctx, prop, obj_h, call)? {
+                return Ok(tv);
+            }
         }
     }
 
