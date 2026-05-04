@@ -183,6 +183,33 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // JSON global (#215): JSON.* — spec name="JSON" is in SPECS, so
             // `lookup("JSON.parse")` resolves directly above. No fallback needed.
 
+            // (#208) Math.max/min variadico — JS spec aceita N args.
+            // ABI namespace fixou em 2 args; aqui suportamos N reduzindo
+            // pairwise.
+            if (qualified == "Math.max" || qualified == "Math.min") && call.args.len() > 2 {
+                if call.args.iter().any(|a| a.spread.is_some()) {
+                    return Err(anyhow!("spread not supported in Math.max/min"));
+                }
+                let sym = if qualified == "Math.max" {
+                    "__RTS_FN_NS_MATH_MAX_F64"
+                } else {
+                    "__RTS_FN_NS_MATH_MIN_F64"
+                };
+                let f = ctx.get_extern(sym, &[cl::F64, cl::F64], Some(cl::F64))?;
+                let mut acc: Option<cranelift_codegen::ir::Value> = None;
+                for a in &call.args {
+                    let tv = lower_expr(ctx, &a.expr)?;
+                    let val = ctx.coerce_to_f64(tv).val;
+                    acc = Some(match acc {
+                        None => val,
+                        Some(prev) => {
+                            let inst = ctx.builder.ins().call(f, &[prev, val]);
+                            ctx.builder.inst_results(inst)[0]
+                        }
+                    });
+                }
+                return Ok(TypedVal::new(acc.unwrap(), ValTy::F64));
+            }
             // (#208) String.fromCharCode/fromCodePoint variadico.
             // Default em GlobalClassSpec aceita so 1 arg; aqui suportamos N
             // chamando a fn unitaria pra cada e concatenando.
