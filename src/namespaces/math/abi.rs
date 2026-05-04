@@ -107,6 +107,18 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    // (#208) JS-style: Math.log(x) = ln(x) (natural log).
+    NamespaceMember {
+        name: "log",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_MATH_LN",
+        args: &[AbiType::F64],
+        returns: AbiType::F64,
+        doc: "Math.log(x) — natural log (alias de ln).",
+        ts_signature: "log(x: number): number",
+        intrinsic: None,
+        pure: true,
+    },
     NamespaceMember {
         name: "log2",
         kind: MemberKind::Function,
