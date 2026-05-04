@@ -102,3 +102,64 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_STRING(handle: u64) -> u64 {
 pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING(handle: u64) -> u64 {
     __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
 }
+
+// (#220) UTC getters — RTS armazena ms em UTC, entao getUTCX = getX.
+// Aliases sao providos por completude. Quando houver suporte a tz local,
+// getX vira local e getUTCX continua UTC.
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_FULL_YEAR(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_FULL_YEAR(handle)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_MONTH(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_MONTH(handle)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_DATE(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_DATE(handle)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_DAY(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_DAY(handle)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_HOURS(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_HOURS(handle)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_MINUTES(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_MINUTES(handle)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_SECONDS(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_SECONDS(handle)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_MILLISECONDS(handle: u64) -> i64 {
+    __RTS_FN_GL_DATE_GET_MILLISECONDS(handle)
+}
+
+/// (#220) `getTimezoneOffset()` — diferenca minutos UTC vs local.
+/// RTS sempre UTC = 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET(_handle: u64) -> i64 {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_TO_UTC_STRING(handle: u64) -> u64 {
+    __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
+}
+
+/// (#220) `toDateString()` — pega ate o 'T' do ISO.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_TO_DATE_STRING(handle: u64) -> u64 {
+    let iso_h = __RTS_FN_GL_DATE_TO_ISO_STRING(handle);
+    let bytes: Vec<u8> = with_entry(iso_h, |e| match e {
+        Some(Entry::String(b)) => b.clone(),
+        _ => Vec::new(),
+    });
+    let take = bytes.iter().position(|&b| b == b'T').unwrap_or(bytes.len());
+    alloc_entry(Entry::String(bytes[..take].to_vec()))
+}
