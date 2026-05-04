@@ -200,3 +200,25 @@ Suite completa:
 ```bash
 powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 ```
+
+## Status do epic #226 (paridade JS/TS)
+
+Suite TS (`target/release/rts.exe test`): **457/464** (98.5% em
+2026-05-03). Lote recente de PRs (#483-#547) fechou ~10 issues
+filhas (#208, #210, #220, #221, #371-#375, #434) cobrindo ~60
+APIs JS faltantes — ver `03-features.md` para a lista por categoria.
+
+Issues pesadas ainda abertas e fora de escopo de PR pequena
+(manter abertas, requerem refactor):
+
+- **#195** mutable closures — env-record refactor; bloqueado por
+  #90 (block params).
+- **#207** event loop async/await real — refactor de Promise.
+- **#213** module exports — resolver refactor.
+- **#216** Symbol como chave computada — side-channel HashMap.
+- **#217** WeakMap/WeakSet semantica fraca real + FinalizationRegistry.
+- **#218** Proxy — interceptacao em codegen.
+- **#222** Map/Set Symbol.iterator real (hoje so' stub).
+- **#223** dynamic import.
+- **#211** generators / **#219** BigInt / **#225** Intl —
+  candidate-discard.

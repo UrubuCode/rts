@@ -14,6 +14,10 @@ arquiteturais. Para direcao de alto nivel do projeto consulte
   reescreve transparentemente para `parallel.*`. Pipeline dos 3 passes,
   criterio de pureza, infra de suporte (HandleTable shard-aware,
   callconv), limitacoes.
+- [Epic #226 — paridade JS/TS](js-parity-epic-226.md) — Lote PRs
+  #483-#547: ~60 APIs JS adicionadas (Array/Object/Math/String/Symbol/
+  URL/Date/Boolean/parseInt/destructuring), bugs corrigidos no caminho,
+  tabela de issues abertas pesadas. Suite: 457/464 (98.5%).
 - [async / Promise / Function](async-promise-function.md) — Subsistema
   unificado de async/await, Promise<T>, e Function class. Pipeline do
   desugar `expand_async_functions` (`async fn` → `promise.create`),

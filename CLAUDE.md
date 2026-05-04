@@ -327,6 +327,15 @@ src/namespaces/globals/<class>/
   `isFinite`/`parseInt`/`parseFloat`/`encodeURIComponent`/`decodeURIComponent`
 - `text_encoding/` — `TextEncoder`/`TextDecoder` (UTF-8)
 - `url/` — `URL`: href/protocol/host/pathname/search/hash/searchParams
+  + `URLSearchParams`: get/set/has/delete/append/getAll/keys/values/
+  entries/toString
+- `symbol/` — `Symbol`: `Symbol(desc)`, `Symbol.for(key)`, `keyFor`,
+  `description`, `toString`; well-known: `iterator`, `asyncIterator`,
+  `hasInstance`, `toPrimitive`, `toStringTag`
+- `weakmap/`, `weakset/` — stubs com semantica strong (refs fortes
+  no HandleTable). Issue #217 rastreia FinalizationRegistry e weak
+  refs reais
+- `boolean/` — `Boolean`: `toString`, `valueOf`, coercao `Boolean(x)`
 
 ## Silent parallelism (Level-1)
 
@@ -486,6 +495,24 @@ Os testes vivem em `tests/*.test.ts` (formato `rts:test`). Reaproveite
 o template padrao: `__rtsCapturedOutput`, `print()` shim, `describe()`
 com 1 ou mais `test()`/`expect().toBe()`. Multiplos `test()` por arquivo
 sao bem-vindos pra cobrir variacoes sem inflar o numero de arquivos.
+
+## Status do epic #226 (paridade JS/TS)
+
+Suite TS: **457/464** (98.5% em 2026-05-03). Lote recente de PRs
+(#483-#547) cobriu ~60 APIs JS faltantes em Array/Object/Math/String/
+Symbol/URL/Date/Boolean/parseInt e adicionou destructuring completo
+(#210). Issues filhas pesadas que continuam abertas (refactor
+necessario, fora de escopo de PR pequena):
+
+- **#195** mutable closures (env-record refactor; bloqueado por #90)
+- **#207** event loop async/await real
+- **#213** module exports
+- **#216** Symbol como chave computada
+- **#217** WeakMap/WeakSet semantica fraca + FinalizationRegistry
+- **#218** Proxy
+- **#222** Map/Set Symbol.iterator real
+- **#223** dynamic import
+- **#211/#219/#225** generators / BigInt / Intl (candidate-discard)
 
 ## Como testar
 
