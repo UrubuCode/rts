@@ -127,10 +127,44 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u
         });
         if let Some(b) = as_str {
             out.extend_from_slice(&b);
-        } else {
-            // Fallback: formata como i64 decimal.
-            out.extend_from_slice(e.to_string().as_bytes());
+            continue;
         }
+        // (#476 follow-up) Vec aninhado: JS \`Array.toString()\` chama
+        // \`.join(\",\")\` recursivo. Usa virgula fixa (spec) em sub-arrays.
+        let as_nested: Option<Vec<i64>> = with_entry(h, |entry| match entry {
+            Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+            _ => None,
+        });
+        if let Some(sub) = as_nested {
+            for (j, sub_e) in sub.iter().enumerate() {
+                if j > 0 { out.push(b','); }
+                let sh = *sub_e as u64;
+                let sub_str: Option<Vec<u8>> = with_entry(sh, |en| match en {
+                    Some(Entry::String(b)) => Some(b.clone()),
+                    _ => None,
+                });
+                if let Some(b) = sub_str {
+                    out.extend_from_slice(&b);
+                } else {
+                    // Vec mais profundo ou primitivo. Formata recursivo.
+                    let deeper: Option<Vec<i64>> = with_entry(sh, |en| match en {
+                        Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+                        _ => None,
+                    });
+                    if let Some(d) = deeper {
+                        for (k, d_e) in d.iter().enumerate() {
+                            if k > 0 { out.push(b','); }
+                            out.extend_from_slice(d_e.to_string().as_bytes());
+                        }
+                    } else {
+                        out.extend_from_slice(sub_e.to_string().as_bytes());
+                    }
+                }
+            }
+            continue;
+        }
+        // Fallback: formata como i64 decimal.
+        out.extend_from_slice(e.to_string().as_bytes());
     }
 
     alloc_entry(Entry::String(out))
