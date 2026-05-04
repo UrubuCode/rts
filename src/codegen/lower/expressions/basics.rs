@@ -157,6 +157,12 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
         if ctx.user_fns.contains_key(name) {
             return ctx.emit_str_handle(b"function");
         }
+        // Classes (user e globais) sao "function" em JS (typeof Class === 'function').
+        if ctx.classes.contains_key(name)
+            || crate::abi::global_class_lookup(name).is_some()
+        {
+            return ctx.emit_str_handle(b"function");
+        }
         let is_js_global = matches!(name, "NaN" | "Infinity" | "undefined");
         if !is_js_global && ctx.read_local(name).is_none() {
             return ctx.emit_str_handle(b"undefined");
