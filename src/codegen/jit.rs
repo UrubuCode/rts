@@ -318,6 +318,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_DATE_TO_ISO_STRING", __RTS_FN_GL_DATE_TO_ISO_STRING);
     add_fn!("__RTS_FN_GL_DATE_TO_STRING", __RTS_FN_GL_DATE_TO_STRING);
     add_fn!("__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING", __RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING);
+    // (#220) UTC getters + extras.
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR", __RTS_FN_GL_DATE_GET_UTC_FULL_YEAR);
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_MONTH", __RTS_FN_GL_DATE_GET_UTC_MONTH);
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_DATE", __RTS_FN_GL_DATE_GET_UTC_DATE);
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_DAY", __RTS_FN_GL_DATE_GET_UTC_DAY);
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_HOURS", __RTS_FN_GL_DATE_GET_UTC_HOURS);
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_MINUTES", __RTS_FN_GL_DATE_GET_UTC_MINUTES);
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_SECONDS", __RTS_FN_GL_DATE_GET_UTC_SECONDS);
+    add_fn!("__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS", __RTS_FN_GL_DATE_GET_UTC_MILLISECONDS);
+    add_fn!("__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET", __RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET);
+    add_fn!("__RTS_FN_GL_DATE_TO_UTC_STRING", __RTS_FN_GL_DATE_TO_UTC_STRING);
+    add_fn!("__RTS_FN_GL_DATE_TO_DATE_STRING", __RTS_FN_GL_DATE_TO_DATE_STRING);
 
     // ── namespaces::globals::timers ───────────────────────────────────
     use crate::namespaces::globals::timers::instance::*;
