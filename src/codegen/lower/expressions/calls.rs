@@ -4430,8 +4430,12 @@ fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<Ty
         }
         let tv = super::lower_expr(ctx, &arg.expr)?;
         if matches!(tv.ty, ValTy::F64) {
+            // (#208 fix): NaN deve ser falsy. fcmp NotEqual retorna false
+            // pra NaN (NaN != X e' Unordered, nao true). Use OrderedNotEqual
+            // que e' false quando NaN — exatamente o comportamento desejado.
+            // Em Cranelift: OrderedNotEqual = "ordered AND not equal".
             let zero = ctx.builder.ins().f64const(0.0);
-            let ne_zero = ctx.builder.ins().fcmp(FloatCC::NotEqual, tv.val, zero);
+            let ne_zero = ctx.builder.ins().fcmp(FloatCC::OrderedNotEqual, tv.val, zero);
             return Ok(Some(TypedVal::new(ne_zero, ValTy::Bool)));
         }
         let v = ctx.coerce_to_i64(tv).val;
