@@ -907,6 +907,13 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             // (b) var handle (de bind ou new Function) — pula
                             // primitivos (Bool/F64/I32) pra deixar dispatch
                             // correto cair em lower_var_member_call.
+                            // (#proto-instance) Tambem pula proto-instance pra
+                            // que `a.toString()` use prototype.toString do user.
+                            let is_proto_instance = ctx
+                                .local_class_ty
+                                .get(obj_name)
+                                .map(|s| s == "__proto_instance")
+                                .unwrap_or(false);
                             if let Some(var_ty) = ctx.var_ty(obj_name) {
                                 let is_primitive = matches!(
                                     var_ty,
@@ -914,7 +921,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                         | crate::codegen::lower::ctx::ValTy::F64
                                         | crate::codegen::lower::ctx::ValTy::I32
                                 );
-                                if !is_primitive {
+                                if !is_primitive && !is_proto_instance {
                                     if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
                                         return Ok(tv);
                                     }
@@ -990,7 +997,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                 return Ok(tv);
                             }
                         }
-                        if ctx.var_ty(obj_name).is_some() {
+                        // (#proto-instance) Var marcada como instance via constructor
+                        // function — skip Function.toString builtin pra que o lookup
+                        // de prototype.toString pelo MAP_GET_CHAIN prevaleça.
+                        let is_proto_instance = ctx
+                            .local_class_ty
+                            .get(obj_name)
+                            .map(|s| s == "__proto_instance")
+                            .unwrap_or(false);
+                        if ctx.var_ty(obj_name).is_some() && !is_proto_instance {
                             if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
                                 return Ok(tv);
                             }
@@ -2821,11 +2836,20 @@ fn lower_var_member_call(
         }
     }
 
+    // (#proto-instance) Var marcada como instance via constructor function:
+    // `new Animal(...)` cujo Animal eh user fn. Skipar string/map-set builtins
+    // pra que o lookup de prototype (MAP_GET_CHAIN abaixo) prevaleça.
+    let is_proto_instance = ctx
+        .local_class_ty
+        .get(obj_name)
+        .map(|s| s == "__proto_instance")
+        .unwrap_or(false);
+
     // Builtins de string em receiver Handle: s.indexOf(...), s.startsWith(...), etc.
     // Tem que vir antes do map_get porque uma string handle nao e um map —
     // map_get retornaria lixo, e o call_indirect subsequente saltaria pra
     // endereco invalido. (#235: indexOf travava/SIGSEGV em string com \0)
-    if matches!(obj_tv.ty, ValTy::Handle) {
+    if matches!(obj_tv.ty, ValTy::Handle) && !is_proto_instance {
         if let Some(tv) = lower_string_builtin(ctx, prop, obj_h, call)? {
             return Ok(tv);
         }

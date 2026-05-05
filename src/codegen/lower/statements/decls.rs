@@ -292,6 +292,15 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             || crate::abi::global_class_lookup(&cn).is_some()
                         {
                             ctx.local_class_ty.insert(name.clone(), cn.clone());
+                        } else if ctx.user_fns.contains_key(&cn) {
+                            // (#proto-instance) Constructor function: `new Animal(...)` onde
+                            // Animal eh user fn. Marca var como instance "ProtoInstance" pra
+                            // skipar lower_string_builtin/lower_map_set_builtin no dispatch
+                            // de a.toString() — esses callers leriam handle de Map/object como
+                            // string e retornariam vazio. Sem isso, methods em Animal.prototype
+                            // (toString, etc.) nao sao chamados.
+                            ctx.local_class_ty
+                                .insert(name.clone(), "__proto_instance".to_string());
                         }
                         if is_error_class {
                             let mut ft: std::collections::HashMap<String, ValTy> =
