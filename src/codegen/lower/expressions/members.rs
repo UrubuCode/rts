@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{InstBuilder, types as cl};
+use std::collections::HashMap;
 use swc_ecma_ast::{Expr, Lit, MemberProp};
 
 use crate::abi::lookup;
@@ -498,6 +499,89 @@ fn val_ty_to_kind(ty: ValTy) -> u8 {
     }
 }
 
+/// (#nested-chain) Raiz de uma cadeia de Member: ident global/local ou `this`.
+#[derive(Debug, Clone)]
+enum ChainRoot {
+    Ident(String),
+    This,
+}
+
+/// Decompõe `a.b.c.d` (ou `this.b.c.d`, ou OptChain) em (root, [b, c, d]).
+/// Retorna None se a cadeia tem qualquer prop nao-Ident no caminho.
+fn chain_root_path_kind(e: &Expr) -> Option<(ChainRoot, Vec<String>)> {
+    match e {
+        Expr::Ident(id) => Some((ChainRoot::Ident(id.sym.to_string()), Vec::new())),
+        Expr::This(_) => Some((ChainRoot::This, Vec::new())),
+        Expr::Member(mi) => {
+            if let MemberProp::Ident(p) = &mi.prop {
+                let (root, mut path) = chain_root_path_kind(&mi.obj)?;
+                path.push(p.sym.to_string());
+                Some((root, path))
+            } else {
+                None
+            }
+        }
+        Expr::OptChain(o) => {
+            if let swc_ecma_ast::OptChainBase::Member(mi) = o.base.as_ref() {
+                if let MemberProp::Ident(p) = &mi.prop {
+                    let (root, mut path) = chain_root_path_kind(&mi.obj)?;
+                    path.push(p.sym.to_string());
+                    Some((root, path))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// (#nested-this) Resolve `(class, field, sub_key)` percorrendo a hierarquia
+/// (class + ancestrais) e retorna o map de tipos dos sub-sub-fields.
+fn class_field_nested<'a>(
+    ctx: &'a FnCtx,
+    class: &str,
+    field: &str,
+    sub_key: &str,
+) -> Option<&'a HashMap<String, ValTy>> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if let Some(m) = meta
+            .field_nested_obj_types
+            .get(&(field.to_string(), sub_key.to_string()))
+        {
+            return Some(m);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
+/// (#nested-this) Resolve `(class, field)` percorrendo hierarquia e retorna
+/// os tipos diretos dos sub-fields registrados em this.field = { ... }.
+fn class_field_obj<'a>(
+    ctx: &'a FnCtx,
+    class: &str,
+    field: &str,
+) -> Option<&'a HashMap<String, ValTy>> {
+    let mut cur = class.to_string();
+    loop {
+        let meta = ctx.classes.get(&cur)?;
+        if let Some(m) = meta.field_obj_types.get(field) {
+            return Some(m);
+        }
+        match &meta.super_class {
+            Some(parent) => cur = parent.clone(),
+            None => return None,
+        }
+    }
+}
+
 pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<TypedVal> {
     if let Some(qualified) = qualified_member_name(&Expr::Member(m.clone())) {
         // (#208) `Math.X` (uppercase JS-style) → `math.X` (lowercase RTS namespace).
@@ -720,48 +804,36 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 // conhecido e o path bate em nested registrado, tratar como
                 // obj literal e ir pro map_get. Sem isso, cai no fallback
                 // de GLOBAL_CLASS_SPECS e bate em URL.host/etc, retornando lixo.
-                fn chain_root_path(e: &Expr) -> Option<(String, Vec<String>)> {
-                    match e {
-                        Expr::Ident(id) => Some((id.sym.to_string(), Vec::new())),
-                        Expr::Member(mi) => {
-                            if let MemberProp::Ident(p) = &mi.prop {
-                                let (root, mut path) = chain_root_path(&mi.obj)?;
-                                path.push(p.sym.to_string());
-                                Some((root, path))
-                            } else {
-                                None
-                            }
-                        }
-                        Expr::OptChain(o) => {
-                            if let swc_ecma_ast::OptChainBase::Member(mi) = o.base.as_ref() {
-                                if let MemberProp::Ident(p) = &mi.prop {
-                                    let (root, mut path) = chain_root_path(&mi.obj)?;
-                                    path.push(p.sym.to_string());
-                                    Some((root, path))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-                        _ => None,
-                    }
-                }
-                if let Some((root, path)) = chain_root_path(m.obj.as_ref()) {
-                    if !path.is_empty()
-                        && (ctx.local_obj_field_types.contains_key(&root)
-                            || ctx.global_obj_field_types.contains_key(&root))
-                    {
+                let chain = chain_root_path_kind(m.obj.as_ref());
+                match chain {
+                    Some((ChainRoot::Ident(root), path)) if !path.is_empty() => {
                         let last = path.last().unwrap().clone();
-                        let key = (root, last);
-                        ctx.local_nested_obj_field_types.contains_key(&key)
-                            || ctx.global_nested_obj_field_types.contains_key(&key)
-                    } else {
-                        false
+                        let key = (root.clone(), last);
+                        (ctx.local_obj_field_types.contains_key(&root)
+                            || ctx.global_obj_field_types.contains_key(&root))
+                            && (ctx.local_nested_obj_field_types.contains_key(&key)
+                                || ctx.global_nested_obj_field_types.contains_key(&key))
                     }
-                } else {
-                    false
+                    // (#nested-this) this.cfg.server (path.len()==1) ou
+                    // this.cfg.server.host (path.len()>=2): se a classe corrente
+                    // tem field_obj_types/field_nested_obj_types registrado,
+                    // tratar como obj literal — vai pro map_get e a propriedade
+                    // eh resolvida via field_ty da class meta.
+                    Some((ChainRoot::This, path)) if !path.is_empty() => {
+                        if let Some(cls) = ctx.current_class.as_deref() {
+                            match path.len() {
+                                1 => class_field_obj(ctx, cls, &path[0]).is_some(),
+                                _ => {
+                                    let field = path[0].clone();
+                                    let sub = path[1].clone();
+                                    class_field_nested(ctx, cls, &field, &sub).is_some()
+                                }
+                            }
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
                 }
             } else {
                 false
@@ -894,6 +966,38 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                                 });
                             if let Some(nested) = nested {
                                 field_ty = nested.get(key).copied();
+                            }
+                        }
+                    }
+                }
+                // (#nested-this) this.cfg.server.host: usa class meta.
+                // Para `this.X.K`, m.obj eh `this.X` (Member, root=This,
+                // path=[X]) — usa class_field_obj. Para `this.X.K.host`,
+                // m.obj eh `this.X.K` (Member, root=This, path=[X,K]) —
+                // usa class_field_nested.
+                if field_ty.is_none() {
+                    if let Some(cls) = ctx.current_class.clone() {
+                        if let Some((ChainRoot::This, path)) =
+                            chain_root_path_kind(m.obj.as_ref())
+                        {
+                            match path.len() {
+                                1 => {
+                                    if let Some(map) =
+                                        class_field_obj(ctx, &cls, &path[0])
+                                    {
+                                        field_ty = map.get(key).copied();
+                                    }
+                                }
+                                n if n >= 2 => {
+                                    let field = &path[0];
+                                    let sub = &path[1];
+                                    if let Some(map) =
+                                        class_field_nested(ctx, &cls, field, sub)
+                                    {
+                                        field_ty = map.get(key).copied();
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     }
