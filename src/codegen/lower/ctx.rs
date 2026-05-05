@@ -223,6 +223,14 @@ pub struct ClassMeta {
     /// Permite descobrir quando o field e instancia de outra classe
     /// registrada — habilita overload em `this.field + x`.
     pub field_class_names: HashMap<String, String>,
+    /// (#nested-this) Tipos dos sub-fields quando o field eh assigned
+    /// com object literal no constructor (`this.cfg = { server: {...} }`).
+    /// Chave eh field_name (do this), valor eh map de sub-keys → ValTy.
+    /// Permite resolver `this.cfg.server` → Handle (vs lixo de URL.host).
+    pub field_obj_types: HashMap<String, HashMap<String, ValTy>>,
+    /// (#nested-this) Tipos nested para fields — chave (field_name, sub_key),
+    /// valor eh map de sub-sub-keys → ValTy. Permite `this.cfg.server.host`.
+    pub field_nested_obj_types: HashMap<(String, String), HashMap<String, ValTy>>,
     /// Nomes de static methods (chamados via `C.method()`).
     pub static_methods: Vec<String>,
     /// Nomes de static fields (acessados via `C.field`).

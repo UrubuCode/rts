@@ -91,6 +91,8 @@ mod tests {
             methods: Vec::new(),
             field_types: HashMap::new(),
             field_class_names: HashMap::new(),
+            field_obj_types: HashMap::new(),
+            field_nested_obj_types: HashMap::new(),
             static_methods: Vec::new(),
             static_fields: Vec::new(),
             getters: Vec::new(),

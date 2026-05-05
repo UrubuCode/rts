@@ -8013,6 +8013,130 @@ fn validate_abstract_method_implementations(classes: &HashMap<String, ClassMeta>
     Ok(())
 }
 
+/// (#nested-this) Escaneia um statement por padroes
+/// `this.X = { k: v, ... }` ou `this.X = { k: { ... } }` e popula
+/// field_obj_types / field_nested_obj_types. Inferencia simples
+/// baseada em tipos de literais (Str→Handle, Num→I64, Bool→Bool).
+fn scan_this_obj_assign(
+    s: &Statement,
+    field_obj_types: &mut HashMap<String, HashMap<String, ValTy>>,
+    field_nested_obj_types: &mut HashMap<(String, String), HashMap<String, ValTy>>,
+) {
+    let Statement::Raw(rs) = s;
+    let Some(stmt) = rs.stmt.as_ref() else { return };
+    scan_this_stmt(stmt, field_obj_types, field_nested_obj_types);
+}
+
+fn scan_this_stmt(
+    stmt: &swc_ecma_ast::Stmt,
+    field_obj_types: &mut HashMap<String, HashMap<String, ValTy>>,
+    field_nested_obj_types: &mut HashMap<(String, String), HashMap<String, ValTy>>,
+) {
+    use swc_ecma_ast::*;
+    match stmt {
+        Stmt::Expr(e) => scan_this_expr(&e.expr, field_obj_types, field_nested_obj_types),
+        Stmt::Block(b) => {
+            for s in &b.stmts {
+                scan_this_stmt(s, field_obj_types, field_nested_obj_types);
+            }
+        }
+        Stmt::If(i) => {
+            scan_this_stmt(&i.cons, field_obj_types, field_nested_obj_types);
+            if let Some(alt) = &i.alt {
+                scan_this_stmt(alt, field_obj_types, field_nested_obj_types);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_this_expr(
+    e: &swc_ecma_ast::Expr,
+    field_obj_types: &mut HashMap<String, HashMap<String, ValTy>>,
+    field_nested_obj_types: &mut HashMap<(String, String), HashMap<String, ValTy>>,
+) {
+    use swc_ecma_ast::*;
+    let Expr::Assign(a) = e else { return };
+    if !matches!(a.op, AssignOp::Assign) {
+        return;
+    }
+    // LHS: this.X
+    let AssignTarget::Simple(SimpleAssignTarget::Member(m)) = &a.left else {
+        return;
+    };
+    if !matches!(m.obj.as_ref(), Expr::This(_)) {
+        return;
+    }
+    let MemberProp::Ident(field_id) = &m.prop else {
+        return;
+    };
+    let field_name = field_id.sym.as_str().to_string();
+    // RHS: object literal
+    let Expr::Object(obj) = a.right.as_ref() else {
+        return;
+    };
+    let mut fts: HashMap<String, ValTy> = HashMap::new();
+    for prop in &obj.props {
+        if let PropOrSpread::Prop(p) = prop {
+            if let Prop::KeyValue(kv) = p.as_ref() {
+                let key = match &kv.key {
+                    PropName::Ident(i) => i.sym.as_str().to_string(),
+                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                    _ => continue,
+                };
+                match kv.value.as_ref() {
+                    Expr::Lit(Lit::Str(_)) => {
+                        fts.insert(key, ValTy::Handle);
+                    }
+                    Expr::Lit(Lit::Num(_)) => {
+                        fts.insert(key, ValTy::I64);
+                    }
+                    Expr::Lit(Lit::Bool(_)) => {
+                        fts.insert(key, ValTy::Bool);
+                    }
+                    Expr::Object(sub) => {
+                        fts.insert(key.clone(), ValTy::Handle);
+                        let mut sub_fts: HashMap<String, ValTy> = HashMap::new();
+                        for sp in &sub.props {
+                            if let PropOrSpread::Prop(spx) = sp {
+                                if let Prop::KeyValue(skv) = spx.as_ref() {
+                                    let sk = match &skv.key {
+                                        PropName::Ident(i) => i.sym.as_str().to_string(),
+                                        PropName::Str(s) => {
+                                            s.value.to_string_lossy().to_string()
+                                        }
+                                        _ => continue,
+                                    };
+                                    match skv.value.as_ref() {
+                                        Expr::Lit(Lit::Str(_)) => {
+                                            sub_fts.insert(sk, ValTy::Handle);
+                                        }
+                                        Expr::Lit(Lit::Num(_)) => {
+                                            sub_fts.insert(sk, ValTy::I64);
+                                        }
+                                        Expr::Lit(Lit::Bool(_)) => {
+                                            sub_fts.insert(sk, ValTy::Bool);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        if !sub_fts.is_empty() {
+                            field_nested_obj_types
+                                .insert((field_name.clone(), key), sub_fts);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    if !fts.is_empty() {
+        field_obj_types.insert(field_name, fts);
+    }
+}
+
 fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut methods: Vec<String> = Vec::new();
     let mut getters: Vec<String> = Vec::new();
@@ -8022,6 +8146,9 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut fns: Vec<FunctionDecl> = Vec::new();
     let mut field_types: HashMap<String, ValTy> = HashMap::new();
     let mut field_class_names: HashMap<String, String> = HashMap::new();
+    let mut field_obj_types: HashMap<String, HashMap<String, ValTy>> = HashMap::new();
+    let mut field_nested_obj_types: HashMap<(String, String), HashMap<String, ValTy>> =
+        HashMap::new();
     let mut readonly_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut abstract_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut member_visibility: std::collections::HashMap<String, crate::parser::ast::Visibility> =
@@ -8226,12 +8353,41 @@ fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
         has_constructor = true;
     }
 
+    // (#nested-this) Escaneia o body do constructor (e initializers) por
+    // `this.X = { sub: { ... } }` ou `this.X = { ... }` e popula
+    // field_obj_types / field_nested_obj_types. Permite resolver
+    // `this.cfg.server.host` em metodos de instancia.
+    {
+        // Stmts a escanear: ctor body (se houver) + init_stmts (initializers
+        // de propriedade que serao inseridos no ctor sintetizado).
+        let mut stmts_to_scan: Vec<&Statement> = Vec::new();
+        for member in &class.members {
+            if let ClassMember::Constructor(ctor) = member {
+                for s in &ctor.body {
+                    stmts_to_scan.push(s);
+                }
+            }
+        }
+        for s in &init_stmts {
+            stmts_to_scan.push(s);
+        }
+        for s in stmts_to_scan {
+            scan_this_obj_assign(
+                s,
+                &mut field_obj_types,
+                &mut field_nested_obj_types,
+            );
+        }
+    }
+
     let meta = ClassMeta {
         name: class.name.clone(),
         super_class: class.super_class.clone(),
         methods,
         field_types,
         field_class_names,
+        field_obj_types,
+        field_nested_obj_types,
         static_methods,
         static_fields,
         getters,
