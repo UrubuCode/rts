@@ -326,6 +326,11 @@ pub struct FnCtx<'m, 'fb> {
     /// fn user fazendo \`E.A\` retornava I64 anonimo, e \`x == E.A\` comparava
     /// como int em vez de string.
     pub global_obj_field_types: &'fb HashMap<String, HashMap<String, ValTy>>,
+    /// (#nested-chain) Tipos de fields aninhados de globais. Chave eh
+    /// (root_global, key_no_root) — analogo a local_nested_obj_field_types.
+    /// Permite `cfg.server.host` em user fn quando cfg eh global.
+    pub global_nested_obj_field_types:
+        &'fb HashMap<(String, String), HashMap<String, ValTy>>,
     /// Nome da classe atualmente sendo lowered (quando dentro de um
     /// metodo ou constructor). Usado para resolver `super`.
     pub current_class: Option<String>,
@@ -466,6 +471,10 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         classes: &'fb HashMap<String, ClassMeta>,
         global_class_ty: &'fb HashMap<String, String>,
         global_obj_field_types: &'fb HashMap<String, HashMap<String, ValTy>>,
+        global_nested_obj_field_types: &'fb HashMap<
+            (String, String),
+            HashMap<String, ValTy>,
+        >,
         fn_class_returns: &'fb HashMap<String, String>,
         node_import_map: &'fb HashMap<String, String>,
         module_scope: bool,
@@ -489,6 +498,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             local_obj_field_types: HashMap::new(),
             global_class_ty,
             global_obj_field_types,
+            global_nested_obj_field_types,
             current_class: None,
             current_is_ctor: false,
             super_already_called: false,

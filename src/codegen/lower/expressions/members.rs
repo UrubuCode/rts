@@ -715,6 +715,54 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 let n = obj_id.sym.as_str();
                 ctx.local_obj_field_types.contains_key(n)
                     || ctx.global_obj_field_types.contains_key(n)
+            } else if let Expr::Member(_) | Expr::OptChain(_) = m.obj.as_ref() {
+                // (#bug) Chained: cfg.server.host — se o root eh obj literal
+                // conhecido e o path bate em nested registrado, tratar como
+                // obj literal e ir pro map_get. Sem isso, cai no fallback
+                // de GLOBAL_CLASS_SPECS e bate em URL.host/etc, retornando lixo.
+                fn chain_root_path(e: &Expr) -> Option<(String, Vec<String>)> {
+                    match e {
+                        Expr::Ident(id) => Some((id.sym.to_string(), Vec::new())),
+                        Expr::Member(mi) => {
+                            if let MemberProp::Ident(p) = &mi.prop {
+                                let (root, mut path) = chain_root_path(&mi.obj)?;
+                                path.push(p.sym.to_string());
+                                Some((root, path))
+                            } else {
+                                None
+                            }
+                        }
+                        Expr::OptChain(o) => {
+                            if let swc_ecma_ast::OptChainBase::Member(mi) = o.base.as_ref() {
+                                if let MemberProp::Ident(p) = &mi.prop {
+                                    let (root, mut path) = chain_root_path(&mi.obj)?;
+                                    path.push(p.sym.to_string());
+                                    Some((root, path))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                }
+                if let Some((root, path)) = chain_root_path(m.obj.as_ref()) {
+                    if !path.is_empty()
+                        && (ctx.local_obj_field_types.contains_key(&root)
+                            || ctx.global_obj_field_types.contains_key(&root))
+                    {
+                        let last = path.last().unwrap().clone();
+                        let key = (root, last);
+                        ctx.local_nested_obj_field_types.contains_key(&key)
+                            || ctx.global_nested_obj_field_types.contains_key(&key)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             } else {
                 false
             };
@@ -836,11 +884,15 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     if let Some((root, path)) = chain_root_path(m.obj.as_ref()) {
                         if !path.is_empty() {
                             let last_key = path.last().unwrap().clone();
-                            if let Some(nested) = ctx
+                            let nkey = (root, last_key);
+                            let nested = ctx
                                 .local_nested_obj_field_types
-                                .get(&(root, last_key))
+                                .get(&nkey)
                                 .cloned()
-                            {
+                                .or_else(|| {
+                                    ctx.global_nested_obj_field_types.get(&nkey).cloned()
+                                });
+                            if let Some(nested) = nested {
                                 field_ty = nested.get(key).copied();
                             }
                         }

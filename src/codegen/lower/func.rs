@@ -6361,6 +6361,11 @@ pub fn compile_program(
     // pra string enum, Bool, etc) em vez de I64 anonimo.
     let mut global_obj_field_types: HashMap<String, HashMap<String, ValTy>> =
         HashMap::new();
+    // (#nested-chain) Tipos nested para globais — analogo ao local.
+    let mut global_nested_obj_field_types: HashMap<
+        (String, String),
+        HashMap<String, ValTy>,
+    > = HashMap::new();
     for item in &program.items {
         let Item::Statement(Statement::Raw(raw)) = item else {
             continue;
@@ -6419,6 +6424,54 @@ pub fn compile_program(
                                     swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => {
                                         fts.insert(key, ValTy::Bool);
                                     }
+                                    // (#nested-chain) Object literal aninhado:
+                                    // registra sub-fields para `cfg.server.host`
+                                    // funcionar de dentro de user fn.
+                                    swc_ecma_ast::Expr::Object(sub) => {
+                                        fts.insert(key.clone(), ValTy::Handle);
+                                        let mut sub_fts: HashMap<String, ValTy> =
+                                            HashMap::new();
+                                        for sp in &sub.props {
+                                            if let swc_ecma_ast::PropOrSpread::Prop(spx) = sp {
+                                                if let swc_ecma_ast::Prop::KeyValue(skv) =
+                                                    spx.as_ref()
+                                                {
+                                                    let sk = match &skv.key {
+                                                        swc_ecma_ast::PropName::Ident(i) => {
+                                                            i.sym.as_str().to_string()
+                                                        }
+                                                        swc_ecma_ast::PropName::Str(s) => s
+                                                            .value
+                                                            .to_string_lossy()
+                                                            .to_string(),
+                                                        _ => continue,
+                                                    };
+                                                    match skv.value.as_ref() {
+                                                        swc_ecma_ast::Expr::Lit(
+                                                            swc_ecma_ast::Lit::Str(_),
+                                                        ) => {
+                                                            sub_fts.insert(sk, ValTy::Handle);
+                                                        }
+                                                        swc_ecma_ast::Expr::Lit(
+                                                            swc_ecma_ast::Lit::Num(_),
+                                                        ) => {
+                                                            sub_fts.insert(sk, ValTy::I64);
+                                                        }
+                                                        swc_ecma_ast::Expr::Lit(
+                                                            swc_ecma_ast::Lit::Bool(_),
+                                                        ) => {
+                                                            sub_fts.insert(sk, ValTy::Bool);
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !sub_fts.is_empty() {
+                                            global_nested_obj_field_types
+                                                .insert((name.clone(), key), sub_fts);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -6451,6 +6504,7 @@ pub fn compile_program(
             &classes,
             &global_class_ty,
             &global_obj_field_types,
+            &global_nested_obj_field_types,
             &fn_class_returns,
             &node_import_map,
             fn_decl,
@@ -6496,6 +6550,7 @@ pub fn compile_program(
         &classes,
         &global_class_ty,
         &global_obj_field_types,
+        &global_nested_obj_field_types,
         &fn_class_returns,
         &node_import_map,
         &top_stmts,
@@ -7481,6 +7536,7 @@ fn compile_user_fn(
     classes: &HashMap<String, ClassMeta>,
     global_class_ty: &HashMap<String, String>,
     global_obj_field_types: &HashMap<String, HashMap<String, ValTy>>,
+    global_nested_obj_field_types: &HashMap<(String, String), HashMap<String, ValTy>>,
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
     fn_decl: &FunctionDecl,
@@ -7525,6 +7581,7 @@ fn compile_user_fn(
             classes,
             global_class_ty,
             global_obj_field_types,
+            global_nested_obj_field_types,
             fn_class_returns,
             node_import_map,
             false,
@@ -7730,6 +7787,7 @@ fn compile_main(
     classes: &HashMap<String, ClassMeta>,
     global_class_ty: &HashMap<String, String>,
     global_obj_field_types: &HashMap<String, HashMap<String, ValTy>>,
+    global_nested_obj_field_types: &HashMap<(String, String), HashMap<String, ValTy>>,
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
     stmts: &[&Stmt],
@@ -7762,6 +7820,7 @@ fn compile_main(
             classes,
             global_class_ty,
             global_obj_field_types,
+            global_nested_obj_field_types,
             fn_class_returns,
             node_import_map,
             true,
