@@ -534,6 +534,52 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     }
 }
 
+/// (#opt-chain-nested) Quando o receiver de um optional-chain eh
+/// `cfg.server` ou `cfg?.server` (chain Member/OptChain de Ident root
+/// conhecido como obj literal), retorna os tipos nested de `(root, last)`
+/// — usado pra hidratar `local_obj_field_types[tmp_recv]` e que
+/// `tmp_recv.host` resolva como Handle em vez de I64.
+fn propagate_nested_for_opt_recv(
+    ctx: &crate::codegen::lower::ctx::FnCtx,
+    e: &Expr,
+) -> Option<std::collections::HashMap<String, ValTy>> {
+    fn chain(e: &Expr) -> Option<(String, Vec<String>)> {
+        match e {
+            Expr::Ident(id) => Some((id.sym.to_string(), Vec::new())),
+            Expr::Member(mi) => {
+                if let swc_ecma_ast::MemberProp::Ident(p) = &mi.prop {
+                    let (root, mut path) = chain(&mi.obj)?;
+                    path.push(p.sym.to_string());
+                    Some((root, path))
+                } else {
+                    None
+                }
+            }
+            Expr::OptChain(o) => {
+                if let swc_ecma_ast::OptChainBase::Member(mi) = o.base.as_ref() {
+                    if let swc_ecma_ast::MemberProp::Ident(p) = &mi.prop {
+                        let (root, mut path) = chain(&mi.obj)?;
+                        path.push(p.sym.to_string());
+                        Some((root, path))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+    let (root, path) = chain(e)?;
+    let last = path.last()?.clone();
+    let key = (root, last);
+    ctx.local_nested_obj_field_types
+        .get(&key)
+        .cloned()
+        .or_else(|| ctx.global_nested_obj_field_types.get(&key).cloned())
+}
+
 pub(super) fn lower_opt_chain(
     ctx: &mut FnCtx,
     opt: &swc_ecma_ast::OptChainExpr,
@@ -561,6 +607,17 @@ pub(super) fn lower_opt_chain(
             } else {
                 let tmp_name = format!("__opt_recv_{}", ctx.next_opt_chain_temp_id());
                 ctx.declare_local(&tmp_name, ValTy::Handle, obj_i64);
+                // (#opt-chain-nested) Propaga tipos do receiver para que
+                // `cfg?.server?.host` saiba que `host` eh Handle. Quando
+                // member.obj eh Member/OptChain de chain conhecido, copia
+                // local_nested_obj_field_types[(root, last)] como
+                // local_obj_field_types[tmp_name].
+                if let Some(nested) =
+                    propagate_nested_for_opt_recv(ctx, &member.obj)
+                {
+                    ctx.local_obj_field_types
+                        .insert(tmp_name.clone(), nested);
+                }
                 swc_ecma_ast::MemberExpr {
                     span: member.span,
                     obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -693,6 +750,11 @@ pub(super) fn lower_opt_chain(
                     ctx.builder.switch_to_block(merge);
                     ctx.builder.seal_block(merge);
                     ctx.optional_chain_values.insert(result);
+                    // (#opt-call-coerce) Marca como ambiguous Handle pra que
+                    // template literal use TPL_COERCE_AUTO. Sem isso,
+                    // `fmt?.format(42)` (que retorna handle string) cai em
+                    // path numerico e mostra o handle bruto.
+                    ctx.var_member_call_values.insert(result);
                     return Ok(TypedVal::new(result, ValTy::I64));
                 }
             }

@@ -260,7 +260,22 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
         let rhs = if is_opt_chain {
             let undef_h = ctx.emit_str_handle(b"undefined")?.val;
             let val_i64 = ctx.coerce_to_i64(val).val;
-            let normal_h = ctx.coerce_to_handle(val)?.val;
+            // (#opt-call-coerce) Se o opt-chain veio de var_member_call
+            // (handle ambiguo), usa TPL_COERCE_AUTO no path non-null
+            // pra detectar string vs numero em runtime. Sem isso,
+            // `fmt?.format(42)` (Handle string) cai em string_from_i64
+            // e mostra o handle bruto.
+            let normal_h = if is_var_member_call {
+                let coerce_fn = ctx.get_extern(
+                    "__RTS_FN_RT_TPL_COERCE_AUTO",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(coerce_fn, &[val_i64]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                ctx.coerce_to_handle(val)?.val
+            };
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
             let is_null = ctx.builder.ins().icmp(IntCC::Equal, val_i64, zero);
             ctx.builder.ins().select(is_null, undef_h, normal_h)
