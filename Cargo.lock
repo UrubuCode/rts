@@ -2099,6 +2099,8 @@ dependencies = [
  "object 0.39.0",
  "rayon",
  "regex",
+ "rts-ast",
+ "rts-diagnostics",
  "rustc-hash 1.1.0",
  "rustls",
  "serde",
@@ -2114,6 +2116,23 @@ dependencies = [
  "ureq 2.12.1",
  "webpki-roots 1.0.6",
  "xwin",
+]
+
+[[package]]
+name = "rts-ast"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "swc_ecma_ast",
+]
+
+[[package]]
+name = "rts-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "colored",
+ "rts-ast",
 ]
 
 [[package]]

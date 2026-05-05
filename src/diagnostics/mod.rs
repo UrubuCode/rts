@@ -1,3 +1,3 @@
-pub mod reporter;
-pub mod source_store;
-pub mod suggestions;
+pub use rts_diagnostics::reporter;
+pub use rts_diagnostics::source_store;
+pub use rts_diagnostics::suggestions;

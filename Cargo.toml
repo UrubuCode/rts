@@ -1,3 +1,11 @@
+[workspace]
+members = [
+    ".",
+    "crates/rts-ast",
+    "crates/rts-diagnostics",
+]
+resolver = "2"
+
 [package]
 name = "rts"
 version = "0.1.0"
@@ -11,6 +19,8 @@ name = "rts"
 path = "src/main.rs"
 
 [dependencies]
+rts-ast = { path = "crates/rts-ast" }
+rts-diagnostics = { path = "crates/rts-diagnostics" }
 anyhow = "1.0"
 object = { version = "0.39", default-features = false, features = ["write", "read", "std", "coff", "elf", "macho", "pe"] }
 serde = { version = "1.0", features = ["derive"] }
