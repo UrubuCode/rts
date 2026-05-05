@@ -62,6 +62,7 @@ fn main() {
             )
         })
     };
+    let rts_abi_rlib = must_find("librts_abi-", "abi");
     let fltk_rlib = must_find("libfltk-", "ui");
     let regex_rlib = must_find("libregex-", "regex");
     let rayon_rlib = must_find("librayon-", "parallel");
@@ -96,6 +97,8 @@ fn main() {
     ]);
     cmd.arg("-L")
         .arg(format!("dependency={}", deps_dir.display()));
+    cmd.arg("--extern")
+        .arg(format!("rts_abi={}", rts_abi_rlib.display()));
     cmd.arg("--extern")
         .arg(format!("fltk={}", fltk_rlib.display()));
     cmd.arg("--extern")

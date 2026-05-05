@@ -917,6 +917,20 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         Ok(fref)
     }
 
+    /// Variant of [`get_extern`] that accepts `AbiType` slices instead of
+    /// Cranelift `Type`s. Converts using `scalar_to_cl` from `abi::signature`.
+    pub fn get_extern_abi(
+        &mut self,
+        symbol: &'static str,
+        params: &[AbiType],
+        ret: Option<AbiType>,
+    ) -> Result<cranelift_codegen::ir::FuncRef> {
+        use crate::abi::signature::scalar_to_cl;
+        let cl_params: Vec<_> = params.iter().copied().map(scalar_to_cl).collect();
+        let cl_ret = ret.map(scalar_to_cl);
+        self.get_extern(symbol, &cl_params, cl_ret)
+    }
+
     /// Emits a rodata string literal and returns (ptr: i64, len: i64).
     pub fn emit_str_literal(&mut self, bytes: &[u8]) -> Result<(Value, Value)> {
         use cranelift_module::{DataDescription, Linkage};

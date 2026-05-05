@@ -680,7 +680,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     let recv_tv = lower_expr(ctx, &m.obj)?;
                     let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
                     let sig = crate::abi::signature::lower_member(member);
-                    let fn_ref = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                    let fn_ref = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
                     let inst = ctx.builder.ins().call(fn_ref, &[recv_i64]);
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::from_abi(member.returns)));
@@ -777,7 +777,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         // Zero-arg instance method used as property accessor (e.g. .source)
                         if member.args.len() == 1 {
                             let sig = crate::abi::signature::lower_member(member);
-                            let f = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                            let f = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
                             let inst = ctx.builder.ins().call(f, &[obj_handle]);
                             let ret_ty = ValTy::from_abi(member.returns);
                             let v = if sig.ret.is_some() {
@@ -858,7 +858,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 for spec in crate::abi::GLOBAL_CLASS_SPECS {
                     if let Some(member) = spec.instance_getter(key) {
                         let sig = crate::abi::signature::lower_member(member);
-                        let f = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                        let f = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
                         let inst = ctx.builder.ins().call(f, &[obj_handle]);
                         let ret_ty = ValTy::from_abi(member.returns);
                         let v = if sig.ret.is_some() {
@@ -873,7 +873,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     if let Some(member) = spec.instance_method(key) {
                         if member.args.len() == 1 {
                             let sig = crate::abi::signature::lower_member(member);
-                            let f = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+                            let f = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
                             let inst = ctx.builder.ins().call(f, &[obj_handle]);
                             let ret_ty = ValTy::from_abi(member.returns);
                             let v = if sig.ret.is_some() {

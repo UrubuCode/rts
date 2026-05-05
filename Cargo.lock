@@ -2099,8 +2099,10 @@ dependencies = [
  "object 0.39.0",
  "rayon",
  "regex",
+ "rts-abi",
  "rts-ast",
  "rts-diagnostics",
+ "rts-parser",
  "rustc-hash 1.1.0",
  "rustls",
  "serde",
@@ -2119,6 +2121,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-abi"
+version = "0.1.0"
+
+[[package]]
 name = "rts-ast"
 version = "0.1.0"
 dependencies = [
@@ -2133,6 +2139,18 @@ dependencies = [
  "anyhow",
  "colored",
  "rts-ast",
+]
+
+[[package]]
+name = "rts-parser"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rts-ast",
+ "rts-diagnostics",
+ "swc_common",
+ "swc_ecma_ast",
+ "swc_ecma_parser",
 ]
 
 [[package]]

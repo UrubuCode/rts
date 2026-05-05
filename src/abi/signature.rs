@@ -1,79 +1,21 @@
-//! Conversion from high-level `AbiType` slots to Cranelift IR types.
+//! Re-exports from `rts_abi::signature` plus the Cranelift conversion helpers.
 //!
-//! Codegen consumes these helpers when declaring extern functions so the
-//! Cranelift signature matches the Rust `extern "C"` function produced by
-//! the runtime. The conversion is intentionally value-level (returns plain
-//! `ir::Type`) so callers can attach their own calling convention and module
-//! without this module depending on a specific Cranelift backend.
+//! `scalar_to_cl`, `sig_params_cl`, and `sig_ret_cl` live here (not in
+//! `rts-abi`) because they depend on `cranelift_codegen`, which `rts-abi`
+//! intentionally avoids.
+
+pub use rts_abi::signature::*;
 
 use cranelift_codegen::ir::Type as ClType;
 use cranelift_codegen::ir::types as cl_types;
 
-use crate::abi::member::{MemberKind, NamespaceMember};
 use crate::abi::types::AbiType;
 
-/// Expands an `AbiType` list into the flat Cranelift parameter types.
+/// Converts an `AbiType` scalar to its Cranelift IR `Type`.
 ///
-/// `StrPtr` contributes `[I64, I64]`; every other variant contributes a
-/// single `ClType`. `Void` in a parameter position is rejected.
-pub fn lower_params(args: &[AbiType]) -> Vec<ClType> {
-    let mut out = Vec::with_capacity(args.len() + 1);
-    for ty in args {
-        match *ty {
-            AbiType::Void => panic!("Void is not valid as a parameter type"),
-            AbiType::StrPtr => {
-                out.push(cl_types::I64);
-                out.push(cl_types::I64);
-            }
-            other => out.push(scalar_to_cl(other)),
-        }
-    }
-    out
-}
-
-/// Lowers the return type. `Void` returns `None`.
-pub fn lower_return(ret: AbiType) -> Option<ClType> {
-    match ret {
-        AbiType::Void => None,
-        AbiType::StrPtr => panic!("StrPtr is not a valid return type"),
-        other => Some(scalar_to_cl(other)),
-    }
-}
-
-/// Full lowering of a member's signature.
-///
-/// For constants, returns empty params and the declared return type.
-/// For `Constructor` and `InstanceMethod`, `args` is used as-is —
-/// the Handle receiver is already included in the args list for
-/// `InstanceMethod` (slot 0), and constructors carry their own params.
-pub fn lower_member(member: &NamespaceMember) -> LoweredSignature {
-    match member.kind {
-        MemberKind::Function
-        | MemberKind::Constructor
-        | MemberKind::InstanceMethod
-        | MemberKind::StaticMethod
-        | MemberKind::InstanceGetter => {
-            LoweredSignature {
-                params: lower_params(member.args),
-                ret: lower_return(member.returns),
-            }
-        }
-        MemberKind::Constant => LoweredSignature {
-            params: Vec::new(),
-            ret: lower_return(member.returns),
-        },
-    }
-}
-
-/// Pre-lowered Cranelift signature pieces, ready to attach to a
-/// `cranelift_codegen::ir::Signature`.
-#[derive(Debug, Clone)]
-pub struct LoweredSignature {
-    pub params: Vec<ClType>,
-    pub ret: Option<ClType>,
-}
-
-fn scalar_to_cl(ty: AbiType) -> ClType {
+/// `Void` and `StrPtr` are compound/absent — callers must handle them
+/// before invoking this function.
+pub fn scalar_to_cl(ty: AbiType) -> ClType {
     match ty {
         AbiType::Bool | AbiType::I64 | AbiType::U64 | AbiType::Handle => cl_types::I64,
         AbiType::I32 => cl_types::I32,
@@ -84,29 +26,15 @@ fn scalar_to_cl(ty: AbiType) -> ClType {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Converts the `params` of a `LoweredSignature` to Cranelift IR types.
+///
+/// Call sites that build a Cranelift `Signature` use this instead of
+/// iterating `lowered.params` directly.
+pub fn sig_params_cl(params: &[AbiType]) -> Vec<ClType> {
+    params.iter().copied().map(scalar_to_cl).collect()
+}
 
-    #[test]
-    fn strptr_expands_into_two_slots() {
-        let lowered = lower_params(&[AbiType::StrPtr]);
-        assert_eq!(lowered, vec![cl_types::I64, cl_types::I64]);
-    }
-
-    #[test]
-    fn mixed_args_preserve_order() {
-        let lowered = lower_params(&[AbiType::I32, AbiType::StrPtr, AbiType::F64]);
-        assert_eq!(
-            lowered,
-            vec![cl_types::I32, cl_types::I64, cl_types::I64, cl_types::F64]
-        );
-    }
-
-    #[test]
-    fn void_return_is_none() {
-        assert_eq!(lower_return(AbiType::Void), None);
-        assert_eq!(lower_return(AbiType::Handle), Some(cl_types::I64));
-        assert_eq!(lower_return(AbiType::F64), Some(cl_types::F64));
-    }
+/// Converts the `ret` of a `LoweredSignature` to a Cranelift IR type.
+pub fn sig_ret_cl(ret: Option<AbiType>) -> Option<ClType> {
+    ret.map(scalar_to_cl)
 }

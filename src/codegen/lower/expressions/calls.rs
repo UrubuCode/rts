@@ -1693,7 +1693,7 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                 arg_vals.push(zero);
             }
         }
-        let fn_ref = ctx.get_extern(ctor.symbol, &sig.params, sig.ret)?;
+        let fn_ref = ctx.get_extern_abi(ctor.symbol, &sig.params, sig.ret)?;
         let inst = ctx.builder.ins().call(fn_ref, &arg_vals);
         let handle = ctx.builder.inst_results(inst)[0];
         // Track local variable type for instance method dispatch
@@ -4314,10 +4314,12 @@ fn emit_function_handle_indirect_call(
 }
 
 fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> Result<TypedVal> {
+    use crate::abi::signature::scalar_to_cl;
     let lowered = lower_member(member);
-    let ret_cl = lowered
+    let ret_abi = lowered
         .ret
         .ok_or_else(|| anyhow!("constant `{}` has no return type", member.name))?;
+    let ret_cl = scalar_to_cl(ret_abi);
 
     let func_id = if let Some(id) = ctx.extern_cache.get(member.symbol).copied() {
         id
@@ -4464,16 +4466,17 @@ fn lower_ns_call_body(
     member: &'static crate::abi::member::NamespaceMember,
     call: &CallExpr,
 ) -> Result<TypedVal> {
+    use crate::abi::signature::scalar_to_cl;
     let qualified = member.symbol;
     let lowered = lower_member(member);
 
     let func_id = if !ctx.extern_cache.contains_key(member.symbol) {
         let mut sig = Signature::new(ctx.module.isa().default_call_conv());
         for &p in &lowered.params {
-            sig.params.push(AbiParam::new(p));
+            sig.params.push(AbiParam::new(scalar_to_cl(p)));
         }
         if let Some(r) = lowered.ret {
-            sig.returns.push(AbiParam::new(r));
+            sig.returns.push(AbiParam::new(scalar_to_cl(r)));
         }
         let id = ctx
             .module
@@ -4611,7 +4614,7 @@ fn lower_ns_call_body(
 /// this function builds the same extern call as `lower_ns_call` but sources
 /// the metadata from `crate::nodespace::node_lookup` instead of `abi::lookup`.
 fn lower_node_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Result<TypedVal> {
-    use crate::abi::signature::{lower_params, lower_return};
+    use crate::abi::signature::{lower_params, lower_return, scalar_to_cl};
 
     let member = crate::nodespace::node_lookup(qualified)
         .ok_or_else(|| anyhow!("unknown node namespace member `{qualified}`"))?;
@@ -4622,10 +4625,10 @@ fn lower_node_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallExpr) -> Resu
     let func_id = if !ctx.extern_cache.contains_key(member.symbol) {
         let mut sig = Signature::new(ctx.module.isa().default_call_conv());
         for &p in &lowered_params {
-            sig.params.push(AbiParam::new(p));
+            sig.params.push(AbiParam::new(scalar_to_cl(p)));
         }
         if let Some(r) = lowered_ret {
-            sig.returns.push(AbiParam::new(r));
+            sig.returns.push(AbiParam::new(scalar_to_cl(r)));
         }
         let id = ctx
             .module
@@ -4729,7 +4732,7 @@ fn lower_global_instance_call(
     use crate::abi::signature::lower_member;
 
     let sig = lower_member(member);
-    let fn_ref = ctx.get_extern(member.symbol, &sig.params, sig.ret)?;
+    let fn_ref = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
 
     // slot 0 = Handle receiver; slots 1.. = TS call args
     let mut values = vec![recv];

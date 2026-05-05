@@ -91,27 +91,9 @@ impl fmt::Display for CompilationProfile {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FrontendMode {
-    #[default]
-    Native,
-    Compat,
-}
-
-impl FrontendMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Native => "native",
-            Self::Compat => "compat",
-        }
-    }
-}
-
-impl fmt::Display for FrontendMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+/// Re-exported from `rts-parser` so that call sites that import from
+/// `compile_options` keep working without changes.
+pub use rts_parser::FrontendMode;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CompileOptions {
