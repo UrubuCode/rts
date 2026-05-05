@@ -166,7 +166,13 @@
       "PowerShell(New-Item *)",
       "PowerShell(cargo build *)",
       "PowerShell(git add *)",
-      "Bash(RUSTC_BOOTSTRAP=1 cargo rustc --lib -- --emit=metadata)"
+      "Bash(RUSTC_BOOTSTRAP=1 cargo rustc --lib -- --emit=metadata)",
+      "Bash(grep -v \"^//\")",
+      "Bash(grep -v \"^$\")",
+      "PowerShell(target\\\\release\\\\rts.exe compile .\\\\examples\\\\http_chat.ts 2>&1)",
+      "PowerShell(cargo test *)",
+      "PowerShell(git commit -m $msg)",
+      "Bash(grep -v \"//\")"
     ]
   }
 }
