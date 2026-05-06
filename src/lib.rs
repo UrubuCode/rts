@@ -7,6 +7,7 @@
 
 pub mod abi;
 pub mod cache;
+pub mod function_eval_compile;
 pub mod cli;
 pub mod codegen;
 pub mod compile_options;

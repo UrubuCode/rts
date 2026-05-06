@@ -5,6 +5,8 @@ members = [
     "crates/rts-diagnostics",
     "crates/rts-abi",
     "crates/rts-parser",
+    "crates/rts-linker",
+    "crates/rts-runtime",
 ]
 resolver = "2"
 
@@ -25,6 +27,8 @@ rts-ast = { path = "crates/rts-ast" }
 rts-diagnostics = { path = "crates/rts-diagnostics" }
 rts-abi = { path = "crates/rts-abi" }
 rts-parser = { path = "crates/rts-parser" }
+rts-linker = { path = "crates/rts-linker" }
+rts-runtime = { path = "crates/rts-runtime" }
 anyhow = "1.0"
 object = { version = "0.39", default-features = false, features = ["write", "read", "std", "coff", "elf", "macho", "pe"] }
 serde = { version = "1.0", features = ["derive"] }

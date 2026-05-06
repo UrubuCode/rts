@@ -1,0 +1,152 @@
+//! `date` namespace — ABI registration.
+
+use crate::abi::{AbiType, MemberKind, NamespaceMember, NamespaceSpec};
+
+pub const MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "now_ms",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_NOW_MS",
+        args: &[],
+        returns: AbiType::I64,
+        doc: "Current Unix timestamp in milliseconds (UTC).",
+        ts_signature: "now_ms(): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "from_iso",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_FROM_ISO",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::I64,
+        doc: "Parses ISO 8601 (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS.mmmZ). i64::MIN on parse error.",
+        ts_signature: "from_iso(text: string): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "from_parts",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_FROM_PARTS",
+        args: &[
+            AbiType::I64, // year
+            AbiType::I64, // month (0-indexed)
+            AbiType::I64, // day
+            AbiType::I64, // hour
+            AbiType::I64, // min
+            AbiType::I64, // sec
+            AbiType::I64, // ms
+        ],
+        returns: AbiType::I64,
+        doc: "Composes ms-since-epoch from calendar fields (UTC). Month is 0-indexed (JS convention).",
+        ts_signature: "from_parts(y: number, mo: number, d: number, h: number, mi: number, s: number, ms: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "year",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_YEAR",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Full year (UTC).",
+        ts_signature: "year(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "month",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_MONTH",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Month 0-indexed (UTC). Jan=0, Dec=11.",
+        ts_signature: "month(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "day",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_DAY",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Day of month 1-31 (UTC).",
+        ts_signature: "day(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "weekday",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_WEEKDAY",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Day of week (UTC). Sunday=0, Saturday=6.",
+        ts_signature: "weekday(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "hour",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_HOUR",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Hour 0-23 (UTC).",
+        ts_signature: "hour(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "minute",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_MINUTE",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Minute 0-59 (UTC).",
+        ts_signature: "minute(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "second",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_SECOND",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Second 0-59 (UTC).",
+        ts_signature: "second(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "millisecond",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_MILLISECOND",
+        args: &[AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Millisecond 0-999 (UTC).",
+        ts_signature: "millisecond(ts: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "to_iso",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_DATE_TO_ISO",
+        args: &[AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "Returns ISO 8601 UTC string (YYYY-MM-DDTHH:MM:SS.mmmZ).",
+        ts_signature: "to_iso(ts: number): string",
+        intrinsic: None,
+        pure: true,
+    },
+];
+
+pub const SPEC: NamespaceSpec = NamespaceSpec {
+    name: "date",
+    doc: "Calendar primitives backing the JS Date object — operam sobre ms desde Unix epoch (UTC).",
+    members: MEMBERS,
+};

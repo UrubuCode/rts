@@ -1,0 +1,107 @@
+#[path = "gc/rt.rs"]
+pub mod gc;
+#[path = "io/rt.rs"]
+pub mod io;
+#[path = "json/rt.rs"]
+pub mod json;
+#[path = "date/rt.rs"]
+pub mod date;
+#[path = "fs/rt.rs"]
+pub mod fs;
+#[path = "math/rt.rs"]
+pub mod math;
+#[path = "num/rt.rs"]
+pub mod num;
+#[path = "mem/rt.rs"]
+pub mod mem;
+#[path = "net/rt.rs"]
+pub mod net;
+#[path = "trace/rt.rs"]
+pub mod trace;
+#[path = "alloc/rt.rs"]
+pub mod alloc;
+#[path = "bigfloat/rt.rs"]
+pub mod bigfloat;
+#[path = "time/rt.rs"]
+pub mod time;
+#[path = "env/rt.rs"]
+pub mod env;
+#[path = "events/rt.rs"]
+pub mod events;
+#[path = "path/rt.rs"]
+pub mod path;
+#[path = "buffer/rt.rs"]
+pub mod buffer;
+#[path = "globals/string/rt.rs"]
+pub mod string;
+#[path = "globals/string/search.rs"]
+pub mod string_search;
+#[path = "globals/string/split.rs"]
+pub mod string_split;
+#[path = "globals/string/transform.rs"]
+pub mod string_transform;
+#[path = "globals/string/replace.rs"]
+pub mod string_replace;
+#[path = "http_server/rt.rs"]
+pub mod http_server;
+#[path = "globals/number/rt.rs"]
+pub mod number_gl;
+#[path = "process/rt.rs"]
+pub mod process;
+#[path = "ptr/rt.rs"]
+pub mod ptr;
+#[path = "os/rt.rs"]
+pub mod os;
+#[path = "collections/rt.rs"]
+pub mod collections;
+#[path = "hash/rt.rs"]
+pub mod hash;
+#[path = "hint/rt.rs"]
+pub mod hint;
+#[path = "fmt/rt.rs"]
+pub mod fmt;
+#[path = "crypto/rt.rs"]
+pub mod crypto;
+#[path = "regex/rt.rs"]
+pub mod regex;
+#[path = "atomic/rt.rs"]
+pub mod atomic;
+#[path = "sync/rt.rs"]
+pub mod sync;
+#[path = "thread/rt.rs"]
+pub mod thread;
+#[path = "parallel/rt.rs"]
+pub mod parallel;
+#[path = "tls/rt.rs"]
+pub mod tls;
+#[path = "ui/rt.rs"]
+pub mod ui;
+#[path = "runtime/rt.rs"]
+pub mod runtime;
+#[path = "globals/date/rt.rs"]
+pub mod globals_date;
+#[path = "globals/regexp/rt.rs"]
+pub mod globals_regexp;
+#[path = "globals/error/rt.rs"]
+pub mod globals_error;
+#[path = "globals/events/rt.rs"]
+pub mod globals_events;
+
+// rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
+// modules reference `crate::namespaces::...`, so we expose a compatibility
+// shim with the subset they need in runtime_support.
+pub mod namespaces {
+    pub use crate::date;
+    pub use crate::gc;
+    pub use crate::regex;
+    pub use crate::trace;
+}
+
+
+// Shim para `crate::abi::handles` (#283) — handle layout compartilhado entre
+// gc e ui. Inclui o mesmo arquivo que o main crate (`src/abi/handles.rs`).
+#[path = "../abi/handles.rs"]
+pub mod __abi_handles;
+pub mod abi {
+    pub use super::__abi_handles as handles;
+}

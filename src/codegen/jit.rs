@@ -116,6 +116,16 @@ fn build_jit_module() -> Result<JITModule> {
     // through a linker.
     register_runtime_symbols(&mut jit_builder);
 
+    rts_runtime::namespaces::globals::function::ops::register_compile_fn(|params, body| {
+        use crate::function_eval_compile as eval_compile;
+        let compiled = eval_compile::compile_function(params, body)?;
+        Ok(rts_runtime::namespaces::globals::function::ops::CompiledFn {
+            fn_ptr: compiled.fn_ptr,
+            arity: compiled.arity,
+            keep_alive: compiled.keep_alive,
+        })
+    });
+
     Ok(JITModule::new(jit_builder))
 }
 
