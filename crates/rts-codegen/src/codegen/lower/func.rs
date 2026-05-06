@@ -7552,6 +7552,7 @@ fn try_compile_via_mir(
     module: &mut dyn Module,
     fn_decl: &FunctionDecl,
     info: &UserFn,
+    address_taken: bool,
 ) -> Result<bool> {
     use rts_mir::ir::{Inst, Terminator, TrapHint};
 
@@ -7670,12 +7671,30 @@ fn try_compile_via_mir(
         return Ok(false);
     }
 
-    // Force the MirFunc to use the AST conv. Tail is what compile_program
-    // sets for user fns by default; for address-taken fns the AST path
-    // already used host default — but we don't enter try_compile_via_mir
-    // for those (caller checks RTS_USE_MIR). Conservative: match what
-    // `compile_user_fn` would have set.
+    // Match the conv the AST path would have used. Address-taken fns
+    // (passed as fn pointers to thread.spawn, promise.then, etc.) precisam
+    // de host default extern "C" conv, mas o caminho MIR ainda revela
+    // edge cases sutis (ex.: spawned thread crashando) — bail por
+    // segurança até que a integração com runtime callers (thread.spawn,
+    // promise.then) seja auditada caso a caso.
+    if address_taken {
+        debug_bail(fn_decl, "address-taken (MIR routing not yet safe)");
+        return Ok(false);
+    }
     mir_fn.conv = rts_mir::ir::CallConvHint::Tail;
+
+    // Conservadoramente: bail quando o body do MIR contem CallExtern
+    // (chamadas a runtime ns: time, atomic, promise, fs, etc.). O AST
+    // path tem dispatch maduro pra esses; o MIR funciona em micro-tests
+    // mas mostra divergencias sutis quando combinado com state global
+    // ou GC. Reativar quando audit completo for feito.
+    let has_call_extern = mir_fn.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+        matches!(i, rts_mir::ir::Inst::CallExtern { .. })
+    });
+    if has_call_extern {
+        debug_bail(fn_decl, "calls extern runtime (MIR routing conservative)");
+        return Ok(false);
+    }
 
     // 6. Build a `decls` map containing only `info.id` for self (recursion).
     //    Cross-fn calls fall back to AST if `mir_fn` references unknown
@@ -7775,7 +7794,7 @@ fn compile_user_fn(
         let allowed = spec == "1"
             || spec.eq_ignore_ascii_case("all")
             || spec.split(',').any(|n| n.trim() == fn_decl.name);
-        if allowed && try_compile_via_mir(module, fn_decl, info)? {
+        if allowed && try_compile_via_mir(module, fn_decl, info, address_taken)? {
             return Ok(warnings);
         }
     }
