@@ -5,6 +5,7 @@ members = [
     "crates/rts-diagnostics",
     "crates/rts-abi",
     "crates/rts-parser",
+    "crates/rts-hir",
     "crates/rts-linker",
     "crates/rts-runtime",
     "crates/rts-codegen",
