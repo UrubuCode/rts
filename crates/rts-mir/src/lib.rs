@@ -10,6 +10,7 @@
 //! (fold/dce/narrow/inline/escape) virão em sub-etapas seguintes.
 
 pub mod ir;
+pub mod lower;
 
 pub use ir::{
     BasicBlock, BlockId, CallConvHint, FloatCond, IntCond, Inst, MemHint, MemOrder, MirFunc,
