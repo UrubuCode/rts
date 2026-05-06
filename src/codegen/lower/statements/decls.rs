@@ -292,6 +292,12 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             || crate::abi::global_class_lookup(&cn).is_some()
                         {
                             ctx.local_class_ty.insert(name.clone(), cn.clone());
+                        } else if matches!(cn.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
+                            // (#222 it) Map/Set tracking pra for-of saber iterar
+                            // via MAP_ENTRIES. Nao mexer em local_class_ty pra
+                            // nao colidir com receiver_class de member access.
+                            ctx.local_collection_ty
+                                .insert(name.clone(), cn.clone());
                         } else if ctx.user_fns.contains_key(&cn) {
                             // (#proto-instance) Constructor function: `new Animal(...)` onde
                             // Animal eh user fn. Marca var como instance "ProtoInstance" pra

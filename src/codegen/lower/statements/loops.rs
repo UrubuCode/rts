@@ -175,8 +175,31 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         ForHead::UsingDecl(_) => return Err(anyhow!("`using` em for-of nao suportado")),
     };
 
+    // (#222 it) Detecta `for (const x of map)` / `for (const x of set)` —
+    // converte automaticamente para iterar entries (Map) ou values (Set).
+    // Map: cada elem e' [k, v] pair (Vec<i64> com 2 slots).
+    // Set: cada elem eh apenas a chave (i64 ou string handle convertida).
+    let receiver_class = if let swc_ecma_ast::Expr::Ident(id) = for_of.right.as_ref() {
+        ctx.local_collection_ty.get(id.sym.as_str()).cloned()
+    } else {
+        None
+    };
+    let is_map_iter = matches!(receiver_class.as_deref(), Some("Map") | Some("WeakMap"));
+    let is_set_iter = matches!(receiver_class.as_deref(), Some("Set") | Some("WeakSet"));
+
     let iter_tv = lower_expr(ctx, &for_of.right)?;
-    let handle = ctx.coerce_to_i64(iter_tv).val;
+    let mut handle = ctx.coerce_to_i64(iter_tv).val;
+    if is_map_iter || is_set_iter {
+        // Converte map/set em Vec de entries [[k,v], ...]. Para Set,
+        // cada entry tem (k, 1) — destructuring [k, _] pega a chave.
+        let entries_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(entries_fn, &[handle]);
+        handle = ctx.builder.inst_results(inst)[0];
+    }
     let len_fref = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_LEN", &[cl::I64], Some(cl::I64))?;
     let inst = ctx.builder.ins().call(len_fref, &[handle]);
     let len = ctx.builder.inst_results(inst)[0];
@@ -227,7 +250,42 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         .read_local(&counter_name)
         .ok_or_else(|| anyhow!("for-of counter sumiu"))?;
     let inst = ctx.builder.ins().call(get_fref, &[handle, i_now.val]);
-    let elem = ctx.builder.inst_results(inst)[0];
+    let mut elem = ctx.builder.inst_results(inst)[0];
+    // (#222 it) Set iter sem destructure: elem e' [k, 1] pair, queremos k.
+    // Set armazena o value original como string-key — converte de volta
+    // pra i64 quando bind_ty eh I64 (caso comum: Set<number>).
+    if is_set_iter && array_destructure_names.is_none() {
+        let zero_idx = ctx.builder.ins().iconst(cl::I64, 0);
+        let inst_k = ctx.builder.ins().call(get_fref, &[elem, zero_idx]);
+        let key_h = ctx.builder.inst_results(inst_k)[0];
+        // Para Set<number>, converte string-key de volta a i64 via parse.
+        // parse_i64 tem assinatura StrPtr (ptr+len), entao precisa extrair.
+        if matches!(bind_ty, ValTy::I64) {
+            let str_ptr = ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_PTR",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let str_len = ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_LEN",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst_pp = ctx.builder.ins().call(str_ptr, &[key_h]);
+            let kp = ctx.builder.inst_results(inst_pp)[0];
+            let inst_pl = ctx.builder.ins().call(str_len, &[key_h]);
+            let kl = ctx.builder.inst_results(inst_pl)[0];
+            let parse_fn = ctx.get_extern(
+                "__RTS_FN_NS_FMT_PARSE_I64",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst_p = ctx.builder.ins().call(parse_fn, &[kp, kl]);
+            elem = ctx.builder.inst_results(inst_p)[0];
+        } else {
+            elem = key_h;
+        }
+    }
     ctx.write_local(&bind_name, elem)?;
 
     // (#210) for-of array destructuring: cada nome vira local extraindo
@@ -277,7 +335,8 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                 _ => false,
             }
         }
-        let is_object_entries = is_object_entries_expr(for_of.right.as_ref(), ctx);
+        let is_object_entries =
+            is_object_entries_expr(for_of.right.as_ref(), ctx) || is_map_iter;
         for (idx, name_opt) in names.iter().enumerate() {
             let Some((name, ann_ty)) = name_opt else { continue };
             let idx_val = ctx.builder.ins().iconst(cl::I64, idx as i64);
