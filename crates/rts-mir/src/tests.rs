@@ -5,6 +5,7 @@
 
 use crate::ir::*;
 use crate::lower::lower_func;
+use crate::passes::{dce, fold, optimize};
 use rts_hir::ir::{HirBinOp, HirExpr, HirExprKind, HirFunc, HirLit, HirParam, HirStmt};
 use rts_hir::HirType;
 
@@ -395,6 +396,209 @@ fn lower_negation_emits_ineg() {
     let mir = lower_func(&f);
     let bb = &mir.blocks[0];
     assert!(bb.insts.iter().any(|i| matches!(i, Inst::INeg { .. })));
+}
+
+// ---------- Pass tests ----------
+
+fn build_const_add(a: i64, b: i64) -> MirFunc {
+    let mut f = MirFunc::new("c_add", CallConvHint::Tail, HirType::I64);
+    let v0 = f.new_value(HirType::I64);
+    let v1 = f.new_value(HirType::I64);
+    let v2 = f.new_value(HirType::I64);
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.insts.push(Inst::IConst { dst: v0, ty: HirType::I64, val: a });
+    bb.insts.push(Inst::IConst { dst: v1, ty: HirType::I64, val: b });
+    bb.insts.push(Inst::IAdd { dst: v2, lhs: v0, rhs: v1 });
+    bb.term = Terminator::Return(vec![v2]);
+    f
+}
+
+#[test]
+fn fold_iadd_consts() {
+    let mut f = build_const_add(40, 2);
+    fold(&mut f);
+    let bb = &f.blocks[0];
+    // The IAdd should have been folded into an IConst { val: 42 }
+    let folded = bb.insts.iter().any(|i| matches!(
+        i,
+        Inst::IConst { val: 42, .. }
+    ));
+    assert!(folded, "expected folded IConst 42, got {:?}", bb.insts);
+}
+
+#[test]
+fn fold_imul_pow2_to_ishlimm() {
+    let mut f = MirFunc::new("m", CallConvHint::Tail, HirType::I64);
+    let x = f.new_value(HirType::I64);
+    let c = f.new_value(HirType::I64);
+    let r = f.new_value(HirType::I64);
+    f.params.push((x, HirType::I64));
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.params.push((x, HirType::I64));
+    bb.insts.push(Inst::IConst { dst: c, ty: HirType::I64, val: 8 });
+    bb.insts.push(Inst::IMul { dst: r, lhs: x, rhs: c });
+    bb.term = Terminator::Return(vec![r]);
+
+    fold(&mut f);
+    let bb = &f.blocks[0];
+    assert!(bb.insts.iter().any(|i| matches!(
+        i,
+        Inst::IShlImm { imm: 3, .. }
+    )), "expected IShlImm 3, got {:?}", bb.insts);
+}
+
+#[test]
+fn fold_urem_pow2_to_band() {
+    let mut f = MirFunc::new("u", CallConvHint::Tail, HirType::I64);
+    let x = f.new_value(HirType::I64);
+    let c = f.new_value(HirType::I64);
+    let r = f.new_value(HirType::I64);
+    f.params.push((x, HirType::I64));
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.params.push((x, HirType::I64));
+    bb.insts.push(Inst::IConst { dst: c, ty: HirType::I64, val: 16 });
+    bb.insts.push(Inst::URem { dst: r, lhs: x, rhs: c });
+    bb.term = Terminator::Return(vec![r]);
+
+    fold(&mut f);
+    let bb = &f.blocks[0];
+    assert!(bb.insts.iter().any(|i| matches!(
+        i,
+        Inst::BAndImm { imm: 15, .. }
+    )));
+}
+
+#[test]
+fn fold_band_with_zero_to_iconst_zero() {
+    let mut f = MirFunc::new("z", CallConvHint::Tail, HirType::I64);
+    let x = f.new_value(HirType::I64);
+    let c = f.new_value(HirType::I64);
+    let r = f.new_value(HirType::I64);
+    f.params.push((x, HirType::I64));
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.params.push((x, HirType::I64));
+    bb.insts.push(Inst::IConst { dst: c, ty: HirType::I64, val: 0 });
+    bb.insts.push(Inst::BAnd { dst: r, lhs: x, rhs: c });
+    bb.term = Terminator::Return(vec![r]);
+
+    fold(&mut f);
+    let bb = &f.blocks[0];
+    let zero_consts = bb.insts.iter().filter(|i| matches!(
+        i,
+        Inst::IConst { val: 0, .. }
+    )).count();
+    // Original IConst 0 + folded BAnd → IConst 0 = 2 zero consts.
+    assert_eq!(zero_consts, 2);
+}
+
+#[test]
+fn fold_iadd_with_one_const_to_iaddimm() {
+    let mut f = MirFunc::new("a1", CallConvHint::Tail, HirType::I64);
+    let x = f.new_value(HirType::I64);
+    let c = f.new_value(HirType::I64);
+    let r = f.new_value(HirType::I64);
+    f.params.push((x, HirType::I64));
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.params.push((x, HirType::I64));
+    bb.insts.push(Inst::IConst { dst: c, ty: HirType::I64, val: 5 });
+    bb.insts.push(Inst::IAdd { dst: r, lhs: x, rhs: c });
+    bb.term = Terminator::Return(vec![r]);
+
+    fold(&mut f);
+    let bb = &f.blocks[0];
+    assert!(bb.insts.iter().any(|i| matches!(
+        i,
+        Inst::IAddImm { imm: 5, .. }
+    )));
+}
+
+#[test]
+fn dce_removes_unused_iconst() {
+    let mut f = MirFunc::new("d", CallConvHint::Tail, HirType::I64);
+    let used = f.new_value(HirType::I64);
+    let dead = f.new_value(HirType::I64);
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.insts.push(Inst::IConst { dst: used, ty: HirType::I64, val: 1 });
+    bb.insts.push(Inst::IConst { dst: dead, ty: HirType::I64, val: 2 });
+    bb.term = Terminator::Return(vec![used]);
+
+    dce(&mut f);
+    let bb = &f.blocks[0];
+    assert_eq!(bb.insts.len(), 1, "dead IConst should be removed");
+    assert!(matches!(bb.insts[0], Inst::IConst { val: 1, .. }));
+}
+
+#[test]
+fn dce_keeps_store_even_with_unused_dst_chain() {
+    let mut f = MirFunc::new("s", CallConvHint::Tail, HirType::Void);
+    let p = f.new_value(HirType::I64);
+    let v = f.new_value(HirType::I64);
+    f.params.push((p, HirType::I64));
+    f.params.push((v, HirType::I64));
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.params.push((p, HirType::I64));
+    bb.params.push((v, HirType::I64));
+    bb.insts.push(Inst::Store { val: v, ptr: p, offset: 0, flags: MemHint::Default });
+    bb.term = Terminator::Return(vec![]);
+
+    dce(&mut f);
+    let bb = &f.blocks[0];
+    assert_eq!(bb.insts.len(), 1);
+    assert!(matches!(bb.insts[0], Inst::Store { .. }));
+}
+
+#[test]
+fn dce_iterates_to_fixed_point() {
+    // a -> b -> c chain where c is unused. DCE should remove c, then b, then a.
+    let mut f = MirFunc::new("chain", CallConvHint::Tail, HirType::I64);
+    let final_v = f.new_value(HirType::I64);
+    let a = f.new_value(HirType::I64);
+    let b = f.new_value(HirType::I64);
+    let c = f.new_value(HirType::I64);
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.insts.push(Inst::IConst { dst: final_v, ty: HirType::I64, val: 99 });
+    bb.insts.push(Inst::IConst { dst: a, ty: HirType::I64, val: 1 });
+    bb.insts.push(Inst::IAddImm { dst: b, lhs: a, imm: 1 });
+    bb.insts.push(Inst::IAddImm { dst: c, lhs: b, imm: 1 });
+    bb.term = Terminator::Return(vec![final_v]);
+
+    dce(&mut f);
+    let bb = &f.blocks[0];
+    // Only `final_v` IConst remains
+    assert_eq!(bb.insts.len(), 1);
+    assert!(matches!(bb.insts[0], Inst::IConst { val: 99, .. }));
+}
+
+#[test]
+fn optimize_pipeline_runs_fold_then_dce() {
+    // Build: x + 0  → after fold: BAndImm? no — IAddImm 0
+    // Actually let's do: 2*8 = 16 (consts) + dead IConst → optimize collapses
+    let mut f = MirFunc::new("p", CallConvHint::Tail, HirType::I64);
+    let a = f.new_value(HirType::I64);
+    let b = f.new_value(HirType::I64);
+    let r = f.new_value(HirType::I64);
+    let dead = f.new_value(HirType::I64);
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.insts.push(Inst::IConst { dst: a, ty: HirType::I64, val: 2 });
+    bb.insts.push(Inst::IConst { dst: b, ty: HirType::I64, val: 8 });
+    bb.insts.push(Inst::IMul { dst: r, lhs: a, rhs: b });
+    bb.insts.push(Inst::IConst { dst: dead, ty: HirType::I64, val: 1234 });
+    bb.term = Terminator::Return(vec![r]);
+
+    optimize(&mut f);
+    let bb = &f.blocks[0];
+    // Only the folded IConst 16 should remain
+    assert_eq!(bb.insts.len(), 1);
+    assert!(matches!(bb.insts[0], Inst::IConst { val: 16, .. }));
 }
 
 #[test]
