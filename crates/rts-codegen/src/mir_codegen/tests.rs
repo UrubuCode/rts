@@ -434,6 +434,125 @@ fn build_hir_func(
     }
 }
 
+// ---------- integration: parse real TS source through the full pipeline ----------
+
+/// Helper: parse `source`, lower each user fn through HIR → MIR + passes,
+/// run verify on each, return the MirFunc list.
+fn pipeline_parse_ts(source: &str) -> Vec<rts_mir::ir::MirFunc> {
+    let program = rts_parser::parse_source(source).expect("parse");
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut mirs = Vec::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mut mir_fn = rts_mir::lower::lower_func(&hir_fn);
+            rts_mir::passes::optimize(&mut mir_fn);
+            rts_mir::passes::narrow(&mut mir_fn);
+            rts_mir::passes::verify(&mir_fn).expect("MIR verify");
+            mirs.push(mir_fn);
+        }
+    }
+    mirs
+}
+
+#[test]
+fn pipeline_parses_simple_function() {
+    let mirs = pipeline_parse_ts("function add(a: number, b: number): number { return a + b; }");
+    assert_eq!(mirs.len(), 1);
+    assert_eq!(mirs[0].name, "add");
+    // entry block should have 2 params
+    assert_eq!(mirs[0].blocks[0].params.len(), 2);
+}
+
+#[test]
+fn pipeline_parses_if_else_function() {
+    let src = r#"
+        function pick(c: number, a: number, b: number): number {
+            if (c) {
+                return a;
+            } else {
+                return b;
+            }
+        }
+    "#;
+    let mirs = pipeline_parse_ts(src);
+    assert_eq!(mirs.len(), 1);
+    // entry + then + else + join (or fewer if optimize collapses) — must have ≥ 3 blocks
+    assert!(mirs[0].blocks.len() >= 3);
+    // entry must Brif
+    assert!(matches!(
+        mirs[0].blocks[0].term,
+        rts_mir::ir::Terminator::Brif { .. }
+    ));
+}
+
+#[test]
+fn pipeline_parses_while_loop() {
+    let src = r#"
+        function loopy(n: number): number {
+            let i = 0;
+            while (i < n) {
+                i = i + 1;
+            }
+            return i;
+        }
+    "#;
+    let mirs = pipeline_parse_ts(src);
+    assert_eq!(mirs.len(), 1);
+    // Should have entry + header + body + exit (or more)
+    assert!(mirs[0].blocks.len() >= 4);
+}
+
+#[test]
+fn pipeline_parses_multiple_functions() {
+    let src = r#"
+        function inc(x: number): number { return x + 1; }
+        function dec(x: number): number { return x - 1; }
+        function dbl(x: number): number { return x * 2; }
+    "#;
+    let mirs = pipeline_parse_ts(src);
+    assert_eq!(mirs.len(), 3);
+    assert_eq!(mirs[0].name, "inc");
+    assert_eq!(mirs[1].name, "dec");
+    assert_eq!(mirs[2].name, "dbl");
+}
+
+#[test]
+fn pipeline_with_for_loop() {
+    let src = r#"
+        function sumTo(n: number): number {
+            let s = 0;
+            for (let i = 0; i < n; i = i + 1) {
+                s = s + i;
+            }
+            return s;
+        }
+    "#;
+    let mirs = pipeline_parse_ts(src);
+    assert_eq!(mirs.len(), 1);
+    // for: entry + header + body + update + exit ≥ 5 blocks
+    assert!(mirs[0].blocks.len() >= 5);
+}
+
+#[test]
+fn pipeline_with_ternary_emits_select() {
+    let src = "function pick(c: number, a: number, b: number): number { return c ? a : b; }";
+    let mirs = pipeline_parse_ts(src);
+    assert_eq!(mirs.len(), 1);
+    let bb = &mirs[0].blocks[0];
+    assert!(bb.insts.iter().any(|i| matches!(i, rts_mir::ir::Inst::Select { .. })));
+}
+
+#[test]
+fn pipeline_with_explicit_int_types() {
+    // Narrow type annotations should propagate to MIR.
+    let src = "function tally(a: i32, b: i32): i32 { return a + b; }";
+    let mirs = pipeline_parse_ts(src);
+    assert_eq!(mirs.len(), 1);
+    // Ret type in MIR should be I32
+    assert_eq!(mirs[0].ret, rts_hir::ir::HirType::I32);
+}
+
 #[test]
 fn jit_end_to_end_hir_to_cl_via_mir() {
     // function inc(a:i64) -> i64 { return a + 1; }
