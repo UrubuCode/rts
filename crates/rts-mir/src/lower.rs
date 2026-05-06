@@ -136,6 +136,7 @@ pub fn lower_func_full_with_intrinsics(
         fn_sigs,
         extern_resolver,
         intrinsic_resolver,
+        had_placeholders: false,
     };
 
     lower_stmts(&func.body, &mut mir, &mut ctx);
@@ -153,6 +154,7 @@ pub fn lower_func_full_with_intrinsics(
         set_term(&mut mir, ctx.cursor, trap);
     }
 
+    mir.had_placeholders = ctx.had_placeholders;
     mir
 }
 
@@ -178,6 +180,11 @@ struct LowerCtx<'r> {
     /// `Some(tag)`, the MethodCall lowers to native IR ops instead of a
     /// CallExtern.
     intrinsic_resolver: Option<IntrinsicResolver<'r>>,
+    /// True when an expression silently fell back to a placeholder zero
+    /// const (e.g. unresolved member access). Caller can inspect
+    /// `MirFunc.had_placeholders` (set on lower output) to bail out of MIR
+    /// routing instead of silently returning wrong results.
+    had_placeholders: bool,
 }
 
 impl LowerCtx<'_> {
@@ -646,13 +653,37 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
             Some(&v) => v,
             None => {
                 // Unknown ident — emit a placeholder zero of the expected type.
+                ctx.had_placeholders = true;
                 emit_zero_const(&expr.ty, mir, ctx)
             }
         },
 
         HirExprKind::Bin { op, lhs, rhs } => {
-            let lv = lower_expr(lhs, mir, ctx);
-            let rv = lower_expr(rhs, mir, ctx);
+            let mut lv = lower_expr(lhs, mir, ctx);
+            let mut rv = lower_expr(rhs, mir, ctx);
+            // Numeric promotion: if the result type is float but one operand
+            // came in as integer (e.g. `a:number + 1` lowers `1` as IConst i64),
+            // emit a CvtFromSint so the FAdd has matching types.
+            if expr.ty.is_float() {
+                if lhs.ty.is_integer() || matches!(lhs.ty, HirType::Unknown | HirType::Any) {
+                    let promoted = mir.new_value(expr.ty.clone());
+                    ctx.push_inst(mir, Inst::CvtFromSint {
+                        dst: promoted,
+                        src: lv,
+                        to: expr.ty.clone(),
+                    });
+                    lv = promoted;
+                }
+                if rhs.ty.is_integer() || matches!(rhs.ty, HirType::Unknown | HirType::Any) {
+                    let promoted = mir.new_value(expr.ty.clone());
+                    ctx.push_inst(mir, Inst::CvtFromSint {
+                        dst: promoted,
+                        src: rv,
+                        to: expr.ty.clone(),
+                    });
+                    rv = promoted;
+                }
+            }
             lower_bin(*op, lv, rv, &expr.ty, &lhs.ty, mir, ctx)
         }
 
@@ -699,6 +730,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
             }
             // Unresolved member access — placeholder zero (codegen AST handles
             // class fields, object literals, etc.).
+            ctx.had_placeholders = true;
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -791,6 +823,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
             }
             // Unresolved method call → placeholder zero (codegen AST handles
             // member access for class methods, etc.).
+            ctx.had_placeholders = true;
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -819,6 +852,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                 }
             }
             // Fallback: unknown callee or non-ident; placeholder zero.
+            ctx.had_placeholders = true;
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -843,7 +877,10 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
         // Unsupported: emit a placeholder of the expected type and trap when
         // we leave the block (handled by caller observing `ctx.terminated`
         // after reaching a stmt that uses it). For now, emit an iconst 0.
-        _ => emit_zero_const(&expr.ty, mir, ctx),
+        _ => {
+            ctx.had_placeholders = true;
+            emit_zero_const(&expr.ty, mir, ctx)
+        }
     }
 }
 

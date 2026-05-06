@@ -19,6 +19,11 @@ pub struct MirFunc {
     pub ret: HirType,
     pub blocks: Vec<BasicBlock>,
     pub values: Vec<HirType>,
+    /// True when the lowering silently fell back to placeholder values for
+    /// at least one expression (e.g. unresolved member access, missing
+    /// extern resolver). Callers should treat this MIR as incomplete and
+    /// route to the AST path instead of trusting the generated code.
+    pub had_placeholders: bool,
 }
 
 impl MirFunc {
@@ -30,6 +35,7 @@ impl MirFunc {
             ret,
             blocks: Vec::new(),
             values: Vec::new(),
+            had_placeholders: false,
         }
     }
 

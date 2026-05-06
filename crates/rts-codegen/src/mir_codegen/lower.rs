@@ -56,9 +56,17 @@ pub fn lower_mir_func_with_decls(
     decls: &HashMap<String, cranelift_module::FuncId>,
 ) -> Result<cranelift_module::FuncId> {
     let sig = build_signature(module, mir);
-    let func_id = module
-        .declare_function(&mir.name, Linkage::Local, &sig)
-        .map_err(|e| anyhow!("declare_function {}: {e}", mir.name))?;
+    // Reuse an existing FuncId when the caller (e.g. compile_program) has
+    // already declared this fn with a mangled symbol name. Declaring a new
+    // function with `mir.name` would split the JIT into two unrelated
+    // symbols and the caller's calls go unresolved.
+    let func_id = if let Some(&existing) = decls.get(&mir.name) {
+        existing
+    } else {
+        module
+            .declare_function(&mir.name, Linkage::Local, &sig)
+            .map_err(|e| anyhow!("declare_function {}: {e}", mir.name))?
+    };
 
     let mut ctx = module.make_context();
     ctx.func.signature = sig;

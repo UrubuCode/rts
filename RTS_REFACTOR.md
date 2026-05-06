@@ -1066,7 +1066,19 @@ i64 bits → f64:  bitcast(F64, MemFlags::new(), val)   (transmute)
 **Marco intermediário (atual):** crate rts-hir completo, conectado ao pipeline, suite verde.
 **Marco final:** suite mantida + `rts ir` mostra ausência de `fcvt` em sites tipo `i = userFn(i)` quando a fn retorna inteiro.
 
-### Fase 3 — MIR e passes (2–3 semanas)
+### Fase 3 — MIR e passes — em fase final (etapas 3.6 a 3.19)
+
+**Marco entregue (etapa 3.19):** routing híbrido com opt-in por nome
+no `compile_program`. `RTS_USE_MIR=fn1,fn2,...` faz cada fn listada
+tentar caminho HIR→MIR→Cranelift; se a fn tem trap, signature
+mismatch com declaração AST, ou placeholders silenciosos, cai no AST
+automaticamente. Modo "all" (`RTS_USE_MIR=all`) ativa para todas as
+fns mas alguns programs travam até features faltantes serem
+modeladas (member em this/objetos, classes, async/await com Promise).
+Permite migração incremental sem quebrar produção (suite default
+sem env var continua 622/632 verde).
+
+
 
 - [x] Crate `rts-mir` criado com IR completo: `MirFunc`, `BasicBlock`, `Inst` (60+ variantes incluindo aritmética inteira/float, bitwise, shifts, conversões, comparações, loads/stores narrow, atomics, GC), `Terminator` (Return/Jump/Brif/Switch/TailCall/Trap), `IntCond`/`FloatCond` espelhando Cranelift. 7 testes verde.
 - [x] `lower.rs`: HIR → MIR — cobertura ampliada (literais, aritmética, comparações, bitwise, shifts, casts, if/else, while, do-while, for clássico com init/cond/update, break/continue com loop stack, ternary→Select, let/const, return; constructs ainda unsupported caem em `Terminator::Trap`)

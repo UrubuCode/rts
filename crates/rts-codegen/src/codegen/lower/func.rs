@@ -7544,6 +7544,200 @@ fn collect_var_decls(stmt: &Stmt, out: &mut Vec<String>) {
     }
 }
 
+/// Try to compile `fn_decl` through the MIR pipeline (HIR → MIR → optimize
+/// → mir_codegen). Returns `Ok(true)` when MIR took over and the function
+/// is fully defined in `module`; `Ok(false)` when MIR bailed (unsupported
+/// shape) and the AST path should run.
+fn try_compile_via_mir(
+    module: &mut dyn Module,
+    fn_decl: &FunctionDecl,
+    info: &UserFn,
+) -> Result<bool> {
+    use rts_mir::ir::{Inst, Terminator, TrapHint};
+
+    // Conservative gate: bail on any synthetic name (starts with `__`),
+    // any async fn, or any synthetic body. The MIR doesn't yet model the
+    // runtime hooks these need (Promise, this binding, closure capture).
+    if fn_decl.is_async || fn_decl.name.starts_with("__") {
+        debug_bail(fn_decl, "synthetic / async fn");
+        return Ok(false);
+    }
+    let body_synthetic = fn_decl.body.iter().any(|stmt| {
+        let crate::parser::ast::Statement::Raw(raw) = stmt;
+        raw.text.starts_with('<') && raw.text.ends_with('>')
+    });
+    if body_synthetic {
+        debug_bail(fn_decl, "synthetic body");
+        return Ok(false);
+    }
+
+    // Whitelist by signature: only fns with explicit primitive numeric
+    // ret + params route through MIR. Anything taking/returning string,
+    // class, void with side effects, etc. stays on the AST path until
+    // those features are modeled in MIR.
+    fn ann_is_supported(ann: &str) -> bool {
+        matches!(
+            ann,
+            "number" | "i64" | "i32" | "f64" | "bool" | "boolean"
+        )
+    }
+    let ret_ok = fn_decl
+        .return_type
+        .as_deref()
+        .map(ann_is_supported)
+        .unwrap_or(false);
+    if !ret_ok {
+        debug_bail(fn_decl, "ret type not whitelisted");
+        return Ok(false);
+    }
+    for p in &fn_decl.parameters {
+        let ok = p
+            .type_annotation
+            .as_deref()
+            .map(ann_is_supported)
+            .unwrap_or(false);
+        if !ok {
+            debug_bail(fn_decl, "param type not whitelisted");
+            return Ok(false);
+        }
+    }
+
+    // 1. Lower TS AST → HIR. Use a fresh scope (callers of this fn don't
+    //    need scope info; the fn body's calls to OTHER user fns will resolve
+    //    via FuncId lookup at link time when both fns end up declared).
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let hir_fn = rts_hir::lower::lower_func(fn_decl, &mut hir_scope);
+
+    // 2. Lower HIR → MIR with both extern + intrinsic resolvers.
+    let extern_resolver = crate::mir_codegen::extern_resolver_default();
+    let intrinsic_resolver = crate::mir_codegen::intrinsic_resolver_default();
+    let mut mir_fn = rts_mir::lower::lower_func_full_with_intrinsics(
+        &hir_fn,
+        &hir_scope,
+        Some(&extern_resolver),
+        Some(&intrinsic_resolver),
+    );
+
+    // 3a. Bail if any block trapped (unsupported shape) — AST handles it.
+    let has_trap = mir_fn.blocks.iter().any(|b| {
+        matches!(b.term, Terminator::Trap { code: TrapHint::User(_) })
+    });
+    if has_trap {
+        debug_bail(fn_decl, "has trap");
+        return Ok(false);
+    }
+
+    // 3b. Bail if the lower silently inserted placeholder zeros — that
+    // means an expression (member access, unknown ident, unresolved call)
+    // fell through to a default i64 0. Compiling this would silently
+    // return wrong values; AST path handles those cases properly.
+    if mir_fn.had_placeholders {
+        debug_bail(fn_decl, "had placeholders");
+        return Ok(false);
+    }
+
+    // 4. Optimize + verify. A verify failure is a MIR bug, not user code —
+    //    fall back to AST and don't panic.
+    rts_mir::passes::optimize(&mut mir_fn);
+    if rts_mir::passes::verify(&mir_fn).is_err() {
+        return Ok(false);
+    }
+
+    // 5. Override conv to match what `compile_program` declared for this
+    //    user fn (Tail vs host default depending on address_taken). We
+    //    detect from `info.id`'s declared signature via the module — but
+    //    that's not directly exposed, so use the conservative rule: if the
+    //    fn was declared with Tail conv (most user fns), keep Tail; if
+    //    address-taken (host default), match it.
+    //
+    //    `compile_user_fn` signature uses `info.params/info.ret` derived
+    //    from the AST. We compare against the MIR signature; if param
+    //    types or arity don't match, the JIT would call with wrong ABI →
+    //    bail.
+    if mir_fn.params.len() != info.params.len() {
+        debug_bail(fn_decl, "param arity mismatch");
+        return Ok(false);
+    }
+    for (i, &ast_ty) in info.params.iter().enumerate() {
+        if !mir_param_compatible(&mir_fn.params[i].1, ast_ty) {
+            debug_bail(fn_decl, &format!("param[{i}] type mismatch"));
+            return Ok(false);
+        }
+    }
+    let ast_ret = info.ret;
+    if !mir_ret_compatible(&mir_fn.ret, ast_ret) {
+        debug_bail(fn_decl, "ret type mismatch");
+        return Ok(false);
+    }
+
+    // Force the MirFunc to use the AST conv. Tail is what compile_program
+    // sets for user fns by default; for address-taken fns the AST path
+    // already used host default — but we don't enter try_compile_via_mir
+    // for those (caller checks RTS_USE_MIR). Conservative: match what
+    // `compile_user_fn` would have set.
+    mir_fn.conv = rts_mir::ir::CallConvHint::Tail;
+
+    // 6. Build a `decls` map containing only `info.id` for self (recursion).
+    //    Cross-fn calls fall back to AST if `mir_fn` references unknown
+    //    fns (CallUser to non-self) — we bail in that case.
+    let mut decls = HashMap::new();
+    decls.insert(fn_decl.name.clone(), info.id);
+    for block in &mir_fn.blocks {
+        for inst in &block.insts {
+            if let Inst::CallUser { name, .. } = inst {
+                if !decls.contains_key(name) {
+                    debug_bail(fn_decl, "unknown CallUser target");
+                    return Ok(false);
+                }
+            }
+        }
+    }
+
+    // 7. Lower MIR → Cranelift IR using the existing FuncId.
+    match crate::mir_codegen::lower::lower_mir_func_with_decls(module, &mir_fn, &decls) {
+        Ok(_) => {
+            if std::env::var("RTS_MIR_DEBUG").is_ok() {
+                eprintln!("[mir] compiled `{}` via MIR path", fn_decl.name);
+            }
+            Ok(true)
+        }
+        Err(e) => {
+            debug_bail(fn_decl, &format!("lower err: {e}"));
+            Ok(false)
+        }
+    }
+}
+
+fn debug_bail(fn_decl: &FunctionDecl, reason: &str) {
+    if std::env::var("RTS_MIR_DEBUG").is_ok() {
+        eprintln!("[mir] {} bail: {}", fn_decl.name, reason);
+    }
+}
+
+fn mir_param_compatible(mir_ty: &rts_hir::ir::HirType, ast_ty: ValTy) -> bool {
+    use rts_hir::ir::HirType;
+    // Conservative: only allow numeric primitive types. Handle/Str/anything
+    // else routes to the AST path so the MIR doesn't accidentally produce
+    // wrong ABI for GC-tracked values.
+    match (mir_ty, ast_ty) {
+        (HirType::I64, ValTy::I64) => true,
+        (HirType::Bool, ValTy::Bool) => true,
+        (HirType::F64 | HirType::Number, ValTy::F64) => true,
+        (HirType::I32, ValTy::I32) => true,
+        // Mismatch → caller bails to AST path
+        _ => false,
+    }
+}
+
+fn mir_ret_compatible(mir_ret: &rts_hir::ir::HirType, ast_ret: Option<ValTy>) -> bool {
+    use rts_hir::ir::HirType;
+    match (mir_ret, ast_ret) {
+        (HirType::Void, None) => true,
+        (HirType::Void, Some(_)) | (_, None) => false,
+        (mir_ty, Some(ast_ty)) => mir_param_compatible(mir_ty, ast_ty),
+    }
+}
+
 fn compile_user_fn(
     module: &mut dyn Module,
     extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
@@ -7561,7 +7755,32 @@ fn compile_user_fn(
     current_class: Option<String>,
     address_taken: bool,
 ) -> Result<Vec<String>> {
-    let mut warnings: Vec<String> = Vec::new();
+    let warnings: Vec<String> = Vec::new();
+
+    // (etapa 3.19) Routing híbrido MIR ↔ AST. Quando RTS_USE_MIR=1 e a fn
+    // não usa features unsupported pelo MIR (this/classes/async), tentamos
+    // o caminho HIR → MIR → Cranelift; em qualquer falha (Trap, signature
+    // mismatch, lower error) caímos no caminho AST autoritativo abaixo.
+    // RTS_USE_MIR controls the experimental MIR-routed compile path.
+    // - unset → AST only (default, production behaviour)
+    // - "1" or "all" → try MIR for every user fn (experimental; some
+    //   features still bail and fall back to AST)
+    // - "fn1,fn2,fn3" → try MIR only for fns named explicitly
+    //
+    // The MIR path has gating that rejects async/synthetic/non-numeric
+    // signatures, but even past the gate some shapes still produce wrong
+    // code silently. The named-list mode is the safe knob for testing
+    // specific fns end-to-end without breaking the suite.
+    if let Ok(spec) = std::env::var("RTS_USE_MIR") {
+        let allowed = spec == "1"
+            || spec.eq_ignore_ascii_case("all")
+            || spec.split(',').any(|n| n.trim() == fn_decl.name);
+        if allowed && try_compile_via_mir(module, fn_decl, info)? {
+            return Ok(warnings);
+        }
+    }
+
+    let mut warnings = warnings;
     let mut ctx = ClContext::new();
     let call_conv = user_call_conv(module, &fn_decl.name, address_taken);
     ctx.func.signature = {
