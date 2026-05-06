@@ -203,6 +203,15 @@ fn verify_inst(
             }
         }
 
+        CallUser { dst, args, .. } => {
+            if let Some(d) = dst {
+                check_v(*d, &loc("call_user.dst"))?;
+            }
+            for (i, a) in args.iter().enumerate() {
+                check_v(*a, &loc(&format!("call_user.arg{i}")))?;
+            }
+        }
+
         IConst { dst, .. } | F32Const { dst, .. } | F64Const { dst, .. } | StackAlloc { dst, .. } => {
             check_v(*dst, &loc("dst"))?;
         }

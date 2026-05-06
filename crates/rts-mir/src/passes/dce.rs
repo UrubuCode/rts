@@ -143,6 +143,12 @@ fn collect_used_in_inst(inst: &Inst, used: &mut HashSet<ValueId>) {
             }
         }
 
+        CallUser { args, .. } => {
+            for a in args {
+                used.insert(*a);
+            }
+        }
+
         AtomicLoad { ptr, .. } => {
             used.insert(*ptr);
         }
@@ -222,6 +228,7 @@ fn keep_inst(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | IStore16 { .. }
         | IStore32 { .. }
         | CallExtern { dst: None, .. }
+        | CallUser { .. } // user calls always kept — may have side effects
         | AtomicStore { .. }
         | AtomicRmw { .. } // even if dst is unused, the rmw side effect is observable
         | AtomicCas { .. }
@@ -306,6 +313,7 @@ fn keep_inst(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | IStore16 { .. }
         | IStore32 { .. }
         | CallExtern { dst: None, .. }
+        | CallUser { .. }
         | AtomicStore { .. }
         | AtomicRmw { .. }
         | AtomicCas { .. }
@@ -313,3 +321,4 @@ fn keep_inst(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | DeclareGcValue { .. } => true,
     }
 }
+

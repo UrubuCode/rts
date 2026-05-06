@@ -233,6 +233,22 @@ pub enum Inst {
 
     // GC
     DeclareGcValue { val: ValueId },
+
+    /// Call to a user-defined function declared elsewhere in the same MIR
+    /// program. The codegen lowers this to a Cranelift `call` instruction
+    /// using a `FuncRef` cached per (caller, target_name) pair.
+    ///
+    /// `dst = None` when the callee returns Void.
+    /// `param_tys` carries the callee signature so codegen doesn't have to
+    /// resolve the target separately — duplicates info but keeps each Inst
+    /// self-contained.
+    CallUser {
+        dst: Option<ValueId>,
+        name: String,
+        args: Vec<ValueId>,
+        ret_ty: HirType,
+        param_tys: Vec<HirType>,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -22,11 +22,38 @@ use rts_mir::ir::*;
 
 use super::hint_bridge::hir_to_cl;
 
-/// Lowers a `MirFunc` into a defined function inside `module`. Returns the
-/// Cranelift `FuncId` of the defined function.
+/// Declare a `MirFunc`'s signature in `module` without lowering its body.
+/// Used by the two-pass driver when several functions can call each other:
+/// pass 1 declares all of them, pass 2 lowers each body with the resulting
+/// `decls` map so `Inst::CallUser` resolves.
+pub fn declare_mir_func(
+    module: &mut dyn Module,
+    mir: &MirFunc,
+) -> Result<cranelift_module::FuncId> {
+    let sig = build_signature(module, mir);
+    module
+        .declare_function(&mir.name, Linkage::Local, &sig)
+        .map_err(|e| anyhow!("declare_function {}: {e}", mir.name))
+}
+
+/// Lowers a `MirFunc` into a defined function inside `module` with no
+/// known external user-fn declarations. `Inst::CallUser` will fail to lower.
 pub fn lower_mir_func(
     module: &mut dyn Module,
     mir: &MirFunc,
+) -> Result<cranelift_module::FuncId> {
+    let empty: HashMap<String, cranelift_module::FuncId> = HashMap::new();
+    lower_mir_func_with_decls(module, mir, &empty)
+}
+
+/// Lowers a `MirFunc` with access to a name → FuncId map of other user
+/// functions already declared in the module. Each `Inst::CallUser` resolves
+/// its target through this map and imports the `FuncId` as a `FuncRef` for
+/// the duration of the function being built.
+pub fn lower_mir_func_with_decls(
+    module: &mut dyn Module,
+    mir: &MirFunc,
+    decls: &HashMap<String, cranelift_module::FuncId>,
 ) -> Result<cranelift_module::FuncId> {
     let sig = build_signature(module, mir);
     let func_id = module
@@ -35,6 +62,28 @@ pub fn lower_mir_func(
 
     let mut ctx = module.make_context();
     ctx.func.signature = sig;
+
+    // Pre-import every user-fn target referenced by `Inst::CallUser` in this
+    // body. Done before the FunctionBuilder borrows `ctx.func` mutably so we
+    // can still reach into `module` for `declare_func_in_func`.
+    let mut func_ref_cache: HashMap<String, cranelift_codegen::ir::FuncRef> = HashMap::new();
+    for block in &mir.blocks {
+        for inst in &block.insts {
+            if let Inst::CallUser { name, .. } = inst {
+                if func_ref_cache.contains_key(name) {
+                    continue;
+                }
+                let target_id = decls
+                    .get(name)
+                    .copied()
+                    .ok_or_else(|| anyhow!(
+                        "mir_codegen: CallUser to '{}' but no FuncId declared", name
+                    ))?;
+                let fref = module.declare_func_in_func(target_id, &mut ctx.func);
+                func_ref_cache.insert(name.clone(), fref);
+            }
+        }
+    }
 
     let mut fb_ctx = FunctionBuilderContext::new();
     let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
@@ -81,7 +130,7 @@ pub fn lower_mir_func(
         }
 
         for inst in &bb.insts {
-            lower_inst(&mut builder, inst, &mut vmap, mir)?;
+            lower_inst(&mut builder, inst, &mut vmap, mir, &func_ref_cache)?;
         }
         lower_term(&mut builder, &bb.term, &vmap, &cl_blocks)?;
     }
@@ -140,6 +189,7 @@ fn lower_inst(
     inst: &Inst,
     vmap: &mut HashMap<ValueId, Value>,
     mir: &MirFunc,
+    func_refs: &HashMap<String, cranelift_codegen::ir::FuncRef>,
 ) -> Result<()> {
     use Inst::*;
     macro_rules! bind {
@@ -469,6 +519,27 @@ fn lower_inst(
         StackAlloc { dst, size: _, align: _ } => {
             let v = builder.ins().iconst(cl::I64, 0);
             bind!(dst, v);
+        }
+
+        // User-fn call: resolved via the pre-built FuncRef cache.
+        CallUser { dst, name, args, .. } => {
+            let fref = func_refs.get(name).ok_or_else(|| {
+                anyhow!("mir_codegen: CallUser '{}' has no FuncRef in cache", name)
+            })?;
+            let cl_args: Vec<Value> =
+                args.iter().map(|a| val(vmap, *a)).collect::<Result<_>>()?;
+            let call = builder.ins().call(*fref, &cl_args);
+            if let Some(d) = dst {
+                let results = builder.inst_results(call);
+                if let Some(&first) = results.first() {
+                    vmap.insert(*d, first);
+                } else {
+                    return Err(anyhow!(
+                        "mir_codegen: CallUser '{}' has dst but callee returned void",
+                        name
+                    ));
+                }
+            }
         }
 
         // Unsupported in this slice: extern call, atomics, GC stack maps.

@@ -553,6 +553,106 @@ fn pipeline_with_explicit_int_types() {
     assert_eq!(mirs[0].ret, rts_hir::ir::HirType::I32);
 }
 
+// ---------- user-fn calls: TS source with two fns where one calls the other ----------
+
+/// Like compile_ts_via_mir but supports cross-fn calls via two-pass driver.
+/// Returns the JIT module + a map of fn_name → FuncId.
+fn compile_ts_multi_via_mir(src: &str) -> (JITModule, std::collections::HashMap<String, cranelift_module::FuncId>) {
+    let program = rts_parser::parse_source(src).expect("parse");
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut module = make_jit();
+
+    // Pass 1: HIR + MIR + lower MIR pre-pass to gather every MirFunc and
+    // declare them all in the module so cross-fn calls resolve.
+    let mut mirs: Vec<rts_mir::ir::MirFunc> = Vec::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mut mir_fn = rts_mir::lower::lower_func_with_scope(&hir_fn, &hir_scope);
+            mir_fn.conv = if cfg!(windows) {
+                CallConvHint::WindowsFastcall
+            } else {
+                CallConvHint::SystemV
+            };
+            rts_mir::passes::optimize(&mut mir_fn);
+            rts_mir::passes::verify(&mir_fn).expect("verify");
+            mirs.push(mir_fn);
+        }
+    }
+
+    let mut decls: std::collections::HashMap<String, cranelift_module::FuncId> = std::collections::HashMap::new();
+    for mir in &mirs {
+        let id = super::lower::declare_mir_func(&mut module, mir).expect("declare");
+        decls.insert(mir.name.clone(), id);
+    }
+
+    // Pass 2: lower each body with the full decls map so CallUser resolves.
+    for mir in &mirs {
+        super::lower::lower_mir_func_with_decls(&mut module, mir, &decls).expect("lower");
+    }
+
+    module.finalize_definitions().expect("finalize");
+    (module, decls)
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_calls_other_user_fn() {
+    let src = r#"
+        function inner(x: i64): i64 { return x + 10; }
+        function outer(a: i64, b: i64): i64 { return inner(a) + b; }
+    "#;
+    let (module, decls) = compile_ts_multi_via_mir(src);
+    let outer_id = decls["outer"];
+    let ptr = module.get_finalized_function(outer_id);
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    // outer(7, 5) = inner(7) + 5 = 17 + 5 = 22
+    assert_eq!(f(7, 5), 22);
+    assert_eq!(f(0, 0), 10);
+    assert_eq!(f(-3, 100), 107);
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_recursive_fn() {
+    // Tail-recursive sum via accumulator. With CallConv = host fastcall
+    // (not Tail), this becomes a normal call chain — Cranelift won't
+    // tail-call-optimise it. For modest n it still works fine.
+    let src = r#"
+        function sum_acc(n: i64, acc: i64): i64 {
+            if (n <= 0) {
+                return acc;
+            } else {
+                return sum_acc(n - 1, acc + n);
+            }
+        }
+    "#;
+    let (module, decls) = compile_ts_multi_via_mir(src);
+    let id = decls["sum_acc"];
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0, 0), 0);
+    assert_eq!(f(1, 0), 1);     // 1
+    assert_eq!(f(5, 0), 15);    // 1+2+3+4+5
+    assert_eq!(f(10, 0), 55);   // sum 1..10
+    // Larger n risks stack overflow without TCO; keep modest.
+    assert_eq!(f(100, 0), 5050);
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_chained_calls() {
+    let src = r#"
+        function add1(x: i64): i64 { return x + 1; }
+        function add2(x: i64): i64 { return add1(add1(x)); }
+        function add3(x: i64): i64 { return add1(add2(x)); }
+    "#;
+    let (module, decls) = compile_ts_multi_via_mir(src);
+    let id = decls["add3"];
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0), 3);
+    assert_eq!(f(10), 13);
+    assert_eq!(f(-5), -2);
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline

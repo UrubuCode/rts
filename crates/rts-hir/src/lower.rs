@@ -34,6 +34,10 @@ pub fn lower_func(decl: &FunctionDecl, scope: &mut Scope) -> HirFunc {
     if !matches!(refined_ret, HirType::Unknown) {
         scope.register_return_type(&decl.name, refined_ret.clone());
     }
+    scope.register_param_types(
+        &decl.name,
+        params.iter().map(|p| p.ty.clone()).collect(),
+    );
 
     HirFunc {
         name: decl.name.clone(),

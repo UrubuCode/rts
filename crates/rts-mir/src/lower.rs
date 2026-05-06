@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use rts_hir::ir::{
     HirBinOp, HirExpr, HirExprKind, HirFunc, HirLit, HirStmt, HirType, HirUnOp,
 };
+use rts_hir::scope::Scope;
 
 use crate::ir::*;
 
@@ -28,7 +29,18 @@ use crate::ir::*;
 const TRAP_UNSUPPORTED_STMT: u16 = 0x10;
 
 /// Public entry: lower a fully-typed `HirFunc` into a `MirFunc`.
+///
+/// Without a `Scope`, calls to other user fns lower to a placeholder zero
+/// (the MIR loses callee info). Use `lower_func_with_scope` when you have
+/// a populated scope and want `Inst::CallUser` emitted.
 pub fn lower_func(func: &HirFunc) -> MirFunc {
+    let scope = Scope::new();
+    lower_func_with_scope(func, &scope)
+}
+
+/// Lower with access to a populated scope so identifier callees can be
+/// resolved to typed `Inst::CallUser` instructions.
+pub fn lower_func_with_scope(func: &HirFunc, scope: &Scope) -> MirFunc {
     let mut mir = MirFunc::new(
         &func.name,
         // Tail conv matches `rts-codegen`'s default for user fns
@@ -50,11 +62,27 @@ pub fn lower_func(func: &HirFunc) -> MirFunc {
         mir.blocks[entry as usize].params.push((vid, ty));
     }
 
+    // Snapshot the scope's function signatures so we don't have to keep a
+    // live reference to it through the lowering walk.
+    let mut fn_sigs: HashMap<String, (Vec<HirType>, HirType)> = HashMap::new();
+    // Self — the function being lowered is callable from within (recursion).
+    fn_sigs.insert(
+        func.name.clone(),
+        (
+            func.params.iter().map(|p| p.ty.clone()).collect(),
+            func.ret.clone(),
+        ),
+    );
+    // Pull every (name, params, ret) the scope already knows about.
+    for (name, params, ret) in scope.iter_fn_sigs() {
+        fn_sigs.insert(name.to_string(), (params.to_vec(), ret));
+    }
     let mut ctx = LowerCtx {
         cursor: entry,
         env,
         terminated: false,
         loop_stack: Vec::new(),
+        fn_sigs,
     };
 
     lower_stmts(&func.body, &mut mir, &mut ctx);
@@ -88,6 +116,9 @@ struct LowerCtx {
     /// Loop stack: (continue_target, break_target). `break` jumps to the top
     /// of the stack's break target; `continue` to its continue target.
     loop_stack: Vec<(BlockId, BlockId)>,
+    /// User fn signatures (name → (param_tys, ret_ty)) snapshotted from the
+    /// HIR scope so `lower_expr` can emit `Inst::CallUser` with full type info.
+    fn_sigs: HashMap<String, (Vec<HirType>, HirType)>,
 }
 
 impl LowerCtx {
@@ -574,6 +605,34 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
         HirExprKind::Cast { expr: inner, target } => {
             let v = lower_expr(inner, mir, ctx);
             lower_cast(v, &inner.ty, target, mir, ctx)
+        }
+
+        HirExprKind::Call { callee, args } => {
+            // Only Ident callees that we have a signature for produce CallUser.
+            if let HirExprKind::Ident(name) = &callee.kind {
+                if let Some((param_tys, ret_ty)) = ctx.fn_sigs.get(name).cloned() {
+                    let arg_vals: Vec<ValueId> =
+                        args.iter().map(|a| lower_expr(a, mir, ctx)).collect();
+                    let dst = if matches!(ret_ty, HirType::Void) {
+                        None
+                    } else {
+                        Some(mir.new_value(ret_ty.clone()))
+                    };
+                    ctx.push_inst(
+                        mir,
+                        Inst::CallUser {
+                            dst,
+                            name: name.clone(),
+                            args: arg_vals,
+                            ret_ty: ret_ty.clone(),
+                            param_tys,
+                        },
+                    );
+                    return dst.unwrap_or_else(|| emit_zero_const(&expr.ty, mir, ctx));
+                }
+            }
+            // Fallback: unknown callee or non-ident; placeholder zero.
+            emit_zero_const(&expr.ty, mir, ctx)
         }
 
         HirExprKind::Ternary { cond, then, else_ } => {

@@ -171,6 +171,13 @@ fn fmt_inst(inst: &Inst) -> String {
         }
         Fence { order } => format!("fence {:?}", order),
         DeclareGcValue { val } => format!("declare_gc v{}", val),
+        CallUser { dst, name, args, ret_ty, .. } => {
+            let args_s = args.iter().map(|v| format!("v{}", v)).collect::<Vec<_>>().join(", ");
+            match dst {
+                Some(d) => format!("v{} = call_user {}({}) -> {}", d, name, args_s, fmt_ty(ret_ty)),
+                None => format!("call_user {}({})", name, args_s),
+            }
+        }
     }
 }
 

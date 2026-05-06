@@ -12,6 +12,9 @@ pub struct Scope {
     frames: Vec<HashMap<String, HirType>>,
     /// Function return types registered at the top of each function.
     return_types: HashMap<String, HirType>,
+    /// Function parameter types — used by the MIR lowering to resolve
+    /// `Call` instructions to a typed `CallUser` form.
+    param_types: HashMap<String, Vec<HirType>>,
     /// Class name → ClassId registry.
     classes: HashMap<String, ClassId>,
     next_class_id: u32,
@@ -57,6 +60,27 @@ impl Scope {
 
     pub fn return_type_of(&self, fn_name: &str) -> Option<HirType> {
         self.return_types.get(fn_name).cloned()
+    }
+
+    pub fn register_param_types(&mut self, fn_name: impl Into<String>, tys: Vec<HirType>) {
+        self.param_types.insert(fn_name.into(), tys);
+    }
+
+    pub fn param_types_of(&self, fn_name: &str) -> Option<&[HirType]> {
+        self.param_types.get(fn_name).map(|v| v.as_slice())
+    }
+
+    /// Iterate registered function signatures `(name, param_tys, ret_ty)`.
+    /// Skips functions whose param types weren't registered.
+    pub fn iter_fn_sigs(&self) -> impl Iterator<Item = (&str, &[HirType], HirType)> {
+        self.param_types.iter().map(move |(name, params)| {
+            let ret = self
+                .return_types
+                .get(name)
+                .cloned()
+                .unwrap_or(HirType::Unknown);
+            (name.as_str(), params.as_slice(), ret)
+        })
     }
 
     pub fn resolve_class(&self, name: &str) -> Option<ClassId> {
