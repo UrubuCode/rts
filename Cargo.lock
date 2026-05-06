@@ -2221,6 +2221,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-mir"
+version = "0.1.0"
+dependencies = [
+ "rts-abi",
+ "rts-hir",
+]
+
+[[package]]
 name = "rts-parser"
 version = "0.1.0"
 dependencies = [

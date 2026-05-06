@@ -1,0 +1,8 @@
+[package]
+name = "rts-mir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rts-hir = { path = "../rts-hir" }
+rts-abi = { path = "../rts-abi" }

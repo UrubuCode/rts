@@ -1068,7 +1068,7 @@ i64 bits → f64:  bitcast(F64, MemFlags::new(), val)   (transmute)
 
 ### Fase 3 — MIR e passes (2–3 semanas)
 
-- [ ] Definir IR MIR completo (`Inst` com todas as variantes de §rts-mir)
+- [x] Crate `rts-mir` criado com IR completo: `MirFunc`, `BasicBlock`, `Inst` (60+ variantes incluindo aritmética inteira/float, bitwise, shifts, conversões, comparações, loads/stores narrow, atomics, GC), `Terminator` (Return/Jump/Brif/Switch/TailCall/Trap), `IntCond`/`FloatCond` espelhando Cranelift. 7 testes verde.
 - [ ] `lower.rs`: HIR → MIR
 - [ ] `passes/fold.rs`: strength reduction (mul→shl, mod→and, div→shr) + constant folding
 - [ ] `passes/dce.rs`: eliminação de código morto
