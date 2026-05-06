@@ -880,6 +880,178 @@ fn lower_ternary_emits_select() {
     assert!(bb.insts.iter().any(|i| matches!(i, Inst::Select { .. })));
 }
 
+// ---------- switch / try / throw tests ----------
+
+#[test]
+fn lower_switch_with_two_cases_and_default() {
+    use rts_hir::ir::HirSwitchCase;
+    // switch (n) { case 1: case 2: ; default: ; }
+    let body = vec![HirStmt::Switch {
+        discriminant: ident("n", HirType::I64),
+        cases: vec![
+            HirSwitchCase {
+                test: Some(lit_int(1)),
+                body: vec![],
+            },
+            HirSwitchCase {
+                test: Some(lit_int(2)),
+                body: vec![],
+            },
+            HirSwitchCase {
+                test: None, // default
+                body: vec![],
+            },
+        ],
+    }];
+    let f = fn_decl("sw", vec![("n", HirType::I64)], HirType::Void, body);
+    let mir = lower_func(&f);
+
+    // entry + 3 case blocks + exit = 5 blocks
+    assert_eq!(mir.blocks.len(), 5);
+    // entry terminates with Switch
+    if let Terminator::Switch { cases, default, .. } = &mir.blocks[0].term {
+        assert_eq!(cases.len(), 2); // 2 non-default cases
+        assert_eq!(cases[0].0, 1);
+        assert_eq!(cases[1].0, 2);
+        assert_eq!(*default, 3); // default points to the third case block
+    } else {
+        panic!("entry must Switch, got {:?}", mir.blocks[0].term);
+    }
+}
+
+#[test]
+fn lower_switch_without_default_routes_to_exit() {
+    use rts_hir::ir::HirSwitchCase;
+    let body = vec![HirStmt::Switch {
+        discriminant: lit_int(0),
+        cases: vec![HirSwitchCase {
+            test: Some(lit_int(7)),
+            body: vec![],
+        }],
+    }];
+    let f = fn_decl("sw2", vec![], HirType::Void, body);
+    let mir = lower_func(&f);
+
+    if let Terminator::Switch { default, cases, .. } = &mir.blocks[0].term {
+        assert_eq!(cases.len(), 1);
+        // exit block is the last (case + exit = 2 extra blocks: indices 1 and 2)
+        // default should point to the exit block (index 2)
+        assert_eq!(*default, 2, "no-default switch should fall to exit");
+    } else {
+        panic!("expected Switch terminator");
+    }
+}
+
+#[test]
+fn lower_switch_falls_through_between_cases() {
+    use rts_hir::ir::HirSwitchCase;
+    // switch (x) { case 1: ; case 2: ; }  // no break → fallthrough
+    let body = vec![HirStmt::Switch {
+        discriminant: ident("x", HirType::I64),
+        cases: vec![
+            HirSwitchCase {
+                test: Some(lit_int(1)),
+                body: vec![],
+            },
+            HirSwitchCase {
+                test: Some(lit_int(2)),
+                body: vec![],
+            },
+        ],
+    }];
+    let f = fn_decl("ft", vec![("x", HirType::I64)], HirType::Void, body);
+    let mir = lower_func(&f);
+
+    // case0 (block 1) should Jump to case1 (block 2)
+    if let Terminator::Jump { target, .. } = &mir.blocks[1].term {
+        assert_eq!(*target, 2, "case 0 should fall through to case 1");
+    } else {
+        panic!("case 0 should Jump (fallthrough), got {:?}", mir.blocks[1].term);
+    }
+    // last case should Jump to exit (block 3)
+    if let Terminator::Jump { target, .. } = &mir.blocks[2].term {
+        assert_eq!(*target, 3, "last case should jump to exit");
+    } else {
+        panic!("last case should Jump to exit");
+    }
+}
+
+#[test]
+fn lower_switch_break_exits() {
+    use rts_hir::ir::HirSwitchCase;
+    // switch (x) { case 1: break; }
+    let body = vec![HirStmt::Switch {
+        discriminant: ident("x", HirType::I64),
+        cases: vec![HirSwitchCase {
+            test: Some(lit_int(1)),
+            body: vec![HirStmt::Break(None)],
+        }],
+    }];
+    let f = fn_decl("br", vec![("x", HirType::I64)], HirType::Void, body);
+    let mir = lower_func(&f);
+
+    // case 0 (block 1) should jump to exit (break, block 2)
+    if let Terminator::Jump { target, .. } = &mir.blocks[1].term {
+        assert_eq!(*target, 2, "break in switch should jump to exit");
+    } else {
+        panic!("expected Jump from case 0 (break)");
+    }
+}
+
+#[test]
+fn lower_throw_emits_trap() {
+    let body = vec![HirStmt::Throw(lit_int(0))];
+    let f = fn_decl("th", vec![], HirType::Void, body);
+    let mir = lower_func(&f);
+    assert!(matches!(
+        mir.blocks[0].term,
+        Terminator::Trap { code: TrapHint::User(_) }
+    ));
+}
+
+#[test]
+fn lower_try_phase1_lowers_body_only() {
+    use rts_hir::ir::HirCatch;
+    // try { return 1; } catch (e) { return 2; } finally { ; }
+    // Phase 1: catch is ignored, finally runs only on normal completion
+    // (which won't happen because body returns).
+    let body = vec![HirStmt::Try {
+        body: vec![HirStmt::Return(Some(lit_int(1)))],
+        catch: Some(HirCatch {
+            binding: Some("e".into()),
+            body: vec![HirStmt::Return(Some(lit_int(2)))],
+        }),
+        finally: Some(vec![HirStmt::Expr(lit_int(99))]),
+    }];
+    let f = fn_decl("tt", vec![], HirType::I64, body);
+    let mir = lower_func(&f);
+    // Single block, terminated by Return 1
+    assert_eq!(mir.blocks.len(), 1);
+    assert!(matches!(mir.blocks[0].term, Terminator::Return(_)));
+}
+
+#[test]
+fn lower_try_with_finally_runs_finally_after_body() {
+    // try { } finally { let x = 99; }
+    let body = vec![HirStmt::Try {
+        body: vec![],
+        catch: None,
+        finally: Some(vec![HirStmt::Let {
+            name: "x".into(),
+            ty: HirType::I64,
+            init: Some(lit_int(99)),
+        }]),
+    }];
+    let f = fn_decl("fin", vec![], HirType::Void, body);
+    let mir = lower_func(&f);
+    // The IConst 99 from `let x = 99` should be in the entry block
+    let bb = &mir.blocks[0];
+    assert!(bb.insts.iter().any(|i| matches!(
+        i,
+        Inst::IConst { val: 99, .. }
+    )));
+}
+
 // ---------- print tests ----------
 
 #[test]

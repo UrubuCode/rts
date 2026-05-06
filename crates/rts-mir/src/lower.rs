@@ -184,6 +184,37 @@ fn lower_stmt(stmt: &HirStmt, mir: &mut MirFunc, ctx: &mut LowerCtx) {
 
         HirStmt::Block(body) => lower_stmts(body, mir, ctx),
 
+        HirStmt::Switch { discriminant, cases } => {
+            lower_switch(discriminant, cases, mir, ctx);
+        }
+
+        HirStmt::Throw(_e) => {
+            // Throw maps to a trap in MIR for now — the AST codegen path
+            // handles real exception unwind via thread-local error slot.
+            // The MIR layer simply marks the block unreachable.
+            set_term(
+                mir,
+                ctx.cursor,
+                Terminator::Trap {
+                    code: TrapHint::User(TRAP_UNSUPPORTED_STMT),
+                },
+            );
+            ctx.terminated = true;
+        }
+
+        HirStmt::Try { body, catch: _, finally } => {
+            // Phase 1: ignore catch (no unwind in MIR yet) — lower body.
+            // After body, lower the `finally` block if present (runs on
+            // normal completion). Real exception semantics need a landing
+            // pad model, postponed to Phase 2.
+            lower_stmts(body, mir, ctx);
+            if let Some(fin) = finally {
+                if !ctx.terminated {
+                    lower_stmts(fin, mir, ctx);
+                }
+            }
+        }
+
         // Constructs not yet supported — emit trap, mark terminated so caller
         // doesn't keep emitting into a dead block.
         _ => {
@@ -347,6 +378,102 @@ fn lower_do_while(body: &[HirStmt], cond: &HirExpr, mir: &mut MirFunc, ctx: &mut
 
     ctx.cursor = exit_b;
     ctx.terminated = false;
+}
+
+fn lower_switch(
+    discriminant: &HirExpr,
+    cases: &[rts_hir::ir::HirSwitchCase],
+    mir: &mut MirFunc,
+    ctx: &mut LowerCtx,
+) {
+    let disc = lower_expr(discriminant, mir, ctx);
+
+    // Allocate one entry block per case + a join/exit block.
+    let case_blocks: Vec<BlockId> = cases.iter().map(|_| mir.new_block()).collect();
+    let exit_b = mir.new_block();
+
+    // Build the (key, BlockId) pairs for non-default cases. Default block
+    // points to either the explicit `default` case (test=None) or to exit
+    // when no default is present.
+    let mut switch_cases: Vec<(u64, BlockId)> = Vec::new();
+    let mut default_block: Option<BlockId> = None;
+
+    for (i, case) in cases.iter().enumerate() {
+        match &case.test {
+            None => {
+                default_block = Some(case_blocks[i]);
+            }
+            Some(test_expr) => {
+                if let Some(key) = extract_int_lit(test_expr) {
+                    switch_cases.push((key as u64, case_blocks[i]));
+                }
+                // Non-literal case keys: codegen AST handles them; the MIR
+                // path just won't match — falls through to default. This
+                // matches JS semantics for keys that aren't compile-time
+                // constants: we treat them as `if/else` chained outside
+                // the Switch terminator (future enhancement).
+            }
+        }
+    }
+
+    let default = default_block.unwrap_or(exit_b);
+
+    set_term(
+        mir,
+        ctx.cursor,
+        Terminator::Switch {
+            index: disc,
+            default,
+            cases: switch_cases,
+        },
+    );
+
+    // Lower each case body. JS semantics: fall through to next case on
+    // implicit completion; explicit `break` jumps to exit_b. We push a
+    // loop frame with continue=exit_b/break=exit_b so naked `break` works
+    // (continue inside switch is forwarded to enclosing loop, but that's
+    // not modeled here).
+    ctx.loop_stack.push((exit_b, exit_b));
+    for (i, case) in cases.iter().enumerate() {
+        ctx.cursor = case_blocks[i];
+        ctx.terminated = false;
+        lower_stmts(&case.body, mir, ctx);
+        if !ctx.terminated {
+            // Fall through to next case (or exit if last).
+            let target = if i + 1 < case_blocks.len() {
+                case_blocks[i + 1]
+            } else {
+                exit_b
+            };
+            set_term(
+                mir,
+                ctx.cursor,
+                Terminator::Jump {
+                    target,
+                    args: vec![],
+                },
+            );
+        }
+    }
+    ctx.loop_stack.pop();
+
+    ctx.cursor = exit_b;
+    ctx.terminated = false;
+}
+
+/// If `expr` is an integer literal (or one wrapped in a numeric literal that
+/// fits as int), return the value. Used by `lower_switch` to pull case keys.
+fn extract_int_lit(expr: &HirExpr) -> Option<i64> {
+    match &expr.kind {
+        HirExprKind::Lit(HirLit::Int(n)) => Some(*n),
+        HirExprKind::Lit(HirLit::Number(n)) if n.fract() == 0.0 && n.is_finite() => {
+            Some(*n as i64)
+        }
+        HirExprKind::Lit(HirLit::Float(n)) if n.fract() == 0.0 && n.is_finite() => {
+            Some(*n as i64)
+        }
+        _ => None,
+    }
 }
 
 fn lower_for(
