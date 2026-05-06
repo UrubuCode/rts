@@ -1,5 +1,9 @@
 # Otimizacoes de codegen + layout de artefatos + docs
 
+> Nota: paths de codegen abaixo vivem em
+> `crates/rts-codegen/src/codegen/lower/`. O crate `rts-hir` (etapa 2.1)
+> eh nova camada entre AST e codegen — ainda nao integrada (issue #611).
+
 ## Otimizacoes de codegen notaveis
 
 - **Intrinsics inline** (`abi::Intrinsic`): `sqrt`, `abs_f64`,
@@ -61,11 +65,12 @@ Alvo da Fase 1 do roadmap (em progresso):
 A pasta `docs/specs/` contem especificacoes de features, decisoes
 de design e notas tecnicas. Consultar o indice em
 `docs/specs/INDEX.md`. Direcao de alto nivel fica em
-`NEXT_STEPS.md` e `ROAD_MAP.md` na raiz.
+`RTS_REFACTOR.md` na raiz (plano canonico do refator em workspace de
+crates).
 
 Specs ativos relevantes:
 - `docs/specs/namespace-creation-guide.md` — processo atual baseado
-  em `src/abi/`
+  em `crates/rts-abi/`
 - `docs/specs/silent-parallelism.md` — pipeline dos 3 passes
 - `docs/specs/async-promise-function.md` — sistema async/Promise/
   Function unificado (#359 + #437)

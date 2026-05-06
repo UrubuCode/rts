@@ -7,49 +7,56 @@ como backend de codegen. O objetivo eh compilar TS/JS para binarios
 nativos com runtime minimo em Rust, distribuido como toolchain
 standalone (sem runtime support library externa).
 
-A camada de runtime eh organizada em torno do contrato `src/abi/` +
+A camada de runtime eh organizada em torno do contrato `crates/rts-abi/` +
 `SPECS`, com pipeline por grafo de modulos + cache incremental. Dois
 caminhos de execucao: JIT via `cranelift_jit::JITModule` (memoria
 executavel direta, `rts run`) e AOT via
 `cranelift_object::ObjectModule` (linker externo, `rts compile`).
 
-Consultar `NEXT_STEPS.md` e `ROAD_MAP.md` para a direcao vigente.
+Consultar `RTS_REFACTOR.md` para a direcao vigente do refator em
+workspace de crates.
 
 ## Arquitetura
 
+Workspace Cargo com 9 crates em `crates/`. O diretorio `src/` continua
+existindo mas eh fachada do bin `rts` (re-exports dos crates); paths
+reais ficam sob `crates/<crate>/src/`.
+
 ```
-src/
-  abi/          — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas, Intrinsic)
-  codegen/      — Cranelift codegen
-    emit.rs     — ObjectModule emitter (AOT)
-    jit.rs      — JITModule emitter (rts run)
-    lower/      — lower de expr/stmt/func sobre &mut dyn Module
-  linker/       — link nativo (system linker com fallback object backend)
-  namespaces/   — implementacoes dos namespaces runtime: io, fs, gc, math, bigfloat
-  runtime/      — builtin module "rts" + submodulos "rts:<ns>"
-  module/       — resolver de modulos e grafo de dependencias
-  parser/       — SWC parse + AST interno; converte arrow/fn expressions em Item::Function
-                  top-level
-  type_system/  — type checker, registry, resolver
-  diagnostics/  — erros estruturados
-  cli/          — CLI (run, compile, apis, repl, eval)
-  pipeline.rs   — orquestra build/run; inclui run_jit para path JIT
-  lib.rs        — API publica
-  runtime_objects.rs — resolucao dos objetos de runtime support (.o/.obj, AOT)
-  main.rs       — entrypoint do binario `rts`
+crates/
+  rts-ast/         — AST interno
+  rts-parser/      — SWC parse + AST; converte arrow/fn expressions em Item::Function top-level
+  rts-diagnostics/ — erros estruturados
+  rts-abi/         — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas, Intrinsic)
+  rts-hir/         — HIR tipado (etapa 2.1 do refator); ainda NAO plugado no pipeline (issue #611)
+  rts-codegen/     — Cranelift codegen + type_system + module/ + pipeline + cache + eval_jit
+    src/codegen/
+      emit.rs      — ObjectModule emitter (AOT)
+      jit.rs       — JITModule emitter (rts run)
+      lower/       — lower de expr/stmt/func sobre &mut dyn Module
+    src/type_system/ — type checker, registry, resolver
+    src/module/      — resolver de modulos e grafo de dependencias
+    src/pipeline.rs  — orquestra build/run; inclui run_jit para path JIT
+  rts-runtime/     — builtin module "rts" + submodulos "rts:<ns>" + namespaces runtime
+  rts-linker/      — link nativo (system linker com fallback object backend)
+  rts-cli/         — CLI (run, compile, apis, init, repl, eval, ir)
+
+src/                — fachada bin (re-exports), runtime_objects.rs, main.rs
 ```
 
 Pipeline AOT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → Object → Linker → .exe`
 Pipeline JIT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → JITModule → call __RTS_MAIN`
 
 `FnCtx.module` eh `&mut dyn Module` para servir ambos os paths sem
-duplicar codegen. Nao existem mais camadas HIR/MIR separadas — o
-codegen consome direto a AST (com tipagem resolvida) e emite
-Cranelift IR em `src/codegen/lower/`.
+duplicar codegen. O crate `rts-hir` (etapa 2.1 do refator) define HIR
+tipado mas ainda nao esta plugado no pipeline; codegen hoje consome
+AST direto e emite Cranelift IR em
+`crates/rts-codegen/src/codegen/lower/`. MIR esta planejado (ver
+`RTS_REFACTOR.md` Fase 3).
 
-## ABI (`src/abi/`) — contrato unico
+## ABI (`crates/rts-abi/`) — contrato unico
 
-Toda a superficie entre codegen e runtime passa por `src/abi/`. Nao
+Toda a superficie entre codegen e runtime passa por `crates/rts-abi/`. Nao
 existe mais `SPEC/MEMBERS/dispatch()` por namespace e nao existe
 mais `__rts_call_dispatch`.
 
@@ -111,7 +118,7 @@ entre codegen e runtime. Cada funcao de namespace eh um simbolo
 ## Estrutura de Arquivos por Namespace
 
 ```
-src/namespaces/<ns>/
+crates/rts-runtime/src/namespaces/<ns>/
   mod.rs         — re-exporta submodulos e publica a NamespaceSpec
   abi.rs         — declaracao dos NamespaceMember (tabela estatica)
   <grupo>.rs     — impl operacional (ex: read.rs, write.rs, dir.rs, print.rs, stdout.rs, ...)
@@ -126,14 +133,16 @@ Regras:
 - Nao existe `dispatch()` por namespace — cada funcao eh um
   `#[no_mangle] extern "C"` direto
 
-Namespaces ativos (37): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`,
+Namespaces ativos (40+): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`,
 `time`, `env`, `path`, `buffer`, `string`, `process`, `os`,
 `collections`, `hash`, `fmt`, `crypto`, `net`, `tls`, `thread`,
 `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`, `regex`,
 `runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`,
-`http_server`, `events`. Cobre std::* + paralelismo + HTTPS + UI
-completos + JSON + Date + HTTP server nativo via actix-web +
-EventEmitter.
+`http_server`, `promise`, `events`, mais os sub-namespaces de
+`globals/` (number, string, date, regexp, error, events, console,
+json, timers, fetch, performance, global_this, text_encoding, url).
+Cobre std::* + paralelismo + HTTPS + UI completos + JSON + Date +
+HTTP server nativo via actix-web + classes JS globais completas.
 
 ### Namespaces existentes
 
@@ -200,7 +209,7 @@ EventEmitter.
   bom pra leve/IO); `spawn_async` (tokio fire-and-forget, ~400k
   spawn/s); `spawn_detached` (pool fixo 8 workers, 5M spawn/s mas
   queue ilimitada — cuidado OOM). Mais `scope` auto-join +
-  `sleep_ms`. Doc-comments em `src/namespaces/thread/abi.rs` tem
+  `sleep_ms`. Doc-comments em `crates/rts-runtime/src/namespaces/thread/abi.rs` tem
   tabela comparativa
 - `http_server/` — servidor HTTP/1.1 nativo via `actix-web` sobre
   runtime tokio compartilhado. Bridge sync→async:

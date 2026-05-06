@@ -102,57 +102,66 @@ RTS e um compilador/runtime TypeScript-to-native usando Cranelift como backend d
 O objetivo e compilar TS/JS para binarios nativos com runtime minimo em Rust, distribuido como
 toolchain standalone (sem runtime support library externa).
 
-A camada de runtime e organizada em torno do contrato `src/abi/` + `SPECS`, com pipeline
+A camada de runtime e organizada em torno do contrato `crates/rts-abi/` + `SPECS`, com pipeline
 por grafo de modulos + cache incremental. Dois caminhos de execucao: JIT via
 `cranelift_jit::JITModule` (memoria executavel direta, `rts run`) e AOT via
 `cranelift_object::ObjectModule` (linker externo, `rts compile`).
 
-Consultar `NEXT_STEPS.md` e `ROAD_MAP.md` para a direcao vigente.
+Consultar `RTS_REFACTOR.md` para a direcao vigente do refator em workspace de crates.
 
 ## Arquitetura
 
+Workspace Cargo com 9 crates em `crates/`. O diretorio `src/` continua existindo
+mas e' fachada do bin `rts` (re-exports dos crates); `src/main.rs` chama
+`rts_codegen::register_runtime_artifacts` + `rts_cli::cli::dispatch`. Subdirs em
+`src/` (abi, codegen, namespaces, parser, runtime, etc) sao thin re-exports —
+paths reais ficam sob `crates/<crate>/src/`.
+
 ```
-src/
-  abi/          — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas, Intrinsic,
-                  global_class.rs para classes JS globais, handles.rs para HandleTable ABI)
-  codegen/      — Cranelift codegen
-    emit.rs     — ObjectModule emitter (AOT, producao de .o)
-    object.rs   — ObjectArtifact wrapper (slicing por uso, AOT)
-    jit.rs      — JITModule emitter (rts run)
-    lower/      — lower de expr/stmt/func sobre &mut dyn Module
-      expressions/ — basics, calls, members, operators
-      statements/  — control, decls, loops
-  linker/       — link nativo (system linker com fallback object backend)
-  namespaces/   — implementacoes dos namespaces runtime (io, fs, gc, math, etc.)
-    globals/    — classes JS globais: console, date, error, events, fetch,
-                  global_this, json, number, performance, regexp, string,
-                  text_encoding, timers, url
-  runtime/      — builtin module "rts" + submodulos "rts:<ns>"
-                  async_rt.rs (tokio runtime global), tokio_ctx.rs (bridge sync/async)
-  module/       — resolver de modulos e grafo de dependencias
-  parser/       — SWC parse + AST interno; converte arrow/fn expressions em Item::Function
-                  top-level
-  type_system/  — type checker, registry, resolver
-  diagnostics/  — erros estruturados
-  cli/          — CLI (run, compile, apis, repl, eval)
-  registers/    — npm registry integration (install, lock, npm)
-  nodespace/    — shims de Node.js built-ins (fs, os, path, process, crypto, util)
-  pipeline.rs   — orquestra build/run; inclui run_jit para path JIT
-  lib.rs        — API publica
-  runtime_objects.rs — resolucao dos objetos de runtime support (.o/.obj, AOT)
-  main.rs       — entrypoint do binario `rts`
+crates/
+  rts-ast/         — AST interno
+  rts-parser/      — SWC parse + AST; converte arrow/fn expressions em Item::Function top-level
+  rts-diagnostics/ — erros estruturados
+  rts-abi/         — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas, Intrinsic,
+                     global_class.rs para classes JS globais, handles.rs para HandleTable ABI)
+  rts-hir/         — HIR tipado (etapa 2.1 do refator); ainda NAO plugado no pipeline (issue #611)
+  rts-codegen/     — Cranelift codegen + type_system + module/ + pipeline + cache + eval_jit + bundle
+    src/codegen/
+      emit.rs      — ObjectModule emitter (AOT, producao de .o)
+      object.rs    — ObjectArtifact wrapper (slicing por uso, AOT)
+      jit.rs       — JITModule emitter (rts run)
+      lower/       — lower de expr/stmt/func sobre &mut dyn Module
+        expressions/ — basics, calls, members, operators
+        statements/  — control, decls, loops
+    src/type_system/ — type checker, registry, resolver
+    src/module/      — resolver de modulos e grafo de dependencias
+    src/nodespace/   — shims de Node.js built-ins (fs, os, path, process, crypto, util)
+    src/pipeline.rs  — orquestra build/run; inclui run_jit para path JIT
+  rts-runtime/     — builtin module "rts" + submodulos "rts:<ns>" + 40+ namespaces
+    src/namespaces/  — implementacoes dos namespaces runtime (io, fs, gc, math, etc.)
+      globals/       — classes JS globais (number, string, date, regexp, error, events, ...)
+    src/runtime/     — async_rt.rs (tokio runtime global), tokio_ctx.rs (bridge sync/async)
+  rts-linker/      — link nativo (system linker com fallback object backend)
+  rts-cli/         — CLI (run, compile, apis, init, repl, eval, ir)
+
+src/                — fachada bin (re-exports), runtime_objects.rs, main.rs
 ```
+
+> Nota: `rts-codegen` virou catch-all (pipeline, type_system, module, cache,
+> eval_jit moram la), divergindo do plano original em `RTS_REFACTOR.md`. MIR
+> (`rts-mir`) esta planejado na Fase 3 desse plano.
 
 Pipeline AOT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → Object → Linker → .exe`
 Pipeline JIT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → JITModule → call __RTS_MAIN`
 
-`FnCtx.module` e `&mut dyn Module` para servir ambos os paths sem duplicar codegen. Nao
-existem mais camadas HIR/MIR separadas — o codegen consome direto a AST (com tipagem
-resolvida) e emite Cranelift IR em `src/codegen/lower/`.
+`FnCtx.module` e `&mut dyn Module` para servir ambos os paths sem duplicar codegen. O crate
+`rts-hir` (etapa 2.1 do refator) define HIR tipado mas ainda nao esta plugado no pipeline;
+codegen hoje consome AST direto e emite Cranelift IR em `crates/rts-codegen/src/codegen/lower/`.
+MIR esta planejado (ver `RTS_REFACTOR.md` Fase 3).
 
-## ABI (`src/abi/`) — contrato unico
+## ABI (`crates/rts-abi/`) — contrato unico
 
-Toda a superficie entre codegen e runtime passa por `src/abi/`. Nao existe mais
+Toda a superficie entre codegen e runtime passa por `crates/rts-abi/`. Nao existe mais
 `SPEC/MEMBERS/dispatch()` por namespace e nao existe mais `__rts_call_dispatch`.
 
 - `abi::SPECS` (`mod.rs`) — slice estatico com a `NamespaceSpec` de todos os namespaces
@@ -190,7 +199,7 @@ Codegen emite `call <symbol>` direto via Cranelift, sem intermediarios.
 ## Estrutura de Arquivos por Namespace
 
 ```
-src/namespaces/<ns>/
+crates/rts-runtime/src/namespaces/<ns>/
   mod.rs         — re-exporta submodulos e publica a NamespaceSpec
   abi.rs         — declaracao dos NamespaceMember (tabela estatica)
   <grupo>.rs     — impl operacional (ex: read.rs, write.rs, dir.rs, print.rs, stdout.rs, ...)
@@ -265,7 +274,7 @@ nativo via actix-web + classes JS globais completas.
   `spawn_async` (tokio fire-and-forget, ~400k spawn/s); `spawn_detached`
   (pool fixo 8 workers, 5M spawn/s mas queue ilimitada — cuidado OOM).
   Mais `scope` auto-join + `sleep_ms`. Doc-comments em
-  `src/namespaces/thread/abi.rs` tem tabela comparativa
+  `crates/rts-runtime/src/namespaces/thread/abi.rs` tem tabela comparativa
 - `http_server/` — servidor HTTP/1.1 nativo via `actix-web` sobre
   runtime tokio compartilhado. Bridge sync→async: `serve(addr,handler)`
   bloqueia, cada request entra num shard map de slots, handler TS
@@ -295,12 +304,12 @@ nativo via actix-web + classes JS globais completas.
 - `promise/` — Promise stub (resolve/reject/then/catch)
 - `events/` — EventEmitter primitivo (on/off/once/emit/removeAllListeners/listenerCount)
 
-### Globals (`src/namespaces/globals/`)
+### Globals (`crates/rts-runtime/src/namespaces/globals/`)
 
 Classes JS globais implementadas como sub-namespaces sob `globals/`:
 
 ```
-src/namespaces/globals/<class>/
+crates/rts-runtime/src/namespaces/globals/<class>/
   mod.rs   — re-exporta e publica GlobalClassSpec
   abi.rs   — tabela de membros (estaticos + instancia)
   rt.rs    — implementacao extern "C"
@@ -369,7 +378,7 @@ handle-based migrados pra essa API — sem contenção em workloads paralelos.
 
 ## Runtime tokio compartilhado (issue #399)
 
-`src/runtime/async_rt.rs` exporta `rt()` — `OnceLock<tokio::runtime::Runtime>`
+`crates/rts-runtime/src/runtime/async_rt.rs` exporta `rt()` — `OnceLock<tokio::runtime::Runtime>`
 multi-thread global. Hooks `on_thread_start`/`on_thread_stop` registram cada
 worker no `gc/thread_registry` para o GC scanner ver handles vivos em tasks
 tokio (sem isso o sweep coletava indevidamente sob carga concorrente).
@@ -387,7 +396,7 @@ esse id.
 
 ## GC stack scanner Win32
 
-`mark_stack_roots()` em `src/namespaces/gc/collector.rs` usa
+`mark_stack_roots()` em `crates/rts-runtime/src/namespaces/gc/collector.rs` usa
 `GetCurrentThreadStackLimits` (API Win32 oficial) em vez de `gs:[0x10]`
 da TIB. O TIB.StackBase em alguns contextos retornava valor < RSP,
 deixando o scanner sem marcar nada e o sweep coletando handles vivos
@@ -593,7 +602,7 @@ imediatamente:
    - quantos `load`/`store` por iteracao (idealmente 0 para vars locais);
    - quantos `call` (cada call extern e' caro);
    - duplicacao de subexpressoes (mesma `fmul`/`fadd` repetida).
-4. Identificar a causa no codegen (`src/codegen/lower/`) e corrigir.
+4. Identificar a causa no codegen (`crates/rts-codegen/src/codegen/lower/`) e corrigir.
 5. Re-dump pra confirmar; rodar `cargo test --release --lib` +
    `target/release/rts.exe test` pra garantir 0 regressao.
 
@@ -634,7 +643,7 @@ powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 ## Regras
 
 - Nao implementar APIs de alto nivel em Rust — Rust so expoe primitivas raw via `"rts"`
-- Classes JS globais (Number, String, Date, etc.) vivem em `src/namespaces/globals/<class>/`
+- Classes JS globais (Number, String, Date, etc.) vivem em `crates/rts-runtime/src/namespaces/globals/<class>/`
   e sao registradas em `GLOBAL_CLASS_SPECS`; codegen as resolve via `global_class_lookup`
 - `rts.d.ts` so contem `declare module "rts"` — nao adicionar outros modulos
 - Handles numericos (u64) para recursos runtime (buffers, sockets, strings dinamicas, etc)
@@ -682,7 +691,7 @@ Dois caminhos de execucao compartilhando o mesmo codegen Cranelift:
 
 - **`rts run`**: compila direto para memoria executavel via `JITModule`. Sem disco, sem
   linker externo. Todos os simbolos do ABI sao registrados em `JITBuilder::symbol` no
-  startup do modulo JIT (`src/codegen/jit.rs`).
+  startup do modulo JIT (`crates/rts-codegen/src/codegen/jit.rs`).
 - **`rts compile`**: aplica slicing por uso, gera apenas os objects dos modulos efetivamente
   utilizados, produz binario final.
 
@@ -807,5 +816,5 @@ pub fn reset_cache() {
 ## Docs e especificacoes
 
 A pasta `docs/specs/` contem especificacoes de features, decisoes de design e notas tecnicas.
-Consultar o indice em `docs/specs/INDEX.md`. Direcao de alto nivel fica em `NEXT_STEPS.md` e
-`ROAD_MAP.md` na raiz.
+Consultar o indice em `docs/specs/INDEX.md`. Direcao de alto nivel fica em `RTS_REFACTOR.md`
+na raiz (plano canonico do refator em workspace de crates).

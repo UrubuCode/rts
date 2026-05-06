@@ -191,22 +191,29 @@ runtime externo.
 
 ## 🏗️ Arquitetura
 
+Workspace Cargo com 9 crates em `crates/`. O diretório `src/` continua existindo
+como fachada do bin `rts` (re-exporta os crates) — `src/main.rs` chama
+`rts_codegen::register_runtime_artifacts` + `rts_cli::cli::dispatch`. Paths
+reais estão sob `crates/<crate>/src/`.
+
 ```
-src/
-├─ parser/         SWC parse → AST interno
-├─ type_system/    type checker, registry, resolver
-├─ codegen/        Cranelift codegen direto sobre o AST (sem HIR/MIR)
-│  ├─ lower/       lowering de expr/stmt/func
-│  ├─ emit.rs      ObjectModule (AOT)
-│  └─ jit.rs       JITModule (rts run)
-├─ abi/            ⚡ contrato único — SPECS, AbiType, Intrinsic, símbolos
-├─ namespaces/     37 namespaces builtin (impl operacional)
-├─ runtime/        bootstrap, async_rt (tokio compartilhado), eval
-├─ module/         resolver + grafo de dependências
-├─ linker/         link nativo (system linker + fallback object)
-├─ pipeline.rs     orquestra build/run/JIT
-└─ cli/            run · compile · apis · init · repl · eval · ir
+crates/
+├─ rts-ast/          AST interno
+├─ rts-parser/       SWC parse → AST
+├─ rts-diagnostics/  erros estruturados
+├─ rts-abi/          ⚡ contrato único — SPECS, AbiType, Intrinsic, símbolos
+├─ rts-hir/          HIR tipado (etapa 2.1, ainda NÃO plugado no pipeline — issue #611)
+├─ rts-codegen/      Cranelift codegen + type_system + module/ + pipeline + cache + eval_jit
+│  └─ src/codegen/   lower/, emit.rs (AOT), jit.rs (rts run)
+├─ rts-runtime/      builtin "rts" + 40+ namespaces (io, fs, gc, math, ...) + async_rt
+├─ rts-linker/       link nativo (system linker + fallback object)
+└─ rts-cli/          run · compile · apis · init · repl · eval · ir
 ```
+
+> Nota: `rts-codegen` virou catch-all (módulo de pipeline, type_system,
+> resolver de modulos, cache incremental e eval_jit moram lá), divergindo
+> do plano canônico em [`RTS_REFACTOR.md`](RTS_REFACTOR.md). MIR (`rts-mir`)
+> está planejado na Fase 3 desse mesmo plano.
 
 **ABI sem boxing**: cada função de namespace é um símbolo
 `#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`. Nada de `JsValue`,
@@ -261,8 +268,7 @@ oportunidades de intrinsic. Ver `CLAUDE.md` § Debug do codegen.
 - 📘 [`BLOG_POST.md`](BLOG_POST.md) — visão geral pra dev externo
 - 🛠️ [`CLAUDE.md`](CLAUDE.md) — arquitetura interna + regras do codebase
 - 📖 [`docs/specs/`](docs/specs/) — specs técnicas de features
-- 🗺️ [`ROAD_MAP.md`](ROAD_MAP.md) — direção estratégica
-- ✅ [`NEXT_STEPS.md`](NEXT_STEPS.md) — próximos passos concretos
+- 🗺️ [`RTS_REFACTOR.md`](RTS_REFACTOR.md) — plano canônico do refator em workspace de crates
 - 🐛 Issues: tracker mestre de paridade JS/TS em [#226](https://github.com/UrubuCode/rts/issues/226)
 
 ---

@@ -10,7 +10,9 @@
   `rts.d.ts` gerado a partir dai)
 - O `rts.d.ts` so contem `declare module "rts"` — gerado a partir
   de `abi::SPECS`, CI lintao committed file contra o gerador
-- Build eh via `cargo` direto — `xtask` foi removido
+- Build eh via `cargo` direto — `xtask` foi removido. Projeto eh
+  workspace de 9 crates em `crates/`; rodar `cargo test --workspace`
+  cobre todos os crates em uma execucao
 
 ## Regras gerais de design
 

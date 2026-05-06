@@ -10,7 +10,7 @@ contencao em workloads paralelos.
 
 ## Runtime tokio compartilhado (issue #399)
 
-`src/runtime/async_rt.rs` exporta `rt()` —
+`crates/rts-runtime/src/runtime/async_rt.rs` exporta `rt()` —
 `OnceLock<tokio::runtime::Runtime>` multi-thread global. Hooks
 `on_thread_start`/`on_thread_stop` registram cada worker no
 `gc/thread_registry` para o GC scanner ver handles vivos em tasks
@@ -35,7 +35,7 @@ map indexado por esse id — ou em handles GC com lifetime guard
 
 ## GC stack scanner Win32
 
-`mark_stack_roots()` em `src/namespaces/gc/collector.rs` usa
+`mark_stack_roots()` em `crates/rts-runtime/src/namespaces/gc/collector.rs` usa
 `GetCurrentThreadStackLimits` (API Win32 oficial) em vez de
 `gs:[0x10]` da TIB. O TIB.StackBase em alguns contextos retornava
 valor < RSP, deixando o scanner sem marcar nada e o sweep coletando
@@ -77,7 +77,7 @@ Dois caminhos de execucao compartilhando o mesmo codegen Cranelift:
 - **`rts run`**: compila direto para memoria executavel via
   `JITModule`. Sem disco, sem linker externo. Todos os simbolos do
   ABI sao registrados em `JITBuilder::symbol` no startup do modulo
-  JIT (`src/codegen/jit.rs`).
+  JIT (`crates/rts-codegen/src/codegen/jit.rs`).
 - **`rts compile`**: aplica slicing por uso, gera apenas os objects
   dos modulos efetivamente utilizados, produz binario final.
 
