@@ -1,0 +1,18 @@
+[package]
+name = "rts-linker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rts-abi = { path = "../rts-abi" }
+anyhow = "1.0"
+sha2 = "0.10"
+object = { version = "0.39", default-features = false, features = [
+    "write", "read", "std", "coff", "elf", "macho", "pe"
+] }
+target-lexicon = "0.13"
+xwin = "0.9"
+flate2 = "1.1"
+tar = "0.4"
+indicatif = "0.18"
+ureq = { version = "2.12", default-features = true }

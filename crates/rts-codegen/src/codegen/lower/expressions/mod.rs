@@ -1,0 +1,632 @@
+//! Expression lowering to Cranelift IR.
+
+mod basics;
+mod calls;
+mod members;
+mod operators;
+
+use anyhow::{Result, anyhow};
+use cranelift_codegen::ir::InstBuilder;
+use swc_ecma_ast::{BinExpr, BinaryOp, Expr, Lit, MemberProp};
+
+use super::ctx::{FnCtx, TypedVal, ValTy};
+use super::func::class_setter_name;
+
+use self::calls::{
+    AccessorKind, emit_user_fn_addr, emit_virtual_accessor_dispatch, lower_call, lower_new,
+    lower_super_prop_assign, lower_super_prop_read, resolve_setter_owner,
+};
+use self::members::{
+    class_field_uses_flat, emit_flat_field_write, field_is_readonly_in_hierarchy, lhs_static_class,
+    lower_array_lit, lower_member_expr, lower_object_lit, validate_private_scope,
+    validate_visibility,
+};
+use self::operators::{lower_bin, lower_cond, lower_opt_chain, lower_update_expr, to_f64};
+
+/// Compiles a SWC expression and returns a typed Cranelift value.
+pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
+    match expr {
+        Expr::Lit(lit) => basics::lower_lit(ctx, lit),
+        Expr::Ident(id) => lower_ident_expr(ctx, id.sym.as_str()),
+        Expr::Paren(p) => lower_expr(ctx, &p.expr),
+        Expr::Unary(u) => basics::lower_unary(ctx, u),
+        Expr::Update(u) => lower_update_expr(ctx, u),
+        Expr::Bin(bin) => lower_bin(ctx, bin),
+        Expr::Assign(assign) => lower_assign_expr(ctx, assign),
+        Expr::Call(call) => lower_call(ctx, call),
+        Expr::Tpl(tpl) => basics::lower_tpl(ctx, tpl),
+        Expr::TaggedTpl(tt) => lower_tagged_tpl(ctx, tt),
+        Expr::Cond(cond) => lower_cond(ctx, cond),
+        Expr::Array(arr) => lower_array_lit(ctx, arr),
+        Expr::Object(obj) => lower_object_lit(ctx, obj),
+        Expr::Member(member) => lower_member_expr(ctx, member),
+        Expr::OptChain(opt) => lower_opt_chain(ctx, opt),
+        Expr::SuperProp(sp) => lower_super_prop_read(ctx, sp),
+        Expr::New(new_expr) => lower_new(ctx, new_expr),
+        Expr::This(_) => {
+            // Em metodo de classe (compilado com `this` como param real),
+            // ler o local. Em fn plain nao-arrow, ler do thread-local
+            // `this` slot (populado por Function.call/.apply em runtime).
+            // Em arrow plain top-level, slot retorna 0 (=undefined).
+            if let Some(v) = ctx.read_local("this") {
+                Ok(v)
+            } else {
+                let fref =
+                    ctx.get_extern("__RTS_FN_RT_THIS_GET", &[], Some(cranelift_codegen::ir::types::I64))?;
+                let inst = ctx.builder.ins().call(fref, &[]);
+                let v = ctx.builder.inst_results(inst)[0];
+                Ok(TypedVal::new(v, ValTy::I64))
+            }
+        }
+        Expr::TsAs(a) => lower_expr(ctx, &a.expr),
+        Expr::TsTypeAssertion(a) => lower_expr(ctx, &a.expr),
+        Expr::TsConstAssertion(a) => lower_expr(ctx, &a.expr),
+        Expr::TsSatisfies(a) => lower_expr(ctx, &a.expr),
+        Expr::TsNonNull(n) => lower_expr(ctx, &n.expr),
+        Expr::Await(a) => lower_expr(ctx, &a.arg),
+        Expr::Seq(s) => {
+            // Comma operator: avalia tudo pelo side-effect, retorna o ultimo.
+            let mut last: Option<TypedVal> = None;
+            for e in &s.exprs {
+                last = Some(lower_expr(ctx, e)?);
+            }
+            last.ok_or_else(|| anyhow!("empty sequence expression"))
+        }
+        other => Err(anyhow!("unsupported expression: {}", expr_kind_name(other))),
+    }
+}
+
+fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
+    if let Some(tv) = ctx.read_local(name) {
+        return Ok(tv);
+    }
+    if ctx.user_fns.contains_key(name) {
+        return emit_user_fn_addr(ctx, name);
+    }
+    // (#298) Globais JS NaN/Infinity/undefined. NaN e Infinity sao
+    // f64 IEEE; \`undefined\` em RTS nao tem representacao distinta de
+    // 0/null entao mapeamos para 0 (caller que comparar com === detecta
+    // tipo via context). Cobre uso comum em template/aritmetica.
+    use cranelift_codegen::ir::InstBuilder;
+    use crate::codegen::lower::ctx::ValTy;
+    match name {
+        "NaN" => {
+            let v = ctx.builder.ins().f64const(f64::NAN);
+            return Ok(TypedVal::new(v, ValTy::F64));
+        }
+        "Infinity" => {
+            let v = ctx.builder.ins().f64const(f64::INFINITY);
+            return Ok(TypedVal::new(v, ValTy::F64));
+        }
+        "undefined" => {
+            // Usado em \`x === undefined\`, \`x ?? def\`, \`${undefined}\`.
+            // Sentinel 0 cobre as 3 — strict check distingue tipo via
+            // operador, e template literal converte i64 0 para "0".
+            // Pra alinhar com JS \`${undefined}\` -> "undefined", emitimos
+            // string handle "undefined" direto.
+            return ctx.emit_str_handle(b"undefined");
+        }
+        _ => {}
+    }
+    Err(anyhow!("undefined variable `{name}`"))
+}
+
+fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<TypedVal> {
+    use swc_ecma_ast::{AssignOp, AssignTarget};
+
+    if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::SuperProp(sp)) = &a.left {
+        return lower_super_prop_assign(ctx, sp, a);
+    }
+
+    if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
+        // (#264 PR4+) Intercepta `<UserFn>.prototype = X` para chamar
+        // FUNCTION_PROTOTYPE_SET que atualiza o registry global. Sem isso,
+        // \`Dog.prototype = Object.create(...)\` faz MAP_SET em handle Function
+        // (nao Map) e o registry continua com o Map antigo.
+        if matches!(a.op, AssignOp::Assign) {
+            if let MemberProp::Ident(prop) = &m.prop {
+                if prop.sym.as_str() == "prototype" {
+                    // Peel TsAs/Paren no obj.
+                    let mut obj_e: &Expr = m.obj.as_ref();
+                    loop {
+                        match obj_e {
+                            Expr::TsAs(a) => obj_e = &a.expr,
+                            Expr::TsTypeAssertion(a) => obj_e = &a.expr,
+                            Expr::TsConstAssertion(a) => obj_e = &a.expr,
+                            Expr::TsSatisfies(a) => obj_e = &a.expr,
+                            Expr::TsNonNull(a) => obj_e = &a.expr,
+                            Expr::Paren(p) => obj_e = &p.expr,
+                            _ => break,
+                        }
+                    }
+                    if let Expr::Ident(id) = obj_e {
+                        let name = id.sym.as_str();
+                        if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
+                            // Reify Function handle.
+                            let fn_handle_tv = self::calls::emit_user_fn_addr(ctx, name)?;
+                            let fn_addr = fn_handle_tv.val;
+                            let arity = ctx
+                                .user_fns
+                                .get(name)
+                                .map(|f| f.params.len() as i64)
+                                .unwrap_or(0);
+                            let arity_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I64, arity);
+                            let name_tv = ctx.emit_str_handle(name.as_bytes())?;
+                            let name_h = ctx.coerce_to_i64(name_tv).val;
+                            let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+                            let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+                            let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+                            let n_ptr = ctx.builder.inst_results(inst_p)[0];
+                            let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+                            let n_len = ctx.builder.inst_results(inst_l)[0];
+                            let is_arrow_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+                            let has_this_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+                            let reify_fn = ctx.get_extern(
+                                "__RTS_FN_GL_FUNCTION_REIFY",
+                                &[cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I32, cranelift_codegen::ir::types::I32],
+                                Some(cranelift_codegen::ir::types::I64),
+                            )?;
+                            let inst_r = ctx
+                                .builder
+                                .ins()
+                                .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+                            let fn_handle = ctx.builder.inst_results(inst_r)[0];
+                            // Lower RHS.
+                            let rhs_tv = lower_expr(ctx, &a.right)?;
+                            let rhs_h = ctx.coerce_to_i64(rhs_tv).val;
+                            let set_proto = ctx.get_extern(
+                                "__RTS_FN_GL_FUNCTION_PROTOTYPE_SET",
+                                &[cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64],
+                                None,
+                            )?;
+                            ctx.builder.ins().call(set_proto, &[fn_handle, rhs_h]);
+                            return Ok(TypedVal::new(rhs_h, ValTy::Handle));
+                        }
+                    }
+                }
+            }
+        }
+        let final_rhs_expr: Box<Expr> = if matches!(a.op, AssignOp::Assign) {
+            a.right.clone()
+        } else {
+            let binop = match a.op {
+                AssignOp::AddAssign => BinaryOp::Add,
+                AssignOp::SubAssign => BinaryOp::Sub,
+                AssignOp::MulAssign => BinaryOp::Mul,
+                AssignOp::DivAssign => BinaryOp::Div,
+                AssignOp::ModAssign => BinaryOp::Mod,
+                AssignOp::LShiftAssign => BinaryOp::LShift,
+                AssignOp::RShiftAssign => BinaryOp::RShift,
+                AssignOp::ZeroFillRShiftAssign => BinaryOp::ZeroFillRShift,
+                AssignOp::BitOrAssign => BinaryOp::BitOr,
+                AssignOp::BitXorAssign => BinaryOp::BitXor,
+                AssignOp::BitAndAssign => BinaryOp::BitAnd,
+                AssignOp::ExpAssign => BinaryOp::Exp,
+                AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullishAssign => {
+                    // `obj.x ||= y` → recursa como `obj.x = obj.x || y`.
+                    // O lower_logical em lower_bin emite curto-circuito;
+                    // depois cai no caminho normal de Member assign abaixo.
+                    let logical_op = match a.op {
+                        AssignOp::AndAssign => BinaryOp::LogicalAnd,
+                        AssignOp::OrAssign => BinaryOp::LogicalOr,
+                        AssignOp::NullishAssign => BinaryOp::NullishCoalescing,
+                        _ => unreachable!(),
+                    };
+                    let read_lhs = Expr::Member(swc_ecma_ast::MemberExpr {
+                        span: a.span,
+                        obj: m.obj.clone(),
+                        prop: m.prop.clone(),
+                    });
+                    let synthetic_right = Box::new(Expr::Bin(BinExpr {
+                        span: a.span,
+                        op: logical_op,
+                        left: Box::new(read_lhs),
+                        right: a.right.clone(),
+                    }));
+                    let synthetic_assign = swc_ecma_ast::AssignExpr {
+                        span: a.span,
+                        op: AssignOp::Assign,
+                        left: a.left.clone(),
+                        right: synthetic_right,
+                    };
+                    return lower_assign_expr(ctx, &synthetic_assign);
+                }
+                AssignOp::Assign => unreachable!(),
+            };
+            let read_lhs = Expr::Member(swc_ecma_ast::MemberExpr {
+                span: a.span,
+                obj: m.obj.clone(),
+                prop: m.prop.clone(),
+            });
+            Box::new(Expr::Bin(BinExpr {
+                span: a.span,
+                op: binop,
+                left: Box::new(read_lhs),
+                right: a.right.clone(),
+            }))
+        };
+
+        if let MemberProp::Ident(id) = &m.prop {
+            if let Some(cls) = lhs_static_class(ctx, &m.obj) {
+                let prop_name = id.sym.as_str();
+                validate_visibility(ctx, &cls, prop_name)?;
+                if field_is_readonly_in_hierarchy(ctx, &cls, prop_name)
+                    && (!ctx.current_is_ctor || ctx.current_class.as_deref() != Some(&cls))
+                {
+                    return Err(anyhow!(
+                        "readonly `{cls}.{prop_name}` so pode ser atribuido dentro do constructor de `{cls}`"
+                    ));
+                }
+            }
+        }
+
+        // (#264 PR5+) Quando o RHS eh ident de user fn E o LHS eh
+        // \`<UserFn>.prototype.X\` (member chain de prototype), reify
+        // o ident em handle Function antes do MAP_SET. Isso permite
+        // que call sites futuros (\`instance.X(...)\`) usem
+        // FUNCTION_CALL com return_kind correto.
+        let reify_rhs = matches!(a.op, AssignOp::Assign)
+            && {
+                // Detecta lhs: <UserFn>.prototype.X
+                if let MemberProp::Ident(_) = &m.prop {
+                    if let Expr::Member(inner) = m.obj.as_ref() {
+                        if let MemberProp::Ident(p) = &inner.prop {
+                            if p.sym.as_str() == "prototype" {
+                                let mut o: &Expr = inner.obj.as_ref();
+                                loop {
+                                    match o {
+                                        Expr::TsAs(a) => o = &a.expr,
+                                        Expr::Paren(p) => o = &p.expr,
+                                        _ => break,
+                                    }
+                                }
+                                if let Expr::Ident(id) = o {
+                                    let n = id.sym.as_str();
+                                    ctx.user_fns.contains_key(n) && ctx.var_ty(n).is_none()
+                                } else { false }
+                            } else { false }
+                        } else { false }
+                    } else { false }
+                } else { false }
+            }
+            && {
+                // RHS eh ident de user fn? Peel TsAs.
+                let mut e: &Expr = final_rhs_expr.as_ref();
+                loop {
+                    match e {
+                        Expr::TsAs(a) => e = &a.expr,
+                        Expr::Paren(p) => e = &p.expr,
+                        _ => break,
+                    }
+                }
+                if let Expr::Ident(id) = e {
+                    let n = id.sym.as_str();
+                    ctx.user_fns.contains_key(n) && ctx.var_ty(n).is_none()
+                } else { false }
+            };
+
+        let rhs = if reify_rhs {
+            // Extrai o nome da user fn (peel TsAs).
+            let mut e: &Expr = final_rhs_expr.as_ref();
+            loop {
+                match e {
+                    Expr::TsAs(a) => e = &a.expr,
+                    Expr::Paren(p) => e = &p.expr,
+                    _ => break,
+                }
+            }
+            let fn_name = if let Expr::Ident(id) = e {
+                id.sym.as_str().to_string()
+            } else {
+                unreachable!()
+            };
+            // Reify em handle Function.
+            let fn_addr = self::calls::emit_user_fn_addr(ctx, &fn_name)?.val;
+            let arity = ctx
+                .user_fns
+                .get(&fn_name)
+                .map(|f| f.params.len() as i64)
+                .unwrap_or(0);
+            let arity_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I64, arity);
+            let name_tv = ctx.emit_str_handle(fn_name.as_bytes())?;
+            let name_h = ctx.coerce_to_i64(name_tv).val;
+            let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+            let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cranelift_codegen::ir::types::I64], Some(cranelift_codegen::ir::types::I64))?;
+            let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+            let n_ptr = ctx.builder.inst_results(inst_p)[0];
+            let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+            let n_len = ctx.builder.inst_results(inst_l)[0];
+            let is_arrow_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+            let has_this_v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I32, 0);
+            let reify_fn = ctx.get_extern(
+                "__RTS_FN_GL_FUNCTION_REIFY",
+                &[cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I32, cranelift_codegen::ir::types::I32],
+                Some(cranelift_codegen::ir::types::I64),
+            )?;
+            let inst_r = ctx
+                .builder
+                .ins()
+                .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+            let v = ctx.builder.inst_results(inst_r)[0];
+            TypedVal::new(v, ValTy::Handle)
+        } else {
+            lower_expr(ctx, &final_rhs_expr)?
+        };
+
+        // Dual-path #147 passo 7: escrita tipada em campo flat. Preserva
+        // o tipo do RHS para coercao no slot exato (i32/f64/i64/handle).
+        if let MemberProp::Ident(id) = &m.prop {
+            if let Some(cls) = lhs_static_class(ctx, &m.obj) {
+                let prop_name = id.sym.as_str();
+                if class_field_uses_flat(ctx, &cls, prop_name) {
+                    // Setters dinamicos ja descartam o flat path em
+                    // `class_field_uses_flat`, entao chegando aqui e seguro
+                    // emitir store direto.
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                    emit_flat_field_write(ctx, obj_h, &cls, prop_name, rhs)?;
+                    return Ok(rhs);
+                }
+            }
+        }
+
+        let rhs_i64 = ctx.coerce_to_i64(rhs).val;
+
+        if let MemberProp::Ident(id) = &m.prop {
+            if let Some(cls) = lhs_static_class(ctx, &m.obj) {
+                let prop_name = id.sym.as_str();
+                if let Some(setter_owner) = resolve_setter_owner(ctx, &cls, prop_name) {
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                    let setter_fn_name = class_setter_name(&setter_owner, prop_name);
+                    let setter_abi = ctx
+                        .user_fns
+                        .get(&setter_fn_name)
+                        .ok_or_else(|| anyhow!("setter `{setter_fn_name}` nao registrada"))?
+                        .clone();
+                    let param_ty = setter_abi.params.get(1).copied().unwrap_or(ValTy::I64);
+                    let rhs_tv = TypedVal::new(rhs_i64, ValTy::I64);
+                    let coerced = match param_ty {
+                        ValTy::I32 => ctx.coerce_to_i32(rhs_tv).val,
+                        ValTy::F64 => to_f64(ctx, rhs_tv),
+                        _ => rhs_i64,
+                    };
+                    let cls_owned = cls.clone();
+                    let prop_owned = prop_name.to_string();
+                    emit_virtual_accessor_dispatch(
+                        ctx,
+                        &cls_owned,
+                        &setter_owner,
+                        AccessorKind::Setter,
+                        &prop_owned,
+                        obj_h,
+                        &[coerced],
+                    )?;
+                    return Ok(TypedVal::new(rhs_i64, ValTy::I64));
+                }
+            }
+        }
+
+        let obj_tv = lower_expr(ctx, &m.obj)?;
+        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+        let set_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+            &[
+                cranelift_codegen::ir::types::I64,
+                cranelift_codegen::ir::types::I64,
+                cranelift_codegen::ir::types::I64,
+                cranelift_codegen::ir::types::I64,
+            ],
+            None,
+        )?;
+        match &m.prop {
+            MemberProp::Ident(id) => {
+                let (kp, kl) = ctx.emit_str_literal(id.sym.as_bytes())?;
+                ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
+            }
+            MemberProp::Computed(c) => {
+                if let Expr::Lit(Lit::Str(s)) = c.expr.as_ref() {
+                    let (kp, kl) = ctx.emit_str_literal(s.value.as_bytes())?;
+                    ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
+                } else {
+                    let idx_tv = lower_expr(ctx, &c.expr)?;
+                    let idx = ctx.coerce_to_i64(idx_tv).val;
+                    let vec_set = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+                        &[
+                            cranelift_codegen::ir::types::I64,
+                            cranelift_codegen::ir::types::I64,
+                            cranelift_codegen::ir::types::I64,
+                        ],
+                        None,
+                    )?;
+                    ctx.builder.ins().call(vec_set, &[obj_h, idx, rhs_i64]);
+                }
+            }
+            MemberProp::PrivateName(pn) => {
+                let key = format!("#{}", pn.name.as_ref());
+                validate_private_scope(ctx, &key)?;
+                let (kp, kl) = ctx.emit_str_literal(key.as_bytes())?;
+                ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
+            }
+        }
+        return Ok(TypedVal::new(rhs_i64, ValTy::I64));
+    }
+
+    let name = match &a.left {
+        AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) => {
+            id.sym.as_str().to_string()
+        }
+        _ => return Err(anyhow!("only simple identifier assignment is supported")),
+    };
+
+    // Logical compound assignment: `x ||= y`, `x &&= y`, `x ??= y` —
+    // semantica curto-circuito. Translado para `x = x op y` via Bin
+    // logical, que ja avalia y so quando necessario.
+    if matches!(a.op, AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullishAssign) {
+        let logical_op = match a.op {
+            AssignOp::AndAssign => BinaryOp::LogicalAnd,
+            AssignOp::OrAssign => BinaryOp::LogicalOr,
+            AssignOp::NullishAssign => BinaryOp::NullishCoalescing,
+            _ => unreachable!(),
+        };
+        let synthetic_left = Expr::Ident(swc_ecma_ast::Ident {
+            span: a.span,
+            ctxt: Default::default(),
+            sym: name.as_str().into(),
+            optional: false,
+        });
+        let bin = BinExpr {
+            span: a.span,
+            op: logical_op,
+            left: Box::new(synthetic_left),
+            right: a.right.clone(),
+        };
+        let rhs_val = lower_bin(ctx, &bin)?;
+        let coerced = match ctx.var_ty(&name) {
+            Some(ValTy::I32) => ctx.coerce_to_i32(rhs_val),
+            Some(ValTy::I64) => ctx.coerce_to_i64(rhs_val),
+            Some(ValTy::F64) => ctx.coerce_to_f64(rhs_val),
+            Some(ValTy::Handle) => ctx.coerce_to_handle(rhs_val)?,
+            _ => rhs_val,
+        };
+        ctx.write_local(&name, coerced.val)?;
+        return Ok(coerced);
+    }
+
+    let rhs_val = if matches!(a.op, AssignOp::Assign) {
+        lower_expr(ctx, &a.right)?
+    } else {
+        let binop = match a.op {
+            AssignOp::AddAssign => BinaryOp::Add,
+            AssignOp::SubAssign => BinaryOp::Sub,
+            AssignOp::MulAssign => BinaryOp::Mul,
+            AssignOp::DivAssign => BinaryOp::Div,
+            AssignOp::ModAssign => BinaryOp::Mod,
+            AssignOp::LShiftAssign => BinaryOp::LShift,
+            AssignOp::RShiftAssign => BinaryOp::RShift,
+            AssignOp::ZeroFillRShiftAssign => BinaryOp::ZeroFillRShift,
+            AssignOp::BitOrAssign => BinaryOp::BitOr,
+            AssignOp::BitXorAssign => BinaryOp::BitXor,
+            AssignOp::BitAndAssign => BinaryOp::BitAnd,
+            AssignOp::ExpAssign => BinaryOp::Exp,
+            AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullishAssign => {
+                unreachable!("logical compound handled above")
+            }
+            AssignOp::Assign => unreachable!(),
+        };
+        let synthetic_left = Expr::Ident(swc_ecma_ast::Ident {
+            span: a.span,
+            ctxt: Default::default(),
+            sym: name.as_str().into(),
+            optional: false,
+        });
+        let bin = BinExpr {
+            span: a.span,
+            op: binop,
+            left: Box::new(synthetic_left),
+            right: a.right.clone(),
+        };
+        lower_bin(ctx, &bin)?
+    };
+
+    let coerced = match ctx.var_ty(&name) {
+        Some(ValTy::I32) => ctx.coerce_to_i32(rhs_val),
+        Some(ValTy::I64) => ctx.coerce_to_i64(rhs_val),
+        Some(ValTy::Handle) => ctx.coerce_to_handle(rhs_val)?,
+        _ => rhs_val,
+    };
+    ctx.write_local(&name, coerced.val)?;
+    Ok(coerced)
+}
+
+/// Lower de tagged template literal (#269): `tag\`a${x}b${y}c\`` →
+/// `tag([\"a\", \"b\", \"c\"], x, y)`.
+///
+/// JS spec define o primeiro arg como TemplateStringsArray (objeto com
+/// propriedade `.raw`); aqui passamos um array simples — caller
+/// recebe `strings[0]`, `strings[1]`, etc via index access. `.raw` nao
+/// e' implementado nesta fase (raw strings preservam escape sequences;
+/// cooked aplica). Documentado como limitacao no commit.
+fn lower_tagged_tpl(
+    ctx: &mut FnCtx,
+    tt: &swc_ecma_ast::TaggedTpl,
+) -> Result<TypedVal> {
+    use swc_ecma_ast::{ArrayLit, CallExpr, Callee, ExprOrSpread};
+
+    // Constroi array literal das string parts (cooked).
+    let elems: Vec<Option<ExprOrSpread>> = tt
+        .tpl
+        .quasis
+        .iter()
+        .map(|q| {
+            let cooked: String = q
+                .cooked
+                .as_ref()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| q.raw.as_str().to_string());
+            Some(ExprOrSpread {
+                spread: None,
+                expr: Box::new(Expr::Lit(Lit::Str(swc_ecma_ast::Str {
+                    span: Default::default(),
+                    value: cooked.as_str().into(),
+                    raw: None,
+                }))),
+            })
+        })
+        .collect();
+    let strings_array = Expr::Array(ArrayLit {
+        span: Default::default(),
+        elems,
+    });
+
+    // Args: [strings_array, ...interpolated_exprs]
+    let mut args: Vec<ExprOrSpread> = Vec::with_capacity(1 + tt.tpl.exprs.len());
+    args.push(ExprOrSpread {
+        spread: None,
+        expr: Box::new(strings_array),
+    });
+    for e in &tt.tpl.exprs {
+        args.push(ExprOrSpread {
+            spread: None,
+            expr: e.clone(),
+        });
+    }
+
+    let synthetic_call = CallExpr {
+        span: tt.span,
+        ctxt: tt.ctxt,
+        callee: Callee::Expr(tt.tag.clone()),
+        args,
+        type_args: tt.type_params.clone(),
+    };
+    lower_call(ctx, &synthetic_call)
+}
+
+fn expr_kind_name(expr: &Expr) -> &'static str {
+    match expr {
+        Expr::Array(_) => "array",
+        Expr::Arrow(_) => "arrow",
+        Expr::Await(_) => "await",
+        Expr::Bin(_) => "binary",
+        Expr::Call(_) => "call",
+        Expr::Class(_) => "class",
+        Expr::Cond(_) => "ternary",
+        Expr::Fn(_) => "function-expr",
+        Expr::Ident(_) => "ident",
+        Expr::Lit(_) => "literal",
+        Expr::Member(_) => "member",
+        Expr::MetaProp(_) => "meta-prop",
+        Expr::New(_) => "new",
+        Expr::Object(_) => "object",
+        Expr::Paren(_) => "paren",
+        Expr::Seq(_) => "sequence",
+        Expr::TaggedTpl(_) => "tagged-template-fallback",
+        Expr::This(_) => "this",
+        Expr::Tpl(_) => "template",
+        Expr::Unary(_) => "unary",
+        Expr::Update(_) => "update",
+        Expr::Yield(_) => "yield",
+        _ => "unknown",
+    }
+}

@@ -1,0 +1,22 @@
+[package]
+name = "rts-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rts-abi = { path = "../rts-abi" }
+rts-codegen = { path = "../rts-codegen" }
+rts-linker = { path = "../rts-linker" }
+rts-runtime = { path = "../rts-runtime" }
+rts-diagnostics = { path = "../rts-diagnostics" }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = true }
+colored = "2.1"
+console = "0.15"
+indicatif = "0.18"
+flate2 = "1.1"
+tar = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }

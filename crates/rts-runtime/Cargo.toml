@@ -1,0 +1,29 @@
+[package]
+name = "rts-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rts-abi = { path = "../rts-abi" }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+rayon = "1.10"
+sha2 = "0.10"
+regex = "1"
+rustls = { version = "0.23", default-features = false, features = [
+    "std", "ring", "tls12"
+] }
+webpki-roots = "1"
+actix-web = { version = "4", default-features = false, features = ["macros"] }
+actix-rt = "2"
+fltk = { version = "1", features = ["fltk-bundled"] }
+indexmap = "2.14.0"
+colored = "2.1"
+notify = "6.1"
+flate2 = "1.1"
+tar = "0.4"
+ureq = { version = "2.12", default-features = true }
+slotmap = "1"
+rustc-hash = "1.1"

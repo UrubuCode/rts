@@ -1,0 +1,27 @@
+[package]
+name = "rts-codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rts-abi = { path = "../rts-abi" }
+rts-linker = { path = "../rts-linker" }
+rts-ast = { path = "../rts-ast" }
+rts-parser = { path = "../rts-parser" }
+rts-runtime = { path = "../rts-runtime" }
+rts-diagnostics = { path = "../rts-diagnostics" }
+anyhow = "1.0"
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+indexmap = "2.14.0"
+cranelift-codegen = "0.131"
+cranelift-frontend = "0.131"
+cranelift-jit = "0.131"
+cranelift-module = "0.131"
+cranelift-native = "0.131"
+cranelift-object = "0.131"
+target-lexicon = "0.13"
+swc_ecma_ast = "23.0.0"
+swc_common = "21.0.1"
