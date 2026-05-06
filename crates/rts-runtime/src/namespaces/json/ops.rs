@@ -57,7 +57,7 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE(ptr: u64, len: i64) -> u64 {
         return 0;
     };
     match serde_json::from_str::<Value>(text) {
-        Ok(v) => value_to_handle(&v) as u64,
+        Ok(v) => alloc_entry(Entry::Json(Box::new(v))),
         Err(_) => 0,
     }
 }

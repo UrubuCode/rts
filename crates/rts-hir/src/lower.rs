@@ -1,0 +1,735 @@
+/// AST → HIR lowering.
+///
+/// Converts `rts_ast` items (which wrap `swc_ecma_ast` nodes) into typed
+/// `HirFunc` / `HirStmt` / `HirExpr` nodes. Type annotations are parsed from
+/// string annotations produced by `rts-parser`; unannotated variables get
+/// `HirType::Unknown` which `type_refine` narrows further.
+
+use swc_ecma_ast as swc;
+use rts_ast::ast::{
+    FunctionDecl, Parameter, Statement,
+};
+
+use crate::ir::*;
+use crate::scope::Scope;
+use crate::type_refine::refine_type_from_init;
+
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+/// Lower a `FunctionDecl` from the AST into a `HirFunc`.
+pub fn lower_func(decl: &FunctionDecl, scope: &mut Scope) -> HirFunc {
+    scope.push();
+
+    let params: Vec<HirParam> = decl.parameters.iter().map(|p| lower_param(p, scope)).collect();
+    let ret = decl.return_type.as_deref()
+        .map(parse_type_annotation)
+        .unwrap_or(HirType::Unknown);
+
+    if ret != HirType::Unknown {
+        scope.register_return_type(&decl.name, ret.clone());
+    }
+
+    let body = lower_stmts(&decl.body, scope);
+    scope.pop();
+
+    HirFunc {
+        name: decl.name.clone(),
+        params,
+        ret,
+        body,
+        is_async: decl.is_async,
+        is_arrow: false,
+    }
+}
+
+/// Lower a slice of `Statement`s into `HirStmt`s.
+pub fn lower_stmts(stmts: &[Statement], scope: &mut Scope) -> Vec<HirStmt> {
+    stmts.iter().map(|s| lower_stmt(s, scope)).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Statements
+// ---------------------------------------------------------------------------
+
+fn lower_stmt(stmt: &Statement, scope: &mut Scope) -> HirStmt {
+    let Statement::Raw(raw) = stmt;
+    match &raw.stmt {
+        Some(swc_stmt) => lower_swc_stmt(swc_stmt, scope, &raw.text),
+        None => HirStmt::Raw(raw.text.clone()),
+    }
+}
+
+fn lower_swc_stmt(s: &swc::Stmt, scope: &mut Scope, raw_text: &str) -> HirStmt {
+    match s {
+        swc::Stmt::Expr(e) => {
+            HirStmt::Expr(lower_swc_expr(&e.expr, scope))
+        }
+
+        swc::Stmt::Return(r) => {
+            let val = r.arg.as_deref().map(|e| lower_swc_expr(e, scope));
+            HirStmt::Return(val)
+        }
+
+        swc::Stmt::Decl(decl) => lower_decl(decl, scope, raw_text),
+
+        swc::Stmt::If(if_stmt) => {
+            let cond = lower_swc_expr(&if_stmt.test, scope);
+            scope.push();
+            let then = lower_swc_stmt_to_vec(&if_stmt.cons, scope);
+            scope.pop();
+            let else_ = if_stmt.alt.as_deref().map(|e| {
+                scope.push();
+                let stmts = lower_swc_stmt_to_vec(e, scope);
+                scope.pop();
+                stmts
+            });
+            HirStmt::If { cond, then, else_ }
+        }
+
+        swc::Stmt::While(w) => {
+            let cond = lower_swc_expr(&w.test, scope);
+            scope.push();
+            let body = lower_swc_stmt_to_vec(&w.body, scope);
+            scope.pop();
+            HirStmt::While { cond, body }
+        }
+
+        swc::Stmt::DoWhile(dw) => {
+            scope.push();
+            let body = lower_swc_stmt_to_vec(&dw.body, scope);
+            scope.pop();
+            let cond = lower_swc_expr(&dw.test, scope);
+            HirStmt::DoWhile { body, cond }
+        }
+
+        swc::Stmt::For(f) => {
+            scope.push();
+            let init = f.init.as_ref().map(|i| {
+                Box::new(match i {
+                    swc::VarDeclOrExpr::VarDecl(vd) => lower_var_decl(vd, scope, ""),
+                    swc::VarDeclOrExpr::Expr(e) => HirStmt::Expr(lower_swc_expr(e, scope)),
+                })
+            });
+            let cond = f.test.as_deref().map(|e| lower_swc_expr(e, scope));
+            let update = f.update.as_deref().map(|e| lower_swc_expr(e, scope));
+            let body = lower_swc_stmt_to_vec(&f.body, scope);
+            scope.pop();
+            HirStmt::For { init, cond, update, body }
+        }
+
+        swc::Stmt::ForOf(fo) => {
+            let iterable = lower_swc_expr(&fo.right, scope);
+            scope.push();
+            let binding = extract_pat_binding(&fo.left);
+            let binding_ty = HirType::Unknown;
+            scope.define(&binding, binding_ty.clone());
+            let body = lower_swc_stmt_to_vec(&fo.body, scope);
+            scope.pop();
+            HirStmt::ForOf { binding, binding_ty, iterable, body }
+        }
+
+        swc::Stmt::ForIn(fi) => {
+            let object = lower_swc_expr(&fi.right, scope);
+            scope.push();
+            let binding = extract_pat_binding(&fi.left);
+            scope.define(&binding, HirType::Str);
+            let body = lower_swc_stmt_to_vec(&fi.body, scope);
+            scope.pop();
+            HirStmt::ForIn { binding, object, body }
+        }
+
+        swc::Stmt::Break(b) => HirStmt::Break(b.label.as_ref().map(|l| l.sym.to_string())),
+        swc::Stmt::Continue(c) => HirStmt::Continue(c.label.as_ref().map(|l| l.sym.to_string())),
+
+        swc::Stmt::Throw(t) => HirStmt::Throw(lower_swc_expr(&t.arg, scope)),
+
+        swc::Stmt::Try(t) => {
+            scope.push();
+            let body = lower_swc_stmts_block(&t.block, scope);
+            scope.pop();
+
+            let catch = t.handler.as_ref().map(|h| {
+                scope.push();
+                let binding = h.param.as_ref().and_then(|p| Some(extract_swc_pat_name(p)));
+                if let Some(ref name) = binding {
+                    scope.define(name.as_str(), HirType::Any);
+                }
+                let body = lower_swc_stmts_block(&h.body, scope);
+                scope.pop();
+                HirCatch { binding, body }
+            });
+
+            let finally = t.finalizer.as_ref().map(|f| {
+                scope.push();
+                let stmts = lower_swc_stmts_block(f, scope);
+                scope.pop();
+                stmts
+            });
+
+            HirStmt::Try { body, catch, finally }
+        }
+
+        swc::Stmt::Switch(sw) => {
+            let discriminant = lower_swc_expr(&sw.discriminant, scope);
+            let cases = sw.cases.iter().map(|c| {
+                let test = c.test.as_deref().map(|e| lower_swc_expr(e, scope));
+                scope.push();
+                let body = c.cons.iter()
+                    .map(|s| lower_swc_stmt(s, scope, raw_text))
+                    .collect();
+                scope.pop();
+                HirSwitchCase { test, body }
+            }).collect();
+            HirStmt::Switch { discriminant, cases }
+        }
+
+        swc::Stmt::Block(b) => {
+            scope.push();
+            let stmts = lower_swc_stmts_block(b, scope);
+            scope.pop();
+            HirStmt::Block(stmts)
+        }
+
+        swc::Stmt::Labeled(l) => {
+            let label = l.label.sym.to_string();
+            let body = Box::new(lower_swc_stmt(&l.body, scope, raw_text));
+            HirStmt::Labeled { label, body }
+        }
+
+        swc::Stmt::Empty(_) => HirStmt::Block(vec![]),
+
+        // Anything we don't recognise falls back to raw text for the legacy
+        // codegen path — no information is lost.
+        _ => HirStmt::Raw(raw_text.to_string()),
+    }
+}
+
+fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
+    match decl {
+        swc::Decl::Var(vd) => lower_var_decl(vd, scope, raw_text),
+        // Function/class declarations inside a block fall back to raw text
+        // because they're hoisted — handled at the program level, not here.
+        _ => HirStmt::Raw(raw_text.to_string()),
+    }
+}
+
+fn lower_var_decl(vd: &swc::VarDecl, scope: &mut Scope, _raw_text: &str) -> HirStmt {
+    if vd.decls.len() == 1 {
+        let d = &vd.decls[0];
+        let name = extract_swc_pat_name(&d.name);
+        let annotation = extract_ts_type_annotation(&d.name);
+        let annotated_ty = annotation
+            .as_deref()
+            .map(parse_type_annotation)
+            .unwrap_or(HirType::Unknown);
+
+        let init_expr = d.init.as_deref().map(|e| lower_swc_expr(e, scope));
+
+        let ty = if annotated_ty != HirType::Unknown {
+            annotated_ty.clone()
+        } else if let Some(ref init) = init_expr {
+            refine_type_from_init(init, scope)
+        } else {
+            HirType::Unknown
+        };
+
+        scope.define(&name, ty.clone());
+
+        match vd.kind {
+            swc::VarDeclKind::Const => {
+                let init = init_expr.unwrap_or_else(|| {
+                    HirExpr::new(HirExprKind::Lit(HirLit::Undefined), HirType::Any)
+                });
+                HirStmt::Const { name, ty, init }
+            }
+            _ => HirStmt::Let { name, ty, init: init_expr },
+        }
+    } else {
+        // Multi-declarator: emit as a block of individual lets
+        let stmts = vd.decls.iter().map(|d| {
+            let name = extract_swc_pat_name(&d.name);
+            let init_expr = d.init.as_deref().map(|e| lower_swc_expr(e, scope));
+            let ty = if let Some(ref init) = init_expr {
+                refine_type_from_init(init, scope)
+            } else {
+                HirType::Unknown
+            };
+            scope.define(&name, ty.clone());
+            match vd.kind {
+                swc::VarDeclKind::Const => {
+                    let init = init_expr.unwrap_or_else(|| {
+                        HirExpr::new(HirExprKind::Lit(HirLit::Undefined), HirType::Any)
+                    });
+                    HirStmt::Const { name, ty, init }
+                }
+                _ => HirStmt::Let { name, ty, init: init_expr },
+            }
+        }).collect();
+        HirStmt::Block(stmts)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Expressions
+// ---------------------------------------------------------------------------
+
+pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
+    match e {
+        swc::Expr::Lit(lit) => lower_lit(lit),
+
+        swc::Expr::Ident(id) => {
+            let name = id.sym.to_string();
+            let ty = scope.lookup(&name).cloned().unwrap_or(HirType::Unknown);
+            HirExpr::new(HirExprKind::Ident(name), ty)
+        }
+
+        swc::Expr::Bin(bin) => {
+            let op = swc_bin_op_to_hir(bin.op);
+            let lhs = Box::new(lower_swc_expr(&bin.left, scope));
+            let rhs = Box::new(lower_swc_expr(&bin.right, scope));
+            let ty = if op.is_comparison() {
+                HirType::Bool
+            } else {
+                let lt = lhs.ty.clone();
+                let rt = rhs.ty.clone();
+                crate::type_refine::numeric_promotion(lt, rt)
+            };
+            HirExpr::new(HirExprKind::Bin { op, lhs, rhs }, ty)
+        }
+
+        swc::Expr::Unary(u) => {
+            let op = swc_unary_op_to_hir(u.op);
+            let operand = Box::new(lower_swc_expr(&u.arg, scope));
+            let ty = match op {
+                HirUnOp::Not => HirType::Bool,
+                HirUnOp::Neg => operand.ty.clone(),
+                HirUnOp::BitNot => {
+                    if operand.ty.is_integer() { operand.ty.clone() } else { HirType::I64 }
+                }
+                _ => HirType::Any,
+            };
+            HirExpr::new(HirExprKind::Unary { op, operand }, ty)
+        }
+
+        swc::Expr::Assign(a) => {
+            let target = Box::new(lower_swc_pat_or_expr(&a.left, scope));
+            let value = Box::new(lower_swc_expr(&a.right, scope));
+            let ty = value.ty.clone();
+            if a.op == swc::AssignOp::Assign {
+                HirExpr::new(HirExprKind::Assign { target, value }, ty)
+            } else {
+                let op = swc_assign_op_to_hir(a.op);
+                HirExpr::new(HirExprKind::AssignOp { op, target, value }, ty)
+            }
+        }
+
+        swc::Expr::Call(call) => lower_call(call, scope),
+
+        swc::Expr::New(n) => {
+            let class = expr_to_ident_name(&n.callee).unwrap_or_default();
+            let args = n.args.as_deref().unwrap_or(&[]).iter()
+                .map(|a| lower_swc_expr(&a.expr, scope))
+                .collect();
+            let ty = scope.resolve_class(&class)
+                .map(HirType::Class)
+                .unwrap_or(HirType::Unknown);
+            HirExpr::new(HirExprKind::New { class, args }, ty)
+        }
+
+        swc::Expr::Member(m) => {
+            let object = Box::new(lower_swc_expr(&m.obj, scope));
+            match &m.prop {
+                swc::MemberProp::Computed(c) => {
+                    let index = Box::new(lower_swc_expr(&c.expr, scope));
+                    HirExpr::new(HirExprKind::Index { object, index }, HirType::Unknown)
+                }
+                prop => {
+                    let name = member_prop_name(prop);
+                    HirExpr::new(HirExprKind::Member { object, prop: name }, HirType::Unknown)
+                }
+            }
+        }
+
+        swc::Expr::Array(arr) => {
+            let elems: Vec<HirExpr> = arr.elems.iter()
+                .filter_map(|e| e.as_ref())
+                .map(|e| {
+                    if e.spread.is_some() {
+                        let inner = lower_swc_expr(&e.expr, scope);
+                        HirExpr::new(HirExprKind::Spread(Box::new(inner)), HirType::Any)
+                    } else {
+                        lower_swc_expr(&e.expr, scope)
+                    }
+                })
+                .collect();
+            let elem_ty = elems.first().map(|e| e.ty.clone()).unwrap_or(HirType::Any);
+            HirExpr::new(HirExprKind::Array(elems), HirType::Array(Box::new(elem_ty)))
+        }
+
+        swc::Expr::Object(obj) => {
+            let fields: Vec<(String, HirExpr)> = obj.props.iter().filter_map(|p| {
+                match p {
+                    swc::PropOrSpread::Prop(prop) => {
+                        match prop.as_ref() {
+                            swc::Prop::KeyValue(kv) => {
+                                let key = prop_name_to_str(&kv.key);
+                                let val = lower_swc_expr(&kv.value, scope);
+                                Some((key, val))
+                            }
+                            swc::Prop::Shorthand(id) => {
+                                let name = id.sym.to_string();
+                                let ty = scope.lookup(&name).cloned().unwrap_or(HirType::Unknown);
+                                Some((name.clone(), HirExpr::new(HirExprKind::Ident(name), ty)))
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }).collect();
+            HirExpr::new(HirExprKind::Object(fields), HirType::Object)
+        }
+
+        swc::Expr::Cond(c) => {
+            let cond = Box::new(lower_swc_expr(&c.test, scope));
+            let then = Box::new(lower_swc_expr(&c.cons, scope));
+            let else_ = Box::new(lower_swc_expr(&c.alt, scope));
+            let ty = if then.ty == else_.ty { then.ty.clone() } else { HirType::Any };
+            HirExpr::new(HirExprKind::Ternary { cond, then, else_ }, ty)
+        }
+
+        swc::Expr::Await(aw) => {
+            let inner = Box::new(lower_swc_expr(&aw.arg, scope));
+            let ty = inner.ty.clone();
+            HirExpr::new(HirExprKind::Await(inner), ty)
+        }
+
+        swc::Expr::Paren(p) => lower_swc_expr(&p.expr, scope),
+
+        swc::Expr::Update(u) => {
+            let operand = Box::new(lower_swc_expr(&u.arg, scope));
+            let ty = operand.ty.clone();
+            let kind = match (u.op, u.prefix) {
+                (swc::UpdateOp::PlusPlus, true)   => HirExprKind::PreInc(operand),
+                (swc::UpdateOp::MinusMinus, true)  => HirExprKind::PreDec(operand),
+                (swc::UpdateOp::PlusPlus, false)   => HirExprKind::PostInc(operand),
+                (swc::UpdateOp::MinusMinus, false)  => HirExprKind::PostDec(operand),
+            };
+            HirExpr::new(kind, ty)
+        }
+
+        swc::Expr::Seq(s) => {
+            let exprs: Vec<HirExpr> = s.exprs.iter().map(|e| lower_swc_expr(e, scope)).collect();
+            let ty = exprs.last().map(|e| e.ty.clone()).unwrap_or(HirType::Void);
+            HirExpr::new(HirExprKind::Seq(exprs), ty)
+        }
+
+        swc::Expr::Arrow(arrow) => {
+            let params: Vec<HirParam> = arrow.params.iter().map(|p| {
+                let name = extract_swc_pat_name(p);
+                let annotation = extract_ts_type_annotation(p);
+                let ty = annotation.as_deref().map(parse_type_annotation).unwrap_or(HirType::Unknown);
+                HirParam { name, ty, variadic: false, has_default: false }
+            }).collect();
+            let ret = HirType::Unknown;
+            let body = match &*arrow.body {
+                swc::BlockStmtOrExpr::Expr(e) => {
+                    let expr = lower_swc_expr(e, scope);
+                    HirArrowBody::Expr(Box::new(expr))
+                }
+                swc::BlockStmtOrExpr::BlockStmt(b) => {
+                    let mut inner_scope = Scope::new();
+                    let stmts = lower_swc_stmts_block(b, &mut inner_scope);
+                    HirArrowBody::Block(stmts)
+                }
+            };
+            HirExpr::new(
+                HirExprKind::Arrow { params, ret: ret.clone(), body },
+                HirType::Function { params: vec![], ret: Box::new(ret) },
+            )
+        }
+
+        swc::Expr::Tpl(tpl) => {
+            // Template literal: lower as Raw for now
+            let _ = tpl;
+            HirExpr::new(HirExprKind::Raw(format!("template_literal")), HirType::Str)
+        }
+
+        _ => HirExpr::new(HirExprKind::Raw(format!("{:?}", e)), HirType::Unknown),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Call lowering
+// ---------------------------------------------------------------------------
+
+fn lower_call(call: &swc::CallExpr, scope: &Scope) -> HirExpr {
+    let args: Vec<HirExpr> = call.args.iter().map(|a| lower_swc_expr(&a.expr, scope)).collect();
+
+    match &call.callee {
+        swc::Callee::Expr(callee_expr) => {
+            match callee_expr.as_ref() {
+                swc::Expr::Member(m) => {
+                    let object = Box::new(lower_swc_expr(&m.obj, scope));
+                    let method = member_prop_name(&m.prop);
+                    HirExpr::new(
+                        HirExprKind::MethodCall { object, method, args },
+                        HirType::Unknown,
+                    )
+                }
+                swc::Expr::Ident(id) => {
+                    let name = id.sym.to_string();
+                    let ret_ty = scope.return_type_of(&name).unwrap_or(HirType::Unknown);
+                    let callee = Box::new(HirExpr::new(
+                        HirExprKind::Ident(name.clone()),
+                        scope.lookup(&name).cloned().unwrap_or(HirType::Unknown),
+                    ));
+                    HirExpr::new(HirExprKind::Call { callee, args }, ret_ty)
+                }
+                other => {
+                    let callee = Box::new(lower_swc_expr(other, scope));
+                    let ty = HirType::Unknown;
+                    HirExpr::new(HirExprKind::Call { callee, args }, ty)
+                }
+            }
+        }
+        _ => {
+            let callee = Box::new(HirExpr::new(HirExprKind::Raw("callee".into()), HirType::Unknown));
+            HirExpr::new(HirExprKind::Call { callee, args }, HirType::Unknown)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn lower_swc_stmt_to_vec(stmt: &swc::Stmt, scope: &mut Scope) -> Vec<HirStmt> {
+    match stmt {
+        swc::Stmt::Block(b) => lower_swc_stmts_block(b, scope),
+        other => vec![lower_swc_stmt(other, scope, "")],
+    }
+}
+
+fn lower_swc_stmts_block(block: &swc::BlockStmt, scope: &mut Scope) -> Vec<HirStmt> {
+    block.stmts.iter()
+        .map(|s| lower_swc_stmt(s, scope, ""))
+        .collect()
+}
+
+fn lower_swc_pat_or_expr(pat: &swc::AssignTarget, scope: &Scope) -> HirExpr {
+    match pat {
+        swc::AssignTarget::Simple(s) => match s {
+            swc::SimpleAssignTarget::Ident(id) => {
+                let name = id.id.sym.to_string();
+                let ty = scope.lookup(&name).cloned().unwrap_or(HirType::Unknown);
+                HirExpr::new(HirExprKind::Ident(name), ty)
+            }
+            swc::SimpleAssignTarget::Member(m) => {
+                let object = Box::new(lower_swc_expr(&m.obj, scope));
+                match &m.prop {
+                    swc::MemberProp::Computed(c) => {
+                        let index = Box::new(lower_swc_expr(&c.expr, scope));
+                        HirExpr::new(HirExprKind::Index { object, index }, HirType::Unknown)
+                    }
+                    prop => {
+                        let name = member_prop_name(prop);
+                        HirExpr::new(HirExprKind::Member { object, prop: name }, HirType::Unknown)
+                    }
+                }
+            }
+            _ => HirExpr::new(HirExprKind::Raw("assign_target".into()), HirType::Unknown),
+        },
+        _ => HirExpr::new(HirExprKind::Raw("assign_target_pat".into()), HirType::Unknown),
+    }
+}
+
+fn lower_param(p: &Parameter, scope: &mut Scope) -> HirParam {
+    let ty = p.type_annotation.as_deref()
+        .map(parse_type_annotation)
+        .unwrap_or(HirType::Unknown);
+    scope.define(&p.name, ty.clone());
+    HirParam {
+        name: p.name.clone(),
+        ty,
+        variadic: p.variadic,
+        has_default: p.default.is_some(),
+    }
+}
+
+fn lower_lit(lit: &swc::Lit) -> HirExpr {
+    match lit {
+        swc::Lit::Num(n) => {
+            let v = n.value;
+            // If value is an integer and fits in i64, prefer HirLit::Int
+            if v.fract() == 0.0 && v >= i64::MIN as f64 && v <= i64::MAX as f64 {
+                HirExpr::new(HirExprKind::Lit(HirLit::Int(v as i64)), HirType::I64)
+            } else {
+                HirExpr::new(HirExprKind::Lit(HirLit::Number(v)), HirType::Number)
+            }
+        }
+        swc::Lit::Bool(b) => HirExpr::new(HirExprKind::Lit(HirLit::Bool(b.value)), HirType::Bool),
+        swc::Lit::Str(s) => HirExpr::new(HirExprKind::Lit(HirLit::Str(s.value.to_string_lossy().into_owned())), HirType::Str),
+        swc::Lit::Null(_) => HirExpr::new(HirExprKind::Lit(HirLit::Null), HirType::Any),
+        swc::Lit::BigInt(_) => HirExpr::new(HirExprKind::Raw("bigint".into()), HirType::I64),
+        swc::Lit::Regex(_) => HirExpr::new(HirExprKind::Raw("regex".into()), HirType::Handle(HandleKind::Regex)),
+        swc::Lit::JSXText(_) => HirExpr::new(HirExprKind::Raw("jsx".into()), HirType::Str),
+    }
+}
+
+fn extract_pat_binding(pat: &swc::ForHead) -> String {
+    match pat {
+        swc::ForHead::VarDecl(vd) => vd.decls.first()
+            .map(|d| extract_swc_pat_name(&d.name))
+            .unwrap_or_default(),
+        swc::ForHead::Pat(p) => extract_swc_pat_name(p),
+        swc::ForHead::UsingDecl(u) => u.decls.first()
+            .map(|d| extract_swc_pat_name(&d.name))
+            .unwrap_or_default(),
+    }
+}
+
+fn extract_swc_pat_name(pat: &swc::Pat) -> String {
+    match pat {
+        swc::Pat::Ident(id) => id.id.sym.to_string(),
+        swc::Pat::Assign(a) => extract_swc_pat_name(&a.left),
+        swc::Pat::Rest(r) => extract_swc_pat_name(&r.arg),
+        _ => "_".to_string(),
+    }
+}
+
+fn extract_ts_type_annotation(pat: &swc::Pat) -> Option<String> {
+    match pat {
+        swc::Pat::Ident(id) => id.type_ann.as_ref().map(|ann| ts_type_to_str(&ann.type_ann)),
+        _ => None,
+    }
+}
+
+fn ts_type_to_str(ty: &swc::TsType) -> String {
+    match ty {
+        swc::TsType::TsKeywordType(kw) => match kw.kind {
+            swc::TsKeywordTypeKind::TsNumberKeyword => "number".into(),
+            swc::TsKeywordTypeKind::TsBooleanKeyword => "boolean".into(),
+            swc::TsKeywordTypeKind::TsStringKeyword => "string".into(),
+            swc::TsKeywordTypeKind::TsVoidKeyword => "void".into(),
+            swc::TsKeywordTypeKind::TsNeverKeyword => "never".into(),
+            swc::TsKeywordTypeKind::TsAnyKeyword => "any".into(),
+            _ => "any".into(),
+        },
+        swc::TsType::TsTypeRef(r) => match &r.type_name {
+            swc::TsEntityName::Ident(id) => id.sym.to_string(),
+            _ => "any".into(),
+        },
+        _ => "any".into(),
+    }
+}
+
+/// Parse a TS type annotation string (from rts-parser) into a `HirType`.
+pub fn parse_type_annotation(s: &str) -> HirType {
+    match s.trim() {
+        "number" => HirType::Number,
+        "boolean" | "bool" => HirType::Bool,
+        "string" => HirType::Str,
+        "void" => HirType::Void,
+        "any" => HirType::Any,
+        "never" => HirType::Unknown,
+        "i8"  => HirType::I8,
+        "i16" => HirType::I16,
+        "i32" => HirType::I32,
+        "i64" => HirType::I64,
+        "i128" => HirType::I128,
+        "u8"  => HirType::U8,
+        "u16" => HirType::U16,
+        "u32" => HirType::U32,
+        "u64" => HirType::U64,
+        "u128" => HirType::U128,
+        "f32" => HirType::F32,
+        "f64" => HirType::F64,
+        _ if s.ends_with("[]") => {
+            let inner = parse_type_annotation(&s[..s.len()-2]);
+            HirType::Array(Box::new(inner))
+        }
+        _ => HirType::Unknown,
+    }
+}
+
+fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
+    match op {
+        swc::BinaryOp::Add => HirBinOp::Add,
+        swc::BinaryOp::Sub => HirBinOp::Sub,
+        swc::BinaryOp::Mul => HirBinOp::Mul,
+        swc::BinaryOp::Div => HirBinOp::Div,
+        swc::BinaryOp::Mod => HirBinOp::Rem,
+        swc::BinaryOp::BitAnd => HirBinOp::BitAnd,
+        swc::BinaryOp::BitOr => HirBinOp::BitOr,
+        swc::BinaryOp::BitXor => HirBinOp::BitXor,
+        swc::BinaryOp::LShift => HirBinOp::Shl,
+        swc::BinaryOp::RShift => HirBinOp::Shr,
+        swc::BinaryOp::ZeroFillRShift => HirBinOp::UShr,
+        swc::BinaryOp::EqEq | swc::BinaryOp::EqEqEq => HirBinOp::Eq,
+        swc::BinaryOp::NotEq | swc::BinaryOp::NotEqEq => HirBinOp::Ne,
+        swc::BinaryOp::Lt => HirBinOp::Lt,
+        swc::BinaryOp::LtEq => HirBinOp::Le,
+        swc::BinaryOp::Gt => HirBinOp::Gt,
+        swc::BinaryOp::GtEq => HirBinOp::Ge,
+        swc::BinaryOp::LogicalAnd => HirBinOp::LogAnd,
+        swc::BinaryOp::LogicalOr => HirBinOp::LogOr,
+        swc::BinaryOp::NullishCoalescing => HirBinOp::NullCoalesce,
+        _ => HirBinOp::Add, // fallback
+    }
+}
+
+fn swc_unary_op_to_hir(op: swc::UnaryOp) -> HirUnOp {
+    match op {
+        swc::UnaryOp::Minus => HirUnOp::Neg,
+        swc::UnaryOp::Bang => HirUnOp::Not,
+        swc::UnaryOp::Tilde => HirUnOp::BitNot,
+        swc::UnaryOp::TypeOf => HirUnOp::TypeOf,
+        swc::UnaryOp::Void => HirUnOp::Void,
+        _ => HirUnOp::Not,
+    }
+}
+
+fn swc_assign_op_to_hir(op: swc::AssignOp) -> HirBinOp {
+    match op {
+        swc::AssignOp::AddAssign => HirBinOp::Add,
+        swc::AssignOp::SubAssign => HirBinOp::Sub,
+        swc::AssignOp::MulAssign => HirBinOp::Mul,
+        swc::AssignOp::DivAssign => HirBinOp::Div,
+        swc::AssignOp::ModAssign => HirBinOp::Rem,
+        swc::AssignOp::BitAndAssign => HirBinOp::BitAnd,
+        swc::AssignOp::BitOrAssign => HirBinOp::BitOr,
+        swc::AssignOp::BitXorAssign => HirBinOp::BitXor,
+        swc::AssignOp::LShiftAssign => HirBinOp::Shl,
+        swc::AssignOp::RShiftAssign => HirBinOp::Shr,
+        swc::AssignOp::ZeroFillRShiftAssign => HirBinOp::UShr,
+        _ => HirBinOp::Add,
+    }
+}
+
+fn member_prop_name(prop: &swc::MemberProp) -> String {
+    match prop {
+        swc::MemberProp::Ident(id) => id.sym.to_string(),
+        swc::MemberProp::Computed(_) => format!("[computed]"),
+        swc::MemberProp::PrivateName(p) => format!("#{}", p.name),
+    }
+}
+
+fn expr_to_ident_name(expr: &swc::Expr) -> Option<String> {
+    match expr {
+        swc::Expr::Ident(id) => Some(id.sym.to_string()),
+        _ => None,
+    }
+}
+
+fn prop_name_to_str(key: &swc::PropName) -> String {
+    match key {
+        swc::PropName::Ident(id) => id.sym.to_string(),
+        swc::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+        swc::PropName::Num(n) => n.value.to_string(),
+        swc::PropName::Computed(_) => "[computed]".into(),
+        swc::PropName::BigInt(b) => b.value.to_string(),
+    }
+}

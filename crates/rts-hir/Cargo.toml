@@ -1,0 +1,9 @@
+[package]
+name = "rts-hir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rts-ast = { path = "../rts-ast" }
+rts-abi = { path = "../rts-abi" }
+swc_ecma_ast = "23.0.0"

@@ -2195,6 +2195,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-hir"
+version = "0.1.0"
+dependencies = [
+ "rts-abi",
+ "rts-ast",
+ "swc_ecma_ast",
+]
+
+[[package]]
 name = "rts-linker"
 version = "0.1.0"
 dependencies = [
