@@ -4,6 +4,9 @@ pub mod type_refine;
 pub mod scope;
 pub mod lower;
 
+#[cfg(test)]
+mod tests;
+
 pub use ir::{
     HirFunc, HirStmt, HirExpr, HirLit, HirType, HirBinOp, HirUnOp,
     HirParam, ClassId, HandleKind,
