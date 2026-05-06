@@ -756,6 +756,52 @@ fn narrow_i64_iadd_does_not_insert_mask() {
     assert_eq!(bb.insts.len(), 1, "I64 ops should not be masked");
 }
 
+// ---------- print tests ----------
+
+#[test]
+fn print_simple_function() {
+    let f = build_const_add(40, 2);
+    let out = format!("{}", f);
+    assert!(out.contains("function c_add"));
+    assert!(out.contains("block0:"));
+    assert!(out.contains("iconst.i64 40"));
+    assert!(out.contains("iconst.i64 2"));
+    assert!(out.contains("iadd v0, v1"));
+    assert!(out.contains("return v2"));
+}
+
+#[test]
+fn print_after_fold_shows_iconst() {
+    let mut f = build_const_add(40, 2);
+    fold(&mut f);
+    let out = format!("{}", f);
+    // Folded into IConst 42
+    assert!(out.contains("iconst.i64 42"));
+}
+
+#[test]
+fn print_brif_terminator() {
+    let mut f = MirFunc::new("br", CallConvHint::Tail, HirType::Void);
+    let cond = f.new_value(HirType::Bool);
+    let _t = f.new_block();
+    let _e = f.new_block();
+    let head = f.new_block();
+    f.blocks[head as usize].insts.push(Inst::IConst {
+        dst: cond,
+        ty: HirType::Bool,
+        val: 1,
+    });
+    f.blocks[head as usize].term = Terminator::Brif {
+        cond,
+        then_block: 0,
+        then_args: vec![],
+        else_block: 1,
+        else_args: vec![],
+    };
+    let out = format!("{}", f);
+    assert!(out.contains("brif v0, block0, block1"));
+}
+
 #[test]
 fn lower_logical_not_emits_bxor_with_one() {
     let body = vec![HirStmt::Return(Some(HirExpr::new(

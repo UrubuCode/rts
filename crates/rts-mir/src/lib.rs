@@ -12,6 +12,7 @@
 pub mod ir;
 pub mod lower;
 pub mod passes;
+pub mod print;
 
 pub use ir::{
     BasicBlock, BlockId, CallConvHint, FloatCond, IntCond, Inst, MemHint, MemOrder, MirFunc,

@@ -6312,6 +6312,9 @@ pub fn compile_program(
     // (caminho da AST permanece autoritativo); proxima fase consumira o
     // MirFunc via lower/inst.rs 1:1. Issue #611.
     {
+        let dump_mir = std::env::var("RTS_DUMP_MIR")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
         let mut hir_scope = rts_hir::scope::Scope::new();
         for fn_decl in &fn_decls {
             let hir_fn = rts_hir::lower::lower_func(fn_decl, &mut hir_scope);
@@ -6322,6 +6325,10 @@ pub fn compile_program(
             #[cfg(debug_assertions)]
             {
                 let _ = rts_mir::passes::verify(&mir_fn);
+            }
+            if dump_mir {
+                eprintln!("--- {} MIR ---", fn_decl.name);
+                eprint!("{}", mir_fn);
             }
         }
     }
