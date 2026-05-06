@@ -324,6 +324,10 @@ pub struct FnCtx<'m, 'fb> {
     /// `const E = { Red: "red" }`). Permite que `E.Red` retorne Handle
     /// em vez de I64 anonimo.
     pub local_obj_field_types: HashMap<String, HashMap<String, ValTy>>,
+    /// (#222 it) Vars de `new Map()/Set()/WeakMap()/WeakSet()` para que
+    /// for-of saiba iterar via MAP_ENTRIES. Separado de local_class_ty
+    /// pra nao colidir com receiver_class de member access (.size, etc).
+    pub local_collection_ty: HashMap<String, String>,
     /// Tipo estatico de globais module-scope que sao instancias de
     /// classe. Populado uma vez em compile_program e compartilhado
     /// entre todos os FnCtx — permite dispatch de overload em funcoes
@@ -504,6 +508,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             local_array_class_ty: HashMap::new(),
             local_array_obj_field_types: HashMap::new(),
             local_obj_field_types: HashMap::new(),
+            local_collection_ty: HashMap::new(),
             global_class_ty,
             global_obj_field_types,
             global_nested_obj_field_types,
