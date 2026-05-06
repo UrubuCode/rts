@@ -6306,6 +6306,18 @@ pub fn compile_program(
         }
     }
 
+    // (refator etapa 2.4) HIR proof-of-life: lower cada user fn pra HIR
+    // tipado em paralelo. Hoje os hints ainda nao alimentam o codegen
+    // (caminho da AST permanece autoritativo); proxima sub-etapa ira
+    // consumi-los pra eliminar coercoes em hot loops com call user fn.
+    // Issue #611.
+    {
+        let mut hir_scope = rts_hir::scope::Scope::new();
+        for fn_decl in &fn_decls {
+            let _hir_fn = rts_hir::lower::lower_func(fn_decl, &mut hir_scope);
+        }
+    }
+
     // Phase 1: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     for fn_decl in &fn_decls {

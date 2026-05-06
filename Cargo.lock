@@ -2173,6 +2173,7 @@ dependencies = [
  "rts-abi",
  "rts-ast",
  "rts-diagnostics",
+ "rts-hir",
  "rts-linker",
  "rts-parser",
  "rts-runtime",

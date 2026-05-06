@@ -8,6 +8,7 @@ rts-abi = { path = "../rts-abi" }
 rts-linker = { path = "../rts-linker" }
 rts-ast = { path = "../rts-ast" }
 rts-parser = { path = "../rts-parser" }
+rts-hir = { path = "../rts-hir" }
 rts-runtime = { path = "../rts-runtime" }
 rts-diagnostics = { path = "../rts-diagnostics" }
 anyhow = "1.0"
