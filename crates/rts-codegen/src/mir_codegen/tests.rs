@@ -553,6 +553,101 @@ fn pipeline_with_explicit_int_types() {
     assert_eq!(mirs[0].ret, rts_hir::ir::HirType::I32);
 }
 
+// ---------- the full enchilada: TS source → MIR → native code → execute ----------
+
+/// Compile a single user fn from TS source through the entire MIR pipeline
+/// and return a JIT module + the FuncId of the first user fn found.
+fn compile_ts_via_mir(src: &str) -> (JITModule, cranelift_module::FuncId) {
+    let program = rts_parser::parse_source(src).expect("parse");
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut module = make_jit();
+
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mut mir_fn = rts_mir::lower::lower_func(&hir_fn);
+            rts_mir::passes::optimize(&mut mir_fn);
+            rts_mir::passes::verify(&mir_fn).expect("verify");
+
+            // Override conv to host default for JIT.
+            mir_fn.conv = if cfg!(windows) {
+                CallConvHint::WindowsFastcall
+            } else {
+                CallConvHint::SystemV
+            };
+
+            let id = super::lower::lower_mir_func(&mut module, &mir_fn).expect("lower mir");
+            module.finalize_definitions().expect("finalize");
+            return (module, id);
+        }
+    }
+    panic!("no user fn in source");
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_inc() {
+    let (module, id) = compile_ts_via_mir(
+        "function inc(a: i64): i64 { return a + 1; }",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0), 1);
+    assert_eq!(f(41), 42);
+    assert_eq!(f(-2), -1);
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_max() {
+    let (module, id) = compile_ts_via_mir(
+        "function max(a: i64, b: i64): i64 { if (a > b) { return a; } else { return b; } }",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(7, 3), 7);
+    assert_eq!(f(2, 9), 9);
+    assert_eq!(f(5, 5), 5);
+    assert_eq!(f(-1, -10), -1);
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_arithmetic() {
+    let (module, id) = compile_ts_via_mir(
+        "function poly(x: i64): i64 { return x * x + x * 2 + 1; }",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    // (x+1)^2 = x^2 + 2x + 1
+    assert_eq!(f(0), 1);
+    assert_eq!(f(1), 4);
+    assert_eq!(f(3), 16);
+    assert_eq!(f(10), 121);
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_bitwise() {
+    let (module, id) = compile_ts_via_mir(
+        "function mask(x: i64): i64 { return x & 0xff; }",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0xdeadbeef), 0xef);
+    assert_eq!(f(0x100), 0);
+    assert_eq!(f(0x42), 0x42);
+}
+
+#[test]
+fn smoke_ts_to_native_via_mir_ternary() {
+    let (module, id) = compile_ts_via_mir(
+        "function abs(x: i64): i64 { return x < 0 ? -x : x; }",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0), 0);
+    assert_eq!(f(5), 5);
+    assert_eq!(f(-7), 7);
+    assert_eq!(f(-100), 100);
+}
+
 #[test]
 fn jit_end_to_end_hir_to_cl_via_mir() {
     // function inc(a:i64) -> i64 { return a + 1; }
