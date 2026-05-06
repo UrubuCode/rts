@@ -161,7 +161,7 @@ pub(crate) fn parse_dependency_spec(raw: &str) -> DependencySpec {
     }
 }
 
-pub(crate) fn strip_json_comments(input: &str) -> String {
+pub fn strip_json_comments(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut in_string = false;
     let mut escaped = false;

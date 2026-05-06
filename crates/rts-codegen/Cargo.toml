@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 rts-abi = { path = "../rts-abi" }
+rts-linker = { path = "../rts-linker" }
 rts-ast = { path = "../rts-ast" }
 rts-parser = { path = "../rts-parser" }
 rts-runtime = { path = "../rts-runtime" }

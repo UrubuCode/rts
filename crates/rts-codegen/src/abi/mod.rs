@@ -79,7 +79,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::events::abi::SPEC,
 ];
 
-pub(crate) fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
+pub fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
     let (ns_name, fn_name) = qualified.split_once('.')?;
     let spec = SPECS.iter().copied().find(|spec| spec.name == ns_name)?;
     let member = spec.members.iter().find(|m| m.name == fn_name)?;

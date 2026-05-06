@@ -2101,6 +2101,7 @@ dependencies = [
  "regex",
  "rts-abi",
  "rts-ast",
+ "rts-cli",
  "rts-codegen",
  "rts-diagnostics",
  "rts-linker",
@@ -2136,6 +2137,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "colored",
+ "console 0.15.11",
+ "flate2",
+ "indicatif",
+ "rts-abi",
+ "rts-codegen",
+ "rts-diagnostics",
+ "rts-linker",
+ "rts-runtime",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "tokio",
+ "ureq 2.12.1",
+]
+
+[[package]]
 name = "rts-codegen"
 version = "0.1.0"
 dependencies = [
@@ -2150,6 +2173,7 @@ dependencies = [
  "rts-abi",
  "rts-ast",
  "rts-diagnostics",
+ "rts-linker",
  "rts-parser",
  "rts-runtime",
  "serde",

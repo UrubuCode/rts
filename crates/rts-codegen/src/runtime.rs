@@ -70,6 +70,31 @@ pub fn rts_exports() -> &'static [&'static str] {
     RTS_EXPORTS
 }
 
+pub fn compiler_dependencies() -> &'static [&'static str] {
+    COMPILER_DEPENDENCIES
+}
+
+pub fn rts_pending_apis() -> &'static [&'static str] {
+    RTS_PENDING_APIS
+}
+
+const COMPILER_DEPENDENCIES: &[&str] = &[
+    "anyhow", "object", "serde", "serde_json", "ureq", "rayon", "sha2",
+    "cranelift-codegen", "cranelift-module", "cranelift-object", "cranelift-jit",
+];
+
+const RTS_PENDING_APIS: &[&str] = &[
+    "Codegen rebuild on top of the new ABI surface",
+    "AOT pipeline rewire to consume abi::SPECS directly",
+    "GC namespace with handle table + string pool",
+    "Networking namespace (TCP, UDP, HTTP)",
+    "Process namespace (spawn, env, exit, argv)",
+    "Crypto namespace (SHA family, HMAC, AEAD)",
+    "Async runtime primitives (timers, task scheduler)",
+    "Structured diagnostics + source maps for AOT binaries",
+    "package registry + `rts i` installer",
+];
+
 const RTS_EXPORTS: &[&str] = &[
     "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "isize", "usize", "f32", "f64",
     "bool", "str", "fs", "io", "math", "bigfloat", "time", "env", "path", "buffer", "string",
