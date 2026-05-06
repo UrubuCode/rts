@@ -241,6 +241,173 @@ fn jit_select_emits_branchless() {
     assert_eq!(f(0, 100, 200), 200);
 }
 
+#[test]
+fn jit_switch_routes_to_correct_case() {
+    // function pick(n:i64) -> i64 {
+    //     switch (n) {
+    //         case 1: return 100;
+    //         case 2: return 200;
+    //         default: return 0;
+    //     }
+    // }
+    let mut mir = MirFunc::new("pick", CallConvHint::Tail, HirType::I64);
+    let n = mir.new_value(HirType::I64);
+    mir.params.push((n, HirType::I64));
+
+    let entry = mir.new_block();
+    let case1 = mir.new_block();
+    let case2 = mir.new_block();
+    let default_b = mir.new_block();
+    mir.blocks[entry as usize].params.push((n, HirType::I64));
+
+    let r1 = mir.new_value(HirType::I64);
+    let r2 = mir.new_value(HirType::I64);
+    let r0 = mir.new_value(HirType::I64);
+
+    mir.blocks[entry as usize].term = Terminator::Switch {
+        index: n,
+        default: default_b,
+        cases: vec![(1, case1), (2, case2)],
+    };
+
+    mir.blocks[case1 as usize].insts.push(Inst::IConst {
+        dst: r1,
+        ty: HirType::I64,
+        val: 100,
+    });
+    mir.blocks[case1 as usize].term = Terminator::Return(vec![r1]);
+
+    mir.blocks[case2 as usize].insts.push(Inst::IConst {
+        dst: r2,
+        ty: HirType::I64,
+        val: 200,
+    });
+    mir.blocks[case2 as usize].term = Terminator::Return(vec![r2]);
+
+    mir.blocks[default_b as usize].insts.push(Inst::IConst {
+        dst: r0,
+        ty: HirType::I64,
+        val: 0,
+    });
+    mir.blocks[default_b as usize].term = Terminator::Return(vec![r0]);
+
+    let mir = host_conv(mir);
+    let (module, id) = lower_and_finalize(mir);
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(1), 100);
+    assert_eq!(f(2), 200);
+    assert_eq!(f(0), 0);
+    assert_eq!(f(99), 0);
+    assert_eq!(f(-1), 0);
+}
+
+#[test]
+fn jit_loop_with_block_param_phi() {
+    // function sum_to(n:i64) -> i64 {
+    //     let i = 0; let s = 0;
+    //     while (i < n) { s = s + i; i = i + 1; }
+    //     return s;
+    // }
+    // Modeled as:
+    //   block0(n): jump block1(0, 0)
+    //   block1(i, s):
+    //     cmp = i < n
+    //     brif cmp, block2(i, s), block3(s)
+    //   block2(i, s):
+    //     s2 = s + i
+    //     i2 = i + 1
+    //     jump block1(i2, s2)
+    //   block3(s):
+    //     return s
+    let mut mir = MirFunc::new("sum_to", CallConvHint::Tail, HirType::I64);
+    let n = mir.new_value(HirType::I64);
+    mir.params.push((n, HirType::I64));
+
+    let entry = mir.new_block();
+    let header = mir.new_block();
+    let body = mir.new_block();
+    let exit = mir.new_block();
+
+    let i_h = mir.new_value(HirType::I64);
+    let s_h = mir.new_value(HirType::I64);
+    let i_b = mir.new_value(HirType::I64);
+    let s_b = mir.new_value(HirType::I64);
+    let s_e = mir.new_value(HirType::I64);
+
+    mir.blocks[entry as usize].params.push((n, HirType::I64));
+    mir.blocks[header as usize].params.push((i_h, HirType::I64));
+    mir.blocks[header as usize].params.push((s_h, HirType::I64));
+    mir.blocks[body as usize].params.push((i_b, HirType::I64));
+    mir.blocks[body as usize].params.push((s_b, HirType::I64));
+    mir.blocks[exit as usize].params.push((s_e, HirType::I64));
+
+    // entry: jump block1(0, 0)
+    let zero_i = mir.new_value(HirType::I64);
+    let zero_s = mir.new_value(HirType::I64);
+    mir.blocks[entry as usize].insts.push(Inst::IConst {
+        dst: zero_i,
+        ty: HirType::I64,
+        val: 0,
+    });
+    mir.blocks[entry as usize].insts.push(Inst::IConst {
+        dst: zero_s,
+        ty: HirType::I64,
+        val: 0,
+    });
+    mir.blocks[entry as usize].term = Terminator::Jump {
+        target: header,
+        args: vec![zero_i, zero_s],
+    };
+
+    // header: cmp = i_h < n; brif cmp, body(i_h, s_h), exit(s_h)
+    let cmp = mir.new_value(HirType::Bool);
+    mir.blocks[header as usize].insts.push(Inst::ICmp {
+        dst: cmp,
+        cond: IntCond::Slt,
+        lhs: i_h,
+        rhs: n,
+    });
+    mir.blocks[header as usize].term = Terminator::Brif {
+        cond: cmp,
+        then_block: body,
+        then_args: vec![i_h, s_h],
+        else_block: exit,
+        else_args: vec![s_h],
+    };
+
+    // body: s2 = s_b + i_b; i2 = i_b + 1; jump header(i2, s2)
+    let s2 = mir.new_value(HirType::I64);
+    let i2 = mir.new_value(HirType::I64);
+    mir.blocks[body as usize].insts.push(Inst::IAdd {
+        dst: s2,
+        lhs: s_b,
+        rhs: i_b,
+    });
+    mir.blocks[body as usize].insts.push(Inst::IAddImm {
+        dst: i2,
+        lhs: i_b,
+        imm: 1,
+    });
+    mir.blocks[body as usize].term = Terminator::Jump {
+        target: header,
+        args: vec![i2, s2],
+    };
+
+    // exit: return s_e
+    mir.blocks[exit as usize].term = Terminator::Return(vec![s_e]);
+
+    let mir = host_conv(mir);
+    let (module, id) = lower_and_finalize(mir);
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0), 0);    // empty loop
+    assert_eq!(f(1), 0);    // 0
+    assert_eq!(f(5), 10);   // 0+1+2+3+4
+    assert_eq!(f(10), 45);  // 0+1+...+9
+    assert_eq!(f(100), 4950);
+}
+
 // ---------- end-to-end via rts_mir::lower ----------
 
 fn build_hir_func(
