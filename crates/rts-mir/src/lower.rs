@@ -54,6 +54,7 @@ pub fn lower_func(func: &HirFunc) -> MirFunc {
         cursor: entry,
         env,
         terminated: false,
+        loop_stack: Vec::new(),
     };
 
     lower_stmts(&func.body, &mut mir, &mut ctx);
@@ -84,6 +85,9 @@ struct LowerCtx {
     /// True once the current block has emitted a terminator. Statements past
     /// that point are dead and lowered into a fresh unreachable block.
     terminated: bool,
+    /// Loop stack: (continue_target, break_target). `break` jumps to the top
+    /// of the stack's break target; `continue` to its continue target.
+    loop_stack: Vec<(BlockId, BlockId)>,
 }
 
 impl LowerCtx {
@@ -145,6 +149,38 @@ fn lower_stmt(stmt: &HirStmt, mir: &mut MirFunc, ctx: &mut LowerCtx) {
         HirStmt::If { cond, then, else_ } => lower_if(cond, then, else_.as_deref(), mir, ctx),
 
         HirStmt::While { cond, body } => lower_while(cond, body, mir, ctx),
+
+        HirStmt::DoWhile { body, cond } => lower_do_while(body, cond, mir, ctx),
+
+        HirStmt::For { init, cond, update, body } => {
+            lower_for(init.as_deref(), cond.as_ref(), update.as_ref(), body, mir, ctx)
+        }
+
+        HirStmt::Break(_label) => {
+            // Labeled break/continue not yet supported — uses innermost loop.
+            if let Some(&(_, brk)) = ctx.loop_stack.last() {
+                set_term(mir, ctx.cursor, Terminator::Jump { target: brk, args: vec![] });
+                ctx.terminated = true;
+            } else {
+                // break outside loop — fall through (codegen ast handles)
+                set_term(mir, ctx.cursor, Terminator::Trap {
+                    code: TrapHint::User(TRAP_UNSUPPORTED_STMT),
+                });
+                ctx.terminated = true;
+            }
+        }
+
+        HirStmt::Continue(_label) => {
+            if let Some(&(cont, _)) = ctx.loop_stack.last() {
+                set_term(mir, ctx.cursor, Terminator::Jump { target: cont, args: vec![] });
+                ctx.terminated = true;
+            } else {
+                set_term(mir, ctx.cursor, Terminator::Trap {
+                    code: TrapHint::User(TRAP_UNSUPPORTED_STMT),
+                });
+                ctx.terminated = true;
+            }
+        }
 
         HirStmt::Block(body) => lower_stmts(body, mir, ctx),
 
@@ -255,10 +291,12 @@ fn lower_while(cond: &HirExpr, body: &[HirStmt], mir: &mut MirFunc, ctx: &mut Lo
         },
     );
 
-    // body: jump back to header at end
+    // body: jump back to header at end. Push loop frame so break/continue work.
     ctx.cursor = body_b;
     ctx.terminated = false;
+    ctx.loop_stack.push((header_b, exit_b));
     lower_stmts(body, mir, ctx);
+    ctx.loop_stack.pop();
     if !ctx.terminated {
         set_term(
             mir,
@@ -269,6 +307,111 @@ fn lower_while(cond: &HirExpr, body: &[HirStmt], mir: &mut MirFunc, ctx: &mut Lo
             },
         );
     }
+
+    ctx.cursor = exit_b;
+    ctx.terminated = false;
+}
+
+fn lower_do_while(body: &[HirStmt], cond: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) {
+    let body_b = mir.new_block();
+    let header_b = mir.new_block();
+    let exit_b = mir.new_block();
+
+    set_term(mir, ctx.cursor, Terminator::Jump { target: body_b, args: vec![] });
+
+    // body: runs at least once. continue jumps to header (cond test).
+    ctx.cursor = body_b;
+    ctx.terminated = false;
+    ctx.loop_stack.push((header_b, exit_b));
+    lower_stmts(body, mir, ctx);
+    ctx.loop_stack.pop();
+    if !ctx.terminated {
+        set_term(mir, ctx.cursor, Terminator::Jump { target: header_b, args: vec![] });
+    }
+
+    // header: test cond, brif → body / exit
+    ctx.cursor = header_b;
+    ctx.terminated = false;
+    let cond_v = lower_expr(cond, mir, ctx);
+    set_term(
+        mir,
+        ctx.cursor,
+        Terminator::Brif {
+            cond: cond_v,
+            then_block: body_b,
+            then_args: vec![],
+            else_block: exit_b,
+            else_args: vec![],
+        },
+    );
+
+    ctx.cursor = exit_b;
+    ctx.terminated = false;
+}
+
+fn lower_for(
+    init: Option<&HirStmt>,
+    cond: Option<&HirExpr>,
+    update: Option<&HirExpr>,
+    body: &[HirStmt],
+    mir: &mut MirFunc,
+    ctx: &mut LowerCtx,
+) {
+    // 1. init runs in current block
+    if let Some(s) = init {
+        lower_stmt(s, mir, ctx);
+        if ctx.terminated {
+            return;
+        }
+    }
+
+    let header_b = mir.new_block();
+    let body_b = mir.new_block();
+    let update_b = mir.new_block();
+    let exit_b = mir.new_block();
+
+    set_term(mir, ctx.cursor, Terminator::Jump { target: header_b, args: vec![] });
+
+    // header: test cond (if missing, treat as `true`)
+    ctx.cursor = header_b;
+    ctx.terminated = false;
+    let cond_v = match cond {
+        Some(e) => lower_expr(e, mir, ctx),
+        None => {
+            let v = mir.new_value(HirType::Bool);
+            ctx.push_inst(mir, Inst::IConst { dst: v, ty: HirType::Bool, val: 1 });
+            v
+        }
+    };
+    set_term(
+        mir,
+        ctx.cursor,
+        Terminator::Brif {
+            cond: cond_v,
+            then_block: body_b,
+            then_args: vec![],
+            else_block: exit_b,
+            else_args: vec![],
+        },
+    );
+
+    // body: continue → update_b, break → exit_b
+    ctx.cursor = body_b;
+    ctx.terminated = false;
+    ctx.loop_stack.push((update_b, exit_b));
+    lower_stmts(body, mir, ctx);
+    ctx.loop_stack.pop();
+    if !ctx.terminated {
+        set_term(mir, ctx.cursor, Terminator::Jump { target: update_b, args: vec![] });
+    }
+
+    // update: run update expr (if any), then back to header
+    ctx.cursor = update_b;
+    ctx.terminated = false;
+    if let Some(e) = update {
+        let _ = lower_expr(e, mir, ctx);
+    }
+    set_term(mir, ctx.cursor, Terminator::Jump { target: header_b, args: vec![] });
 
     ctx.cursor = exit_b;
     ctx.terminated = false;
@@ -304,6 +447,24 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
         HirExprKind::Cast { expr: inner, target } => {
             let v = lower_expr(inner, mir, ctx);
             lower_cast(v, &inner.ty, target, mir, ctx)
+        }
+
+        HirExprKind::Ternary { cond, then, else_ } => {
+            // Branchless: `cond ? then : else` → Inst::Select.
+            // Both branches evaluated unconditionally (matches semantics
+            // when `then` and `else_` are pure; side effects in branches
+            // would need real branching — caller should split into stmts).
+            let c = lower_expr(cond, mir, ctx);
+            let t = lower_expr(then, mir, ctx);
+            let e = lower_expr(else_, mir, ctx);
+            let dst = mir.new_value(expr.ty.clone());
+            ctx.push_inst(mir, Inst::Select {
+                dst,
+                cond: c,
+                on_true: t,
+                on_false: e,
+            });
+            dst
         }
 
         // Unsupported: emit a placeholder of the expected type and trap when

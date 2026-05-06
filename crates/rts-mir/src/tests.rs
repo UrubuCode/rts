@@ -756,6 +756,130 @@ fn narrow_i64_iadd_does_not_insert_mask() {
     assert_eq!(bb.insts.len(), 1, "I64 ops should not be masked");
 }
 
+// ---------- expanded lowering tests ----------
+
+#[test]
+fn lower_for_classic_creates_init_header_body_update_exit() {
+    // for (let i = 0; i < 10; i++) { ... }
+    let body = vec![HirStmt::For {
+        init: Some(Box::new(HirStmt::Let {
+            name: "i".into(),
+            ty: HirType::I64,
+            init: Some(lit_int(0)),
+        })),
+        cond: Some(bin(
+            HirBinOp::Lt,
+            ident("i", HirType::I64),
+            lit_int(10),
+            HirType::Bool,
+        )),
+        update: Some(HirExpr::new(
+            HirExprKind::PostInc(Box::new(ident("i", HirType::I64))),
+            HirType::I64,
+        )),
+        body: vec![],
+    }];
+    let f = fn_decl("for_fn", vec![], HirType::Void, body);
+    let mir = lower_func(&f);
+
+    // entry + header + body + update + exit = 5 blocks
+    assert_eq!(mir.blocks.len(), 5);
+    assert!(matches!(mir.blocks[0].term, Terminator::Jump { .. })); // entry → header
+    assert!(matches!(mir.blocks[1].term, Terminator::Brif { .. })); // header
+    assert!(matches!(mir.blocks[2].term, Terminator::Jump { .. })); // body → update
+    assert!(matches!(mir.blocks[3].term, Terminator::Jump { .. })); // update → header
+    assert!(matches!(mir.blocks[4].term, Terminator::Return(_))); // exit
+}
+
+#[test]
+fn lower_do_while_executes_body_first() {
+    // do { } while (false)
+    let body = vec![HirStmt::DoWhile {
+        body: vec![],
+        cond: lit_bool(false),
+    }];
+    let f = fn_decl("dw", vec![], HirType::Void, body);
+    let mir = lower_func(&f);
+    // entry + body + header + exit = 4
+    assert_eq!(mir.blocks.len(), 4);
+    // entry jumps to body (not header)
+    if let Terminator::Jump { target, .. } = &mir.blocks[0].term {
+        assert_eq!(*target, 1, "entry should jump to body block");
+    } else {
+        panic!("entry must Jump");
+    }
+    // body jumps to header
+    assert!(matches!(mir.blocks[1].term, Terminator::Jump { .. }));
+    // header brifs
+    assert!(matches!(mir.blocks[2].term, Terminator::Brif { .. }));
+}
+
+#[test]
+fn lower_break_in_while_jumps_to_exit() {
+    // while (true) { break; }
+    let body = vec![HirStmt::While {
+        cond: lit_bool(true),
+        body: vec![HirStmt::Break(None)],
+    }];
+    let f = fn_decl("br", vec![], HirType::Void, body);
+    let mir = lower_func(&f);
+
+    // body block (block index 2 in: entry/header/body/exit)
+    let body_b = &mir.blocks[2];
+    if let Terminator::Jump { target, .. } = &body_b.term {
+        // should jump to the exit block (which exists at index 3)
+        assert_eq!(*target, 3, "break should target exit block");
+    } else {
+        panic!("body must Jump (break)");
+    }
+}
+
+#[test]
+fn lower_continue_in_while_jumps_to_header() {
+    // while (true) { continue; }
+    let body = vec![HirStmt::While {
+        cond: lit_bool(true),
+        body: vec![HirStmt::Continue(None)],
+    }];
+    let f = fn_decl("cont", vec![], HirType::Void, body);
+    let mir = lower_func(&f);
+
+    // body should jump to header (block 1)
+    let body_b = &mir.blocks[2];
+    if let Terminator::Jump { target, .. } = &body_b.term {
+        assert_eq!(*target, 1, "continue should target header block");
+    } else {
+        panic!("body must Jump (continue)");
+    }
+}
+
+#[test]
+fn lower_ternary_emits_select() {
+    // function pick(c, a, b): i64 { return c ? a : b; }
+    let tern = HirExpr::new(
+        HirExprKind::Ternary {
+            cond: Box::new(ident("c", HirType::Bool)),
+            then: Box::new(ident("a", HirType::I64)),
+            else_: Box::new(ident("b", HirType::I64)),
+        },
+        HirType::I64,
+    );
+    let body = vec![HirStmt::Return(Some(tern))];
+    let f = fn_decl(
+        "pick",
+        vec![
+            ("c", HirType::Bool),
+            ("a", HirType::I64),
+            ("b", HirType::I64),
+        ],
+        HirType::I64,
+        body,
+    );
+    let mir = lower_func(&f);
+    let bb = &mir.blocks[0];
+    assert!(bb.insts.iter().any(|i| matches!(i, Inst::Select { .. })));
+}
+
 // ---------- print tests ----------
 
 #[test]

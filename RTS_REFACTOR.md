@@ -1069,7 +1069,7 @@ i64 bits → f64:  bitcast(F64, MemFlags::new(), val)   (transmute)
 ### Fase 3 — MIR e passes (2–3 semanas)
 
 - [x] Crate `rts-mir` criado com IR completo: `MirFunc`, `BasicBlock`, `Inst` (60+ variantes incluindo aritmética inteira/float, bitwise, shifts, conversões, comparações, loads/stores narrow, atomics, GC), `Terminator` (Return/Jump/Brif/Switch/TailCall/Trap), `IntCond`/`FloatCond` espelhando Cranelift. 7 testes verde.
-- [x] `lower.rs`: HIR → MIR — subset linear (literais, aritmética, comparações, bitwise, shifts, casts, if/else, while, let/const, return; constructs unsupported caem em `Terminator::Trap`)
+- [x] `lower.rs`: HIR → MIR — cobertura ampliada (literais, aritmética, comparações, bitwise, shifts, casts, if/else, while, do-while, for clássico com init/cond/update, break/continue com loop stack, ternary→Select, let/const, return; constructs ainda unsupported caem em `Terminator::Trap`)
 - [x] `passes/fold.rs`: constant folding (IAdd/ISub/IMul/SDiv/SRem/BAnd/BOr/BXor de IConst→IConst) + strength reduction (mul→shl, urem→band, sdiv→sshr, ops com const→*Imm)
 - [x] `passes/dce.rs`: eliminação de código morto com fixed-point (preserva side-effecting: Store, CallExtern, AtomicStore/Rmw/Cas, Fence, DeclareGcValue)
 - [x] `passes/narrow.rs`: canonicalização I8/U8 (mask 0xFF) e I16/U16 (mask 0xFFFF) após IAdd/ISub/IMul/INeg/IShl
