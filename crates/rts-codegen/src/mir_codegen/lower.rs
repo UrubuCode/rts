@@ -209,6 +209,52 @@ pub fn lower_mir_func_with_decls(
     }
     builder.finalize();
 
+    // Pre-compila para extrair stack maps ANTES de define_function (que
+    // limpa o ctx). Espelha o mesmo padrão do codegen AST autoritativo.
+    {
+        use cranelift_codegen::control::ControlPlane;
+        let mut ctrl = ControlPlane::default();
+        let gc_debug = std::env::var("RTS_GC_DEBUG").is_ok();
+        match ctx.compile(module.isa(), &mut ctrl) {
+            Ok(compiled) => {
+                let raw_maps = compiled.buffer.user_stack_maps();
+                if gc_debug {
+                    eprintln!(
+                        "[gc-mir] fn `{}` — {} raw stack map entries",
+                        mir.name,
+                        raw_maps.len()
+                    );
+                }
+                let maps: Vec<(u32, Vec<u32>)> = raw_maps
+                    .iter()
+                    .filter_map(|(ret_offset, _, map)| {
+                        let offsets: Vec<u32> =
+                            map.entries().map(|(_, sp_off)| sp_off).collect();
+                        if offsets.is_empty() {
+                            None
+                        } else {
+                            Some((*ret_offset, offsets))
+                        }
+                    })
+                    .collect();
+                if !maps.is_empty() {
+                    rts_runtime::namespaces::gc::stack_map_registry::push_pending(
+                        func_id.as_u32(),
+                        maps,
+                    );
+                }
+            }
+            Err(e) => {
+                if gc_debug {
+                    eprintln!(
+                        "[gc-mir] fn `{}` — pre-compile failed: {}",
+                        mir.name, e.inner
+                    );
+                }
+            }
+        }
+    }
+
     module
         .define_function(func_id, &mut ctx)
         .map_err(|e| anyhow!("define_function {}: {e}", mir.name))?;
@@ -650,9 +696,19 @@ fn lower_inst(
             }
         }
 
-        // Unsupported in this slice: atomics, GC stack maps.
+        // GC stack map: marca o valor pra que Cranelift inclua seu slot
+        // no stack map quando a fn for compilada. Coletado depois via
+        // ctx.compiled_code() e registrado em stack_map_registry.
+        DeclareGcValue { val } => {
+            let v = vmap.get(val).copied().ok_or_else(|| {
+                anyhow!("DeclareGcValue references unknown ValueId v{}", val)
+            })?;
+            builder.declare_value_needs_stack_map(v);
+        }
+
+        // Unsupported in this slice: atomics.
         AtomicLoad { .. } | AtomicStore { .. } | AtomicRmw { .. }
-        | AtomicCas { .. } | Fence { .. } | DeclareGcValue { .. } => {
+        | AtomicCas { .. } | Fence { .. } => {
             return Err(anyhow!("mir_codegen: instruction not yet supported: {:?}", inst));
         }
     }

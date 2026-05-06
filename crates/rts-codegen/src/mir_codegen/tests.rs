@@ -1510,6 +1510,66 @@ fn jit_array_sum_via_loop() {
     assert_eq!(f(), 60);
 }
 
+// ---------- GC stack maps ----------
+
+#[test]
+fn gc_array_literal_emits_declare_gc_value() {
+    // Pos-pass deveria inserir Inst::DeclareGcValue após o vec_new
+    // (cujo ret é Handle). Verifica estruturalmente.
+    let src = "function n(): i64 { const arr: i64[] = [1,2,3]; return arr.length; }";
+    let mirs = lower_with_intrinsics_and_externs(src);
+    let mir = &mirs[0];
+    let has_gc_decl = mir.blocks.iter().flat_map(|b| &b.insts).any(|i| matches!(
+        i,
+        rts_mir::ir::Inst::DeclareGcValue { .. }
+    ));
+    assert!(has_gc_decl, "expected DeclareGcValue after vec_new");
+}
+
+#[test]
+fn gc_array_literal_jit_compiles_with_stack_maps() {
+    // Compila uma fn que usa vec_new (handle) + vec_get e verifica que o
+    // JIT aceita o IR com declare_value_needs_stack_map dentro. Sem este
+    // suporte, o lower antigo gerava erro do verifier.
+    let src = "function pick(): i64 { const arr: i64[] = [10,20,30]; return arr[1]; }";
+    let mirs = lower_with_intrinsics_and_externs(src);
+    let mut mir = mirs.into_iter().next().unwrap();
+    mir.conv = if cfg!(windows) {
+        CallConvHint::WindowsFastcall
+    } else {
+        CallConvHint::SystemV
+    };
+    rts_mir::passes::optimize(&mut mir);
+    rts_mir::passes::verify(&mir).expect("verify");
+
+    // Importante: optimize NÃO pode remover o DeclareGcValue.
+    let still_has_gc = mir.blocks.iter().flat_map(|b| &b.insts).any(|i| matches!(
+        i,
+        rts_mir::ir::Inst::DeclareGcValue { .. }
+    ));
+    assert!(still_has_gc, "DeclareGcValue should survive optimize");
+
+    let mut module = make_jit_with_externs(&[
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8,
+        ),
+    ]);
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 20);
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline

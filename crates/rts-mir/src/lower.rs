@@ -155,7 +155,41 @@ pub fn lower_func_full_with_intrinsics(
     }
 
     mir.had_placeholders = ctx.had_placeholders;
+
+    // Pos-pass: marca cada handle vivo como GC root via DeclareGcValue.
+    // Heuristica: cada `CallExtern` cujo `ret_ty` é `Handle(_)` produz um
+    // valor que pode escapar para outras fns ou ficar vivo durante uma
+    // chamada subsequente que dispare GC. Inserir DeclareGcValue logo
+    // apos a call garante que o Cranelift `declare_value_needs_stack_map`
+    // marque o slot do `dst` no stack map.
+    insert_gc_declares(&mut mir);
+
     mir
+}
+
+/// Walks every block and inserts `Inst::DeclareGcValue` after each
+/// `Inst::CallExtern` whose return type is a `Handle(_)` and produces a
+/// `dst` value. The DeclareGcValue is a no-op at runtime — the codegen
+/// translates it into `builder.declare_value_needs_stack_map(value)`.
+fn insert_gc_declares(mir: &mut MirFunc) {
+    for block in mir.blocks.iter_mut() {
+        let mut new_insts: Vec<Inst> = Vec::with_capacity(block.insts.len() * 2);
+        for inst in block.insts.drain(..) {
+            let to_decl = match &inst {
+                Inst::CallExtern { dst: Some(d), ret_ty, .. }
+                    if matches!(ret_ty, HirType::Handle(_)) =>
+                {
+                    Some(*d)
+                }
+                _ => None,
+            };
+            new_insts.push(inst);
+            if let Some(d) = to_decl {
+                new_insts.push(Inst::DeclareGcValue { val: d });
+            }
+        }
+        block.insts = new_insts;
+    }
 }
 
 // ---------------------------------------------------------------------------
