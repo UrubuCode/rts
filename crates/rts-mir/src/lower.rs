@@ -28,6 +28,13 @@ use crate::ir::*;
 /// generated MIR can pinpoint which HIR feature triggered the fallback.
 const TRAP_UNSUPPORTED_STMT: u16 = 0x10;
 
+/// Resolves a `(namespace, member)` pair (e.g. `("math", "sqrt")`) to a
+/// concrete extern call signature. Returns `(symbol, param_tys, ret_ty)`
+/// when the namespace member exists, or `None` to leave the MethodCall
+/// unresolved. Provided by the caller to keep `rts-mir` free of the runtime
+/// SPECS table.
+pub type ExternResolver<'r> = &'r dyn Fn(&str, &str) -> Option<(String, Vec<HirType>, HirType)>;
+
 /// Public entry: lower a fully-typed `HirFunc` into a `MirFunc`.
 ///
 /// Without a `Scope`, calls to other user fns lower to a placeholder zero
@@ -41,6 +48,17 @@ pub fn lower_func(func: &HirFunc) -> MirFunc {
 /// Lower with access to a populated scope so identifier callees can be
 /// resolved to typed `Inst::CallUser` instructions.
 pub fn lower_func_with_scope(func: &HirFunc, scope: &Scope) -> MirFunc {
+    lower_func_full(func, scope, None)
+}
+
+/// Most general lowering entry: takes both a scope (for user-fn calls) and
+/// an optional extern resolver (for namespace method calls like
+/// `math.sqrt(x)`).
+pub fn lower_func_full(
+    func: &HirFunc,
+    scope: &Scope,
+    extern_resolver: Option<ExternResolver<'_>>,
+) -> MirFunc {
     let mut mir = MirFunc::new(
         &func.name,
         // Tail conv matches `rts-codegen`'s default for user fns
@@ -83,6 +101,7 @@ pub fn lower_func_with_scope(func: &HirFunc, scope: &Scope) -> MirFunc {
         terminated: false,
         loop_stack: Vec::new(),
         fn_sigs,
+        extern_resolver,
     };
 
     lower_stmts(&func.body, &mut mir, &mut ctx);
@@ -107,7 +126,7 @@ pub fn lower_func_with_scope(func: &HirFunc, scope: &Scope) -> MirFunc {
 // Lowering context
 // ---------------------------------------------------------------------------
 
-struct LowerCtx {
+struct LowerCtx<'r> {
     cursor: BlockId,
     env: HashMap<String, ValueId>,
     /// True once the current block has emitted a terminator. Statements past
@@ -119,9 +138,11 @@ struct LowerCtx {
     /// User fn signatures (name → (param_tys, ret_ty)) snapshotted from the
     /// HIR scope so `lower_expr` can emit `Inst::CallUser` with full type info.
     fn_sigs: HashMap<String, (Vec<HirType>, HirType)>,
+    /// Optional resolver for `(namespace, method)` pairs to extern symbols.
+    extern_resolver: Option<ExternResolver<'r>>,
 }
 
-impl LowerCtx {
+impl LowerCtx<'_> {
     fn push_inst(&self, mir: &mut MirFunc, inst: Inst) {
         mir.blocks[self.cursor as usize].insts.push(inst);
     }
@@ -605,6 +626,38 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
         HirExprKind::Cast { expr: inner, target } => {
             let v = lower_expr(inner, mir, ctx);
             lower_cast(v, &inner.ty, target, mir, ctx)
+        }
+
+        HirExprKind::MethodCall { object, method, args } => {
+            // Try to resolve `<ns>.<method>` via the extern resolver when
+            // `object` is a bare identifier matching a known namespace.
+            if let HirExprKind::Ident(ns_name) = &object.kind {
+                if let Some(resolver) = ctx.extern_resolver {
+                    if let Some((sym, param_tys, ret_ty)) = resolver(ns_name, method) {
+                        let arg_vals: Vec<ValueId> =
+                            args.iter().map(|a| lower_expr(a, mir, ctx)).collect();
+                        let dst = if matches!(ret_ty, HirType::Void) {
+                            None
+                        } else {
+                            Some(mir.new_value(ret_ty.clone()))
+                        };
+                        ctx.push_inst(
+                            mir,
+                            Inst::CallExtern {
+                                dst,
+                                sym,
+                                args: arg_vals,
+                                ret_ty: ret_ty.clone(),
+                                param_tys,
+                            },
+                        );
+                        return dst.unwrap_or_else(|| emit_zero_const(&expr.ty, mir, ctx));
+                    }
+                }
+            }
+            // Unresolved method call → placeholder zero (codegen AST handles
+            // member access for class methods, etc.).
+            emit_zero_const(&expr.ty, mir, ctx)
         }
 
         HirExprKind::Call { callee, args } => {

@@ -63,24 +63,44 @@ pub fn lower_mir_func_with_decls(
     let mut ctx = module.make_context();
     ctx.func.signature = sig;
 
-    // Pre-import every user-fn target referenced by `Inst::CallUser` in this
-    // body. Done before the FunctionBuilder borrows `ctx.func` mutably so we
-    // can still reach into `module` for `declare_func_in_func`.
+    // Pre-import every user-fn target referenced by `Inst::CallUser` AND
+    // every extern symbol referenced by `Inst::CallExtern`. Done before the
+    // FunctionBuilder borrows `ctx.func` mutably so we can still reach into
+    // `module` for `declare_function`/`declare_func_in_func`.
     let mut func_ref_cache: HashMap<String, cranelift_codegen::ir::FuncRef> = HashMap::new();
     for block in &mir.blocks {
         for inst in &block.insts {
-            if let Inst::CallUser { name, .. } = inst {
-                if func_ref_cache.contains_key(name) {
-                    continue;
+            match inst {
+                Inst::CallUser { name, .. } => {
+                    if func_ref_cache.contains_key(name) {
+                        continue;
+                    }
+                    let target_id = decls.get(name).copied().ok_or_else(|| {
+                        anyhow!("mir_codegen: CallUser to '{}' but no FuncId declared", name)
+                    })?;
+                    let fref = module.declare_func_in_func(target_id, &mut ctx.func);
+                    func_ref_cache.insert(name.clone(), fref);
                 }
-                let target_id = decls
-                    .get(name)
-                    .copied()
-                    .ok_or_else(|| anyhow!(
-                        "mir_codegen: CallUser to '{}' but no FuncId declared", name
-                    ))?;
-                let fref = module.declare_func_in_func(target_id, &mut ctx.func);
-                func_ref_cache.insert(name.clone(), fref);
+                Inst::CallExtern { sym, param_tys, ret_ty, .. } => {
+                    if func_ref_cache.contains_key(sym) {
+                        continue;
+                    }
+                    let mut ext_sig = Signature::new(
+                        if cfg!(windows) { CallConv::WindowsFastcall } else { CallConv::SystemV }
+                    );
+                    for ty in param_tys {
+                        ext_sig.params.push(AbiParam::new(hir_to_cl(ty)));
+                    }
+                    if !matches!(ret_ty, HirType::Void) {
+                        ext_sig.returns.push(AbiParam::new(hir_to_cl(ret_ty)));
+                    }
+                    let target_id = module
+                        .declare_function(sym, Linkage::Import, &ext_sig)
+                        .map_err(|e| anyhow!("declare extern {}: {e}", sym))?;
+                    let fref = module.declare_func_in_func(target_id, &mut ctx.func);
+                    func_ref_cache.insert(sym.clone(), fref);
+                }
+                _ => {}
             }
         }
     }
@@ -542,11 +562,30 @@ fn lower_inst(
             }
         }
 
-        // Unsupported in this slice: extern call, atomics, GC stack maps.
-        // They become trap-on-emit so callers know the MIR contains shapes
-        // the lower can't yet realise; the MIR `verify` already catches
-        // structural problems, so this trap is purely for unsupported ops.
-        CallExtern { .. } | AtomicLoad { .. } | AtomicStore { .. } | AtomicRmw { .. }
+        // Extern call: same shape as CallUser but the FuncRef was imported
+        // via `declare_function(Linkage::Import)` instead of a local FuncId.
+        CallExtern { dst, sym, args, .. } => {
+            let fref = func_refs.get(sym).ok_or_else(|| {
+                anyhow!("mir_codegen: CallExtern '{}' has no FuncRef in cache", sym)
+            })?;
+            let cl_args: Vec<Value> =
+                args.iter().map(|a| val(vmap, *a)).collect::<Result<_>>()?;
+            let call = builder.ins().call(*fref, &cl_args);
+            if let Some(d) = dst {
+                let results = builder.inst_results(call);
+                if let Some(&first) = results.first() {
+                    vmap.insert(*d, first);
+                } else {
+                    return Err(anyhow!(
+                        "mir_codegen: CallExtern '{}' has dst but callee returned void",
+                        sym
+                    ));
+                }
+            }
+        }
+
+        // Unsupported in this slice: atomics, GC stack maps.
+        AtomicLoad { .. } | AtomicStore { .. } | AtomicRmw { .. }
         | AtomicCas { .. } | Fence { .. } | DeclareGcValue { .. } => {
             return Err(anyhow!("mir_codegen: instruction not yet supported: {:?}", inst));
         }

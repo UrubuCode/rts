@@ -222,7 +222,17 @@ pub enum Inst {
     Select { dst: ValueId, cond: ValueId, on_true: ValueId, on_false: ValueId },
 
     // Extern call (runtime ABI)
-    CallExtern { dst: Option<ValueId>, sym: String, args: Vec<ValueId> },
+    /// Call to an externally-declared function (e.g. an RTS runtime symbol
+    /// like `__RTS_FN_NS_MATH_SQRT`). The codegen declares the import via
+    /// `Module::declare_function` with `Linkage::Import` using the embedded
+    /// `param_tys`/`ret_ty`. `dst = None` for void returns.
+    CallExtern {
+        dst: Option<ValueId>,
+        sym: String,
+        args: Vec<ValueId>,
+        ret_ty: HirType,
+        param_tys: Vec<HirType>,
+    },
 
     // Atomics
     AtomicLoad { dst: ValueId, ptr: ValueId, order: MemOrder },

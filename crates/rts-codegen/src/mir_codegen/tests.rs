@@ -20,6 +20,12 @@ use super::lower::lower_mir_func;
 /// MIR's CallConvHint::Tail to use the host default to avoid the tail
 /// call frame-pointer requirement here.
 fn make_jit() -> JITModule {
+    make_jit_with_externs(&[])
+}
+
+/// Build a JIT module and register `(symbol, fn_ptr)` pairs so calls to
+/// extern symbols can be resolved at link time inside the JIT.
+fn make_jit_with_externs(externs: &[(&str, *const u8)]) -> JITModule {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
     flags.set("preserve_frame_pointers", "true").unwrap();
@@ -27,7 +33,10 @@ fn make_jit() -> JITModule {
         .unwrap()
         .finish(settings::Flags::new(flags))
         .unwrap();
-    let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    for &(sym, ptr) in externs {
+        builder.symbol(sym, ptr);
+    }
     JITModule::new(builder)
 }
 
@@ -651,6 +660,89 @@ fn smoke_ts_to_native_via_mir_chained_calls() {
     assert_eq!(f(0), 3);
     assert_eq!(f(10), 13);
     assert_eq!(f(-5), -2);
+}
+
+// ---------- extern calls: TS source calling rts namespace methods ----------
+
+#[test]
+fn smoke_ts_to_native_via_mir_calls_math_sqrt() {
+    // Build MIR by hand calling __RTS_FN_NS_MATH_SQRT directly. This skips
+    // the HIR layer (which would need a parser run) and validates that the
+    // mir_codegen lower path resolves extern symbols through the JIT
+    // builder's symbol table.
+    let mut mir = MirFunc::new("call_sqrt", CallConvHint::Tail, HirType::F64);
+    let x = mir.new_value(HirType::F64);
+    let r = mir.new_value(HirType::F64);
+    mir.params.push((x, HirType::F64));
+    let blk = mir.new_block();
+    mir.blocks[blk as usize].params.push((x, HirType::F64));
+    mir.blocks[blk as usize].insts.push(rts_mir::ir::Inst::CallExtern {
+        dst: Some(r),
+        sym: "__RTS_FN_NS_MATH_SQRT".to_string(),
+        args: vec![x],
+        ret_ty: HirType::F64,
+        param_tys: vec![HirType::F64],
+    });
+    mir.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    // JIT with the runtime symbol registered.
+    let mut module = make_jit_with_externs(&[(
+        "__RTS_FN_NS_MATH_SQRT",
+        rts_runtime::namespaces::math::basic::__RTS_FN_NS_MATH_SQRT as *const u8,
+    )]);
+    let mir = host_conv(mir);
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(f64) -> f64 = unsafe { std::mem::transmute(ptr) };
+    assert!((f(4.0) - 2.0).abs() < 1e-12);
+    assert!((f(9.0) - 3.0).abs() < 1e-12);
+    assert!((f(2.0) - 2f64.sqrt()).abs() < 1e-12);
+}
+
+#[test]
+fn smoke_extern_resolver_handles_math() {
+    // Verify the extern_resolver_default closure exposes math.sqrt.
+    let resolver = super::extern_resolver_default();
+    let resolved = resolver("math", "sqrt").expect("math.sqrt should resolve");
+    let (sym, params, ret) = resolved;
+    assert_eq!(sym, "__RTS_FN_NS_MATH_SQRT");
+    assert_eq!(params, vec![HirType::F64]);
+    assert_eq!(ret, HirType::F64);
+}
+
+#[test]
+fn smoke_extern_resolver_skips_unknown_namespace() {
+    let resolver = super::extern_resolver_default();
+    assert!(resolver("not_a_namespace", "sqrt").is_none());
+    assert!(resolver("math", "not_a_method").is_none());
+}
+
+#[test]
+fn smoke_pipeline_resolves_math_sqrt_through_hir() {
+    // function root(x: f64): f64 { return math.sqrt(x); }
+    let src = "function root(x: f64): f64 { return math.sqrt(x); }";
+    let program = rts_parser::parse_source(src).expect("parse");
+    let resolver = super::extern_resolver_default();
+
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut found_call_extern = false;
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full(&hir_fn, &hir_scope, Some(&resolver));
+            for block in &mir_fn.blocks {
+                for inst in &block.insts {
+                    if let rts_mir::ir::Inst::CallExtern { sym, .. } = inst {
+                        if sym == "__RTS_FN_NS_MATH_SQRT" {
+                            found_call_extern = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(found_call_extern, "expected MIR to contain CallExtern math.sqrt");
 }
 
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------

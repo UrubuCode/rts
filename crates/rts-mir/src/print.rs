@@ -154,7 +154,7 @@ fn fmt_inst(inst: &Inst) -> String {
         Select { dst, cond, on_true, on_false } => {
             format!("v{} = select v{}, v{}, v{}", dst, cond, on_true, on_false)
         }
-        CallExtern { dst, sym, args } => {
+        CallExtern { dst, sym, args, .. } => {
             let args_s = args.iter().map(|v| format!("v{}", v)).collect::<Vec<_>>().join(", ");
             match dst {
                 Some(d) => format!("v{} = call_extern {}({})", d, sym, args_s),
