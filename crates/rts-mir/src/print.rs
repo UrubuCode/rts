@@ -171,6 +171,19 @@ fn fmt_inst(inst: &Inst) -> String {
         }
         Fence { order } => format!("fence {:?}", order),
         DeclareGcValue { val } => format!("declare_gc v{}", val),
+        StrLit { dst_ptr, dst_len, value } => {
+            // Escape minimal: replace newlines/quotes for legibility.
+            let mut esc = String::with_capacity(value.len());
+            for c in value.chars() {
+                match c {
+                    '\n' => esc.push_str("\\n"),
+                    '\\' => esc.push_str("\\\\"),
+                    '"' => esc.push_str("\\\""),
+                    _ => esc.push(c),
+                }
+            }
+            format!("(v{}, v{}) = strlit \"{}\"", dst_ptr, dst_len, esc)
+        }
         CallUser { dst, name, args, ret_ty, .. } => {
             let args_s = args.iter().map(|v| format!("v{}", v)).collect::<Vec<_>>().join(", ");
             match dst {

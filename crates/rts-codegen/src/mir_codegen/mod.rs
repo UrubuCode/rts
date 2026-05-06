@@ -31,24 +31,26 @@ fn abi_type_to_hir(t: AbiType) -> HirType {
         AbiType::U64 => HirType::U64,
         AbiType::F64 => HirType::F64,
         AbiType::Handle => HirType::Handle(rts_hir::ir::HandleKind::Opaque),
-        // StrPtr is two-slot; callers must bail before reaching CallExtern
-        // with a StrPtr signature.
-        AbiType::StrPtr => HirType::I64,
+        // StrPtr is two-slot — kept as HirType::Str so the MIR lower layer
+        // recognises it and expands the param into a (ptr, len) pair via
+        // Inst::StrLit (or a zero/zero placeholder for non-literal args).
+        AbiType::StrPtr => HirType::Str,
     }
 }
 
 /// Build an `ExternResolver` closure that consults the workspace's
 /// `crate::abi::SPECS` to resolve `(ns, method)` pairs to extern symbols.
-/// Returns `None` for namespaces with `StrPtr` in their signature (the MIR
-/// layer doesn't model two-slot params yet).
+///
+/// Members with `StrPtr` parameters resolve normally — the MIR lower layer
+/// expands each `HirType::Str` parameter into two `i64` slots (ptr + len)
+/// at the call site. Members that *return* `StrPtr` still bail (returning
+/// two values from extern "C" doesn't fit the simple Inst::CallExtern dst
+/// model — runtime symbols use handles for that).
 pub fn extern_resolver_default() -> impl Fn(&str, &str) -> Option<(String, Vec<HirType>, HirType)> {
     |ns: &str, method: &str| {
         let qualified = format!("{ns}.{method}");
         let (_spec, member) = crate::abi::lookup(&qualified)?;
-        // Skip members that take or return StrPtr — caller falls back.
-        if member.args.iter().any(|t| matches!(t, AbiType::StrPtr))
-            || matches!(member.returns, AbiType::StrPtr)
-        {
+        if matches!(member.returns, AbiType::StrPtr) {
             return None;
         }
         let param_tys: Vec<HirType> = member.args.iter().copied().map(abi_type_to_hir).collect();

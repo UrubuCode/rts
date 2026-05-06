@@ -745,6 +745,96 @@ fn smoke_pipeline_resolves_math_sqrt_through_hir() {
     assert!(found_call_extern, "expected MIR to contain CallExtern math.sqrt");
 }
 
+// ---------- string literals via StrLit + CallExtern with StrPtr ----------
+
+#[test]
+fn smoke_strlit_calls_io_stdout_write() {
+    // Build MIR by hand: function shout() -> i64 {
+    //     let written = io.stdout_write("ABC");
+    //     return written;
+    // }
+    // (returns 3 = number of bytes written)
+    let mut mir = MirFunc::new("shout", CallConvHint::Tail, HirType::I64);
+    let blk = mir.new_block();
+    let dst_ptr = mir.new_value(HirType::I64);
+    let dst_len = mir.new_value(HirType::I64);
+    let r = mir.new_value(HirType::I64);
+
+    mir.blocks[blk as usize].insts.push(rts_mir::ir::Inst::StrLit {
+        dst_ptr,
+        dst_len,
+        value: "ABC".to_string(),
+    });
+    mir.blocks[blk as usize].insts.push(rts_mir::ir::Inst::CallExtern {
+        dst: Some(r),
+        sym: "__RTS_FN_NS_IO_STDOUT_WRITE".to_string(),
+        args: vec![dst_ptr, dst_len],
+        ret_ty: HirType::I64,
+        param_tys: vec![HirType::I64, HirType::I64],
+    });
+    mir.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    let mut module = make_jit_with_externs(&[(
+        "__RTS_FN_NS_IO_STDOUT_WRITE",
+        rts_runtime::namespaces::io::stdout::__RTS_FN_NS_IO_STDOUT_WRITE as *const u8,
+    )]);
+    let mir = host_conv(mir);
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    let written = f();
+    assert_eq!(written, 3, "io.stdout_write returns bytes written");
+}
+
+#[test]
+fn smoke_strlit_pipeline_resolves_io_print() {
+    // function greet(): void { io.print("ola"); }
+    let src = r#"function greet(): void { io.print("ola"); }"#;
+    let program = rts_parser::parse_source(src).expect("parse");
+    let resolver = super::extern_resolver_default();
+
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut found_strlit = false;
+    let mut found_call_print = false;
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full(&hir_fn, &hir_scope, Some(&resolver));
+            for block in &mir_fn.blocks {
+                for inst in &block.insts {
+                    match inst {
+                        rts_mir::ir::Inst::StrLit { value, .. } if value == "ola" => {
+                            found_strlit = true;
+                        }
+                        rts_mir::ir::Inst::CallExtern { sym, args, .. }
+                            if sym == "__RTS_FN_NS_IO_PRINT" =>
+                        {
+                            // Should have been expanded into 2 args (ptr + len).
+                            assert_eq!(args.len(), 2, "StrPtr arg should expand to (ptr, len)");
+                            found_call_print = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    assert!(found_strlit, "expected MIR to contain StrLit \"ola\"");
+    assert!(found_call_print, "expected CallExtern __RTS_FN_NS_IO_PRINT");
+}
+
+#[test]
+fn smoke_strlit_resolver_now_accepts_io_print() {
+    // After the StrPtr expansion lands the resolver should expose io.print.
+    let resolver = super::extern_resolver_default();
+    let resolved = resolver("io", "print").expect("io.print should resolve now");
+    let (sym, params, ret) = resolved;
+    assert_eq!(sym, "__RTS_FN_NS_IO_PRINT");
+    assert_eq!(params, vec![HirType::Str]);
+    assert_eq!(ret, HirType::Void);
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline

@@ -234,6 +234,17 @@ pub enum Inst {
         param_tys: Vec<HirType>,
     },
 
+    /// Materialize a static UTF-8 string literal as a `(ptr, len)` pair.
+    /// Used for passing string arguments to extern calls with `StrPtr`
+    /// signatures (e.g. `io.print("hello")` → ptr/len → 2 separate args).
+    /// The codegen allocates a read-only data segment and emits the
+    /// pointer + length into the two destination ValueIds.
+    StrLit {
+        dst_ptr: ValueId,
+        dst_len: ValueId,
+        value: String,
+    },
+
     // Atomics
     AtomicLoad { dst: ValueId, ptr: ValueId, order: MemOrder },
     AtomicStore { val: ValueId, ptr: ValueId, order: MemOrder },

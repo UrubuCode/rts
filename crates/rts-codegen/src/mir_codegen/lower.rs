@@ -64,10 +64,16 @@ pub fn lower_mir_func_with_decls(
     ctx.func.signature = sig;
 
     // Pre-import every user-fn target referenced by `Inst::CallUser` AND
-    // every extern symbol referenced by `Inst::CallExtern`. Done before the
-    // FunctionBuilder borrows `ctx.func` mutably so we can still reach into
-    // `module` for `declare_function`/`declare_func_in_func`.
+    // every extern symbol referenced by `Inst::CallExtern`. Also pre-allocate
+    // a data segment per `Inst::StrLit` so the literal's pointer is available
+    // as a `GlobalValue` once the FunctionBuilder is live.
+    //
+    // All pre-import work is done before the `FunctionBuilder` takes a
+    // mutable borrow of `ctx.func` since we still need `module` access here.
     let mut func_ref_cache: HashMap<String, cranelift_codegen::ir::FuncRef> = HashMap::new();
+    let mut strlit_cache: HashMap<usize, (cranelift_codegen::ir::GlobalValue, usize)> =
+        HashMap::new();
+    let mut strlit_inst_idx: usize = 0;
     for block in &mir.blocks {
         for inst in &block.insts {
             match inst {
@@ -100,6 +106,29 @@ pub fn lower_mir_func_with_decls(
                     let fref = module.declare_func_in_func(target_id, &mut ctx.func);
                     func_ref_cache.insert(sym.clone(), fref);
                 }
+                Inst::StrLit { value, .. } => {
+                    // Allocate a unique anonymous data segment for each
+                    // occurrence — same-value sharing isn't worth complicating
+                    // the lookup map; LLVM-style merging can come later.
+                    let data_name =
+                        format!("__rts_mir_str_{}_{}", mir.name, strlit_inst_idx);
+                    let data_id = module
+                        .declare_data(
+                            &data_name,
+                            cranelift_module::Linkage::Local,
+                            false, // writable
+                            false, // tls
+                        )
+                        .map_err(|e| anyhow!("declare_data {}: {e}", data_name))?;
+                    let mut data = cranelift_module::DataDescription::new();
+                    data.define(value.as_bytes().to_vec().into_boxed_slice());
+                    module
+                        .define_data(data_id, &data)
+                        .map_err(|e| anyhow!("define_data {}: {e}", data_name))?;
+                    let gv = module.declare_data_in_func(data_id, &mut ctx.func);
+                    strlit_cache.insert(strlit_inst_idx, (gv, value.len()));
+                    strlit_inst_idx += 1;
+                }
                 _ => {}
             }
         }
@@ -126,6 +155,9 @@ pub fn lower_mir_func_with_decls(
 
     // values[ValueId] → Cranelift Value
     let mut vmap: HashMap<ValueId, Value> = HashMap::new();
+    // Reset the StrLit walk counter — used in lock-step with the pre-pass
+    // that allocated GlobalValues so each Inst::StrLit hits its own entry.
+    let mut strlit_walk_idx: usize = 0;
 
     // Bind entry block params (= function params) to their MIR ValueIds.
     if !mir.params.is_empty() {
@@ -150,7 +182,15 @@ pub fn lower_mir_func_with_decls(
         }
 
         for inst in &bb.insts {
-            lower_inst(&mut builder, inst, &mut vmap, mir, &func_ref_cache)?;
+            lower_inst(
+                &mut builder,
+                inst,
+                &mut vmap,
+                mir,
+                &func_ref_cache,
+                &strlit_cache,
+                &mut strlit_walk_idx,
+            )?;
         }
         lower_term(&mut builder, &bb.term, &vmap, &cl_blocks)?;
     }
@@ -210,6 +250,8 @@ fn lower_inst(
     vmap: &mut HashMap<ValueId, Value>,
     mir: &MirFunc,
     func_refs: &HashMap<String, cranelift_codegen::ir::FuncRef>,
+    strlit_cache: &HashMap<usize, (cranelift_codegen::ir::GlobalValue, usize)>,
+    strlit_walk_idx: &mut usize,
 ) -> Result<()> {
     use Inst::*;
     macro_rules! bind {
@@ -539,6 +581,22 @@ fn lower_inst(
         StackAlloc { dst, size: _, align: _ } => {
             let v = builder.ins().iconst(cl::I64, 0);
             bind!(dst, v);
+        }
+
+        // String literal materialization. The pre-pass allocated a data
+        // segment per StrLit inst and stashed the GlobalValue in
+        // `strlit_cache` keyed by the lock-step index `strlit_walk_idx`.
+        StrLit { dst_ptr, dst_len, value: _ } => {
+            let idx = *strlit_walk_idx;
+            *strlit_walk_idx += 1;
+            let (gv, len) = strlit_cache
+                .get(&idx)
+                .copied()
+                .ok_or_else(|| anyhow!("mir_codegen: StrLit idx {} missing in cache", idx))?;
+            let ptr_val = builder.ins().symbol_value(cl::I64, gv);
+            let len_val = builder.ins().iconst(cl::I64, len as i64);
+            vmap.insert(*dst_ptr, ptr_val);
+            vmap.insert(*dst_len, len_val);
         }
 
         // User-fn call: resolved via the pre-built FuncRef cache.

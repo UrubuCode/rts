@@ -212,6 +212,11 @@ fn verify_inst(
             }
         }
 
+        StrLit { dst_ptr, dst_len, .. } => {
+            check_v(*dst_ptr, &loc("strlit.ptr"))?;
+            check_v(*dst_len, &loc("strlit.len"))?;
+        }
+
         IConst { dst, .. } | F32Const { dst, .. } | F64Const { dst, .. } | StackAlloc { dst, .. } => {
             check_v(*dst, &loc("dst"))?;
         }

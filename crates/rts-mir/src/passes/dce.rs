@@ -149,6 +149,9 @@ fn collect_used_in_inst(inst: &Inst, used: &mut HashSet<ValueId>) {
             }
         }
 
+        // StrLit materializes constants — no operand reads.
+        StrLit { .. } => {}
+
         AtomicLoad { ptr, .. } => {
             used.insert(*ptr);
         }
@@ -306,6 +309,9 @@ fn keep_inst(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | AtomicLoad { dst, .. } => used.contains(dst),
 
         CallExtern { dst: Some(dst), .. } => used.contains(dst),
+
+        // StrLit produces two values; keep if either is used.
+        StrLit { dst_ptr, dst_len, .. } => used.contains(dst_ptr) || used.contains(dst_len),
 
         // Already handled above as side-effecting.
         Store { .. }

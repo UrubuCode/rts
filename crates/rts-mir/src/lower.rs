@@ -634,8 +634,54 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
             if let HirExprKind::Ident(ns_name) = &object.kind {
                 if let Some(resolver) = ctx.extern_resolver {
                     if let Some((sym, param_tys, ret_ty)) = resolver(ns_name, method) {
-                        let arg_vals: Vec<ValueId> =
-                            args.iter().map(|a| lower_expr(a, mir, ctx)).collect();
+                        // Build extern args. Each `HirType::Str` parameter
+                        // expands to two i64 slots (ptr, len) — string
+                        // literals materialize via Inst::StrLit; non-literal
+                        // string args fall back to zero/zero (codegen AST
+                        // handles GC-backed string handles).
+                        let mut arg_vals: Vec<ValueId> = Vec::with_capacity(args.len() * 2);
+                        let mut effective_param_tys: Vec<HirType> =
+                            Vec::with_capacity(param_tys.len() * 2);
+
+                        for (i, arg_expr) in args.iter().enumerate() {
+                            let expected = param_tys.get(i);
+                            if matches!(expected, Some(HirType::Str)) {
+                                if let HirExprKind::Lit(HirLit::Str(s)) = &arg_expr.kind {
+                                    let dst_ptr = mir.new_value(HirType::I64);
+                                    let dst_len = mir.new_value(HirType::I64);
+                                    ctx.push_inst(
+                                        mir,
+                                        Inst::StrLit {
+                                            dst_ptr,
+                                            dst_len,
+                                            value: s.clone(),
+                                        },
+                                    );
+                                    arg_vals.push(dst_ptr);
+                                    arg_vals.push(dst_len);
+                                    effective_param_tys.push(HirType::I64);
+                                    effective_param_tys.push(HirType::I64);
+                                    continue;
+                                }
+                                // Non-literal string arg: emit a (0, 0) pair
+                                // so the call shape is correct; the runtime
+                                // sees a null/empty string. Codegen AST
+                                // path handles dynamic strings via handles.
+                                let zero_p = emit_zero_const(&HirType::I64, mir, ctx);
+                                let zero_l = emit_zero_const(&HirType::I64, mir, ctx);
+                                arg_vals.push(zero_p);
+                                arg_vals.push(zero_l);
+                                effective_param_tys.push(HirType::I64);
+                                effective_param_tys.push(HirType::I64);
+                                continue;
+                            }
+                            // Non-string parameter: lower normally.
+                            let v = lower_expr(arg_expr, mir, ctx);
+                            arg_vals.push(v);
+                            effective_param_tys
+                                .push(expected.cloned().unwrap_or(HirType::I64));
+                        }
+
                         let dst = if matches!(ret_ty, HirType::Void) {
                             None
                         } else {
@@ -648,7 +694,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                                 sym,
                                 args: arg_vals,
                                 ret_ty: ret_ty.clone(),
-                                param_tys,
+                                param_tys: effective_param_tys,
                             },
                         );
                         return dst.unwrap_or_else(|| emit_zero_const(&expr.ty, mir, ctx));
