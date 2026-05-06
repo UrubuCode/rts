@@ -358,11 +358,26 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             match &m.prop {
                 swc::MemberProp::Computed(c) => {
                     let index = Box::new(lower_swc_expr(&c.expr, scope));
-                    HirExpr::new(HirExprKind::Index { object, index }, HirType::Unknown)
+                    // arr[i] em handle de array herda o tipo do elemento
+                    // (Array<I64> → I64, etc.) pra que numeric_promotion não
+                    // promova indevidamente expressões mistas pra Number.
+                    let elem_ty = match &object.ty {
+                        HirType::Array(inner) => (**inner).clone(),
+                        _ => HirType::Unknown,
+                    };
+                    HirExpr::new(HirExprKind::Index { object, index }, elem_ty)
                 }
                 prop => {
                     let name = member_prop_name(prop);
-                    HirExpr::new(HirExprKind::Member { object, prop: name }, HirType::Unknown)
+                    // arr.length sempre retorna I64
+                    let prop_ty = if name == "length"
+                        && matches!(object.ty, HirType::Array(_))
+                    {
+                        HirType::I64
+                    } else {
+                        HirType::Unknown
+                    };
+                    HirExpr::new(HirExprKind::Member { object, prop: name }, prop_ty)
                 }
             }
         }
@@ -637,6 +652,12 @@ fn ts_type_to_str(ty: &swc::TsType) -> String {
             swc::TsEntityName::Ident(id) => id.sym.to_string(),
             _ => "any".into(),
         },
+        // `T[]` em TS — array de elementos de tipo T. Mapeia recursivamente
+        // pra string `T[]` que `parse_type_annotation` reconhece como
+        // HirType::Array(parse_type_annotation(T)).
+        swc::TsType::TsArrayType(arr) => {
+            format!("{}[]", ts_type_to_str(&arr.elem_type))
+        }
         _ => "any".into(),
     }
 }

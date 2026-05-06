@@ -920,8 +920,94 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                     }
                 }
             }
+
+            // arr.length em handle de array → collections.vec_len(handle)
+            if prop == "length" && matches!(object.ty, HirType::Array(_)) {
+                if let Some(resolver) = ctx.extern_resolver {
+                    if let Some((sym, _param_tys, ret_ty)) = resolver("collections", "vec_len") {
+                        let h = lower_expr(object, mir, ctx);
+                        let dst = mir.new_value(ret_ty.clone());
+                        ctx.push_inst(
+                            mir,
+                            Inst::CallExtern {
+                                dst: Some(dst),
+                                sym,
+                                args: vec![h],
+                                ret_ty: ret_ty.clone(),
+                                param_tys: vec![HirType::I64],
+                            },
+                        );
+                        return dst;
+                    }
+                }
+            }
+
             // Unresolved member access — placeholder zero (codegen AST handles
             // class fields, object literals, etc.).
+            ctx.had_placeholders = true;
+            emit_zero_const(&expr.ty, mir, ctx)
+        }
+
+        HirExprKind::Array(items) => {
+            // [a, b, c] → vec_new() + vec_push(handle, a) + vec_push(handle, b) + ...
+            if let Some(resolver) = ctx.extern_resolver {
+                if let (Some((new_sym, _, new_ret)), Some((push_sym, _, push_ret))) = (
+                    resolver("collections", "vec_new"),
+                    resolver("collections", "vec_push"),
+                ) {
+                    // Call vec_new() to get a fresh handle.
+                    let handle = mir.new_value(new_ret.clone());
+                    ctx.push_inst(
+                        mir,
+                        Inst::CallExtern {
+                            dst: Some(handle),
+                            sym: new_sym,
+                            args: vec![],
+                            ret_ty: new_ret,
+                            param_tys: vec![],
+                        },
+                    );
+                    // Push each item in order.
+                    for item in items {
+                        let v = lower_expr(item, mir, ctx);
+                        ctx.push_inst(
+                            mir,
+                            Inst::CallExtern {
+                                dst: None,
+                                sym: push_sym.clone(),
+                                args: vec![handle, v],
+                                ret_ty: push_ret.clone(),
+                                param_tys: vec![HirType::I64, HirType::I64],
+                            },
+                        );
+                    }
+                    return handle;
+                }
+            }
+            ctx.had_placeholders = true;
+            emit_zero_const(&expr.ty, mir, ctx)
+        }
+
+        HirExprKind::Index { object, index } => {
+            // arr[i] → collections.vec_get(handle, idx)
+            if let Some(resolver) = ctx.extern_resolver {
+                if let Some((sym, _param_tys, ret_ty)) = resolver("collections", "vec_get") {
+                    let h = lower_expr(object, mir, ctx);
+                    let i = lower_expr(index, mir, ctx);
+                    let dst = mir.new_value(ret_ty.clone());
+                    ctx.push_inst(
+                        mir,
+                        Inst::CallExtern {
+                            dst: Some(dst),
+                            sym,
+                            args: vec![h, i],
+                            ret_ty: ret_ty.clone(),
+                            param_tys: vec![HirType::I64, HirType::I64],
+                        },
+                    );
+                    return dst;
+                }
+            }
             ctx.had_placeholders = true;
             emit_zero_const(&expr.ty, mir, ctx)
         }

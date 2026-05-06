@@ -1344,6 +1344,172 @@ fn jit_mutual_recursion_even_odd() {
     assert_eq!(f_odd(10), 0);
 }
 
+// ---------- arrays via collections.vec_* ----------
+
+fn lower_with_intrinsics_and_externs(src: &str) -> Vec<rts_mir::ir::MirFunc> {
+    let program = rts_parser::parse_source(src).expect("parse");
+    let extern_r = super::extern_resolver_default();
+    let intr_r = super::intrinsic_resolver_default();
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut out = Vec::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full_with_intrinsics(
+                &hir_fn,
+                &hir_scope,
+                Some(&extern_r),
+                Some(&intr_r),
+            );
+            out.push(mir_fn);
+        }
+    }
+    out
+}
+
+#[test]
+fn jit_array_literal_and_index() {
+    // function pick(): i64 {
+    //     const arr: i64[] = [10, 20, 30];
+    //     return arr[1];
+    // }
+    let src = r#"
+        function pick(): i64 {
+            const arr: i64[] = [10, 20, 30];
+            return arr[1];
+        }
+    "#;
+    let mirs = lower_with_intrinsics_and_externs(src);
+    assert_eq!(mirs.len(), 1);
+    let mut mir = mirs.into_iter().next().unwrap();
+    mir.conv = if cfg!(windows) {
+        CallConvHint::WindowsFastcall
+    } else {
+        CallConvHint::SystemV
+    };
+    rts_mir::passes::optimize(&mut mir);
+    rts_mir::passes::verify(&mir).expect("verify");
+    assert!(!mir.had_placeholders, "array+index should not trigger placeholders");
+
+    // Resolve runtime symbols via raw fn pointers.
+    let mut module = make_jit_with_externs(&[
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8,
+        ),
+    ]);
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 20);
+}
+
+#[test]
+fn jit_array_length() {
+    // function n(): i64 {
+    //     const arr: i64[] = [1, 2, 3, 4, 5];
+    //     return arr.length;
+    // }
+    let src = r#"
+        function n(): i64 {
+            const arr: i64[] = [1, 2, 3, 4, 5];
+            return arr.length;
+        }
+    "#;
+    let mirs = lower_with_intrinsics_and_externs(src);
+    let mut mir = mirs.into_iter().next().unwrap();
+    mir.conv = if cfg!(windows) {
+        CallConvHint::WindowsFastcall
+    } else {
+        CallConvHint::SystemV
+    };
+    rts_mir::passes::optimize(&mut mir);
+    rts_mir::passes::verify(&mir).expect("verify");
+    assert!(!mir.had_placeholders);
+
+    let mut module = make_jit_with_externs(&[
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN as *const u8,
+        ),
+    ]);
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 5);
+}
+
+#[test]
+fn jit_array_sum_via_loop() {
+    // function sum(): i64 {
+    //     const arr: i64[] = [10, 20, 30];
+    //     let s: i64 = 0;
+    //     let i: i64 = 0;
+    //     while (i < 3) { s = s + arr[i]; i = i + 1; }
+    //     return s;
+    // }
+    let src = r#"
+        function sumArr(): i64 {
+            const arr: i64[] = [10, 20, 30];
+            let s: i64 = 0;
+            let i: i64 = 0;
+            while (i < 3) {
+                s = s + arr[i];
+                i = i + 1;
+            }
+            return s;
+        }
+    "#;
+    let mirs = lower_with_intrinsics_and_externs(src);
+    let mut mir = mirs.into_iter().next().unwrap();
+    mir.conv = if cfg!(windows) {
+        CallConvHint::WindowsFastcall
+    } else {
+        CallConvHint::SystemV
+    };
+    rts_mir::passes::optimize(&mut mir);
+    rts_mir::passes::verify(&mir).expect("verify");
+    assert!(!mir.had_placeholders);
+
+    let mut module = make_jit_with_externs(&[
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8,
+        ),
+    ]);
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 60);
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline
