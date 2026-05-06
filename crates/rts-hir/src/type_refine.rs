@@ -1,4 +1,4 @@
-use crate::ir::{HirExpr, HirExprKind, HirLit, HirType, HirBinOp};
+use crate::ir::{HirExpr, HirExprKind, HirLit, HirStmt, HirType, HirBinOp};
 use crate::scope::Scope;
 
 /// Infer the best concrete `HirType` for an expression from its initializer.
@@ -161,5 +161,90 @@ pub fn numeric_promotion(a: HirType, b: HirType) -> HirType {
         (I8, _) | (_, I8) | (U8, _) | (_, U8) => I8,
 
         _ => Number, // default: JS number semantics
+    }
+}
+
+/// Refine the declared return type of a function from the bodies of its
+/// `return` statements.
+///
+/// Use this only when the declared annotation is ambiguous (`Unknown`,
+/// `Number`, or `Any`) — explicit narrow annotations (`I32`, `F32`, etc.)
+/// are authoritative and never overridden.
+///
+/// Returns the refined type, or `declared` unchanged when the body has no
+/// returns or the returns are ambiguous (Unknown/Any).
+pub fn refine_func_ret(declared: &HirType, body: &[HirStmt], scope: &Scope) -> HirType {
+    // Only refine ambiguous annotations; trust explicit narrow types.
+    let allow_refine = matches!(
+        declared,
+        HirType::Unknown | HirType::Number | HirType::Any
+    );
+    if !allow_refine {
+        return declared.clone();
+    }
+
+    let mut acc: Option<HirType> = None;
+    collect_return_types(body, scope, &mut acc);
+
+    match acc {
+        Some(ty) if !matches!(ty, HirType::Unknown | HirType::Any) => ty,
+        _ => declared.clone(),
+    }
+}
+
+/// Walk a stmt block and merge the type of every `return` expression found.
+fn collect_return_types(stmts: &[HirStmt], scope: &Scope, acc: &mut Option<HirType>) {
+    for stmt in stmts {
+        collect_return_types_in_stmt(stmt, scope, acc);
+    }
+}
+
+fn collect_return_types_in_stmt(stmt: &HirStmt, scope: &Scope, acc: &mut Option<HirType>) {
+    match stmt {
+        HirStmt::Return(Some(expr)) => {
+            let ty = refine_type_from_init(expr, scope);
+            *acc = Some(match acc.take() {
+                Some(prev) => numeric_promotion(prev, ty),
+                None => ty,
+            });
+        }
+        HirStmt::Return(None) => {
+            // `return;` carries no value — leave the numeric accumulator
+            // alone so the declared annotation wins.
+        }
+        HirStmt::If { then, else_, .. } => {
+            collect_return_types(then, scope, acc);
+            if let Some(e) = else_ {
+                collect_return_types(e, scope, acc);
+            }
+        }
+        HirStmt::While { body, .. }
+        | HirStmt::DoWhile { body, .. }
+        | HirStmt::ForOf { body, .. }
+        | HirStmt::ForIn { body, .. } => {
+            collect_return_types(body, scope, acc);
+        }
+        HirStmt::For { body, .. } => {
+            collect_return_types(body, scope, acc);
+        }
+        HirStmt::Try { body, catch, finally } => {
+            collect_return_types(body, scope, acc);
+            if let Some(c) = catch {
+                collect_return_types(&c.body, scope, acc);
+            }
+            if let Some(f) = finally {
+                collect_return_types(f, scope, acc);
+            }
+        }
+        HirStmt::Switch { cases, .. } => {
+            for case in cases {
+                collect_return_types(&case.body, scope, acc);
+            }
+        }
+        HirStmt::Block(body) => collect_return_types(body, scope, acc),
+        HirStmt::Labeled { body, .. } => {
+            collect_return_types_in_stmt(body, scope, acc);
+        }
+        _ => {}
     }
 }

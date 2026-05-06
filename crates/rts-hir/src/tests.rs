@@ -5,7 +5,7 @@
 
 use crate::ir::*;
 use crate::scope::Scope;
-use crate::type_refine::{numeric_promotion, refine_type_from_init};
+use crate::type_refine::{numeric_promotion, refine_func_ret, refine_type_from_init};
 use crate::type_map::CraneliftTypeHint;
 
 fn lit_int(n: i64) -> HirExpr {
@@ -226,6 +226,67 @@ fn scope_inner_shadows_outer() {
     assert_eq!(s.lookup("x"), Some(&HirType::F64));
     s.pop();
     assert_eq!(s.lookup("x"), Some(&HirType::I64));
+}
+
+#[test]
+fn refine_ret_all_int_returns_to_i64() {
+    let s = Scope::new();
+    let body = vec![
+        HirStmt::Return(Some(lit_int(0))),
+    ];
+    assert_eq!(refine_func_ret(&HirType::Unknown, &body, &s), HirType::I64);
+}
+
+#[test]
+fn refine_ret_mixed_int_float_promotes_to_f64() {
+    let s = Scope::new();
+    let body = vec![
+        HirStmt::If {
+            cond: lit_bool(true),
+            then: vec![HirStmt::Return(Some(lit_int(0)))],
+            else_: Some(vec![HirStmt::Return(Some(lit_float(1.5)))]),
+        },
+    ];
+    assert_eq!(refine_func_ret(&HirType::Number, &body, &s), HirType::F64);
+}
+
+#[test]
+fn refine_ret_keeps_explicit_narrow_annotation() {
+    let s = Scope::new();
+    let body = vec![HirStmt::Return(Some(lit_float(1.5)))];
+    // Anotação explícita I32 não pode ser sobrescrita por body float
+    assert_eq!(refine_func_ret(&HirType::I32, &body, &s), HirType::I32);
+}
+
+#[test]
+fn refine_ret_keeps_declared_when_body_empty() {
+    let s = Scope::new();
+    assert_eq!(refine_func_ret(&HirType::Number, &[], &s), HirType::Number);
+}
+
+#[test]
+fn refine_ret_finds_returns_inside_loops_and_try() {
+    let s = Scope::new();
+    let body = vec![
+        HirStmt::While {
+            cond: lit_bool(true),
+            body: vec![HirStmt::Return(Some(lit_int(7)))],
+        },
+        HirStmt::Try {
+            body: vec![HirStmt::Return(Some(lit_int(8)))],
+            catch: None,
+            finally: None,
+        },
+    ];
+    assert_eq!(refine_func_ret(&HirType::Unknown, &body, &s), HirType::I64);
+}
+
+#[test]
+fn refine_ret_unknown_when_no_return_arg() {
+    let s = Scope::new();
+    let body = vec![HirStmt::Return(None)];
+    // refine_func_ret deve manter `declared` se só achar Void
+    assert_eq!(refine_func_ret(&HirType::Unknown, &body, &s), HirType::Unknown);
 }
 
 #[test]

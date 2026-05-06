@@ -12,7 +12,7 @@ use rts_ast::ast::{
 
 use crate::ir::*;
 use crate::scope::Scope;
-use crate::type_refine::refine_type_from_init;
+use crate::type_refine::{refine_func_ret, refine_type_from_init};
 
 // ---------------------------------------------------------------------------
 // Public entry points
@@ -27,17 +27,18 @@ pub fn lower_func(decl: &FunctionDecl, scope: &mut Scope) -> HirFunc {
         .map(parse_type_annotation)
         .unwrap_or(HirType::Unknown);
 
-    if ret != HirType::Unknown {
-        scope.register_return_type(&decl.name, ret.clone());
-    }
-
     let body = lower_stmts(&decl.body, scope);
+    let refined_ret = refine_func_ret(&ret, &body, scope);
     scope.pop();
+
+    if !matches!(refined_ret, HirType::Unknown) {
+        scope.register_return_type(&decl.name, refined_ret.clone());
+    }
 
     HirFunc {
         name: decl.name.clone(),
         params,
-        ret,
+        ret: refined_ret,
         body,
         is_async: decl.is_async,
         is_arrow: false,
