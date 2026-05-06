@@ -1053,15 +1053,18 @@ i64 bits → f64:  bitcast(F64, MemFlags::new(), val)   (transmute)
 
 ### Fase 2 — HIR (1–2 semanas)
 
-- [ ] Definir `HirType` completo (I8–I128, F32, F64, todos os tipos) em `rts-hir/ir.rs`
-- [ ] Implementar `lower.rs`: AST → HIR com `HirType` em cada nó
-- [ ] Implementar `type_refine.rs` + `numeric_promotion`
-- [ ] Implementar `type_map.rs` com `CraneliftTypeHint`
-- [ ] Adaptar `rts-codegen` para consumir HIR
-- [ ] Testes: fixtures existentes devem passar sem mudança
-- [ ] Verificar: hot loops com `let i = 0` emitem `iadd_imm` (inspecionar via `rts ir`)
+- [x] Definir `HirType` completo (I8–I128, F32, F64, todos os tipos) em `rts-hir/ir.rs` (commit c2eb724)
+- [x] Implementar `lower.rs`: AST → HIR com `HirType` em cada nó (commit c2eb724)
+- [x] Implementar `type_refine.rs` + `numeric_promotion` (commit c2eb724)
+- [x] Implementar `type_map.rs` com `CraneliftTypeHint` (commit c2eb724)
+- [x] Adaptar `rts-codegen` para consumir HIR — primeira fatia: dep + `lower_func` no `compile_program` descartando resultado (commit 2320e1f)
+- [x] Testes unitários do crate `rts-hir` (commit c1a22b2, 21/21)
+- [ ] Refinar `HirFunc` ret type a partir do body (return stmts com literais inteiros → I64), não só da anotação TS textual
+- [ ] Codegen consumir hints HIR: `Call` de user fn em local sem anotação usa `hir_return_types[&fn]` em vez de cair em `Number`
+- [ ] Validar: hot loops com `let i = step(i)` emitem `iadd` direto sem `fcvt`
 
-**Marco:** suite mantida + `rts ir` mostra `iadd_imm` em counters não-anotados.
+**Marco intermediário (atual):** crate rts-hir completo, conectado ao pipeline, suite verde.
+**Marco final:** suite mantida + `rts ir` mostra ausência de `fcvt` em sites tipo `i = userFn(i)` quando a fn retorna inteiro.
 
 ### Fase 3 — MIR e passes (2–3 semanas)
 
