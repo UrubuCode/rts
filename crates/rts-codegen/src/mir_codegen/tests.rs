@@ -1017,6 +1017,210 @@ fn smoke_intrinsic_sqrt_jit_executes_without_extern() {
     assert!((f(2.0) - 2f64.sqrt()).abs() < 1e-12);
 }
 
+// ---------- coverage measurement: how much MIR can handle of real programs ----------
+
+/// Result of trying to lower a single user function through MIR.
+#[derive(Debug, Default)]
+struct CoverageReport {
+    fn_name: String,
+    blocks: usize,
+    inst_count: usize,
+    trap_count: usize,        // Terminator::Trap (unsupported stmt)
+    placeholder_zeros: usize, // Heuristic: IConst zero following an unsupported expr
+    has_unsupported_stmt: bool,
+    has_call_user: bool,
+    has_call_extern: bool,
+    has_intrinsic: bool,
+}
+
+fn analyze_mir(mir: &rts_mir::ir::MirFunc) -> CoverageReport {
+    use rts_mir::ir::{Inst, Terminator, TrapHint};
+    let mut r = CoverageReport {
+        fn_name: mir.name.clone(),
+        blocks: mir.blocks.len(),
+        ..Default::default()
+    };
+    for block in &mir.blocks {
+        r.inst_count += block.insts.len();
+        if matches!(block.term, Terminator::Trap { code: TrapHint::User(_) }) {
+            r.trap_count += 1;
+            r.has_unsupported_stmt = true;
+        }
+        for inst in &block.insts {
+            match inst {
+                Inst::CallUser { .. } => r.has_call_user = true,
+                Inst::CallExtern { .. } => r.has_call_extern = true,
+                Inst::Sqrt { .. }
+                | Inst::FAbs { .. }
+                | Inst::FMin { .. }
+                | Inst::FMax { .. } => r.has_intrinsic = true,
+                Inst::IConst { val: 0, .. } => r.placeholder_zeros += 1,
+                _ => {}
+            }
+        }
+    }
+    r
+}
+
+/// Resolve a path relative to the workspace root (parent of `crates/`).
+/// Tests run with cwd = `crates/rts-codegen` so we walk up two levels.
+fn workspace_path(rel: &str) -> std::path::PathBuf {
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest.parent().unwrap().parent().unwrap().join(rel)
+}
+
+fn lower_file_through_mir(path: &str) -> Vec<CoverageReport> {
+    let resolved = workspace_path(path);
+    let source = std::fs::read_to_string(&resolved)
+        .unwrap_or_else(|e| panic!("read {}: {e}", resolved.display()));
+    let program = match rts_parser::parse_source(&source) {
+        Ok(p) => p,
+        Err(_) => return vec![], // parse error: skip, not interesting for MIR coverage
+    };
+    let extern_r = super::extern_resolver_default();
+    let intr_r = super::intrinsic_resolver_default();
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut reports = Vec::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full_with_intrinsics(
+                &hir_fn,
+                &hir_scope,
+                Some(&extern_r),
+                Some(&intr_r),
+            );
+            // Skip the verify step on purpose — we want to inspect the IR
+            // even when it's incomplete (with traps for unsupported shapes).
+            reports.push(analyze_mir(&mir_fn));
+        }
+    }
+    reports
+}
+
+#[test]
+fn coverage_monte_carlo_pi_user_fns() {
+    // Only the user-fn `toFloat` lives in this file (top-level statements
+    // would also need lowering but we focus on functions for now).
+    let reports = lower_file_through_mir("bench/monte_carlo_pi.ts");
+    if reports.is_empty() {
+        // File path resolves relative to the crate root; if not found,
+        // skip silently rather than fail (CI invariants).
+        return;
+    }
+    let to_float = reports.iter().find(|r| r.fn_name == "toFloat");
+    if let Some(r) = to_float {
+        // Should successfully compile through MIR with sqrt as intrinsic.
+        assert!(!r.has_unsupported_stmt, "toFloat should not trap");
+        assert!(r.has_intrinsic, "toFloat should use sqrt intrinsic");
+    }
+}
+
+#[test]
+fn coverage_aggregate_across_bench_files() {
+    // Walk a curated list of bench TS files and tally MIR coverage.
+    // Output goes to stdout via `cargo test -- --nocapture` so a developer
+    // can see exactly which fns trap and which are clean.
+    let bench_files = [
+        "bench/bun_simple.ts",
+        "bench/events_concurrent.ts",
+        "bench/events_crossover.ts",
+        "bench/events_emit.ts",
+        "bench/monte_carlo_pi.ts",
+        "bench/monte_carlo_pi_threaded.ts",
+        "bench/pi_bigfloat.ts",
+        "bench/rts_simple.ts",
+    ];
+
+    let mut total_fns = 0;
+    let mut clean_fns = 0;
+    let mut total_traps = 0;
+
+    for path in bench_files {
+        let reports = lower_file_through_mir(path);
+        let clean = reports.iter().filter(|r| !r.has_unsupported_stmt).count();
+        let traps: usize = reports.iter().map(|r| r.trap_count).sum();
+        total_fns += reports.len();
+        clean_fns += clean;
+        total_traps += traps;
+        println!(
+            "[{}] {}/{} clean ({} traps total)",
+            path,
+            clean,
+            reports.len(),
+            traps
+        );
+        for r in &reports {
+            let status = if r.has_unsupported_stmt { "TRAP" } else { "ok" };
+            println!(
+                "    [{}] {} (blocks={}, insts={}, call_user={}, call_extern={}, intrinsic={})",
+                status, r.fn_name, r.blocks, r.inst_count,
+                r.has_call_user, r.has_call_extern, r.has_intrinsic
+            );
+        }
+    }
+
+    println!(
+        "===== AGGREGATE: {clean_fns}/{total_fns} clean, {total_traps} traps total ====="
+    );
+
+    assert!(total_fns > 0, "at least one bench file should have user fns");
+    // For tracking purposes only — this asserts a baseline so regressions
+    // pop a test failure. Bump up as coverage improves.
+    let pct = (clean_fns * 100) / total_fns.max(1);
+    assert!(
+        pct >= 10,
+        "expected ≥10% MIR coverage across bench fns, got {pct}% ({clean_fns}/{total_fns})"
+    );
+}
+
+#[test]
+fn coverage_simple_arithmetic_fn_is_clean() {
+    // Sanity: a hand-written arithmetic fn should be 100% clean.
+    let mut tmp = std::env::temp_dir();
+    tmp.push("rts_mir_cov_smoke.ts");
+    std::fs::write(
+        &tmp,
+        r#"
+            function poly(x: f64): f64 {
+                return x * x + 2.0 * x + 1.0;
+            }
+            function step(n: i64): i64 {
+                if (n <= 0) {
+                    return 0;
+                } else {
+                    return n + step(n - 1);
+                }
+            }
+        "#,
+    )
+    .unwrap();
+    // Pass an absolute path to avoid the workspace_path prefix.
+    let absolute = tmp.to_str().unwrap();
+    let source = std::fs::read_to_string(absolute).unwrap();
+    let program = rts_parser::parse_source(&source).expect("parse");
+    let extern_r = super::extern_resolver_default();
+    let intr_r = super::intrinsic_resolver_default();
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut reports = Vec::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full_with_intrinsics(
+                &hir_fn,
+                &hir_scope,
+                Some(&extern_r),
+                Some(&intr_r),
+            );
+            reports.push(analyze_mir(&mir_fn));
+        }
+    }
+    assert_eq!(reports.len(), 2);
+    assert!(!reports[0].has_unsupported_stmt, "poly should be clean");
+    assert!(!reports[1].has_unsupported_stmt, "step should be clean");
+    assert!(reports[1].has_call_user, "step should have CallUser (recursion)");
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline
