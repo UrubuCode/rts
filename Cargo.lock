@@ -2175,6 +2175,7 @@ dependencies = [
  "rts-diagnostics",
  "rts-hir",
  "rts-linker",
+ "rts-mir",
  "rts-parser",
  "rts-runtime",
  "serde",

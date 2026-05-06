@@ -6306,15 +6306,23 @@ pub fn compile_program(
         }
     }
 
-    // (refator etapa 2.4) HIR proof-of-life: lower cada user fn pra HIR
-    // tipado em paralelo. Hoje os hints ainda nao alimentam o codegen
-    // (caminho da AST permanece autoritativo); proxima sub-etapa ira
-    // consumi-los pra eliminar coercoes em hot loops com call user fn.
-    // Issue #611.
+    // (refator etapa 2.4 + 3.6) HIR + MIR proof-of-life: lower cada user
+    // fn pra HIR tipado e em seguida pra MIR SSA + passes (fold/dce/narrow),
+    // descartando o resultado. Hoje os hints ainda nao alimentam o codegen
+    // (caminho da AST permanece autoritativo); proxima fase consumira o
+    // MirFunc via lower/inst.rs 1:1. Issue #611.
     {
         let mut hir_scope = rts_hir::scope::Scope::new();
         for fn_decl in &fn_decls {
-            let _hir_fn = rts_hir::lower::lower_func(fn_decl, &mut hir_scope);
+            let hir_fn = rts_hir::lower::lower_func(fn_decl, &mut hir_scope);
+            let mut mir_fn = rts_mir::lower::lower_func(&hir_fn);
+            rts_mir::passes::optimize(&mut mir_fn);
+            rts_mir::passes::narrow(&mut mir_fn);
+            // Verify em debug build apenas — produção pula o assert.
+            #[cfg(debug_assertions)]
+            {
+                let _ = rts_mir::passes::verify(&mir_fn);
+            }
         }
     }
 
