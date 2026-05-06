@@ -35,6 +35,27 @@ const TRAP_UNSUPPORTED_STMT: u16 = 0x10;
 /// SPECS table.
 pub type ExternResolver<'r> = &'r dyn Fn(&str, &str) -> Option<(String, Vec<HirType>, HirType)>;
 
+/// Tag identifying an inlinable intrinsic operation. Mirrors `rts_abi::Intrinsic`
+/// without depending on it directly so users without rts-abi can still drive
+/// the lowering. The codegen translates each tag into native Cranelift IR
+/// (sqrt, fabs, fmin, fmax, etc.) instead of a `call` instruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntrinsicTag {
+    Sqrt,
+    AbsF64,
+    MinF64,
+    MaxF64,
+    AbsI64,
+    MinI64,
+    MaxI64,
+}
+
+/// Resolver that decides whether a `(ns, member)` pair has an inlinable
+/// intrinsic. When the resolver returns `Some(tag)` the MIR lowering emits
+/// the corresponding `Inst::Sqrt`/`Inst::FAbs`/etc. directly instead of a
+/// `CallExtern`.
+pub type IntrinsicResolver<'r> = &'r dyn Fn(&str, &str) -> Option<IntrinsicTag>;
+
 /// Public entry: lower a fully-typed `HirFunc` into a `MirFunc`.
 ///
 /// Without a `Scope`, calls to other user fns lower to a placeholder zero
@@ -58,6 +79,18 @@ pub fn lower_func_full(
     func: &HirFunc,
     scope: &Scope,
     extern_resolver: Option<ExternResolver<'_>>,
+) -> MirFunc {
+    lower_func_full_with_intrinsics(func, scope, extern_resolver, None)
+}
+
+/// Same as `lower_func_full` plus an optional `IntrinsicResolver` for
+/// inlining hot extern calls (sqrt, fabs, fmin, etc.) into native Cranelift
+/// IR instead of `CallExtern`.
+pub fn lower_func_full_with_intrinsics(
+    func: &HirFunc,
+    scope: &Scope,
+    extern_resolver: Option<ExternResolver<'_>>,
+    intrinsic_resolver: Option<IntrinsicResolver<'_>>,
 ) -> MirFunc {
     let mut mir = MirFunc::new(
         &func.name,
@@ -102,6 +135,7 @@ pub fn lower_func_full(
         loop_stack: Vec::new(),
         fn_sigs,
         extern_resolver,
+        intrinsic_resolver,
     };
 
     lower_stmts(&func.body, &mut mir, &mut ctx);
@@ -140,6 +174,10 @@ struct LowerCtx<'r> {
     fn_sigs: HashMap<String, (Vec<HirType>, HirType)>,
     /// Optional resolver for `(namespace, method)` pairs to extern symbols.
     extern_resolver: Option<ExternResolver<'r>>,
+    /// Optional intrinsic tagger; when present and a (ns, member) maps to
+    /// `Some(tag)`, the MethodCall lowers to native IR ops instead of a
+    /// CallExtern.
+    intrinsic_resolver: Option<IntrinsicResolver<'r>>,
 }
 
 impl LowerCtx<'_> {
@@ -665,6 +703,20 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
         }
 
         HirExprKind::MethodCall { object, method, args } => {
+            // Try the intrinsic resolver first — if (ns, method) maps to a
+            // known IntrinsicTag, emit native Cranelift IR ops directly
+            // (sqrt/fabs/fmin/fmax/abs i64/min i64/max i64) instead of a
+            // CallExtern. Always cheaper than a call.
+            if let HirExprKind::Ident(ns_name) = &object.kind {
+                if let Some(intr_resolver) = ctx.intrinsic_resolver {
+                    if let Some(tag) = intr_resolver(ns_name, method) {
+                        let arg_vals: Vec<ValueId> =
+                            args.iter().map(|a| lower_expr(a, mir, ctx)).collect();
+                        return emit_intrinsic(tag, &arg_vals, &expr.ty, mir, ctx);
+                    }
+                }
+            }
+
             // Try to resolve `<ns>.<method>` via the extern resolver when
             // `object` is a bare identifier matching a known namespace.
             if let HirExprKind::Ident(ns_name) = &object.kind {
@@ -1014,6 +1066,101 @@ fn lower_cast(
     };
     ctx.push_inst(mir, inst);
     dst
+}
+
+/// Emit a native intrinsic op into the current block. Returns the ValueId
+/// holding the result. When the argument count doesn't match the tag the
+/// fn falls back to emit_zero_const (caller's MIR is malformed but we keep
+/// the IR well-formed).
+fn emit_intrinsic(
+    tag: IntrinsicTag,
+    args: &[ValueId],
+    res_ty: &HirType,
+    mir: &mut MirFunc,
+    ctx: &mut LowerCtx,
+) -> ValueId {
+    match tag {
+        IntrinsicTag::Sqrt if args.len() == 1 => {
+            let dst = mir.new_value(HirType::F64);
+            ctx.push_inst(mir, Inst::Sqrt { dst, src: args[0] });
+            dst
+        }
+        IntrinsicTag::AbsF64 if args.len() == 1 => {
+            let dst = mir.new_value(HirType::F64);
+            ctx.push_inst(mir, Inst::FAbs { dst, src: args[0] });
+            dst
+        }
+        IntrinsicTag::MinF64 if args.len() == 2 => {
+            let dst = mir.new_value(HirType::F64);
+            ctx.push_inst(mir, Inst::FMin { dst, lhs: args[0], rhs: args[1] });
+            dst
+        }
+        IntrinsicTag::MaxF64 if args.len() == 2 => {
+            let dst = mir.new_value(HirType::F64);
+            ctx.push_inst(mir, Inst::FMax { dst, lhs: args[0], rhs: args[1] });
+            dst
+        }
+        IntrinsicTag::AbsI64 if args.len() == 1 => {
+            // abs(x) = x < 0 ? -x : x
+            let cond = mir.new_value(HirType::Bool);
+            let zero = emit_zero_const(&HirType::I64, mir, ctx);
+            ctx.push_inst(mir, Inst::ICmp {
+                dst: cond,
+                cond: IntCond::Slt,
+                lhs: args[0],
+                rhs: zero,
+            });
+            let neg = mir.new_value(HirType::I64);
+            ctx.push_inst(mir, Inst::INeg { dst: neg, src: args[0] });
+            let dst = mir.new_value(HirType::I64);
+            ctx.push_inst(mir, Inst::Select {
+                dst,
+                cond,
+                on_true: neg,
+                on_false: args[0],
+            });
+            dst
+        }
+        IntrinsicTag::MinI64 if args.len() == 2 => {
+            // min(a, b) = a < b ? a : b
+            let cond = mir.new_value(HirType::Bool);
+            ctx.push_inst(mir, Inst::ICmp {
+                dst: cond,
+                cond: IntCond::Slt,
+                lhs: args[0],
+                rhs: args[1],
+            });
+            let dst = mir.new_value(HirType::I64);
+            ctx.push_inst(mir, Inst::Select {
+                dst,
+                cond,
+                on_true: args[0],
+                on_false: args[1],
+            });
+            dst
+        }
+        IntrinsicTag::MaxI64 if args.len() == 2 => {
+            // max(a, b) = a > b ? a : b
+            let cond = mir.new_value(HirType::Bool);
+            ctx.push_inst(mir, Inst::ICmp {
+                dst: cond,
+                cond: IntCond::Sgt,
+                lhs: args[0],
+                rhs: args[1],
+            });
+            let dst = mir.new_value(HirType::I64);
+            ctx.push_inst(mir, Inst::Select {
+                dst,
+                cond,
+                on_true: args[0],
+                on_false: args[1],
+            });
+            dst
+        }
+        // Arity mismatch — fall through with a placeholder; verify won't
+        // catch this since it's purely a shape mistake from the resolver.
+        _ => emit_zero_const(res_ty, mir, ctx),
+    }
 }
 
 fn emit_zero_const(ty: &HirType, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId {

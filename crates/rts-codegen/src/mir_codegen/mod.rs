@@ -15,8 +15,9 @@ pub mod lower;
 
 pub use lower::lower_mir_func;
 
-use rts_abi::AbiType;
+use rts_abi::{AbiType, Intrinsic};
 use rts_hir::ir::HirType;
+use rts_mir::lower::IntrinsicTag;
 
 /// Map an `AbiType` (rts-abi enum) to the closest `HirType` for embedding
 /// in `Inst::CallExtern`. `StrPtr` is two-slot — caller layer must split
@@ -56,6 +57,27 @@ pub fn extern_resolver_default() -> impl Fn(&str, &str) -> Option<(String, Vec<H
         let param_tys: Vec<HirType> = member.args.iter().copied().map(abi_type_to_hir).collect();
         let ret_ty = abi_type_to_hir(member.returns);
         Some((member.symbol.to_string(), param_tys, ret_ty))
+    }
+}
+
+/// Build an `IntrinsicResolver` closure that consults `crate::abi::SPECS`
+/// to decide whether `(ns, method)` has an inlinable intrinsic. The MIR
+/// lowering then emits native Cranelift IR (sqrt/fabs/fmin/etc.) instead
+/// of a `CallExtern` for these hot paths.
+pub fn intrinsic_resolver_default() -> impl Fn(&str, &str) -> Option<IntrinsicTag> {
+    |ns: &str, method: &str| {
+        let qualified = format!("{ns}.{method}");
+        let (_spec, member) = crate::abi::lookup(&qualified)?;
+        let intr = member.intrinsic?;
+        Some(match intr {
+            Intrinsic::Sqrt => IntrinsicTag::Sqrt,
+            Intrinsic::AbsF64 => IntrinsicTag::AbsF64,
+            Intrinsic::MinF64 => IntrinsicTag::MinF64,
+            Intrinsic::MaxF64 => IntrinsicTag::MaxF64,
+            Intrinsic::AbsI64 => IntrinsicTag::AbsI64,
+            Intrinsic::MinI64 => IntrinsicTag::MinI64,
+            Intrinsic::MaxI64 => IntrinsicTag::MaxI64,
+        })
     }
 }
 

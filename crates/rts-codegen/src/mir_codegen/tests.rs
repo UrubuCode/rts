@@ -919,6 +919,104 @@ fn smoke_member_unknown_namespace_falls_through() {
     }
 }
 
+// ---------- intrinsic inlining ----------
+
+fn lower_with_intrinsics(src: &str) -> Vec<rts_mir::ir::MirFunc> {
+    let program = rts_parser::parse_source(src).expect("parse");
+    let extern_r = super::extern_resolver_default();
+    let intr_r = super::intrinsic_resolver_default();
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut out = Vec::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full_with_intrinsics(
+                &hir_fn,
+                &hir_scope,
+                Some(&extern_r),
+                Some(&intr_r),
+            );
+            out.push(mir_fn);
+        }
+    }
+    out
+}
+
+#[test]
+fn intrinsic_sqrt_emits_inst_sqrt_not_callextern() {
+    let mirs = lower_with_intrinsics("function f(x: f64): f64 { return math.sqrt(x); }");
+    let mir = &mirs[0];
+    let mut sqrts = 0;
+    let mut callextern_sqrt = 0;
+    for block in &mir.blocks {
+        for inst in &block.insts {
+            match inst {
+                rts_mir::ir::Inst::Sqrt { .. } => sqrts += 1,
+                rts_mir::ir::Inst::CallExtern { sym, .. }
+                    if sym.contains("MATH_SQRT") =>
+                {
+                    callextern_sqrt += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(sqrts, 1, "expected 1 Inst::Sqrt");
+    assert_eq!(callextern_sqrt, 0, "no CallExtern for sqrt when intrinsic active");
+}
+
+#[test]
+fn intrinsic_min_emits_fmin() {
+    let mirs = lower_with_intrinsics(
+        "function f(a: f64, b: f64): f64 { return math.min(a, b); }",
+    );
+    let mir = &mirs[0];
+    assert!(mir.blocks.iter().flat_map(|b| &b.insts).any(|i| matches!(
+        i,
+        rts_mir::ir::Inst::FMin { .. }
+    )));
+}
+
+#[test]
+fn intrinsic_abs_i64_emits_select_with_neg() {
+    let mirs = lower_with_intrinsics(
+        "function f(a: i64): i64 { return math.abs_i64(a); }",
+    );
+    let mir = &mirs[0];
+    let has_neg = mir.blocks.iter().flat_map(|b| &b.insts).any(|i| matches!(
+        i,
+        rts_mir::ir::Inst::INeg { .. }
+    ));
+    let has_select = mir.blocks.iter().flat_map(|b| &b.insts).any(|i| matches!(
+        i,
+        rts_mir::ir::Inst::Select { .. }
+    ));
+    assert!(has_neg, "AbsI64 should emit INeg");
+    assert!(has_select, "AbsI64 should emit Select");
+}
+
+#[test]
+fn smoke_intrinsic_sqrt_jit_executes_without_extern() {
+    // No __RTS_FN_NS_MATH_SQRT registered as extern — proves the JIT
+    // doesn't need it because the intrinsic emitted Cranelift sqrt directly.
+    let mirs = lower_with_intrinsics("function f(x: f64): f64 { return math.sqrt(x); }");
+    let mut module = make_jit(); // no externs registered
+    let mut mir = mirs.into_iter().next().unwrap();
+    mir.conv = if cfg!(windows) {
+        CallConvHint::WindowsFastcall
+    } else {
+        CallConvHint::SystemV
+    };
+    rts_mir::passes::optimize(&mut mir);
+    rts_mir::passes::verify(&mir).expect("verify");
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(f64) -> f64 = unsafe { std::mem::transmute(ptr) };
+    assert!((f(16.0) - 4.0).abs() < 1e-12);
+    assert!((f(2.0) - 2f64.sqrt()).abs() < 1e-12);
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline
