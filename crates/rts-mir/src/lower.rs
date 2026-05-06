@@ -628,6 +628,42 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
             lower_cast(v, &inner.ty, target, mir, ctx)
         }
 
+        HirExprKind::Member { object, prop } => {
+            // Namespace constants: `math.PI`, `math.E`, etc. The resolver
+            // returns a zero-arg extern symbol that the runtime exposes
+            // (e.g. `__RTS_FN_NS_MATH_PI`). We emit a `CallExtern` with no
+            // args; Cranelift will emit a single `call` instruction that
+            // returns the constant. This matches the runtime's existing
+            // shape and avoids modeling raw data segments per constant.
+            if let HirExprKind::Ident(ns_name) = &object.kind {
+                if let Some(resolver) = ctx.extern_resolver {
+                    if let Some((sym, param_tys, ret_ty)) = resolver(ns_name, prop) {
+                        if param_tys.is_empty() {
+                            let dst = if matches!(ret_ty, HirType::Void) {
+                                None
+                            } else {
+                                Some(mir.new_value(ret_ty.clone()))
+                            };
+                            ctx.push_inst(
+                                mir,
+                                Inst::CallExtern {
+                                    dst,
+                                    sym,
+                                    args: vec![],
+                                    ret_ty: ret_ty.clone(),
+                                    param_tys,
+                                },
+                            );
+                            return dst.unwrap_or_else(|| emit_zero_const(&expr.ty, mir, ctx));
+                        }
+                    }
+                }
+            }
+            // Unresolved member access — placeholder zero (codegen AST handles
+            // class fields, object literals, etc.).
+            emit_zero_const(&expr.ty, mir, ctx)
+        }
+
         HirExprKind::MethodCall { object, method, args } => {
             // Try to resolve `<ns>.<method>` via the extern resolver when
             // `object` is a bare identifier matching a known namespace.

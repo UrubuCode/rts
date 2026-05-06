@@ -835,6 +835,90 @@ fn smoke_strlit_resolver_now_accepts_io_print() {
     assert_eq!(ret, HirType::Void);
 }
 
+// ---------- namespace constants via Member access ----------
+
+#[test]
+fn smoke_member_math_pi_returns_constant() {
+    // function pi(): f64 { return math.PI; }
+    let src = "function pi(): f64 { return math.PI; }";
+    let program = rts_parser::parse_source(src).expect("parse");
+    let resolver = super::extern_resolver_default();
+
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut module = make_jit_with_externs(&[(
+        "__RTS_FN_NS_MATH_PI",
+        rts_runtime::namespaces::math::consts::__RTS_FN_NS_MATH_PI as *const u8,
+    )]);
+    let mut id_opt = None;
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mut mir_fn = rts_mir::lower::lower_func_full(&hir_fn, &hir_scope, Some(&resolver));
+            mir_fn.conv = if cfg!(windows) {
+                CallConvHint::WindowsFastcall
+            } else {
+                CallConvHint::SystemV
+            };
+            rts_mir::passes::optimize(&mut mir_fn);
+            rts_mir::passes::verify(&mir_fn).expect("verify");
+            id_opt = Some(super::lower::lower_mir_func(&mut module, &mir_fn).expect("lower"));
+        }
+    }
+    module.finalize_definitions().expect("finalize");
+    let id = id_opt.expect("fn");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> f64 = unsafe { std::mem::transmute(ptr) };
+    assert!((f() - std::f64::consts::PI).abs() < 1e-12);
+}
+
+#[test]
+fn smoke_member_pipeline_lowers_math_e_to_callextern() {
+    let src = "function eulers(): f64 { return math.E; }";
+    let program = rts_parser::parse_source(src).expect("parse");
+    let resolver = super::extern_resolver_default();
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut found_e = false;
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full(&hir_fn, &hir_scope, Some(&resolver));
+            for block in &mir_fn.blocks {
+                for inst in &block.insts {
+                    if let rts_mir::ir::Inst::CallExtern { sym, args, .. } = inst {
+                        if sym == "__RTS_FN_NS_MATH_E" {
+                            assert!(args.is_empty(), "math.E should have zero args");
+                            found_e = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(found_e, "expected CallExtern math.E in MIR");
+}
+
+#[test]
+fn smoke_member_unknown_namespace_falls_through() {
+    // `bogus.thing` should emit a placeholder zero, not a CallExtern.
+    let src = "function f(): f64 { return bogus.thing; }";
+    let program = rts_parser::parse_source(src).expect("parse");
+    let resolver = super::extern_resolver_default();
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mir_fn = rts_mir::lower::lower_func_full(&hir_fn, &hir_scope, Some(&resolver));
+            for block in &mir_fn.blocks {
+                for inst in &block.insts {
+                    if let rts_mir::ir::Inst::CallExtern { sym, .. } = inst {
+                        panic!("unknown namespace shouldn't produce CallExtern, saw {sym}");
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline
