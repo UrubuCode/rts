@@ -2101,8 +2101,11 @@ dependencies = [
  "regex",
  "rts-abi",
  "rts-ast",
+ "rts-codegen",
  "rts-diagnostics",
+ "rts-linker",
  "rts-parser",
+ "rts-runtime",
  "rustc-hash 1.1.0",
  "rustls",
  "serde",
@@ -2133,12 +2136,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-codegen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cranelift-codegen",
+ "cranelift-frontend",
+ "cranelift-jit",
+ "cranelift-module",
+ "cranelift-native",
+ "cranelift-object",
+ "indexmap",
+ "rts-abi",
+ "rts-ast",
+ "rts-diagnostics",
+ "rts-parser",
+ "rts-runtime",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "swc_common",
+ "swc_ecma_ast",
+ "target-lexicon",
+ "ureq 2.12.1",
+]
+
+[[package]]
 name = "rts-diagnostics"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "colored",
  "rts-ast",
+]
+
+[[package]]
+name = "rts-linker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flate2",
+ "indicatif",
+ "object 0.39.0",
+ "rts-abi",
+ "sha2 0.10.9",
+ "tar",
+ "target-lexicon",
+ "ureq 2.12.1",
+ "xwin",
 ]
 
 [[package]]
@@ -2151,6 +2196,33 @@ dependencies = [
  "swc_common",
  "swc_ecma_ast",
  "swc_ecma_parser",
+]
+
+[[package]]
+name = "rts-runtime"
+version = "0.1.0"
+dependencies = [
+ "actix-rt",
+ "actix-web",
+ "anyhow",
+ "colored",
+ "flate2",
+ "fltk",
+ "indexmap",
+ "notify",
+ "rayon",
+ "regex",
+ "rts-abi",
+ "rustc-hash 1.1.0",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "slotmap",
+ "tar",
+ "tokio",
+ "ureq 2.12.1",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
