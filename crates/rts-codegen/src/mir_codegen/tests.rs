@@ -571,6 +571,33 @@ fn compile_ts_multi_via_mir(src: &str) -> (JITModule, std::collections::HashMap<
     let mut hir_scope = rts_hir::scope::Scope::new();
     let mut module = make_jit();
 
+    // Pre-pass: register every fn signature in the HIR scope so mutual
+    // recursion (`isEven` calling `isOdd` declared later) sees the right
+    // ret type during body lowering.
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let ret = fdecl
+                .return_type
+                .as_deref()
+                .map(rts_hir::lower::parse_type_annotation)
+                .unwrap_or(rts_hir::ir::HirType::Unknown);
+            if !matches!(ret, rts_hir::ir::HirType::Unknown) {
+                hir_scope.register_return_type(&fdecl.name, ret);
+            }
+            let param_tys: Vec<rts_hir::ir::HirType> = fdecl
+                .parameters
+                .iter()
+                .map(|p| {
+                    p.type_annotation
+                        .as_deref()
+                        .map(rts_hir::lower::parse_type_annotation)
+                        .unwrap_or(rts_hir::ir::HirType::Unknown)
+                })
+                .collect();
+            hir_scope.register_param_types(&fdecl.name, param_tys);
+        }
+    }
+
     // Pass 1: HIR + MIR + lower MIR pre-pass to gather every MirFunc and
     // declare them all in the module so cross-fn calls resolve.
     let mut mirs: Vec<rts_mir::ir::MirFunc> = Vec::new();
@@ -1221,6 +1248,102 @@ fn coverage_simple_arithmetic_fn_is_clean() {
     assert!(reports[1].has_call_user, "step should have CallUser (recursion)");
 }
 
+// ---------- hardening: shapes complexas via MIR ↔ native ↔ execute ----------
+
+#[test]
+fn jit_polynomial_with_intrinsic() {
+    // function poly(x: f64): f64 { return math.sqrt(x*x + 1.0); }
+    let src = "function poly(x: f64): f64 { return math.sqrt(x*x + 1.0); }";
+    let program = rts_parser::parse_source(src).expect("parse");
+    let extern_r = super::extern_resolver_default();
+    let intr_r = super::intrinsic_resolver_default();
+    let mut hir_scope = rts_hir::scope::Scope::new();
+    let mut module = make_jit();
+    let mut id_opt = None;
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let hir_fn = rts_hir::lower::lower_func(fdecl, &mut hir_scope);
+            let mut mir = rts_mir::lower::lower_func_full_with_intrinsics(
+                &hir_fn,
+                &hir_scope,
+                Some(&extern_r),
+                Some(&intr_r),
+            );
+            mir.conv = if cfg!(windows) {
+                CallConvHint::WindowsFastcall
+            } else {
+                CallConvHint::SystemV
+            };
+            rts_mir::passes::optimize(&mut mir);
+            rts_mir::passes::verify(&mir).expect("verify");
+            id_opt = Some(super::lower::lower_mir_func(&mut module, &mir).expect("lower"));
+        }
+    }
+    module.finalize_definitions().expect("finalize");
+    let id = id_opt.expect("fn");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(f64) -> f64 = unsafe { std::mem::transmute(ptr) };
+    // poly(0) = sqrt(0+1) = 1
+    assert!((f(0.0) - 1.0).abs() < 1e-12);
+    // poly(3) = sqrt(9+1) = sqrt(10)
+    assert!((f(3.0) - 10f64.sqrt()).abs() < 1e-12);
+    // poly(-2) = sqrt(4+1) = sqrt(5)
+    assert!((f(-2.0) - 5f64.sqrt()).abs() < 1e-12);
+}
+
+// NOTE: shapes that need block-param phis for loop-carry mutation
+// (`i = i + 1` in a while body) aren't yet modeled by the MIR lowering.
+// The current lower drops the assignment silently — bail goes through
+// `had_placeholders` only when caller checks the flag. JIT-executing
+// such MIR enters an infinite loop (`i` stays at 0). Tests below
+// stick to recursion + immutable bindings until block-param SSA lands.
+
+#[test]
+fn jit_deep_recursion_factorial() {
+    // factorial defined recursively — exercises CallUser self-recursion.
+    let src = r#"
+        function fact(n: i64): i64 {
+            if (n <= 1) { return 1; }
+            return n * fact(n - 1);
+        }
+    "#;
+    let (module, decls) = compile_ts_multi_via_mir(src);
+    let id = decls["fact"];
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0), 1);
+    assert_eq!(f(1), 1);
+    assert_eq!(f(5), 120);
+    assert_eq!(f(10), 3628800);
+    assert_eq!(f(12), 479001600);
+}
+
+#[test]
+fn jit_mutual_recursion_even_odd() {
+    // is_even / is_odd — exercises CallUser cross-fn calls.
+    let src = r#"
+        function isEven(n: i64): i64 {
+            if (n == 0) { return 1; }
+            return isOdd(n - 1);
+        }
+        function isOdd(n: i64): i64 {
+            if (n == 0) { return 0; }
+            return isEven(n - 1);
+        }
+    "#;
+    let (module, decls) = compile_ts_multi_via_mir(src);
+    let even = decls["isEven"];
+    let odd = decls["isOdd"];
+    let f_even: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(module.get_finalized_function(even)) };
+    let f_odd: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(module.get_finalized_function(odd)) };
+    assert_eq!(f_even(0), 1);
+    assert_eq!(f_even(10), 1);
+    assert_eq!(f_even(7), 0);
+    assert_eq!(f_odd(0), 0);
+    assert_eq!(f_odd(7), 1);
+    assert_eq!(f_odd(10), 0);
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline
@@ -1348,4 +1471,40 @@ fn jit_end_to_end_hir_to_cl_via_mir() {
     assert_eq!(f(0), 1);
     assert_eq!(f(41), 42);
     assert_eq!(f(-2), -1);
+}
+
+// ---------- loops com mutacao de variaveis locais (block params/phi) ----------
+
+#[test]
+fn jit_while_with_mutation_counts_to_n() {
+    let (module, id) = compile_ts_via_mir(
+        "function count(n: i64): i64 {\n    let i: i64 = 0;\n    while (i < n) { i = i + 1; }\n    return i;\n}",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0), 0);
+    assert_eq!(f(5), 5);
+    assert_eq!(f(100), 100);
+}
+
+#[test]
+fn jit_while_sums_squares() {
+    let (module, id) = compile_ts_via_mir(
+        "function sumSquares(n: i64): i64 {\n    let s: i64 = 0;\n    let i: i64 = 1;\n    while (i <= n) { s = s + i * i; i = i + 1; }\n    return s;\n}",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(3), 14);
+    assert_eq!(f(5), 55);
+}
+
+#[test]
+fn jit_for_classic_with_update() {
+    let (module, id) = compile_ts_via_mir(
+        "function product(n: i64): i64 {\n    let p: i64 = 1;\n    for (let i: i64 = 1; i <= n; i = i + 1) { p = p * i; }\n    return p;\n}",
+    );
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(0), 1);
+    assert_eq!(f(5), 120);
 }

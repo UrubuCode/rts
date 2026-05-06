@@ -15,7 +15,7 @@
 //! - extern calls (rts namespace dispatch) — needs ABI integration
 //! - destructuring, spread, ternary nesting beyond simple cases
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rts_hir::ir::{
     HirBinOp, HirExpr, HirExprKind, HirFunc, HirLit, HirStmt, HirType, HirUnOp,
@@ -168,9 +168,10 @@ struct LowerCtx<'r> {
     /// True once the current block has emitted a terminator. Statements past
     /// that point are dead and lowered into a fresh unreachable block.
     terminated: bool,
-    /// Loop stack: (continue_target, break_target). `break` jumps to the top
-    /// of the stack's break target; `continue` to its continue target.
-    loop_stack: Vec<(BlockId, BlockId)>,
+    /// Loop stack: cada frame carrega (continue_target, break_target,
+    /// phi_names_in_order). Os phi names sao usados por `break`/`continue`
+    /// para construir os Jump args lendo de `ctx.env`.
+    loop_stack: Vec<LoopFrame>,
     /// User fn signatures (name → (param_tys, ret_ty)) snapshotted from the
     /// HIR scope so `lower_expr` can emit `Inst::CallUser` with full type info.
     fn_sigs: HashMap<String, (Vec<HirType>, HirType)>,
@@ -187,9 +188,32 @@ struct LowerCtx<'r> {
     had_placeholders: bool,
 }
 
+/// Frame de loop ativo. `continue_target` recebe args com os mesmos phis
+/// do header; `break_target` (exit) recebe args com mesmos phis. Para
+/// `do-while`, o frame do continue (header de cond) tambem usa os phis.
+struct LoopFrame {
+    continue_target: BlockId,
+    break_target: BlockId,
+    /// Nomes das vars phi na ordem dos block params dos targets.
+    phi_names: Vec<String>,
+}
+
 impl LowerCtx<'_> {
     fn push_inst(&self, mir: &mut MirFunc, inst: Inst) {
         mir.blocks[self.cursor as usize].insts.push(inst);
+    }
+
+    /// Constroi os Jump args correntes para os phis do frame mais interno.
+    fn current_phi_args(&self, names: &[String]) -> Vec<ValueId> {
+        names
+            .iter()
+            .map(|n| {
+                *self
+                    .env
+                    .get(n)
+                    .expect("phi var deve estar em env durante o loop")
+            })
+            .collect()
     }
 }
 
@@ -255,8 +279,10 @@ fn lower_stmt(stmt: &HirStmt, mir: &mut MirFunc, ctx: &mut LowerCtx) {
 
         HirStmt::Break(_label) => {
             // Labeled break/continue not yet supported — uses innermost loop.
-            if let Some(&(_, brk)) = ctx.loop_stack.last() {
-                set_term(mir, ctx.cursor, Terminator::Jump { target: brk, args: vec![] });
+            if let Some(frame) = ctx.loop_stack.last() {
+                let brk = frame.break_target;
+                let args = ctx.current_phi_args(&frame.phi_names.clone());
+                set_term(mir, ctx.cursor, Terminator::Jump { target: brk, args });
                 ctx.terminated = true;
             } else {
                 // break outside loop — fall through (codegen ast handles)
@@ -268,8 +294,10 @@ fn lower_stmt(stmt: &HirStmt, mir: &mut MirFunc, ctx: &mut LowerCtx) {
         }
 
         HirStmt::Continue(_label) => {
-            if let Some(&(cont, _)) = ctx.loop_stack.last() {
-                set_term(mir, ctx.cursor, Terminator::Jump { target: cont, args: vec![] });
+            if let Some(frame) = ctx.loop_stack.last() {
+                let cont = frame.continue_target;
+                let args = ctx.current_phi_args(&frame.phi_names.clone());
+                set_term(mir, ctx.cursor, Terminator::Jump { target: cont, args });
                 ctx.terminated = true;
             } else {
                 set_term(mir, ctx.cursor, Terminator::Trap {
@@ -390,23 +418,64 @@ fn lower_if(
 }
 
 fn lower_while(cond: &HirExpr, body: &[HirStmt], mir: &mut MirFunc, ctx: &mut LowerCtx) {
+    // Detecta vars mutadas no body (e cond) e cria block params phi no header.
+    let mut mutated = collect_mutated_vars(body);
+    collect_mut_in_expr(cond, &mut mutated);
+    let phis = collect_loop_phis(&mutated, mir, ctx);
+
     let header_b = mir.new_block();
     let body_b = mir.new_block();
     let exit_b = mir.new_block();
+
+    // Cria os params do header (1 por phi) e registra-os em env enquanto
+    // lowerizamos cond+body.
+    let mut header_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    let mut entry_args: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_name, init_v, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[header_b as usize].params.push((p, ty.clone()));
+        header_param_ids.push(p);
+        entry_args.push(*init_v);
+    }
+    // Snapshot do env pre-loop para restaurar se necessario; o exit-block
+    // tambem recebera params com os valores correntes ao sair.
+    let env_before: HashMap<String, ValueId> = ctx.env.clone();
 
     set_term(
         mir,
         ctx.cursor,
         Terminator::Jump {
             target: header_b,
-            args: vec![],
+            args: entry_args,
         },
     );
 
-    // header: test condition
+    // Dentro do loop, env[name] aponta para o param do header (phi).
     ctx.cursor = header_b;
     ctx.terminated = false;
+    for ((name, _, _), pid) in phis.iter().zip(header_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
+
+    // header: test condition
     let cond_v = lower_expr(cond, mir, ctx);
+    // Snapshot dos valores correntes apos lower_expr(cond) — eles sao os
+    // args do salto para o exit_b (caso cond falhe, levam os valores de
+    // header_params, ja que cond nao muta).
+    let header_exit_args: Vec<ValueId> = phis
+        .iter()
+        .map(|(name, _, _)| *ctx.env.get(name).unwrap())
+        .collect();
+
+    // exit_b recebe params para que apos o loop o env aponte para o valor
+    // final.
+    let mut exit_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_, _, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[exit_b as usize].params.push((p, ty.clone()));
+        exit_param_ids.push(p);
+    }
+
     set_term(
         mir,
         ctx.cursor,
@@ -415,66 +484,123 @@ fn lower_while(cond: &HirExpr, body: &[HirStmt], mir: &mut MirFunc, ctx: &mut Lo
             then_block: body_b,
             then_args: vec![],
             else_block: exit_b,
-            else_args: vec![],
+            else_args: header_exit_args,
         },
     );
 
     // body: jump back to header at end. Push loop frame so break/continue work.
     ctx.cursor = body_b;
     ctx.terminated = false;
-    ctx.loop_stack.push((header_b, exit_b));
+    let phi_names: Vec<String> = phis.iter().map(|(n, _, _)| n.clone()).collect();
+    ctx.loop_stack.push(LoopFrame {
+        continue_target: header_b,
+        break_target: exit_b,
+        phi_names: phi_names.clone(),
+    });
     lower_stmts(body, mir, ctx);
     ctx.loop_stack.pop();
     if !ctx.terminated {
+        let back_args = ctx.current_phi_args(&phi_names);
         set_term(
             mir,
             ctx.cursor,
             Terminator::Jump {
                 target: header_b,
-                args: vec![],
+                args: back_args,
             },
         );
     }
 
     ctx.cursor = exit_b;
     ctx.terminated = false;
+    // Restaura env para snapshot pre-loop, depois reaponta as vars de phi
+    // para os exit-block params (valor pos-loop).
+    ctx.env = env_before;
+    for ((name, _, _), pid) in phis.iter().zip(exit_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
 }
 
 fn lower_do_while(body: &[HirStmt], cond: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) {
+    let mut mutated = collect_mutated_vars(body);
+    collect_mut_in_expr(cond, &mut mutated);
+    let phis = collect_loop_phis(&mutated, mir, ctx);
+
     let body_b = mir.new_block();
     let header_b = mir.new_block();
     let exit_b = mir.new_block();
 
-    set_term(mir, ctx.cursor, Terminator::Jump { target: body_b, args: vec![] });
+    // body_b carrega params (1 por phi), pois eh o entry do loop.
+    let mut body_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    let mut entry_args: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_name, init_v, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[body_b as usize].params.push((p, ty.clone()));
+        body_param_ids.push(p);
+        entry_args.push(*init_v);
+    }
+    // header_b tambem carrega params para repassar valores ao back-edge.
+    let mut header_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_, _, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[header_b as usize].params.push((p, ty.clone()));
+        header_param_ids.push(p);
+    }
+    let mut exit_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_, _, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[exit_b as usize].params.push((p, ty.clone()));
+        exit_param_ids.push(p);
+    }
+    let env_before = ctx.env.clone();
 
-    // body: runs at least once. continue jumps to header (cond test).
+    set_term(mir, ctx.cursor, Terminator::Jump { target: body_b, args: entry_args });
+
+    // body: env aponta pra body_params. continue jumps to header (cond test).
     ctx.cursor = body_b;
     ctx.terminated = false;
-    ctx.loop_stack.push((header_b, exit_b));
+    for ((name, _, _), pid) in phis.iter().zip(body_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
+    let phi_names: Vec<String> = phis.iter().map(|(n, _, _)| n.clone()).collect();
+    ctx.loop_stack.push(LoopFrame {
+        continue_target: header_b,
+        break_target: exit_b,
+        phi_names: phi_names.clone(),
+    });
     lower_stmts(body, mir, ctx);
     ctx.loop_stack.pop();
     if !ctx.terminated {
-        set_term(mir, ctx.cursor, Terminator::Jump { target: header_b, args: vec![] });
+        let args = ctx.current_phi_args(&phi_names);
+        set_term(mir, ctx.cursor, Terminator::Jump { target: header_b, args });
     }
 
-    // header: test cond, brif → body / exit
+    // header: env aponta para header_params; testa cond.
     ctx.cursor = header_b;
     ctx.terminated = false;
+    for ((name, _, _), pid) in phis.iter().zip(header_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
     let cond_v = lower_expr(cond, mir, ctx);
+    let header_phi_args = ctx.current_phi_args(&phi_names);
     set_term(
         mir,
         ctx.cursor,
         Terminator::Brif {
             cond: cond_v,
             then_block: body_b,
-            then_args: vec![],
+            then_args: header_phi_args.clone(),
             else_block: exit_b,
-            else_args: vec![],
+            else_args: header_phi_args,
         },
     );
 
     ctx.cursor = exit_b;
     ctx.terminated = false;
+    ctx.env = env_before;
+    for ((name, _, _), pid) in phis.iter().zip(exit_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
 }
 
 fn lower_switch(
@@ -530,7 +656,11 @@ fn lower_switch(
     // loop frame with continue=exit_b/break=exit_b so naked `break` works
     // (continue inside switch is forwarded to enclosing loop, but that's
     // not modeled here).
-    ctx.loop_stack.push((exit_b, exit_b));
+    ctx.loop_stack.push(LoopFrame {
+        continue_target: exit_b,
+        break_target: exit_b,
+        phi_names: Vec::new(),
+    });
     for (i, case) in cases.iter().enumerate() {
         ctx.cursor = case_blocks[i];
         ctx.terminated = false;
@@ -581,7 +711,8 @@ fn lower_for(
     mir: &mut MirFunc,
     ctx: &mut LowerCtx,
 ) {
-    // 1. init runs in current block
+    // 1. init runs in current block. Pode declarar a var de loop (ex.
+    // `let i = 0`) — passa a estar em env e sera candidato a phi.
     if let Some(s) = init {
         lower_stmt(s, mir, ctx);
         if ctx.terminated {
@@ -589,16 +720,49 @@ fn lower_for(
         }
     }
 
+    // Coleta vars mutadas no body, cond e update.
+    let mut mutated = collect_mutated_vars(body);
+    if let Some(c) = cond {
+        collect_mut_in_expr(c, &mut mutated);
+    }
+    if let Some(u) = update {
+        collect_mut_in_expr(u, &mut mutated);
+    }
+    let phis = collect_loop_phis(&mutated, mir, ctx);
+
     let header_b = mir.new_block();
     let body_b = mir.new_block();
     let update_b = mir.new_block();
     let exit_b = mir.new_block();
 
-    set_term(mir, ctx.cursor, Terminator::Jump { target: header_b, args: vec![] });
+    let mut header_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    let mut entry_args: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_name, init_v, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[header_b as usize].params.push((p, ty.clone()));
+        header_param_ids.push(p);
+        entry_args.push(*init_v);
+    }
+    let mut exit_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_, _, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[exit_b as usize].params.push((p, ty.clone()));
+        exit_param_ids.push(p);
+    }
+    let env_before = ctx.env.clone();
 
-    // header: test cond (if missing, treat as `true`)
+    set_term(
+        mir,
+        ctx.cursor,
+        Terminator::Jump { target: header_b, args: entry_args },
+    );
+
+    // header: env aponta pra header_params. testa cond.
     ctx.cursor = header_b;
     ctx.terminated = false;
+    for ((name, _, _), pid) in phis.iter().zip(header_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
     let cond_v = match cond {
         Some(e) => lower_expr(e, mir, ctx),
         None => {
@@ -607,6 +771,9 @@ fn lower_for(
             v
         }
     };
+    let phi_names: Vec<String> = phis.iter().map(|(n, _, _)| n.clone()).collect();
+    let header_exit_args = ctx.current_phi_args(&phi_names);
+
     set_term(
         mir,
         ctx.cursor,
@@ -615,30 +782,55 @@ fn lower_for(
             then_block: body_b,
             then_args: vec![],
             else_block: exit_b,
-            else_args: vec![],
+            else_args: header_exit_args,
         },
     );
 
     // body: continue → update_b, break → exit_b
     ctx.cursor = body_b;
     ctx.terminated = false;
-    ctx.loop_stack.push((update_b, exit_b));
+    ctx.loop_stack.push(LoopFrame {
+        continue_target: update_b,
+        break_target: exit_b,
+        phi_names: phi_names.clone(),
+    });
     lower_stmts(body, mir, ctx);
     ctx.loop_stack.pop();
     if !ctx.terminated {
-        set_term(mir, ctx.cursor, Terminator::Jump { target: update_b, args: vec![] });
+        let args = ctx.current_phi_args(&phi_names);
+        set_term(mir, ctx.cursor, Terminator::Jump { target: update_b, args });
     }
 
-    // update: run update expr (if any), then back to header
+    // update: bloco com mesmos params dos phis. Cria params, atualiza env
+    // pra apontar pra eles, e roda update expr (que pode atualizar env via
+    // Assign). Por fim salta pra header com env corrente.
+    let mut update_param_ids: Vec<ValueId> = Vec::with_capacity(phis.len());
+    for (_, _, ty) in &phis {
+        let p = mir.new_value(ty.clone());
+        mir.blocks[update_b as usize].params.push((p, ty.clone()));
+        update_param_ids.push(p);
+    }
     ctx.cursor = update_b;
     ctx.terminated = false;
+    for ((name, _, _), pid) in phis.iter().zip(update_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
     if let Some(e) = update {
         let _ = lower_expr(e, mir, ctx);
     }
-    set_term(mir, ctx.cursor, Terminator::Jump { target: header_b, args: vec![] });
+    let header_back_args = ctx.current_phi_args(&phi_names);
+    set_term(
+        mir,
+        ctx.cursor,
+        Terminator::Jump { target: header_b, args: header_back_args },
+    );
 
     ctx.cursor = exit_b;
     ctx.terminated = false;
+    ctx.env = env_before;
+    for ((name, _, _), pid) in phis.iter().zip(exit_param_ids.iter()) {
+        ctx.env.insert(name.clone(), *pid);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -872,6 +1064,78 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                 on_false: e,
             });
             dst
+        }
+
+        // Atribuicao a variavel local: `x = expr`. Atualiza env[x] para o
+        // novo ValueId e retorna o valor atribuido (semantica JS).
+        HirExprKind::Assign { target, value } => {
+            if let HirExprKind::Ident(name) = &target.kind {
+                if ctx.env.contains_key(name) {
+                    let v = lower_expr(value, mir, ctx);
+                    ctx.env.insert(name.clone(), v);
+                    return v;
+                }
+            }
+            ctx.had_placeholders = true;
+            emit_zero_const(&expr.ty, mir, ctx)
+        }
+
+        // `x += rhs` => `x = x + rhs` (e demais ops compostos).
+        HirExprKind::AssignOp { op, target, value } => {
+            if let HirExprKind::Ident(name) = &target.kind {
+                if let Some(&cur) = ctx.env.get(name) {
+                    let rhs = lower_expr(value, mir, ctx);
+                    let res = lower_bin(*op, cur, rhs, &expr.ty, &target.ty, mir, ctx);
+                    ctx.env.insert(name.clone(), res);
+                    return res;
+                }
+            }
+            ctx.had_placeholders = true;
+            emit_zero_const(&expr.ty, mir, ctx)
+        }
+
+        // `++x` / `x++` / `--x` / `x--` — em ambos os casos retornamos o
+        // novo valor (simplificacao consciente; pos-fix retornar valor
+        // antigo eh follow-up).
+        HirExprKind::PreInc(inner)
+        | HirExprKind::PostInc(inner)
+        | HirExprKind::PreDec(inner)
+        | HirExprKind::PostDec(inner) => {
+            let is_dec = matches!(
+                &expr.kind,
+                HirExprKind::PreDec(_) | HirExprKind::PostDec(_)
+            );
+            if let HirExprKind::Ident(name) = &inner.kind {
+                if let Some(&cur) = ctx.env.get(name) {
+                    let cur_ty = mir.values[cur as usize].clone();
+                    let one = mir.new_value(cur_ty.clone());
+                    if cur_ty.is_float() {
+                        ctx.push_inst(mir, Inst::F64Const { dst: one, val: 1.0 });
+                    } else {
+                        ctx.push_inst(
+                            mir,
+                            Inst::IConst { dst: one, ty: cur_ty.clone(), val: 1 },
+                        );
+                    }
+                    let dst = mir.new_value(cur_ty.clone());
+                    let inst = if cur_ty.is_float() {
+                        if is_dec {
+                            Inst::FSub { dst, lhs: cur, rhs: one }
+                        } else {
+                            Inst::FAdd { dst, lhs: cur, rhs: one }
+                        }
+                    } else if is_dec {
+                        Inst::ISub { dst, lhs: cur, rhs: one }
+                    } else {
+                        Inst::IAdd { dst, lhs: cur, rhs: one }
+                    };
+                    ctx.push_inst(mir, inst);
+                    ctx.env.insert(name.clone(), dst);
+                    return dst;
+                }
+            }
+            ctx.had_placeholders = true;
+            emit_zero_const(&expr.ty, mir, ctx)
         }
 
         // Unsupported: emit a placeholder of the expected type and trap when
@@ -1198,6 +1462,236 @@ fn emit_intrinsic(
         // catch this since it's purely a shape mistake from the resolver.
         _ => emit_zero_const(res_ty, mir, ctx),
     }
+}
+
+/// Walka recursivamente uma lista de stmts/exprs e coleta o conjunto de
+/// nomes de identificadores que aparecem como alvo de atribuicao
+/// (Assign/AssignOp/PreInc/PostInc/PreDec/PostDec). Loops aninhados sao
+/// incluidos via recursao em cada arm.
+fn collect_mutated_vars(stmts: &[HirStmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for s in stmts {
+        collect_mut_in_stmt(s, &mut out);
+    }
+    out
+}
+
+fn collect_mut_in_stmt(stmt: &HirStmt, out: &mut HashSet<String>) {
+    match stmt {
+        HirStmt::Expr(e) | HirStmt::Throw(e) => collect_mut_in_expr(e, out),
+        HirStmt::Return(opt) => {
+            if let Some(e) = opt {
+                collect_mut_in_expr(e, out);
+            }
+        }
+        HirStmt::Let { init, .. } => {
+            if let Some(e) = init {
+                collect_mut_in_expr(e, out);
+            }
+        }
+        HirStmt::Const { init, .. } => collect_mut_in_expr(init, out),
+        HirStmt::If { cond, then, else_ } => {
+            collect_mut_in_expr(cond, out);
+            for s in then {
+                collect_mut_in_stmt(s, out);
+            }
+            if let Some(es) = else_ {
+                for s in es {
+                    collect_mut_in_stmt(s, out);
+                }
+            }
+        }
+        HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
+            collect_mut_in_expr(cond, out);
+            for s in body {
+                collect_mut_in_stmt(s, out);
+            }
+        }
+        HirStmt::For { init, cond, update, body } => {
+            if let Some(i) = init {
+                collect_mut_in_stmt(i, out);
+            }
+            if let Some(c) = cond {
+                collect_mut_in_expr(c, out);
+            }
+            if let Some(u) = update {
+                collect_mut_in_expr(u, out);
+            }
+            for s in body {
+                collect_mut_in_stmt(s, out);
+            }
+        }
+        HirStmt::ForOf { iterable, body, .. } => {
+            collect_mut_in_expr(iterable, out);
+            for s in body {
+                collect_mut_in_stmt(s, out);
+            }
+        }
+        HirStmt::ForIn { object, body, .. } => {
+            collect_mut_in_expr(object, out);
+            for s in body {
+                collect_mut_in_stmt(s, out);
+            }
+        }
+        HirStmt::Try { body, catch, finally } => {
+            for s in body {
+                collect_mut_in_stmt(s, out);
+            }
+            if let Some(c) = catch {
+                for s in &c.body {
+                    collect_mut_in_stmt(s, out);
+                }
+            }
+            if let Some(fin) = finally {
+                for s in fin {
+                    collect_mut_in_stmt(s, out);
+                }
+            }
+        }
+        HirStmt::Switch { discriminant, cases } => {
+            collect_mut_in_expr(discriminant, out);
+            for c in cases {
+                if let Some(t) = &c.test {
+                    collect_mut_in_expr(t, out);
+                }
+                for s in &c.body {
+                    collect_mut_in_stmt(s, out);
+                }
+            }
+        }
+        HirStmt::Block(body) => {
+            for s in body {
+                collect_mut_in_stmt(s, out);
+            }
+        }
+        HirStmt::Labeled { body, .. } => collect_mut_in_stmt(body, out),
+        HirStmt::Break(_) | HirStmt::Continue(_) | HirStmt::Raw(_) => {}
+    }
+}
+
+fn collect_mut_in_expr(expr: &HirExpr, out: &mut HashSet<String>) {
+    match &expr.kind {
+        HirExprKind::Assign { target, value } => {
+            if let HirExprKind::Ident(name) = &target.kind {
+                out.insert(name.clone());
+            }
+            collect_mut_in_expr(value, out);
+        }
+        HirExprKind::AssignOp { target, value, .. } => {
+            if let HirExprKind::Ident(name) = &target.kind {
+                out.insert(name.clone());
+            }
+            collect_mut_in_expr(value, out);
+        }
+        HirExprKind::PreInc(inner)
+        | HirExprKind::PreDec(inner)
+        | HirExprKind::PostInc(inner)
+        | HirExprKind::PostDec(inner) => {
+            if let HirExprKind::Ident(name) = &inner.kind {
+                out.insert(name.clone());
+            }
+            collect_mut_in_expr(inner, out);
+        }
+        HirExprKind::Bin { lhs, rhs, .. } => {
+            collect_mut_in_expr(lhs, out);
+            collect_mut_in_expr(rhs, out);
+        }
+        HirExprKind::Unary { operand, .. } => collect_mut_in_expr(operand, out),
+        HirExprKind::Call { callee, args } => {
+            collect_mut_in_expr(callee, out);
+            for a in args {
+                collect_mut_in_expr(a, out);
+            }
+        }
+        HirExprKind::MethodCall { object, args, .. } => {
+            collect_mut_in_expr(object, out);
+            for a in args {
+                collect_mut_in_expr(a, out);
+            }
+        }
+        HirExprKind::New { args, .. } => {
+            for a in args {
+                collect_mut_in_expr(a, out);
+            }
+        }
+        HirExprKind::Member { object, .. } => collect_mut_in_expr(object, out),
+        HirExprKind::Index { object, index } => {
+            collect_mut_in_expr(object, out);
+            collect_mut_in_expr(index, out);
+        }
+        HirExprKind::Array(items) => {
+            for e in items {
+                collect_mut_in_expr(e, out);
+            }
+        }
+        HirExprKind::Object(fields) => {
+            for (_, e) in fields {
+                collect_mut_in_expr(e, out);
+            }
+        }
+        HirExprKind::Ternary { cond, then, else_ } => {
+            collect_mut_in_expr(cond, out);
+            collect_mut_in_expr(then, out);
+            collect_mut_in_expr(else_, out);
+        }
+        HirExprKind::Cast { expr, .. } => collect_mut_in_expr(expr, out),
+        HirExprKind::Await(e) | HirExprKind::Spread(e) => collect_mut_in_expr(e, out),
+        HirExprKind::Seq(items) => {
+            for e in items {
+                collect_mut_in_expr(e, out);
+            }
+        }
+        HirExprKind::Lit(_)
+        | HirExprKind::Ident(_)
+        | HirExprKind::Arrow { .. }
+        | HirExprKind::Raw(_) => {}
+    }
+}
+
+/// Decide se uma variavel mutada vira block param do loop. Aceitamos tipos
+/// numericos simples e Bool — outros tipos (Str, Array, classes) sao
+/// deixados de fora e disparam `had_placeholders` para o codegen rotear via
+/// AST.
+fn is_loop_phi_compatible(ty: &HirType) -> bool {
+    matches!(
+        ty,
+        HirType::I8
+            | HirType::I16
+            | HirType::I32
+            | HirType::I64
+            | HirType::U8
+            | HirType::U16
+            | HirType::U32
+            | HirType::U64
+            | HirType::F32
+            | HirType::F64
+            | HirType::Number
+            | HirType::Bool
+    )
+}
+
+/// Para cada nome em `mutated`, se existe em env e o tipo eh phi-compativel,
+/// retorna (nome, valor_atual, tipo). Outras sao ignoradas e marcam
+/// had_placeholders.
+fn collect_loop_phis(
+    mutated: &HashSet<String>,
+    mir: &MirFunc,
+    ctx: &mut LowerCtx,
+) -> Vec<(String, ValueId, HirType)> {
+    let mut phis: Vec<(String, ValueId, HirType)> = Vec::new();
+    for name in mutated {
+        if let Some(&v) = ctx.env.get(name) {
+            let ty = mir.values[v as usize].clone();
+            if is_loop_phi_compatible(&ty) {
+                phis.push((name.clone(), v, ty));
+            } else {
+                ctx.had_placeholders = true;
+            }
+        }
+    }
+    // ordem deterministica
+    phis.sort_by(|a, b| a.0.cmp(&b.0));
+    phis
 }
 
 fn emit_zero_const(ty: &HirType, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId {

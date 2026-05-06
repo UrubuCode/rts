@@ -27,17 +27,27 @@ pub fn lower_func(decl: &FunctionDecl, scope: &mut Scope) -> HirFunc {
         .map(parse_type_annotation)
         .unwrap_or(HirType::Unknown);
 
-    let body = lower_stmts(&decl.body, scope);
-    let refined_ret = refine_func_ret(&ret, &body, scope);
-    scope.pop();
-
-    if !matches!(refined_ret, HirType::Unknown) {
-        scope.register_return_type(&decl.name, refined_ret.clone());
+    // Registra a assinatura ANTES de lower do body para que chamadas
+    // recursivas dentro do body resolvam o tipo de retorno corretamente
+    // (caso contrário, `fact(n-1)` fica com ty=Unknown e o
+    // `numeric_promotion(I64, Unknown)` cai em Number, levando o codegen
+    // a emitir fmul indevidamente).
+    if !matches!(ret, HirType::Unknown) {
+        scope.register_return_type(&decl.name, ret.clone());
     }
     scope.register_param_types(
         &decl.name,
         params.iter().map(|p| p.ty.clone()).collect(),
     );
+
+    let body = lower_stmts(&decl.body, scope);
+    let refined_ret = refine_func_ret(&ret, &body, scope);
+    scope.pop();
+
+    // Re-register com tipo refinado (caso body tenha sido mais informativo).
+    if !matches!(refined_ret, HirType::Unknown) {
+        scope.register_return_type(&decl.name, refined_ret.clone());
+    }
 
     HirFunc {
         name: decl.name.clone(),
