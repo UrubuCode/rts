@@ -488,15 +488,6 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
     new_proto
 }
 
-/// Helper interno para o GC scanner: dado um fn_ptr, retorna o
-/// prototype_handle se existir (sem alocar). Chamado durante mark
-/// para propagar marca a partir de Function entries cujo
-/// prototype_handle pode estar 0 mas existir no registry.
-pub(crate) fn lookup_prototype_for_fn_ptr(fn_ptr: u64) -> Option<u64> {
-    let registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
-    registry.get(&fn_ptr).copied().filter(|&h| h != 0)
-}
-
 /// (#proto-method) Auto-dispatch: se \`callee\` eh handle Function valido,
 /// chama via invoke_typed (com return_kind correto). Senao trata como
 /// fn_ptr cru e faz invoke_n (todos i64). Usado por

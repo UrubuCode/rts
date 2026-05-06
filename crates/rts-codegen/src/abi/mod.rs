@@ -2,8 +2,6 @@ pub use rts_abi::*;
 
 pub mod signature;
 
-use rts_abi::GlobalClassSpec;
-
 pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::string::abi::STRING_CLASS_SPEC,
     &crate::namespaces::globals::number::abi::NUMBER_CLASS_SPEC,

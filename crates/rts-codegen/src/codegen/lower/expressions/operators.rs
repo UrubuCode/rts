@@ -784,7 +784,7 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     let merge = ctx.builder.create_block();
     let result = ctx.builder.append_block_param(merge, cl::I64);
 
-    let mut rhs_ty: ValTy = lhs_ty;
+    let rhs_ty: ValTy;
     match bin.op {
         BinaryOp::LogicalAnd => {
             let rhs_block = ctx.builder.create_block();
@@ -1207,7 +1207,6 @@ fn lower_global_instanceof(
     class_name: &str,
     lhs_expr: &Expr,
 ) -> Result<TypedVal> {
-    use super::members::emit_class_tag_read;
     let lhs = lower_expr(ctx, lhs_expr)?;
     // Primitives (F64/I64/I32/Bool) nunca passam instanceof <class>.
     if !matches!(lhs.ty, ValTy::Handle) {

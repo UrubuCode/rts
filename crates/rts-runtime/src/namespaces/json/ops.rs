@@ -20,34 +20,6 @@ fn slice_from(ptr: u64, len: i64) -> Option<&'static [u8]> {
     Some(unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) })
 }
 
-/// Converte Value recursivamente para handles RTS:
-/// Object -> Entry::Map (com value handles), Array -> Entry::Vec.
-/// Number/Bool sao i64; Null vira 0; String vira handle de String.
-/// Permite acesso direto via .x e [i] em codigo TS.
-fn value_to_handle(v: &Value) -> i64 {
-    match v {
-        Value::Null => 0,
-        Value::Bool(b) => if *b { 1 } else { 0 },
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() { i }
-            else if let Some(f) = n.as_f64() { f as i64 }
-            else { 0 }
-        }
-        Value::String(s) => alloc_entry(Entry::String(s.as_bytes().to_vec())) as i64,
-        Value::Array(arr) => {
-            let vec: Vec<i64> = arr.iter().map(value_to_handle).collect();
-            alloc_entry(Entry::Vec(Box::new(vec))) as i64
-        }
-        Value::Object(obj) => {
-            let mut map = indexmap::IndexMap::new();
-            for (k, val) in obj {
-                map.insert(k.clone(), value_to_handle(val));
-            }
-            alloc_entry(Entry::Map(Box::new(map))) as i64
-        }
-    }
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_PARSE(ptr: u64, len: i64) -> u64 {
     let Some(bytes) = slice_from(ptr, len) else {

@@ -34,7 +34,7 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_FOR(key_ptr: *const u8, key_len: i64) -> u6
         return 0;
     };
     let key_owned = key.to_string();
-    let mut reg = registry().lock().unwrap();
+    let reg = registry().lock().unwrap();
     if let Some(&h) = reg.get(&key_owned) {
         return h;
     }

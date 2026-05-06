@@ -152,9 +152,6 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_TRY_VALUE(handle: u64) -> i64 {
 // instance methods (que tem caminho de codegen fragil pra Promise).
 // Recomendado: `promise.then(p, fn)` em TS — funciona sempre.
 
-type CallbackI64 = unsafe extern "C" fn(i64) -> i64;
-type CallbackVoid = unsafe extern "C" fn() -> i64;
-
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_THEN_NS(p_handle: u64, fp: u64) -> u64 {
     let slot_arc = with_entry(p_handle, |entry| match entry {
