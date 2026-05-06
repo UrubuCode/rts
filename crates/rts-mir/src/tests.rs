@@ -5,7 +5,7 @@
 
 use crate::ir::*;
 use crate::lower::lower_func;
-use crate::passes::{dce, fold, optimize};
+use crate::passes::{dce, fold, narrow, optimize, verify, VerifyError};
 use rts_hir::ir::{HirBinOp, HirExpr, HirExprKind, HirFunc, HirLit, HirParam, HirStmt};
 use rts_hir::HirType;
 
@@ -599,6 +599,161 @@ fn optimize_pipeline_runs_fold_then_dce() {
     // Only the folded IConst 16 should remain
     assert_eq!(bb.insts.len(), 1);
     assert!(matches!(bb.insts[0], Inst::IConst { val: 16, .. }));
+}
+
+// ---------- verify tests ----------
+
+#[test]
+fn verify_accepts_well_formed_function() {
+    let f = build_const_add(1, 2);
+    assert_eq!(verify(&f), Ok(()));
+}
+
+#[test]
+fn verify_lowered_function() {
+    // A real lowered fn from HIR — a smoke test that lower output passes verify.
+    let body = vec![HirStmt::Return(Some(bin(
+        HirBinOp::Add,
+        ident("a", HirType::I64),
+        lit_int(1),
+        HirType::I64,
+    )))];
+    let f = fn_decl("inc", vec![("a", HirType::I64)], HirType::I64, body);
+    let mir = lower_func(&f);
+    assert_eq!(verify(&mir), Ok(()));
+}
+
+#[test]
+fn verify_rejects_value_out_of_range() {
+    let mut f = MirFunc::new("bad", CallConvHint::Tail, HirType::I64);
+    let blk = f.new_block();
+    f.blocks[blk as usize].insts.push(Inst::IConst {
+        dst: 99, // not allocated
+        ty: HirType::I64,
+        val: 0,
+    });
+    f.blocks[blk as usize].term = Terminator::Return(vec![]);
+    assert!(matches!(
+        verify(&f),
+        Err(VerifyError::ValueOutOfRange { value: 99, .. })
+    ));
+}
+
+#[test]
+fn verify_rejects_block_id_mismatch() {
+    let mut f = MirFunc::new("bad", CallConvHint::Tail, HirType::Void);
+    let _ = f.new_block();
+    f.blocks[0].id = 7; // doesn't match position
+    assert!(matches!(
+        verify(&f),
+        Err(VerifyError::BlockIdMismatch { idx: 0, declared: 7 })
+    ));
+}
+
+#[test]
+fn verify_rejects_brif_with_invalid_block() {
+    let mut f = MirFunc::new("bad", CallConvHint::Tail, HirType::Void);
+    let cond = f.new_value(HirType::Bool);
+    let blk = f.new_block();
+    f.blocks[blk as usize].insts.push(Inst::IConst {
+        dst: cond,
+        ty: HirType::Bool,
+        val: 0,
+    });
+    f.blocks[blk as usize].term = Terminator::Brif {
+        cond,
+        then_block: 99,
+        then_args: vec![],
+        else_block: 100,
+        else_args: vec![],
+    };
+    assert!(matches!(
+        verify(&f),
+        Err(VerifyError::BlockOutOfRange { .. })
+    ));
+}
+
+#[test]
+fn verify_passes_after_optimize() {
+    // Run lower + optimize and verify still holds.
+    let body = vec![HirStmt::Return(Some(bin(
+        HirBinOp::Mul,
+        lit_int(2),
+        lit_int(8),
+        HirType::I64,
+    )))];
+    let f = fn_decl("k", vec![], HirType::I64, body);
+    let mut mir = lower_func(&f);
+    optimize(&mut mir);
+    assert_eq!(verify(&mir), Ok(()));
+}
+
+// ---------- narrow tests ----------
+
+#[test]
+fn narrow_i8_iadd_inserts_mask() {
+    // dst: I8 = a + b
+    let mut f = MirFunc::new("n8", CallConvHint::Tail, HirType::I8);
+    let a = f.new_value(HirType::I8);
+    let b = f.new_value(HirType::I8);
+    let r = f.new_value(HirType::I8);
+    f.params.push((a, HirType::I8));
+    f.params.push((b, HirType::I8));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::I8));
+    f.blocks[blk as usize].params.push((b, HirType::I8));
+    f.blocks[blk as usize].insts.push(Inst::IAdd { dst: r, lhs: a, rhs: b });
+    f.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    narrow(&mut f);
+    let bb = &f.blocks[0];
+    assert_eq!(bb.insts.len(), 2);
+    assert!(matches!(bb.insts[0], Inst::IAdd { .. }));
+    assert!(matches!(
+        bb.insts[1],
+        Inst::BAndImm { imm: 0xFF, .. }
+    ));
+}
+
+#[test]
+fn narrow_i16_imul_inserts_mask_0xffff() {
+    let mut f = MirFunc::new("n16", CallConvHint::Tail, HirType::I16);
+    let a = f.new_value(HirType::I16);
+    let b = f.new_value(HirType::I16);
+    let r = f.new_value(HirType::I16);
+    f.params.push((a, HirType::I16));
+    f.params.push((b, HirType::I16));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::I16));
+    f.blocks[blk as usize].params.push((b, HirType::I16));
+    f.blocks[blk as usize].insts.push(Inst::IMul { dst: r, lhs: a, rhs: b });
+    f.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    narrow(&mut f);
+    let bb = &f.blocks[0];
+    assert!(bb.insts.iter().any(|i| matches!(
+        i,
+        Inst::BAndImm { imm: 0xFFFF, .. }
+    )));
+}
+
+#[test]
+fn narrow_i64_iadd_does_not_insert_mask() {
+    let mut f = MirFunc::new("n64", CallConvHint::Tail, HirType::I64);
+    let a = f.new_value(HirType::I64);
+    let b = f.new_value(HirType::I64);
+    let r = f.new_value(HirType::I64);
+    f.params.push((a, HirType::I64));
+    f.params.push((b, HirType::I64));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::I64));
+    f.blocks[blk as usize].params.push((b, HirType::I64));
+    f.blocks[blk as usize].insts.push(Inst::IAdd { dst: r, lhs: a, rhs: b });
+    f.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    narrow(&mut f);
+    let bb = &f.blocks[0];
+    assert_eq!(bb.insts.len(), 1, "I64 ops should not be masked");
 }
 
 #[test]
