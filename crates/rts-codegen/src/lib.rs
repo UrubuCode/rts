@@ -31,6 +31,7 @@ pub mod runtime;
 pub mod bundle;
 pub mod cache;
 pub mod codegen;
+pub mod mir_codegen;
 pub mod compile_options;
 pub mod eval_jit;
 pub mod function_eval_compile;
