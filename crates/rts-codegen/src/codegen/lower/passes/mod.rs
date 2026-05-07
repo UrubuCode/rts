@@ -10,4 +10,5 @@ pub mod async_expand;
 pub mod destructuring;
 pub mod hoist_fn;
 pub mod object_methods;
+pub mod parallelism;
 pub mod static_fields;
