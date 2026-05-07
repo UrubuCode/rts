@@ -7,3 +7,4 @@
 
 pub mod args;
 pub mod object_methods;
+pub mod static_fields;
