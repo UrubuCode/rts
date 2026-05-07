@@ -7821,6 +7821,14 @@ fn mir_param_compatible(mir_ty: &rts_hir::ir::HirType, ast_ty: ValTy) -> bool {
         (HirType::Bool, ValTy::Bool) => true,
         (HirType::F64 | HirType::Number, ValTy::F64) => true,
         (HirType::I32, ValTy::I32) => true,
+        // Narrow ints — MIR roteia overflow via pass `narrow`. ABI
+        // permanece I64 nos dois lados (callsite AST chama com i64,
+        // MIR mascara internamente; sign-extend de signed e' feito
+        // no return via narrow_return_signed_extend pass).
+        (HirType::I8, ValTy::I8) => true,
+        (HirType::I16, ValTy::I16) => true,
+        (HirType::U8, ValTy::U8) => true,
+        (HirType::U16, ValTy::U16) => true,
         // Mismatch → caller bails to AST path
         _ => false,
     }

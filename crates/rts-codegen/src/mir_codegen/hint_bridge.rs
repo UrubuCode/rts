@@ -41,9 +41,19 @@ pub fn hint_to_cl(hint: CraneliftTypeHint) -> Option<Type> {
 /// Convert a HIR type directly to a Cranelift `Type`, falling back to `I64`
 /// for compound/unknown types so the IR remains well-formed even when MIR
 /// carries imprecise types.
+///
+/// **Narrow ints (I8/I16/U8/U16)** sao mapeados para `I64` — o ABI de
+/// chamadas cross-fn AST<->MIR ja' viaja em i64, e shifts > width
+/// (e.g. `ishl_imm 56` para sign-extend signed) seriam UB sobre `cl::I8`.
+/// O pass `narrow` do MIR ja' insere mask + sign-extend explicitos,
+/// preservando overflow em i64.
 pub fn hir_to_cl(ty: &HirType) -> Type {
-    match ty.cranelift_hint() {
-        Some(hint) => hint_to_cl(hint).unwrap_or(cl::I64),
-        None => cl::I64, // Any/Unknown/Object/Array/Class — opaque i64
+    use rts_hir::ir::HirType as H;
+    match ty {
+        H::I8 | H::I16 | H::U8 | H::U16 => cl::I64,
+        _ => match ty.cranelift_hint() {
+            Some(hint) => hint_to_cl(hint).unwrap_or(cl::I64),
+            None => cl::I64,
+        },
     }
 }

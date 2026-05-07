@@ -11,6 +11,7 @@ pub mod fma;
 pub mod fold;
 pub mod inline;
 pub mod narrow;
+pub mod narrow_return;
 pub mod verify;
 
 pub use cse::cse;
@@ -19,6 +20,7 @@ pub use fma::fma;
 pub use fold::fold;
 pub use inline::{inline, INLINE_BUDGET};
 pub use narrow::narrow;
+pub use narrow_return::narrow_return;
 pub use verify::{verify, VerifyError};
 
 /// Convenience: run the standard pass pipeline on a function.
@@ -34,6 +36,7 @@ pub use verify::{verify, VerifyError};
 /// novo.
 pub fn optimize(mir: &mut crate::ir::MirFunc) {
     narrow(mir);
+    narrow_return(mir);
     fold(mir);
     fma(mir);
     cse(mir);

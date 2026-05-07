@@ -72,6 +72,10 @@ impl ValTy {
             "f64" | "F64" | "number" => return ValTy::F64,
             "bool" | "boolean" => return ValTy::Bool,
             "string" | "str" => return ValTy::Handle,
+            "i8" | "I8" => return ValTy::I8,
+            "i16" | "I16" => return ValTy::I16,
+            "u8" | "U8" => return ValTy::U8,
+            "u16" | "U16" => return ValTy::U16,
             _ => {}
         }
         // Tipos de array (`T[]`, `Array<T>`, `ReadonlyArray<T>`) sao

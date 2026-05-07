@@ -5,7 +5,7 @@
 
 use crate::ir::*;
 use crate::lower::lower_func;
-use crate::passes::{dce, fold, narrow, optimize, verify, VerifyError};
+use crate::passes::{dce, fold, narrow, narrow_return, optimize, verify, VerifyError};
 use rts_hir::ir::{HirBinOp, HirExpr, HirExprKind, HirFunc, HirLit, HirParam, HirStmt};
 use rts_hir::HirType;
 
@@ -1468,6 +1468,50 @@ fn lower_logical_not_emits_bxor_with_one() {
         .count();
     assert_eq!(bxors, 1);
     assert_eq!(one_consts, 1);
+}
+
+#[test]
+fn narrow_return_signed_inserts_sign_extend() {
+    let mut f = MirFunc::new("retI8", CallConvHint::Tail, HirType::I8);
+    let a = f.new_value(HirType::I8);
+    let b = f.new_value(HirType::I8);
+    let r = f.new_value(HirType::I8);
+    f.params.push((a, HirType::I8));
+    f.params.push((b, HirType::I8));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::I8));
+    f.blocks[blk as usize].params.push((b, HirType::I8));
+    f.blocks[blk as usize].insts.push(Inst::IAdd { dst: r, lhs: a, rhs: b });
+    f.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    assert!(narrow_return(&mut f));
+    let bb = &f.blocks[0];
+    // IAdd + IShlImm 56 + SShrImm 56
+    assert!(bb.insts.iter().any(|i| matches!(i, Inst::IShlImm { imm: 56, .. })));
+    assert!(bb.insts.iter().any(|i| matches!(i, Inst::SShrImm { imm: 56, .. })));
+
+    // Idempotente: chamar de novo nao adiciona novamente
+    let n_before = bb.insts.len();
+    narrow_return(&mut f);
+    assert_eq!(f.blocks[0].insts.len(), n_before, "narrow_return idempotente");
+}
+
+#[test]
+fn narrow_return_unsigned_no_sign_extend() {
+    let mut f = MirFunc::new("retU8", CallConvHint::Tail, HirType::U8);
+    let a = f.new_value(HirType::U8);
+    let b = f.new_value(HirType::U8);
+    let r = f.new_value(HirType::U8);
+    f.params.push((a, HirType::U8));
+    f.params.push((b, HirType::U8));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::U8));
+    f.blocks[blk as usize].params.push((b, HirType::U8));
+    f.blocks[blk as usize].insts.push(Inst::IAdd { dst: r, lhs: a, rhs: b });
+    f.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    assert!(!narrow_return(&mut f), "U8 nao deve sign-extend");
+    assert_eq!(f.blocks[0].insts.len(), 1);
 }
 
 // ---------- SIMD V128 smoke ----------
