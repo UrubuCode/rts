@@ -29,8 +29,43 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE(ptr: u64, len: i64) -> u64 {
         return 0;
     };
     match serde_json::from_str::<Value>(text) {
-        Ok(v) => alloc_entry(Entry::Json(Box::new(v))),
+        Ok(v) => json_value_to_handle(&v),
         Err(_) => 0,
+    }
+}
+
+/// Converte recursivamente um `serde_json::Value` em handle nativo:
+/// - Object -> Entry::Map
+/// - Array -> Entry::Vec
+/// - String -> Entry::String
+/// - Number/Bool/Null -> i64 raw (representado no Vec/Map slot)
+///
+/// Permite acesso JS-style direto: `obj.x`, `arr[0]`, `arr.length`.
+fn json_value_to_handle(v: &Value) -> u64 {
+    match v {
+        Value::Null => 0,
+        Value::Bool(b) => if *b { 1 } else { 0 },
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                i as u64
+            } else if let Some(f) = n.as_f64() {
+                f.to_bits()
+            } else {
+                0
+            }
+        }
+        Value::String(s) => alloc_entry(Entry::String(s.clone().into_bytes())),
+        Value::Array(arr) => {
+            let slots: Vec<i64> = arr.iter().map(|v| json_value_to_handle(v) as i64).collect();
+            alloc_entry(Entry::Vec(Box::new(slots)))
+        }
+        Value::Object(map) => {
+            let mut store: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+            for (k, val) in map {
+                store.insert(k.clone(), json_value_to_handle(val) as i64);
+            }
+            alloc_entry(Entry::Map(Box::new(store)))
+        }
     }
 }
 
