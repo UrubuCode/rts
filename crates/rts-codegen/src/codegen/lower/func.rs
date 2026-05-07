@@ -7780,27 +7780,41 @@ fn compile_user_fn(
 ) -> Result<Vec<String>> {
     let warnings: Vec<String> = Vec::new();
 
-    // (etapa 3.19) Routing híbrido MIR ↔ AST. Quando RTS_USE_MIR=1 e a fn
-    // não usa features unsupported pelo MIR (this/classes/async), tentamos
-    // o caminho HIR → MIR → Cranelift; em qualquer falha (Trap, signature
-    // mismatch, lower error) caímos no caminho AST autoritativo abaixo.
-    // RTS_USE_MIR controls the experimental MIR-routed compile path.
-    // - unset → AST only (default, production behaviour)
-    // - "1" or "all" → try MIR for every user fn (experimental; some
-    //   features still bail and fall back to AST)
-    // - "fn1,fn2,fn3" → try MIR only for fns named explicitly
+    // (etapa 3.19/3.25) Routing híbrido MIR ↔ AST.
     //
-    // The MIR path has gating that rejects async/synthetic/non-numeric
-    // signatures, but even past the gate some shapes still produce wrong
-    // code silently. The named-list mode is the safe knob for testing
-    // specific fns end-to-end without breaking the suite.
-    if let Ok(spec) = std::env::var("RTS_USE_MIR") {
-        let allowed = spec == "1"
-            || spec.eq_ignore_ascii_case("all")
-            || spec.split(',').any(|n| n.trim() == fn_decl.name);
-        if allowed && try_compile_via_mir(module, fn_decl, info, address_taken)? {
-            return Ok(warnings);
+    // Caminho MIR (HIR → MIR → optimize → mir_codegen → Cranelift) tenta
+    // assumir cada user fn cujo gate aceita (synthetic/async/types
+    // whitelisted/etc.); em qualquer falha (Trap, signature mismatch,
+    // had_placeholders, lower error) cai automaticamente no AST.
+    //
+    // RTS_USE_MIR controla o opt-out:
+    //   - unset / "1" / "on" / "all" → MIR ON (default, etapa 3.25)
+    //   - "0" / "off" / "none"        → MIR OFF (AST only)
+    //   - "fn1,fn2,fn3"               → MIR só pras fns listadas
+    //
+    // Gate testado: zero regressão na suite TS (621/632 com MIR ON ==
+    // 621/632 com MIR OFF, etapa 3.24). Reativar address-taken e
+    // CallExtern eh trabalho futuro auditado por namespace.
+    let mir_allowed = match std::env::var("RTS_USE_MIR") {
+        Err(_) => true,
+        Ok(spec) => {
+            let s = spec.trim();
+            if s.is_empty() || s.eq_ignore_ascii_case("on") || s == "1"
+                || s.eq_ignore_ascii_case("all")
+            {
+                true
+            } else if s == "0" || s.eq_ignore_ascii_case("off")
+                || s.eq_ignore_ascii_case("none")
+            {
+                false
+            } else {
+                // Lista por nome — só ativa quando match.
+                s.split(',').any(|n| n.trim() == fn_decl.name)
+            }
         }
+    };
+    if mir_allowed && try_compile_via_mir(module, fn_decl, info, address_taken)? {
+        return Ok(warnings);
     }
 
     let mut warnings = warnings;
