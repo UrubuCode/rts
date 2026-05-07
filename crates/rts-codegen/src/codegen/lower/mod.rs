@@ -6,6 +6,7 @@
 
 pub mod analysis;
 pub mod class_layout;
+pub mod compile;
 pub mod ctx;
 pub mod expressions;
 pub mod func;
