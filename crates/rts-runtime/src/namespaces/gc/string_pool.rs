@@ -127,30 +127,17 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     let h = value as u64;
-    let formatted = with_entry(h, |e| match e {
-        Some(Entry::String(_)) => None, // passthrough
-        Some(Entry::Vec(v)) => {
-            let parts: Vec<String> =
-                v.iter().map(|x| format_js_number(*x as f64)).collect();
-            Some(parts.join(","))
+    let snap = snapshot_entry(h);
+    match snap {
+        EntrySnap::Str(_) => h, // passthrough do handle original
+        EntrySnap::None => {
+            // Nao eh handle valido — interpreta como i64 raw (legacy).
+            alloc_entry(Entry::String(value.to_string().into_bytes()))
         }
-        Some(Entry::Map(_)) => Some("[object Object]".to_string()),
-        Some(Entry::Buffer(_)) => Some("[object Buffer]".to_string()),
-        Some(Entry::Json(j)) => Some(j.to_string()),
-        Some(_) => Some(format!("[object {}]", entry_kind_name(e.unwrap()))),
-        None => None,
-    });
-    match formatted {
-        None => {
-            // Handle valido String -> passthrough; senao, i64 raw
-            let is_string = with_entry(h, |e| matches!(e, Some(Entry::String(_))));
-            if is_string {
-                h
-            } else {
-                alloc_entry(Entry::String(value.to_string().into_bytes()))
-            }
+        other => {
+            let bytes = snapshot_to_bytes(&other);
+            alloc_entry(Entry::String(bytes))
         }
-        Some(s) => alloc_entry(Entry::String(s.into_bytes())),
     }
 }
 
@@ -224,29 +211,99 @@ pub fn format_js_number(value: f64) -> String {
 /// Handles invalidos viram string vazia (semantica JS template literal).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
-    let bytes = with_two_entries(a, b, |ea, eb| {
-        let mut out = entry_to_string_bytes(ea);
-        out.extend_from_slice(&entry_to_string_bytes(eb));
-        out
-    });
-    alloc_entry(Entry::String(bytes))
+    // Coleta dados dos dois handles ANTES de qualquer processamento
+    // recursivo (que precisa re-acessar o HandleTable).
+    let snap_a = snapshot_entry(a);
+    let snap_b = snapshot_entry(b);
+    let mut out = snapshot_to_bytes(&snap_a);
+    out.extend_from_slice(&snapshot_to_bytes(&snap_b));
+    alloc_entry(Entry::String(out))
 }
 
-/// Converte uma `Entry` em bytes seguindo a semantica JS de coercao
-/// `Object -> string` (usada em concat e template literals).
-fn entry_to_string_bytes(e: Option<&Entry>) -> Vec<u8> {
-    match e {
-        Some(Entry::String(s)) => s.clone(),
-        Some(Entry::Vec(v)) => {
-            let parts: Vec<String> =
-                v.iter().map(|x| format_js_number(*x as f64)).collect();
+/// Snapshot minimo de uma Entry — copia o que basta para formatar
+/// fora do lock, evitando deadlock recursivo.
+enum EntrySnap {
+    Str(Vec<u8>),
+    Vec(Vec<i64>),
+    Map,
+    Buffer,
+    Json(String),
+    Other(&'static str),
+    None,
+}
+
+fn snapshot_entry(h: u64) -> EntrySnap {
+    with_entry(h, |e| match e {
+        Some(Entry::String(s)) => EntrySnap::Str(s.clone()),
+        Some(Entry::Vec(v)) => EntrySnap::Vec((**v).clone()),
+        Some(Entry::Map(_)) => EntrySnap::Map,
+        Some(Entry::Buffer(_)) => EntrySnap::Buffer,
+        Some(Entry::Json(j)) => EntrySnap::Json(j.to_string()),
+        Some(other) => EntrySnap::Other(entry_kind_name(other)),
+        None => EntrySnap::None,
+    })
+}
+
+fn snapshot_to_bytes(s: &EntrySnap) -> Vec<u8> {
+    match s {
+        EntrySnap::Str(b) => b.clone(),
+        EntrySnap::Vec(slots) => {
+            let parts: Vec<String> = slots.iter().map(|x| element_to_string(*x)).collect();
             parts.join(",").into_bytes()
         }
-        Some(Entry::Map(_)) => b"[object Object]".to_vec(),
-        Some(Entry::Buffer(_)) => b"[object Buffer]".to_vec(),
-        Some(Entry::Json(j)) => j.to_string().into_bytes(),
-        Some(other) => format!("[object {}]", entry_kind_name(other)).into_bytes(),
-        None => Vec::new(),
+        EntrySnap::Map => b"[object Object]".to_vec(),
+        EntrySnap::Buffer => b"[object Buffer]".to_vec(),
+        EntrySnap::Json(j) => j.clone().into_bytes(),
+        EntrySnap::Other(name) => format!("[object {}]", name).into_bytes(),
+        EntrySnap::None => Vec::new(),
+    }
+}
+
+/// Converte um i64 raw (slot de Vec) numa string. Tenta lookup no
+/// HandleTable: se for handle valido de String/Vec/Map/etc., renderiza
+/// a Entry recursivamente. Caso contrario, formata como integer
+/// (semantica padrao para Vec<i64> em RTS — slots sao i64 raw, nao
+/// bits f64).
+///
+/// **NAO chamar dentro de um with_entry/with_two_entries lock** — esta
+/// fn re-acessa o HandleTable e causaria deadlock no mesmo shard.
+fn element_to_string(raw: i64) -> String {
+    let h = raw as u64;
+    // Heuristica: handles RTS comecam com gen >= 1, dando valores >= 2^48.
+    // Valores menores sao quase certamente integers literais (TS [1,2,3]).
+    // Esta optimization evita lookup desnecessario no HandleTable para
+    // arrays numericos pequenos (caso comum).
+    if h < (1u64 << 48) {
+        return format_js_number(raw as f64);
+    }
+    enum Resolved {
+        StringBytes(Vec<u8>),
+        VecSlots(Vec<i64>),
+        Object,
+        Json(String),
+        Other(&'static str),
+        NotHandle,
+    }
+    let resolved = with_entry(h, |e| match e {
+        Some(Entry::String(s)) => Resolved::StringBytes(s.clone()),
+        Some(Entry::Vec(v)) => Resolved::VecSlots((**v).clone()),
+        Some(Entry::Map(_)) => Resolved::Object,
+        Some(Entry::Json(j)) => Resolved::Json(j.to_string()),
+        Some(other) => Resolved::Other(entry_kind_name(other)),
+        None => Resolved::NotHandle,
+    });
+    match resolved {
+        Resolved::StringBytes(b) => String::from_utf8_lossy(&b).into_owned(),
+        Resolved::VecSlots(slots) => {
+            let inner: Vec<String> =
+                slots.iter().map(|x| element_to_string(*x)).collect();
+            inner.join(",")
+        }
+        Resolved::Object => "[object Object]".to_string(),
+        Resolved::Json(s) => s,
+        Resolved::Other(name) => format!("[object {}]", name),
+        // Handle nao reconhecido — formata como integer.
+        Resolved::NotHandle => format_js_number(raw as f64),
     }
 }
 
