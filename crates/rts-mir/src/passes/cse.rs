@@ -348,6 +348,12 @@ fn remap_operands(inst: &mut Inst, remap: &HashMap<ValueId, ValueId>) {
             map_v(replacement, remap);
         }
         DeclareGcValue { val } => map_v(val, remap),
+        VSplat { src, .. } => map_v(src, remap),
+        VExtractLane { src, .. } => map_v(src, remap),
+        VInsertLane { src, val, .. } => { map_v(src, remap); map_v(val, remap); }
+        VAdd { lhs, rhs, .. } | VSub { lhs, rhs, .. } | VMul { lhs, rhs, .. } => {
+            map_v(lhs, remap); map_v(rhs, remap);
+        }
         IConst { .. } | F32Const { .. } | F64Const { .. }
         | StackAlloc { .. } | Fence { .. } | StrLit { .. } => {}
     }

@@ -761,6 +761,48 @@ fn lower_inst(
         Fence { .. } => {
             builder.ins().fence();
         }
+
+        // SIMD V128: cada Inst mapeia direto para a instrução vetorial
+        // do Cranelift. `splat` recebe o tipo de destino (vector type).
+        VSplat { dst, src, kind } => {
+            let vty = crate::mir_codegen::hint_bridge::veckind_to_cl(*kind);
+            let v = builder.ins().splat(vty, val(vmap, *src)?);
+            bind!(dst, v);
+        }
+        VExtractLane { dst, src, lane, .. } => {
+            let v = builder.ins().extractlane(val(vmap, *src)?, *lane);
+            bind!(dst, v);
+        }
+        VInsertLane { dst, src, val: lane_val, lane, .. } => {
+            let v = builder
+                .ins()
+                .insertlane(val(vmap, *src)?, val(vmap, *lane_val)?, *lane);
+            bind!(dst, v);
+        }
+        VAdd { dst, lhs, rhs, kind } => {
+            let v = if kind.is_float() {
+                builder.ins().fadd(val(vmap, *lhs)?, val(vmap, *rhs)?)
+            } else {
+                builder.ins().iadd(val(vmap, *lhs)?, val(vmap, *rhs)?)
+            };
+            bind!(dst, v);
+        }
+        VSub { dst, lhs, rhs, kind } => {
+            let v = if kind.is_float() {
+                builder.ins().fsub(val(vmap, *lhs)?, val(vmap, *rhs)?)
+            } else {
+                builder.ins().isub(val(vmap, *lhs)?, val(vmap, *rhs)?)
+            };
+            bind!(dst, v);
+        }
+        VMul { dst, lhs, rhs, kind } => {
+            let v = if kind.is_float() {
+                builder.ins().fmul(val(vmap, *lhs)?, val(vmap, *rhs)?)
+            } else {
+                builder.ins().imul(val(vmap, *lhs)?, val(vmap, *rhs)?)
+            };
+            bind!(dst, v);
+        }
     }
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::ir::HirType;
+use crate::ir::{HirType, VecKind};
 
 /// Hint for the Cranelift type to use — does not import cranelift directly.
 /// `rts-codegen` converts this to `cranelift_codegen::ir::Type`.
@@ -16,6 +16,9 @@ pub enum CraneliftTypeHint {
     Void,
     /// Two slots: ptr:I64 + len:I64 — caller must expand.
     StrPtr,
+    /// 128-bit SIMD vector with lane configuration. Cranelift mapeia para
+    /// `types::I8X16` etc. via `hint_to_cl` no `rts-codegen`.
+    V128(VecKind),
 }
 
 impl HirType {
@@ -39,6 +42,7 @@ impl HirType {
             HirType::F64 | HirType::Number => Some(CraneliftTypeHint::F64),
             HirType::Void => Some(CraneliftTypeHint::Void),
             HirType::Str => Some(CraneliftTypeHint::StrPtr),
+            HirType::V128(k) => Some(CraneliftTypeHint::V128(*k)),
             HirType::Any
             | HirType::Unknown
             | HirType::Array(_)

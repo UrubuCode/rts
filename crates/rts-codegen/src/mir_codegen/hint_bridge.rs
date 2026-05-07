@@ -4,8 +4,20 @@
 //! dependencies — see `RTS_REFACTOR.md` invariants.
 
 use cranelift_codegen::ir::{types as cl, Type};
-use rts_hir::ir::HirType;
+use rts_hir::ir::{HirType, VecKind};
 use rts_hir::CraneliftTypeHint;
+
+/// Mapeia `VecKind` para o `Type` SIMD do Cranelift.
+pub fn veckind_to_cl(k: VecKind) -> Type {
+    match k {
+        VecKind::I8x16 => cl::I8X16,
+        VecKind::I16x8 => cl::I16X8,
+        VecKind::I32x4 => cl::I32X4,
+        VecKind::I64x2 => cl::I64X2,
+        VecKind::F32x4 => cl::F32X4,
+        VecKind::F64x2 => cl::F64X2,
+    }
+}
 
 /// Convert a HIR type hint to its Cranelift equivalent. Returns `None` for
 /// `Void`, `StrPtr` (multi-slot), or compound types — caller decides how
@@ -21,6 +33,7 @@ pub fn hint_to_cl(hint: CraneliftTypeHint) -> Option<Type> {
         CraneliftTypeHint::F64 => cl::F64,
         // Pointer width: assume 64-bit since RTS only targets 64-bit hosts
         CraneliftTypeHint::Ptr => cl::I64,
+        CraneliftTypeHint::V128(k) => veckind_to_cl(k),
         CraneliftTypeHint::Void | CraneliftTypeHint::StrPtr => return None,
     })
 }

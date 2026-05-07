@@ -276,6 +276,22 @@ pub enum Inst {
         ret_ty: HirType,
         param_tys: Vec<HirType>,
     },
+
+    // SIMD V128 (lane-parametric).
+    /// Splat — replicate `src` (escalar) em todas as lanes do `kind`. Mapeia
+    /// para `splat` do Cranelift (e.g. `i32x4.splat`).
+    VSplat { dst: ValueId, src: ValueId, kind: rts_hir::ir::VecKind },
+    /// Extract lane — `dst = src[lane]`. Mapeia para `extractlane`.
+    VExtractLane { dst: ValueId, src: ValueId, lane: u8, kind: rts_hir::ir::VecKind },
+    /// Insert lane — `dst = src` com `dst[lane] = val`. Mapeia para `insertlane`.
+    VInsertLane { dst: ValueId, src: ValueId, val: ValueId, lane: u8, kind: rts_hir::ir::VecKind },
+    /// Add — lane-wise integer ou float add (escolhe `iadd` ou `fadd`
+    /// pelo `kind.is_float()`).
+    VAdd { dst: ValueId, lhs: ValueId, rhs: ValueId, kind: rts_hir::ir::VecKind },
+    /// Sub — lane-wise integer ou float subtract.
+    VSub { dst: ValueId, lhs: ValueId, rhs: ValueId, kind: rts_hir::ir::VecKind },
+    /// Mul — lane-wise integer ou float multiply.
+    VMul { dst: ValueId, lhs: ValueId, rhs: ValueId, kind: rts_hir::ir::VecKind },
 }
 
 #[derive(Debug, Clone)]

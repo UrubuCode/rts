@@ -245,6 +245,27 @@ fn verify_inst(
         DeclareGcValue { val } => {
             check_v(*val, &loc("gc"))?;
         }
+
+        VSplat { dst, src, .. } => {
+            check_v(*dst, &loc("dst"))?;
+            check_v(*src, &loc("src"))?;
+        }
+        VExtractLane { dst, src, .. } => {
+            check_v(*dst, &loc("dst"))?;
+            check_v(*src, &loc("src"))?;
+        }
+        VInsertLane { dst, src, val, .. } => {
+            check_v(*dst, &loc("dst"))?;
+            check_v(*src, &loc("src"))?;
+            check_v(*val, &loc("val"))?;
+        }
+        VAdd { dst, lhs, rhs, .. }
+        | VSub { dst, lhs, rhs, .. }
+        | VMul { dst, lhs, rhs, .. } => {
+            check_v(*dst, &loc("dst"))?;
+            check_v(*lhs, &loc("lhs"))?;
+            check_v(*rhs, &loc("rhs"))?;
+        }
     }
     Ok(())
 }

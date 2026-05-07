@@ -75,6 +75,7 @@ fn fmt_ty(t: &HirType) -> String {
         HirType::Object => "obj".into(),
         HirType::Any => "any".into(),
         HirType::Unknown => "?".into(),
+        HirType::V128(k) => format!("v128.{:?}", k).to_lowercase(),
     }
 }
 
@@ -191,6 +192,16 @@ fn fmt_inst(inst: &Inst) -> String {
                 None => format!("call_user {}({})", name, args_s),
             }
         }
+        VSplat { dst, src, kind } => format!("v{} = vsplat.{:?} v{}", dst, kind, src),
+        VExtractLane { dst, src, lane, kind } => {
+            format!("v{} = vextract.{:?}[{}] v{}", dst, kind, lane, src)
+        }
+        VInsertLane { dst, src, val, lane, kind } => {
+            format!("v{} = vinsert.{:?}[{}] v{}, v{}", dst, kind, lane, src, val)
+        }
+        VAdd { dst, lhs, rhs, kind } => format!("v{} = vadd.{:?} v{}, v{}", dst, kind, lhs, rhs),
+        VSub { dst, lhs, rhs, kind } => format!("v{} = vsub.{:?} v{}, v{}", dst, kind, lhs, rhs),
+        VMul { dst, lhs, rhs, kind } => format!("v{} = vmul.{:?} v{}, v{}", dst, kind, lhs, rhs),
     }
 }
 

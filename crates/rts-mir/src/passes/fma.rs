@@ -160,6 +160,12 @@ fn for_each_operand<F: FnMut(ValueId)>(inst: &Inst, mut f: F) {
             f(*ptr); f(*expected); f(*replacement);
         }
         DeclareGcValue { val } => f(*val),
+        VSplat { src, .. } => f(*src),
+        VExtractLane { src, .. } => f(*src),
+        VInsertLane { src, val, .. } => { f(*src); f(*val); }
+        VAdd { lhs, rhs, .. } | VSub { lhs, rhs, .. } | VMul { lhs, rhs, .. } => {
+            f(*lhs); f(*rhs);
+        }
         IConst { .. } | F32Const { .. } | F64Const { .. }
         | StackAlloc { .. } | Fence { .. } | StrLit { .. } => {}
     }

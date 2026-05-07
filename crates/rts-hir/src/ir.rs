@@ -56,6 +56,13 @@ pub enum HirType {
     F32,
     F64,
 
+    // SIMD: 128-bit vector lane types. Cobre i8x16/i16x8/i32x4/i64x2 +
+    // f32x4/f64x2 — backend Cranelift expoe via `types::I8X16` etc.
+    // Operacoes vetoriais (Splat/ExtractLane/InsertLane/aritmetica) ficam
+    // em `Inst::V*` no MIR. Lowering escolhe o tipo Cranelift via
+    // `VecKind`.
+    V128(VecKind),
+
     // Compound / opaque
     Handle(HandleKind),                 // u64 opaque — HandleTable
     Array(Box<HirType>),
@@ -109,6 +116,32 @@ impl HirType {
 
     pub fn is_float(&self) -> bool {
         matches!(self, HirType::F32 | HirType::F64 | HirType::Number)
+    }
+}
+
+/// SIMD lane configuration for `HirType::V128`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VecKind {
+    I8x16,
+    I16x8,
+    I32x4,
+    I64x2,
+    F32x4,
+    F64x2,
+}
+
+impl VecKind {
+    pub fn lane_count(self) -> u8 {
+        match self {
+            VecKind::I8x16 => 16,
+            VecKind::I16x8 => 8,
+            VecKind::I32x4 | VecKind::F32x4 => 4,
+            VecKind::I64x2 | VecKind::F64x2 => 2,
+        }
+    }
+
+    pub fn is_float(self) -> bool {
+        matches!(self, VecKind::F32x4 | VecKind::F64x2)
     }
 }
 

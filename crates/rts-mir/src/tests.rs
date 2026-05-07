@@ -1447,3 +1447,47 @@ fn lower_logical_not_emits_bxor_with_one() {
     assert_eq!(bxors, 1);
     assert_eq!(one_consts, 1);
 }
+
+// ---------- SIMD V128 smoke ----------
+
+#[test]
+fn simd_splat_extract_roundtrip() {
+    use rts_hir::ir::VecKind;
+    let mut f = MirFunc::new("simd_splat", CallConvHint::Tail, HirType::I32);
+    let s = f.new_value(HirType::I32);
+    let v = f.new_value(HirType::V128(VecKind::I32x4));
+    let r = f.new_value(HirType::I32);
+    f.params.push((s, HirType::I32));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((s, HirType::I32));
+    f.blocks[blk as usize].insts.push(Inst::VSplat { dst: v, src: s, kind: VecKind::I32x4 });
+    f.blocks[blk as usize].insts.push(Inst::VExtractLane {
+        dst: r, src: v, lane: 2, kind: VecKind::I32x4,
+    });
+    f.blocks[blk as usize].term = Terminator::Return(vec![r]);
+    verify(&f).expect("verify");
+}
+
+#[test]
+fn simd_vadd_dce_keeps_used_values() {
+    use rts_hir::ir::VecKind;
+    let mut f = MirFunc::new("simd_add", CallConvHint::Tail, HirType::V128(VecKind::F32x4));
+    let a = f.new_value(HirType::F32);
+    let b = f.new_value(HirType::F32);
+    let va = f.new_value(HirType::V128(VecKind::F32x4));
+    let vb = f.new_value(HirType::V128(VecKind::F32x4));
+    let vr = f.new_value(HirType::V128(VecKind::F32x4));
+    f.params.push((a, HirType::F32));
+    f.params.push((b, HirType::F32));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::F32));
+    f.blocks[blk as usize].params.push((b, HirType::F32));
+    f.blocks[blk as usize].insts.push(Inst::VSplat { dst: va, src: a, kind: VecKind::F32x4 });
+    f.blocks[blk as usize].insts.push(Inst::VSplat { dst: vb, src: b, kind: VecKind::F32x4 });
+    f.blocks[blk as usize].insts.push(Inst::VAdd { dst: vr, lhs: va, rhs: vb, kind: VecKind::F32x4 });
+    f.blocks[blk as usize].term = Terminator::Return(vec![vr]);
+
+    let before = f.blocks[0].insts.len();
+    dce(&mut f);
+    assert_eq!(f.blocks[0].insts.len(), before, "DCE não deve remover SIMD em uso");
+}

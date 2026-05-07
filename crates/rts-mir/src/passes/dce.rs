@@ -118,6 +118,13 @@ fn collect_used_in_inst(inst: &Inst, used: &mut HashSet<ValueId>) {
             used.insert(*c);
         }
 
+        VSplat { src, .. } => { used.insert(*src); }
+        VExtractLane { src, .. } => { used.insert(*src); }
+        VInsertLane { src, val, .. } => { used.insert(*src); used.insert(*val); }
+        VAdd { lhs, rhs, .. } | VSub { lhs, rhs, .. } | VMul { lhs, rhs, .. } => {
+            used.insert(*lhs); used.insert(*rhs);
+        }
+
         Load { ptr, .. } | ULoad8 { ptr, .. } | ULoad16 { ptr, .. } | ULoad32 { ptr, .. }
         | SLoad8 { ptr, .. } | SLoad16 { ptr, .. } | SLoad32 { ptr, .. } => {
             used.insert(*ptr);
@@ -306,7 +313,13 @@ fn keep_inst(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | SLoad32 { dst, .. }
         | StackAlloc { dst, .. }
         | Select { dst, .. }
-        | AtomicLoad { dst, .. } => used.contains(dst),
+        | AtomicLoad { dst, .. }
+        | VSplat { dst, .. }
+        | VExtractLane { dst, .. }
+        | VInsertLane { dst, .. }
+        | VAdd { dst, .. }
+        | VSub { dst, .. }
+        | VMul { dst, .. } => used.contains(dst),
 
         CallExtern { dst: Some(dst), .. } => used.contains(dst),
 
