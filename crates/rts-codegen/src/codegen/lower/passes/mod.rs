@@ -6,5 +6,6 @@
 //! dependem de transformacoes anteriores.
 
 pub mod args;
+pub mod async_expand;
 pub mod object_methods;
 pub mod static_fields;
