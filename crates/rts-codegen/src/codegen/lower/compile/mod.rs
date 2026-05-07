@@ -5,3 +5,4 @@
 //! distinta do pipeline final.
 
 pub mod class;
+pub mod mir_route;
