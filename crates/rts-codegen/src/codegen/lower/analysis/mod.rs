@@ -4,4 +4,5 @@
 
 pub mod address_taken;
 pub mod captures;
+pub mod module_globals;
 pub mod types;
