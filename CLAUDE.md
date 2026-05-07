@@ -555,10 +555,26 @@ necessario, fora de escopo de PR pequena):
 ```bash
 cargo test --lib                                  # testes unitarios Rust
 cargo build --release                             # build release
-target/release/rts.exe run file.ts                # executar via JIT in-memory
-target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
-target/release/rts.exe test tests/foo.test.ts     # rodar suite TS
+$env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts                # executar via JIT in-memory
+$env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
+$env:RUST_BACKTRACE="full"; target/release/rts.exe test tests/foo.test.ts     # rodar suite TS
 target/release/rts.exe apis                       # listar APIs disponiveis
+```
+
+**Padrão obrigatório:** sempre definir `RUST_BACKTRACE=full` antes de executar o `rts.exe`.
+Sem isso, crashes e panics mostram stack trace raso (símbolos stripped, frames FLTK/STL
+misturados sem contexto). Com `full`, o crash handler em `src/crash.rs` exibe o trace
+completo com localização de arquivo e linha (em build debug) ou pelo menos nomes de símbolo
+Rust desmanglados (em release).
+
+```powershell
+# PowerShell — definir uma vez na sessão:
+$env:RUST_BACKTRACE = "full"
+```
+
+```bash
+# Bash/sh:
+export RUST_BACKTRACE=full
 ```
 
 Testes de codegen vivem em `tests/*.test.ts` (formato `rts:test`). Para
