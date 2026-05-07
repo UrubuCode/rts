@@ -262,14 +262,29 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
     }
 }
 
-/// Resolve a Promise to its inner value (i64). Used by `await` lowering.
-/// LEGACY: caminho do fetch sync. Para Promise async use `promise.wait`.
+/// `Promise.resolve(v)` — JS spec: se `v` ja eh Promise, retorna ela
+/// mesma; caso contrario cria nova `PromiseAsync` ja fulfilled.
+///
+/// Tambem usada pelo lowering legado de `await` em fetch sync —
+/// nesse caso o caller passa um handle `Entry::Promise` (legacy) e
+/// recebe o valor inline.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(promise_h: u64) -> i64 {
-    with_entry(promise_h, |entry| match entry {
-        Some(Entry::Promise(v)) => *v,
-        _ => promise_h as i64,
-    })
+pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
+    use crate::namespaces::gc::handles::with_entry as _;
+    let kind = with_entry(value, |entry| match entry {
+        Some(Entry::Promise(v)) => Some(*v),
+        Some(Entry::PromiseAsync(_)) => Some(i64::MIN), // sentinela: ja e' Promise
+        _ => None,
+    });
+    match kind {
+        Some(i64::MIN) => value as i64, // PromiseAsync — passthrough do handle
+        Some(v) => v,                    // Entry::Promise legacy — extrai inline
+        None => {
+            // Valor regular: cria PromiseAsync ja fulfilled.
+            let slot = crate::namespaces::gc::promise_slot::new_fulfilled(value as i64);
+            alloc_entry(Entry::PromiseAsync(slot)) as i64
+        }
+    }
 }
 
 // ── Response instance methods ─────────────────────────────────────────────────
