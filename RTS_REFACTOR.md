@@ -94,7 +94,7 @@ progresso — 5/8 itens entregues.
 
 ---
 
-## Fase 4 entregas (parcial, 5/8)
+## Fase 4 entregas (parcial, 6/8)
 
 Em progresso na main. Commits relevantes:
 
@@ -124,11 +124,20 @@ Em progresso na main. Commits relevantes:
 - `e79b8bf` — **etapa 4.8 passes/fma.rs**: FMA fusion `a*b+c → Fma`,
   conservador (só funde quando o `FMul` tem 1 use) para não
   duplicar trabalho.
+- `326a7ae` — **TailCall lowering em mir_codegen**: `Terminator::TailCall`
+  emite `builder.ins().return_call(fref, args)` direto (infra
+  preparada; `lower` HIR→MIR ainda não emite TailCall, auto-recursão
+  bail antes).
+- `91517d9` — **etapa 4.9 narrow no optimize()**: pass `narrow`
+  passa a rodar como primeira etapa do `optimize()` padrão. Aritmética
+  i8/i16/u8/u16 que passe pelo MIR ganha mask automático sem
+  intervenção manual.
 
 ### Pipeline `optimize()` final
 
 ```
-fold (constant folding + strength reduction)
+narrow (canonicaliza aritmética i8/i16/u8/u16 com masks de overflow)
+  → fold (constant folding + strength reduction)
   → fma (a*b+c → Fma)
   → cse (common subexpression elimination)
   → dce (dead code elimination)
@@ -152,10 +161,11 @@ Mais `inline` em fixed-point (max 4 iters) entre lower e
 - [x] **CSE** intra-bloco (etapa 4.5)
 - [x] **FMA fusion** `a*b+c → Fma` (etapa 4.8)
 - [x] **Smoke e2e** + placeholder debug + arr[i]=v (4.4 / 4.6)
+- [x] **Narrow canonicalization integrada ao optimize()** — pass `narrow` agora roda como primeira etapa do pipeline padrão, garantindo masks de overflow em toda aritmética i8/i16 que passe pelo MIR (commit `91517d9`)
 - [ ] **Escape analysis**: handles que não escapem → stack slot via `StackAlloc` (heavy)
 - [ ] **SIMD** via `HirType::V128(VecKind)` + `Inst::Splat`/`ExtractLane`/`InsertLane` (heavy)
-- [ ] **Narrow types storage real** (uload8/istore16 em código de produção, não só canonicalização aritmética) — médio
-- [ ] **i8/i16 sintaxe TS first-class** — parser/HIR aceitam, lower MIR tem narrow promotion, mas runtime overflow ainda não testado em produção
+- [ ] **Narrow types storage real** (uload8/istore16 em código de produção, não só canonicalização aritmética) — médio. Bloqueado por: AST `ValTy` não tem variantes I8/I16/U8/U16. Roteamento full-MIR de fns com params/ret narrow exige extender ABI de chamada cross-fn (callsite AST→MIR usa i64 ABI, MIR não pode declarar callee i8 sem quebrar caller).
+- [ ] **i8/i16 sintaxe TS first-class** — parser/HIR aceitam, lower MIR tem narrow promotion. Runtime overflow ainda **não funciona** porque user fns com params i8/i16 fazem bail no MIR para AST (mismatch em `mir_param_compatible`), e o AST honra `i64` puro sem mask. Solução envolve estender `ValTy` no AST OU forçar caller MIR-only para chamar callees narrow — qualquer caminho é trabalho médio fora desta etapa.
 
 ---
 
