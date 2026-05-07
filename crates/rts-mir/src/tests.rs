@@ -1052,6 +1052,101 @@ fn lower_try_with_finally_runs_finally_after_body() {
     )));
 }
 
+// ---------- CSE pass ----------
+
+#[test]
+fn cse_dedups_iconst() {
+    use crate::passes::cse;
+
+    let mut f = MirFunc::new("c", CallConvHint::Tail, HirType::I64);
+    let v1 = f.new_value(HirType::I64);
+    let v2 = f.new_value(HirType::I64);
+    let v3 = f.new_value(HirType::I64);
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.insts.push(Inst::IConst { dst: v1, ty: HirType::I64, val: 5 });
+    bb.insts.push(Inst::IConst { dst: v2, ty: HirType::I64, val: 5 });
+    bb.insts.push(Inst::IAdd { dst: v3, lhs: v1, rhs: v2 });
+    bb.term = Terminator::Return(vec![v3]);
+
+    let changed = cse(&mut f);
+    assert!(changed);
+
+    // Após CSE, v2 vira IAddImm 0 v1 (alias) e o IAdd usa v1, v1.
+    let bb = &f.blocks[0];
+    if let Inst::IAdd { lhs, rhs, .. } = &bb.insts[2] {
+        assert_eq!(*lhs, *rhs, "ambos lhs e rhs apontam pro mesmo IConst");
+    } else {
+        panic!("expected IAdd");
+    }
+}
+
+#[test]
+fn cse_dedups_iadd_same_operands() {
+    use crate::passes::cse;
+
+    let mut f = MirFunc::new("c", CallConvHint::Tail, HirType::I64);
+    let a = f.new_value(HirType::I64);
+    let r1 = f.new_value(HirType::I64);
+    let r2 = f.new_value(HirType::I64);
+    let r3 = f.new_value(HirType::I64);
+    f.params.push((a, HirType::I64));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::I64));
+    let bb = &mut f.blocks[blk as usize];
+    bb.insts.push(Inst::IAdd { dst: r1, lhs: a, rhs: a });
+    bb.insts.push(Inst::IAdd { dst: r2, lhs: a, rhs: a });
+    bb.insts.push(Inst::IAdd { dst: r3, lhs: r1, rhs: r2 });
+    bb.term = Terminator::Return(vec![r3]);
+
+    cse(&mut f);
+
+    // r2 deve virar IAddImm 0 r1 (alias). O IAdd r3 usa r1 + r1 (depois
+    // de remap r2 → r1).
+    let bb = &f.blocks[0];
+    if let Inst::IAdd { lhs, rhs, .. } = &bb.insts[2] {
+        assert_eq!(*lhs, *rhs, "ambos operandos do IAdd r3 devem apontar pro mesmo r1");
+    } else {
+        panic!("expected IAdd at index 2");
+    }
+}
+
+#[test]
+fn cse_optimize_pipeline_eliminates_dups() {
+    use crate::passes::optimize;
+
+    let mut f = MirFunc::new("c", CallConvHint::Tail, HirType::I64);
+    let v1 = f.new_value(HirType::I64);
+    let v2 = f.new_value(HirType::I64);
+    let v3 = f.new_value(HirType::I64);
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.insts.push(Inst::IConst { dst: v1, ty: HirType::I64, val: 7 });
+    bb.insts.push(Inst::IConst { dst: v2, ty: HirType::I64, val: 7 });
+    bb.insts.push(Inst::IAdd { dst: v3, lhs: v1, rhs: v2 });
+    bb.term = Terminator::Return(vec![v3]);
+
+    optimize(&mut f);
+
+    // optimize roda fold (constant folding 7+7=14) + cse + dce.
+    // Após fold, IAdd vira IConst 14. CSE dedupa o IConst 7 duplicado.
+    // DCE remove o IConst 7 não usado.
+    let bb = &f.blocks[0];
+    let iconsts = bb
+        .insts
+        .iter()
+        .filter(|i| matches!(i, Inst::IConst { .. }))
+        .count();
+    // Após pipeline: pelo menos 1 IConst (o 14 final) e zero IAdd.
+    assert!(iconsts >= 1);
+    let iadds = bb
+        .insts
+        .iter()
+        .filter(|i| matches!(i, Inst::IAdd { .. }))
+        .count();
+    assert_eq!(iadds, 0, "fold deveria ter colapsado o IAdd");
+}
+
 // ---------- inline pass ----------
 
 #[test]

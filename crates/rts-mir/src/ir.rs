@@ -113,7 +113,7 @@ pub enum TrapHint {
 }
 
 /// Mirrors `cranelift_codegen::ir::condcodes::IntCC`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntCond {
     Eq, Ne,
     Slt, Sle, Sgt, Sge,
@@ -121,7 +121,7 @@ pub enum IntCond {
 }
 
 /// Mirrors `cranelift_codegen::ir::condcodes::FloatCC`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FloatCond {
     Eq, Ne,
     OLt, OLe, OGt, OGe, ONe,

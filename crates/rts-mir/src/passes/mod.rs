@@ -5,12 +5,14 @@
 //! `fold` before `dce` so newly-dead consts (replaced by their folded
 //! equivalents) get cleaned up.
 
+pub mod cse;
 pub mod dce;
 pub mod fold;
 pub mod inline;
 pub mod narrow;
 pub mod verify;
 
+pub use cse::cse;
 pub use dce::dce;
 pub use fold::fold;
 pub use inline::{inline, INLINE_BUDGET};
@@ -18,7 +20,11 @@ pub use narrow::narrow;
 pub use verify::{verify, VerifyError};
 
 /// Convenience: run the standard pass pipeline on a function.
+/// Order: fold (constant folding + strength reduction) → cse (common
+/// subexpression elimination) → dce (dead code elimination — limpa os
+/// IAddImm 0 alias deixados pelo CSE).
 pub fn optimize(mir: &mut crate::ir::MirFunc) {
     fold(mir);
+    cse(mir);
     dce(mir);
 }

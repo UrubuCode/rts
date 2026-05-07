@@ -8,7 +8,7 @@
 pub struct ClassId(pub u32);
 
 /// Kind of runtime handle stored in the HandleTable.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum HandleKind {
     String,
     Buffer,
@@ -32,7 +32,7 @@ pub enum HandleKind {
 ///
 /// The codegen converts this into Cranelift `ir::Type` via `CraneliftTypeHint`.
 /// The `Unknown` variant must not reach codegen — it triggers a diagnostic.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum HirType {
     // JS/TS native
     Number,                             // f64 — JS number semantics
