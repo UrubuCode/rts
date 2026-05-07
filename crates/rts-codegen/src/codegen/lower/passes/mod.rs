@@ -12,3 +12,4 @@ pub mod hoist_fn;
 pub mod object_methods;
 pub mod parallelism;
 pub mod static_fields;
+pub mod this_arrow;
