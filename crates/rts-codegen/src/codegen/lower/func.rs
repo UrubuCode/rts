@@ -6133,6 +6133,11 @@ pub fn compile_program(
     extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
     data_counter: &mut u32,
 ) -> Result<Vec<String>> {
+    // (etapa 4.3) Limpa o MIR_CACHE thread-local — fns lowered na rodada
+    // anterior nao devem vazar pra esta. Inline so' inlinea o que
+    // estiver cached pra esta passada de compile_program.
+    clear_mir_cache_for_program();
+
     expand_static_fields(program);
     lift_inline_arrows_in_array_methods(program);
     array_methods_pass(program);
@@ -7548,6 +7553,19 @@ fn collect_var_decls(stmt: &Stmt, out: &mut Vec<String>) {
 /// → mir_codegen). Returns `Ok(true)` when MIR took over and the function
 /// is fully defined in `module`; `Ok(false)` when MIR bailed (unsupported
 /// shape) and the AST path should run.
+/// Thread-local cache de MirFuncs ja lowered nesta passada de
+/// `compile_program`. Permite inline aplicar quando o callee foi
+/// declarado antes do caller no source. Limpado pelo `compile_program`
+/// no inicio de cada nova chamada via `clear_mir_cache_for_program`.
+thread_local! {
+    static MIR_CACHE: std::cell::RefCell<HashMap<String, rts_mir::ir::MirFunc>>
+        = std::cell::RefCell::new(HashMap::new());
+}
+
+pub(crate) fn clear_mir_cache_for_program() {
+    MIR_CACHE.with(|c| c.borrow_mut().clear());
+}
+
 fn try_compile_via_mir(
     module: &mut dyn Module,
     fn_decl: &FunctionDecl,
@@ -7608,10 +7626,23 @@ fn try_compile_via_mir(
         }
     }
 
-    // 1. Lower TS AST → HIR. Use a fresh scope (callers of this fn don't
-    //    need scope info; the fn body's calls to OTHER user fns will resolve
-    //    via FuncId lookup at link time when both fns end up declared).
+    // 1. Lower TS AST → HIR. O scope local recebe pre-registro das
+    //    assinaturas das fns ja cached em MIR_CACHE, para que o lower
+    //    HIR resolve `inc(x)` no body de `caller` quando `inc` foi
+    //    compilado pelo MIR antes (ordem natural: callees declarados
+    //    antes dos callers).
     let mut hir_scope = rts_hir::scope::Scope::new();
+    MIR_CACHE.with(|c| {
+        let cache = c.borrow();
+        for (name, mir) in cache.iter() {
+            let param_tys: Vec<rts_hir::ir::HirType> =
+                mir.params.iter().map(|(_, t)| t.clone()).collect();
+            hir_scope.register_param_types(name.clone(), param_tys);
+            if !matches!(mir.ret, rts_hir::ir::HirType::Unknown) {
+                hir_scope.register_return_type(name.clone(), mir.ret.clone());
+            }
+        }
+    });
     let hir_fn = rts_hir::lower::lower_func(fn_decl, &mut hir_scope);
 
     // 2. Lower HIR → MIR with both extern + intrinsic resolvers.
@@ -7642,8 +7673,21 @@ fn try_compile_via_mir(
         return Ok(false);
     }
 
-    // 4. Optimize + verify. A verify failure is a MIR bug, not user code —
-    //    fall back to AST and don't panic.
+    // 4a. Inline: consulta MIR_CACHE (callees ja lowered nesta passada
+    //     de compile_program) e substitui CallUser pelo body inline
+    //     quando elegivel. Reduz overhead de chamadas em hot paths
+    //     com helpers pequenos. Inline acontece ANTES do optimize pra
+    //     que fold/dce/narrow vejam o codigo expandido.
+    let inlined_changed = MIR_CACHE.with(|c| {
+        let cache = c.borrow();
+        rts_mir::passes::inline(&mut mir_fn, &cache)
+    });
+    if inlined_changed && std::env::var("RTS_MIR_DEBUG").is_ok() {
+        eprintln!("[mir-trace] inline applied in {}", fn_decl.name);
+    }
+
+    // 4b. Optimize + verify. A verify failure is a MIR bug, not user code —
+    //     fall back to AST and don't panic.
     rts_mir::passes::optimize(&mut mir_fn);
     if rts_mir::passes::verify(&mir_fn).is_err() {
         return Ok(false);
@@ -7728,6 +7772,15 @@ fn try_compile_via_mir(
             if std::env::var("RTS_MIR_DEBUG").is_ok() {
                 eprintln!("[mir] compiled `{}` via MIR path", fn_decl.name);
             }
+            // Cache este MirFunc para que callers subsequentes possam
+            // inline esta fn. Pre-inline (antes da etapa 4a) pra que a
+            // versao cached nao tenha CallUser inlinados redundantes —
+            // mas o mir_fn aqui ja sofreu inline + optimize. Isso eh OK:
+            // se este caller eventualmente vira callee de outro caller,
+            // o inline do outro caller vai expandir tudo de uma vez.
+            MIR_CACHE.with(|c| {
+                c.borrow_mut().insert(fn_decl.name.clone(), mir_fn.clone());
+            });
             Ok(true)
         }
         Err(e) => {
