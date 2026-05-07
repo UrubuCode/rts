@@ -343,6 +343,16 @@ pub extern "C" fn __RTS_FN_GL_STRING_LOCALE_COMPARE(recv: u64, other: u64) -> i6
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
+    // Para handles que ja sao String, passthrough.
+    // Para Symbol/Function, delega para TO_STRING_HANDLE que formata
+    // \"Symbol(desc)\" / \"function name() { [native code] }\".
+    // Para Map/Vec/etc, mantem passthrough (handle vai pra coercao
+    // em concat/template via TPL_COERCE_AUTO).
+    use crate::namespaces::gc::handles::{with_entry, Entry};
+    let needs_format = with_entry(handle, |e| matches!(e, Some(Entry::Symbol { .. }) | Some(Entry::Function(_))));
+    if needs_format {
+        return crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE(handle);
+    }
     handle
 }
 

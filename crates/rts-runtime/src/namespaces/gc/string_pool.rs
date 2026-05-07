@@ -191,6 +191,46 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
     alloc_entry(Entry::String(kind.as_bytes().to_vec()))
 }
 
+/// `<handle>.toString()` runtime dispatch baseado no tipo da Entry.
+/// Cobre casos que o codegen nao despacha estaticamente:
+/// - Entry::Symbol -> "Symbol(desc)" / "Symbol()"
+/// - Entry::Function -> "function name() { [native code] }"
+/// - Entry::String -> handle propria (passthrough)
+/// - Entry::Vec -> "1,2,3" (Array.prototype.toString)
+/// - Entry::Map -> "[object Object]"
+/// - Outros -> "[object Kind]"
+///
+/// Handle invalido retorna "" (nao crash).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TO_STRING_HANDLE(handle: u64) -> u64 {
+    let snap = snapshot_entry(handle);
+    match snap {
+        EntrySnap::Str(_) => handle, // passthrough
+        _ => {
+            // Snapshot nao cobre Symbol/Function explicitamente — vamos
+            // detectar via segundo lookup direto.
+            let special = with_entry(handle, |e| match e {
+                Some(Entry::Symbol { description }) => match description {
+                    Some(d) => Some(format!("Symbol({})", d)),
+                    None => Some("Symbol()".to_string()),
+                },
+                Some(Entry::Function(d)) => {
+                    let name = if d.name.is_empty() { "anonymous" } else { &*d.name };
+                    Some(format!("function {}() {{ [native code] }}", name))
+                }
+                _ => None,
+            });
+            match special {
+                Some(s) => alloc_entry(Entry::String(s.into_bytes())),
+                None => {
+                    let bytes = snapshot_to_bytes(&snap);
+                    alloc_entry(Entry::String(bytes))
+                }
+            }
+        }
+    }
+}
+
 /// Formata f64 conforme JS spec ToString:
 /// - NaN -> "NaN"
 /// - +-Infinity -> "Infinity" / "-Infinity"

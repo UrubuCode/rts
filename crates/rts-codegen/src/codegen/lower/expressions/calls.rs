@@ -2615,8 +2615,10 @@ fn lower_function_handle_method(
 
     match method {
         "toString" => {
+            // Dispatch runtime — TO_STRING_HANDLE inspeciona Entry
+            // (Symbol/Function/String/Vec/Map) e formata corretamente.
             let to_str_fn = ctx.get_extern(
-                "__RTS_FN_GL_FUNCTION_TO_STRING",
+                "__RTS_FN_RT_TO_STRING_HANDLE",
                 &[cl::I64],
                 Some(cl::I64),
             )?;
@@ -2790,8 +2792,10 @@ fn lower_function_method_call(
     // 3. Despacha por metodo.
     match method {
         "toString" => {
+            // Dispatch runtime — TO_STRING_HANDLE inspeciona Entry
+            // (Symbol/Function/String/Vec/Map) e formata corretamente.
             let to_str_fn = ctx.get_extern(
-                "__RTS_FN_GL_FUNCTION_TO_STRING",
+                "__RTS_FN_RT_TO_STRING_HANDLE",
                 &[cl::I64],
                 Some(cl::I64),
             )?;
