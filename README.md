@@ -203,7 +203,7 @@ crates/
 ├─ rts-diagnostics/  erros estruturados
 ├─ rts-abi/          ⚡ contrato único — SPECS, AbiType, Intrinsic, símbolos
 ├─ rts-hir/          HIR tipado (HirType I8..I128, F32/F64, Bool, Str, Handle, Array, Class, Object)
-├─ rts-mir/          MIR SSA (60+ Insts, Terminators, passes fold/dce/narrow/verify)
+├─ rts-mir/          MIR SSA (60+ Insts, Terminators, passes fold/fma/cse/dce/narrow/verify/inline)
 ├─ rts-codegen/      Cranelift codegen (AST autoritativo + mir_codegen MIR→Cranelift)
 │  └─ src/codegen/   lower/, emit.rs (AOT), jit.rs (rts run), mir_codegen/
 ├─ rts-runtime/      builtin "rts" + 40+ namespaces (io, fs, gc, math, ...) + async_rt
@@ -214,7 +214,8 @@ crates/
 ### Pipeline atual
 
 ```
-TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize (fold+dce+narrow+verify)
+TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → inline (fixed-point, max 4 iters)
+                                              → optimize (fold → fma → cse → dce)
                                               → mir_codegen → Cranelift → JIT/AOT
                                               ↘ AST autoritativo (fallback)
 ```
@@ -223,11 +224,14 @@ MIR está **ativo por default** (commits `f7b924b`, `23dd4b7`). Routing
 híbrido: cada user fn tenta o caminho HIR→MIR→Cranelift; se bate em
 construct ainda não modelado (member em `this`/objetos, classes,
 async/await, address-taken fns, string em params/ret), cai
-automaticamente no codegen AST sem perder semântica. Métricas atuais:
+automaticamente no codegen AST sem perder semântica. Fase 4 (baixo
+nível + extensões) em progresso, **5/8 entregues**: atomics (4.1),
+inline + integração + fixed-point (4.2/4.3/4.7), CSE (4.5), FMA
+(4.8), arr[i]=v + smoke e2e (4.4/4.6). Métricas atuais:
 
 - 438 user fns reais da suite TS rodam pelo MIR
-- `cargo test --release --lib`: 12/12; `rts-hir`: 27/27; `rts-mir`: 51/51;
-  `rts-codegen --lib mir_codegen`: 53/53
+- `cargo test --release --lib`: 12/12; `rts-hir`: 27/27; `rts-mir`: **59/59**;
+  `rts-codegen --lib mir_codegen`: **61/61**
 - `target/release/rts.exe test`: 622/632 (mesmas 10 falhas pre-existentes)
 
 Variável `RTS_USE_MIR` controla o routing:

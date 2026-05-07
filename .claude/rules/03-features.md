@@ -6,9 +6,14 @@ Fase 3 do `RTS_REFACTOR.md` entregue: o crate `rts-mir` esta ativo
 por default (commits f7b924b/23dd4b7). Pipeline atual:
 
 ```
-TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize → mir_codegen → Cranelift
+TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → inline (fixed-point) → optimize (fold→fma→cse→dce) → mir_codegen → Cranelift
                                               ↘ AST autoritativo (fallback)
 ```
+
+Fase 4 em progresso (5/8 entregues): atomics no MIR (4.1), inline +
+integracao + fixed-point (4.2/4.3/4.7), CSE intra-bloco (4.5), FMA
+fusion `a*b+c → Fma` (4.8), smoke e2e + arr[i]=v (4.4/4.6). Restam
+escape analysis, SIMD e narrow storage real.
 
 Cada user fn tenta o caminho HIR→MIR→Cranelift; se bate em construct
 ainda nao modelado (member em `this`/objetos, classes, async/await,
@@ -37,8 +42,9 @@ namespace constants (math.PI, math.E); arrays simples via
 `declare_value_needs_stack_map`.
 
 **Metricas atuais:** 438 user fns reais da suite TS rodam pelo MIR.
-`cargo test --release --lib` 12/12; `rts-hir` 27/27; `rts-mir` 51/51;
-`rts-codegen --lib mir_codegen` 53/53; `rts.exe test` 622/632 (mesmas
+`cargo test --release --lib` 12/12; `rts-hir` 27/27; `rts-mir` **59/59**
+(+8 vs Fase 3 final, cobrindo inline/CSE/FMA); `rts-codegen --lib
+mir_codegen` **61/61** (+8 vs Fase 3); `rts.exe test` 622/632 (mesmas
 10 falhas pre-existentes do AST).
 
 ## Capacidades de linguagem ativas (codegen)

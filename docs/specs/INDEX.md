@@ -9,7 +9,11 @@ do refator em workspace de 10 crates (`crates/rts-ast`, `rts-abi`,
 Fase 3 do refator esta entregue: o crate `rts-mir` eh a camada nova
 SSA entre HIR e Cranelift, ativa por default desde commit f7b924b
 (routing hibrido por `RTS_USE_MIR`, fallback automatico para AST em
-constructs nao modelados).
+constructs nao modelados). Fase 4 (baixo nivel + extensoes) em
+progresso, 5/8 entregues: atomics (4.1), inline + integracao +
+fixed-point (4.2/4.3/4.7), CSE intra-bloco (4.5), FMA fusion (4.8),
+arr[i]=v + smoke e2e (4.4/4.6). Restam escape analysis, SIMD e
+narrow storage real.
 
 ## Guias ativos
 

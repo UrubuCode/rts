@@ -89,8 +89,73 @@ promise.then, etc.); string em params/ret de user fn (StrPtr no
 boundary).
 
 O plano original (abaixo) permanece como referência da arquitetura
-alvo. Fases 0–3 entregues; Fase 4 (baixo nível e extensões) segue
-backlog ongoing.
+alvo. Fases 0–3 entregues; Fase 4 (baixo nível e extensões) em
+progresso — 5/8 itens entregues.
+
+---
+
+## Fase 4 entregas (parcial, 5/8)
+
+Em progresso na main. Commits relevantes:
+
+- `aa334a7` — **etapa 4.1 atomics no mir_codegen**: `Inst::AtomicLoad`/
+  `AtomicStore`/`AtomicRmw`/`AtomicCas`/`Fence` baixam direto para
+  `atomic_load`/`atomic_store`/`atomic_rmw`/`atomic_cas`/`fence` do
+  Cranelift, com mapeamento `MemOrder` e `RmwOp`.
+- `8d4acd4` — **etapa 4.2 passes/inline.rs**: inlining de fns
+  pequenas com `INLINE_BUDGET=16` e elegibilidade conservadora
+  (sem recursão, sem terminators complexos).
+- `9c529a9` — **etapa 4.3 inline integrado**: routing default
+  alimenta `MIR_CACHE` thread-local com callees + pré-registra
+  signatures HIR para o pass de inline encontrar os corpos.
+- `815e1df` — **etapa 4.4 smoke test e2e**: helper
+  `compile_source_via_compile_program` cobre o caminho
+  `parse → HIR → MIR → optimize → mir_codegen → JIT` ponta a ponta.
+- `5a63892` — **etapa 4.5 passes/cse.rs**: Common Subexpression
+  Elimination intra-bloco (hash de operandos+op, reusa ValueId
+  quando idêntico encontrado no bloco).
+- `2236d91` — **etapa 4.6 arr[i] = v**: assignment de índice via
+  `vec_set` + helper `mark_placeholder` taggeado
+  (`RTS_MIR_DEBUG_PLACEHOLDERS=1` imprime sites onde o lower
+  emitiu placeholder).
+- `9e96aff` — **etapa 4.7 inline em fixed-point**: até 4 iterações
+  com `optimize` entre passadas, permitindo cascade de inlining +
+  fold + dce + cse.
+- `e79b8bf` — **etapa 4.8 passes/fma.rs**: FMA fusion `a*b+c → Fma`,
+  conservador (só funde quando o `FMul` tem 1 use) para não
+  duplicar trabalho.
+
+### Pipeline `optimize()` final
+
+```
+fold (constant folding + strength reduction)
+  → fma (a*b+c → Fma)
+  → cse (common subexpression elimination)
+  → dce (dead code elimination)
+```
+
+Mais `inline` em fixed-point (max 4 iters) entre lower e
+`optimize` no `try_compile_via_mir`.
+
+### Métricas atuais
+
+- `cargo test --release --lib`: 12/12
+- `cargo test -p rts-hir`: 27/27
+- `cargo test -p rts-mir`: **59/59** (era 51 ao final da Fase 3 — +8 testes pra inline/CSE/FMA)
+- `cargo test -p rts-codegen --lib mir_codegen`: **61/61** (era 53 ao final da Fase 3)
+- `target/release/rts.exe test`: 622/632 (zero regressão, mesmas 10 falhas pré-existentes)
+
+### Checklist Fase 4
+
+- [x] **Atomics** no MIR + mir_codegen (etapa 4.1)
+- [x] **Inlining** de fns pequenas (etapa 4.2) — com extras: integração routing default (4.3), fixed-point (4.7)
+- [x] **CSE** intra-bloco (etapa 4.5)
+- [x] **FMA fusion** `a*b+c → Fma` (etapa 4.8)
+- [x] **Smoke e2e** + placeholder debug + arr[i]=v (4.4 / 4.6)
+- [ ] **Escape analysis**: handles que não escapem → stack slot via `StackAlloc` (heavy)
+- [ ] **SIMD** via `HirType::V128(VecKind)` + `Inst::Splat`/`ExtractLane`/`InsertLane` (heavy)
+- [ ] **Narrow types storage real** (uload8/istore16 em código de produção, não só canonicalização aritmética) — médio
+- [ ] **i8/i16 sintaxe TS first-class** — parser/HIR aceitam, lower MIR tem narrow promotion, mas runtime overflow ainda não testado em produção
 
 ---
 
@@ -1184,12 +1249,15 @@ sem env var continua 622/632 verde).
 **Marco entregue:** `cargo test --workspace` verde, suite TS 622/632
 (mesmas 10 falhas pré-existentes), MIR ON por default sem regressão.
 
-### Fase 4 — Baixo nível e extensões (ongoing)
+### Fase 4 — Baixo nível e extensões (em progresso, 5/8)
 
-- [ ] Suporte de primeira classe a `i8`/`i16`/`i32` em TS (sintaxe `let x: i32 = 0`)
-- [ ] Operações bitwise e narrow no codegen: `uload8`, `istore16`, `sload32`
-- [ ] Atomics expostos via namespace `atomic` já existente + tipos corretos no MIR
-- [ ] Inlining de fns pequenas (< N Insts) no MIR pass
+Ver subseção "Fase 4 entregas (parcial)" no topo deste arquivo
+para detalhes de commits e métricas.
+
+- [~] Suporte de primeira classe a `i8`/`i16`/`i32` em TS — parser/HIR aceitam, narrow pass canonicaliza ops, runtime overflow não testado em produção
+- [ ] Operações bitwise e narrow no codegen: `uload8`, `istore16`, `sload32` (storage real em código de produção)
+- [x] Atomics expostos via namespace `atomic` + tipos corretos no MIR (etapa 4.1)
+- [x] Inlining de fns pequenas no MIR pass (etapas 4.2/4.3/4.7) + CSE (4.5) + FMA (4.8)
 - [ ] Escape analysis: handles que não escapem → stack slot via `StackAlloc`
 - [ ] SIMD via `HirType::V128(VecKind)` + `Inst::Splat`, `ExtractLane`, `InsertLane`
 

@@ -20,13 +20,25 @@ this/objetos, classes, async/await, address-taken fns, string em
 params/ret de user fn). Default ON; `RTS_USE_MIR=0` desliga,
 `RTS_USE_MIR=fn1,fn2,...` restringe.
 
-Optimizacoes a nivel MIR (rodam antes do codegen):
+Optimizacoes a nivel MIR. `optimize()` roda na ordem:
+**fold → fma → cse → dce**. Mais `inline` em fixed-point (max 4
+iteracoes com `optimize` entre passadas) entre lower e optimize no
+`try_compile_via_mir`.
+
 - `passes/fold.rs` — constant folding (IAdd/ISub/IMul/SDiv/SRem/BAnd/
   BOr/BXor de IConst→IConst) + strength reduction (mul→shl, urem→band,
   sdiv→sshr, ops com const→`*Imm`)
+- `passes/fma.rs` — FMA fusion `a*b+c → Fma`, conservador (so funde
+  quando o `FMul` tem 1 use, evitando duplicar trabalho) (etapa 4.8)
+- `passes/cse.rs` — Common Subexpression Elimination intra-bloco
+  (etapa 4.5)
 - `passes/dce.rs` — eliminacao de codigo morto com fixed-point
   (preserva side-effecting: Store, CallExtern, AtomicStore/Rmw/Cas,
   Fence, DeclareGcValue)
+- `passes/inline.rs` — inlining de fns pequenas, `INLINE_BUDGET=16`,
+  elegibilidade conservadora (sem recursao); rodado em fixed-point
+  ate 4 iters via `MIR_CACHE` thread-local + pre-registro de
+  signatures HIR (etapas 4.2/4.3/4.7)
 - `passes/narrow.rs` — canonicalizacao I8/U8 (mask 0xFF) e I16/U16
   (mask 0xFFFF) apos IAdd/ISub/IMul/INeg/IShl
 - `passes/verify.rs` — invariantes (block ids match position,
@@ -34,6 +46,9 @@ Optimizacoes a nivel MIR (rodam antes do codegen):
 - Intrinsic inlining: tag `Intrinsic` na spec do namespace gera Inst
   especializado (Sqrt, FAbs, FMin/FMax, IAbs, IMin/IMax) em vez de
   `CallExtern`; `mir_codegen` baixa direto pra IR Cranelift nativa.
+- Atomics no `mir_codegen` (etapa 4.1): `Inst::AtomicLoad`/`AtomicStore`/
+  `AtomicRmw`/`AtomicCas`/`Fence` baixam direto pra `atomic_*` do
+  Cranelift com mapeamento `MemOrder`/`RmwOp`.
 
 ## Otimizacoes de codegen notaveis
 

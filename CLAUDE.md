@@ -126,7 +126,7 @@ crates/
                      global_class.rs para classes JS globais, handles.rs para HandleTable ABI)
   rts-hir/         — HIR tipado (HirType I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any/Unknown)
   rts-mir/         — MIR SSA (60+ Insts: aritmetica/bitwise/shifts/conv/cmp/loads/stores/atomics/StrLit/CallUser/CallExtern/DeclareGcValue;
-                     Terminators Return/Jump/Brif/Switch/TailCall/Trap; passes fold/dce/narrow/verify; lower HIR→MIR)
+                     Terminators Return/Jump/Brif/Switch/TailCall/Trap; passes fold/fma/cse/dce/narrow/verify/inline; lower HIR→MIR)
   rts-codegen/     — Cranelift codegen + type_system + module/ + pipeline + cache + eval_jit + bundle
     src/codegen/
       emit.rs      — ObjectModule emitter (AOT, producao de .o)
@@ -153,11 +153,17 @@ src/                — fachada bin (re-exports), runtime_objects.rs, main.rs
 > Nota: `rts-codegen` virou catch-all (pipeline, type_system, module, cache,
 > eval_jit moram la), divergindo do plano original em `RTS_REFACTOR.md`. Fase 3
 > (MIR) esta entregue — `rts-mir` ativo por default desde commits f7b924b/23dd4b7.
+> Fase 4 (baixo nivel + extensoes) em progresso, 5/8 entregues: atomics (4.1),
+> inline+integracao+fixed-point (4.2/4.3/4.7), CSE (4.5), FMA (4.8), arr[i]=v
+> + smoke e2e (4.4/4.6). Restam escape analysis, SIMD e narrow storage real.
+> Metricas: rts-mir 59/59, rts-codegen --lib mir_codegen 61/61, rts.exe test
+> 622/632.
 
 Pipeline atual (default, MIR ON):
 
 ```
-TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize (fold+dce+narrow+verify)
+TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → inline (fixed-point, max 4 iters)
+                                              → optimize (fold → fma → cse → dce)
                                               → mir_codegen → Cranelift → JIT/AOT
                                               ↘ AST autoritativo (fallback automatico)
 ```
