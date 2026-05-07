@@ -28,6 +28,15 @@ pub enum ValTy {
     /// Bits opacos de 64 bits (ex.: ptr/handle de namespace nao-string como
     /// `buffer.ptr`, `atomic.*`). Backed by I64. `+` faz aritmetica inteira.
     U64,
+    /// Narrow signed integers — ABI ainda viaja em i64 (sextend/ireduce no
+    /// boundary), mas aritmetica precisa mascarar pra preservar overflow.
+    /// Hoje usados apenas em rotas que passam pelo MIR (que tem o pass
+    /// `narrow` automatico). Callsite AST trata como I64 via `is_i64_like`.
+    I8,
+    I16,
+    /// Narrow unsigned integers — mesmo modelo, com mask em vez de sextend.
+    U8,
+    U16,
 }
 
 impl ValTy {
@@ -36,7 +45,24 @@ impl ValTy {
             ValTy::I32 => cl::I32,
             ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => cl::I64,
             ValTy::F64 => cl::F64,
+            // Narrow ints ABI-compativel com I64; banner mascara em ops.
+            ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => cl::I64,
         }
+    }
+
+    /// Largura em bits do valor logico (nao do ABI). Usado pra escolher mask
+    /// de overflow. Retorna 64 pra tipos que nao precisam de mask.
+    pub fn narrow_width(self) -> Option<u8> {
+        match self {
+            ValTy::I8 | ValTy::U8 => Some(8),
+            ValTy::I16 | ValTy::U16 => Some(16),
+            _ => None,
+        }
+    }
+
+    /// True quando o tipo eh um inteiro narrow signed.
+    pub fn is_signed_narrow(self) -> bool {
+        matches!(self, ValTy::I8 | ValTy::I16)
     }
 
     pub fn from_annotation(ann: &str) -> Self {
@@ -1030,7 +1056,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 let val = self.builder.ins().select(cond, true_h.val, false_h.val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
-            ValTy::I64 | ValTy::I32 => {
+            ValTy::I64 | ValTy::I32
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
                 let as_i64 = self.coerce_to_i64(tv);
                 let fref =
                     self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64", &[cl::I64], Some(cl::I64))?;
@@ -1082,6 +1109,11 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn coerce_to_i64(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
             ValTy::I64 | ValTy::Handle | ValTy::U64 => tv,
+            // Narrow ints viajam em I64 no ABI; mask de overflow eh
+            // responsabilidade do MIR (`narrow` pass).
+            ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
+                TypedVal::new(tv.val, ValTy::I64)
+            }
             ValTy::Bool => {
                 // Bool e' i8 nativo Cranelift (resultado de icmp). Quando
                 // precisar i64 (ex: `const flag = (x < y)`), faz uextend.
@@ -1107,7 +1139,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     pub fn coerce_to_i32(&mut self, tv: TypedVal) -> TypedVal {
         match tv.ty {
             ValTy::I32 => tv,
-            ValTy::I64 | ValTy::Handle | ValTy::U64 => {
+            ValTy::I64 | ValTy::Handle | ValTy::U64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
                 TypedVal::new(self.builder.ins().ireduce(cl::I32, tv.val), ValTy::I32)
             }
             ValTy::Bool => {
@@ -1134,7 +1167,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
                 ValTy::F64,
             ),
-            ValTy::I64 | ValTy::Handle | ValTy::U64 => TypedVal::new(
+            ValTy::I64 | ValTy::Handle | ValTy::U64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => TypedVal::new(
                 self.builder.ins().fcvt_from_sint(cl::F64, tv.val),
                 ValTy::F64,
             ),

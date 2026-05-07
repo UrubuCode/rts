@@ -1112,7 +1112,8 @@ fn same_strict_kind(a: ValTy, b: ValTy) -> bool {
         match t {
             ValTy::Bool => 0,
             ValTy::Handle => 1,
-            ValTy::I32 | ValTy::I64 | ValTy::F64 | ValTy::U64 => 2,
+            ValTy::I32 | ValTy::I64 | ValTy::F64 | ValTy::U64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => 2,
         }
     }
     kind(a) == kind(b)

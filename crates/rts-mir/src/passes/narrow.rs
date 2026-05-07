@@ -23,32 +23,48 @@ use rts_hir::HirType;
 use crate::ir::*;
 
 /// Insert canonicalization masks after narrow integer ops in every block.
+///
+/// **Idempotente**: o pass detecta o `BAndImm` ja-inserido (mesmo dst,
+/// lhs, imm) imediatamente apos a aritmetica e pula a re-insercao,
+/// permitindo rodar narrow em fixed-point sem cascata de masks.
+///
+/// **Sem sign-extension automatica**: o pass apenas mascara para a
+/// largura. Resultados de overflow em tipos signed (e.g. `i8 127 + 1`
+/// = 128 truncado) refletem o byte mascarado em ABI i64; o caller que
+/// quiser semantica signed deve fazer sign-extend explicito (`IShlImm`
+/// + `SShrImm`). Cobre overflow unsigned naturalmente (`u8 200 + 100`
+/// = 44).
 pub fn narrow(mir: &mut MirFunc) {
     for block_idx in 0..mir.blocks.len() {
         let mut new_insts: Vec<Inst> = Vec::with_capacity(mir.blocks[block_idx].insts.len());
         let insts = std::mem::take(&mut mir.blocks[block_idx].insts);
-        for inst in insts {
+        let mut i = 0usize;
+        while i < insts.len() {
+            let inst = insts[i].clone();
             new_insts.push(inst.clone());
             if let Some((dst, mask)) = needs_mask(&inst, mir) {
-                // Replace dst's recorded type with a masked-equivalent value.
-                // We don't allocate a new ValueId because consumers reference
-                // the original dst — so we rebind dst in place via BAndImm
-                // to itself. This reads dst, masks, writes dst — Cranelift
-                // semantics are linear so this is fine for our SSA-flat
-                // representation here.
-                new_insts.push(Inst::BAndImm {
-                    dst,
-                    lhs: dst,
-                    imm: mask,
-                });
+                let next_is_mask = matches!(insts.get(i + 1),
+                    Some(Inst::BAndImm { dst: d, lhs, imm })
+                        if *d == dst && *lhs == dst && *imm == mask);
+                if next_is_mask {
+                    new_insts.push(insts[i + 1].clone());
+                    i += 1;
+                } else {
+                    new_insts.push(Inst::BAndImm {
+                        dst,
+                        lhs: dst,
+                        imm: mask,
+                    });
+                }
             }
+            i += 1;
         }
         mir.blocks[block_idx].insts = new_insts;
     }
 }
 
 /// Returns `Some((dst, mask))` when this instruction produces a narrow
-/// integer that should be masked. The mask is the value `(1 << width) - 1`.
+/// integer that should be masked. `mask` is `(1 << width) - 1`.
 fn needs_mask(inst: &Inst, mir: &MirFunc) -> Option<(ValueId, i64)> {
     let dst = match inst {
         Inst::IAdd { dst, .. }

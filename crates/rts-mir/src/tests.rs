@@ -716,6 +716,28 @@ fn narrow_i8_iadd_inserts_mask() {
 }
 
 #[test]
+fn narrow_idempotent_no_double_mask() {
+    let mut f = MirFunc::new("nidem", CallConvHint::Tail, HirType::I8);
+    let a = f.new_value(HirType::I8);
+    let b = f.new_value(HirType::I8);
+    let r = f.new_value(HirType::I8);
+    f.params.push((a, HirType::I8));
+    f.params.push((b, HirType::I8));
+    let blk = f.new_block();
+    f.blocks[blk as usize].params.push((a, HirType::I8));
+    f.blocks[blk as usize].params.push((b, HirType::I8));
+    f.blocks[blk as usize].insts.push(Inst::IAdd { dst: r, lhs: a, rhs: b });
+    f.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    narrow(&mut f);
+    narrow(&mut f);
+    narrow(&mut f);
+    let bb = &f.blocks[0];
+    // 3 passadas nao acumulam masks
+    assert_eq!(bb.insts.len(), 2, "narrow deve ser idempotente");
+}
+
+#[test]
 fn narrow_i16_imul_inserts_mask_0xffff() {
     let mut f = MirFunc::new("n16", CallConvHint::Tail, HirType::I16);
     let a = f.new_value(HirType::I16);

@@ -4277,7 +4277,8 @@ fn emit_function_handle_indirect_call(
                 cranelift_codegen::ir::MemFlags::new(),
                 tv.val,
             ),
-            ValTy::I32 | ValTy::I64 => {
+            ValTy::I32 | ValTy::I64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
                 // Literal int em TS é `number` (F64). Promove e empacota
                 // como bits para que invoke_typed leia f64 corretamente.
                 let as_f = ctx.coerce_to_f64(tv).val;
@@ -4806,7 +4807,8 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         let tv = lower_expr(ctx, &arg.expr)?;
         let value = match expected_ty {
             ValTy::I32 => ctx.coerce_to_i32(tv).val,
-            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
+            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => ctx.coerce_to_i64(tv).val,
             ValTy::F64 => to_f64(ctx, tv),
         };
         values.push(value);

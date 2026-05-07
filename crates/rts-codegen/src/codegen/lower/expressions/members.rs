@@ -496,6 +496,8 @@ fn val_ty_to_kind(ty: ValTy) -> u8 {
         ValTy::I32 => 3,
         ValTy::Handle => 0, // Handle e' u64 → cabe em i64 raw
         ValTy::U64 => 0,
+        // Narrow ints viajam em i64 raw — kind 0 (i64).
+        ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => 0,
     }
 }
 
@@ -1136,6 +1138,13 @@ pub(crate) fn emit_flat_field_read(
             cl::I64,
             ValTy::U64,
         ),
+        // Narrow ints em campos de classe — armazenados como I64 no slot,
+        // tipo logico preservado para mask em ops downstream.
+        ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => (
+            "__RTS_FN_NS_GC_INSTANCE_LOAD_I64",
+            cl::I64,
+            slot.ty,
+        ),
     };
     let fref = ctx.get_extern(sym, &[cl::I64, cl::I32], Some(ret_ty))?;
     let inst = ctx.builder.ins().call(fref, &[recv_handle, off]);
@@ -1177,7 +1186,8 @@ pub(crate) fn emit_flat_field_write(
             )?;
             ctx.builder.ins().call(fref, &[recv_handle, off, coerced]);
         }
-        ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64 => {
+        ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64
+        | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
             let coerced = ctx.coerce_to_i64(value).val;
             let fref = ctx.get_extern(
                 "__RTS_FN_NS_GC_INSTANCE_STORE_I64",
