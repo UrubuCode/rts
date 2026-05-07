@@ -20,8 +20,10 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_FROM_STR(handle: u64) -> f64 {
     if ptr.is_null() || len < 0 {
         return f64::NAN;
     }
+    // JS spec: Number("") === 0 e Number("   ") === 0 (string vazia ou
+    // somente whitespace coage para zero, nao NaN).
     if len == 0 {
-        return f64::NAN; // RTS: Number("") === NaN (parse de string vazia falha)
+        return 0.0;
     }
     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     let s = match std::str::from_utf8(bytes) {
@@ -30,7 +32,27 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_FROM_STR(handle: u64) -> f64 {
     };
     let trimmed = s.trim();
     if trimmed.is_empty() {
-        return f64::NAN; // RTS: Number("   ") === NaN (so whitespace -> parse falha)
+        return 0.0;
+    }
+    // JS aceita prefixos numericos: 0x.. (hex), 0o.. (oct), 0b.. (bin)
+    // alem do parse f64 padrao.
+    if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+        if let Ok(v) = u64::from_str_radix(hex, 16) {
+            return v as f64;
+        }
+        return f64::NAN;
+    }
+    if let Some(oct) = trimmed.strip_prefix("0o").or_else(|| trimmed.strip_prefix("0O")) {
+        if let Ok(v) = u64::from_str_radix(oct, 8) {
+            return v as f64;
+        }
+        return f64::NAN;
+    }
+    if let Some(bin) = trimmed.strip_prefix("0b").or_else(|| trimmed.strip_prefix("0B")) {
+        if let Ok(v) = u64::from_str_radix(bin, 2) {
+            return v as f64;
+        }
+        return f64::NAN;
     }
     match trimmed.parse::<f64>() {
         Ok(v) => v,

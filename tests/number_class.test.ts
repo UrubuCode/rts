@@ -42,8 +42,8 @@ describe("number_class/coercion", () => {
     expect(Number("3.14") === 3.14).toBe(true);
   });
 
-  test("Number('') === NaN", () =>
-    expect(isNaN(Number(""))).toBe(true));
+  test("Number('') === 0 (JS spec)", () =>
+    expect(Number("") === 0).toBe(true));
 
   test("Number('abc') === NaN", () =>
     expect(isNaN(Number("abc"))).toBe(true));
