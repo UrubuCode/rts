@@ -9,6 +9,7 @@ pub mod class_layout;
 pub mod ctx;
 pub mod expressions;
 pub mod func;
+pub mod passes;
 pub mod statements;
 
 pub use func::compile_program;
