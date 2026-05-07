@@ -1389,17 +1389,22 @@ fn lower_bin(
         (HirBinOp::LogAnd, _) => Inst::BAnd { dst, lhs, rhs },
         (HirBinOp::LogOr, _) => Inst::BOr { dst, lhs, rhs },
 
-        // Unsupported pair — placeholder zero
+        // Unsupported pair — placeholder zero. Marcar had_placeholders
+        // pra que o routing route esta fn para o AST. Tipo correto evita
+        // disparar `unreachable!()` no Cranelift verifier — IConst com
+        // tipo F64 é inválido; usa F64Const nesse caso.
         _ => {
-            // No instruction emitted; rebind dst to a fresh zero const.
-            ctx.push_inst(
-                mir,
+            ctx.had_placeholders = true;
+            let const_inst = if res_ty.is_float() {
+                Inst::F64Const { dst, val: 0.0 }
+            } else {
                 Inst::IConst {
                     dst,
                     ty: res_ty.clone(),
                     val: 0,
-                },
-            );
+                }
+            };
+            ctx.push_inst(mir, const_inst);
             return dst;
         }
     };

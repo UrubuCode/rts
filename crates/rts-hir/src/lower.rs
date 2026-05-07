@@ -698,6 +698,7 @@ fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
         swc::BinaryOp::Mul => HirBinOp::Mul,
         swc::BinaryOp::Div => HirBinOp::Div,
         swc::BinaryOp::Mod => HirBinOp::Rem,
+        swc::BinaryOp::Exp => HirBinOp::Exp,
         swc::BinaryOp::BitAnd => HirBinOp::BitAnd,
         swc::BinaryOp::BitOr => HirBinOp::BitOr,
         swc::BinaryOp::BitXor => HirBinOp::BitXor,
@@ -713,7 +714,9 @@ fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
         swc::BinaryOp::LogicalAnd => HirBinOp::LogAnd,
         swc::BinaryOp::LogicalOr => HirBinOp::LogOr,
         swc::BinaryOp::NullishCoalescing => HirBinOp::NullCoalesce,
-        _ => HirBinOp::Add, // fallback
+        // `in`, `instanceof`, etc. — não suportadas direto no MIR; o
+        // lower MIR bail (had_placeholders=true) e o AST path assume.
+        _ => HirBinOp::Unsupported,
     }
 }
 

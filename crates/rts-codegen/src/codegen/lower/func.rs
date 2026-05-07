@@ -7556,6 +7556,10 @@ fn try_compile_via_mir(
 ) -> Result<bool> {
     use rts_mir::ir::{Inst, Terminator, TrapHint};
 
+    if std::env::var("RTS_MIR_DEBUG").is_ok() {
+        eprintln!("[mir-trace] enter try_compile_via_mir({})", fn_decl.name);
+    }
+
     // Conservative gate: bail on any synthetic name (starts with `__`),
     // any async fn, or any synthetic body. The MIR doesn't yet model the
     // runtime hooks these need (Promise, this binding, closure capture).

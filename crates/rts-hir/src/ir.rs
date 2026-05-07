@@ -115,12 +115,15 @@ impl HirType {
 /// Binary operators in HIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HirBinOp {
-    Add, Sub, Mul, Div, Rem,
+    Add, Sub, Mul, Div, Rem, Exp,
     BitAnd, BitOr, BitXor,
     Shl, Shr, UShr,
     Eq, Ne, Lt, Le, Gt, Ge,
     LogAnd, LogOr,
     NullCoalesce,
+    /// Sentinel for an op we couldn't map (e.g. `In`, `InstanceOf`). The MIR
+    /// lower bail when it sees this so the AST path keeps full ownership.
+    Unsupported,
 }
 
 impl HirBinOp {
