@@ -5,4 +5,6 @@
 //! distinta do pipeline final.
 
 pub mod class;
+pub mod main_fn;
 pub mod mir_route;
+pub mod user_fn;
