@@ -2783,6 +2783,42 @@ pub(super) fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal>
     Ok(TypedVal::new(addr, ValTy::I64))
 }
 
+/// Reifica uma arrow hoistada (`__hoisted_arrow_N`) como Function handle
+/// com `is_arrow=1`. Garante que INVOKE_AUTO não faça THIS_PUSH — arrow
+/// não tem own this; `this` correto vem do slot do escopo envolvente.
+pub(super) fn emit_hoisted_arrow_handle(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
+    use cranelift_codegen::ir::types as cl;
+    let fn_addr_tv = emit_user_fn_addr(ctx, name)?;
+    let fn_addr = fn_addr_tv.val;
+    let arity = ctx
+        .user_fns
+        .get(name)
+        .map(|f| f.params.len() as i64)
+        .unwrap_or(0);
+    let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+    let name_tv = ctx.emit_str_handle(name.as_bytes())?;
+    let name_h = ctx.coerce_to_i64(name_tv).val;
+    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+    let n_ptr = ctx.builder.inst_results(inst_p)[0];
+    let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+    let n_len = ctx.builder.inst_results(inst_l)[0];
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 1); // arrow = true
+    let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY",
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
+        Some(cl::I64),
+    )?;
+    let inst_r = ctx
+        .builder
+        .ins()
+        .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+    let handle = ctx.builder.inst_results(inst_r)[0];
+    Ok(TypedVal::new(handle, ValTy::Handle))
+}
+
 /// `obj.fn(...)` onde `obj` e uma var local (HashMap-like, ex: namespace
 /// TS desugared). Faz map_get(obj, "fn") -> i64 (funcptr) e
 /// call_indirect com signature i64-only.

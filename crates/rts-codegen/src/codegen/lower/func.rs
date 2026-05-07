@@ -3087,7 +3087,12 @@ fn hoist_fn_expressions(program: &mut Program) {
                 span: Default::default(),
             }),
         );
-        let name = format!("__hoisted_fn_{}", *counter);
+        let is_arrow_expr = matches!(owned, Expr::Arrow(_));
+        let name = if is_arrow_expr {
+            format!("__hoisted_arrow_{}", *counter)
+        } else {
+            format!("__hoisted_fn_{}", *counter)
+        };
         *counter += 1;
 
         let fn_decl = match owned {

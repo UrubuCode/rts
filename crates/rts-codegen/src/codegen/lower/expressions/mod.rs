@@ -81,6 +81,13 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         return Ok(tv);
     }
     if ctx.user_fns.contains_key(name) {
+        // Arrows hoisted via hoist_fn_expressions têm prefixo __hoisted_arrow_.
+        // Quando aparecem em posição de valor (não call), reificamos como
+        // Function handle com is_arrow=1 para que INVOKE_AUTO não faça
+        // THIS_PUSH — arrow não tem own this.
+        if name.starts_with("__hoisted_arrow_") {
+            return calls::emit_hoisted_arrow_handle(ctx, name);
+        }
         return emit_user_fn_addr(ctx, name);
     }
     // (#298) Globais JS NaN/Infinity/undefined. NaN e Infinity sao
