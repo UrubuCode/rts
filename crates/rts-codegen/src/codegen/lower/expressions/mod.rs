@@ -85,8 +85,18 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         // Quando aparecem em posição de valor (não call), reificamos como
         // Function handle com is_arrow=1 para que INVOKE_AUTO não faça
         // THIS_PUSH — arrow não tem own this.
-        if name.starts_with("__hoisted_arrow_") {
-            return calls::emit_hoisted_arrow_handle(ctx, name);
+        if name.starts_with("__hoisted_arrow_") || name.starts_with("__lifted_arrow_") {
+            // Se `this` é local (escopo de método de classe), captura o valor
+            // atual no handle via REIFY_BOUND. Arrows armazenadas/retornadas
+            // leem `this` correto mesmo após o método retornar.
+            // Se `this` NÃO está em escopo (callbacks de describe/test etc.),
+            // retorna raw fn addr — a infraestrutura espera ponteiro direto.
+            if let Some(tv) = ctx.read_local("this") {
+                let bound_this = ctx.coerce_to_i64(tv).val;
+                return calls::emit_hoisted_arrow_handle(ctx, name, Some(bound_this));
+            }
+            // Fora de escopo de classe — raw fn addr como antes.
+            return emit_user_fn_addr(ctx, name);
         }
         return emit_user_fn_addr(ctx, name);
     }

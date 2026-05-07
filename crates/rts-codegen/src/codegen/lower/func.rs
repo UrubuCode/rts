@@ -4774,6 +4774,7 @@ impl LiftAcc {
         arrow: &swc_ecma_ast::ArrowExpr,
         in_class: bool,
     ) -> swc_ecma_ast::Ident {
+        let has_return_value = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_));
         let raw_stmts = arrow_body_to_stmts(arrow);
         let mut body_stmts: Vec<Statement> = raw_stmts
             .into_iter()
@@ -4790,10 +4791,15 @@ impl LiftAcc {
         // Recurse para arrows aninhadas.
         self.lift_in_body(class_name, &mut body_stmts, in_class);
 
+        // Expression-body arrows always return a value; block-body arrows
+        // with explicit `return` also do, but we can't easily detect that
+        // here, so treat block-body as void (the common UI-callback case).
+        let ret_ty = if has_return_value { Some("i64".to_string()) } else { Some("void".to_string()) };
+
         self.new_fns.push(Item::Function(FunctionDecl {
             name: syn_name.clone(),
             parameters: Vec::new(),
-            return_type: Some("void".to_string()),
+            return_type: ret_ty,
             body: body_stmts,
             span: Span::default(),
             is_async: false,
@@ -7147,6 +7153,11 @@ fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
     }
 
     if let TsType::TsArrayType(_) = ty {
+        return Some(ValTy::Handle);
+    }
+
+    // Function types `() => T` / `(a: T) => U` etc. are stored as Function handles.
+    if let TsType::TsFnOrConstructorType(_) = ty {
         return Some(ValTy::Handle);
     }
 

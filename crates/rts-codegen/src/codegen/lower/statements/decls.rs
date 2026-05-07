@@ -445,6 +445,10 @@ pub(super) fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {
     if let TsType::TsArrayType(_) = ty {
         return Some(ValTy::Handle);
     }
+    // Function types `() => T` / `(a: T) => U` are Function handles.
+    if let TsType::TsFnOrConstructorType(_) = ty {
+        return Some(ValTy::Handle);
+    }
     None
 }
 
