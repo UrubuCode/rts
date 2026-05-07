@@ -706,10 +706,60 @@ fn lower_inst(
             builder.declare_value_needs_stack_map(v);
         }
 
-        // Unsupported in this slice: atomics.
-        AtomicLoad { .. } | AtomicStore { .. } | AtomicRmw { .. }
-        | AtomicCas { .. } | Fence { .. } => {
-            return Err(anyhow!("mir_codegen: instruction not yet supported: {:?}", inst));
+        // Atomics: Cranelift 0.131 não expõe MemOrder no IR — todos
+        // os atomics são SeqCst (mais conservativo). MemFlags precisa
+        // de `notrap()` (atomics nunca trapam por alignment).
+        AtomicLoad { dst, ptr, .. } => {
+            let dst_ty = hir_to_cl(mir.type_of(*dst));
+            let v = builder.ins().atomic_load(
+                dst_ty,
+                MemFlags::trusted(),
+                val(vmap, *ptr)?,
+            );
+            bind!(dst, v);
+        }
+        AtomicStore { val: v, ptr, .. } => {
+            builder.ins().atomic_store(
+                MemFlags::trusted(),
+                val(vmap, *v)?,
+                val(vmap, *ptr)?,
+            );
+        }
+        AtomicRmw { dst, op, ptr, val: v, .. } => {
+            let dst_ty = hir_to_cl(mir.type_of(*dst));
+            let cl_op = match op {
+                rts_mir::ir::RmwOp::Add => cranelift_codegen::ir::AtomicRmwOp::Add,
+                rts_mir::ir::RmwOp::Sub => cranelift_codegen::ir::AtomicRmwOp::Sub,
+                rts_mir::ir::RmwOp::And => cranelift_codegen::ir::AtomicRmwOp::And,
+                rts_mir::ir::RmwOp::Or => cranelift_codegen::ir::AtomicRmwOp::Or,
+                rts_mir::ir::RmwOp::Xor => cranelift_codegen::ir::AtomicRmwOp::Xor,
+                rts_mir::ir::RmwOp::Nand => cranelift_codegen::ir::AtomicRmwOp::Nand,
+                rts_mir::ir::RmwOp::Xchg => cranelift_codegen::ir::AtomicRmwOp::Xchg,
+                rts_mir::ir::RmwOp::Umin => cranelift_codegen::ir::AtomicRmwOp::Umin,
+                rts_mir::ir::RmwOp::Umax => cranelift_codegen::ir::AtomicRmwOp::Umax,
+                rts_mir::ir::RmwOp::Smin => cranelift_codegen::ir::AtomicRmwOp::Smin,
+                rts_mir::ir::RmwOp::Smax => cranelift_codegen::ir::AtomicRmwOp::Smax,
+            };
+            let result = builder.ins().atomic_rmw(
+                dst_ty,
+                MemFlags::trusted(),
+                cl_op,
+                val(vmap, *ptr)?,
+                val(vmap, *v)?,
+            );
+            bind!(dst, result);
+        }
+        AtomicCas { dst, ptr, expected, replacement, .. } => {
+            let result = builder.ins().atomic_cas(
+                MemFlags::trusted(),
+                val(vmap, *ptr)?,
+                val(vmap, *expected)?,
+                val(vmap, *replacement)?,
+            );
+            bind!(dst, result);
+        }
+        Fence { .. } => {
+            builder.ins().fence();
         }
     }
     Ok(())

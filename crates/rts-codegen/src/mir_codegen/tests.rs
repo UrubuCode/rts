@@ -1570,6 +1570,169 @@ fn gc_array_literal_jit_compiles_with_stack_maps() {
     assert_eq!(f(), 20);
 }
 
+// ---------- atomics ----------
+
+#[test]
+fn jit_atomic_load_store_roundtrip() {
+    // function f(p: i64): i64 {
+    //     atomic_store(p, 42);
+    //     return atomic_load(p);
+    // }
+    // Construímos o MirFunc na mão pra testar Inst::AtomicLoad/AtomicStore
+    // sem depender de gating por nome no HIR.
+    use rts_mir::ir::{MemOrder, RmwOp};
+
+    let mut mir = MirFunc::new("f", CallConvHint::Tail, HirType::I64);
+    let p = mir.new_value(HirType::I64);
+    let val42 = mir.new_value(HirType::I64);
+    let r = mir.new_value(HirType::I64);
+    mir.params.push((p, HirType::I64));
+
+    let blk = mir.new_block();
+    mir.blocks[blk as usize].params.push((p, HirType::I64));
+    mir.blocks[blk as usize].insts.push(Inst::IConst {
+        dst: val42,
+        ty: HirType::I64,
+        val: 42,
+    });
+    mir.blocks[blk as usize].insts.push(Inst::AtomicStore {
+        val: val42,
+        ptr: p,
+        order: MemOrder::SeqCst,
+    });
+    mir.blocks[blk as usize].insts.push(Inst::AtomicLoad {
+        dst: r,
+        ptr: p,
+        order: MemOrder::SeqCst,
+    });
+    mir.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    let mir = host_conv(mir);
+    let (module, id) = lower_and_finalize(mir);
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(*mut i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+
+    let mut storage: i64 = 0;
+    let result = f(&mut storage as *mut i64);
+    assert_eq!(result, 42);
+    assert_eq!(storage, 42);
+
+    // Suprime warning de variável não usada no escopo de teste.
+    let _ = (RmwOp::Add,);
+}
+
+#[test]
+fn jit_atomic_rmw_add_increments() {
+    // function inc(p: i64): i64 {
+    //     return atomic_rmw_add(p, 5);  // returns OLD value
+    // }
+    use rts_mir::ir::{MemOrder, RmwOp};
+
+    let mut mir = MirFunc::new("inc", CallConvHint::Tail, HirType::I64);
+    let p = mir.new_value(HirType::I64);
+    let v = mir.new_value(HirType::I64);
+    let r = mir.new_value(HirType::I64);
+    mir.params.push((p, HirType::I64));
+
+    let blk = mir.new_block();
+    mir.blocks[blk as usize].params.push((p, HirType::I64));
+    mir.blocks[blk as usize].insts.push(Inst::IConst {
+        dst: v,
+        ty: HirType::I64,
+        val: 5,
+    });
+    mir.blocks[blk as usize].insts.push(Inst::AtomicRmw {
+        dst: r,
+        op: RmwOp::Add,
+        ptr: p,
+        val: v,
+        order: MemOrder::SeqCst,
+    });
+    mir.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    let mir = host_conv(mir);
+    let (module, id) = lower_and_finalize(mir);
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(*mut i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+
+    let mut storage: i64 = 100;
+    let old = f(&mut storage as *mut i64);
+    assert_eq!(old, 100, "atomic_rmw_add returns OLD value");
+    assert_eq!(storage, 105, "memory updated to 100 + 5");
+}
+
+#[test]
+fn jit_atomic_cas_succeeds_when_match() {
+    // function cas(p: i64, expected: i64, replacement: i64): i64 {
+    //     return atomic_cas(p, expected, replacement);  // returns OLD
+    // }
+    use rts_mir::ir::MemOrder;
+
+    let mut mir = MirFunc::new("cas", CallConvHint::Tail, HirType::I64);
+    let p = mir.new_value(HirType::I64);
+    let exp = mir.new_value(HirType::I64);
+    let rep = mir.new_value(HirType::I64);
+    let r = mir.new_value(HirType::I64);
+    mir.params.push((p, HirType::I64));
+    mir.params.push((exp, HirType::I64));
+    mir.params.push((rep, HirType::I64));
+
+    let blk = mir.new_block();
+    mir.blocks[blk as usize].params.push((p, HirType::I64));
+    mir.blocks[blk as usize].params.push((exp, HirType::I64));
+    mir.blocks[blk as usize].params.push((rep, HirType::I64));
+    mir.blocks[blk as usize].insts.push(Inst::AtomicCas {
+        dst: r,
+        ptr: p,
+        expected: exp,
+        replacement: rep,
+        order: MemOrder::SeqCst,
+    });
+    mir.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    let mir = host_conv(mir);
+    let (module, id) = lower_and_finalize(mir);
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn(*mut i64, i64, i64) -> i64 =
+        unsafe { std::mem::transmute(ptr) };
+
+    let mut storage: i64 = 7;
+    let old = f(&mut storage as *mut i64, 7, 42);
+    assert_eq!(old, 7, "cas returns OLD value");
+    assert_eq!(storage, 42, "cas swaps when expected matches");
+
+    // Falha: expected != current
+    let mut storage2: i64 = 99;
+    let old2 = f(&mut storage2 as *mut i64, 50, 1);
+    assert_eq!(old2, 99);
+    assert_eq!(storage2, 99, "cas leaves memory untouched on mismatch");
+}
+
+#[test]
+fn jit_fence_emits_no_op_terminator() {
+    // function f(): i64 { fence(); return 7; }
+    use rts_mir::ir::MemOrder;
+
+    let mut mir = MirFunc::new("f", CallConvHint::Tail, HirType::I64);
+    let r = mir.new_value(HirType::I64);
+    let blk = mir.new_block();
+    mir.blocks[blk as usize].insts.push(Inst::Fence {
+        order: MemOrder::SeqCst,
+    });
+    mir.blocks[blk as usize].insts.push(Inst::IConst {
+        dst: r,
+        ty: HirType::I64,
+        val: 7,
+    });
+    mir.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    let mir = host_conv(mir);
+    let (module, id) = lower_and_finalize(mir);
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 7);
+}
+
 // ---------- the full enchilada: TS source → MIR → native code → execute ----------
 
 /// Compile a single user fn from TS source through the entire MIR pipeline
