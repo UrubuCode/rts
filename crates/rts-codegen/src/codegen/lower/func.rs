@@ -7673,21 +7673,36 @@ fn try_compile_via_mir(
         return Ok(false);
     }
 
-    // 4a. Inline: consulta MIR_CACHE (callees ja lowered nesta passada
-    //     de compile_program) e substitui CallUser pelo body inline
-    //     quando elegivel. Reduz overhead de chamadas em hot paths
-    //     com helpers pequenos. Inline acontece ANTES do optimize pra
-    //     que fold/dce/narrow vejam o codigo expandido.
-    let inlined_changed = MIR_CACHE.with(|c| {
-        let cache = c.borrow();
-        rts_mir::passes::inline(&mut mir_fn, &cache)
-    });
-    if inlined_changed && std::env::var("RTS_MIR_DEBUG").is_ok() {
-        eprintln!("[mir-trace] inline applied in {}", fn_decl.name);
+    // 4a. Inline em fixed-point: cada passada substitui CallUser por
+    //     corpo inline quando elegivel; o optimize subsequente colapsa
+    //     fold/cse/dce, possivelmente revelando novas oportunidades de
+    //     inline em CallUser que so' agora se tornaram alcançáveis. Max
+    //     4 iterações (programs profundos sao raros — past N=2 já
+    //     colapsa quase tudo na pratica).
+    const MAX_INLINE_ITERS: usize = 4;
+    let mut total_inlined = 0;
+    for _iter in 0..MAX_INLINE_ITERS {
+        let changed = MIR_CACHE.with(|c| {
+            let cache = c.borrow();
+            rts_mir::passes::inline(&mut mir_fn, &cache)
+        });
+        if !changed {
+            break;
+        }
+        total_inlined += 1;
+        // Roda optimize entre as iteracoes pra simplificar antes do
+        // proximo inline ver o IR atualizado.
+        rts_mir::passes::optimize(&mut mir_fn);
+    }
+    if total_inlined > 0 && std::env::var("RTS_MIR_DEBUG").is_ok() {
+        eprintln!(
+            "[mir-trace] inline applied in {} ({} iters)",
+            fn_decl.name, total_inlined
+        );
     }
 
-    // 4b. Optimize + verify. A verify failure is a MIR bug, not user code —
-    //     fall back to AST and don't panic.
+    // 4b. Final optimize + verify. A verify failure is a MIR bug, not
+    //     user code — fall back to AST and don't panic.
     rts_mir::passes::optimize(&mut mir_fn);
     if rts_mir::passes::verify(&mir_fn).is_err() {
         return Ok(false);
