@@ -7,11 +7,13 @@
 
 pub mod dce;
 pub mod fold;
+pub mod inline;
 pub mod narrow;
 pub mod verify;
 
 pub use dce::dce;
 pub use fold::fold;
+pub use inline::{inline, INLINE_BUDGET};
 pub use narrow::narrow;
 pub use verify::{verify, VerifyError};
 

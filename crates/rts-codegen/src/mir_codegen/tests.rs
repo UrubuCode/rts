@@ -1570,6 +1570,76 @@ fn gc_array_literal_jit_compiles_with_stack_maps() {
     assert_eq!(f(), 20);
 }
 
+// ---------- inline pass + JIT ----------
+
+#[test]
+fn jit_inline_helper_executes_correctly() {
+    // function inc(x: i64): i64 { return x + 1; }
+    // function caller(): i64 { return inc(41); }
+    // Após inline: caller fica `return 41 + 1`, sem CallUser.
+    use std::collections::HashMap;
+
+    // Build callee MIR
+    let mut callee = rts_mir::ir::MirFunc::new(
+        "inc",
+        CallConvHint::Tail,
+        HirType::I64,
+    );
+    let p = callee.new_value(HirType::I64);
+    let r = callee.new_value(HirType::I64);
+    callee.params.push((p, HirType::I64));
+    let blk = callee.new_block();
+    callee.blocks[blk as usize].params.push((p, HirType::I64));
+    callee.blocks[blk as usize].insts.push(Inst::IAddImm {
+        dst: r,
+        lhs: p,
+        imm: 1,
+    });
+    callee.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    // Build caller MIR
+    let mut caller = rts_mir::ir::MirFunc::new(
+        "caller",
+        CallConvHint::Tail,
+        HirType::I64,
+    );
+    let a = caller.new_value(HirType::I64);
+    let b = caller.new_value(HirType::I64);
+    let blk_c = caller.new_block();
+    caller.blocks[blk_c as usize].insts.push(Inst::IConst {
+        dst: a,
+        ty: HirType::I64,
+        val: 41,
+    });
+    caller.blocks[blk_c as usize].insts.push(Inst::CallUser {
+        dst: Some(b),
+        name: "inc".into(),
+        args: vec![a],
+        ret_ty: HirType::I64,
+        param_tys: vec![HirType::I64],
+    });
+    caller.blocks[blk_c as usize].term = Terminator::Return(vec![b]);
+
+    // Aplicar inline pass
+    let mut callees: HashMap<String, rts_mir::ir::MirFunc> = HashMap::new();
+    callees.insert("inc".into(), callee);
+    rts_mir::passes::inline::inline(&mut caller, &callees);
+
+    // Verifica que CallUser sumiu
+    let has_call = caller.blocks[0]
+        .insts
+        .iter()
+        .any(|i| matches!(i, Inst::CallUser { .. }));
+    assert!(!has_call, "inline deveria ter eliminado CallUser");
+
+    // JIT compile e executa
+    let caller = host_conv(caller);
+    let (module, id) = lower_and_finalize(caller);
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 42, "inline preserva semântica: 41 + 1 == 42");
+}
+
 // ---------- atomics ----------
 
 #[test]

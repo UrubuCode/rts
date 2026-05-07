@@ -1052,6 +1052,160 @@ fn lower_try_with_finally_runs_finally_after_body() {
     )));
 }
 
+// ---------- inline pass ----------
+
+#[test]
+fn inline_replaces_callee_with_body() {
+    use crate::passes::inline;
+    use std::collections::HashMap;
+
+    // callee: function inc(x: i64): i64 { return x + 1; }
+    let mut callee = MirFunc::new("inc", CallConvHint::Tail, HirType::I64);
+    let p = callee.new_value(HirType::I64);
+    let r = callee.new_value(HirType::I64);
+    callee.params.push((p, HirType::I64));
+    let blk = callee.new_block();
+    callee.blocks[blk as usize].params.push((p, HirType::I64));
+    callee.blocks[blk as usize].insts.push(Inst::IAddImm {
+        dst: r,
+        lhs: p,
+        imm: 1,
+    });
+    callee.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    // caller: function caller() -> i64 { let a = 5; let b = inc(a); return b; }
+    let mut caller = MirFunc::new("caller", CallConvHint::Tail, HirType::I64);
+    let a = caller.new_value(HirType::I64);
+    let b = caller.new_value(HirType::I64);
+    let blk_c = caller.new_block();
+    caller.blocks[blk_c as usize].insts.push(Inst::IConst {
+        dst: a,
+        ty: HirType::I64,
+        val: 5,
+    });
+    caller.blocks[blk_c as usize].insts.push(Inst::CallUser {
+        dst: Some(b),
+        name: "inc".into(),
+        args: vec![a],
+        ret_ty: HirType::I64,
+        param_tys: vec![HirType::I64],
+    });
+    caller.blocks[blk_c as usize].term = Terminator::Return(vec![b]);
+
+    let mut callees: HashMap<String, MirFunc> = HashMap::new();
+    callees.insert("inc".into(), callee);
+
+    let changed = inline(&mut caller, &callees);
+    assert!(changed, "inline deveria ter substituído CallUser");
+
+    // Após inline: o body deveria ter IConst 5 + IAddImm 1 (e nao mais
+    // CallUser).
+    let bb = &caller.blocks[0];
+    let has_call = bb.insts.iter().any(|i| matches!(i, Inst::CallUser { .. }));
+    assert!(!has_call, "CallUser deveria ter sumido após inline");
+    let has_addimm = bb.insts.iter().any(|i| matches!(
+        i,
+        Inst::IAddImm { imm: 1, .. }
+    ));
+    assert!(has_addimm, "corpo do callee (IAddImm 1) deveria estar inlined");
+}
+
+#[test]
+fn inline_skips_recursive_callee() {
+    use crate::passes::inline;
+    use std::collections::HashMap;
+
+    // callee recursivo: function f(x): i64 { return f(x); }
+    let mut callee = MirFunc::new("f", CallConvHint::Tail, HirType::I64);
+    let p = callee.new_value(HirType::I64);
+    let r = callee.new_value(HirType::I64);
+    callee.params.push((p, HirType::I64));
+    let blk = callee.new_block();
+    callee.blocks[blk as usize].params.push((p, HirType::I64));
+    callee.blocks[blk as usize].insts.push(Inst::CallUser {
+        dst: Some(r),
+        name: "f".into(),
+        args: vec![p],
+        ret_ty: HirType::I64,
+        param_tys: vec![HirType::I64],
+    });
+    callee.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    let mut caller = MirFunc::new("caller", CallConvHint::Tail, HirType::I64);
+    let a = caller.new_value(HirType::I64);
+    let b = caller.new_value(HirType::I64);
+    let blk_c = caller.new_block();
+    caller.blocks[blk_c as usize].insts.push(Inst::IConst {
+        dst: a,
+        ty: HirType::I64,
+        val: 5,
+    });
+    caller.blocks[blk_c as usize].insts.push(Inst::CallUser {
+        dst: Some(b),
+        name: "f".into(),
+        args: vec![a],
+        ret_ty: HirType::I64,
+        param_tys: vec![HirType::I64],
+    });
+    caller.blocks[blk_c as usize].term = Terminator::Return(vec![b]);
+
+    let mut callees: HashMap<String, MirFunc> = HashMap::new();
+    callees.insert("f".into(), callee);
+
+    let changed = inline(&mut caller, &callees);
+    assert!(!changed, "fn recursiva não deve ser inlinada");
+    let has_call = caller.blocks[0].insts.iter().any(|i| matches!(
+        i,
+        Inst::CallUser { .. }
+    ));
+    assert!(has_call, "CallUser deveria sobreviver");
+}
+
+#[test]
+fn inline_skips_callee_with_call_extern() {
+    use crate::passes::inline;
+    use std::collections::HashMap;
+
+    // callee com CallExtern → bail
+    let mut callee = MirFunc::new("c", CallConvHint::Tail, HirType::I64);
+    let p = callee.new_value(HirType::I64);
+    let r = callee.new_value(HirType::I64);
+    callee.params.push((p, HirType::I64));
+    let blk = callee.new_block();
+    callee.blocks[blk as usize].params.push((p, HirType::I64));
+    callee.blocks[blk as usize].insts.push(Inst::CallExtern {
+        dst: Some(r),
+        sym: "__RTS_FN_FOO".into(),
+        args: vec![p],
+        ret_ty: HirType::I64,
+        param_tys: vec![HirType::I64],
+    });
+    callee.blocks[blk as usize].term = Terminator::Return(vec![r]);
+
+    let mut caller = MirFunc::new("caller", CallConvHint::Tail, HirType::I64);
+    let a = caller.new_value(HirType::I64);
+    let b = caller.new_value(HirType::I64);
+    let blk_c = caller.new_block();
+    caller.blocks[blk_c as usize].insts.push(Inst::IConst {
+        dst: a,
+        ty: HirType::I64,
+        val: 1,
+    });
+    caller.blocks[blk_c as usize].insts.push(Inst::CallUser {
+        dst: Some(b),
+        name: "c".into(),
+        args: vec![a],
+        ret_ty: HirType::I64,
+        param_tys: vec![HirType::I64],
+    });
+    caller.blocks[blk_c as usize].term = Terminator::Return(vec![b]);
+
+    let mut callees: HashMap<String, MirFunc> = HashMap::new();
+    callees.insert("c".into(), callee);
+    let changed = inline(&mut caller, &callees);
+    assert!(!changed);
+}
+
 // ---------- print tests ----------
 
 #[test]
