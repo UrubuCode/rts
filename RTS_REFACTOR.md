@@ -7,6 +7,93 @@ e usar o repertório completo do Cranelift corretamente em cada camada.
 
 ---
 
+## Estado atual (2026-05-06) — Fase 3 entregue ✅
+
+A Fase 3 (MIR) está **completa e em produção** — `rts-mir` ativo por
+default desde os commits `f7b924b` (etapa 3.25) e `23dd4b7` (etapa
+3.26).
+
+**Pipeline atual:**
+
+```
+TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize (fold+dce+narrow+verify)
+                                              → mir_codegen → Cranelift → JIT/AOT
+                                              ↘ AST autoritativo (fallback automatico)
+```
+
+**Routing hibrido** controlado por `RTS_USE_MIR`:
+
+| Valor | Comportamento |
+|---|---|
+| unset / `1` / `on` / `all` | MIR ON (default) |
+| `0` / `off` / `none` | AST only |
+| `fn1,fn2,...` | MIR só pras fns listadas |
+
+Cada user fn tenta o caminho HIR→MIR→Cranelift; se bate em construct
+ainda não modelado (member em `this`/objetos, classes, async/await,
+address-taken fns, string em params/ret de user fn), cai automatica
+e silenciosamente no codegen AST sem perder semântica.
+
+**Marcos relevantes (commits na main):**
+
+- `35a8ed3` crate `rts-mir` skeleton
+- `48e1f0d` lower HIR → MIR linear
+- `96e10c4` passes fold + dce
+- `9507b09` passes verify + narrow
+- `bdf25c0` `mir_codegen` MIR → Cranelift IR
+- `0629de8` CallUser cross-fn calls
+- `7f59338` CallExtern para namespaces RTS
+- `3b4a22a` StrLit + StrPtr expansion (io.print, io.stdout_write)
+- `1ad4d52` namespace constants (math.PI)
+- `8d01fb6` Intrinsic inlining (sqrt nativo)
+- `9544104` arrays simples via collections.vec_*
+- `de3a721` GC stack maps no caminho MIR
+- `7e8451a` routing híbrido MIR ↔ AST com opt-in
+- `e8dc4a7` mutation SSA (block params para `let i = i + 1`)
+- `f3e45ab` gate conservador roda suite full
+- `31d8796` zero regressão com RTS_USE_MIR=all
+- `f7b924b` **MIR ATIVADO POR DEFAULT** (etapa 3.25)
+- `23dd4b7` cobertura MIR expandida 25 → 438 fns reais (etapa 3.26)
+
+**Métricas atuais:**
+
+- `cargo test --release --lib`: 12/12
+- `cargo test -p rts-hir`: 27/27
+- `cargo test -p rts-mir`: 51/51
+- `cargo test -p rts-codegen --lib mir_codegen`: 53/53
+- `target/release/rts.exe test`: 622/632 (mesmas 10 falhas pré-existentes)
+- 438 user fns reais da suite TS rodam pelo MIR (cobertura ~3% das
+  ~14000 fns user; 73% bail por synthetic/test-framework, 13% por
+  placeholders, 12% por tipos)
+
+**Workspace de crates atualmente (10 crates):**
+
+`rts-ast`, `rts-parser`, `rts-diagnostics`, `rts-abi`, `rts-hir`,
+`rts-mir`, `rts-runtime`, `rts-codegen` (com `mir_codegen/`),
+`rts-linker`, `rts-cli`.
+
+**Capacidades MIR:** literais, aritmética inteira/float, bitwise,
+shifts, comparações, casts; control flow completo (if/else, while,
+do-while, for clássico, break/continue, ternary→Select, switch via
+br_table, throw→Trap, try/finally fase 1); mutação SSA via block
+params; cross-fn calls (CallUser) + recursão mútua; auto-recursão
+bail (TCO ainda só no AST); CallExtern para namespaces RTS;
+Intrinsic inlining; StrLit + StrPtr expansion; namespace constants
+(math.PI/E); arrays simples via `collections.vec_*`; GC stack maps
+automáticos.
+
+**Fora do escopo MIR ainda (rota AST):** member access em
+this/objetos; classes (new, métodos, herança, this binding);
+async/await + Promise; address-taken fns (passadas a thread.spawn,
+promise.then, etc.); string em params/ret de user fn (StrPtr no
+boundary).
+
+O plano original (abaixo) permanece como referência da arquitetura
+alvo. Fases 0–3 entregues; Fase 4 (baixo nível e extensões) segue
+backlog ongoing.
+
+---
+
 ## Por que fazer isso
 
 | Problema atual | Consequência |
@@ -1066,7 +1153,7 @@ i64 bits → f64:  bitcast(F64, MemFlags::new(), val)   (transmute)
 **Marco intermediário (atual):** crate rts-hir completo, conectado ao pipeline, suite verde.
 **Marco final:** suite mantida + `rts ir` mostra ausência de `fcvt` em sites tipo `i = userFn(i)` quando a fn retorna inteiro.
 
-### Fase 3 — MIR e passes — em fase final (etapas 3.6 a 3.19)
+### Fase 3 — MIR e passes ✅ (entregue, ativa por default)
 
 **Marco entregue (etapa 3.19):** routing híbrido com opt-in por nome
 no `compile_program`. `RTS_USE_MIR=fn1,fn2,...` faz cada fn listada
@@ -1087,11 +1174,15 @@ sem env var continua 622/632 verde).
 - [x] `passes/narrow.rs`: canonicalização I8/U8 (mask 0xFF) e I16/U16 (mask 0xFFFF) após IAdd/ISub/IMul/INeg/IShl
 - [x] `passes/verify.rs`: invariantes (block ids match position, ValueIds em range, BlockIds em range, params count consistente)
 - [x] `crates/rts-codegen/src/mir_codegen/`: lower MIR → Cranelift IR isolado (não plugado no pipeline). hint_bridge.rs converte CraneliftTypeHint → cl::Type; lower.rs traduz Inst/Terminator 1:1 via FunctionBuilder; mod.rs expõe `extern_resolver_default()` que resolve namespaces RTS via `crate::abi::SPECS`. **32 testes** cobrindo: (a) 10 unitários JIT-execute que constroem MirFunc na mão (incluindo Switch e loop com phi nodes); (b) 7 de integração via `rts_parser::parse_source` + lower HIR + lower MIR + passes + verify; (c) 5 smoke single-fn TS→native; (d) 3 smoke multi-fn com `Inst::CallUser` cross-fn (recursão, chains); (e) 4 testes de extern call (`math.sqrt(4.0)==2.0` JIT executando `__RTS_FN_NS_MATH_SQRT`); (f) **3 testes de string literal: `Inst::StrLit` aloca data segment, expande StrPtr param em (ptr,len), `io.stdout_write("ABC")` JIT escreve no stdout real e retorna 3**.
-- [ ] `verify.rs`: invariantes em debug (tipo de cada ValueId consistente, blocos terminados)
-- [ ] Adaptar `rts-codegen` para consumir MIR via `lower/inst.rs` e `lower/term.rs`
-- [ ] Testes unitários para cada pass (sem Cranelift — testam só o MIR)
+- [x] `verify.rs`: invariantes em debug (tipo de cada ValueId consistente, blocos terminados)
+- [x] Adaptar `rts-codegen` para consumir MIR via `mir_codegen/` (commit bdf25c0)
+- [x] Testes unitários para cada pass (sem Cranelift — testam só o MIR; rts-mir 51/51)
+- [x] Routing híbrido AST ↔ MIR com opt-in (commit 7e8451a)
+- [x] MIR ativado por default (commit f7b924b, etapa 3.25)
+- [x] Cobertura expandida para 438 fns reais (commit 23dd4b7, etapa 3.26)
 
-**Marco:** `cargo test --workspace` verde. Passes verificados com unit tests.
+**Marco entregue:** `cargo test --workspace` verde, suite TS 622/632
+(mesmas 10 falhas pré-existentes), MIR ON por default sem regressão.
 
 ### Fase 4 — Baixo nível e extensões (ongoing)
 

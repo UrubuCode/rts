@@ -18,7 +18,7 @@ workspace de crates.
 
 ## Arquitetura
 
-Workspace Cargo com 9 crates em `crates/`. O diretorio `src/` continua
+Workspace Cargo com 10 crates em `crates/`. O diretorio `src/` continua
 existindo mas eh fachada do bin `rts` (re-exports dos crates); paths
 reais ficam sob `crates/<crate>/src/`.
 
@@ -28,12 +28,15 @@ crates/
   rts-parser/      — SWC parse + AST; converte arrow/fn expressions em Item::Function top-level
   rts-diagnostics/ — erros estruturados
   rts-abi/         — contrato unico de ABI (SPECS, tipos, simbolos, guards, assinaturas, Intrinsic)
-  rts-hir/         — HIR tipado (etapa 2.1 do refator); ainda NAO plugado no pipeline (issue #611)
+  rts-hir/         — HIR tipado (HirType I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any/Unknown)
+  rts-mir/         — MIR SSA (60+ Insts: aritmetica/bitwise/shifts/conv/cmp/loads/stores/atomics/StrLit/CallUser/CallExtern/DeclareGcValue;
+                     Terminators Return/Jump/Brif/Switch/TailCall/Trap; passes fold/dce/narrow/verify; lower HIR→MIR)
   rts-codegen/     — Cranelift codegen + type_system + module/ + pipeline + cache + eval_jit
     src/codegen/
       emit.rs      — ObjectModule emitter (AOT)
       jit.rs       — JITModule emitter (rts run)
-      lower/       — lower de expr/stmt/func sobre &mut dyn Module
+      mir_codegen/ — lower MIR → Cranelift IR (camada paralela ao AST, ativa por default)
+      lower/       — lower de expr/stmt/func sobre &mut dyn Module (caminho AST autoritativo)
     src/type_system/ — type checker, registry, resolver
     src/module/      — resolver de modulos e grafo de dependencias
     src/pipeline.rs  — orquestra build/run; inclui run_jit para path JIT
@@ -44,15 +47,25 @@ crates/
 src/                — fachada bin (re-exports), runtime_objects.rs, main.rs
 ```
 
-Pipeline AOT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → Object → Linker → .exe`
-Pipeline JIT: `Source TS → Parser(SWC) → type_system → codegen(Cranelift) → JITModule → call __RTS_MAIN`
+Pipeline atual (default, MIR ON):
 
-`FnCtx.module` eh `&mut dyn Module` para servir ambos os paths sem
-duplicar codegen. O crate `rts-hir` (etapa 2.1 do refator) define HIR
-tipado mas ainda nao esta plugado no pipeline; codegen hoje consome
-AST direto e emite Cranelift IR em
-`crates/rts-codegen/src/codegen/lower/`. MIR esta planejado (ver
-`RTS_REFACTOR.md` Fase 3).
+```
+TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize (fold+dce+narrow+verify)
+                                              → mir_codegen → Cranelift → JIT/AOT
+                                              ↘ AST autoritativo (fallback automatico)
+```
+
+Routing hibrido controlado por `RTS_USE_MIR` (unset/`1`/`on`/`all` =
+MIR ON default; `0`/`off`/`none` = AST only; `fn1,fn2,...` = MIR so'
+pras fns listadas). Cada user fn tenta o caminho MIR; se bate em
+construct ainda nao modelado (member em this/objetos, classes,
+async/await, address-taken fns, string em params/ret), cai
+automaticamente no codegen AST sem perder semantica. Fase 3 do
+`RTS_REFACTOR.md` entregue (commits f7b924b, 23dd4b7); 438 user fns
+reais da suite TS rodam pelo MIR; suite mantem 622/632 verde.
+
+`FnCtx.module` eh `&mut dyn Module` para servir AOT e JIT sem
+duplicar codegen.
 
 ## ABI (`crates/rts-abi/`) — contrato unico
 

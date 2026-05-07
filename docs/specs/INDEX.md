@@ -3,9 +3,13 @@
 Indice de documentos de design, especificacoes de features e decisoes
 arquiteturais. Para direcao de alto nivel do projeto consulte
 [`../../RTS_REFACTOR.md`](../../RTS_REFACTOR.md) na raiz — plano canonico
-do refator em workspace de crates (`crates/rts-ast`, `rts-abi`,
-`rts-codegen`, `rts-cli`, `rts-diagnostics`, `rts-hir`, `rts-linker`,
-`rts-parser`, `rts-runtime`).
+do refator em workspace de 10 crates (`crates/rts-ast`, `rts-abi`,
+`rts-codegen` com `mir_codegen/`, `rts-cli`, `rts-diagnostics`,
+`rts-hir`, `rts-mir`, `rts-linker`, `rts-parser`, `rts-runtime`). A
+Fase 3 do refator esta entregue: o crate `rts-mir` eh a camada nova
+SSA entre HIR e Cranelift, ativa por default desde commit f7b924b
+(routing hibrido por `RTS_USE_MIR`, fallback automatico para AST em
+constructs nao modelados).
 
 ## Guias ativos
 

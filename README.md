@@ -191,7 +191,7 @@ runtime externo.
 
 ## 🏗️ Arquitetura
 
-Workspace Cargo com 9 crates em `crates/`. O diretório `src/` continua existindo
+Workspace Cargo com 10 crates em `crates/`. O diretório `src/` continua existindo
 como fachada do bin `rts` (re-exporta os crates) — `src/main.rs` chama
 `rts_codegen::register_runtime_artifacts` + `rts_cli::cli::dispatch`. Paths
 reais estão sob `crates/<crate>/src/`.
@@ -202,18 +202,41 @@ crates/
 ├─ rts-parser/       SWC parse → AST
 ├─ rts-diagnostics/  erros estruturados
 ├─ rts-abi/          ⚡ contrato único — SPECS, AbiType, Intrinsic, símbolos
-├─ rts-hir/          HIR tipado (etapa 2.1, ainda NÃO plugado no pipeline — issue #611)
-├─ rts-codegen/      Cranelift codegen + type_system + module/ + pipeline + cache + eval_jit
-│  └─ src/codegen/   lower/, emit.rs (AOT), jit.rs (rts run)
+├─ rts-hir/          HIR tipado (HirType I8..I128, F32/F64, Bool, Str, Handle, Array, Class, Object)
+├─ rts-mir/          MIR SSA (60+ Insts, Terminators, passes fold/dce/narrow/verify)
+├─ rts-codegen/      Cranelift codegen (AST autoritativo + mir_codegen MIR→Cranelift)
+│  └─ src/codegen/   lower/, emit.rs (AOT), jit.rs (rts run), mir_codegen/
 ├─ rts-runtime/      builtin "rts" + 40+ namespaces (io, fs, gc, math, ...) + async_rt
 ├─ rts-linker/       link nativo (system linker + fallback object)
 └─ rts-cli/          run · compile · apis · init · repl · eval · ir
 ```
 
-> Nota: `rts-codegen` virou catch-all (módulo de pipeline, type_system,
-> resolver de modulos, cache incremental e eval_jit moram lá), divergindo
-> do plano canônico em [`RTS_REFACTOR.md`](RTS_REFACTOR.md). MIR (`rts-mir`)
-> está planejado na Fase 3 desse mesmo plano.
+### Pipeline atual
+
+```
+TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize (fold+dce+narrow+verify)
+                                              → mir_codegen → Cranelift → JIT/AOT
+                                              ↘ AST autoritativo (fallback)
+```
+
+MIR está **ativo por default** (commits `f7b924b`, `23dd4b7`). Routing
+híbrido: cada user fn tenta o caminho HIR→MIR→Cranelift; se bate em
+construct ainda não modelado (member em `this`/objetos, classes,
+async/await, address-taken fns, string em params/ret), cai
+automaticamente no codegen AST sem perder semântica. Métricas atuais:
+
+- 438 user fns reais da suite TS rodam pelo MIR
+- `cargo test --release --lib`: 12/12; `rts-hir`: 27/27; `rts-mir`: 51/51;
+  `rts-codegen --lib mir_codegen`: 53/53
+- `target/release/rts.exe test`: 622/632 (mesmas 10 falhas pre-existentes)
+
+Variável `RTS_USE_MIR` controla o routing:
+
+| Valor | Comportamento |
+|---|---|
+| unset / `1` / `on` / `all` | MIR ON (default) |
+| `0` / `off` / `none` | AST only |
+| `fn1,fn2,...` | MIR só pras fns listadas |
 
 **ABI sem boxing**: cada função de namespace é um símbolo
 `#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`. Nada de `JsValue`,

@@ -1,8 +1,39 @@
 # Otimizacoes de codegen + layout de artefatos + docs
 
 > Nota: paths de codegen abaixo vivem em
-> `crates/rts-codegen/src/codegen/lower/`. O crate `rts-hir` (etapa 2.1)
-> eh nova camada entre AST e codegen — ainda nao integrada (issue #611).
+> `crates/rts-codegen/src/codegen/lower/` (caminho AST autoritativo) e
+> `crates/rts-codegen/src/codegen/mir_codegen/` (camada MIR ativa por
+> default). HIR + MIR estao em producao desde Fase 3 do
+> `RTS_REFACTOR.md` (commits f7b924b/23dd4b7).
+
+## Camada MIR (`mir_codegen/`) — paralela ao codegen AST
+
+`crates/rts-codegen/src/codegen/mir_codegen/` consome `MirFunc` do
+crate `rts-mir` e emite Cranelift IR via `FunctionBuilder` 1:1.
+`hint_bridge` converte `CraneliftTypeHint` em `cl::Type`; `lower.rs`
+traduz `Inst`/`Terminator`; `extern_resolver_default()` resolve
+namespaces RTS via `crate::abi::SPECS`.
+
+Routing hibrido em `compile_user_fn`: cada user fn tenta MIR; bail
+silencioso para AST quando bate em construct nao modelado (member em
+this/objetos, classes, async/await, address-taken fns, string em
+params/ret de user fn). Default ON; `RTS_USE_MIR=0` desliga,
+`RTS_USE_MIR=fn1,fn2,...` restringe.
+
+Optimizacoes a nivel MIR (rodam antes do codegen):
+- `passes/fold.rs` — constant folding (IAdd/ISub/IMul/SDiv/SRem/BAnd/
+  BOr/BXor de IConst→IConst) + strength reduction (mul→shl, urem→band,
+  sdiv→sshr, ops com const→`*Imm`)
+- `passes/dce.rs` — eliminacao de codigo morto com fixed-point
+  (preserva side-effecting: Store, CallExtern, AtomicStore/Rmw/Cas,
+  Fence, DeclareGcValue)
+- `passes/narrow.rs` — canonicalizacao I8/U8 (mask 0xFF) e I16/U16
+  (mask 0xFFFF) apos IAdd/ISub/IMul/INeg/IShl
+- `passes/verify.rs` — invariantes (block ids match position,
+  ValueIds em range, params count consistente)
+- Intrinsic inlining: tag `Intrinsic` na spec do namespace gera Inst
+  especializado (Sqrt, FAbs, FMin/FMax, IAbs, IMin/IMax) em vez de
+  `CallExtern`; `mir_codegen` baixa direto pra IR Cranelift nativa.
 
 ## Otimizacoes de codegen notaveis
 

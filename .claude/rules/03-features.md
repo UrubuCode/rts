@@ -1,5 +1,46 @@
 # Features ativas — capacidades, parallelism, async/Promise/Function
 
+## Pipeline HIR → MIR → Cranelift (routing hibrido, default ON)
+
+Fase 3 do `RTS_REFACTOR.md` entregue: o crate `rts-mir` esta ativo
+por default (commits f7b924b/23dd4b7). Pipeline atual:
+
+```
+TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize → mir_codegen → Cranelift
+                                              ↘ AST autoritativo (fallback)
+```
+
+Cada user fn tenta o caminho HIR→MIR→Cranelift; se bate em construct
+ainda nao modelado (member em `this`/objetos, classes, async/await,
+address-taken fns, string em params/ret de user fn), cai automatico
+no codegen AST. Bail e' silencioso e nao quebra semantica.
+
+Variavel `RTS_USE_MIR`:
+
+| Valor | Comportamento |
+|---|---|
+| unset / `1` / `on` / `all` | MIR ON (default) |
+| `0` / `off` / `none` | AST only |
+| `fn1,fn2,...` | MIR so' pras fns listadas |
+
+**Capacidades MIR:** literais (int/float/bool/string/null/undefined),
+aritmetica inteira/float, bitwise, shifts, comparacoes, casts; control
+flow completo (if/else, while, do-while, for classico, break/continue
+com loop_stack, ternary→Select, switch via br_table, throw→Trap,
+try/finally fase 1); mutacao SSA via block params (`let i = i + 1` em
+loops); cross-fn calls (CallUser) + recursao mutua; auto-recursao bail
+(TCO so' no AST); extern calls para namespaces RTS via `CallExtern` +
+resolver via SPECS; intrinsic inlining (math.sqrt, abs/min/max
+f64/i64); string literais (`StrLit` data segment + StrPtr ptr+len);
+namespace constants (math.PI, math.E); arrays simples via
+`collections.vec_*`; GC stack maps automaticos via
+`declare_value_needs_stack_map`.
+
+**Metricas atuais:** 438 user fns reais da suite TS rodam pelo MIR.
+`cargo test --release --lib` 12/12; `rts-hir` 27/27; `rts-mir` 51/51;
+`rts-codegen --lib mir_codegen` 53/53; `rts.exe test` 622/632 (mesmas
+10 falhas pre-existentes do AST).
+
 ## Capacidades de linguagem ativas (codegen)
 
 - Object/array literals: `{k: v}` e `[1,2,3]` via

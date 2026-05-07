@@ -31,11 +31,16 @@ binário nativo**, sem runtime JS embutido, com semântica TS pragmática
 ## Como funciona
 
 ```
-Source TS → SWC (parser) → AST → type_system → codegen (Cranelift) → object → linker → .exe
+Source TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → optimize (fold+dce+narrow+verify)
+                                      → mir_codegen → Cranelift → object/JIT
+                                      ↘ AST autoritativo (fallback automatico)
 ```
 
-Não há HIR/MIR. O codegen consome direto o AST do SWC e emite IR
-Cranelift, que vira código de máquina via:
+HIR + MIR estão ativos por default (Fase 3 do `RTS_REFACTOR.md`,
+commits f7b924b/23dd4b7). Routing híbrido: cada user fn tenta MIR; se
+bate em construct ainda não modelado (classes, async, this/objetos)
+cai automático no codegen AST. Variável `RTS_USE_MIR` controla.
+Cranelift vira código de máquina via:
 
 - **AOT** (`rts compile`): `cranelift_object::ObjectModule` produz um
   `.o`/`.obj`, system linker (rust-lld) faz o final → binário nativo
@@ -166,7 +171,9 @@ src/
   pipeline.rs   — Orquestra build/run; inclui run_jit pra path JIT
 ```
 
-Sem HIR/MIR — codegen consome AST direto. ABI cross-namespace é uma
+HIR + MIR ativos por default (Fase 3 do `RTS_REFACTOR.md`); routing
+híbrido faz fallback automático para o codegen AST em constructs ainda
+não modelados. ABI cross-namespace é uma
 única tabela (`abi::SPECS`) — codegen, runtime, JIT e gerador de
 `rts.d.ts` consultam a mesma fonte. Nenhuma camada de dispatch.
 

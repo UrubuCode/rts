@@ -17,7 +17,11 @@ Agentes automatizados e humanos devem consultar, nesta ordem:
 - Contrato ABI unico vive em `src/abi/` (`SPECS`, `NamespaceMember`, `AbiType`, `Intrinsic`,
   simbolos `__RTS_FN_NS_<NS>_<NAME>` e dados `__RTS_DATA_NS_<NS>_<NAME>`). Nao ha mais
   `dispatch()` por namespace, nem `JsValue` no limite, nem `__rts_call_dispatch`.
-- Sem HIR/MIR separados: codegen consome AST direto em `src/codegen/lower/`.
+- HIR (`crates/rts-hir`) + MIR (`crates/rts-mir`) ativos por default; routing
+  hibrido em `crates/rts-codegen/src/codegen/mir_codegen/` cai automatico no
+  codegen AST (`src/codegen/lower/`) para constructs ainda nao modelados
+  (classes, async, this/objetos). Variavel `RTS_USE_MIR` controla. Ver
+  `RTS_REFACTOR.md` Fase 3 (entregue).
 - Dois paths de execucao: `JITModule` (`rts run`) e `ObjectModule` (AOT, `rts compile`).
   `FnCtx.module` e `&mut dyn Module` — ambos passam pelo mesmo codegen.
 - Build e via `cargo` puro (sem `xtask`). Artefatos do usuario ficam em `node_modules/.rts/`.
