@@ -4,10 +4,12 @@
 //! handles variables, arithmetic, control flow, user functions, and
 //! string operations.
 
+pub mod analysis;
 pub mod class_layout;
+pub mod compile;
 pub mod ctx;
 pub mod expressions;
-pub mod func;
+pub mod passes;
 pub mod statements;
 
-pub use func::compile_program;
+pub use compile::program::compile_program;

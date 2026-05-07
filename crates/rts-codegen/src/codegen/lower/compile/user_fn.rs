@@ -1,0 +1,322 @@
+//! Compilacao individual de uma user fn — orquestra HIR → MIR → Cranelift
+//! com fallback automatico pra codegen AST.
+//!
+//! Extraido de `func.rs`. Helpers `user_call_conv`, `collect_var_decls`,
+//! `try_compile_via_mir` etc. moram em `func` ou `compile/mir_route`.
+
+use std::collections::HashMap;
+
+use anyhow::{Context, Result};
+use cranelift_codegen::Context as ClContext;
+use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
+use cranelift_codegen::isa::CallConv;
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift_module::Module;
+
+use crate::parser::ast::{FunctionDecl, Statement};
+
+use super::super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
+use super::super::statements::lower_stmt;
+use super::class::class_init_name;
+use super::mir_route::try_compile_via_mir;
+use super::program::UserFn;
+use super::util::{collect_var_decls, user_call_conv};
+
+pub(crate) fn compile_user_fn(
+    module: &mut dyn Module,
+    extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
+    data_counter: &mut u32,
+    globals: &HashMap<String, GlobalVar>,
+    user_fns: &HashMap<String, UserFnAbi>,
+    classes: &HashMap<String, ClassMeta>,
+    global_class_ty: &HashMap<String, String>,
+    global_obj_field_types: &HashMap<String, HashMap<String, ValTy>>,
+    global_nested_obj_field_types: &HashMap<(String, String), HashMap<String, ValTy>>,
+    fn_class_returns: &HashMap<String, String>,
+    node_import_map: &HashMap<String, String>,
+    fn_decl: &FunctionDecl,
+    info: &UserFn,
+    current_class: Option<String>,
+    address_taken: bool,
+) -> Result<Vec<String>> {
+    let warnings: Vec<String> = Vec::new();
+
+    // (etapa 3.19/3.25) Routing híbrido MIR ↔ AST.
+    //
+    // Caminho MIR (HIR → MIR → optimize → mir_codegen → Cranelift) tenta
+    // assumir cada user fn cujo gate aceita (synthetic/async/types
+    // whitelisted/etc.); em qualquer falha (Trap, signature mismatch,
+    // had_placeholders, lower error) cai automaticamente no AST.
+    //
+    // RTS_USE_MIR controla o opt-out:
+    //   - unset / "1" / "on" / "all" → MIR ON (default, etapa 3.25)
+    //   - "0" / "off" / "none"        → MIR OFF (AST only)
+    //   - "fn1,fn2,fn3"               → MIR só pras fns listadas
+    //
+    // Gate testado: zero regressão na suite TS (621/632 com MIR ON ==
+    // 621/632 com MIR OFF, etapa 3.24). Reativar address-taken e
+    // CallExtern eh trabalho futuro auditado por namespace.
+    let mir_allowed = match std::env::var("RTS_USE_MIR") {
+        Err(_) => true,
+        Ok(spec) => {
+            let s = spec.trim();
+            if s.is_empty() || s.eq_ignore_ascii_case("on") || s == "1"
+                || s.eq_ignore_ascii_case("all")
+            {
+                true
+            } else if s == "0" || s.eq_ignore_ascii_case("off")
+                || s.eq_ignore_ascii_case("none")
+            {
+                false
+            } else {
+                // Lista por nome — só ativa quando match.
+                s.split(',').any(|n| n.trim() == fn_decl.name)
+            }
+        }
+    };
+    if mir_allowed && try_compile_via_mir(module, fn_decl, info, address_taken)? {
+        return Ok(warnings);
+    }
+
+    let mut warnings = warnings;
+    let mut ctx = ClContext::new();
+    let call_conv = user_call_conv(module, &fn_decl.name, address_taken);
+    ctx.func.signature = {
+        let mut sig = Signature::new(call_conv);
+        for &ty in &info.params {
+            sig.params.push(AbiParam::new(ty.cl_type()));
+        }
+        if let Some(rt) = info.ret {
+            sig.returns.push(AbiParam::new(rt.cl_type()));
+        }
+        sig
+    };
+
+    let mut fbx = FunctionBuilderContext::new();
+    {
+        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fbx);
+        let entry = builder.create_block();
+        builder.append_block_params_for_function_params(entry);
+        builder.switch_to_block(entry);
+        builder.seal_block(entry);
+        // Force layout insertion para body vazio nao crashar Cranelift.
+        // Sem nenhum opcode/terminator, builder.finalize() pode deixar
+        // o entry block fora do layout, e remove_constant_phis explode
+        // em "entry block unknown".
+        builder.func.layout.append_block(entry);
+
+        let mut fn_ctx = FnCtx::new(
+            &mut builder,
+            module,
+            extern_cache,
+            data_counter,
+            globals,
+            user_fns,
+            classes,
+            global_class_ty,
+            global_obj_field_types,
+            global_nested_obj_field_types,
+            fn_class_returns,
+            node_import_map,
+            false,
+        );
+        fn_ctx.return_ty = info.ret;
+        fn_ctx.is_tail_conv = call_conv == CallConv::Tail;
+        fn_ctx.current_class = current_class.clone();
+        fn_ctx.current_fn_name = fn_decl.name.clone();
+        fn_ctx.current_file = fn_decl.span.file
+            .and_then(rts_diagnostics::source_store::path_of)
+            .map(|p| {
+                // Remove Windows UNC prefix \\?\ for readability.
+                let s = p.display().to_string();
+                s.strip_prefix(r"\\?\").unwrap_or(&s).to_owned()
+            })
+            .unwrap_or_default();
+        // Detecta se a função é um constructor de classe pelo mangled name.
+        // Usado pra permitir assign em readonly fields.
+        fn_ctx.current_is_ctor = current_class
+            .as_ref()
+            .map(|c| fn_decl.name == class_init_name(c))
+            .unwrap_or(false);
+        // Reset por fn — \`super_already_called\` rastreia chamadas dentro
+        // do constructor corrente. Sem reset, multiplos constructors no
+        // mesmo programa compartilhariam a flag.
+        fn_ctx.super_already_called = false;
+        // Em metodos/constructors, o param `this` e instancia da classe
+        // dona — populamos local_class_ty pra que `this.field`/dispatch
+        // tipicos funcionem (e overload em `this.x + ...`).
+        if let Some(cls) = current_class.as_deref() {
+            fn_ctx
+                .local_class_ty
+                .insert("this".to_string(), cls.to_string());
+        }
+        // Parametros tipados como classe registrada → trackear.
+        for p in &fn_decl.parameters {
+            if let Some(ann) = p.type_annotation.as_deref() {
+                let ann = ann.trim();
+                if classes.contains_key(ann) {
+                    fn_ctx
+                        .local_class_ty
+                        .insert(p.name.clone(), ann.to_string());
+                }
+            }
+        }
+
+        // Bind parameters as locals.
+        // Caso especial: param `__rts_spawn_arg_f64` (gerado pelo lifter
+        // de thread.spawn quando worker pede `number`) — block_param
+        // chega como i64 mas ja contem o bit pattern de um f64. Bind
+        // local como F64 via bitcast em vez de fcvt (que perderia o
+        // valor por interpretar bits como inteiro).
+        for (i, param) in fn_decl.parameters.iter().enumerate() {
+            let block_param = fn_ctx.builder.block_params(entry)[i];
+            if param.name == "__rts_spawn_arg_f64" {
+                let f = fn_ctx.builder.ins().bitcast(
+                    cranelift_codegen::ir::types::F64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    block_param,
+                );
+                fn_ctx.declare_local(&param.name, ValTy::F64, f);
+                continue;
+            }
+            let ty = param
+                .type_annotation
+                .as_deref()
+                .map(ValTy::from_annotation)
+                .unwrap_or(ValTy::I64);
+            fn_ctx.declare_local(&param.name, ty, block_param);
+        }
+
+        // (#301) Var hoisting: coletar todos os nomes `var x` no body
+        // (incluindo nested em if/for/while/try mas ignorando function/
+        // arrow/class boundaries) e pre-declarar como I64=0. Isso
+        // permite `console.log(x); var x = 5;` retornar 0 (proxy de
+        // undefined) em vez de "undefined variable" erro.
+        {
+            let mut hoisted: Vec<String> = Vec::new();
+            for stmt_raw in fn_decl.body.iter() {
+                let Statement::Raw(raw) = stmt_raw;
+                if let Some(stmt) = raw.stmt.as_ref() {
+                    collect_var_decls(stmt, &mut hoisted);
+                }
+            }
+            for name in &hoisted {
+                if fn_ctx.var_ty(name).is_none() {
+                    let zero = fn_ctx.builder.ins().iconst(cl::I64, 0);
+                    fn_ctx.declare_local_kind(name, ValTy::I64, zero, false, true);
+                }
+            }
+        }
+
+        // Compile body statements.
+        let mut terminated = false;
+        let mut iter = fn_decl.body.iter();
+        while let Some(stmt_raw) = iter.next() {
+            if terminated {
+                break;
+            }
+            let Statement::Raw(raw) = stmt_raw;
+            if let Some(swc_stmt) = raw.stmt.as_ref() {
+                terminated = lower_stmt(&mut fn_ctx, swc_stmt)?;
+                // #205 — emite warning quando ha statements depois de
+                // um terminal (return/throw/break/continue) no body
+                // top-level da fn. Ignora Statement::Raw sem stmt
+                // (placeholders sinteticos do lifter).
+                if terminated {
+                    if let Some(next) = iter.clone().find(|s| {
+                        let Statement::Raw(r) = s;
+                        r.stmt.as_ref().map(|st| !matches!(st, swc_ecma_ast::Stmt::Empty(_))).unwrap_or(false)
+                    }) {
+                        let Statement::Raw(_) = next;
+                        let kind = match swc_stmt {
+                            swc_ecma_ast::Stmt::Return(_) => "return",
+                            swc_ecma_ast::Stmt::Throw(_) => "throw",
+                            swc_ecma_ast::Stmt::Break(_) => "break",
+                            swc_ecma_ast::Stmt::Continue(_) => "continue",
+                            _ => "terminal statement",
+                        };
+                        fn_ctx.warnings.push(format!(
+                            "warning: unreachable code after `{}`",
+                            kind
+                        ));
+                    }
+                }
+            }
+        }
+
+        // If we did not hit a return, emit one. Body vazio: o entry
+        // block precisa ter terminator obrigatorio para Cranelift.
+        if !terminated && !fn_ctx.builder.is_unreachable() {
+            if let Some(rt) = info.ret {
+                let zero = match rt {
+                    ValTy::F64 => fn_ctx.builder.ins().f64const(0.0),
+                    ValTy::I32 => fn_ctx.builder.ins().iconst(cl::I32, 0),
+                    _ => fn_ctx.builder.ins().iconst(cl::I64, 0),
+                };
+                fn_ctx.builder.ins().return_(&[zero]);
+            } else {
+                fn_ctx.builder.ins().return_(&[]);
+            }
+        }
+
+        // Drena warnings emitidos durante o lower (#205 unreachable code).
+        // Prefixa com nome da fn para diagnostico util.
+        for w in fn_ctx.warnings.drain(..) {
+            warnings.push(format!("in `{}`: {}", fn_decl.name, w));
+        }
+
+        builder.finalize();
+    }
+
+    if crate::codegen::ir_dump_enabled() {
+        let file = crate::codegen::ir_source_file();
+        let loc = if file.is_empty() {
+            format!("line {}:{}", fn_decl.span.start.line, fn_decl.span.start.column)
+        } else {
+            format!("{}:{}:{}", file, fn_decl.span.start.line, fn_decl.span.start.column)
+        };
+        eprintln!("--- {} [{}] IR ---\n{}", fn_decl.name, loc, ctx.func.display());
+    }
+
+    // Pre-compile to capture GC stack maps BEFORE define_function clears the context.
+    // JITModule::define_function_with_control_plane calls ctx.clear() internally, so
+    // ctx.compiled_code() is always None after define_function. We compile once here
+    // just to read the stack maps, then define_function recompiles (double compilation).
+    {
+        use cranelift_codegen::control::ControlPlane;
+        let mut ctrl = ControlPlane::default();
+        let gc_debug = std::env::var("RTS_GC_DEBUG").is_ok();
+        match ctx.compile(module.isa(), &mut ctrl) {
+            Ok(compiled) => {
+                let raw_maps = compiled.buffer.user_stack_maps();
+                if gc_debug {
+                    eprintln!("[gc] fn `{}` — {} raw stack map entries", fn_decl.name, raw_maps.len());
+                }
+                let maps: Vec<(u32, Vec<u32>)> = raw_maps
+                    .iter()
+                    .filter_map(|(ret_offset, _, map)| {
+                        let offsets: Vec<u32> = map.entries().map(|(_, sp_off)| sp_off).collect();
+                        if gc_debug {
+                            eprintln!("[gc]   safepoint offset={ret_offset} offsets={offsets:?}");
+                        }
+                        if offsets.is_empty() { None } else { Some((*ret_offset, offsets)) }
+                    })
+                    .collect();
+                if !maps.is_empty() {
+                    crate::namespaces::gc::stack_map_registry::push_pending(info.id.as_u32(), maps);
+                }
+            }
+            Err(e) => {
+                if gc_debug {
+                    eprintln!("[gc] fn `{}` — pre-compile failed: {}", fn_decl.name, e.inner);
+                }
+            }
+        }
+    }
+
+    module
+        .define_function(info.id, &mut ctx)
+        .with_context(|| format!("failed to define function `{}`", fn_decl.name))?;
+
+    Ok(warnings)
+}

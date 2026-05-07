@@ -21,6 +21,34 @@
 
 use std::sync::OnceLock;
 
+/// Constroi um `tokio::runtime::Runtime` multi-thread no padrao do RTS:
+/// worker count = `available_parallelism()` (fallback 4), `enable_all`
+/// I/O+timer, thread name `"rts-tokio"`, hooks de start/stop chamando
+/// as closures dadas.
+///
+/// Existe pra evitar copy-paste do builder entre `runtime/async_rt`
+/// (crate principal) e `namespaces/runtime/rt` (shim do `rt_all.rs`
+/// staticlib) — os dois contextos compartilham a mesma logica de
+/// builder mas resolvem o caminho do `thread_registry` por modulos
+/// diferentes (`crate::namespaces::gc::*` vs `crate::gc::*`).
+pub fn build_shared_runtime<S, E>(on_thread_start: S, on_thread_stop: E) -> tokio::runtime::Runtime
+where
+    S: Fn() + Send + Sync + 'static,
+    E: Fn() + Send + Sync + 'static,
+{
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers)
+        .enable_all()
+        .thread_name("rts-tokio")
+        .on_thread_start(on_thread_start)
+        .on_thread_stop(on_thread_stop)
+        .build()
+        .expect("failed to build shared tokio runtime")
+}
+
 /// Acessa o runtime tokio global. Inicializa na primeira chamada.
 ///
 /// Worker count = `available_parallelism()` (ou 4 como fallback).
@@ -32,21 +60,10 @@ use std::sync::OnceLock;
 pub fn rt() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| {
-        let workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(workers)
-            .enable_all()
-            .thread_name("rts-tokio")
-            .on_thread_start(|| {
-                crate::namespaces::gc::thread_registry::register_current();
-            })
-            .on_thread_stop(|| {
-                crate::namespaces::gc::thread_registry::unregister_current();
-            })
-            .build()
-            .expect("failed to build shared tokio runtime")
+        build_shared_runtime(
+            || crate::namespaces::gc::thread_registry::register_current(),
+            || crate::namespaces::gc::thread_registry::unregister_current(),
+        )
     })
 }
 
