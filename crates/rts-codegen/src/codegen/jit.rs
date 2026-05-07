@@ -436,6 +436,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_SYMBOL_TO_STRING_TAG", __RTS_FN_GL_SYMBOL_TO_STRING_TAG);
     }
 
+    // Boolean class
+    {
+        use crate::namespaces::globals::boolean::rt::*;
+        add_fn!("__RTS_FN_GL_BOOLEAN_COERCE", __RTS_FN_GL_BOOLEAN_COERCE);
+        add_fn!("__RTS_FN_GL_BOOLEAN_TO_STRING", __RTS_FN_GL_BOOLEAN_TO_STRING);
+        add_fn!("__RTS_FN_GL_BOOLEAN_VALUE_OF", __RTS_FN_GL_BOOLEAN_VALUE_OF);
+    }
+
     // (#208) encodeURIComponent / decodeURIComponent globais.
     {
         use crate::namespaces::globals::global_this::rt::*;

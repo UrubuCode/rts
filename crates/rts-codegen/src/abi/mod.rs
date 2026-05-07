@@ -21,6 +21,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::url::class_spec::URLSP_CLASS_SPEC,
     &crate::namespaces::globals::function::abi::FUNCTION_CLASS_SPEC,
     &crate::namespaces::globals::symbol::SYMBOL_CLASS_SPEC,
+    &crate::namespaces::globals::boolean::BOOLEAN_CLASS_SPEC,
     &crate::namespaces::globals::weakmap::WEAKMAP_CLASS_SPEC,
     &crate::namespaces::globals::weakset::WEAKSET_CLASS_SPEC,
 ];
