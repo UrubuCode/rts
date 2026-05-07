@@ -1,46 +1,41 @@
-//! User-defined function and module-level compilation.
+//! Entry point: `compile_program` orquestra o pipeline completo
+//! (passes AST → declare → compile user fns → compile main).
 //!
-//! `compile_program` declares all user functions first (for forward calls),
-//! lowers bodies, then lowers top-level statements into `__RTS_MAIN`.
+//! Helpers de declaracao (`declare_user_fn`, `fn_signature`,
+//! `user_symbol_name`) ficam aqui porque so' sao usados pelo
+//! pipeline de declare-then-compile.
 
 use std::collections::HashMap;
 
 use anyhow::{Context, Result, anyhow};
 use cranelift_codegen::ir::{AbiParam, Signature};
-use cranelift_codegen::isa::CallConv;
 use cranelift_module::{Linkage, Module};
-use swc_ecma_ast::{Decl, ForHead, Pat, Stmt};
+use swc_ecma_ast::{Decl, Pat, Stmt};
 
 use crate::parser::ast::{ClassDecl, FunctionDecl, Item, Program, Statement};
 
-use super::analysis::address_taken::collect_address_taken_fns;
-use super::analysis::captures::extract_class_owner;
-use super::analysis::module_globals::collect_module_globals;
-use super::analysis::types::sanitize_symbol;
-use super::compile::class::{synthesize_class_fns, validate_abstract_method_implementations};
-use super::compile::main_fn::compile_main;
-use super::compile::mir_route::clear_mir_cache_for_program;
-use super::compile::user_fn::compile_user_fn;
-use super::ctx::{ClassMeta, UserFnAbi, ValTy};
-use super::passes::args::default_args::expand_default_args;
-use super::passes::args::rest_args::expand_rest_args;
-use super::passes::args::spread_args::expand_spread_args;
-use super::passes::async_expand::{expand_async_functions, expand_await_exprs};
-use super::passes::destructuring::expand_destructuring;
-use super::passes::hoist_fn::hoist_fn_expressions;
-use super::passes::object_methods::desugar_object_methods;
-use super::passes::parallelism::{
+use super::super::analysis::address_taken::collect_address_taken_fns;
+use super::super::analysis::captures::extract_class_owner;
+use super::super::analysis::module_globals::collect_module_globals;
+use super::super::analysis::types::sanitize_symbol;
+use super::super::ctx::{ClassMeta, UserFnAbi, ValTy};
+use super::super::passes::args::default_args::expand_default_args;
+use super::super::passes::args::rest_args::expand_rest_args;
+use super::super::passes::args::spread_args::expand_spread_args;
+use super::super::passes::async_expand::{expand_async_functions, expand_await_exprs};
+use super::super::passes::destructuring::expand_destructuring;
+use super::super::passes::hoist_fn::hoist_fn_expressions;
+use super::super::passes::object_methods::desugar_object_methods;
+use super::super::passes::parallelism::{
     array_methods_pass, lift_inline_arrows_in_array_methods, purity_pass, reduce_pass,
 };
-use super::passes::static_fields::expand_static_fields;
-use super::passes::this_arrow::lift_arrow_callbacks;
-
-// Re-export para callers externos (expressions/*) que ainda referenciam
-// `lower::func::class_*_name`.
-pub(crate) use super::compile::class::{
-    class_getter_name, class_setter_name, class_static_method_name,
-};
-
+use super::super::passes::static_fields::expand_static_fields;
+use super::super::passes::this_arrow::lift_arrow_callbacks;
+use super::class::{synthesize_class_fns, validate_abstract_method_implementations};
+use super::main_fn::compile_main;
+use super::mir_route::clear_mir_cache_for_program;
+use super::user_fn::compile_user_fn;
+use super::util::user_call_conv;
 
 /// Info about a user-defined function needed by callers.
 #[derive(Debug, Clone)]
@@ -50,7 +45,6 @@ pub(crate) struct UserFn {
     pub(crate) ret: Option<ValTy>,
 }
 
-/// Compiles the full program: user functions + top-level `main`.
 pub fn compile_program(
     program: &mut Program,
     module: &mut dyn Module,
@@ -145,7 +139,7 @@ pub fn compile_program(
     // layout do parent ao herdarem offsets. Aditivo: o codegen ainda
     // nao consome este campo — preserva os 187/187 testes.
     {
-        use super::class_layout::compute_layout;
+        use super::super::class_layout::compute_layout;
         let mut remaining: Vec<String> = classes.keys().cloned().collect();
         let mut progress = true;
         while progress && !remaining.is_empty() {
@@ -507,37 +501,11 @@ pub fn compile_program(
     Ok(warnings)
 }
 
-/// Lifted callback stubs (`__lifted_arrow_*`) are invoked by native UI
-/// toolkits as plain C function pointers (`extern "C" fn()`), so they must
-/// use the platform default calling convention.
-#[inline]
-fn is_lifted_callback(name: &str) -> bool {
-    // Trampolins simples (sem captura de `this`): `__lifted_arrow_N`.
-    // Trampolins de classe (capturam `this`/`super`): `__class_C_lifted_arrow_N`.
-    // Ambos atravessam a fronteira C ABI quando invocados pelo FLTK.
-    if name.starts_with("__lifted_arrow_") {
-        return true;
-    }
-    if let Some(rest) = name.strip_prefix("__class_") {
-        if rest.contains("_lifted_arrow_") {
-            return true;
-        }
-    }
-    false
-}
-
 /// User-defined functions generally use the Tail calling convention so codegen
 /// can emit `return_call` for tail-position invocations (#93). Lifted UI
 /// callbacks are the exception: they cross a native C ABI boundary, e
 /// fns cujo endereço é tomado (passadas a APIs nativas como
 /// `thread.spawn`, FFI, etc — #206).
-pub(crate) fn user_call_conv(module: &dyn Module, fn_name: &str, address_taken: bool) -> CallConv {
-    if is_lifted_callback(fn_name) || address_taken {
-        module.isa().default_call_conv()
-    } else {
-        CallConv::Tail
-    }
-}
 
 fn declare_user_fn(
     module: &mut dyn Module,
@@ -587,100 +555,3 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
 
     (params, ret)
 }
-
-/// (#301) Coleta os nomes de todos os `var x` declarados no statement,
-/// recursivamente, sem atravessar boundaries de function/arrow/class.
-/// Usado para var hoisting — todas as `var` em uma fn sao pre-declaradas
-/// no topo com valor 0 (proxy de undefined).
-pub(crate) fn collect_var_decls(stmt: &Stmt, out: &mut Vec<String>) {
-    match stmt {
-        Stmt::Decl(Decl::Var(vd)) => {
-            if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
-                for d in &vd.decls {
-                    if let Pat::Ident(id) = &d.name {
-                        out.push(id.id.sym.as_str().to_string());
-                    }
-                }
-            }
-        }
-        Stmt::Block(b) => {
-            for s in &b.stmts {
-                collect_var_decls(s, out);
-            }
-        }
-        Stmt::If(i) => {
-            collect_var_decls(&i.cons, out);
-            if let Some(alt) = &i.alt {
-                collect_var_decls(alt, out);
-            }
-        }
-        Stmt::For(f) => {
-            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = &f.init {
-                if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
-                    for d in &vd.decls {
-                        if let Pat::Ident(id) = &d.name {
-                            out.push(id.id.sym.as_str().to_string());
-                        }
-                    }
-                }
-            }
-            collect_var_decls(&f.body, out);
-        }
-        Stmt::ForIn(f) => {
-            if let ForHead::VarDecl(vd) = &f.left {
-                if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
-                    for d in &vd.decls {
-                        if let Pat::Ident(id) = &d.name {
-                            out.push(id.id.sym.as_str().to_string());
-                        }
-                    }
-                }
-            }
-            collect_var_decls(&f.body, out);
-        }
-        Stmt::ForOf(f) => {
-            if let ForHead::VarDecl(vd) = &f.left {
-                if matches!(vd.kind, swc_ecma_ast::VarDeclKind::Var) {
-                    for d in &vd.decls {
-                        if let Pat::Ident(id) = &d.name {
-                            out.push(id.id.sym.as_str().to_string());
-                        }
-                    }
-                }
-            }
-            collect_var_decls(&f.body, out);
-        }
-        Stmt::While(w) => collect_var_decls(&w.body, out),
-        Stmt::DoWhile(d) => collect_var_decls(&d.body, out),
-        Stmt::Try(t) => {
-            for s in &t.block.stmts {
-                collect_var_decls(s, out);
-            }
-            if let Some(h) = &t.handler {
-                for s in &h.body.stmts {
-                    collect_var_decls(s, out);
-                }
-            }
-            if let Some(f) = &t.finalizer {
-                for s in &f.stmts {
-                    collect_var_decls(s, out);
-                }
-            }
-        }
-        Stmt::Switch(sw) => {
-            for case in &sw.cases {
-                for s in &case.cons {
-                    collect_var_decls(s, out);
-                }
-            }
-        }
-        Stmt::Labeled(l) => collect_var_decls(&l.body, out),
-        Stmt::With(w) => collect_var_decls(&w.body, out),
-        // function/arrow/class declarations dentro do body criam novo
-        // scope — nao recursa.
-        _ => {}
-    }
-}
-
-
-

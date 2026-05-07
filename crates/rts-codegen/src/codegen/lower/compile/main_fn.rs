@@ -14,8 +14,8 @@ use cranelift_module::{Linkage, Module};
 use swc_ecma_ast::Stmt;
 
 use super::super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
-use super::super::func::collect_var_decls;
 use super::super::statements::lower_stmt;
+use super::util::collect_var_decls;
 
 const RUNTIME_MAIN_SYMBOL: &str = crate::abi::symbols::ENTRY_POINT;
 

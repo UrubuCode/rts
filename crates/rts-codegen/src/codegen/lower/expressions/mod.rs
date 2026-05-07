@@ -10,7 +10,7 @@ use cranelift_codegen::ir::InstBuilder;
 use swc_ecma_ast::{BinExpr, BinaryOp, Expr, Lit, MemberProp};
 
 use super::ctx::{FnCtx, TypedVal, ValTy};
-use super::func::class_setter_name;
+use super::compile::class::class_setter_name;
 
 use self::calls::{
     AccessorKind, emit_user_fn_addr, emit_virtual_accessor_dispatch, lower_call, lower_new,

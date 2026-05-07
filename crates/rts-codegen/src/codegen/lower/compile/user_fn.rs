@@ -16,10 +16,11 @@ use cranelift_module::Module;
 use crate::parser::ast::{FunctionDecl, Statement};
 
 use super::super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
-use super::super::func::{UserFn, collect_var_decls, user_call_conv};
 use super::super::statements::lower_stmt;
 use super::class::class_init_name;
 use super::mir_route::try_compile_via_mir;
+use super::program::UserFn;
+use super::util::{collect_var_decls, user_call_conv};
 
 pub(crate) fn compile_user_fn(
     module: &mut dyn Module,

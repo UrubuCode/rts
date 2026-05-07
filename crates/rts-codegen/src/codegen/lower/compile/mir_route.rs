@@ -18,7 +18,7 @@ use cranelift_module::Module;
 use crate::parser::ast::FunctionDecl;
 
 use super::super::ctx::ValTy;
-use super::super::func::UserFn;
+use super::program::UserFn;
 
 /// Thread-local cache de MirFuncs ja lowered nesta passada de
 /// `compile_program`. Permite inline aplicar quando o callee foi
