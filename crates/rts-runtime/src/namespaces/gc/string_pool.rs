@@ -165,6 +165,32 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_F64(value: f64) -> u64 {
     alloc_entry(Entry::String(s.into_bytes()))
 }
 
+/// `typeof <handle-valued expression>` — retorna handle de string com
+/// o tipo JS apropriado para o conteudo do handle. Cobre os casos que
+/// o codegen nao consegue resolver estaticamente (var Symbol, member
+/// access que pode ser symbol, etc.).
+///
+/// Mapeamento:
+/// - Entry::Symbol -> "symbol"
+/// - Entry::Function -> "function"
+/// - Entry::String -> "string"
+/// - Entry::Vec / Entry::Map / outros -> "object"
+/// - Handle invalido -> "string" (preserva semantica historica)
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::Symbol { .. }) => "symbol",
+        Some(Entry::Function(_)) => "function",
+        Some(Entry::String(_)) => "string",
+        Some(Entry::Vec(_)) | Some(Entry::Map(_)) | Some(Entry::Buffer(_))
+        | Some(Entry::Json(_)) | Some(Entry::DateMs(_))
+        | Some(Entry::PromiseAsync(_)) | Some(Entry::Promise(_)) => "object",
+        Some(_) => "object",
+        None => "string",
+    });
+    alloc_entry(Entry::String(kind.as_bytes().to_vec()))
+}
+
 /// Formata f64 conforme JS spec ToString:
 /// - NaN -> "NaN"
 /// - +-Infinity -> "Infinity" / "-Infinity"

@@ -221,9 +221,24 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
         }
     }
     let tv = lower_expr(ctx, operand)?;
+    // Handle pode ser string OU symbol/function/object/etc. Em vez de
+    // assumir "string" estaticamente, despacha pra runtime helper que
+    // inspeciona Entry e retorna o tipo JS correto.
+    if matches!(tv.ty, ValTy::Handle) {
+        use cranelift_codegen::ir::InstBuilder;
+        let typeof_fn = ctx.get_extern(
+            "__RTS_FN_RT_TYPEOF_HANDLE",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let h = ctx.coerce_to_i64(tv).val;
+        let inst = ctx.builder.ins().call(typeof_fn, &[h]);
+        let r = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(r, ValTy::Handle));
+    }
     let ty_str = match tv.ty {
         ValTy::Bool => "boolean",
-        ValTy::Handle => "string",
+        ValTy::Handle => "string", // unreachable but exhaustive
         ValTy::F64 | ValTy::I32 | ValTy::I64 | ValTy::U64
         | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => "number",
     };
