@@ -100,6 +100,8 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                     let len = ctx.builder.inst_results(li)[0];
                     arg_vals.push(ptr);
                     arg_vals.push(len);
+                } else if *expected == AbiType::F64 {
+                    arg_vals.push(ctx.coerce_to_f64(tv).val);
                 } else {
                     arg_vals.push(ctx.coerce_to_i64(tv).val);
                 }
@@ -108,6 +110,10 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                 let zero = ctx.builder.ins().iconst(cl::I64, 0);
                 arg_vals.push(zero);
                 arg_vals.push(zero);
+            } else if *expected == AbiType::F64 {
+                // Arg omitido em ctor F64: passa NaN como sentinela ("ausente").
+                let nan = ctx.builder.ins().f64const(f64::NAN);
+                arg_vals.push(nan);
             } else {
                 let zero = ctx.builder.ins().iconst(cl::I64, 0);
                 arg_vals.push(zero);
@@ -539,8 +545,10 @@ pub(super) fn lower_function_handle_method(
 
     match method {
         "toString" => {
+            // Dispatch runtime — TO_STRING_HANDLE inspeciona Entry
+            // (Symbol/Function/String/Vec/Map) e formata corretamente.
             let to_str_fn = ctx.get_extern(
-                "__RTS_FN_GL_FUNCTION_TO_STRING",
+                "__RTS_FN_RT_TO_STRING_HANDLE",
                 &[cl::I64],
                 Some(cl::I64),
             )?;
@@ -642,22 +650,81 @@ pub(super) fn lower_function_method_call(
         cl::I32,
         i64::from(fn_name_has_this_param(fn_name)),
     );
-    let reify_fn = ctx.get_extern(
-        "__RTS_FN_GL_FUNCTION_REIFY",
-        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
-        Some(cl::I64),
-    )?;
-    let inst_r = ctx
+
+    // Deriva param_kinds + return_kind da user fn pra que
+    // FUNCTION_CALL/APPLY/BIND reinterpretem bits f64 corretamente em
+    // vez de tratar tudo como i64.
+    let (param_kinds_bytes, return_kind_byte): (Vec<u8>, u8) = {
+        let info = ctx.user_fns.get(fn_name);
+        let pks: Vec<u8> = info
+            .map(|f| {
+                f.params
+                    .iter()
+                    .map(|p| super::super::members::val_ty_to_kind(*p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let rk: u8 = info
+            .and_then(|f| f.ret)
+            .map(super::super::members::val_ty_to_kind)
+            .unwrap_or(4); // void = 4
+        (pks, rk)
+    };
+    let (kinds_ptr, kinds_len) = if param_kinds_bytes.is_empty() {
+        (
+            ctx.builder.ins().iconst(cl::I64, 0),
+            ctx.builder.ins().iconst(cl::I64, 0),
+        )
+    } else {
+        let tv = ctx.emit_str_handle(&param_kinds_bytes)?;
+        let h = ctx.coerce_to_i64(tv).val;
+        let p = ctx.builder.ins().call(str_ptr_fn, &[h]);
+        let l = ctx.builder.ins().call(str_len_fn, &[h]);
+        (
+            ctx.builder.inst_results(p)[0],
+            ctx.builder.inst_results(l)[0],
+        )
+    };
+    let bound_this_v = ctx.builder.ins().iconst(cl::I64, 0);
+    let has_bound_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let return_kind_v = ctx
         .builder
         .ins()
-        .call(reify_fn, &[fn_ptr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+        .iconst(cl::I32, return_kind_byte as i64);
+
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED",
+        &[
+            cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32,
+            cl::I64, cl::I32, cl::I64, cl::I64, cl::I32,
+        ],
+        Some(cl::I64),
+    )?;
+    let inst_r = ctx.builder.ins().call(
+        reify_fn,
+        &[
+            fn_ptr,
+            arity_v,
+            n_ptr,
+            n_len,
+            is_arrow_v,
+            has_this_v,
+            bound_this_v,
+            has_bound_this_v,
+            kinds_ptr,
+            kinds_len,
+            return_kind_v,
+        ],
+    );
     let fn_handle = ctx.builder.inst_results(inst_r)[0];
 
     // 3. Despacha por metodo.
     match method {
         "toString" => {
+            // Dispatch runtime — TO_STRING_HANDLE inspeciona Entry
+            // (Symbol/Function/String/Vec/Map) e formata corretamente.
             let to_str_fn = ctx.get_extern(
-                "__RTS_FN_GL_FUNCTION_TO_STRING",
+                "__RTS_FN_RT_TO_STRING_HANDLE",
                 &[cl::I64],
                 Some(cl::I64),
             )?;
