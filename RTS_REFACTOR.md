@@ -94,7 +94,7 @@ progresso — 5/8 itens entregues.
 
 ---
 
-## Fase 4 entregas (parcial, 6/8)
+## Fase 4 entregas (parcial, 7/8 — escape analysis won't-fix)
 
 Em progresso na main. Commits relevantes:
 
@@ -161,11 +161,11 @@ Mais `inline` em fixed-point (max 4 iters) entre lower e
 - [x] **CSE** intra-bloco (etapa 4.5)
 - [x] **FMA fusion** `a*b+c → Fma` (etapa 4.8)
 - [x] **Smoke e2e** + placeholder debug + arr[i]=v (4.4 / 4.6)
-- [x] **Narrow canonicalization integrada ao optimize()** — pass `narrow` agora roda como primeira etapa do pipeline padrão, garantindo masks de overflow em toda aritmética i8/i16 que passe pelo MIR (commit `91517d9`)
+- [x] **Narrow canonicalization integrada ao optimize()** — pass `narrow` agora roda como primeira etapa do pipeline padrão (commit `91517d9`) e é **idempotente** (commit `ee4a539`) — chamadas em fixed-point não acumulam masks. Permite uso com inline.
+- [x] **SIMD V128 minimo** — `HirType::V128(VecKind)` (I8x16/I16x8/I32x4/I64x2/F32x4/F64x2) + `Inst::VSplat`/`VExtractLane`/`VInsertLane`/`VAdd`/`VSub`/`VMul` baixados direto pra ops vetoriais nativas Cranelift (commit `4846f93`). Falta exposicao TS-side (builtin `rts:simd`) — follow-up.
+- [x] **ValTy I8/I16/U8/U16 infra** — variantes adicionadas (`ee4a539`), todos os match sites cobertos. ABI underlying I64; `narrow_width()`/`is_signed_narrow()` helpers prontos. **`from_annotation` NÃO reconhece narrow** (regressão em testes que esperam I64 fallthrough); habilitação requer auditoria por callsite.
 - [~] **Escape analysis**: **won't-fix no design atual**. Handles RTS são u64 opacos via `HandleTable` global (slab shard-aware). "Escape" é por construção: qualquer alocação já entra na tabela global, e StackAlloc não substitui esse backend sem reescrever a ABI extern "C" + 25+ variantes de `Entry`. Ganho real só viria com migração para gc-arena (issue #393, adiada por incompatibilidade com `extern "C"` plano). Reabrir quando/se a migração acontecer.
-- [ ] **SIMD** via `HirType::V128(VecKind)` + `Inst::Splat`/`ExtractLane`/`InsertLane` (heavy)
-- [ ] **Narrow types storage real** (uload8/istore16 em código de produção, não só canonicalização aritmética) — médio. Bloqueado por: AST `ValTy` não tem variantes I8/I16/U8/U16. Roteamento full-MIR de fns com params/ret narrow exige extender ABI de chamada cross-fn (callsite AST→MIR usa i64 ABI, MIR não pode declarar callee i8 sem quebrar caller).
-- [ ] **i8/i16 sintaxe TS first-class** — parser/HIR aceitam, lower MIR tem narrow promotion. Runtime overflow ainda **não funciona** porque user fns com params i8/i16 fazem bail no MIR para AST (mismatch em `mir_param_compatible`), e o AST honra `i64` puro sem mask. Solução envolve estender `ValTy` no AST OU forçar caller MIR-only para chamar callees narrow — qualquer caminho é trabalho médio fora desta etapa.
+- [ ] **Narrow types storage real** (uload8/istore16 em código de produção) + **i8/i16 sintaxe TS first-class** — bloqueados pela mesma raiz: ABI cross-fn AST↔MIR usa I64, callsite AST não respeita narrow ABI declarado em callee MIR. Fix exige sign-extend signed por construção em retorno de user fn narrow + compatibilidade `mir_param_compatible` end-to-end + auditoria de regressões em ~13 sites de codegen que usam I64 fallthrough.
 
 ---
 
