@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 
-use super::handles::{Entry, alloc_entry, free_handle};
+use super::handles::{Entry, alloc_entry, free_handle, with_entry};
 use super::string_pool::read_string_handle;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -87,8 +87,17 @@ pub fn take_runtime_error_report() -> Option<RuntimeErrorReport> {
         return None;
     }
 
-    let message =
-        read_string_handle(message_h).unwrap_or_else(|| format!("<non-string error handle:{message_h}>"));
+    let message = read_string_handle(message_h)
+        .or_else(|| {
+            // Thrown value is an Error object (Entry::ErrorObj) — extract message + name.
+            with_entry(message_h, |entry| match entry {
+                Some(Entry::ErrorObj { name, message }) => {
+                    Some(format!("{name}: {message}"))
+                }
+                _ => None,
+            })
+        })
+        .unwrap_or_else(|| format!("<non-string error handle:{message_h}>"));
     let stack = if stack_h != 0 {
         let s = read_string_handle(stack_h);
         free_handle_if_any(stack_h);

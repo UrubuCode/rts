@@ -3087,7 +3087,12 @@ fn hoist_fn_expressions(program: &mut Program) {
                 span: Default::default(),
             }),
         );
-        let name = format!("__hoisted_fn_{}", *counter);
+        let is_arrow_expr = matches!(owned, Expr::Arrow(_));
+        let name = if is_arrow_expr {
+            format!("__hoisted_arrow_{}", *counter)
+        } else {
+            format!("__hoisted_fn_{}", *counter)
+        };
         *counter += 1;
 
         let fn_decl = match owned {
@@ -4769,6 +4774,7 @@ impl LiftAcc {
         arrow: &swc_ecma_ast::ArrowExpr,
         in_class: bool,
     ) -> swc_ecma_ast::Ident {
+        let has_return_value = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_));
         let raw_stmts = arrow_body_to_stmts(arrow);
         let mut body_stmts: Vec<Statement> = raw_stmts
             .into_iter()
@@ -4785,10 +4791,15 @@ impl LiftAcc {
         // Recurse para arrows aninhadas.
         self.lift_in_body(class_name, &mut body_stmts, in_class);
 
+        // Expression-body arrows always return a value; block-body arrows
+        // with explicit `return` also do, but we can't easily detect that
+        // here, so treat block-body as void (the common UI-callback case).
+        let ret_ty = if has_return_value { Some("i64".to_string()) } else { Some("void".to_string()) };
+
         self.new_fns.push(Item::Function(FunctionDecl {
             name: syn_name.clone(),
             parameters: Vec::new(),
-            return_type: Some("void".to_string()),
+            return_type: ret_ty,
             body: body_stmts,
             span: Span::default(),
             is_async: false,
@@ -7145,6 +7156,11 @@ fn ts_type_to_val_ty(ty: &TsType) -> Option<ValTy> {
         return Some(ValTy::Handle);
     }
 
+    // Function types `() => T` / `(a: T) => U` etc. are stored as Function handles.
+    if let TsType::TsFnOrConstructorType(_) = ty {
+        return Some(ValTy::Handle);
+    }
+
     None
 }
 
@@ -7944,6 +7960,15 @@ fn compile_user_fn(
         fn_ctx.return_ty = info.ret;
         fn_ctx.is_tail_conv = call_conv == CallConv::Tail;
         fn_ctx.current_class = current_class.clone();
+        fn_ctx.current_fn_name = fn_decl.name.clone();
+        fn_ctx.current_file = fn_decl.span.file
+            .and_then(rts_diagnostics::source_store::path_of)
+            .map(|p| {
+                // Remove Windows UNC prefix \\?\ for readability.
+                let s = p.display().to_string();
+                s.strip_prefix(r"\\?\").unwrap_or(&s).to_owned()
+            })
+            .unwrap_or_default();
         // Detecta se a função é um constructor de classe pelo mangled name.
         // Usado pra permitir assign em readonly fields.
         fn_ctx.current_is_ctor = current_class

@@ -345,7 +345,9 @@ fn display_path(path: &std::path::Path) -> String {
             return rel.display().to_string();
         }
     }
-    path.display().to_string()
+    let s = path.display().to_string();
+    // Remove Windows UNC prefix \\?\ for readability.
+    s.strip_prefix(r"\\?\").unwrap_or(&s).to_owned()
 }
 
 /// Helper: determina se a saida deve usar ANSI color.

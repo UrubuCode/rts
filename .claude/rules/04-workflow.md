@@ -109,9 +109,18 @@ sem inflar o numero de arquivos.
 ```bash
 cargo test                                        # testes unitarios + fixtures
 cargo build --release                             # build release
-target/release/rts.exe run file.ts                # executar via JIT in-memory
-target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
+$env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts                # executar via JIT in-memory
+$env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
 target/release/rts.exe apis                       # listar APIs disponiveis
+```
+
+**Padrão obrigatório:** sempre definir `RUST_BACKTRACE=full` antes de executar
+o `rts.exe`. Sem isso, crashes mostram stack trace raso sem contexto útil.
+O crash handler (`src/crash.rs`) usa essa variável para exibir frames completos.
+
+```powershell
+# PowerShell — definir na sessão:
+$env:RUST_BACKTRACE = "full"
 ```
 
 Fixtures de codegen vivem em `tests/fixtures/*.{ts,out}`. O teste

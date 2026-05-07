@@ -36,6 +36,7 @@ rts-runtime = { path = "crates/rts-runtime" }
 rts-codegen = { path = "crates/rts-codegen" }
 rts-cli = { path = "crates/rts-cli" }
 anyhow = "1.0"
+backtrace = "0.3"
 object = { version = "0.39", default-features = false, features = ["write", "read", "std", "coff", "elf", "macho", "pe"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

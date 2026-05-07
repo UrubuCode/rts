@@ -352,6 +352,12 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
         // pra que `Expr::This` no body leia via __RTS_FN_RT_THIS_GET.
         crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(effective_this);
         true
+    } else if has_bound_this {
+        // Arrow com `this` capturado em criação (REIFY_BOUND). Empurra ao
+        // slot para que THIS_GET() no body leia o valor correto mesmo quando
+        // a arrow é chamada fora do escopo original.
+        crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(bound_this);
+        true
     } else {
         false
     };
@@ -515,6 +521,12 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(
         } else if !is_arrow {
             let effective = if has_bound_this { bound_this } else { this_arg };
             crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(effective);
+            true
+        } else if has_bound_this {
+            // Arrow com `this` capturado em criação (REIFY_BOUND). Empurra ao
+            // slot para que THIS_GET() no body leia o valor correto mesmo quando
+            // a arrow é chamada fora do escopo original.
+            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(bound_this);
             true
         } else {
             false
