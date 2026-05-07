@@ -30,52 +30,110 @@ pub fn parse_source_with_file(
     mode: FrontendMode,
     file: FileId,
 ) -> Result<Program> {
-    let syntax_order = match mode {
+    let [primary, fallback] = match mode {
         FrontendMode::Native => [ts_syntax(), es_syntax()],
         FrontendMode::Compat => [es_syntax(), ts_syntax()],
     };
 
-    let mut first_error = None::<String>;
-
-    for syntax in syntax_order {
-        match parse_with_syntax(source, syntax, file) {
-            Ok(program) => return Ok(program),
-            Err(error) => {
-                if first_error.is_none() {
-                    first_error = Some(error.to_string());
-                }
-            }
-        }
+    // Try primary syntax silently first. If it succeeds → done.
+    // If it fails, try fallback silently. Only emit rich diagnostics when
+    // both fail, using the primary (TS) errors which are more relevant.
+    if let Ok((parsed, cm)) = try_parse_syntax(source, primary) {
+        let mut p = lower_program(&cm, &parsed);
+        assign_file_to_program(&mut p, file);
+        return Ok(p);
     }
 
-    Err(anyhow!(
-        "failed to parse source in {} mode: {}",
-        mode,
-        first_error.unwrap_or_else(|| "unknown parser error".to_string())
-    ))
+    if let Ok((parsed, cm)) = try_parse_syntax(source, fallback) {
+        let mut p = lower_program(&cm, &parsed);
+        assign_file_to_program(&mut p, file);
+        return Ok(p);
+    }
+
+    // Both failed — emit primary (TS) errors with rich snippets.
+    parse_with_rich_errors(source, primary, file)
 }
 
-fn parse_with_syntax(source: &str, syntax: Syntax, file: FileId) -> Result<Program> {
+/// Parse sem emitir diagnósticos — retorna `(SwcProgram, SourceMap)` para reuso.
+fn try_parse_syntax(
+    source: &str,
+    syntax: Syntax,
+) -> Result<(swc_ecma_ast::Program, Lrc<SourceMap>)> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(
         Lrc::new(FileName::Custom("rts-input.ts".into())),
         source.to_string(),
     );
+    let lexer = Lexer::new(syntax, Default::default(), StringInput::from(&*fm), None);
+    let mut parser = Parser::new_from(lexer);
+    let parsed = parser.parse_program().map_err(|e| anyhow!("{}", e.kind().msg()))?;
+    if let Some(err) = parser.take_errors().into_iter().next() {
+        return Err(anyhow!("{}", err.kind().msg()));
+    }
+    Ok((parsed, cm))
+}
 
+/// Parse emitindo diagnósticos ricos para cada erro de sintaxe.
+fn parse_with_rich_errors(source: &str, syntax: Syntax, file: FileId) -> Result<Program> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(
+        Lrc::new(FileName::Custom("rts-input.ts".into())),
+        source.to_string(),
+    );
     let lexer = Lexer::new(syntax, Default::default(), StringInput::from(&*fm), None);
     let mut parser = Parser::new_from(lexer);
 
-    let parsed = parser
-        .parse_program()
-        .map_err(|error| anyhow!(format_parser_error(&cm, &error)))?;
+    let result = parser.parse_program();
+    let extra_errors = parser.take_errors();
 
-    if let Some(error) = parser.take_errors().into_iter().next() {
-        return Err(anyhow!(format_parser_error(&cm, &error)));
+    match result {
+        Ok(parsed) => {
+            for error in extra_errors {
+                make_parse_error(&cm, &error, file);
+            }
+            let mut program = lower_program(&cm, &parsed);
+            assign_file_to_program(&mut program, file);
+            Ok(program)
+        }
+        Err(error) => {
+            make_parse_error(&cm, &error, file);
+            for error in extra_errors {
+                make_parse_error(&cm, &error, file);
+            }
+            Err(anyhow!("syntax error"))
+        }
+    }
+}
+
+
+fn make_parse_error(
+    cm: &Lrc<SourceMap>,
+    error: &swc_ecma_parser::error::Error,
+    file: FileId,
+) -> anyhow::Error {
+    let message = error.kind().msg().into_owned();
+    let swc_span = error.span();
+
+    if swc_span.is_dummy() {
+        let diag = rts_diagnostics::reporter::RichDiagnostic::error("E0001", &message);
+        rts_diagnostics::reporter::emit(diag);
+        return anyhow!("{}", message);
     }
 
-    let mut program = lower_program(&cm, &parsed);
-    assign_file_to_program(&mut program, file);
-    Ok(program)
+    let lo = cm.lookup_char_pos(swc_span.lo());
+    let hi = cm.lookup_char_pos(swc_span.hi());
+
+    let span = Span {
+        start: Position { line: lo.line, column: lo.col_display + 1 },
+        end: Position { line: hi.line, column: hi.col_display + 1 },
+        file: Some(file),
+    };
+
+    let diag = rts_diagnostics::reporter::RichDiagnostic::error("E0001", &message)
+        .with_span(span);
+    rts_diagnostics::reporter::emit(diag);
+
+    anyhow!("syntax error")
 }
 
 /// Percorre o AST do parser e preenche `Span.file` com o `FileId` informado
@@ -142,20 +200,4 @@ fn assign_file_to_statement(stmt: &mut Statement, file: FileId) {
     }
 }
 
-fn format_parser_error(cm: &Lrc<SourceMap>, error: &swc_ecma_parser::error::Error) -> String {
-    let message = error.kind().msg();
-    let span = error.span();
-
-    if span.is_dummy() {
-        return message.into_owned();
-    }
-
-    let loc = cm.lookup_char_pos(span.lo());
-    format!(
-        "{} at {}:{}",
-        message,
-        loc.line,
-        loc.col_display.saturating_add(1)
-    )
-}
 

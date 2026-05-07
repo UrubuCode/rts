@@ -466,6 +466,11 @@ pub struct FnCtx<'m, 'fb> {
     /// `lower_opt_chain` quando o receiver é uma expressão complexa
     /// que não casa com Member.obj=Ident no path coberto de lower_call.
     pub opt_chain_temp_counter: u32,
+
+    /// Nome da função atual (para stack traces em throw). Vazio em __RTS_MAIN.
+    pub current_fn_name: String,
+    /// Arquivo fonte atual (para stack traces em throw).
+    pub current_file: String,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -533,6 +538,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             local_array_vars: std::collections::HashSet::new(),
             local_nested_obj_field_types: HashMap::new(),
             opt_chain_temp_counter: 0,
+            current_fn_name: String::new(),
+            current_file: String::new(),
         }
     }
 

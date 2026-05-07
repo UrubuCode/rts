@@ -7952,6 +7952,15 @@ fn compile_user_fn(
         fn_ctx.return_ty = info.ret;
         fn_ctx.is_tail_conv = call_conv == CallConv::Tail;
         fn_ctx.current_class = current_class.clone();
+        fn_ctx.current_fn_name = fn_decl.name.clone();
+        fn_ctx.current_file = fn_decl.span.file
+            .and_then(rts_diagnostics::source_store::path_of)
+            .map(|p| {
+                // Remove Windows UNC prefix \\?\ for readability.
+                let s = p.display().to_string();
+                s.strip_prefix(r"\\?\").unwrap_or(&s).to_owned()
+            })
+            .unwrap_or_default();
         // Detecta se a função é um constructor de classe pelo mangled name.
         // Usado pra permitir assign em readonly fields.
         fn_ctx.current_is_ctor = current_class

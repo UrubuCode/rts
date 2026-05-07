@@ -497,9 +497,40 @@ pub(super) fn lower_throw_stmt(
 ) -> Result<bool> {
     let tv = lower_expr(ctx, &throw_stmt.arg)?;
     let handle = ctx.coerce_to_handle(tv)?;
+
+    // Push one frame so the stack trace captured by ERROR_SET has context.
+    if !ctx.current_fn_name.is_empty() {
+        emit_trace_push_frame(ctx, &ctx.current_file.clone(), &ctx.current_fn_name.clone(), 0, 0);
+    }
+
     let set_fref = ctx.get_extern("__RTS_FN_RT_ERROR_SET", &[cl::I64], None)?;
     ctx.builder.ins().call(set_fref, &[handle.val]);
+
+    // Pop the frame we pushed so the stack doesn't grow permanently.
+    if !ctx.current_fn_name.is_empty() {
+        if let Ok(pop_fref) = ctx.get_extern("__RTS_FN_NS_TRACE_POP_FRAME", &[], None) {
+            ctx.builder.ins().call(pop_fref, &[]);
+        }
+    }
+
     Ok(false)
+}
+
+fn emit_trace_push_frame(ctx: &mut FnCtx, file: &str, fn_name: &str, line: i64, col: i64) {
+    let push_fref = ctx.get_extern(
+        "__RTS_FN_NS_TRACE_PUSH_FRAME",
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+        None,
+    );
+    let Ok(push_fref) = push_fref else { return };
+
+    let Ok((file_ptr, file_len_v)) = ctx.emit_str_literal(file.as_bytes()) else { return };
+    let Ok((fn_ptr, fn_len_v)) = ctx.emit_str_literal(fn_name.as_bytes()) else { return };
+
+    let line_v = ctx.builder.ins().iconst(cl::I64, line);
+    let col_v = ctx.builder.ins().iconst(cl::I64, col);
+
+    ctx.builder.ins().call(push_fref, &[file_ptr, file_len_v, fn_ptr, fn_len_v, line_v, col_v]);
 }
 
 pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Result<bool> {
