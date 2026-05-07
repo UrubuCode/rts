@@ -28,6 +28,7 @@ pub mod registers {
 pub mod runtime;
 pub mod type_system;
 
+pub mod crash;
 pub(crate) mod runtime_objects;
 
 pub fn rt_artifacts() -> anyhow::Result<std::path::PathBuf> {
