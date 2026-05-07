@@ -89,7 +89,7 @@ fn fma_block(block: &mut BasicBlock) -> bool {
 /// Conta uses (não dst) de cada ValueId no bloco — Insts + Terminator.
 fn count_uses(block: &BasicBlock) -> HashMap<ValueId, usize> {
     let mut uses: HashMap<ValueId, usize> = HashMap::new();
-    let mut bump = |v: ValueId, m: &mut HashMap<ValueId, usize>| {
+    let bump = |v: ValueId, m: &mut HashMap<ValueId, usize>| {
         *m.entry(v).or_insert(0) += 1;
     };
     for inst in &block.insts {

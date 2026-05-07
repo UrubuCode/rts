@@ -7549,10 +7549,6 @@ fn collect_var_decls(stmt: &Stmt, out: &mut Vec<String>) {
     }
 }
 
-/// Try to compile `fn_decl` through the MIR pipeline (HIR → MIR → optimize
-/// → mir_codegen). Returns `Ok(true)` when MIR took over and the function
-/// is fully defined in `module`; `Ok(false)` when MIR bailed (unsupported
-/// shape) and the AST path should run.
 /// Thread-local cache de MirFuncs ja lowered nesta passada de
 /// `compile_program`. Permite inline aplicar quando o callee foi
 /// declarado antes do caller no source. Limpado pelo `compile_program`
@@ -7566,6 +7562,10 @@ pub(crate) fn clear_mir_cache_for_program() {
     MIR_CACHE.with(|c| c.borrow_mut().clear());
 }
 
+/// Try to compile `fn_decl` through the MIR pipeline (HIR → MIR → optimize
+/// → mir_codegen). Returns `Ok(true)` when MIR took over and the function
+/// is fully defined in `module`; `Ok(false)` when MIR bailed (unsupported
+/// shape) and the AST path should run.
 fn try_compile_via_mir(
     module: &mut dyn Module,
     fn_decl: &FunctionDecl,

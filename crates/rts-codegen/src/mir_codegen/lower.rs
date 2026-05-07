@@ -200,7 +200,7 @@ pub fn lower_mir_func_with_decls(
                 &mut strlit_walk_idx,
             )?;
         }
-        lower_term(&mut builder, &bb.term, &vmap, &cl_blocks)?;
+        lower_term(&mut builder, &bb.term, &vmap, &cl_blocks, &func_ref_cache)?;
     }
 
     // Seal everything (dense list, all preds known after walk).
@@ -774,6 +774,7 @@ fn lower_term(
     term: &Terminator,
     vmap: &HashMap<ValueId, Value>,
     cl_blocks: &[Block],
+    func_refs: &HashMap<String, cranelift_codegen::ir::FuncRef>,
 ) -> Result<()> {
     match term {
         Terminator::Return(vs) => {
@@ -818,9 +819,17 @@ fn lower_term(
             }
             sw.emit(builder, val(vmap, *index)?, cl_blocks[*default as usize]);
         }
-        Terminator::TailCall { .. } | Terminator::TailCallIndirect { .. } => {
+        Terminator::TailCall { sym, args } => {
+            let fref = func_refs.get(sym).ok_or_else(|| {
+                anyhow!("mir_codegen: TailCall '{}' has no FuncRef", sym)
+            })?;
+            let cl_args: Vec<Value> = args.iter().map(|v| val(vmap, *v)).collect::<Result<_>>()?;
+            builder.ins().return_call(*fref, &cl_args);
+        }
+        Terminator::TailCallIndirect { fn_ptr, args } => {
+            let _ = (fn_ptr, args);
             return Err(anyhow!(
-                "mir_codegen: tail call lowering not yet supported (needs FuncRef cache)"
+                "mir_codegen: TailCallIndirect lowering not yet supported"
             ));
         }
         Terminator::Trap { .. } => {
