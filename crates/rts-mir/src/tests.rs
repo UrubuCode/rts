@@ -1052,6 +1052,81 @@ fn lower_try_with_finally_runs_finally_after_body() {
     )));
 }
 
+// ---------- FMA fusion ----------
+
+#[test]
+fn fma_fuses_fmul_then_fadd() {
+    use crate::passes::fma;
+
+    // a * b + c → Fma(a, b, c)
+    let mut f = MirFunc::new("compute", CallConvHint::Tail, HirType::F64);
+    let a = f.new_value(HirType::F64);
+    let b = f.new_value(HirType::F64);
+    let c = f.new_value(HirType::F64);
+    let prod = f.new_value(HirType::F64);
+    let result = f.new_value(HirType::F64);
+    f.params.push((a, HirType::F64));
+    f.params.push((b, HirType::F64));
+    f.params.push((c, HirType::F64));
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.params.push((a, HirType::F64));
+    bb.params.push((b, HirType::F64));
+    bb.params.push((c, HirType::F64));
+    bb.insts.push(Inst::FMul { dst: prod, lhs: a, rhs: b });
+    bb.insts.push(Inst::FAdd { dst: result, lhs: prod, rhs: c });
+    bb.term = Terminator::Return(vec![result]);
+
+    let changed = fma(&mut f);
+    assert!(changed);
+    let bb = &f.blocks[0];
+    let has_fma = bb.insts.iter().any(|i| matches!(i, Inst::Fma { .. }));
+    let has_fmul = bb.insts.iter().any(|i| matches!(i, Inst::FMul { .. }));
+    let has_fadd = bb.insts.iter().any(|i| matches!(i, Inst::FAdd { .. }));
+    assert!(has_fma);
+    assert!(!has_fmul, "FMul deve ter sido removido após fusion");
+    assert!(!has_fadd, "FAdd deve ter sido substituído por Fma");
+}
+
+#[test]
+fn fma_skips_fmul_with_multiple_uses() {
+    use crate::passes::fma;
+
+    // prod = a * b
+    // r1 = prod + c
+    // r2 = prod + d  // segundo uso do prod → não pode fundir
+    let mut f = MirFunc::new("dup", CallConvHint::Tail, HirType::F64);
+    let a = f.new_value(HirType::F64);
+    let b = f.new_value(HirType::F64);
+    let c = f.new_value(HirType::F64);
+    let d = f.new_value(HirType::F64);
+    let prod = f.new_value(HirType::F64);
+    let r1 = f.new_value(HirType::F64);
+    let r2 = f.new_value(HirType::F64);
+    let r3 = f.new_value(HirType::F64);
+    f.params.push((a, HirType::F64));
+    f.params.push((b, HirType::F64));
+    f.params.push((c, HirType::F64));
+    f.params.push((d, HirType::F64));
+    let blk = f.new_block();
+    let bb = &mut f.blocks[blk as usize];
+    bb.params.push((a, HirType::F64));
+    bb.params.push((b, HirType::F64));
+    bb.params.push((c, HirType::F64));
+    bb.params.push((d, HirType::F64));
+    bb.insts.push(Inst::FMul { dst: prod, lhs: a, rhs: b });
+    bb.insts.push(Inst::FAdd { dst: r1, lhs: prod, rhs: c });
+    bb.insts.push(Inst::FAdd { dst: r2, lhs: prod, rhs: d });
+    bb.insts.push(Inst::FAdd { dst: r3, lhs: r1, rhs: r2 });
+    bb.term = Terminator::Return(vec![r3]);
+
+    fma(&mut f);
+    let bb = &f.blocks[0];
+    // FMul deveria sobreviver pq tem 2 uses
+    let has_fmul = bb.insts.iter().any(|i| matches!(i, Inst::FMul { .. }));
+    assert!(has_fmul, "FMul com múltiplos uses não pode virar FMA");
+}
+
 // ---------- CSE pass ----------
 
 #[test]

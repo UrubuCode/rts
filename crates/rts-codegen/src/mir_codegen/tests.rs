@@ -1570,6 +1570,43 @@ fn gc_array_literal_jit_compiles_with_stack_maps() {
     assert_eq!(f(), 20);
 }
 
+// ---------- FMA fusion JIT-execute ----------
+
+#[test]
+fn fma_pass_emits_fma_in_real_pipeline() {
+    // Verifica estruturalmente que a fusion FMA ocorreu no pipeline
+    // real (compile_program). Não JIT-executa porque a CallConv Tail
+    // dos user fns não casa com extern "C" do transmute em testes
+    // unitários — execução já é coberta pelo `target/release/rts.exe`
+    // rodando os benches reais (monte_carlo_pi etc.).
+    use rts_mir::ir::Inst;
+
+    let src = r#"
+        function dot3(a: f64, b: f64, c: f64): f64 {
+            return a * b + c;
+        }
+    "#;
+
+    // Lower o src via lower_with_intrinsics_and_externs, depois rodar
+    // optimize manualmente e checar se Fma aparece.
+    let mirs = lower_with_intrinsics_and_externs(src);
+    let mut mir = mirs.into_iter().next().unwrap();
+    rts_mir::passes::optimize(&mut mir);
+
+    let has_fma = mir.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+        matches!(i, Inst::Fma { .. })
+    });
+    let has_fmul = mir.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+        matches!(i, Inst::FMul { .. })
+    });
+    let has_fadd = mir.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+        matches!(i, Inst::FAdd { .. })
+    });
+    assert!(has_fma, "optimize() deveria fundir a*b+c → Fma");
+    assert!(!has_fmul, "FMul deveria ter sido removido pelo FMA pass");
+    assert!(!has_fadd, "FAdd deveria ter sido substituído por Fma");
+}
+
 // ---------- arr[i] = v assignment ----------
 
 #[test]
