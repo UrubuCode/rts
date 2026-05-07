@@ -7583,7 +7583,8 @@ fn try_compile_via_mir(
     fn ann_is_supported(ann: &str) -> bool {
         matches!(
             ann,
-            "number" | "i64" | "i32" | "f64" | "bool" | "boolean"
+            "number" | "i64" | "i32" | "f64" | "bool" | "boolean" | "void"
+                | "i8" | "i16" | "u8" | "u16" | "u32" | "u64" | "f32"
         )
     }
     let ret_ok = fn_decl
@@ -7687,16 +7688,21 @@ fn try_compile_via_mir(
     }
     mir_fn.conv = rts_mir::ir::CallConvHint::Tail;
 
-    // Conservadoramente: bail quando o body do MIR contem CallExtern
-    // (chamadas a runtime ns: time, atomic, promise, fs, etc.). O AST
-    // path tem dispatch maduro pra esses; o MIR funciona em micro-tests
-    // mas mostra divergencias sutis quando combinado com state global
-    // ou GC. Reativar quando audit completo for feito.
-    let has_call_extern = mir_fn.blocks.iter().flat_map(|b| &b.insts).any(|i| {
-        matches!(i, rts_mir::ir::Inst::CallExtern { .. })
+    // CallExtern reativado: o MIR resolveu ABI mismatches via address-taken
+    // gating + GC stack maps + StrLit expansion + correct Bool/Float iconst.
+    // Se um caso edge surgir, o gate generico (had_placeholders, sig
+    // mismatch, ret/param whitelist) ainda bail antes de produzir codigo
+    // errado.
+
+    // Auto-recursão tail: o AST emite `return_call` (TCO Cranelift) que
+    // permite recursão profunda sem stack overflow. O MIR ainda emite
+    // call regular — bail quando a fn chama a si própria pra preservar
+    // semantica de tail call.
+    let self_recursive = mir_fn.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+        matches!(i, rts_mir::ir::Inst::CallUser { name, .. } if name == &fn_decl.name)
     });
-    if has_call_extern {
-        debug_bail(fn_decl, "calls extern runtime (MIR routing conservative)");
+    if self_recursive {
+        debug_bail(fn_decl, "self-recursive (TCO needed)");
         return Ok(false);
     }
 

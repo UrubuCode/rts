@@ -131,6 +131,7 @@ pub fn lower_func_full_with_intrinsics(
     let mut ctx = LowerCtx {
         cursor: entry,
         env,
+        ret_ty: func.ret.clone(),
         terminated: false,
         loop_stack: Vec::new(),
         fn_sigs,
@@ -199,6 +200,10 @@ fn insert_gc_declares(mir: &mut MirFunc) {
 struct LowerCtx<'r> {
     cursor: BlockId,
     env: HashMap<String, ValueId>,
+    /// Tipo do retorno da fn em lowering — usado pra aplicar IReduce no
+    /// expr de Return quando o tipo declarado é narrow (i32 etc.) e o
+    /// expr lowered ficou como i64.
+    ret_ty: HirType,
     /// True once the current block has emitted a terminator. Statements past
     /// that point are dead and lowered into a fresh unreachable block.
     terminated: bool,
@@ -279,7 +284,28 @@ fn lower_stmt(stmt: &HirStmt, mir: &mut MirFunc, ctx: &mut LowerCtx) {
         HirStmt::Return(opt) => {
             let term = match opt {
                 Some(e) => {
-                    let v = lower_expr(e, mir, ctx);
+                    let mut v = lower_expr(e, mir, ctx);
+                    // Coerção tipo-de-retorno: se o ret_ty da fn é narrow
+                    // (i32 etc.) mas o valor lowered ficou i64 (ex.: literal
+                    // `1`), insere ireduce. Cranelift verifier exige
+                    // type match exato no return. Só aplica quando os tipos
+                    // diferem — `ireduce.i32` num value que já é i32 dispara
+                    // verifier panic.
+                    let ret_ty = ctx.ret_ty.clone();
+                    let cur_ty = mir_value_type(mir, v);
+                    if matches!(ret_ty, HirType::I8 | HirType::I16 | HirType::I32
+                        | HirType::U8 | HirType::U16 | HirType::U32)
+                        && cur_ty == HirType::I64
+                        && cur_ty != ret_ty
+                    {
+                        let reduced = mir.new_value(ret_ty.clone());
+                        ctx.push_inst(mir, Inst::IReduce {
+                            dst: reduced,
+                            src: v,
+                            to: ret_ty,
+                        });
+                        v = reduced;
+                    }
                     Terminator::Return(vec![v])
                 }
                 None => Terminator::Return(vec![]),
@@ -908,6 +934,41 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                         to: expr.ty.clone(),
                     });
                     rv = promoted;
+                }
+            } else {
+                // Narrow integer matching: literais Int sempre saem como I64
+                // do `lower_lit`, mas operands narrow (I8/I16/I32, U*) precisam
+                // que ambos os lados tenham o MESMO tipo Cranelift senao o
+                // verifier reclama (ex.: `n: i32 <= 1` com 1 vindo como i64).
+                // Se um lado é narrow e o outro é I64-literal, ireduce o I64
+                // ao tipo narrow do outro lado.
+                let target_ty = pick_narrow_target(&lhs.ty, &rhs.ty);
+                if let Some(t) = target_ty {
+                    let lhs_id = mir_value_type(mir, lv);
+                    let rhs_id = mir_value_type(mir, rv);
+                    if lhs_id == HirType::I64 && rhs_id != HirType::I64 {
+                        let reduced = mir.new_value(t.clone());
+                        ctx.push_inst(mir, Inst::IReduce {
+                            dst: reduced,
+                            src: lv,
+                            to: t.clone(),
+                        });
+                        lv = reduced;
+                    }
+                    if rhs_id == HirType::I64 && lhs_id != HirType::I64 {
+                        let reduced = mir.new_value(t.clone());
+                        ctx.push_inst(mir, Inst::IReduce {
+                            dst: reduced,
+                            src: rv,
+                            to: t.clone(),
+                        });
+                        rv = reduced;
+                    }
+                    // Após reduce, ambos operands são narrow (`t`). O
+                    // expr.ty no HIR pode ainda dizer I64 (numeric_promotion)
+                    // mas o resultado real é narrow — passe `t` como
+                    // res_ty pra lower_bin.
+                    return lower_bin(*op, lv, rv, &t, &t, mir, ctx);
                 }
             }
             lower_bin(*op, lv, rv, &expr.ty, &lhs.ty, mir, ctx)
@@ -1817,6 +1878,31 @@ fn collect_loop_phis(
     // ordem deterministica
     phis.sort_by(|a, b| a.0.cmp(&b.0));
     phis
+}
+
+/// Decide o tipo "narrow" para que ambos os lados de um Bin int devem
+/// concordar quando um deles é narrow (i8/i16/i32/u8/u16/u32). Retorna
+/// `None` quando ambos são i64 ou ambos são o mesmo narrow já.
+fn pick_narrow_target(lhs: &HirType, rhs: &HirType) -> Option<HirType> {
+    fn is_narrow(t: &HirType) -> bool {
+        matches!(
+            t,
+            HirType::I8 | HirType::I16 | HirType::I32
+                | HirType::U8 | HirType::U16 | HirType::U32
+        )
+    }
+    if is_narrow(lhs) && !is_narrow(rhs) {
+        Some(lhs.clone())
+    } else if is_narrow(rhs) && !is_narrow(lhs) {
+        Some(rhs.clone())
+    } else {
+        None
+    }
+}
+
+/// Lookup the recorded type of a `ValueId` in the MIR's value table.
+fn mir_value_type(mir: &MirFunc, v: ValueId) -> HirType {
+    mir.values.get(v as usize).cloned().unwrap_or(HirType::I64)
 }
 
 fn emit_zero_const(ty: &HirType, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId {
