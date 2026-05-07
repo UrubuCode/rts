@@ -77,6 +77,40 @@ const dog = new Dog("Rex", "Labrador");
 const dogInfo = dog.info();
 const dogSpeak = dog.speak();
 
+// ── 6. Arrow captura this de longa duração (limitação removida) ──────────────
+//
+// Arrow hoistada dentro de método de classe é reificada com bound_this.
+// Mesmo chamada fora do escopo do método, THIS_GET retorna o this correto.
+
+class EventSource {
+    id: number;
+    constructor(id: number) { this.id = id; }
+
+    makeHandler(): () => number {
+        // Arrow captura `this` (EventSource instance) no momento da criação.
+        const handler = () => this.id;
+        return handler;
+    }
+}
+
+const src = new EventSource(42);
+const handler: () => number = src.makeHandler();
+// Chamada fora do escopo do método — bound_this deve manter id=42
+const handlerResult = handler();
+
+class Multiplier {
+    factor: number;
+    constructor(f: number) { this.factor = f; }
+
+    getFactor(): () => number {
+        return () => this.factor;
+    }
+}
+
+const mul = new Multiplier(3);
+const getFactor: () => number = mul.getFactor();
+const tripleResult = getFactor();
+
 // ── Testes ────────────────────────────────────────────────────────────────────
 
 describe("this binding", () => {
@@ -102,5 +136,13 @@ describe("this binding", () => {
 
     test("Dog.speak herda Animal.speak com this.name correto", () => {
         expect(dogSpeak).toBe("Rex");
+    });
+
+    test("arrow retornada de método captura this correto (bound_this)", () => {
+        expect(handlerResult).toBe(42);
+    });
+
+    test("arrow retornada de método captura this.factor correto", () => {
+        expect(tripleResult).toBe(3);
     });
 });
