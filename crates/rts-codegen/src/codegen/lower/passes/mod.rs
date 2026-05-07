@@ -6,3 +6,4 @@
 //! dependem de transformacoes anteriores.
 
 pub mod args;
+pub mod object_methods;
