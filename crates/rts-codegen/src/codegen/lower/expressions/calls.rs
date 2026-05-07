@@ -2784,9 +2784,21 @@ pub(super) fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal>
 }
 
 /// Reifica uma arrow hoistada (`__hoisted_arrow_N`) como Function handle
-/// com `is_arrow=1`. Garante que INVOKE_AUTO não faça THIS_PUSH — arrow
-/// não tem own this; `this` correto vem do slot do escopo envolvente.
-pub(super) fn emit_hoisted_arrow_handle(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
+/// com `is_arrow=1`.
+///
+/// `bound_this`: quando `Some(val)`, usa REIFY_BOUND para capturar o
+/// receiver do escopo envolvente no momento da criação (ex: classe method).
+/// INVOKE_AUTO empurra `bound_this` ao slot antes de invocar, então
+/// `THIS_GET()` no body da arrow lê o valor correto mesmo quando a arrow
+/// é armazenada e chamada fora do escopo original.
+///
+/// Quando `None`, usa REIFY simples — arrow em escopo sem `this` (top-level
+/// ou fn plain).
+pub(super) fn emit_hoisted_arrow_handle(
+    ctx: &mut FnCtx,
+    name: &str,
+    bound_this: Option<cranelift_codegen::ir::Value>,
+) -> Result<TypedVal> {
     use cranelift_codegen::ir::types as cl;
     let fn_addr_tv = emit_user_fn_addr(ctx, name)?;
     let fn_addr = fn_addr_tv.val;
@@ -2804,18 +2816,34 @@ pub(super) fn emit_hoisted_arrow_handle(ctx: &mut FnCtx, name: &str) -> Result<T
     let n_ptr = ctx.builder.inst_results(inst_p)[0];
     let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
     let n_len = ctx.builder.inst_results(inst_l)[0];
-    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 1); // arrow = true
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 1);
     let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
-    let reify_fn = ctx.get_extern(
-        "__RTS_FN_GL_FUNCTION_REIFY",
-        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
-        Some(cl::I64),
-    )?;
-    let inst_r = ctx
-        .builder
-        .ins()
-        .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
-    let handle = ctx.builder.inst_results(inst_r)[0];
+
+    let handle = if let Some(this_val) = bound_this {
+        // Captura `this` do escopo envolvente no handle — arrow de longa duração.
+        let has_bound_v = ctx.builder.ins().iconst(cl::I32, 1);
+        let reify_fn = ctx.get_extern(
+            "__RTS_FN_GL_FUNCTION_REIFY_BOUND",
+            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32, cl::I64, cl::I32],
+            Some(cl::I64),
+        )?;
+        let inst_r = ctx.builder.ins().call(
+            reify_fn,
+            &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v, this_val, has_bound_v],
+        );
+        ctx.builder.inst_results(inst_r)[0]
+    } else {
+        let reify_fn = ctx.get_extern(
+            "__RTS_FN_GL_FUNCTION_REIFY",
+            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
+            Some(cl::I64),
+        )?;
+        let inst_r = ctx
+            .builder
+            .ins()
+            .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+        ctx.builder.inst_results(inst_r)[0]
+    };
     Ok(TypedVal::new(handle, ValTy::Handle))
 }
 
@@ -4337,16 +4365,10 @@ fn emit_function_handle_indirect_call(
     )?;
     let inst_c = ctx.builder.ins().call(call_fn, &[handle_val, this_zero, args_handle]);
     let v_i64 = ctx.builder.inst_results(inst_c)[0];
-    // FUNCTION_CALL retorna i64 contendo bits f64 quando o método tem
-    // return_kind=1 (F64). Para métodos number (caso comum em RTS), bitcast
-    // para F64. Métodos void/i64 têm bits 0 — `to_bits` de 0.0 = 0, então
-    // F64 wraps continua semanticamente correto.
-    let v_f64 = ctx.builder.ins().bitcast(
-        cl::F64,
-        cranelift_codegen::ir::MemFlags::new(),
-        v_i64,
-    );
-    Ok(TypedVal::new(v_f64, ValTy::F64))
+    // FUNCTION_CALL retorna i64. Para return_kind=0 (default) é plain i64;
+    // para return_kind=1 (F64) seria bits f64 — mas esse caso é raro e
+    // resolvido pelo coerce_value_to_ty do caller quando necessário.
+    Ok(TypedVal::new(v_i64, ValTy::I64))
 }
 
 fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> Result<TypedVal> {
