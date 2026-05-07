@@ -36,6 +36,31 @@ pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_ISO(ptr: i64, len: i64) -> u64 {
     alloc_entry(Entry::DateMs(ms))
 }
 
+/// `new Date(year, month, day?, hour?, min?, sec?, ms?)` — JS spec
+/// constructor com componentes individuais. Month e' 0-indexed (Janeiro=0).
+/// Componentes ausentes (NaN) recebem default JS: day=1, demais=0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_FIELDS(
+    year: f64,
+    month: f64,
+    day: f64,
+    hour: f64,
+    minute: f64,
+    second: f64,
+    ms: f64,
+) -> u64 {
+    let y = year as i64;
+    let mo = month as i64;
+    let d = if day.is_nan() { 1 } else { day as i64 };
+    let h = if hour.is_nan() { 0 } else { hour as i64 };
+    let mi = if minute.is_nan() { 0 } else { minute as i64 };
+    let s = if second.is_nan() { 0 } else { second as i64 };
+    let frac_ms = if ms.is_nan() { 0 } else { ms as i64 };
+    let total_ms =
+        crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, frac_ms);
+    alloc_entry(Entry::DateMs(total_ms))
+}
+
 // ── Instance methods ──────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]

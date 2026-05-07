@@ -1680,6 +1680,8 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                     let len = ctx.builder.inst_results(li)[0];
                     arg_vals.push(ptr);
                     arg_vals.push(len);
+                } else if *expected == AbiType::F64 {
+                    arg_vals.push(ctx.coerce_to_f64(tv).val);
                 } else {
                     arg_vals.push(ctx.coerce_to_i64(tv).val);
                 }
@@ -1688,6 +1690,10 @@ pub(super) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                 let zero = ctx.builder.ins().iconst(cl::I64, 0);
                 arg_vals.push(zero);
                 arg_vals.push(zero);
+            } else if *expected == AbiType::F64 {
+                // Arg omitido em ctor F64: passa NaN como sentinela ("ausente").
+                let nan = ctx.builder.ins().f64const(f64::NAN);
+                arg_vals.push(nan);
             } else {
                 let zero = ctx.builder.ins().iconst(cl::I64, 0);
                 arg_vals.push(zero);

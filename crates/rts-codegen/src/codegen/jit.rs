@@ -321,6 +321,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_DATE_NEW_NOW", __RTS_FN_GL_DATE_NEW_NOW);
     add_fn!("__RTS_FN_GL_DATE_NEW_FROM_MS", __RTS_FN_GL_DATE_NEW_FROM_MS);
     add_fn!("__RTS_FN_GL_DATE_NEW_FROM_ISO", __RTS_FN_GL_DATE_NEW_FROM_ISO);
+    add_fn!("__RTS_FN_GL_DATE_NEW_FROM_FIELDS", __RTS_FN_GL_DATE_NEW_FROM_FIELDS);
     add_fn!("__RTS_FN_GL_DATE_GET_TIME", __RTS_FN_GL_DATE_GET_TIME);
     add_fn!("__RTS_FN_GL_DATE_VALUE_OF", __RTS_FN_GL_DATE_VALUE_OF);
     add_fn!("__RTS_FN_GL_DATE_GET_FULL_YEAR", __RTS_FN_GL_DATE_GET_FULL_YEAR);

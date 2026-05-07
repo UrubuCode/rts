@@ -75,6 +75,20 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    NamespaceMember {
+        name: "new_from_fields",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_DATE_NEW_FROM_FIELDS",
+        args: &[
+            AbiType::F64, AbiType::F64, AbiType::F64, AbiType::F64,
+            AbiType::F64, AbiType::F64, AbiType::F64,
+        ],
+        returns: AbiType::Handle,
+        doc: "Creates a Date from year/month/day/hour/min/sec/ms fields (month is 0-indexed).",
+        ts_signature: "new Date(year: number, month: number, day?: number, hour?: number, min?: number, sec?: number, ms?: number): Date",
+        intrinsic: None,
+        pure: false,
+    },
     // ── Instance methods ──────────────────────────────────────────────────────
     NamespaceMember {
         name: "getTime",
