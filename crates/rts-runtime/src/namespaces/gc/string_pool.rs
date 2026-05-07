@@ -115,14 +115,60 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
 /// proprio handle. Senao, formata como integer (\`STRING_FROM_I64\`).
 /// Usado pra \`${expr}\` quando \`expr\` veio de var_member_call cujo
 /// retorno tem tipo dinamico.
+///
+/// Rendering por tipo de Entry:
+/// - String: passthrough do handle
+/// - Vec<i64>: JS-style \`1,2,3\` (sem espacos, separador virgula —
+///   semantica de \`Array.prototype.toString\`)
+/// - Map: \`[object Object]\` (semantica JS para objects sem
+///   toString custom)
+/// - Demais (Buffer, sockets, etc.): formato \`[object <Kind>]\`
+/// - Handle invalido / nao-handle: trata o valor como i64 raw
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     let h = value as u64;
-    let is_string = with_entry(h, |e| matches!(e, Some(Entry::String(_))));
-    if is_string {
-        h
-    } else {
-        alloc_entry(Entry::String(value.to_string().into_bytes()))
+    let formatted = with_entry(h, |e| match e {
+        Some(Entry::String(_)) => None, // passthrough
+        Some(Entry::Vec(v)) => {
+            let parts: Vec<String> =
+                v.iter().map(|x| format_js_number(*x as f64)).collect();
+            Some(parts.join(","))
+        }
+        Some(Entry::Map(_)) => Some("[object Object]".to_string()),
+        Some(Entry::Buffer(_)) => Some("[object Buffer]".to_string()),
+        Some(Entry::Json(j)) => Some(j.to_string()),
+        Some(_) => Some(format!("[object {}]", entry_kind_name(e.unwrap()))),
+        None => None,
+    });
+    match formatted {
+        None => {
+            // Handle valido String -> passthrough; senao, i64 raw
+            let is_string = with_entry(h, |e| matches!(e, Some(Entry::String(_))));
+            if is_string {
+                h
+            } else {
+                alloc_entry(Entry::String(value.to_string().into_bytes()))
+            }
+        }
+        Some(s) => alloc_entry(Entry::String(s.into_bytes())),
+    }
+}
+
+/// Helper: nome textual do kind de Entry (para fallback `[object Kind]`).
+fn entry_kind_name(e: &Entry) -> &'static str {
+    match e {
+        Entry::String(_) => "String",
+        Entry::Buffer(_) => "Buffer",
+        Entry::Vec(_) => "Array",
+        Entry::Map(_) => "Object",
+        Entry::Json(_) => "Json",
+        Entry::BigFixed(_) => "BigFixed",
+        Entry::ProcessChild(_) => "ProcessChild",
+        Entry::TcpListener(_) => "TcpListener",
+        Entry::TcpStream(_) => "TcpStream",
+        Entry::UdpSocket(_) => "UdpSocket",
+        Entry::Function { .. } => "Function",
+        _ => "Object",
     }
 }
 
@@ -168,22 +214,40 @@ pub fn format_js_number(value: f64) -> String {
 }
 
 /// Concatenates two string handles and returns a new handle.
-/// Invalid handles are treated as empty strings (JS template literal semantics).
+///
+/// Para handles que NAO sao String (Vec, Map, etc.), aplica coercao
+/// JS-style identica a `TPL_COERCE_AUTO`:
+/// - Vec<i64> -> "1,2,3"
+/// - Map -> "[object Object]"
+/// - Outros -> "[object <Kind>]"
+///
+/// Handles invalidos viram string vazia (semantica JS template literal).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
-    // Read both entries under a single arena lock via with_two_entries,
-    // clone the bytes, then allocate the result (which acquires the lock again).
     let bytes = with_two_entries(a, b, |ea, eb| {
-        let mut out = match ea {
-            Some(Entry::String(s)) => s.clone(),
-            _ => Vec::new(),
-        };
-        if let Some(Entry::String(s)) = eb {
-            out.extend_from_slice(s);
-        }
+        let mut out = entry_to_string_bytes(ea);
+        out.extend_from_slice(&entry_to_string_bytes(eb));
         out
     });
     alloc_entry(Entry::String(bytes))
+}
+
+/// Converte uma `Entry` em bytes seguindo a semantica JS de coercao
+/// `Object -> string` (usada em concat e template literals).
+fn entry_to_string_bytes(e: Option<&Entry>) -> Vec<u8> {
+    match e {
+        Some(Entry::String(s)) => s.clone(),
+        Some(Entry::Vec(v)) => {
+            let parts: Vec<String> =
+                v.iter().map(|x| format_js_number(*x as f64)).collect();
+            parts.join(",").into_bytes()
+        }
+        Some(Entry::Map(_)) => b"[object Object]".to_vec(),
+        Some(Entry::Buffer(_)) => b"[object Buffer]".to_vec(),
+        Some(Entry::Json(j)) => j.to_string().into_bytes(),
+        Some(other) => format!("[object {}]", entry_kind_name(other)).into_bytes(),
+        None => Vec::new(),
+    }
 }
 
 #[unsafe(no_mangle)]
