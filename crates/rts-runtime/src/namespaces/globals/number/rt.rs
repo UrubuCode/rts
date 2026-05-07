@@ -131,8 +131,14 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_PRECISION(v: f64, digits: i64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v: f64, digits: i64) -> u64 {
-    let d = digits.clamp(0, 100) as usize;
-    let s = format!("{v:.prec$e}", prec = d);
+    // JS spec: sem arg (digits < 0) usa precisao minima necessaria.
+    // Com arg, formata com precisao fixa.
+    let s = if digits < 0 {
+        format!("{v:e}")
+    } else {
+        let d = digits.clamp(0, 100) as usize;
+        format!("{v:.prec$e}", prec = d)
+    };
     alloc_str(&js_exp_notation(&s))
 }
 

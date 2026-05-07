@@ -3365,7 +3365,8 @@ fn lower_number_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "toExponential" => {
-            let digits = arg_i64_opt(ctx, call, 0, 6)?;
+            // JS spec: sem arg, usa precisao minima necessaria (sentinela -1).
+            let digits = arg_i64_opt(ctx, call, 0, -1)?;
             let v = call_num!(
                 "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",
                 &[cl::F64, cl::I64],
