@@ -164,6 +164,38 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(handle: u64) -> u64 {
     alloc_entry(Entry::String(handle.to_string().into_bytes()))
 }
 
+/// `JSON.stringify` typed: o codegen passa um `kind` indicando o tipo
+/// estatico do valor para preservar semantica JS (Boolean -> "true"/"false",
+/// Number -> formato JS, String -> handle).
+///
+/// `kind`: 0=i64/handle (caminho legacy), 1=f64 bits, 2=bool, 3=null/undefined.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64 {
+    let s = match kind {
+        // Bool: 0/1 -> "false"/"true"
+        2 => if value != 0 { "true".to_string() } else { "false".to_string() },
+        // null/undefined -> "null"
+        3 => "null".to_string(),
+        // f64 bits: numero JS-format
+        1 => {
+            let f = f64::from_bits(value as u64);
+            crate::namespaces::gc::string_pool::format_js_number(f)
+        }
+        // i64/handle: tenta como handle valido; senao formata como numero.
+        _ => {
+            let h = value as u64;
+            if let Some(json) = stringify_any_inner(h) {
+                json
+            } else if h == 0 {
+                "null".to_string()
+            } else {
+                value.to_string()
+            }
+        }
+    };
+    alloc_entry(Entry::String(s.into_bytes()))
+}
+
 /// Pretty-printer recursivo para Map/Vec/String/Json com indent.
 fn stringify_pretty_inner(handle: u64, indent: usize, depth: usize) -> Option<String> {
     use std::fmt::Write;

@@ -101,6 +101,37 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(crate::codegen::lower::ctx::TypedVal::new(v, crate::codegen::lower::ctx::ValTy::Handle));
                 }
+                // JSON.stringify(value) — 1-arg. Roteia para STRINGIFY_TYPED
+                // que respeita o tipo estatico (Bool -> "true"/"false",
+                // Number -> formato JS, etc.) em vez de assumir i64 raw.
+                if qualified == "JSON.stringify" && call.args.len() == 1 {
+                    if call.args[0].spread.is_some() {
+                        return Err(anyhow!("spread not supported in JSON.stringify"));
+                    }
+                    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+                    let v_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let (raw, kind) = match v_tv.ty {
+                        ValTy::Bool => (ctx.coerce_to_i64(v_tv).val, 2i64),
+                        ValTy::F64 => {
+                            let bits = ctx.builder.ins().bitcast(
+                                cl::I64,
+                                cranelift_codegen::ir::MemFlags::new(),
+                                v_tv.val,
+                            );
+                            (bits, 1i64)
+                        }
+                        _ => (ctx.coerce_to_i64(v_tv).val, 0i64),
+                    };
+                    let kind_v = ctx.builder.ins().iconst(cl::I32, kind);
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_JSON_STRINGIFY_TYPED",
+                        &[cl::I64, cl::I32],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[raw, kind_v]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
                 if lookup(&qualified).is_some() {
                     return lower_ns_call(ctx, &qualified, call);
                 }
