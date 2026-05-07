@@ -905,7 +905,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
             Some(&v) => v,
             None => {
                 // Unknown ident — emit a placeholder zero of the expected type.
-                ctx.had_placeholders = true;
+                mark_placeholder(ctx, std::file!(), std::line!());
                 emit_zero_const(&expr.ty, mir, ctx)
             }
         },
@@ -1039,7 +1039,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
 
             // Unresolved member access — placeholder zero (codegen AST handles
             // class fields, object literals, etc.).
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1079,7 +1079,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                     return handle;
                 }
             }
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1103,7 +1103,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                     return dst;
                 }
             }
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1196,7 +1196,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
             }
             // Unresolved method call → placeholder zero (codegen AST handles
             // member access for class methods, etc.).
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1225,7 +1225,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                 }
             }
             // Fallback: unknown callee or non-ident; placeholder zero.
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1249,6 +1249,8 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
 
         // Atribuicao a variavel local: `x = expr`. Atualiza env[x] para o
         // novo ValueId e retorna o valor atribuido (semantica JS).
+        // Tambem cobre `arr[i] = v` em arrays (handle): emite CallExtern
+        // collections.vec_set(handle, i, v).
         HirExprKind::Assign { target, value } => {
             if let HirExprKind::Ident(name) = &target.kind {
                 if ctx.env.contains_key(name) {
@@ -1257,7 +1259,32 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                     return v;
                 }
             }
-            ctx.had_placeholders = true;
+            // arr[i] = v em handle de array → collections.vec_set
+            if let HirExprKind::Index { object, index } = &target.kind {
+                if matches!(object.ty, HirType::Array(_)) {
+                    if let Some(resolver) = ctx.extern_resolver {
+                        if let Some((sym, param_tys, ret_ty)) =
+                            resolver("collections", "vec_set")
+                        {
+                            let h = lower_expr(object, mir, ctx);
+                            let idx = lower_expr(index, mir, ctx);
+                            let v = lower_expr(value, mir, ctx);
+                            ctx.push_inst(
+                                mir,
+                                Inst::CallExtern {
+                                    dst: None,
+                                    sym,
+                                    args: vec![h, idx, v],
+                                    ret_ty,
+                                    param_tys,
+                                },
+                            );
+                            return v;
+                        }
+                    }
+                }
+            }
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1271,7 +1298,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                     return res;
                 }
             }
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1315,7 +1342,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
                     return dst;
                 }
             }
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
 
@@ -1323,7 +1350,7 @@ fn lower_expr(expr: &HirExpr, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId 
         // we leave the block (handled by caller observing `ctx.terminated`
         // after reaching a stmt that uses it). For now, emit an iconst 0.
         _ => {
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             emit_zero_const(&expr.ty, mir, ctx)
         }
     }
@@ -1455,7 +1482,7 @@ fn lower_bin(
         // disparar `unreachable!()` no Cranelift verifier — IConst com
         // tipo F64 é inválido; usa F64Const nesse caso.
         _ => {
-            ctx.had_placeholders = true;
+            mark_placeholder(ctx, std::file!(), std::line!());
             let const_inst = if res_ty.is_float() {
                 Inst::F64Const { dst, val: 0.0 }
             } else {
@@ -1871,13 +1898,22 @@ fn collect_loop_phis(
             if is_loop_phi_compatible(&ty) {
                 phis.push((name.clone(), v, ty));
             } else {
-                ctx.had_placeholders = true;
+                mark_placeholder(ctx, std::file!(), std::line!());
             }
         }
     }
     // ordem deterministica
     phis.sort_by(|a, b| a.0.cmp(&b.0));
     phis
+}
+
+/// Marca a fn em lowering como tendo cair em placeholder. Quando
+/// `RTS_MIR_DEBUG=1` está set, imprime o site do fallback pra diagnose.
+fn mark_placeholder(ctx: &mut LowerCtx<'_>, file: &str, line: u32) {
+    ctx.had_placeholders = true;
+    if std::env::var("RTS_MIR_DEBUG_PLACEHOLDERS").is_ok() {
+        eprintln!("[mir-placeholder] {}:{}", file, line);
+    }
 }
 
 /// Decide o tipo "narrow" para que ambos os lados de um Bin int devem

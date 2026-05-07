@@ -1570,6 +1570,58 @@ fn gc_array_literal_jit_compiles_with_stack_maps() {
     assert_eq!(f(), 20);
 }
 
+// ---------- arr[i] = v assignment ----------
+
+#[test]
+fn jit_array_index_assignment() {
+    // function setup(): i64 {
+    //     const arr: i64[] = [10, 20, 30];
+    //     arr[1] = 99;
+    //     return arr[1];
+    // }
+    let src = r#"
+        function setup(): i64 {
+            const arr: i64[] = [10, 20, 30];
+            arr[1] = 99;
+            return arr[1];
+        }
+    "#;
+    let mirs = lower_with_intrinsics_and_externs(src);
+    let mut mir = mirs.into_iter().next().unwrap();
+    mir.conv = if cfg!(windows) {
+        CallConvHint::WindowsFastcall
+    } else {
+        CallConvHint::SystemV
+    };
+    rts_mir::passes::optimize(&mut mir);
+    rts_mir::passes::verify(&mir).expect("verify");
+    assert!(!mir.had_placeholders, "arr[i]=v should not trigger placeholders");
+
+    let mut module = make_jit_with_externs(&[
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8,
+        ),
+        (
+            "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+            rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_SET as *const u8,
+        ),
+    ]);
+    let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
+    module.finalize_definitions().expect("finalize");
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 99, "arr[1] após assignment deve ser 99");
+}
+
 // ---------- inline integrado: caller+callee pelo MIR_CACHE ----------
 
 /// Compila um source TS através do pipeline real (compile_program) e
