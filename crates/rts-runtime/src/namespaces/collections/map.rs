@@ -378,34 +378,42 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     alloc_entry(Entry::Vec(Box::new(result)))
 }
 
-// (#479 follow-up) Frozen/sealed tracking via thread-local set de handles.
-// JS non-strict: mutacoes silenciosamente ignoradas; isFrozen reporta correto.
-use std::cell::RefCell;
+// (#479 follow-up) Frozen/sealed tracking global. Antes era thread-local,
+// mas handles cruzam threads (HandleTable e' shard global), entao freeze
+// numa thread nao tinha efeito em escritas vindas de outra. Sets globais
+// resolvem o bug. Bumpar generation no free_handle invalida handles velhos
+// que continuariam no set — sem aliasing falso.
 use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
 
-thread_local! {
-    static FROZEN_MAPS: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
-    static SEALED_MAPS: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
+fn frozen_set() -> &'static Mutex<HashSet<u64>> {
+    static S: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn sealed_set() -> &'static Mutex<HashSet<u64>> {
+    static S: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 pub(crate) fn is_map_frozen(handle: u64) -> bool {
-    FROZEN_MAPS.with(|s| s.borrow().contains(&handle))
+    frozen_set().lock().unwrap().contains(&handle)
 }
 
 pub(crate) fn is_map_sealed(handle: u64) -> bool {
-    SEALED_MAPS.with(|s| s.borrow().contains(&handle))
+    sealed_set().lock().unwrap().contains(&handle)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(handle: u64) -> u64 {
-    FROZEN_MAPS.with(|s| s.borrow_mut().insert(handle));
-    SEALED_MAPS.with(|s| s.borrow_mut().insert(handle));
+    frozen_set().lock().unwrap().insert(handle);
+    sealed_set().lock().unwrap().insert(handle);
     handle
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SEAL(handle: u64) -> u64 {
-    SEALED_MAPS.with(|s| s.borrow_mut().insert(handle));
+    sealed_set().lock().unwrap().insert(handle);
     handle
 }
 
@@ -534,5 +542,28 @@ mod object_tests {
     fn freeze_returns_same_handle() {
         let m = map_with(&[("a", 1)]);
         assert_eq!(__RTS_FN_NS_COLLECTIONS_MAP_FREEZE(m), m);
+    }
+
+    #[test]
+    fn frozen_state_is_visible_across_threads() {
+        let m = map_with(&[("x", 1)]);
+        __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(m);
+        let visible = std::thread::spawn(move || is_map_frozen(m))
+            .join()
+            .unwrap();
+        assert!(visible, "frozen flag must be visible from other threads");
+    }
+
+    #[test]
+    fn sealed_blocks_set_from_other_thread() {
+        let m = map_with(&[("x", 1)]);
+        __RTS_FN_NS_COLLECTIONS_MAP_SEAL(m);
+        std::thread::spawn(move || {
+            let key = b"new_key";
+            __RTS_FN_NS_COLLECTIONS_MAP_SET(m, key.as_ptr(), key.len() as i64, 99);
+        })
+        .join()
+        .unwrap();
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_MAP_LEN(m), 1);
     }
 }
