@@ -1570,6 +1570,78 @@ fn gc_array_literal_jit_compiles_with_stack_maps() {
     assert_eq!(f(), 20);
 }
 
+// ---------- inline integrado: caller+callee pelo MIR_CACHE ----------
+
+/// Compila um source TS através do pipeline real (compile_program) e
+/// devolve um JITModule + map de FuncIds. Usado nos testes que precisam
+/// validar que o routing automatico (inline + cache) funciona ponta a
+/// ponta sem instanciar manualmente cada MirFunc.
+fn compile_source_via_compile_program(
+    src: &str,
+) -> (JITModule, std::collections::HashMap<String, cranelift_module::FuncId>) {
+    use cranelift_codegen::settings::{self, Configurable};
+
+    let mut program = rts_parser::parse_source(src).expect("parse");
+
+    let mut flags = settings::builder();
+    flags.set("opt_level", "speed").unwrap();
+    flags.set("preserve_frame_pointers", "true").unwrap();
+    let isa = cranelift_native::builder()
+        .unwrap()
+        .finish(settings::Flags::new(flags))
+        .unwrap();
+    let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    // Registra symbols runtime mais comuns (math.PI etc.). Para os
+    // testes simples que usam só aritmetica, normalmente nao precisamos.
+    let _ = builder.symbol(
+        "__RTS_FN_NS_MATH_PI",
+        rts_runtime::namespaces::math::consts::__RTS_FN_NS_MATH_PI as *const u8,
+    );
+    let mut module = JITModule::new(builder);
+
+    let mut extern_cache: std::collections::HashMap<String, cranelift_module::FuncId> =
+        std::collections::HashMap::new();
+    let mut data_counter: u32 = 0;
+    crate::codegen::lower::compile_program(
+        &mut program,
+        &mut module,
+        &mut extern_cache,
+        &mut data_counter,
+    )
+    .expect("compile_program");
+    module.finalize_definitions().expect("finalize");
+
+    let mut decls: std::collections::HashMap<String, cranelift_module::FuncId> =
+        std::collections::HashMap::new();
+    for (name, id) in &extern_cache {
+        if let Some(stripped) = name.strip_prefix("__user_") {
+            decls.insert(stripped.to_string(), *id);
+        }
+    }
+    (module, decls)
+}
+
+#[test]
+fn inline_routing_caller_callee_e2e() {
+    // function inc(x: i64): i64 { return x + 1; }
+    // function dbl(x: i64): i64 { return x * 2; }
+    // function compute(): i64 { return dbl(inc(20)); }
+    //
+    // Com routing default: inc cached, dbl cached, compute lowered
+    // depois aplica inline em ambos calls. JIT executa o equivalente
+    // a `(20 + 1) * 2 == 42` sem chamar inc/dbl em runtime.
+    let src = r#"
+        function inc(x: i64): i64 { return x + 1; }
+        function dbl(x: i64): i64 { return x * 2; }
+        function compute(): i64 { return dbl(inc(20)); }
+    "#;
+    let (module, decls) = compile_source_via_compile_program(src);
+    let id = decls["compute"];
+    let ptr = module.get_finalized_function(id);
+    let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
+    assert_eq!(f(), 42, "compute() == dbl(inc(20)) == 42");
+}
+
 // ---------- inline pass + JIT ----------
 
 #[test]
