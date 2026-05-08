@@ -270,16 +270,16 @@ pub fn lower_mir_func_with_decls(
 // ---------------------------------------------------------------------------
 
 fn build_signature(module: &dyn Module, mir: &MirFunc) -> Signature {
+    // Para SystemV/WindowsFastcall (callconvs "host default"), use o
+    // default_call_conv da plataforma — isso resolve macOS arm64
+    // (AppleAarch64) que difere de SystemV mesmo sendo Unix-like.
+    let host_default = module.isa().default_call_conv();
     let conv = match mir.conv {
         CallConvHint::Tail => CallConv::Tail,
-        CallConvHint::SystemV => CallConv::SystemV,
-        CallConvHint::WindowsFastcall => CallConv::WindowsFastcall,
-        CallConvHint::Cold => CallConv::SystemV, // Cranelift has no Cold conv; fallback
+        CallConvHint::SystemV => host_default,
+        CallConvHint::WindowsFastcall => host_default,
+        CallConvHint::Cold => host_default, // Cranelift has no Cold conv; fallback
     };
-    // For tests we use the module's default conv to avoid Tail+default mismatch
-    // when the host doesn't enable preserve_frame_pointers. Fallback rule:
-    // honor MIR's conv unless that's Tail and the ISA can't take it.
-    let _ = module;
     let mut sig = Signature::new(conv);
     for (_, ty) in &mir.params {
         sig.params.push(AbiParam::new(hir_to_cl(ty)));
