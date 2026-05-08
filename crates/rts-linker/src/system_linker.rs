@@ -241,6 +241,37 @@ fn build_linker_args(
                 {
                     args.push("-lgcc_s".to_string());
                 }
+                // C++ stdlib (FLTK eh C++; runtime_support.a tem objetos
+                // fl_*.cxx que precisam de symbols stdc++).
+                if syslib_paths.iter().any(|p| {
+                    p.join("libstdc++.so.6").is_file() || p.join("libstdc++.so").is_file()
+                }) {
+                    args.push("-lstdc++".to_string());
+                }
+                // FLTK Linux deps: X11, GL, Pango, Cairo, fontconfig.
+                // Linkamos como --as-needed pra evitar deps em bins que
+                // nao usam FLTK (linker descarta libs nao referenciadas).
+                if linker.is_compiler_driver() {
+                    args.push("-Wl,--as-needed".to_string());
+                } else {
+                    args.push("--as-needed".to_string());
+                }
+                let fltk_libs = [
+                    "-lX11", "-lXext", "-lXft", "-lXinerama", "-lXcursor",
+                    "-lXrender", "-lXfixes", "-lXdmcp", "-lXau",
+                    "-lpangoxft-1.0", "-lpangocairo-1.0", "-lpango-1.0",
+                    "-lgobject-2.0", "-lglib-2.0",
+                    "-lcairo", "-lfontconfig", "-lfreetype",
+                    "-lGL", "-lGLU",
+                ];
+                for lib in fltk_libs {
+                    args.push(lib.to_string());
+                }
+                if linker.is_compiler_driver() {
+                    args.push("-Wl,--no-as-needed".to_string());
+                } else {
+                    args.push("--no-as-needed".to_string());
+                }
             }
 
             if !keep_all_runtime_symbols {
