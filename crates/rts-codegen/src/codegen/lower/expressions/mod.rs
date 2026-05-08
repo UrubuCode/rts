@@ -149,11 +149,16 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     // Skipar se obj eh instance de classe — class setter
                     // tem dispatch proprio via class_setter_name. Verifica
                     // se local_class_ty[obj] aponta para classe registrada.
+                    // Tambem skipa para `this.X = ...` em metodo de classe
+                    // (this eh sempre instance — caminho normal preserva
+                    // tipos via class field metadata).
                     let is_class_instance = if let Expr::Ident(id) = m.obj.as_ref() {
                         let n = id.sym.as_str();
                         ctx.local_class_ty.get(n)
                             .map(|cls| ctx.classes.contains_key(cls))
                             .unwrap_or(false)
+                    } else if matches!(m.obj.as_ref(), Expr::This(_)) {
+                        ctx.current_class.is_some()
                     } else {
                         false
                     };
