@@ -20,14 +20,14 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 
     if fn_ptr == 0 {
         return 0;
     }
-    // SAFETY: fn_ptr is `extern "C" fn(i64) -> i64` — contract with codegen.
-    // Sequential to preserve JS semantics: even pure-looking fns can
-    // touch global state (like `out += ...` in test runners).
-    // Race condition exemplo (CI macOS arm64): test js_parity_epic226
-    // produzia output truncado quando `arr.map(fn)` rodava em paralelo
-    // e sobrescrevia o `out` global.
+    // SAFETY: fn_ptr is `extern "C" fn(i64) -> i64` — contract com
+    // codegen. Paralelo via rayon: callers que reescrevem `arr.map(fn)`
+    // pra parallel.map (silent_parallelism) sao responsaveis por
+    // garantir que `fn` eh pura (sem side effects). Hoje o pass
+    // `array_methods_pass` so reescreve quando fn esta whitelisted
+    // em `purity_pass` (math/string/num/etc puras).
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let result: Vec<i64> = items.iter().map(|&x| f(x)).collect();
+    let result: Vec<i64> = pool().install(|| items.par_iter().map(|&x| f(x)).collect());
     alloc_entry(Entry::Vec(Box::new(result)))
 }
 
@@ -60,12 +60,16 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE(
     if fn_ptr == 0 {
         return identity;
     }
-    // SAFETY: fn_ptr is `extern "C" fn(i64, i64) -> i64`.
-    // Sequential — preserves JS Array.prototype.reduce semantics
-    // (left-to-right ordered) and avoids race conditions when the
-    // reducer callback touches global state.
+    // SAFETY: fn_ptr is `extern "C" fn(i64, i64) -> i64` (assumida
+    // associativa/comutativa pelo silent reduce_pass — so ops + e *
+    // qualificam). Paralelo via rayon.
     let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    items.iter().copied().fold(identity, |a, b| f(a, b))
+    pool().install(|| {
+        items
+            .par_iter()
+            .copied()
+            .reduce(|| identity, |a, b| f(a, b))
+    })
 }
 
 #[unsafe(no_mangle)]
