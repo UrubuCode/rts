@@ -367,6 +367,11 @@ fn build_linker_args(
                 args.push("-framework".to_string());
                 args.push((*framework).to_string());
             }
+            // libc++ — runtime_support.a tem objetos C++/Obj-C FLTK
+            // (Fl_*.mm.o) que referenciam ___gxx_personality_v0 e
+            // outros symbols do C++ runtime ABI.
+            args.push("-lc++".to_string());
+            args.push("-lc++abi".to_string());
             Ok(args)
         }
     }
