@@ -37,7 +37,11 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: u64, fn_ptr: u64) {
     }
     // SAFETY: fn_ptr is `extern "C" fn(i64)`.
     let f: extern "C" fn(i64) = unsafe { std::mem::transmute(fn_ptr as usize) };
-    pool().install(|| items.par_iter().for_each(|&x| f(x)));
+    // JS Array.prototype.forEach garante ordem de iteracao (insertion
+    // order). Sem isso, codigo como `entries.forEach(([k,v]) => print(...))`
+    // produz saida fora de ordem (test object_builtins). Mantemos sequencial
+    // — a vantagem de parallelism vem em map/reduce que sao puros.
+    items.iter().for_each(|&x| f(x));
 }
 
 #[unsafe(no_mangle)]

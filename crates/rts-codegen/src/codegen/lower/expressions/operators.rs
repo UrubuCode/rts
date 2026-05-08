@@ -4,7 +4,7 @@ use cranelift_codegen::ir::{
     condcodes::{FloatCC, IntCC},
     types as cl,
 };
-use swc_ecma_ast::{BinExpr, BinaryOp, CallExpr, Expr, Lit, UpdateOp};
+use swc_ecma_ast::{BinExpr, BinaryOp, CallExpr, Expr, Lit, MemberProp, UpdateOp};
 
 use super::calls::lower_class_method_call_with_recv;
 use super::lower_expr;
@@ -561,6 +561,15 @@ pub(super) fn lower_opt_chain(
             } else {
                 let tmp_name = format!("__opt_recv_{}", ctx.next_opt_chain_temp_id());
                 ctx.declare_local(&tmp_name, ValTy::Handle, obj_i64);
+                // (#opt-chain-nested) Marca o temp como object literal
+                // anonimo. Propaga campos: se member.obj eh chain do tipo
+                // `root.field1.field2` onde root tem `field1` registrado
+                // em local_nested_obj_field_types[(root, field2)], copia
+                // esses tipos para local_obj_field_types[temp]. Cobre
+                // `cfg?.server?.host` onde temp recebe nested(server).
+                let inner_types = chain_inner_field_types(ctx, member.obj.as_ref());
+                ctx.local_obj_field_types
+                    .insert(tmp_name.clone(), inner_types);
                 swc_ecma_ast::MemberExpr {
                     span: member.span,
                     obj: Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -687,13 +696,17 @@ pub(super) fn lower_opt_chain(
                         type_args: call.type_args.clone(),
                     };
                     let call_tv = super::calls::lower_call(ctx, &synthetic)?;
+                    let result_ty = call_tv.ty;
                     let call_i64 = ctx.coerce_to_i64(call_tv).val;
                     ctx.builder.ins().jump(merge, &[call_i64.into()]);
 
                     ctx.builder.switch_to_block(merge);
                     ctx.builder.seal_block(merge);
                     ctx.optional_chain_values.insert(result);
-                    return Ok(TypedVal::new(result, ValTy::I64));
+                    // Preserva o tipo retornado pelo metodo — sem isso
+                    // template literal renderiza handle de string como
+                    // numero (ex: ${fmt?.format(42)} virava handle u64).
+                    return Ok(TypedVal::new(result, result_ty));
                 }
             }
 
@@ -1273,4 +1286,54 @@ fn lower_global_instanceof(
     let inst = ctx.builder.ins().call(f, &[recv]);
     let v = ctx.builder.inst_results(inst)[0];
     Ok(TypedVal::new(v, ValTy::Bool))
+}
+
+/// Para `obj.A.B` ou `obj?.A?.B`, retorna o map `local_nested_obj_field_types`
+/// associado a (root_name, B) — i.e., os tipos de campos do sub-objeto que
+/// resulta dessa chain. Usado em `lower_opt_chain` para que o temp interno
+/// herde os field_types e o member access subsequente resolva corretamente.
+fn chain_inner_field_types(
+    ctx: &crate::codegen::lower::ctx::FnCtx,
+    e: &Expr,
+) -> std::collections::HashMap<String, ValTy> {
+    fn extract_path(e: &Expr) -> Option<(String, Vec<String>)> {
+        match e {
+            Expr::Ident(id) => Some((id.sym.to_string(), Vec::new())),
+            Expr::Member(mi) => {
+                if let MemberProp::Ident(p) = &mi.prop {
+                    let (root, mut path) = extract_path(&mi.obj)?;
+                    path.push(p.sym.to_string());
+                    Some((root, path))
+                } else {
+                    None
+                }
+            }
+            Expr::OptChain(o) => {
+                if let swc_ecma_ast::OptChainBase::Member(mi) = o.base.as_ref() {
+                    if let MemberProp::Ident(p) = &mi.prop {
+                        let (root, mut path) = extract_path(&mi.obj)?;
+                        path.push(p.sym.to_string());
+                        Some((root, path))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+    if let Some((root, path)) = extract_path(e) {
+        if let Some(last) = path.last() {
+            let key = (root, last.clone());
+            if let Some(types) = ctx.local_nested_obj_field_types.get(&key) {
+                return types.clone();
+            }
+            if let Some(types) = ctx.global_nested_obj_field_types.get(&key) {
+                return types.clone();
+            }
+        }
+    }
+    std::collections::HashMap::new()
 }
