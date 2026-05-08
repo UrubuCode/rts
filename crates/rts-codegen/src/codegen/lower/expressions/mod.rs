@@ -136,6 +136,107 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
     }
 
     if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
+        // (#object-setter) Intercepta `obj.X = value` quando obj tem
+        // setter `__set_X`. Chama o setter via INVOKE_AUTO em vez do
+        // MAP_SET direto. Detecta em runtime via map_get(__set_X).
+        if matches!(a.op, AssignOp::Assign) {
+            if let MemberProp::Ident(prop) = &m.prop {
+                let prop_name = prop.sym.as_str();
+                if !prop_name.starts_with("__set_")
+                    && !prop_name.starts_with("__get_")
+                    && prop_name != "prototype"
+                {
+                    // Skipar se obj eh instance de classe — class setter
+                    // tem dispatch proprio via class_setter_name. Verifica
+                    // se local_class_ty[obj] aponta para classe registrada.
+                    let is_class_instance = if let Expr::Ident(id) = m.obj.as_ref() {
+                        let n = id.sym.as_str();
+                        ctx.local_class_ty.get(n)
+                            .map(|cls| ctx.classes.contains_key(cls))
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+                    use cranelift_codegen::ir::types as cl;
+                    if is_class_instance {
+                        // deixa cair no fluxo normal abaixo (sem intercept)
+                    } else {
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    if matches!(obj_tv.ty, ValTy::Handle) {
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let setter_key: Vec<u8> = {
+                            let mut v = b"__set_".to_vec();
+                            v.extend_from_slice(prop_name.as_bytes());
+                            v
+                        };
+                        let (kptr, klen) = ctx.emit_str_literal(&setter_key)?;
+                        let plain_get = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+                            &[cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst_g = ctx.builder.ins().call(plain_get, &[obj_h, kptr, klen]);
+                        let setter_h = ctx.builder.inst_results(inst_g)[0];
+                        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                        let has_setter = ctx.builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                            setter_h,
+                            zero,
+                        );
+                        let setter_block = ctx.builder.create_block();
+                        let plain_block = ctx.builder.create_block();
+                        let merge = ctx.builder.create_block();
+                        ctx.builder.ins().brif(has_setter, setter_block, &[], plain_block, &[]);
+
+                        // Avalia value uma vez antes do branch.
+                        ctx.builder.switch_to_block(setter_block);
+                        ctx.builder.seal_block(setter_block);
+                        let value_tv = lower_expr(ctx, &a.right)?;
+                        let value_i64 = ctx.coerce_to_i64(value_tv).val;
+                        let vec_new = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+                            &[],
+                            Some(cl::I64),
+                        )?;
+                        let inst_v = ctx.builder.ins().call(vec_new, &[]);
+                        let args_h = ctx.builder.inst_results(inst_v)[0];
+                        let vec_push = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                            &[cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(vec_push, &[args_h, value_i64]);
+                        let invoke = ctx.get_extern(
+                            "__RTS_FN_RT_INVOKE_AUTO",
+                            &[cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        ctx.builder.ins().call(invoke, &[setter_h, obj_h, args_h]);
+                        ctx.builder.ins().jump(merge, &[]);
+
+                        ctx.builder.switch_to_block(plain_block);
+                        ctx.builder.seal_block(plain_block);
+                        // Plain MAP_SET — re-aplica logica de assign normal
+                        // (sem chamar lower_assign_expr de novo, faz inline).
+                        let value_tv = lower_expr(ctx, &a.right)?;
+                        let value_i64 = ctx.coerce_to_i64(value_tv).val;
+                        let (kptr2, klen2) = ctx.emit_str_literal(prop_name.as_bytes())?;
+                        let map_set = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(map_set, &[obj_h, kptr2, klen2, value_i64]);
+                        ctx.builder.ins().jump(merge, &[]);
+
+                        ctx.builder.switch_to_block(merge);
+                        ctx.builder.seal_block(merge);
+                        return Ok(TypedVal::new(zero, ValTy::I64));
+                    }
+                    } // close is_class_instance else
+                }
+            }
+        }
         // (#264 PR4+) Intercepta `<UserFn>.prototype = X` para chamar
         // FUNCTION_PROTOTYPE_SET que atualiza o registry global. Sem isso,
         // \`Dog.prototype = Object.create(...)\` faz MAP_SET em handle Function

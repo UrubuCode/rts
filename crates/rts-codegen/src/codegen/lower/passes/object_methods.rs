@@ -51,6 +51,118 @@ pub(crate) fn desugar_object_methods(program: &mut Program) {
                                     value: Box::new(Expr::Fn(fn_expr)),
                                 });
                             }
+                            continue;
+                        }
+                        // Desugar Getter para KeyValue("__get_<name>", fn).
+                        if matches!(p.as_ref(), Prop::Getter(_)) {
+                            use swc_ecma_ast::PropName;
+                            let owned = std::mem::replace(
+                                p.as_mut(),
+                                Prop::KeyValue(swc_ecma_ast::KeyValueProp {
+                                    key: PropName::Ident(
+                                        swc_ecma_ast::IdentName::new("__placeholder".into(), Default::default()),
+                                    ),
+                                    value: Box::new(Expr::Invalid(swc_ecma_ast::Invalid {
+                                        span: Default::default(),
+                                    })),
+                                }),
+                            );
+                            if let Prop::Getter(g) = owned {
+                                let key_name: String = match &g.key {
+                                    PropName::Ident(id) => id.sym.as_str().to_string(),
+                                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                                    PropName::Num(n) => n.value.to_string(),
+                                    _ => "__getter".to_string(),
+                                };
+                                let new_key = format!("__get_{}", key_name);
+                                let mut function = swc_ecma_ast::Function {
+                                    params: Vec::new(),
+                                    decorators: Vec::new(),
+                                    span: g.span,
+                                    ctxt: Default::default(),
+                                    body: g.body,
+                                    is_generator: false,
+                                    is_async: false,
+                                    type_params: None,
+                                    return_type: g.type_ann,
+                                };
+                                if let Some(body) = function.body.as_mut() {
+                                    for stmt in body.stmts.iter_mut() {
+                                        visit_stmt(stmt);
+                                    }
+                                }
+                                let fn_expr = swc_ecma_ast::FnExpr {
+                                    ident: None,
+                                    function: Box::new(function),
+                                };
+                                **p = Prop::KeyValue(swc_ecma_ast::KeyValueProp {
+                                    key: PropName::Str(swc_ecma_ast::Str {
+                                        span: g.span,
+                                        value: new_key.into(),
+                                        raw: None,
+                                    }),
+                                    value: Box::new(Expr::Fn(fn_expr)),
+                                });
+                            }
+                            continue;
+                        }
+                        // Desugar Setter para KeyValue("__set_<name>", fn).
+                        if matches!(p.as_ref(), Prop::Setter(_)) {
+                            use swc_ecma_ast::PropName;
+                            let owned = std::mem::replace(
+                                p.as_mut(),
+                                Prop::KeyValue(swc_ecma_ast::KeyValueProp {
+                                    key: PropName::Ident(
+                                        swc_ecma_ast::IdentName::new("__placeholder".into(), Default::default()),
+                                    ),
+                                    value: Box::new(Expr::Invalid(swc_ecma_ast::Invalid {
+                                        span: Default::default(),
+                                    })),
+                                }),
+                            );
+                            if let Prop::Setter(s) = owned {
+                                let key_name: String = match &s.key {
+                                    PropName::Ident(id) => id.sym.as_str().to_string(),
+                                    PropName::Str(st) => st.value.to_string_lossy().to_string(),
+                                    PropName::Num(n) => n.value.to_string(),
+                                    _ => "__setter".to_string(),
+                                };
+                                let new_key = format!("__set_{}", key_name);
+                                use swc_common::Spanned;
+                                let mut function = swc_ecma_ast::Function {
+                                    params: vec![swc_ecma_ast::Param {
+                                        span: s.param.span(),
+                                        decorators: Vec::new(),
+                                        pat: (*s.param).clone(),
+                                    }],
+                                    decorators: Vec::new(),
+                                    span: s.span,
+                                    ctxt: Default::default(),
+                                    body: s.body,
+                                    is_generator: false,
+                                    is_async: false,
+                                    type_params: None,
+                                    return_type: None,
+                                };
+                                if let Some(body) = function.body.as_mut() {
+                                    for stmt in body.stmts.iter_mut() {
+                                        visit_stmt(stmt);
+                                    }
+                                }
+                                let fn_expr = swc_ecma_ast::FnExpr {
+                                    ident: None,
+                                    function: Box::new(function),
+                                };
+                                **p = Prop::KeyValue(swc_ecma_ast::KeyValueProp {
+                                    key: PropName::Str(swc_ecma_ast::Str {
+                                        span: s.span,
+                                        value: new_key.into(),
+                                        raw: None,
+                                    }),
+                                    value: Box::new(Expr::Fn(fn_expr)),
+                                });
+                            }
+                            continue;
                         }
                     }
                 }

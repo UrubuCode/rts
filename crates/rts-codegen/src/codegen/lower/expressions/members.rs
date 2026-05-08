@@ -296,9 +296,17 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
                 };
                 (KeySrc::Static(name), Box::new(Expr::Fn(fn_expr)))
             }
-            Prop::Getter(_) | Prop::Setter(_) | Prop::Assign(_) => {
+            Prop::Getter(_) | Prop::Setter(_) => {
+                // Desugarado pelo pass `desugar_object_methods` em
+                // KeyValue(\"__get_<name>\" / \"__set_<name>\", FnExpr).
+                // Se chegou aqui sem desugar, eh bug do pass — bail.
                 return Err(anyhow!(
-                    "get/set/assign em object literal nao suportado (MVP)"
+                    "get/set escapou do pass de desugar"
+                ));
+            }
+            Prop::Assign(_) => {
+                return Err(anyhow!(
+                    "assign em object literal nao suportado (MVP)"
                 ));
             }
         };
@@ -1265,17 +1273,66 @@ pub(super) fn map_get_static_typed(
     key: &[u8],
     declared_ty: Option<ValTy>,
 ) -> Result<TypedVal> {
+    // (#object-getter) Antes do map_get padrao, tenta lookup do getter
+    // sentinela `__get_<key>`. Se existe, chama via INVOKE_AUTO com
+    // obj como this; resultado eh o valor do getter.
+    let getter_key: Vec<u8> = {
+        let mut v = b"__get_".to_vec();
+        v.extend_from_slice(key);
+        v
+    };
+    let (gkptr, gklen) = ctx.emit_str_literal(&getter_key)?;
+    let plain_get_fn = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let getter_inst = ctx.builder.ins().call(plain_get_fn, &[obj_handle, gkptr, gklen]);
+    let getter_h = ctx.builder.inst_results(getter_inst)[0];
+    // Branch: se getter_h != 0, chama via INVOKE_AUTO; senao map_get padrao.
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let has_getter = ctx.builder.ins().icmp(
+        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+        getter_h,
+        zero,
+    );
+    let getter_block = ctx.builder.create_block();
+    let plain_block = ctx.builder.create_block();
+    let merge = ctx.builder.create_block();
+    let result = ctx.builder.append_block_param(merge, cl::I64);
+    ctx.builder.ins().brif(has_getter, getter_block, &[], plain_block, &[]);
+
+    // Getter path: invoke via INVOKE_AUTO(getter_h, obj, empty_args).
+    ctx.builder.switch_to_block(getter_block);
+    ctx.builder.seal_block(getter_block);
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst_v = ctx.builder.ins().call(vec_new, &[]);
+    let empty_args = ctx.builder.inst_results(inst_v)[0];
+    let invoke = ctx.get_extern(
+        "__RTS_FN_RT_INVOKE_AUTO",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst_call = ctx.builder.ins().call(invoke, &[getter_h, obj_handle, empty_args]);
+    let getter_result = ctx.builder.inst_results(inst_call)[0];
+    ctx.builder.ins().jump(merge, &[getter_result.into()]);
+
+    // Plain path: MAP_GET_CHAIN normal.
+    ctx.builder.switch_to_block(plain_block);
+    ctx.builder.seal_block(plain_block);
     let (kptr, klen) = ctx.emit_str_literal(key)?;
-    // (#264 PR4) Usa MAP_GET_CHAIN: busca primeiro nas own props, depois
-    // segue __proto__ chain. Para Maps sem __proto__ (classes ES6, objetos
-    // literais), o overhead eh um lookup extra que falha — sem regressao.
     let get_fn = ctx.get_extern(
         "__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN",
         &[cl::I64, cl::I64, cl::I64],
         Some(cl::I64),
     )?;
     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, kptr, klen]);
-    let v = ctx.builder.inst_results(inst)[0];
+    let plain_v = ctx.builder.inst_results(inst)[0];
+    ctx.builder.ins().jump(merge, &[plain_v.into()]);
+
+    ctx.builder.switch_to_block(merge);
+    ctx.builder.seal_block(merge);
+    let v = result;
     match declared_ty {
         Some(ValTy::I32) => Ok(TypedVal::new(
             ctx.builder.ins().ireduce(cl::I32, v),
