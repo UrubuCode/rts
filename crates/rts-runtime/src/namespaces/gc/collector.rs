@@ -259,18 +259,41 @@ fn stack_high_addr() -> usize {
 
     #[cfg(target_os = "linux")]
     {
-        // Use /proc/self/maps parsing or a simple heuristic.
-        // For simplicity, use RSP + 8 MB (main thread default on Linux).
+        // Le /proc/self/maps procurando o range que contem RSP. Esse
+        // intervalo eh o stack real (pode ser <8MB ou >8MB dependendo
+        // da config). Sem isso, RSP+8MB pode apontar pra memoria nao
+        // mapeada -> SIGSEGV em mark_stack_roots quando lido.
         let mut rsp: usize;
         unsafe { std::arch::asm!("mov {}, rsp", out(reg) rsp, options(nostack, readonly)); }
-        rsp + 8 * 1024 * 1024
+        if let Ok(maps) = std::fs::read_to_string("/proc/self/maps") {
+            for line in maps.lines() {
+                // Formato: "start-end perms ..."
+                if let Some((range, _)) = line.split_once(' ') {
+                    if let Some((s, e)) = range.split_once('-') {
+                        if let (Ok(start), Ok(end)) = (
+                            usize::from_str_radix(s, 16),
+                            usize::from_str_radix(e, 16),
+                        ) {
+                            if rsp >= start && rsp < end {
+                                return end;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Fallback conservador: RSP + 64KB. Suficiente pra stack frame
+        // atual + frames acima sem ler longe demais.
+        rsp + 64 * 1024
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
+        // macOS / outros: usa pthread_get_stackaddr_np quando disponivel.
+        // Por enquanto, fallback conservador 64KB acima de RSP.
         let mut rsp: usize;
         unsafe { std::arch::asm!("mov {}, rsp", out(reg) rsp, options(nostack, readonly)); }
-        rsp + 512 * 1024
+        rsp + 64 * 1024
     }
 }
 
