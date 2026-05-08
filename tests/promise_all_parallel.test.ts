@@ -29,10 +29,12 @@ print("was_parallel=" + wasParallel);
 print("sum=" + (collections.vec_get(r1, 0) + collections.vec_get(r1, 1) + collections.vec_get(r1, 2)));
 
 // 2. Race entre async fns — vence o mais rapido.
+// Gap maior (100ms vs 10ms vs 200ms) pra dar margem em CI macOS arm64
+// onde scheduling de spawn_blocking pode adicionar ~50-100ms latencia.
 const v2 = collections.vec_new();
-collections.vec_push(v2, delayed(100, 50));
-collections.vec_push(v2, delayed(200, 20));  // mais rapido
-collections.vec_push(v2, delayed(300, 80));
+collections.vec_push(v2, delayed(100, 100));
+collections.vec_push(v2, delayed(200, 10));  // mais rapido com larga margem
+collections.vec_push(v2, delayed(300, 200));
 const winner = await promise.race(v2);
 print("winner=" + winner);  // 200
 
