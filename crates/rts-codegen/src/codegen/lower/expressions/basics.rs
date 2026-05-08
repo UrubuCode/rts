@@ -140,15 +140,24 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
                     ValTy::Bool,
                 ));
             }
-            // F64: NaN tambem e' falsy. fcmp NotEqual e' false para NaN.
+            // F64: NaN tambem e' falsy. !x = (x == 0 OR x eh NaN).
+            // Usa fcmp Equal(x, 0) | Equal(x, x)==false. Como Equal eh
+            // ordered (false p/ NaN), nao usamos NotEqual nem
+            // OrderedNotEqual (panic em aarch64 Cranelift 0.131).
             if matches!(operand.ty, ValTy::F64) {
                 let zero = ctx.builder.ins().f64const(0.0);
-                let ne = ctx.builder.ins().fcmp(FloatCC::OrderedNotEqual, operand.val, zero);
-                // !truthy = falsy. ne=true significa truthy, queremos negar.
-                let one = ctx.builder.ins().iconst(cl::I64, 1);
-                let ne_i = ctx.builder.ins().uextend(cl::I64, ne);
-                let neg = ctx.builder.ins().bxor(ne_i, one);
-                return Ok(TypedVal::new(neg, ValTy::Bool));
+                // is_zero = x == 0
+                let is_zero = ctx.builder.ins().fcmp(FloatCC::Equal, operand.val, zero);
+                // is_self_eq = x == x (false sse NaN)
+                let is_self_eq = ctx.builder.ins().fcmp(FloatCC::Equal, operand.val, operand.val);
+                let is_nan_i = {
+                    let i = ctx.builder.ins().uextend(cl::I64, is_self_eq);
+                    let one = ctx.builder.ins().iconst(cl::I64, 1);
+                    ctx.builder.ins().bxor(i, one)
+                };
+                let is_zero_i = ctx.builder.ins().uextend(cl::I64, is_zero);
+                let falsy = ctx.builder.ins().bor(is_zero_i, is_nan_i);
+                return Ok(TypedVal::new(falsy, ValTy::Bool));
             }
             let value = ctx.coerce_to_i64(operand).val;
             let zero = ctx.builder.ins().iconst(cl::I64, 0);

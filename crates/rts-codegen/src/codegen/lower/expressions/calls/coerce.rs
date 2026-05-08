@@ -106,13 +106,24 @@ pub(super) fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Resul
             return Ok(Some(TypedVal::new(result, ValTy::Bool)));
         }
         if matches!(tv.ty, ValTy::F64) {
-            // (#208 fix): NaN deve ser falsy. fcmp NotEqual retorna false
-            // pra NaN (NaN != X e' Unordered, nao true). Use OrderedNotEqual
-            // que e' false quando NaN — exatamente o comportamento desejado.
-            // Em Cranelift: OrderedNotEqual = "ordered AND not equal".
+            // (#208 fix): NaN deve ser falsy. Boolean(x) = !(x == 0 OR NaN).
+            // Evita FloatCC::OrderedNotEqual / Unordered que dao panic
+            // em Cranelift 0.131 aarch64. Usa Equal-based equivalents.
+            use cranelift_codegen::ir::types as cl;
             let zero = ctx.builder.ins().f64const(0.0);
-            let ne_zero = ctx.builder.ins().fcmp(FloatCC::OrderedNotEqual, tv.val, zero);
-            return Ok(Some(TypedVal::new(ne_zero, ValTy::Bool)));
+            let is_zero = ctx.builder.ins().fcmp(FloatCC::Equal, tv.val, zero);
+            let is_self_eq = ctx.builder.ins().fcmp(FloatCC::Equal, tv.val, tv.val);
+            let is_nan_i = {
+                let i = ctx.builder.ins().uextend(cl::I64, is_self_eq);
+                let one = ctx.builder.ins().iconst(cl::I64, 1);
+                ctx.builder.ins().bxor(i, one)
+            };
+            let is_zero_i = ctx.builder.ins().uextend(cl::I64, is_zero);
+            let falsy = ctx.builder.ins().bor(is_zero_i, is_nan_i);
+            // truthy = !falsy
+            let one = ctx.builder.ins().iconst(cl::I64, 1);
+            let truthy = ctx.builder.ins().bxor(falsy, one);
+            return Ok(Some(TypedVal::new(truthy, ValTy::Bool)));
         }
         let v = ctx.coerce_to_i64(tv).val;
         let zero = ctx.builder.ins().iconst(cl::I64, 0);
