@@ -647,6 +647,10 @@ pub(super) fn lower_opt_chain(
                     let null_block = ctx.builder.create_block();
                     let call_block = ctx.builder.create_block();
                     let merge = ctx.builder.create_block();
+                    // Block param sempre i64 — o tipo logico (Handle vs F64
+                    // bits) eh decidido depois pelo TypedVal retornado.
+                    // Para metodos F64, fazemos bitcast do resultado pra
+                    // i64 antes de jump pro merge.
                     let result = ctx.builder.append_block_param(merge, cl::I64);
 
                     ctx.builder.ins().brif(is_null, null_block, &[], call_block, &[]);
@@ -697,16 +701,32 @@ pub(super) fn lower_opt_chain(
                     };
                     let call_tv = super::calls::lower_call(ctx, &synthetic)?;
                     let result_ty = call_tv.ty;
-                    let call_i64 = ctx.coerce_to_i64(call_tv).val;
-                    ctx.builder.ins().jump(merge, &[call_i64.into()]);
+                    // Empacota result em i64 — F64 vai como bits.
+                    let call_packed = if matches!(result_ty, ValTy::F64) {
+                        ctx.builder.ins().bitcast(
+                            cl::I64,
+                            cranelift_codegen::ir::MemFlags::new(),
+                            call_tv.val,
+                        )
+                    } else {
+                        ctx.coerce_to_i64(call_tv).val
+                    };
+                    ctx.builder.ins().jump(merge, &[call_packed.into()]);
 
                     ctx.builder.switch_to_block(merge);
                     ctx.builder.seal_block(merge);
                     ctx.optional_chain_values.insert(result);
-                    // Preserva o tipo retornado pelo metodo — sem isso
-                    // template literal renderiza handle de string como
-                    // numero (ex: ${fmt?.format(42)} virava handle u64).
-                    return Ok(TypedVal::new(result, result_ty));
+                    // Para F64 retornado, desempacota bits via bitcast.
+                    let final_val = if matches!(result_ty, ValTy::F64) {
+                        ctx.builder.ins().bitcast(
+                            cl::F64,
+                            cranelift_codegen::ir::MemFlags::new(),
+                            result,
+                        )
+                    } else {
+                        result
+                    };
+                    return Ok(TypedVal::new(final_val, result_ty));
                 }
             }
 
