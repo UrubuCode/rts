@@ -480,6 +480,9 @@ fn macos_fltk_frameworks() -> &'static [&'static str] {
         "AGL",
         "IOKit",
         "Carbon",
+        // Fl_Native_File_Chooser_MAC.mm usa UTType (Uniform Type
+        // Identifiers framework, macOS 11+).
+        "UniformTypeIdentifiers",
     ]
 }
 
