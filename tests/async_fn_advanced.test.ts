@@ -70,8 +70,10 @@ const vb = await pb;
 const vc = await pc;
 const elapsed = time.now_ms() - t0;
 print("parallel_sum=" + (va + vb + vc));   // 150
-// Tolerancia generosa: paralelo real fica em ~50-80ms; serie seria 150+.
-const wasParallel = elapsed < 120 ? 1 : 0;
+// Tolerancia: paralelo real fica em ~50-100ms; serie seria 150+.
+// Threshold 140ms cobre runners de CI lentos (macOS arm64 GH Actions)
+// sem perder o teste — serie ainda pula bem alem disso.
+const wasParallel = elapsed < 140 ? 1 : 0;
 print("was_parallel=" + wasParallel);
 
 // 6. await em valor de retorno usado em expressao.
