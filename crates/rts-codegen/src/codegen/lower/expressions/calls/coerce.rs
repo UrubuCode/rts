@@ -18,7 +18,18 @@ pub(super) fn lower_coerce_is_nan(ctx: &mut FnCtx, call: &CallExpr) -> Result<Ty
     }
     let tv = super::lower_expr(ctx, &arg.expr)?;
     let f = to_f64(ctx, tv);
-    let result = ctx.builder.ins().fcmp(FloatCC::Unordered, f, f);
+    // FloatCC::Unordered nao eh suportado em alguns backends Cranelift
+    // (notavelmente aarch64 — panic \"not implemented\" em
+    // lower_fp_condcode). Usa NotEqual(f, f) que eh equivalente:
+    // - NaN != NaN -> true (NaN nunca eh ordered-equal a si mesmo,
+    //   porem NotEqual em Cranelift eh ordered, e NaN comparison
+    //   ordered retorna false)
+    // Solucao robusta: !(f == f) — NaN ordered-equal a si mesmo eh
+    // false, !false = true.
+    let eq = ctx.builder.ins().fcmp(FloatCC::Equal, f, f);
+    // bxor com 1 inverte (Bool eh i8 0/1).
+    let one = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I8, 1);
+    let result = ctx.builder.ins().bxor(eq, one);
     Ok(TypedVal::new(result, ValTy::Bool))
 }
 
