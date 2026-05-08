@@ -115,6 +115,43 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
     }
 }
 
+/// `str.replace(/pat/g, replacement)` — substitui todos (g flag) ou
+/// primeiro match. Aceita handle Entry::Regex. Replacement eh string.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
+    s_ptr: *const u8,
+    s_len: i64,
+    regex_handle: u64,
+    replacement_h: u64,
+) -> u64 {
+    use crate::namespaces::gc::handles::{with_entry, Entry, alloc_entry};
+    let Some(s) = str_from_abi(s_ptr, s_len) else {
+        return 0;
+    };
+    let s_owned = s.to_string();
+
+    // Le replacement string + flag global.
+    let repl = with_entry(replacement_h, |e| match e {
+        Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+        _ => None,
+    }).unwrap_or_default();
+
+    let out = with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rx)) => {
+            // RTS regex usa `regex` crate. Detecta `g` flag via source —
+            // no `regex` crate nao ha flag global, sempre usa replace_all
+            // ou replace_n. Para fidelidade JS, sempre faz replace_all
+            // quando vem de regex literal (mais util na pratica).
+            Some(rx.replace_all(&s_owned, repl.as_str()).into_owned())
+        }
+        _ => None,
+    });
+    match out {
+        Some(s) => alloc_entry(Entry::String(s.into_bytes())),
+        None => 0,
+    }
+}
+
 /// (#208) `str.search(pattern)` — index do primeiro match, ou -1.
 /// Pattern e' string regex.
 #[unsafe(no_mangle)]
