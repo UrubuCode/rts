@@ -1252,3 +1252,59 @@ pub(super) fn lower_array_builtin(
     }
 }
 
+/// Builtins de RegExp.prototype em receiver Handle (Entry::Regex).
+/// Cobre `re.test(str)`, `re.exec(str)`. Sem isso, `r.test("...")`
+/// cai em MAP_GET_CHAIN (regex nao eh Map), trapz dispara → SIGILL.
+pub(super) fn lower_regexp_builtin(
+    ctx: &mut FnCtx,
+    method: &str,
+    recv_h: cranelift_codegen::ir::Value,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    fn arg_strptr(
+        ctx: &mut FnCtx,
+        call: &CallExpr,
+        idx: usize,
+    ) -> Result<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
+        let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing arg #{idx}"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in regexp builtin"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        let h = ctx.coerce_to_handle(tv)?.val;
+        let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let pi = ctx.builder.ins().call(ptr_fn, &[h]);
+        let p = ctx.builder.inst_results(pi)[0];
+        let li = ctx.builder.ins().call(len_fn, &[h]);
+        let l = ctx.builder.inst_results(li)[0];
+        Ok((p, l))
+    }
+
+    match method {
+        "test" => {
+            let (p, l) = arg_strptr(ctx, call, 0)?;
+            let f = ctx.get_extern(
+                "__RTS_FN_GL_REGEXP_TEST",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[recv_h, p, l]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Bool)))
+        }
+        "exec" => {
+            let (p, l) = arg_strptr(ctx, call, 0)?;
+            let f = ctx.get_extern(
+                "__RTS_FN_GL_REGEXP_EXEC",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[recv_h, p, l]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        _ => Ok(None),
+    }
+}
+

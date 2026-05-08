@@ -77,6 +77,23 @@ pub(super) fn lower_var_member_call(
         .map(|s| s == "__proto_instance")
         .unwrap_or(false);
 
+    // RegExp.prototype methods (test/exec) — antes de string/map pois
+    // regex handle nao eh String nem Map; cair em map_get_chain trap por
+    // user1 (SIGILL). Detecta via local_class_ty["RegExp"] OU via match
+    // direto dos nomes de metodo (test/exec).
+    let is_regexp = ctx
+        .local_class_ty
+        .get(obj_name)
+        .map(|s| s == "RegExp")
+        .unwrap_or(false);
+    if matches!(obj_tv.ty, ValTy::Handle) && !is_proto_instance
+        && (is_regexp || matches!(prop, "test" | "exec"))
+    {
+        if let Some(tv) = super::builtins::lower_regexp_builtin(ctx, prop, obj_h, call)? {
+            return Ok(tv);
+        }
+    }
+
     // Builtins de string em receiver Handle: s.indexOf(...), s.startsWith(...), etc.
     // Tem que vir antes do map_get porque uma string handle nao e um map —
     // map_get retornaria lixo, e o call_indirect subsequente saltaria pra
