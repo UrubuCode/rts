@@ -1284,6 +1284,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_STRING_MATCH", search::__RTS_FN_NS_STRING_MATCH);
     add_fn!("__RTS_FN_NS_STRING_MATCH_REGEX", search::__RTS_FN_NS_STRING_MATCH_REGEX);
     add_fn!("__RTS_FN_NS_STRING_REPLACE_REGEX", search::__RTS_FN_NS_STRING_REPLACE_REGEX);
+    add_fn!("__RTS_FN_NS_STRING_SEARCH_REGEX", search::__RTS_FN_NS_STRING_SEARCH_REGEX);
     add_fn!("__RTS_FN_NS_STRING_SEARCH", search::__RTS_FN_NS_STRING_SEARCH);
     add_fn!("__RTS_FN_NS_STRING_MATCH_ALL", search::__RTS_FN_NS_STRING_MATCH_ALL);
     add_fn!(

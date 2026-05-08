@@ -115,6 +115,25 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
     }
 }
 
+/// `str.search(regex_handle)` — index do primeiro match, -1 se nao
+/// acha. Aceita Entry::Regex direto.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_REGEX(
+    s_ptr: *const u8,
+    s_len: i64,
+    regex_handle: u64,
+) -> i64 {
+    use crate::namespaces::gc::handles::{with_entry, Entry};
+    let Some(s) = str_from_abi(s_ptr, s_len) else {
+        return -1;
+    };
+    let s_owned = s.to_string();
+    with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rx)) => rx.find(&s_owned).map(|m| m.start() as i64).unwrap_or(-1),
+        _ => -1,
+    })
+}
+
 /// `str.replace(/pat/g, replacement)` — substitui todos (g flag) ou
 /// primeiro match. Aceita handle Entry::Regex. Replacement eh string.
 #[unsafe(no_mangle)]
