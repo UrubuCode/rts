@@ -240,12 +240,14 @@ fn build_linker_args(
             for path in &syslib_paths {
                 args.push(format!("-L{}", path.display()));
             }
-            // Libs basicas C — apenas para raw linker (compiler driver
-            // adiciona automaticamente).
+            // Libs basicas: -lm necessaria SEMPRE (runtime_support.a
+            // chama exp/log/sqrt/etc); -lc/-lpthread/-ldl so' raw linker
+            // (compiler driver adiciona automaticamente).
+            args.push("-lm".to_string());
+            args.push("-lpthread".to_string());
+            args.push("-ldl".to_string());
             if !syslib_paths.is_empty() {
-                for lib in ["-lc", "-lpthread", "-ldl", "-lm"] {
-                    args.push(lib.to_string());
-                }
+                args.push("-lc".to_string());
                 // libgcc_s provides stack unwinding; only link if present on this system.
                 if syslib_paths
                     .iter()
