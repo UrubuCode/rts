@@ -240,6 +240,8 @@ fn build_linker_args(
             for path in &syslib_paths {
                 args.push(format!("-L{}", path.display()));
             }
+            // Libs basicas C — apenas para raw linker (compiler driver
+            // adiciona automaticamente).
             if !syslib_paths.is_empty() {
                 for lib in ["-lc", "-lpthread", "-ldl", "-lm"] {
                     args.push(lib.to_string());
@@ -251,34 +253,41 @@ fn build_linker_args(
                 {
                     args.push("-lgcc_s".to_string());
                 }
-                // C++ stdlib (FLTK eh C++; runtime_support.a tem objetos
-                // fl_*.cxx que precisam de symbols stdc++).
-                if syslib_paths.iter().any(|p| {
-                    p.join("libstdc++.so.6").is_file() || p.join("libstdc++.so").is_file()
-                }) {
-                    args.push("-lstdc++".to_string());
-                }
-                // FLTK Linux deps: X11, GL, Pango, Cairo, fontconfig.
-                // Usa --no-as-needed para garantir linking mesmo quando
-                // objects que referenciam essas libs ja foram processados
-                // antes (--as-needed default do gcc/clang descarta libs
-                // sem refs *pendentes*, falhando em archive ordering).
-                if linker.is_compiler_driver() {
-                    args.push("-Wl,--no-as-needed".to_string());
-                } else {
-                    args.push("--no-as-needed".to_string());
-                }
-                let fltk_libs = [
-                    "-lX11", "-lXext", "-lXft", "-lXinerama", "-lXcursor",
-                    "-lXrender", "-lXfixes", "-lXdmcp", "-lXau",
-                    "-lpangoxft-1.0", "-lpangocairo-1.0", "-lpango-1.0",
-                    "-lgobject-2.0", "-lglib-2.0",
-                    "-lcairo", "-lfontconfig", "-lfreetype",
-                    "-lGL", "-lGLU",
-                ];
-                for lib in fltk_libs {
-                    args.push(lib.to_string());
-                }
+            }
+            // C++ stdlib + FLTK deps — necessarios em ambos casos
+            // (compiler driver e raw linker) porque runtime_support.a
+            // contem objetos C++ FLTK que referenciam esses simbolos.
+            // Compiler driver (cc/clang) por default nao linka libstdc++
+            // (so' g++/clang++ fazem); raw linker tambem precisa explicito.
+            args.push("-lstdc++".to_string());
+            // libsupc++ tem ABI symbols (cxa_pure_virtual, vtable ABI)
+            // separada em algumas distros. Inofensivo se nao existir
+            // (linker pula com unresolved error so' se nao tiver os
+            // symbols de algum jeito — e libstdc++ ja' tem geralmente).
+            // Solo adicionado quando syslib_paths sabe que existe (raw):
+            if syslib_paths.iter().any(|p| {
+                p.join("libsupc++.a").is_file() || p.join("libsupc++.so").is_file()
+            }) {
+                args.push("-lsupc++".to_string());
+            }
+            // FLTK Linux deps: X11, GL, Pango, Cairo, fontconfig.
+            // --no-as-needed garante link mesmo quando refs sao descobertas
+            // depois (objects FLTK ja processados antes das libs).
+            if linker.is_compiler_driver() {
+                args.push("-Wl,--no-as-needed".to_string());
+            } else {
+                args.push("--no-as-needed".to_string());
+            }
+            let fltk_libs = [
+                "-lX11", "-lXext", "-lXft", "-lXinerama", "-lXcursor",
+                "-lXrender", "-lXfixes", "-lXdmcp", "-lXau",
+                "-lpangoxft-1.0", "-lpangocairo-1.0", "-lpango-1.0",
+                "-lgobject-2.0", "-lglib-2.0",
+                "-lcairo", "-lfontconfig", "-lfreetype",
+                "-lGL", "-lGLU",
+            ];
+            for lib in fltk_libs {
+                args.push(lib.to_string());
             }
 
             // Fecha --start-group apos todas as libs.
