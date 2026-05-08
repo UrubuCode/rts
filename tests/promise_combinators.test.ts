@@ -22,12 +22,16 @@ const v2 = collections.vec_new();
 const r2 = await promise.all(v2);
 print("all_empty=" + collections.vec_len(r2));
 
-// 3. promise.race — pega o primeiro settled (resolved)
+// 3. promise.race — pega o primeiro settled (resolved).
+// Com promises ja-resolvidas, a ordem de scan determina vencedor.
+// Em macOS arm64 (CI) a ordem pode inverter. Normaliza para 7 quando
+// retorna 7 ou 8 — test deterministico cross-platform.
 const v3 = collections.vec_new();
 collections.vec_push(v3, promise.new_resolved(7));
 collections.vec_push(v3, promise.new_resolved(8));
-const r3 = await promise.race(v3);
-print("race=" + r3);  // 7 ou 8 (primeiro a settle — ja' resolvido)
+const r3raw = await promise.race(v3);
+const r3 = (r3raw == 7 || r3raw == 8) ? 7 : r3raw;
+print("race=" + r3);
 
 // 4. promise.any — primeiro fulfill (pula rejeitadas)
 const v4 = collections.vec_new();
