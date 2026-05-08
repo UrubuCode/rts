@@ -37,6 +37,17 @@ pub fn finish_cycle() {
         return;
     }
 
+    // Em arquiteturas onde o stack scanner nao roda (nao-x86_64),
+    // skip o ciclo completo: sweep sem mark coleta handles vivos do
+    // stack -> heap corruption / output truncado em testes (visto em
+    // CI macOS arm64 com test js_parity_epic226).
+    // Tradeoff: handles ficam vivos ate explicit-free; uso de memoria
+    // aumenta mas correctness preservada.
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        return;
+    }
+
     // Safety: we read raw stack memory. Preconditions:
     // - `preserve_frame_pointers=true` guarantees a valid RBP chain in all
     //   JIT-compiled frames.
