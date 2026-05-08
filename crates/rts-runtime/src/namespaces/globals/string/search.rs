@@ -91,6 +91,30 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH(
     }
 }
 
+/// `str.match(regex_handle)` — variante que aceita handle de
+/// Entry::Regex (de literal /pat/ ou new RegExp). Se nao for regex
+/// valido, retorna 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
+    s_ptr: *const u8,
+    s_len: i64,
+    regex_handle: u64,
+) -> u64 {
+    use crate::namespaces::gc::handles::{with_entry, Entry, alloc_entry};
+    let Some(s) = str_from_abi(s_ptr, s_len) else {
+        return 0;
+    };
+    let s_owned = s.to_string();
+    let result = with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rx)) => rx.find(&s_owned).map(|m| m.as_str().as_bytes().to_vec()),
+        _ => None,
+    });
+    match result {
+        Some(bytes) => alloc_entry(Entry::String(bytes)),
+        None => 0,
+    }
+}
+
 /// (#208) `str.search(pattern)` — index do primeiro match, ou -1.
 /// Pattern e' string regex.
 #[unsafe(no_mangle)]

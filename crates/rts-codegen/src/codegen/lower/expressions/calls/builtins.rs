@@ -233,11 +233,27 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         // (#208) `s.match(pattern)` — primeiro match, retorna string handle ou 0.
+        // Detecta se pattern eh regex literal (Expr::Regex) e usa
+        // STRING_MATCH_REGEX que aceita Entry::Regex handle direto.
         "match" => {
-            let pattern = arg_handle(ctx, call, 0)?;
-            // Converte recv_h e pattern de handle pra (ptr, len).
+            use swc_ecma_ast::{Expr, Lit};
+            let is_regex_literal = call
+                .args
+                .first()
+                .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
+                .unwrap_or(false);
             let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
             let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let pattern = arg_handle(ctx, call, 0)?;
+            if is_regex_literal {
+                let v = call_h!(
+                    "__RTS_FN_NS_STRING_MATCH_REGEX",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                    &[p1, l1, pattern]
+                );
+                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+            }
             let p2 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[pattern]);
             let l2 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[pattern]);
             let v = call_h!(
