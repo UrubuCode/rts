@@ -20,7 +20,7 @@ describe("fixture:net_tcp_echo", () => {
     // Server precisa de tempo pra bind+listen.
     thread.sleep_ms(300);
 
-    const client = net.tcp_connect("127.0.0.1:51237");
+    const client = net.tcp_connect("127.0.0.1:45123");
     const sent = net.tcp_send(client, "rts-echo");
 
     const rxbuf = buffer.alloc_zeroed(8);

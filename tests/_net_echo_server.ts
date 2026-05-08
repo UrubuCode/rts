@@ -1,7 +1,9 @@
 // Subprocess: bind, accept 1, echo 8 bytes, close, exit.
 import { net, buffer, process } from "rts";
 
-const server = net.tcp_listen("127.0.0.1:51237");
+// Port escolhido fora de ranges Windows excluidos (Hyper-V/WSL).
+// Range 51209-51308 eh excluido em alguns sistemas — usamos 45123.
+const server = net.tcp_listen("127.0.0.1:45123");
 if (server == 0) { process.exit(2); }
 const stream = net.tcp_accept(server);
 if (stream == 0) { process.exit(3); }
