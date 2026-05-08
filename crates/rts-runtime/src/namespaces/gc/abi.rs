@@ -51,6 +51,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "string_cmp",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_STRING_CMP",
+        args: &[AbiType::Handle, AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Compara dois string handles lexicograficamente. Retorna -1 se a<b, 0 iguais, 1 se a>b.",
+        ts_signature: "string_cmp(a: number, b: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "string_from_static",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_GC_STRING_FROM_STATIC",

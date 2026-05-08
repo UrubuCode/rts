@@ -408,6 +408,34 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return Ok(TypedVal::new(result, ValTy::Bool));
     }
 
+    // String ordering (#616): <, <=, >, >= entre dois Handles devem comparar
+    // conteudo lexicograficamente, nao ponteiros. Roteia via STRING_CMP que
+    // retorna -1/0/1 (memcmp + diff length).
+    if matches!(
+        bin.op,
+        BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+    ) && lhs.ty == ValTy::Handle
+        && rhs.ty == ValTy::Handle
+    {
+        let fref = ctx.get_extern(
+            "__RTS_FN_NS_GC_STRING_CMP",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[lhs.val, rhs.val]);
+        let cmp = ctx.builder.inst_results(inst)[0];
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        let cc = match bin.op {
+            BinaryOp::Lt => IntCC::SignedLessThan,
+            BinaryOp::LtEq => IntCC::SignedLessThanOrEqual,
+            BinaryOp::Gt => IntCC::SignedGreaterThan,
+            BinaryOp::GtEq => IntCC::SignedGreaterThanOrEqual,
+            _ => unreachable!(),
+        };
+        let result = ctx.builder.ins().icmp(cc, cmp, zero);
+        return Ok(TypedVal::new(result, ValTy::Bool));
+    }
+
     // === / !== com tipos diferentes em compile-time → const false/true.
     // (#306) JS strict equality nao coerce; `0 === false` deve ser false.
     // Bool e' detectavel separado de I64/F64 em ValTy mesmo backed por

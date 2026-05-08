@@ -391,3 +391,22 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_EQ(a: u64, b: u64) -> i64 {
         _ => 0,
     })
 }
+
+/// Lexicographic comparison of two string handles by content (memcmp + length).
+/// Returns -1 if a < b, 0 if equal, 1 if a > b. Matches JS string ordering.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
+    if a == b {
+        return 0;
+    }
+    with_two_entries(a, b, |ea, eb| match (ea, eb) {
+        (Some(Entry::String(sa)), Some(Entry::String(sb))) => {
+            match sa.as_slice().cmp(sb.as_slice()) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            }
+        }
+        _ => 0,
+    })
+}
