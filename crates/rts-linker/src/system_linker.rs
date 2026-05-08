@@ -208,6 +208,16 @@ fn build_linker_args(
                 }
             }
 
+            // Abre group para resolver dependencias circulares entre
+            // objects (runtime_support.a) e libs FLTK passadas depois.
+            // Sem --start-group, refs em archive sao resolvidos so' no
+            // primeiro pass — libs depois ficam unresolved.
+            if linker.is_compiler_driver() {
+                args.push("-Wl,--start-group".to_string());
+            } else {
+                args.push("--start-group".to_string());
+            }
+
             for object_path in object_paths {
                 let is_archive =
                     object_path.extension().and_then(|e| e.to_str()) == Some("a");
@@ -249,12 +259,14 @@ fn build_linker_args(
                     args.push("-lstdc++".to_string());
                 }
                 // FLTK Linux deps: X11, GL, Pango, Cairo, fontconfig.
-                // Linkamos como --as-needed pra evitar deps em bins que
-                // nao usam FLTK (linker descarta libs nao referenciadas).
+                // Usa --no-as-needed para garantir linking mesmo quando
+                // objects que referenciam essas libs ja foram processados
+                // antes (--as-needed default do gcc/clang descarta libs
+                // sem refs *pendentes*, falhando em archive ordering).
                 if linker.is_compiler_driver() {
-                    args.push("-Wl,--as-needed".to_string());
+                    args.push("-Wl,--no-as-needed".to_string());
                 } else {
-                    args.push("--as-needed".to_string());
+                    args.push("--no-as-needed".to_string());
                 }
                 let fltk_libs = [
                     "-lX11", "-lXext", "-lXft", "-lXinerama", "-lXcursor",
@@ -267,11 +279,13 @@ fn build_linker_args(
                 for lib in fltk_libs {
                     args.push(lib.to_string());
                 }
-                if linker.is_compiler_driver() {
-                    args.push("-Wl,--no-as-needed".to_string());
-                } else {
-                    args.push("--no-as-needed".to_string());
-                }
+            }
+
+            // Fecha --start-group apos todas as libs.
+            if linker.is_compiler_driver() {
+                args.push("-Wl,--end-group".to_string());
+            } else {
+                args.push("--end-group".to_string());
             }
 
             if !keep_all_runtime_symbols {
