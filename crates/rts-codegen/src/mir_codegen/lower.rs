@@ -99,9 +99,11 @@ pub fn lower_mir_func_with_decls(
                     if func_ref_cache.contains_key(sym) {
                         continue;
                     }
-                    let mut ext_sig = Signature::new(
-                        if cfg!(windows) { CallConv::WindowsFastcall } else { CallConv::SystemV }
-                    );
+                    // Usa callconv default da plataforma — sem isso, macOS
+                    // arm64 (AppleAarch64) bate com SystemV hardcoded e o
+                    // module.declare_function falha com \"signature
+                    // incompatible with previous declaration\".
+                    let mut ext_sig = Signature::new(module.isa().default_call_conv());
                     for ty in param_tys {
                         ext_sig.params.push(AbiParam::new(hir_to_cl(ty)));
                     }
