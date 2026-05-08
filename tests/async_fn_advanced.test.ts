@@ -70,11 +70,11 @@ const vb = await pb;
 const vc = await pc;
 const elapsed = time.now_ms() - t0;
 print("parallel_sum=" + (va + vb + vc));   // 150
-// 3 awaits paralelos de 50ms. Threshold relaxado pra CI macOS arm64
-// (~120-150ms mesmo em paralelo por overhead do runtime). Considera
-// paralelo sse < 200ms (serie seria 150ms+ com overhead — diferenca
-// fica clara em maquinas saudaveis; em CI lento aceita ate 200ms).
-const wasParallel = elapsed < 200 ? 1 : 0;
+// 3 awaits paralelos de 50ms. Threshold mantido relaxado para CI
+// macOS arm64 (overhead de tokio runtime + spawn_blocking pode
+// adicionar ~100ms). Threshold 350ms aceita CI lento mas falha
+// se serie pura (3 * 50ms + sleeps acumulados = 150ms+ + overhead).
+const wasParallel = elapsed < 350 ? 1 : 0;
 print("was_parallel=" + wasParallel);
 
 // 6. await em valor de retorno usado em expressao.

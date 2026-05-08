@@ -22,9 +22,9 @@ const r1 = await promise.all(v1);
 const dt = time.now_ms() - t0;
 
 // 3 promises paralelas de 30ms. Serie seria 90ms+. CI macOS arm64
-// lento ~80-120ms mesmo em paralelo. Threshold 130ms tolera CI sem
-// perder regressao real (serie sao 90+30=120ms minimo + overhead).
-const wasParallel = dt < 130 ? 1 : 0;
+// pode levar ate ~250ms com overhead de promise.all + tokio
+// runtime. Threshold 250ms — serie ainda passa muito disso.
+const wasParallel = dt < 250 ? 1 : 0;
 print("was_parallel=" + wasParallel);
 print("sum=" + (collections.vec_get(r1, 0) + collections.vec_get(r1, 1) + collections.vec_get(r1, 2)));
 

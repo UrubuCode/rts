@@ -69,6 +69,9 @@ print("handle_value=" + sv);
 // Cenario: race entre threads — primeiro a settle vence.
 const race_p = promise.new_pending();
 
+// Diferenca de sleep grande pra dar margem em CI lento (macOS arm64
+// pode atrasar spawn de threads ~50ms). Antes 20ms vs 50ms (30ms gap)
+// nao era suficiente — racer2 chegava primeiro em CI as vezes.
 function racer1(p: i64): i64 {
   time.sleep_ms(20);
   promise.resolve(p, 100);
@@ -76,7 +79,7 @@ function racer1(p: i64): i64 {
 }
 
 function racer2(p: i64): i64 {
-  time.sleep_ms(50);
+  time.sleep_ms(200);
   promise.resolve(p, 200);
   return 0;
 }
