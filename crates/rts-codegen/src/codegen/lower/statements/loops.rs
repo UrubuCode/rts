@@ -176,7 +176,36 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
     };
 
     let iter_tv = lower_expr(ctx, &for_of.right)?;
-    let handle = ctx.coerce_to_i64(iter_tv).val;
+    let mut handle = ctx.coerce_to_i64(iter_tv).val;
+
+    // (#222) Map/Set iteracao via for-of:
+    // - Map: converte para Vec de [k,v] entries preservando insertion order
+    // - Set: usa as proprias keys do Map subjacente (Vec de keys)
+    // Detecta classe via local_class_ty[var_name] = "Map"|"Set".
+    let iter_class: Option<String> = if let swc_ecma_ast::Expr::Ident(id) = for_of.right.as_ref() {
+        ctx.local_class_ty.get(id.sym.as_str()).cloned()
+    } else {
+        None
+    };
+    if matches!(iter_class.as_deref(), Some("Map")) {
+        let entries_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(entries_fn, &[handle]);
+        handle = ctx.builder.inst_results(inst)[0];
+    } else if matches!(iter_class.as_deref(), Some("Set")) {
+        // Set internamente eh Map<key, 1> — keys preservam ordem.
+        let keys_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(keys_fn, &[handle]);
+        handle = ctx.builder.inst_results(inst)[0];
+    }
+
     let len_fref = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_LEN", &[cl::I64], Some(cl::I64))?;
     let inst = ctx.builder.ins().call(len_fref, &[handle]);
     let len = ctx.builder.inst_results(inst)[0];
@@ -277,7 +306,14 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                 _ => false,
             }
         }
-        let is_object_entries = is_object_entries_expr(for_of.right.as_ref(), ctx);
+        // (#222) Map iter via for-of: slot 0 eh Handle de key.
+        let is_map_iter = if let swc_ecma_ast::Expr::Ident(id) = for_of.right.as_ref() {
+            matches!(ctx.local_class_ty.get(id.sym.as_str()).map(|s| s.as_str()), Some("Map"))
+        } else {
+            false
+        };
+        let is_object_entries =
+            is_map_iter || is_object_entries_expr(for_of.right.as_ref(), ctx);
         for (idx, name_opt) in names.iter().enumerate() {
             let Some((name, ann_ty)) = name_opt else { continue };
             let idx_val = ctx.builder.ins().iconst(cl::I64, idx as i64);

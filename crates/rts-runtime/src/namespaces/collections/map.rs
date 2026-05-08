@@ -310,7 +310,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
 
 /// (#208 / #479) `Object.entries(obj)` — retorna Vec de Vec [key_handle, value].
 /// Cada par e' um Vec<i64> com 2 elementos: handle de string da key, e o
-/// valor i64. Ordem: keys sorted asc.
+/// valor i64. Ordem: keys sorted asc (Object.entries spec).
+///
+/// Para Map JS (que preserva ordem de insercao), use
+/// `__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION` que mantem
+/// IndexMap order.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
     let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
@@ -321,6 +325,36 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
             .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         entries
+    });
+    let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
+    for (k, v) in pairs {
+        let key_h = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            k.as_ptr(),
+            k.len() as i64,
+        );
+        let inner = crate::namespaces::gc::handles::alloc_entry(
+            crate::namespaces::gc::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
+        );
+        outer.push(inner as i64);
+    }
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::Vec(Box::new(outer)),
+    )
+}
+
+/// `Map.prototype.entries()` / iterador de Map JS — preserva ordem de
+/// insercao (IndexMap). Retorna Vec de Vec [key_handle, value].
+///
+/// Diferente de `MAP_ENTRIES` (que ordena por chave para Object.entries),
+/// esta variante preserva a ordem original — necessario para Map iter
+/// e `for (const [k, v] of m)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> u64 {
+    let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
+        m.iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .map(|(k, v)| (k.clone(), *v))
+            .collect()
     });
     let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
     for (k, v) in pairs {

@@ -716,7 +716,15 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
     // com object literal { size: 5 } cujo storage de campo eh I64.
     // Em top-level com globais I64 fixo, propriedade nao funciona
     // sem two-pass scan — usuario chama m.size() como method em v0.
-    if matches!(obj_tv.ty, ValTy::Handle) && receiver_class.is_none() {
+    // Map/Set sao codegen-only globals (nao em GLOBAL_CLASS_SPECS) entao
+    // receiver_class fica como "Map"/"Set" mas o dispatch de .size precisa
+    // ir pelo handle_len generico (igual handles sem class). Trata como
+    // None para esse fim.
+    let rc_for_size = match receiver_class.as_deref() {
+        Some("Map") | Some("Set") => None,
+        other => other,
+    };
+    if matches!(obj_tv.ty, ValTy::Handle) && rc_for_size.is_none() {
         if let MemberProp::Ident(id) = &m.prop {
             let key = id.sym.as_str();
             if (key == "size" || key == "length")

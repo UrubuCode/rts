@@ -999,6 +999,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_ASSIGN",
             map::__RTS_FN_NS_COLLECTIONS_MAP_ASSIGN
         );

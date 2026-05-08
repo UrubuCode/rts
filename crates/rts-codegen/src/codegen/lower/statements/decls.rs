@@ -292,6 +292,11 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             || crate::abi::global_class_lookup(&cn).is_some()
                         {
                             ctx.local_class_ty.insert(name.clone(), cn.clone());
+                        } else if cn == "Map" || cn == "Set" {
+                            // (#222) Map/Set nao estao em GLOBAL_CLASS_SPECS
+                            // (sao codegen-only via collections.map_*) mas
+                            // for-of precisa saber para usar MAP_ENTRIES_INSERTION.
+                            ctx.local_class_ty.insert(name.clone(), cn.clone());
                         } else if ctx.user_fns.contains_key(&cn) {
                             // (#proto-instance) Constructor function: `new Animal(...)` onde
                             // Animal eh user fn. Marca var como instance "ProtoInstance" pra
