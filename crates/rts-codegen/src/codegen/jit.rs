@@ -1808,6 +1808,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         // app
         add_fn!("__RTS_FN_NS_UI_APP_NEW", app::__RTS_FN_NS_UI_APP_NEW);
         add_fn!("__RTS_FN_NS_UI_APP_RUN", app::__RTS_FN_NS_UI_APP_RUN);
+        add_fn!("__RTS_FN_NS_UI_APP_WAIT", app::__RTS_FN_NS_UI_APP_WAIT);
+        add_fn!("__RTS_FN_NS_UI_APP_WAIT_FOR", app::__RTS_FN_NS_UI_APP_WAIT_FOR);
+        add_fn!("__RTS_FN_NS_UI_APP_AWAKE", app::__RTS_FN_NS_UI_APP_AWAKE);
         add_fn!("__RTS_FN_NS_UI_APP_FREE", app::__RTS_FN_NS_UI_APP_FREE);
         // window
         add_fn!(
