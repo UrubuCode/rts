@@ -1048,7 +1048,25 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
         }
         MemberProp::Computed(c) => {
             if let Expr::Lit(Lit::Str(s)) = c.expr.as_ref() {
-                return map_get_static(ctx, obj_handle, s.value.as_bytes());
+                // (#261) Computed key string literal: tenta inferir field_ty
+                // do mesmo caminho que MemberProp::Ident usaria — lookup
+                // em local_obj_field_types/global_obj_field_types pelo
+                // ident root quando \`m.obj\` eh Ident.
+                let key_bytes = s.value.as_bytes();
+                let key_str_owned = String::from_utf8_lossy(key_bytes).into_owned();
+                let mut field_ty: Option<ValTy> = None;
+                if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                    let n = obj_id.sym.as_str();
+                    if let Some(types) = ctx.local_obj_field_types.get(n) {
+                        field_ty = types.get(&key_str_owned).copied();
+                    }
+                    if field_ty.is_none() {
+                        if let Some(types) = ctx.global_obj_field_types.get(n) {
+                            field_ty = types.get(&key_str_owned).copied();
+                        }
+                    }
+                }
+                return map_get_static_typed(ctx, obj_handle, s.value.as_bytes(), field_ty);
             }
             let idx_tv = lower_expr(ctx, &c.expr)?;
             match idx_tv.ty {
