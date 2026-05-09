@@ -24,18 +24,31 @@ pub struct LinkOutcome {
     pub from_cache: bool,
 }
 
-/// Parses `input` and emits an object file next to it.
+/// Loads `input` as the entry of a module graph, flattens dependencies,
+/// and emits a single object file containing the entire program (entry +
+/// all imported user modules).
 pub fn compile_file(
     input: &Path,
     output_object: &Path,
     options: CompileOptions,
 ) -> Result<CompileOutcome> {
-    let source = std::fs::read_to_string(input)
-        .with_context(|| format!("failed to read {}", input.display()))?;
-    compile_source(&source, input, output_object, options)
+    let graph = crate::module::ModuleGraph::load(input, options)
+        .with_context(|| format!("failed to load module graph for {}", input.display()))?;
+    let mut program = graph.flatten_for_jit();
+
+    let (object, warnings) =
+        crate::codegen::compile_program_to_object(&mut program, output_object)?;
+
+    Ok(CompileOutcome {
+        input: input.to_path_buf(),
+        object,
+        warnings,
+    })
 }
 
-/// Parses an in-memory source and emits an object.
+/// Parses an in-memory source and emits an object. Bypasses the module
+/// resolver — relative imports inside `source` will fail the same way as
+/// `run_jit_inline`. Use `compile_file` when imports must be resolved.
 pub fn compile_source(
     source: &str,
     input: &Path,
