@@ -256,6 +256,12 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
 /// `new Function(...args, body)` — compila body em runtime via eval.
 /// Args: `params_handle` (string handle com nomes separados por virgula),
 /// `body_handle` (string handle com codigo do body).
+///
+/// Em AOT (cfg `rt_all_archive`), `eval_compile` nao pode ser linkado
+/// porque depende do compilador inteiro (parser + codegen) e o archive
+/// runtime nao pode ter ciclo com o compilador. Stubamos retornando 0
+/// (handle invalido) — `new Function("...")` falha em AOT por design.
+#[cfg(not(rt_all_archive))]
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64) -> u64 {
     let params_str = with_entry(params_handle, |e| {
@@ -304,6 +310,13 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         keep_alive: Some(compiled.keep_alive),
         prototype_handle: 0,
     })))
+}
+
+#[cfg(rt_all_archive)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(_params_handle: u64, _body_handle: u64) -> u64 {
+    eprintln!("new Function(...) nao suportado em AOT (compilacao em runtime exige o compilador)");
+    0
 }
 
 /// `fn.call(thisArg, argsVec)`. Args vem como Vec handle (codegen empacota).

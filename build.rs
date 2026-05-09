@@ -91,6 +91,10 @@ fn main() {
         "panic=abort",
         "-C",
         "embed-bitcode=no",
+        // (#617) Marker para ops que dependem do compilador (eval_compile,
+        // new Function) serem stubadas no archive AOT. JIT nao seta isto.
+        "--cfg",
+        "rt_all_archive",
         "-o",
         output.to_str().unwrap(),
         entry.to_str().unwrap(),
