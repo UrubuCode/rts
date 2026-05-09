@@ -681,7 +681,9 @@ pub(super) fn lower_console_call(
             Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
         );
         let tv = lower_expr(ctx, &arg.expr)?;
-        let needs_auto = matches!(tv.ty, ValTy::Handle) && !is_known_str;
+        // (#573) U64 tambem pode ser handle ambiguo (ex: JSON.parse retorno
+        // de '42' eh i64 raw com tipo U64). Auto-coerce decide em runtime.
+        let needs_auto = matches!(tv.ty, ValTy::Handle | ValTy::U64) && !is_known_str;
         let h = ctx.coerce_to_handle(tv)?.val;
         let h = if needs_auto {
             let inst = ctx.builder.ins().call(auto_coerce, &[h]);
