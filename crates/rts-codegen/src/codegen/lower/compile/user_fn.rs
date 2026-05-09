@@ -205,6 +205,45 @@ pub(crate) fn compile_user_fn(
             }
         }
 
+        // (#450) `arguments` em fn nao-arrow: detecta uso no body e injeta
+        // bind `arguments` como handle Vec contendo todos os parametros
+        // passados (na aridade declarada). Aridade dinamica (variadic) nao
+        // existe em RTS — todos args sao formais. Para fn arrow, nao injeta
+        // (arrows herdam arguments do enclosing).
+        let body_uses_arguments = fn_decl
+            .body
+            .iter()
+            .any(|s| {
+                let Statement::Raw(r) = s;
+                r.text.contains("arguments")
+            });
+        let is_arrow = fn_decl.name.starts_with("__hoisted_arrow_")
+            || fn_decl.name.starts_with("__lifted_arrow_");
+        if body_uses_arguments && !is_arrow {
+            // Aloca Vec<i64> com cada param (coerced a i64) — empacota todos
+            // como i64 raw. \`arguments.length\` retorna handle_len, suficiente
+            // pra caso comum. \`arguments[i]\` ainda nao tipado (caveat).
+            let vec_new = fn_ctx
+                .get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+            let inst = fn_ctx.builder.ins().call(vec_new, &[]);
+            let args_h = fn_ctx.builder.inst_results(inst)[0];
+            let vec_push = fn_ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                &[cl::I64, cl::I64],
+                None,
+            )?;
+            for param in fn_decl.parameters.iter() {
+                if param.name == "__rts_spawn_arg_f64" {
+                    continue;
+                }
+                if let Some(local) = fn_ctx.read_local(&param.name) {
+                    let v = fn_ctx.coerce_to_i64(local).val;
+                    fn_ctx.builder.ins().call(vec_push, &[args_h, v]);
+                }
+            }
+            fn_ctx.declare_local("arguments", ValTy::Handle, args_h);
+        }
+
         // (#301) Var hoisting: coletar todos os nomes `var x` no body
         // (incluindo nested em if/for/while/try mas ignorando function/
         // arrow/class boundaries) e pre-declarar como I64=0. Isso
