@@ -92,11 +92,19 @@ pub(crate) fn compile_main(
                     // Erros que sinalizam violação de contrato (abstract,
                     // readonly, private de outra classe) devem ser hard-fail
                     // — não fazem sentido como warning.
+                    // (#383) `undefined variable`, `unknown namespace member`,
+                    // `undeclared user function` tambem sao hard-fail: o
+                    // codigo nao compilaria em qualquer outro typed compiler,
+                    // e deixa-los como warning leva a segfault em runtime
+                    // quando o slot e' lido como fn ptr.
                     let msg = format!("{e}");
                     let is_hard = msg.contains("abstract")
                         || msg.contains("readonly")
                         || msg.contains("private")
-                        || msg.contains("protected");
+                        || msg.contains("protected")
+                        || msg.contains("undefined variable")
+                        || msg.contains("unknown namespace member")
+                        || msg.contains("undeclared user function");
                     if is_hard {
                         return Err(e);
                     }
