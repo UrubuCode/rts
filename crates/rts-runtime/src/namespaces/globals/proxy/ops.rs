@@ -34,6 +34,9 @@ unsafe extern "C" {
         key_ptr: *const u8,
         key_len: i64,
     ) -> i64;
+    fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64;
+    fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64;
+    fn __RTS_FN_GL_FUNCTION_APPLY(fn_h: u64, this_arg: i64, args_handle: u64) -> i64;
 }
 
 /// Construtor Proxy: aloca Entry::Proxy { target, handler }.
@@ -134,6 +137,77 @@ pub fn dispatch_delete(target: u64, handler: u64, key: &str) -> i64 {
     let args = build_args_vec(&[target as i64, key_h as i64]);
     let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, args) };
     if r != 0 { 1 } else { 0 }
+}
+
+/// Trap `ownKeys(target)`. Retorna handle Vec<i64> com handles de string
+/// das chaves. Sem trap, forward pra MAP_KEYS do target.
+pub fn dispatch_own_keys(target: u64, handler: u64) -> u64 {
+    let trap = lookup_trap(handler, "ownKeys");
+    if trap == 0 {
+        return unsafe { __RTS_FN_NS_COLLECTIONS_MAP_KEYS(target) };
+    }
+    let args = build_args_vec(&[target as i64]);
+    let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, args) };
+    // Trap deve retornar um Vec handle. Se nao for, devolve Vec vazio.
+    let h = r as u64;
+    let is_vec = with_entry(h, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec { h } else { alloc_entry(Entry::Vec(Box::new(Vec::new()))) }
+}
+
+/// Trap `getPrototypeOf(target)`. Retorna o handle do proto.
+pub fn dispatch_get_proto(target: u64, handler: u64) -> u64 {
+    let trap = lookup_trap(handler, "getPrototypeOf");
+    if trap == 0 {
+        return unsafe { __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(target) };
+    }
+    let args = build_args_vec(&[target as i64]);
+    let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, args) };
+    r as u64
+}
+
+/// Trap `apply(target, thisArg, argsArray)`. Quando target eh callable
+/// e o user faz `proxy(args)`, esse caminho redireciona pra trap.
+/// Sem trap, faz forward pra `Function.apply` no target.
+pub fn dispatch_apply(target: u64, handler: u64, this_arg: i64, args_handle: u64) -> i64 {
+    let trap = lookup_trap(handler, "apply");
+    if trap == 0 {
+        // Forward: invoca o target como Function.
+        return unsafe { __RTS_FN_GL_FUNCTION_APPLY(target, this_arg, args_handle) };
+    }
+    // Trap recebe (target, thisArg, argsArray) — empacota como Vec de 3 itens.
+    let trap_args = build_args_vec(&[target as i64, this_arg, args_handle as i64]);
+    unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, trap_args) }
+}
+
+/// Trap `construct(target, args, newTarget)`. v0 ignora newTarget.
+/// Sem trap, faz forward: aloca instancia (Map vazio) + apply target
+/// como construtor (mesma logica de Reflect.construct).
+pub fn dispatch_construct(target: u64, handler: u64, args_handle: u64) -> u64 {
+    let trap = lookup_trap(handler, "construct");
+    if trap == 0 {
+        // Forward: cria Map vazio + apply target com this=instancia.
+        let inst = alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new())));
+        let _ = unsafe { __RTS_FN_GL_FUNCTION_APPLY(target, inst as i64, args_handle) };
+        return inst;
+    }
+    let trap_args = build_args_vec(&[target as i64, args_handle as i64, target as i64]);
+    let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, trap_args) };
+    r as u64
+}
+
+/// Wrapper exposto pra codegen: `Reflect.construct(target, args)`. Quando
+/// target eh Proxy, dispara trap construct. Senao, faz o caminho default
+/// (alocar Map + apply). Mantido como fn separada do codegen pra evitar
+/// duplicar logica em cada call site.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -> u64 {
+    if let Some((real_target, handler)) = resolve_proxy(target) {
+        return dispatch_construct(real_target, handler, args_handle);
+    }
+    // Forward default: aloca instancia + apply.
+    let inst = alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new())));
+    let _ = unsafe { __RTS_FN_GL_FUNCTION_APPLY(target, inst as i64, args_handle) };
+    inst
 }
 
 #[cfg(test)]

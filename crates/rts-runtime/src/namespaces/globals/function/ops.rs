@@ -331,6 +331,17 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 /// `fn.call(thisArg, argsVec)`. Args vem como Vec handle (codegen empacota).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
+    // (#218 phase2) Proxy callable: redireciona pra trap apply ou forward.
+    if let Some((target, handler)) =
+        crate::namespaces::globals::proxy::ops::resolve_proxy(handle)
+    {
+        return crate::namespaces::globals::proxy::ops::dispatch_apply(
+            target,
+            handler,
+            this_arg,
+            args_handle,
+        );
+    }
     let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind) =
         match read_function_data(handle) {
             Some(d) => d,
@@ -508,6 +519,18 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(
     this_arg: i64,
     args_handle: u64,
 ) -> i64 {
+    // (#218 phase2) Proxy callable: se callee for Entry::Proxy, despacha
+    // pra trap `apply` ou faz forward chamando o target via Function.apply.
+    if let Some((target, handler)) =
+        crate::namespaces::globals::proxy::ops::resolve_proxy(callee as u64)
+    {
+        return crate::namespaces::globals::proxy::ops::dispatch_apply(
+            target,
+            handler,
+            this_arg,
+            args_handle,
+        );
+    }
     // Tenta como handle Function primeiro.
     if let Some((fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind)) =
         read_function_data(callee as u64)
