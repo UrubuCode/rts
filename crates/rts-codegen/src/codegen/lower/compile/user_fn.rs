@@ -187,6 +187,22 @@ pub(crate) fn compile_user_fn(
                 .map(ValTy::from_annotation)
                 .unwrap_or(ValTy::I64);
             fn_ctx.declare_local(&param.name, ty, block_param);
+
+            // (#592) Param tipado `Cls[]` registra local_array_class_ty
+            // pra que arr[i].field saiba o tipo do field na classe.
+            if let Some(ann) = param.type_annotation.as_deref() {
+                // ValTy::from_annotation aceita string; tentamos casar
+                // padrao "Cls[]" simples por substring (sem TS AST aqui).
+                if let Some(stripped) = ann.strip_suffix("[]") {
+                    let cn = stripped.trim();
+                    if fn_ctx.classes.contains_key(cn) {
+                        fn_ctx.local_array_class_ty.insert(
+                            param.name.clone(),
+                            cn.to_string(),
+                        );
+                    }
+                }
+            }
         }
 
         // (#301) Var hoisting: coletar todos os nomes `var x` no body

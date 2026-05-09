@@ -234,12 +234,17 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             }
             // (#592) `const u = users[i]` onde users tem
             // local_array_obj_field_types registrado — propaga os tipos.
+            // Idem para users: User[] (local_array_class_ty) — bind herda
+            // a classe para que u.field saiba o tipo certo.
             if let swc_ecma_ast::Expr::Member(m) = init.as_ref() {
                 if matches!(&m.prop, swc_ecma_ast::MemberProp::Computed(_)) {
                     if let swc_ecma_ast::Expr::Ident(arr_id) = m.obj.as_ref() {
                         let arr_name = arr_id.sym.as_str();
                         if let Some(types) = ctx.local_array_obj_field_types.get(arr_name).cloned() {
                             ctx.local_obj_field_types.insert(name.clone(), types);
+                        }
+                        if let Some(elem_cls) = ctx.local_array_class_ty.get(arr_name).cloned() {
+                            ctx.local_class_ty.insert(name.clone(), elem_cls);
                         }
                     }
                 }
