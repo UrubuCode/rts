@@ -1295,8 +1295,10 @@ pub(super) fn map_get_static_typed(
         v
     };
     let (gkptr, gklen) = ctx.emit_str_literal(&getter_key)?;
+    // (#218) usa MAP_GET_DIRECT para nao acionar trap Proxy — sentinel
+    // `__get_<key>` so' existe em Map normal.
     let plain_get_fn = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT",
         &[cl::I64, cl::I64, cl::I64],
         Some(cl::I64),
     )?;

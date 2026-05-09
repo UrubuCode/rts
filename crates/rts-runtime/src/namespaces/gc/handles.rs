@@ -150,6 +150,12 @@ pub enum Entry {
     WeakMap(Box<std::collections::HashMap<u64, i64>>),
     /// WeakSet (#217 v0). v0 comporta como Set forte sem coleta automatica.
     WeakSet(Box<std::collections::HashSet<u64>>),
+    /// Proxy (#218). `target` e' o objeto subjacente, `handler` e' um Map
+    /// com traps `get`, `set`, `has`, `deleteProperty` (handles de Function
+    /// reificadas). Quando ausente, MAP_GET_CHAIN/MAP_SET/etc fazem fallback
+    /// direto pra target. Acesso transparente a Maps padrao via dispatch
+    /// em `is_proxy(handle)`.
+    Proxy { target: u64, handler: u64 },
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

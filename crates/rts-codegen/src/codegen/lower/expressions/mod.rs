@@ -184,8 +184,9 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                             v
                         };
                         let (kptr, klen) = ctx.emit_str_literal(&setter_key)?;
+                        // (#218) MAP_GET_DIRECT nao aciona trap Proxy.
                         let plain_get = ctx.get_extern(
-                            "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+                            "__RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT",
                             &[cl::I64, cl::I64, cl::I64],
                             Some(cl::I64),
                         )?;
