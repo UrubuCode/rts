@@ -15,6 +15,17 @@ pub struct Program {
     ///
     /// Populated by `ModuleGraph::flatten_for_jit` before import stripping.
     pub node_import_map: HashMap<String, String>,
+    /// Maps local alias → original name for user-module imports.
+    ///
+    /// `import { add as plus } from "./lib"` → `"plus"` → `"add"`.
+    ///
+    /// Codegen resolve identifiers by checking this map first; if `plus`
+    /// is here, it loads the function/const named `add` instead. Keeps
+    /// the flatten step cheap (no AST rename pass).
+    ///
+    /// Populated by `ModuleGraph::flatten_for_jit` and by single-file
+    /// AOT scan in `compile_program`.
+    pub local_alias_map: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,10 +37,28 @@ pub enum Item {
     Statement(Statement),
 }
 
+/// Um specifier `import { orig as local }`. Quando nao ha alias,
+/// `orig == local`.
+#[derive(Debug, Clone)]
+pub struct ImportName {
+    /// Nome no modulo source (o que o source `export` declara).
+    pub orig: String,
+    /// Nome local no modulo importador (binding visivel no escopo).
+    pub local: String,
+}
+
+impl ImportName {
+    /// Constroi um ImportName sem alias (orig == local). Usado pelo lowering
+    /// quando o specifier nao tem `as`.
+    pub fn plain(name: String) -> Self {
+        Self { orig: name.clone(), local: name }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ImportDecl {
-    /// Named imports: `import { foo, bar } from "…"`
-    pub names: Vec<String>,
+    /// Named imports: `import { foo, bar as baz } from "…"`
+    pub names: Vec<ImportName>,
     /// Default import local name: `import io from "…"`
     pub default_name: Option<String>,
     pub from: String,

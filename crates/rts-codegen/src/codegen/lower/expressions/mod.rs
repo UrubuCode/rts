@@ -77,6 +77,15 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
 }
 
 fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
+    // Alias de import (`import { add as plus } from "./lib"` -> plus->add):
+    // se o ident e' um alias local, troca pelo nome original do source antes
+    // de qualquer lookup. Apenas quando NAO ha local sombreando o alias,
+    // pra preservar a ordem natural de scope (locals > imports).
+    if ctx.read_local(name).is_none() {
+        if let Some(orig) = ctx.local_alias_map.get(name).cloned() {
+            return lower_ident_expr(ctx, &orig);
+        }
+    }
     if let Some(tv) = ctx.read_local(name) {
         return Ok(tv);
     }

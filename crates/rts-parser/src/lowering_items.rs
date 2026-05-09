@@ -44,16 +44,25 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
                 for spec in &export_named.specifiers {
                     match spec {
                         ExportSpecifier::Named(n) => {
-                            // \`export { foo } from "./mod"\` — orig=foo, exported=None
-                            // \`export { foo as bar } from "./mod"\` — orig=foo, exported=bar
-                            // Importamos o orig (nome no modulo source); o alias
-                            // \`exported\` so e' relevante pra modulos que importam
-                            // este — sem suporte completo a aliasing ainda.
-                            let name = module_export_name(&n.orig);
-                            names.push(name);
+                            // `export { orig } from "./mod"`         — local == orig
+                            // `export { orig as exported } from "./mod"` — local == exported
+                            //
+                            // O alias `exported` afeta o nome visivel no consumidor
+                            // (este modulo). No nivel do Item::Import emitido aqui,
+                            // queremos que o binding local desse modulo seja
+                            // `exported` (ou `orig` se nao houver alias) — assim
+                            // outros que importarem deste modulo encontram o nome
+                            // certo.
+                            let orig = module_export_name(&n.orig);
+                            let local = n
+                                .exported
+                                .as_ref()
+                                .map(module_export_name)
+                                .unwrap_or_else(|| orig.clone());
+                            names.push(ImportName { orig, local });
                         }
                         ExportSpecifier::Namespace(_) | ExportSpecifier::Default(_) => {
-                            // \`export * as foo\` e \`export foo\` from src — follow-up.
+                            // `export * as foo` e `export foo` from src — follow-up #618.
                         }
                     }
                 }
@@ -308,12 +317,16 @@ fn lower_import_decl(cm: &Lrc<SourceMap>, import_decl: &SwcImportDecl) -> Import
     for specifier in &import_decl.specifiers {
         match specifier {
             ImportSpecifier::Named(named) => {
-                let name = if let Some(imported) = &named.imported {
-                    module_export_name(imported)
-                } else {
-                    named.local.sym.to_string()
-                };
-                names.push(name);
+                // SWC: `imported` carrega o nome no source quando ha alias
+                // (`import { orig as local }`); ausente quando nao ha
+                // (`import { name }`, em que orig == local == name).
+                let local = named.local.sym.to_string();
+                let orig = named
+                    .imported
+                    .as_ref()
+                    .map(module_export_name)
+                    .unwrap_or_else(|| local.clone());
+                names.push(ImportName { orig, local });
             }
             ImportSpecifier::Default(def) => {
                 default_name = Some(def.local.sym.to_string());

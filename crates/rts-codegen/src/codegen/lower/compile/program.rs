@@ -87,11 +87,13 @@ pub fn compile_program(
     for item in &program.items {
         if let Item::Import(decl) = item {
             if let Some(prefix) = crate::nodespace::ns_prefix_for(&decl.from) {
-                for name in &decl.names {
+                for spec in &decl.names {
+                    // Mapeia binding local -> simbolo do nodespace (uso `orig`
+                    // pra resolver no source; `local` eh o que o user digita).
                     program
                         .node_import_map
-                        .entry(name.clone())
-                        .or_insert_with(|| format!("{prefix}.{name}"));
+                        .entry(spec.local.clone())
+                        .or_insert_with(|| format!("{prefix}.{}", spec.orig));
                 }
                 if let Some(default_name) = &decl.default_name {
                     program
@@ -99,10 +101,21 @@ pub fn compile_program(
                         .entry(default_name.clone())
                         .or_insert_with(|| prefix.to_string());
                 }
+            } else {
+                // Aliases de imports user-module: registra apenas local != orig.
+                for spec in &decl.names {
+                    if spec.local != spec.orig {
+                        program
+                            .local_alias_map
+                            .entry(spec.local.clone())
+                            .or_insert_with(|| spec.orig.clone());
+                    }
+                }
             }
         }
     }
     let node_import_map = std::mem::take(&mut program.node_import_map);
+    let local_alias_map = std::mem::take(&mut program.local_alias_map);
 
     let mut warnings = Vec::new();
 
@@ -447,6 +460,7 @@ pub fn compile_program(
             &global_nested_obj_field_types,
             &fn_class_returns,
             &node_import_map,
+            &local_alias_map,
             fn_decl,
             info,
             owner_class,
@@ -493,6 +507,7 @@ pub fn compile_program(
         &global_nested_obj_field_types,
         &fn_class_returns,
         &node_import_map,
+        &local_alias_map,
         &top_stmts,
         &mut warnings,
     )

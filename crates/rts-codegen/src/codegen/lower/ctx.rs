@@ -413,6 +413,13 @@ pub struct FnCtx<'m, 'fb> {
     /// Sourced from `Program::node_import_map`. See `nodespace::mod` for encoding.
     pub node_import_map: &'fb HashMap<String, String>,
 
+    /// Maps local alias → original name for user-module imports
+    /// (`import { add as plus } from "./lib"` → `"plus" -> "add"`).
+    /// Codegen consults this before resolving identifiers; if a name is here,
+    /// it dereferences to the underlying source name. Sourced from
+    /// `Program::local_alias_map`.
+    pub local_alias_map: &'fb HashMap<String, String>,
+
     /// Cache de DataId pra simbolos de data global declarados via
     /// declare_data. Evita declarar duas vezes o mesmo simbolo —
     /// cada declare_data cria um novo gv distinto que Cranelift nao
@@ -520,6 +527,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         >,
         fn_class_returns: &'fb HashMap<String, String>,
         node_import_map: &'fb HashMap<String, String>,
+        local_alias_map: &'fb HashMap<String, String>,
         module_scope: bool,
     ) -> Self {
         Self {
@@ -554,6 +562,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             pending_label: None,
             warnings: Vec::new(),
             node_import_map,
+            local_alias_map,
             data_cache: HashMap::new(),
             gv_cache: HashMap::new(),
             gv_data_cache: HashMap::new(),
@@ -821,6 +830,21 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     /// se vai usar (ex: branchless if-to-select).
     pub fn read_local_info(&self, name: &str) -> Option<LocalVar> {
         self.find_local(name)
+    }
+
+    /// Resolve um identificador atraves do alias map de imports user-module.
+    /// `import { x as y } from "./m"` registra `y -> x`. Quando codegen
+    /// procura `y` em algum lookup top-level (user_fns/globals/classes),
+    /// esta funcao retorna `x` se nao houver local `y` mascarando o alias.
+    /// Em scope plano (locals first), o local sempre vence.
+    pub fn resolve_alias<'a>(&'a self, name: &'a str) -> &'a str {
+        if self.find_local(name).is_some() {
+            return name;
+        }
+        match self.local_alias_map.get(name) {
+            Some(orig) => orig.as_str(),
+            None => name,
+        }
     }
 
     fn find_local(&self, name: &str) -> Option<LocalVar> {
