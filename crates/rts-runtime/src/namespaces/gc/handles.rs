@@ -454,13 +454,18 @@ impl HandleTable {
     }
 
     /// Mark a handle as reachable (GC root). No-op for invalid/freed handles.
-    /// Returns Some(prototype_handle) quando a entry eh Function com prototype
-    /// alocado — caller (mark_handle global) propaga marca transitiva para
-    /// o Map de prototype, evitando que sweep colete o Map enquanto a
-    /// Function viva continua referenciando.
-    pub fn mark(&mut self, handle: u64) -> Option<u64> {
-        let Some((expected_gen, _, table_slot)) = decode(handle) else { return None };
-        let Some(slot) = self.slots.get_mut(table_slot as usize) else { return None };
+    /// Returns Vec<u64> com handles filhos para o caller propagar marca
+    /// transitivamente. Cobre:
+    /// - Function.prototype_handle (#264) + bound_this + bound_args
+    /// - Map.values() (#398) — slot eh i64 raw OU handle dependendo do uso
+    /// - Vec.elements (#398) — idem
+    /// - Proxy { target, handler } (#218)
+    /// Slots i64 raw em Map/Vec sao incluidos no worklist; mark_handle
+    /// global filtra os que decodificam pra slot valido (handles reais).
+    pub fn mark(&mut self, handle: u64) -> Vec<u64> {
+        let mut children: Vec<u64> = Vec::new();
+        let Some((expected_gen, _, table_slot)) = decode(handle) else { return children };
+        let Some(slot) = self.slots.get_mut(table_slot as usize) else { return children };
         if slot.generation == expected_gen && !matches!(slot.entry, Entry::Free) {
             if super::debug::is_enabled()
                 && matches!(slot.entry, Entry::TcpListener(_) | Entry::TcpStream(_))
@@ -468,14 +473,51 @@ impl HandleTable {
                 eprintln!("[gc] MARK handle={handle:#x} slot={table_slot} kind=Tcp*");
             }
             slot.marked = true;
-            // (#264) Tracing transitivo minimo: prototype Map de Function.
-            if let Entry::Function(d) = &slot.entry {
-                if d.prototype_handle != 0 {
-                    return Some(d.prototype_handle);
+            match &slot.entry {
+                // (#264) Function: prototype + bound_this + bound_args.
+                Entry::Function(d) => {
+                    if d.prototype_handle != 0 {
+                        children.push(d.prototype_handle);
+                    }
+                    if d.has_bound_this && d.bound_this != 0 {
+                        children.push(d.bound_this as u64);
+                    }
+                    for v in &d.bound_args {
+                        if *v != 0 {
+                            children.push(*v as u64);
+                        }
+                    }
                 }
+                // (#398) Map values podem ser handles (string/map/vec/etc).
+                Entry::Map(m) => {
+                    for v in m.values() {
+                        if *v != 0 {
+                            children.push(*v as u64);
+                        }
+                    }
+                }
+                // (#398) Vec elements idem.
+                Entry::Vec(v) => {
+                    for h in v.iter() {
+                        if *h != 0 {
+                            children.push(*h as u64);
+                        }
+                    }
+                }
+                // (#218) Proxy: target + handler vivos enquanto proxy
+                // estiver vivo.
+                Entry::Proxy { target, handler } => {
+                    if *target != 0 {
+                        children.push(*target);
+                    }
+                    if *handler != 0 {
+                        children.push(*handler);
+                    }
+                }
+                _ => {}
             }
         }
-        None
+        children
     }
 
     /// Sweep: free all unmarked live entries, then reset all mark bits.
@@ -606,25 +648,27 @@ pub fn alloc_entry(entry: Entry) -> u64 {
 }
 
 /// Mark a handle as reachable in the current GC cycle.
-/// Propaga marca transitivamente para handles internos relevantes
-/// (ex: Function.prototype_handle, ver #264).
+/// Propaga marca transitivamente para handles internos:
+/// - Function.prototype_handle/bound_this/bound_args (#264)
+/// - Map values, Vec elements (#398)
+/// - Proxy.target / Proxy.handler (#218)
 pub fn mark_handle(handle: u64) {
     let mut worklist = vec![handle];
-    let mut depth = 0u32;
+    let mut steps = 0u32;
     while let Some(h) = worklist.pop() {
         if h == 0 {
             continue;
         }
         // Guard contra ciclos pathologicos (limite generoso).
-        depth += 1;
-        if depth > 10_000 {
+        steps += 1;
+        if steps > 1_000_000 {
             break;
         }
-        let transitive = shard_for_handle(h)
+        let children = shard_for_handle(h)
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .mark(h);
-        if let Some(child) = transitive {
+        for child in children {
             worklist.push(child);
         }
     }
