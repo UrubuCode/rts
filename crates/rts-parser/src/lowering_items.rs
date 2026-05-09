@@ -256,7 +256,16 @@ fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec
                         }
                     }
                 }
-                pending.push(lower_function(cm, &name, &synthetic, arrow.span));
+                let mut decl = lower_function(cm, &name, &synthetic, arrow.span);
+                // (#450 follow-up) Se a fn ainda nao tem return_type
+                // declarado mas o body tem `return <expr>`, usa heuristica
+                // i64 (mesmo padrao de hoist_fn). Sem isto, arrow expression
+                // body `(a,b) => a+b` virava fn void e o codegen descartava
+                // o valor de retorno.
+                if decl.return_type.is_none() && body_has_return_value(&decl.body) {
+                    decl.return_type = Some("i64".to_string());
+                }
+                pending.push(decl);
             }
             _ => return false,
         }
@@ -292,6 +301,50 @@ fn extract_fn_return_type_ann(ts_type: &swc_ecma_ast::TsType) -> Option<Box<swc_
 /// For expression-bodied arrows (`(x) => x * 2`) the single expression is
 /// wrapped in a synthetic `{ return <expr>; }` so downstream codegen only
 /// needs to know how to handle block-bodied functions.
+/// (#450) Checa se algum stmt do body lower'ed contem return com valor.
+/// Usado pra inferir return_type quando arrow nao tem anotacao explicita.
+fn body_has_return_value(body: &[rts_ast::ast::Statement]) -> bool {
+    use rts_ast::ast::Statement;
+    for stmt in body {
+        let Statement::Raw(raw) = stmt;
+        let Some(s) = raw.stmt.as_ref() else { continue };
+        if stmt_has_return_value(s) {
+            return true;
+        }
+    }
+    false
+}
+
+fn stmt_has_return_value(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(r) => r.arg.is_some(),
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_return_value),
+        Stmt::If(i) => {
+            stmt_has_return_value(&i.cons)
+                || i.alt.as_deref().is_some_and(stmt_has_return_value)
+        }
+        Stmt::While(w) => stmt_has_return_value(&w.body),
+        Stmt::DoWhile(d) => stmt_has_return_value(&d.body),
+        Stmt::For(f) => stmt_has_return_value(&f.body),
+        Stmt::ForOf(f) => stmt_has_return_value(&f.body),
+        Stmt::ForIn(f) => stmt_has_return_value(&f.body),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().any(stmt_has_return_value)
+                || t.handler
+                    .as_ref()
+                    .is_some_and(|h| h.body.stmts.iter().any(stmt_has_return_value))
+                || t.finalizer
+                    .as_ref()
+                    .is_some_and(|f| f.stmts.iter().any(stmt_has_return_value))
+        }
+        Stmt::Switch(sw) => sw
+            .cases
+            .iter()
+            .any(|c| c.cons.iter().any(stmt_has_return_value)),
+        _ => false,
+    }
+}
+
 fn arrow_to_function(arrow: &ArrowExpr) -> SwcFunction {
     let body = match &*arrow.body {
         swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => Some(block.clone()),
