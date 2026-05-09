@@ -484,6 +484,12 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
     }
 
+    // ── namespaces::globals::proxy (#218 phase 1) ────────────────────
+    {
+        use crate::namespaces::globals::proxy::ops::*;
+        add_fn!("__RTS_FN_GL_PROXY_NEW", __RTS_FN_GL_PROXY_NEW);
+    }
+
     // ── namespaces::globals::text_encoding ───────────────────────────
     use crate::namespaces::globals::text_encoding::instance::*;
     add_fn!("__RTS_FN_GL_TEXTENC_ENCODE", __RTS_FN_GL_TEXTENC_ENCODE);
@@ -962,6 +968,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_GET",
             map::__RTS_FN_NS_COLLECTIONS_MAP_GET
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT
         );
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN",

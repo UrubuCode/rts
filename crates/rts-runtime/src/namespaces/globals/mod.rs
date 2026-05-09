@@ -13,6 +13,7 @@ pub mod function;
 pub mod global_this;
 pub mod json;
 pub mod performance;
+pub mod proxy;
 pub mod reflect;
 pub mod regexp;
 pub mod string;

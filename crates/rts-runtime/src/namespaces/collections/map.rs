@@ -84,6 +84,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
+    // (#218) Proxy: trap `has(target, prop)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, key);
+    }
     with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
 }
 
@@ -91,6 +95,26 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
 /// (0 tambem e valor valido — use map_has para distinguir.)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(
+    handle: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> i64 {
+    let Some(key) = str_from_abi(key_ptr, key_len) else {
+        return 0;
+    };
+    // (#218) Proxy: dispatch get trap quando handle eh Proxy.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
+    }
+    with_map(handle, 0, |m| m.get(key).copied().unwrap_or(0))
+}
+
+/// Variante "direto" do map_get: NAO faz dispatch de Proxy. Usado pelos
+/// caminhos do codegen que precisam de lookup raw — ex: getter sentinel
+/// `__get_<key>` que so' faz sentido em Map normal e crasharia em Proxy
+/// se o trap retornasse um valor nao-zero (interpretado como fn handle).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT(
     handle: u64,
     key_ptr: *const u8,
     key_len: i64,
@@ -147,6 +171,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
+    // (#218) Proxy: se handle for Entry::Proxy, dispara trap `get` no handler
+    // ou faz forward para target. Trap recebe (target, key_handle).
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
+    }
     let key_owned = key.to_string();
     let mut current = handle;
     let mut depth = 0u32;
@@ -177,6 +206,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return;
     };
+    // (#218) Proxy: trap `set(target, prop, value)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        crate::namespaces::globals::proxy::ops::dispatch_set(target, handler, key, value);
+        return;
+    }
     // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.
     if is_map_frozen(handle) {
         return;
@@ -201,6 +235,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
+    // (#218) Proxy: trap `deleteProperty(target, prop)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, key);
+    }
     // sealed/frozen impedem delete.
     if is_map_sealed(handle) {
         return 0;
