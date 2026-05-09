@@ -306,6 +306,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(handle: u64, idx: i64) -> u
 /// keys. Ordem: sorted asc (mesmo criterio de KEY_AT).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
+    // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
+    }
     let keys: Vec<String> = with_map(handle, Vec::new(), |m| {
         // (#208) Filtra `__proto__` — JS spec: Object.keys retorna so
         // own enumeravel, e __proto__ nao deve aparecer em iteracao.
@@ -429,6 +433,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -
 /// Object.keys auto: se handle e' Map retorna keys; se Vec retorna ["0","1",...].
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
+    // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
+    }
     let result: Vec<i64> = with_entry(handle, |e| match e {
         Some(Entry::Map(m)) => {
             m.keys()
@@ -502,6 +510,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
 /// (#208) `Object.getPrototypeOf(obj)` — retorna handle de `__proto__` ou 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
+    // (#218 phase2) Proxy: trap `getPrototypeOf` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_get_proto(target, handler);
+    }
     let proto: i64 = with_map(handle, 0, |m| m.get("__proto__").copied().unwrap_or(0));
     proto as u64
 }

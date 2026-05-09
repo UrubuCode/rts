@@ -852,23 +852,17 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let target_h = ctx.coerce_to_i64(target_tv).val;
                         let args_tv = lower_expr(ctx, &call.args[1].expr)?;
                         let args_h = ctx.coerce_to_i64(args_tv).val;
-                        // Cria Map vazio para servir como instancia.
-                        let inst_fn = ctx.get_extern(
-                            "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
-                            &[],
-                            Some(cl::I64),
-                        )?;
-                        let inst_call = ctx.builder.ins().call(inst_fn, &[]);
-                        let inst_h = ctx.builder.inst_results(inst_call)[0];
-                        // Chama target.apply(inst, args) — como construtor.
+                        // (#218 phase2) Wrapper detecta Proxy e dispara trap;
+                        // senao, faz alocacao+apply como antes. Centraliza
+                        // pra evitar dois caminhos divergindo.
                         let f = ctx.get_extern(
-                            "__RTS_FN_GL_FUNCTION_APPLY",
-                            &[cl::I64, cl::I64, cl::I64],
+                            "__RTS_FN_GL_REFLECT_CONSTRUCT",
+                            &[cl::I64, cl::I64],
                             Some(cl::I64),
                         )?;
-                        ctx.builder.ins().call(f, &[target_h, inst_h, args_h]);
-                        // Retorna a instancia construida.
-                        return Ok(TypedVal::new(inst_h, ValTy::Handle));
+                        let inst = ctx.builder.ins().call(f, &[target_h, args_h]);
+                        let h = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(h, ValTy::Handle));
                     }
                     // (#218) Reflect.getOwnPropertyDescriptor(obj, key) — v0:
                     // retorna { value, writable: true, enumerable: true,
