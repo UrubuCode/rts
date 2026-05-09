@@ -28,7 +28,15 @@ narrow storage real.
 - [Epic #226 — paridade JS/TS](js-parity-epic-226.md) — Lote PRs
   #483-#547: ~60 APIs JS adicionadas (Array/Object/Math/String/Symbol/
   URL/Date/Boolean/parseInt/destructuring), bugs corrigidos no caminho,
-  tabela de issues abertas pesadas. Suite: 457/464 (98.5%).
+  tabela de issues abertas pesadas. Suite: **977/977 (100%)** apos lotes
+  recentes (sessao 2026-05-09): module system completo (#213/#618/#619),
+  Reflect API + Proxy completo com 13 traps (#218), divisao JS spec (#584),
+  hard-fail em ident desconhecido (#383), arguments.length (#450), e mais.
+- [Reflect + Proxy](reflect-proxy.md) — API Reflect (13 metodos) + Proxy
+  com todas as 13 traps. Design: handle Entry::Proxy { target, handler }
+  com hooks em MAP_GET_CHAIN/MAP_SET/INVOKE_AUTO/etc. Forward automatico
+  ao target quando trap ausente. Limitacoes documentadas (mutable closure
+  em trap, k:any nao reusavel em Reflect.* dentro do trap).
 - [async / Promise / Function](async-promise-function.md) — Subsistema
   unificado de async/await, Promise<T>, e Function class. Pipeline do
   desugar `expand_async_functions` (`async fn` → `promise.create`),
