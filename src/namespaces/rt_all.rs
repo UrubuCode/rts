@@ -86,11 +86,17 @@ pub mod globals_regexp;
 pub mod globals_error;
 #[path = "globals/events/rt.rs"]
 pub mod globals_events;
+// (#617) Function class — `__RTS_FN_RT_INVOKE_AUTO` e amigos. Sem isso,
+// nenhuma classe user linka em AOT (codegen emite call indireto via Function
+// trampolim).
+#[path = "globals/function/ops.rs"]
+pub mod globals_function;
 
 // rt_all.rs is compiled as a standalone crate by build.rs. Some namespace
 // modules reference `crate::namespaces::...`, so we expose a compatibility
 // shim with the subset they need in runtime_support.
 pub mod namespaces {
+    pub use crate::collections;
     pub use crate::date;
     pub use crate::gc;
     pub use crate::regex;

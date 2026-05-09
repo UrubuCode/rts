@@ -5,4 +5,5 @@ pub mod handles;
 pub mod instance;
 pub mod stack;
 pub mod string_pool;
+pub mod this_slot;
 pub mod thread_registry;
