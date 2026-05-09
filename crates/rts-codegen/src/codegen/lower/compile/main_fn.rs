@@ -31,6 +31,7 @@ pub(crate) fn compile_main(
     global_nested_obj_field_types: &HashMap<(String, String), HashMap<String, ValTy>>,
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
+    local_alias_map: &HashMap<String, String>,
     stmts: &[&Stmt],
     warnings: &mut Vec<String>,
 ) -> Result<()> {
@@ -64,6 +65,7 @@ pub(crate) fn compile_main(
             global_nested_obj_field_types,
             fn_class_returns,
             node_import_map,
+            local_alias_map,
             true,
         );
 

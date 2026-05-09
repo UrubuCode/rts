@@ -399,15 +399,27 @@ impl ModuleGraph {
                 if let Item::Import(decl) = item {
                     // Collect node: import bindings before stripping.
                     if let Some(prefix) = crate::nodespace::ns_prefix_for(&decl.from) {
-                        for name in &decl.names {
+                        for spec in &decl.names {
+                            // Bind o nome local -> simbolo do nodespace (orig).
                             merged
                                 .node_import_map
-                                .insert(name.clone(), format!("{prefix}.{name}"));
+                                .insert(spec.local.clone(), format!("{prefix}.{}", spec.orig));
                         }
                         if let Some(default_name) = &decl.default_name {
                             merged
                                 .node_import_map
                                 .insert(default_name.clone(), prefix.to_string());
+                        }
+                    } else {
+                        // User-module import: registra apenas aliases reais
+                        // (local != orig). Sem alias, o nome ja' eh' visivel
+                        // no scope plano apos concat dos items.
+                        for spec in &decl.names {
+                            if spec.local != spec.orig {
+                                merged
+                                    .local_alias_map
+                                    .insert(spec.local.clone(), spec.orig.clone());
+                            }
                         }
                     }
                     continue;

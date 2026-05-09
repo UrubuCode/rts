@@ -154,7 +154,10 @@ fn check_import(
         bail!("unknown module import: {}", import_decl.from);
     };
 
-    for symbol in &import_decl.names {
+    for spec in &import_decl.names {
+        // Verificacao de export e' contra `orig` (nome no modulo source);
+        // o alias `local` so' importa pra binding no consumidor.
+        let symbol = &spec.orig;
         if !exports.contains(symbol) {
             let suggestion = suggest_similar(symbol, exports);
             let mut diag = RichDiagnostic::error(

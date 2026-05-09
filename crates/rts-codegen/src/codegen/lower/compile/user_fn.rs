@@ -34,6 +34,7 @@ pub(crate) fn compile_user_fn(
     global_nested_obj_field_types: &HashMap<(String, String), HashMap<String, ValTy>>,
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
+    local_alias_map: &HashMap<String, String>,
     fn_decl: &FunctionDecl,
     info: &UserFn,
     current_class: Option<String>,
@@ -118,6 +119,7 @@ pub(crate) fn compile_user_fn(
             global_nested_obj_field_types,
             fn_class_returns,
             node_import_map,
+            local_alias_map,
             false,
         );
         fn_ctx.return_ty = info.ret;

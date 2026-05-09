@@ -1100,13 +1100,16 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return lower_node_ns_call(ctx, &qualified, call);
                 }
             }
-            if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
-                return lower_user_call(ctx, name, call);
+            // Resolve alias antes de lookup user_fns: `plus(...)` quando
+            // `import { add as plus }` foi registrado redireciona pra `add`.
+            let resolved = ctx.resolve_alias(name).to_string();
+            if ctx.user_fns.contains_key(resolved.as_str()) && ctx.var_ty(name).is_none() {
+                return lower_user_call(ctx, &resolved, call);
             }
             if ctx.var_ty(name).is_some() {
                 return lower_indirect_call(ctx, callee, call);
             }
-            return lower_user_call(ctx, name, call);
+            return lower_user_call(ctx, &resolved, call);
         }
     }
     Err(anyhow!("unsupported call expression form"))
