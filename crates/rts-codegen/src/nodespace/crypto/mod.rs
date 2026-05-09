@@ -26,6 +26,12 @@ pub const MEMBERS: &[NodespaceMember] = &[
         returns: AbiType::Handle,
     },
     NodespaceMember {
+        name: "randomUUID",
+        symbol: "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
+        args: &[],
+        returns: AbiType::Handle,
+    },
+    NodespaceMember {
         name: "hexEncode",
         symbol: "__RTS_FN_NS_CRYPTO_HEX_ENCODE",
         args: &[AbiType::I64, AbiType::I64],
