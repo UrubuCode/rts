@@ -153,6 +153,11 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 // (#210) Sub-object literal: registra tipos
                                 // dos campos do nested para nested
                                 // destructuring conseguir inferir.
+                                // (#602) Para nesting >=3 niveis (ex:
+                                // `{ db: { conn: { url: ... } } }`), tambem
+                                // registramos a folha sob a chave imediata
+                                // (root, last_key) para que `chain_root_path`
+                                // em members.rs ache os tipos via last key.
                                 swc_ecma_ast::Expr::Object(sub_obj) => {
                                     let mut sub_types: std::collections::HashMap<
                                         String,
@@ -180,10 +185,75 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                                     swc_ecma_ast::Expr::Lit(
                                                         swc_ecma_ast::Lit::Bool(_),
                                                     ) => Some(ValTy::Bool),
+                                                    swc_ecma_ast::Expr::Object(_) => {
+                                                        Some(ValTy::Handle)
+                                                    }
                                                     _ => None,
                                                 };
                                                 if let Some(t) = sty {
-                                                    sub_types.insert(sk, t);
+                                                    sub_types.insert(sk.clone(), t);
+                                                }
+                                                // (#602) Recursa em sub-objs:
+                                                // registra os tipos das folhas
+                                                // sob a chave imediata, pra que
+                                                // `chain_root_path((root,sk))`
+                                                // em member access nested
+                                                // resolva o tipo da folha.
+                                                if let swc_ecma_ast::Expr::Object(deep_obj) =
+                                                    skv.value.as_ref()
+                                                {
+                                                    let mut deep_types:
+                                                        std::collections::HashMap<String, ValTy> =
+                                                        std::collections::HashMap::new();
+                                                    for dp in &deep_obj.props {
+                                                        if let swc_ecma_ast::PropOrSpread::Prop(
+                                                            dsp,
+                                                        ) = dp
+                                                        {
+                                                            if let swc_ecma_ast::Prop::KeyValue(
+                                                                dkv,
+                                                            ) = dsp.as_ref()
+                                                            {
+                                                                let dk = match &dkv.key {
+                                                                    swc_ecma_ast::PropName::Ident(
+                                                                        id,
+                                                                    ) => id.sym.as_str().to_string(),
+                                                                    swc_ecma_ast::PropName::Str(
+                                                                        s,
+                                                                    ) => s
+                                                                        .value
+                                                                        .to_string_lossy()
+                                                                        .to_string(),
+                                                                    _ => continue,
+                                                                };
+                                                                let dty = match dkv.value.as_ref() {
+                                                                    swc_ecma_ast::Expr::Lit(
+                                                                        swc_ecma_ast::Lit::Str(_),
+                                                                    ) => Some(ValTy::Handle),
+                                                                    swc_ecma_ast::Expr::Lit(
+                                                                        swc_ecma_ast::Lit::Num(_),
+                                                                    ) => Some(ValTy::I64),
+                                                                    swc_ecma_ast::Expr::Lit(
+                                                                        swc_ecma_ast::Lit::Bool(_),
+                                                                    ) => Some(ValTy::Bool),
+                                                                    _ => None,
+                                                                };
+                                                                if let Some(t) = dty {
+                                                                    deep_types.insert(dk, t);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    if !deep_types.is_empty() {
+                                                        // Indexa por (root, sk)
+                                                        // pra match com
+                                                        // `chain_root_path` que
+                                                        // usa last key do path.
+                                                        ctx.local_nested_obj_field_types.insert(
+                                                            (name.clone(), sk.clone()),
+                                                            deep_types,
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }
