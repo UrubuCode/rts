@@ -230,9 +230,8 @@ inline + integração + fixed-point (4.2/4.3/4.7), CSE (4.5), FMA
 (4.8), arr[i]=v + smoke e2e (4.4/4.6). Métricas atuais:
 
 - 438 user fns reais da suite TS rodam pelo MIR
-- `cargo test --release --lib`: 12/12; `rts-hir`: 27/27; `rts-mir`: **59/59**;
-  `rts-codegen --lib mir_codegen`: **61/61**
-- `target/release/rts.exe test`: 622/632 (mesmas 10 falhas pre-existentes)
+- `cargo test --release --workspace`: **100/100** verde
+- `target/release/rts.exe test`: **977/977** (cobertura completa, zero falhas)
 
 Variável `RTS_USE_MIR` controla o routing:
 
@@ -287,6 +286,36 @@ rts ir file.ts 2>&1 | head -50
 Imprime o IR de cada user fn + `__RTS_MAIN` sem executar. Bom pra caçar
 loads/stores redundantes em hot loops, calls extern desnecessários, e
 oportunidades de intrinsic. Ver `CLAUDE.md` § Debug do codegen.
+
+---
+
+## 🎯 Compatibilidade JS/TS
+
+Suite TS atual: **977/977 testes passando**. Cobertura ampla:
+
+- **Sintaxe core**: classes (extends/super/static/getters/setters), generics,
+  destructuring (array/objeto/nested/defaults/rest/params), spread, optional
+  chaining (3+ níveis), nullish coalescing, IIFE, function expressions, arrow
+  functions, template literals
+- **Modules**: named/default/star imports + re-exports + alias
+  (`import { x as y }`, `export * as ns`)
+- **Async**: Promise, async/await, fetch global, async generators básicos
+- **Tipagem**: `i8..i64/u8..u64/f32/f64/bool/string/handle`, narrow types,
+  intersection types, union types simples
+- **JS globals**: Object/Array/String/Number/Math/Date/RegExp/Error family
+  (TypeError/RangeError/etc), Map/Set, WeakMap/WeakSet, Symbol, JSON,
+  Function (call/apply/bind/.length/.name), Reflect (13 métodos), Proxy
+  (todas as 13 traps: get/set/has/delete/ownKeys/apply/construct/
+  getPrototypeOf/setPrototypeOf/defineProperty/getOwnPropertyDescriptor/
+  isExtensible/preventExtensions)
+- **Operadores**: divisão JS spec (`/` sempre f64), comparações, ternário,
+  bitwise, shifts
+- **Diagnóstico**: identificadores não-resolvidos viram erro de compilação
+  (não segfault)
+
+Cobertura node:* parcial: `node:fs` (readFileSync/writeFileSync/exists/
+append/mkdir), `node:path/os/process/util/crypto`. Compatibilidade
+completa com Node está em #226 (epic tracking).
 
 ---
 
