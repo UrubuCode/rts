@@ -172,7 +172,8 @@
       "PowerShell(target\\\\release\\\\rts.exe compile .\\\\examples\\\\http_chat.ts 2>&1)",
       "PowerShell(cargo test *)",
       "PowerShell(git commit -m $msg)",
-      "Bash(grep -v \"//\")"
+      "Bash(grep -v \"//\")",
+      "Bash(grep -n \"display_path\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\.*UNC\\\\|strip_prefix.*UNC\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\?\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"\" crates/rts-diagnostics/src/reporter.rs)"
     ]
   }
 }
