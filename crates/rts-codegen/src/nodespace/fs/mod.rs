@@ -4,7 +4,7 @@ use super::{NodespaceMember, NodespaceSpec};
 pub const MEMBERS: &[NodespaceMember] = &[
     NodespaceMember {
         name: "readFileSync",
-        symbol: "__RTS_FN_NS_FS_READ_ALL",
+        symbol: "__RTS_FN_NS_FS_READ_TEXT",
         args: &[AbiType::StrPtr],
         returns: AbiType::Handle,
     },

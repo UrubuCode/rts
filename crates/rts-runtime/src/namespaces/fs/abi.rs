@@ -26,6 +26,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "read_text",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_FS_READ_TEXT",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Reads entire file as UTF-8 and returns a GC string handle. Returns 0 on error.",
+        ts_signature: "read_text(path: string): string",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "write",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_FS_WRITE",

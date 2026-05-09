@@ -566,6 +566,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     use crate::namespaces::fs::*;
     add_fn!("__RTS_FN_NS_FS_READ", read::__RTS_FN_NS_FS_READ);
     add_fn!("__RTS_FN_NS_FS_READ_ALL", read::__RTS_FN_NS_FS_READ_ALL);
+    add_fn!("__RTS_FN_NS_FS_READ_TEXT", read::__RTS_FN_NS_FS_READ_TEXT);
     add_fn!("__RTS_FN_NS_FS_WRITE", write::__RTS_FN_NS_FS_WRITE);
     add_fn!("__RTS_FN_NS_FS_APPEND", write::__RTS_FN_NS_FS_APPEND);
     add_fn!("__RTS_FN_NS_FS_EXISTS", metadata::__RTS_FN_NS_FS_EXISTS);

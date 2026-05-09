@@ -9,6 +9,25 @@ use std::fs::File;
 use std::io::Read;
 
 use super::common::path_from_abi;
+use crate::namespaces::gc::handles::{Entry, alloc_entry};
+
+/// Reads the entire file at `path` and returns a GC string handle with
+/// the contents (UTF-8). Returns 0 on error or if the file is not valid
+/// UTF-8. Used by `node:fs.readFileSync` and equivalent ergonomic APIs.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FS_READ_TEXT(
+    path_ptr: *const u8,
+    path_len: i64,
+) -> u64 {
+    let Some(path) = (unsafe { path_from_abi(path_ptr, path_len) }) else {
+        return 0;
+    };
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(_) => return 0,
+    };
+    alloc_entry(Entry::String(bytes))
+}
 
 /// Reads up to `buf_len` bytes from the file at `path` into `buf_ptr`.
 ///
