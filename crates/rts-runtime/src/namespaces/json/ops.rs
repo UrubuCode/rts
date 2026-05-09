@@ -35,12 +35,16 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE(ptr: u64, len: i64) -> u64 {
 }
 
 /// Converte recursivamente um `serde_json::Value` em handle nativo:
-/// - Object -> Entry::Map
-/// - Array -> Entry::Vec
+/// - Object -> Entry::Map (slots = handles ou i64 raw para scalars)
+/// - Array -> Entry::Vec (idem)
 /// - String -> Entry::String
-/// - Number/Bool/Null -> i64 raw (representado no Vec/Map slot)
+/// - Number -> i64 raw (i64 direto ou f64.to_bits dentro do slot pai)
+/// - Bool -> i64 raw 0/1
+/// - Null -> i64 raw 0
 ///
-/// Permite acesso JS-style direto: `obj.x`, `arr[0]`, `arr.length`.
+/// Acesso JS-style direto (`obj.x`, `arr[0]`) le o slot raw, suficiente
+/// pra `number` e `boolean`. APIs legacy (`json.array_get` etc) sintetizam
+/// um wrapper Entry::Json on-demand para preservar o tipo escalar.
 fn json_value_to_handle(v: &Value) -> u64 {
     match v {
         Value::Null => 0,
@@ -69,11 +73,52 @@ fn json_value_to_handle(v: &Value) -> u64 {
     }
 }
 
+/// Inspeciona um handle JSON tratando todas as representacoes possiveis:
+/// Entry::Json (escalar), Entry::Map (object), Entry::Vec (array),
+/// Entry::String (string). Devolve `default` quando handle invalido ou tipo
+/// desconhecido.
+///
+/// Importante: para Map/Vec apenas reconstroi a *forma* (vazio/nao-vazio)
+/// dentro do lock. APIs estruturais (`array_len`, `array_get`, `object_get`,
+/// `object_has`) NAO devem usar `with_json` — usam `with_entry` direto. Isso
+/// evita deadlock por reentrancia: `handle_to_json_value` precisa pegar lock
+/// de shards filhos, e fazer isso enquanto o lock do pai ainda esta segurado
+/// trava se filho e pai estiverem no mesmo shard.
 fn with_json<R>(handle: u64, default: R, f: impl FnOnce(&Value) -> R) -> R {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::Json(v)) => f(v.as_ref()),
-        _ => default,
-    })
+    // Snapshot do tipo (sem subgrafo) sob o lock; libera; depois invoca f.
+    enum Snapshot {
+        Json(Value),
+        StringV(String),
+        ArrayLen(usize),
+        ObjectLen(usize),
+        Missing,
+    }
+    let snap = with_entry(handle, |entry| match entry {
+        Some(Entry::Json(v)) => Snapshot::Json(v.as_ref().clone()),
+        Some(Entry::String(b)) => Snapshot::StringV(String::from_utf8_lossy(b).into_owned()),
+        Some(Entry::Vec(slots)) => Snapshot::ArrayLen(slots.len()),
+        Some(Entry::Map(map)) => Snapshot::ObjectLen(map.len()),
+        _ => Snapshot::Missing,
+    });
+    match snap {
+        Snapshot::Json(v) => f(&v),
+        Snapshot::StringV(s) => f(&Value::String(s)),
+        Snapshot::ArrayLen(n) => {
+            // Reconstruir Array completo sem lock; usamos Null para slots
+            // (suficiente para type_of/as_bool/array_len que so olham forma
+            // e tamanho).
+            let placeholder = Value::Array(vec![Value::Null; n]);
+            f(&placeholder)
+        }
+        Snapshot::ObjectLen(n) => {
+            let mut obj = serde_json::Map::with_capacity(n);
+            for i in 0..n {
+                obj.insert(format!("__placeholder_{i}"), Value::Null);
+            }
+            f(&Value::Object(obj))
+        }
+        Snapshot::Missing => default,
+    }
 }
 
 /// Serializa um handle de qualquer tipo conhecido (Map/Vec/String/Json) ou
@@ -354,26 +399,35 @@ pub extern "C" fn __RTS_FN_NS_JSON_AS_STRING(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_ARRAY_LEN(handle: u64) -> i64 {
-    with_json(handle, -1, |v| match v {
-        Value::Array(a) => a.len() as i64,
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Vec(slots)) => slots.len() as i64,
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Array(a) => a.len() as i64,
+            _ => -1,
+        },
         _ => -1,
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_ARRAY_GET(handle: u64, index: i64) -> u64 {
-    with_json(handle, 0, |v| match v {
-        Value::Array(a) => {
-            if index < 0 {
-                return 0;
-            }
-            match a.get(index as usize) {
-                Some(child) => alloc_entry(Entry::Json(Box::new(child.clone()))),
-                None => 0,
-            }
-        }
-        _ => 0,
-    })
+    if index < 0 {
+        return 0;
+    }
+    let slot = with_entry(handle, |entry| match entry {
+        Some(Entry::Vec(slots)) => slots.get(index as usize).copied(),
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Array(a) => a
+                .get(index as usize)
+                .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
+            _ => None,
+        },
+        _ => None,
+    });
+    match slot {
+        Some(s) => promote_slot_to_json_handle(s as u64),
+        None => 0,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -384,13 +438,41 @@ pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_GET(handle: u64, key_ptr: u64, key_len
     let Ok(key) = std::str::from_utf8(bytes) else {
         return 0;
     };
-    with_json(handle, 0, |v| match v {
-        Value::Object(o) => match o.get(key) {
-            Some(child) => alloc_entry(Entry::Json(Box::new(child.clone()))),
-            None => 0,
+    let slot = with_entry(handle, |entry| match entry {
+        Some(Entry::Map(map)) => map.get(key).copied(),
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Object(o) => o
+                .get(key)
+                .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
+            _ => None,
         },
-        _ => 0,
-    })
+        _ => None,
+    });
+    match slot {
+        Some(s) => promote_slot_to_json_handle(s as u64),
+        None => 0,
+    }
+}
+
+/// Quando um slot escalar (i64 raw) precisa virar handle JSON dirigivel
+/// pelas APIs `as_i64`/`as_f64`/`type_of`/`as_string`, encapsulamos em
+/// `Entry::Json(Number)`. Slots que ja sao handle de String/Vec/Map/Json
+/// sao devolvidos tais quais.
+fn promote_slot_to_json_handle(slot: u64) -> u64 {
+    let already_handle = with_entry(slot, |e| {
+        matches!(
+            e,
+            Some(Entry::Json(_))
+                | Some(Entry::String(_))
+                | Some(Entry::Vec(_))
+                | Some(Entry::Map(_))
+        )
+    });
+    if already_handle {
+        slot
+    } else {
+        alloc_entry(Entry::Json(Box::new(Value::Number((slot as i64).into()))))
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -401,8 +483,12 @@ pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_HAS(handle: u64, key_ptr: u64, key_len
     let Ok(key) = std::str::from_utf8(bytes) else {
         return 0;
     };
-    with_json(handle, 0, |v| match v {
-        Value::Object(o) => o.contains_key(key) as i8,
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Map(map)) => map.contains_key(key) as i8,
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Object(o) => o.contains_key(key) as i8,
+            _ => 0,
+        },
         _ => 0,
     })
 }
