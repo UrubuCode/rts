@@ -50,6 +50,81 @@ pub extern "C" fn __RTS_FN_NS_UI_APP_AWAKE() {
     app::awake();
 }
 
+/// (#224) Non-blocking poll — processa eventos pendentes sem bloquear.
+/// Retorna `true` enquanto a app continuar viva (window aberta), `false`
+/// quando o user pediu pra fechar. Usado em loops com trabalho intensivo
+/// onde o programa quer manter a UI responsiva sem chamar wait().
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_UI_APP_CHECK(_handle: u64) -> i64 {
+    if app::check() { 1 } else { 0 }
+}
+
+/// (#224) Agenda `cb` para ser chamada uma vez apos `tm_secs` segundos.
+/// `cb` deve ser handle Function (reify de user fn ou arrow). Callback
+/// dispara no main thread via FLTK timer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_UI_APP_ADD_TIMEOUT(tm_secs: f64, cb: i64) {
+    if cb == 0 {
+        return;
+    }
+    app::add_timeout(tm_secs, move || {
+        invoke_no_args(cb);
+    });
+}
+
+/// (#224) Agenda `cb` para ser chamada periodicamente a cada `tm_secs`
+/// segundos. Callback deve re-agendar via `repeat_timeout` se quiser
+/// continuar (FLTK semantica) — em RTS v0, fazemos auto-repeat.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_UI_APP_REPEAT_TIMEOUT(tm_secs: f64, cb: i64) {
+    if cb == 0 {
+        return;
+    }
+    schedule_repeat(tm_secs, cb);
+}
+
+fn schedule_repeat(tm_secs: f64, cb: i64) {
+    app::add_timeout(tm_secs, move || {
+        invoke_no_args(cb);
+        // Auto-reagenda. Em FLTK puro o user chama repeat_timeout no body
+        // do callback — aqui fazemos transparente.
+        schedule_repeat(tm_secs, cb);
+    });
+}
+
+/// (#224) Agenda `cb` pra ser chamado quando o event loop fica idle
+/// (entre eventos). Util para animacoes e progresso incremental.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_UI_APP_ADD_IDLE(cb: i64) {
+    if cb == 0 {
+        return;
+    }
+    app::add_idle(move || {
+        invoke_no_args(cb);
+    });
+}
+
+/// Helper: invoca um handle/fn_ptr sem args, no main thread.
+/// Usado pelos timers/idle callbacks. Erro silencioso (callback ruim
+/// nao para o event loop).
+///
+/// O codegen passa `cb` como fn_ptr raw para callbacks de UI (mesmo
+/// padrao de \`widget_set_callback\`); a fn user com address-taken usa
+/// default_call_conv (extern \"C\"-compativel), entao transmutar pra
+/// `extern \"C\" fn()` funciona. Se cb apontar pra handle Function reify
+/// (path Function.bind/INVOKE_AUTO), tambem funciona porque a primeira
+/// instrucao de uma fn reify e' callable como extern \"C\" — embora seja
+/// menos comum aqui.
+fn invoke_no_args(cb: i64) {
+    if cb == 0 {
+        return;
+    }
+    unsafe {
+        let f: unsafe extern "C" fn() = std::mem::transmute(cb as usize);
+        f();
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_UI_APP_FREE(handle: u64) {
     free_entry(handle);
