@@ -16,6 +16,7 @@ import { add as plusAlias, MAGIC as M } from "./_module_lib";
 import { double, plus } from "./_module_reexport";
 import answer from "./_module_default";
 import { one, two, three } from "./_module_star_reexport";
+import { starNs } from "./_module_ns_reexport";
 
 const sum = add(3, 4);
 const hi = greet("world");
@@ -28,6 +29,9 @@ const def = answer();
 const o = one();
 const t = two();
 const th = three;
+const nsOne = starNs.one();
+const nsTwo = starNs.two();
+const nsThree = starNs.three;
 
 describe("module_imports", () => {
     test("named function", () => expect(sum).toBe(7));
@@ -42,4 +46,7 @@ describe("module_imports", () => {
     test("export *  one()", () => expect(o).toBe(1));
     test("export *  two()", () => expect(t).toBe(2));
     test("export *  const", () => expect(th).toBe(3));
+    test("export * as ns  fn call", () => expect(nsOne).toBe(1));
+    test("export * as ns  fn call (2)", () => expect(nsTwo).toBe(2));
+    test("export * as ns  const access", () => expect(nsThree).toBe(3));
 });

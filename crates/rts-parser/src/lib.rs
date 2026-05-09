@@ -22,9 +22,9 @@ use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Le
 use rts_diagnostics::source_store::{self, FileId};
 
 use rts_ast::ast::{
-    ClassDecl, ClassMember, ConstructorDecl, FieldDecl, FunctionDecl, ImportDecl, ImportName,
-    InterfaceDecl, Item, MemberModifiers, MethodDecl, MethodRole, Parameter, Program,
-    PropertyDecl, RawStmt, Statement, Visibility,
+    ClassDecl, ClassMember, ConstructorDecl, ExportNamespaceDecl, FieldDecl, FunctionDecl,
+    ImportDecl, ImportName, InterfaceDecl, Item, MemberModifiers, MethodDecl, MethodRole,
+    Parameter, Program, PropertyDecl, RawStmt, Statement, Visibility,
 };
 use rts_ast::span::{Position, Span};
 

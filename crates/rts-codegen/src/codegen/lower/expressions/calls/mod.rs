@@ -175,6 +175,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 if lookup(&qualified).is_some() {
                     return lower_ns_call(ctx, &qualified, call);
                 }
+                // `export * as ns from "./mod"` registrou `ns.foo` -> `foo`
+                // no local_alias_map durante o flatten. Resolve aqui para
+                // user call do nome original.
+                if let Some(orig) = ctx.local_alias_map.get(&qualified).cloned() {
+                    if ctx.user_fns.contains_key(orig.as_str()) {
+                        return lower_user_call(ctx, &orig, call);
+                    }
+                }
                 // node: namespace imports: `import * as fs from "node:fs"` → `fs.readFileSync()`
                 // node_import_map["fs"] = "node_fs" (prefix only, no dot)
                 if let Some((obj_name, fn_name)) = qualified.split_once('.') {

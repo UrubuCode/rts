@@ -424,6 +424,28 @@ impl ModuleGraph {
                     }
                     continue;
                 }
+                if let Item::ExportNamespace(ns_decl) = item {
+                    // `export * as ns from "./mod"`. Resolve a key do source
+                    // via ResolvedImport e enumera exports para registrar
+                    // `ns.<exp>` -> `<exp>` no local_alias_map. Member access
+                    // `ns.foo` no codegen consulta esse mapa por chave dotted.
+                    if let Some(resolved_key) = module
+                        .imports
+                        .iter()
+                        .find(|i| i.specifier == ns_decl.from)
+                        .map(|i| i.resolved_key.as_str())
+                    {
+                        if let Some(src_module) = self.modules.get(resolved_key) {
+                            for exp_name in &src_module.exports {
+                                merged.local_alias_map.insert(
+                                    format!("{}.{}", ns_decl.local, exp_name),
+                                    exp_name.clone(),
+                                );
+                            }
+                        }
+                    }
+                    continue;
+                }
                 merged.items.push(item.clone());
             }
         }
@@ -475,12 +497,11 @@ fn collect_imports(program: &Program) -> Vec<(String, crate::parser::span::Span)
     program
         .items
         .iter()
-        .filter_map(|item| {
-            if let Item::Import(import_decl) = item {
-                Some((import_decl.from.clone(), import_decl.span))
-            } else {
-                None
-            }
+        .filter_map(|item| match item {
+            Item::Import(d) => Some((d.from.clone(), d.span)),
+            // `export * as ns from "./mod"` tambem cria dep no graph.
+            Item::ExportNamespace(d) => Some((d.from.clone(), d.span)),
+            _ => None,
         })
         .collect()
 }
