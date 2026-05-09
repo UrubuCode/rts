@@ -484,11 +484,23 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         );
     }
 
-    // ── namespaces::globals::proxy (#218 phase 1+2) ──────────────────
+    // ── namespaces::globals::proxy (#218 phase 1+2+3) ────────────────
     {
         use crate::namespaces::globals::proxy::ops::*;
         add_fn!("__RTS_FN_GL_PROXY_NEW", __RTS_FN_GL_PROXY_NEW);
         add_fn!("__RTS_FN_GL_REFLECT_CONSTRUCT", __RTS_FN_GL_REFLECT_CONSTRUCT);
+        add_fn!(
+            "__RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF",
+            __RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF
+        );
+        add_fn!(
+            "__RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY",
+            __RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY
+        );
+        add_fn!(
+            "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY",
+            __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY
+        );
     }
 
     // ── namespaces::globals::text_encoding ───────────────────────────
