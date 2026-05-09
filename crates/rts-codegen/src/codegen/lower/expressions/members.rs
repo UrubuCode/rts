@@ -946,7 +946,8 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     }
                 }
                 // (#592) \`users[i].name\` direto: detecta Member computed
-                // em obj e usa local_array_obj_field_types do array.
+                // em obj e usa local_array_obj_field_types do array, ou
+                // local_array_class_ty (\`User[]\`) -> field_ty na classe.
                 if field_ty.is_none() {
                     if let Expr::Member(inner_m) = m.obj.as_ref() {
                         if matches!(&inner_m.prop, MemberProp::Computed(_)) {
@@ -954,6 +955,15 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                                 let arr_name = arr_id.sym.as_str();
                                 if let Some(types) = ctx.local_array_obj_field_types.get(arr_name) {
                                     field_ty = types.get(key).copied();
+                                }
+                                // (#592 fix) Array de classe user: pega
+                                // tipo do field na class hierarchy.
+                                if field_ty.is_none() {
+                                    if let Some(elem_cls) =
+                                        ctx.local_array_class_ty.get(arr_name).cloned()
+                                    {
+                                        field_ty = field_type_in_hierarchy(ctx, &elem_cls, key);
+                                    }
                                 }
                             }
                         }
