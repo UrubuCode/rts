@@ -26,7 +26,11 @@ ui.window_end(win);
 ui.window_show(win);
 print("window shown");
 
-ui.app_run(app);
+// app_run() bloqueia ate' a janela ser fechada manualmente — remove
+// pra que `rts test` rode em CI sem precisar de input humano. Smoke
+// test confirma que apenas a setup das primitivas UI funciona; o
+// loop de eventos real eh testado em `ui_event_loop_primitives.test.ts`
+// via `app_check`/`app_wait_for`.
 print("done");
 
 describe("fixture:ui_window", () => {
