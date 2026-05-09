@@ -471,6 +471,19 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_WEAKSET_DELETE", __RTS_FN_GL_WEAKSET_DELETE);
     }
 
+    // ── namespaces::globals::reflect (#218) ──────────────────────────
+    {
+        use crate::namespaces::globals::reflect::ops::*;
+        add_fn!(
+            "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR",
+            __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR
+        );
+        add_fn!(
+            "__RTS_FN_GL_REFLECT_DEFINE_PROPERTY",
+            __RTS_FN_GL_REFLECT_DEFINE_PROPERTY
+        );
+    }
+
     // ── namespaces::globals::text_encoding ───────────────────────────
     use crate::namespaces::globals::text_encoding::instance::*;
     add_fn!("__RTS_FN_GL_TEXTENC_ENCODE", __RTS_FN_GL_TEXTENC_ENCODE);

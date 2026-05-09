@@ -738,6 +738,11 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if let Some(method) = qualified.strip_prefix("Reflect.") {
                 match method {
                     "get" if call.args.len() == 2 => {
+                        // Returna I64 (slot raw). Slots podem carregar handle
+                        // de string/map ou int direto; sem analise de tipo no
+                        // call site, deixamos o caller decidir via cast/use.
+                        // Combina com testes pre-existentes que usam
+                        // `Reflect.get(o,k).toString()` em ints.
                         return lower_ns_call(ctx, "collections.map_get", call);
                     }
                     "has" if call.args.len() == 2 => {
@@ -747,9 +752,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         return lower_ns_call(ctx, "collections.map_keys", call);
                     }
                     "deleteProperty" if call.args.len() == 2 => {
-                        // map_delete retorna I64 (0/1). Reescreve como Bool.
-                        let tv = lower_ns_call(ctx, "collections.map_delete", call)?;
-                        return Ok(TypedVal::new(tv.val, ValTy::Bool));
+                        // JS spec: Reflect.deleteProperty retorna true tanto
+                        // para chave existente quanto inexistente (so' falha
+                        // em props nao-configurable, que RTS v0 nao distingue).
+                        // map_delete devolve 1/0 (existente/inexistente);
+                        // forcamos true e descartamos o resultado.
+                        let _ = lower_ns_call(ctx, "collections.map_delete", call)?;
+                        let t = ctx.builder.ins().iconst(cl::I64, 1);
+                        return Ok(TypedVal::new(t, ValTy::Bool));
                     }
                     "set" if call.args.len() == 3 => {
                         // map_set eh Void. Faz a chamada e retorna true.
@@ -813,6 +823,91 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let _ = lower_expr(ctx, &call.args[0].expr)?;
                         let t = ctx.builder.ins().iconst(cl::I64, 1);
                         return Ok(TypedVal::new(t, ValTy::Bool));
+                    }
+                    // (#218) Reflect.apply(fn, thisArg, argsArray) — reusa
+                    // __RTS_FN_GL_FUNCTION_APPLY (mesma assinatura).
+                    "apply" if call.args.len() == 3 => {
+                        let fn_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let fn_h = ctx.coerce_to_i64(fn_tv).val;
+                        let this_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let this_v = ctx.coerce_to_i64(this_tv).val;
+                        let args_tv = lower_expr(ctx, &call.args[2].expr)?;
+                        let args_h = ctx.coerce_to_i64(args_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_FUNCTION_APPLY",
+                            &[cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[fn_h, this_v, args_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::I64));
+                    }
+                    // (#218) Reflect.construct(Target, args) — semantica de
+                    // `new Target(...args)`. Reusa o trampolim Function:
+                    // aloca Map (instancia), chama o constructor com THIS_PUSH
+                    // implicito via FUNCTION_APPLY com `this = inst`. Deixa
+                    // newTarget como follow-up (afeta prototype chain).
+                    "construct" if matches!(call.args.len(), 2 | 3) => {
+                        let target_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let target_h = ctx.coerce_to_i64(target_tv).val;
+                        let args_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let args_h = ctx.coerce_to_i64(args_tv).val;
+                        // Cria Map vazio para servir como instancia.
+                        let inst_fn = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+                            &[],
+                            Some(cl::I64),
+                        )?;
+                        let inst_call = ctx.builder.ins().call(inst_fn, &[]);
+                        let inst_h = ctx.builder.inst_results(inst_call)[0];
+                        // Chama target.apply(inst, args) — como construtor.
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_FUNCTION_APPLY",
+                            &[cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        ctx.builder.ins().call(f, &[target_h, inst_h, args_h]);
+                        // Retorna a instancia construida.
+                        return Ok(TypedVal::new(inst_h, ValTy::Handle));
+                    }
+                    // (#218) Reflect.getOwnPropertyDescriptor(obj, key) — v0:
+                    // retorna { value, writable: true, enumerable: true,
+                    // configurable: true } sintetizado. Descriptors reais
+                    // exigiriam metadata por slot no Map (out of scope v0).
+                    "getOwnPropertyDescriptor" if call.args.len() == 2 => {
+                        let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let key_h = ctx.coerce_to_i64(key_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[obj_h, key_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Handle));
+                    }
+                    // (#218) Reflect.defineProperty(obj, key, descriptor) —
+                    // v0: extrai `value` do descriptor (Map) e faz map_set.
+                    // Ignora writable/enumerable/configurable e get/set
+                    // accessors (descriptors com fns sao convertidos como
+                    // value=undefined). Retorna true.
+                    "defineProperty" if call.args.len() == 3 => {
+                        let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let key_h = ctx.coerce_to_i64(key_tv).val;
+                        let desc_tv = lower_expr(ctx, &call.args[2].expr)?;
+                        let desc_h = ctx.coerce_to_i64(desc_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_REFLECT_DEFINE_PROPERTY",
+                            &[cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[obj_h, key_h, desc_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Bool));
                     }
                     _ => {}
                 }
