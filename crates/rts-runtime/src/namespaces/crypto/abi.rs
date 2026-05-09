@@ -37,6 +37,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "random_uuid",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Generates a UUID v4 (random) in canonical 8-4-4-4-12 hex format. RFC 4122.",
+        ts_signature: "random_uuid(): string",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "sha256_str",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_CRYPTO_SHA256_STR",

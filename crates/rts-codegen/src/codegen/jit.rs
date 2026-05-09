@@ -804,6 +804,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             random::__RTS_FN_NS_CRYPTO_RANDOM_BUFFER
         );
         add_fn!(
+            "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
+            random::__RTS_FN_NS_CRYPTO_RANDOM_UUID
+        );
+        add_fn!(
             "__RTS_FN_NS_CRYPTO_SHA256_STR",
             hash::__RTS_FN_NS_CRYPTO_SHA256_STR
         );
