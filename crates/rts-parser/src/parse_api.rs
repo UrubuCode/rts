@@ -144,6 +144,9 @@ fn assign_file_to_program(program: &mut Program, file: FileId) {
             Item::Import(decl) => {
                 decl.span.file = Some(file);
             }
+            Item::ExportNamespace(decl) => {
+                decl.span.file = Some(file);
+            }
             Item::Interface(decl) => {
                 decl.span.file = Some(file);
                 for field in &mut decl.fields {

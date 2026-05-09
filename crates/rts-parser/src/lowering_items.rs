@@ -61,8 +61,27 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
                                 .unwrap_or_else(|| orig.clone());
                             names.push(ImportName { orig, local });
                         }
-                        ExportSpecifier::Namespace(_) | ExportSpecifier::Default(_) => {
-                            // `export * as foo` e `export foo` from src — follow-up #618.
+                        ExportSpecifier::Namespace(ns) => {
+                            // `export * as foo from "./mod"`. SWC empacota dentro
+                            // de ExportNamed quando ha agrupamento; emit Item
+                            // dedicado pra que o flatten possa expandir
+                            // <foo>.<exp> -> <exp> em local_alias_map.
+                            let local = match &ns.name {
+                                swc_ecma_ast::ModuleExportName::Ident(id) => {
+                                    id.sym.to_string()
+                                }
+                                swc_ecma_ast::ModuleExportName::Str(s) => {
+                                    s.value.to_string_lossy().to_string()
+                                }
+                            };
+                            out.push(Item::ExportNamespace(ExportNamespaceDecl {
+                                local,
+                                from: src.value.to_string_lossy().to_string(),
+                                span: convert_span(cm, export_named.span),
+                            }));
+                        }
+                        ExportSpecifier::Default(_) => {
+                            // `export foo from src` (re-export do default) — follow-up.
                         }
                     }
                 }

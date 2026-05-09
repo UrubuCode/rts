@@ -608,6 +608,19 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 return Ok(tv);
             }
         }
+        // `export * as ns from "./mod"` — `ns.const` resolve para o
+        // identifier raiz registrado no flatten via local_alias_map.
+        if let Some(orig) = ctx.local_alias_map.get(&qualified).cloned() {
+            // Resolve via global module-level (const/let), reaproveitando
+            // o mesmo path que ident comum. Se for fn (acesso sem call),
+            // emit_user_fn_addr trata. Caso contrario tenta global.
+            if let Some(tv) = ctx.read_local(&orig) {
+                return Ok(tv);
+            }
+            if ctx.user_fns.contains_key(orig.as_str()) {
+                return super::emit_user_fn_addr(ctx, &orig);
+            }
+        }
         // Number.* constants — valores vêm de globals::number::abi::number_const_value,
         // sem hardcode aqui. Codegen emite f64const inline para zero overhead.
         if let Some(prop) = qualified.strip_prefix("Number.") {

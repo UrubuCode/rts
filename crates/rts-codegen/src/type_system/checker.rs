@@ -119,7 +119,10 @@ pub fn collect_type_declarations(program: &Program) -> Result<Vec<TypeDeclaratio
                     kind: TypeKind::Class { fields },
                 });
             }
-            Item::Import(_) | Item::Function(_) | Item::Statement(_) => {}
+            Item::Import(_)
+            | Item::ExportNamespace(_)
+            | Item::Function(_)
+            | Item::Statement(_) => {}
         }
     }
 

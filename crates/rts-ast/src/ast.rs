@@ -31,10 +31,24 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub enum Item {
     Import(ImportDecl),
+    /// `export * as ns from "./mod"` — re-exporta todos os exports do source
+    /// como um agregado nomeado. Codegen registra `ns.<exp>` no
+    /// `local_alias_map` para cada export descoberto no flatten.
+    ExportNamespace(ExportNamespaceDecl),
     Interface(InterfaceDecl),
     Class(ClassDecl),
     Function(FunctionDecl),
     Statement(Statement),
+}
+
+/// `export * as ns from "./mod"`.
+#[derive(Debug, Clone)]
+pub struct ExportNamespaceDecl {
+    /// Nome do agregado no consumidor (`ns`).
+    pub local: String,
+    /// Especificador do source (`./mod`).
+    pub from: String,
+    pub span: Span,
 }
 
 /// Um specifier `import { orig as local }`. Quando nao ha alias,
