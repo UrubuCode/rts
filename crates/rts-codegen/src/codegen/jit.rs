@@ -1848,6 +1848,16 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_UI_APP_WAIT", app::__RTS_FN_NS_UI_APP_WAIT);
         add_fn!("__RTS_FN_NS_UI_APP_WAIT_FOR", app::__RTS_FN_NS_UI_APP_WAIT_FOR);
         add_fn!("__RTS_FN_NS_UI_APP_AWAKE", app::__RTS_FN_NS_UI_APP_AWAKE);
+        add_fn!("__RTS_FN_NS_UI_APP_CHECK", app::__RTS_FN_NS_UI_APP_CHECK);
+        add_fn!(
+            "__RTS_FN_NS_UI_APP_ADD_TIMEOUT",
+            app::__RTS_FN_NS_UI_APP_ADD_TIMEOUT
+        );
+        add_fn!(
+            "__RTS_FN_NS_UI_APP_REPEAT_TIMEOUT",
+            app::__RTS_FN_NS_UI_APP_REPEAT_TIMEOUT
+        );
+        add_fn!("__RTS_FN_NS_UI_APP_ADD_IDLE", app::__RTS_FN_NS_UI_APP_ADD_IDLE);
         add_fn!("__RTS_FN_NS_UI_APP_FREE", app::__RTS_FN_NS_UI_APP_FREE);
         // window
         add_fn!(
