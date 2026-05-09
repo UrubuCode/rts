@@ -289,8 +289,10 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
             let is_null = ctx.builder.ins().icmp(IntCC::Equal, val_i64, zero);
             ctx.builder.ins().select(is_null, undef_h, normal_h)
-        } else if is_var_member_call || matches!(val_ty, ValTy::Handle) {
-            // (#573) Handle ambiguo (string/numero embutido) usa COERCE_AUTO.
+        } else if is_var_member_call || matches!(val_ty, ValTy::Handle | ValTy::U64) {
+            // (#573) Handle ambiguo (string/numero embutido, ou U64 que pode
+            // ser handle valido OU i64 raw como JSON.parse('42')) usa
+            // COERCE_AUTO que decide em runtime.
             let val_i64 = ctx.coerce_to_i64(val).val;
             let coerce_fn = ctx.get_extern(
                 "__RTS_FN_RT_TPL_COERCE_AUTO",

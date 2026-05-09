@@ -126,6 +126,12 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
 /// - Handle invalido / nao-handle: trata o valor como i64 raw
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
+    // (#573) value=0 com tipo Handle representa `null` em RTS (e
+    // tambem o sentinel de handle invalido). Em JS, console.log(null)
+    // -> "null", consistente com Array.prototype.join e String(null).
+    if value == 0 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
     let h = value as u64;
     let snap = snapshot_entry(h);
     match snap {
