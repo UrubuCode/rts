@@ -1,29 +1,32 @@
 import { describe, test, expect } from "rts:test";
-import { app_new, app_run, window_new, window_end, window_show, button_new, frame_new, widget_set_label } from "rts:ui";
-import { print } from "rts:io";
+import { ui } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-const app = app_new();
+// (#383) Antes: usava `import { app_new, ... } from "rts:ui"` (sintaxe
+// que so' funcionava por warning + segfault em runtime). Apos #383,
+// idents nao-resolvidos sao hard-fail em compile time, entao migrado
+// para `import { ui } from "rts"` + dispatch via namespace.
+const app = ui.app_new();
 print("app created");
 
-const win = window_new(400, 300, "Hello RTS");
+const win = ui.window_new(400, 300, "Hello RTS");
 print("window created");
 
-const lbl = frame_new(10, 10, 380, 40, "Welcome to RTS UI!");
+const lbl = ui.frame_new(10, 10, 380, 40, "Welcome to RTS UI!");
 print("frame created");
 
-const btn = button_new(150, 200, 100, 40, "Click me");
+const btn = ui.button_new(150, 200, 100, 40, "Click me");
 print("button created");
 
-window_end(win);
-window_show(win);
+ui.window_end(win);
+ui.window_show(win);
 print("window shown");
 
-app_run(app);
+ui.app_run(app);
 print("done");
 
 describe("fixture:ui_window", () => {
