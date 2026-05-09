@@ -122,14 +122,10 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
             return Ok(Some(opt));
         }
     }
-    // \`x / 2^k\` vira \`x >> k\` (sshr arithmetic) quando POT positivo.
-    // Sshr e' aritmetico — preserva sinal. \`-8 / 4 = -2\` continua
-    // valido com sshr. Cranelift egraph nao faz pra signed.
-    if lhs_is_int && matches!(bin.op, BinaryOp::Div) {
-        if let Some(opt) = div_imm_peephole(ctx, &lhs, imm) {
-            return Ok(Some(opt));
-        }
-    }
+    // (#584) Antes: `x / 2^k` virava `x >> k`. Em JS, `/` sempre retorna
+    // f64 — int division viola a spec. Removida a peephole; se o user
+    // quer shift, escreve `x >> k` explicitamente. Mantida `mod_imm_peephole`
+    // porque `%` em JS preserva tipo (i64 % 2 = i64).
     // Identidades aritmeticas com 0: x + 0 = x, x - 0 = x.
     // Cranelift egraph deveria pegar mas observado no IR mostra
     // \`iadd v, 0\` permanecendo. Documenta no IR e poupa um
@@ -258,35 +254,6 @@ fn mod_imm_peephole(
     // r = masked - adj
     let r = ctx.builder.ins().isub(masked, adj);
     Some(TypedVal::new(r, ty))
-}
-
-/// `x / imm` peephole. POT positivo vira sshr (arithmetic right shift,
-/// preserva sinal: -8 >> 2 = -2 = -8 / 4). Para imm < 0 ou nao-POT,
-/// caminho default (sdiv).
-fn div_imm_peephole(
-    ctx: &mut FnCtx,
-    lhs: &TypedVal,
-    imm: i64,
-) -> Option<TypedVal> {
-    if imm == 1 {
-        return Some(*lhs);
-    }
-    if imm > 1 && (imm as u64).is_power_of_two() {
-        let k = imm.trailing_zeros() as i64;
-        let max_k = if matches!(lhs.ty, ValTy::I32) { 30 } else { 62 };
-        if k <= max_k {
-            let v = match lhs.ty {
-                ValTy::I32 => ctx.builder.ins().sshr_imm(lhs.val, k),
-                _ => {
-                    let lv = ctx.coerce_to_i64(*lhs).val;
-                    ctx.builder.ins().sshr_imm(lv, k)
-                }
-            };
-            let ty = if matches!(lhs.ty, ValTy::I32) { ValTy::I32 } else { ValTy::I64 };
-            return Some(TypedVal::new(v, ty));
-        }
-    }
-    None
 }
 
 fn operator_method_name(op: BinaryOp) -> Option<&'static str> {
@@ -1054,17 +1021,14 @@ fn lower_mul(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> 
 }
 
 fn lower_div(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
-    // (#296) sdiv crasha em divisor 0. Solucao: int/int onde o divisor e'
-    // literal nao-zero mantem sdiv (caminho rapido); caso contrario emite
-    // guard inline que retorna i64. Em divisor 0, retorna 0 como sentinel
-    // — nao e' Infinity exato mas evita trap. Float div ja' e' IEEE-754,
-    // f.div_zero retorna Inf/-Inf/NaN naturalmente.
-    let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
-    if matches!(ty, ValTy::F64) {
-        return Ok(TypedVal::new(ctx.builder.ins().fdiv(lv, rv), ty));
-    }
-    let val = lower_idiv_safe(ctx, lv, rv, ty);
-    Ok(TypedVal::new(val, ty))
+    // (#584) JS spec: `/` sempre retorna f64. Mesmo `1 / 3` produz
+    // 0.3333... em JS — int division e' truncamento e nao existe pra `/`.
+    // Promovemos ambos os lados a f64 e fazemos fdiv. IEEE-754 cobre
+    // divisor 0 naturalmente (Inf/-Inf/NaN), entao nao precisamos do
+    // guard de #296 aqui.
+    let lf = to_f64(ctx, lhs);
+    let rf = to_f64(ctx, rhs);
+    Ok(TypedVal::new(ctx.builder.ins().fdiv(lf, rf), ValTy::F64))
 }
 
 fn lower_mod(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {

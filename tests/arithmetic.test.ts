@@ -62,12 +62,14 @@ print(`mix:${half + ten}`);        // 10.5
 describe("arithmetic — sinais, precedencia, unario, ++/--", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "sum:13\ndiff:7\nprod:30\nquot:3\nrem:1\n" +
-      "neg+pos:-4\nneg-neg:-4\nneg*pos:-20\nneg/pos:-5\nzero-x:-12\nx-x:0\n" +
-      "p1:7\np2:9\np3:2\np4:6\np5:13\np6:2\np7:10\n" +
+      // (#584) Atualizado: `/` segue JS spec — sempre f64. quot/neg/pos/p6/idiv
+      // refletem divisoes que antes truncavam pra int.
+      "sum:13\ndiff:7\nprod:30\nquot:3.3333333333333335\nrem:1\n" +
+      "neg+pos:-4\nneg-neg:-4\nneg*pos:-20\nneg/pos:-4.5\nzero-x:-12\nx-x:0\n" +
+      "p1:7\np2:9\np3:2\np4:6\np5:13\np6:2.5\np7:10\n" +
       "u1:-5\nu2:3\nu3:-7\n" +
       "post:5:6\npre:6:6\ndec:5:4\n" +
-      "idiv:3\nfdiv:3.5\n" +
+      "idiv:3.5\nfdiv:3.5\n" +
       "mix:10.5\n"
     );
   });

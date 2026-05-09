@@ -6,37 +6,35 @@ function print(value: string): void {
 }
 
 // (#296) RTS antes crashava com 'Illegal instruction' em x/0 e x%0 com
-// inteiros. Agora emite guard inline em sdiv/srem que retorna sentinel 0
-// em divisor 0 — nao bate JS (que retorna Infinity/NaN) mas evita trap.
-//
-// Float continua IEEE-754 (Infinity/NaN naturais).
+// inteiros. (#584) Hoje `/` segue o JS spec — sempre retorna f64, entao
+// 5/0 = Infinity (IEEE) tanto pra literal int quanto float. So' o `%`
+// inteiro ainda retorna sentinel 0 em divisor 0 (RTS-specific, evita trap).
 
-// 1. Casos do issue — int (sentinel 0) e float (Infinity/NaN)
-print(`${5 / 0}`);          // 0    (int/0 sentinel)
-print(`${5.0 / 0.0}`);      // Infinity (float/0 IEEE)
+// 1. Casos do issue — `/` IEEE em qualquer caso, `%` int sentinel, `%` float NaN
+print(`${5 / 0}`);          // Infinity (JS spec — `/` sempre f64)
+print(`${5.0 / 0.0}`);      // Infinity
 print(`${-5.0 / 0.0}`);     // -Infinity
 print(`${0.0 / 0.0}`);      // NaN
-print(`${5 % 0}`);          // 0    (int sentinel)
+print(`${5 % 0}`);          // 0    (int sentinel — evita trap)
 print(`${5.0 % 0.0}`);      // NaN
 
 // 2. Caminho normal preservado (sem trap penalty)
-print(`${10 / 2}`);   // 5
+print(`${10 / 2}`);   // 5  (5.0 mas formata como "5")
 print(`${10 % 3}`);   // 1
 print(`${-7 % 3}`);   // -1 (sinal preservado, fix #297)
 
-// 3. Combinado com guard ternario — evita o sentinel 0
+// 3. Combinado com guard ternario — evita o Infinity
 const a: number = 0;
 print(`${a !== 0 ? 100 / a : "guarded"}`);  // guarded
 print(`${a === 0 ? "skip" : 100 / a}`);     // skip
 
-// 4. Em loop — counter sempre nao-zero. Inteiros literais (10) e
-// counter int (i: I32) fazem int div: 10/1+10/2+10/3+10/4+10/5
-// = 10+5+3+2+2 = 22 (sem fracao).
+// 4. Em loop — counter sempre nao-zero. Como `/` agora eh f64,
+// 10/1+10/2+10/3+10/4+10/5 = 10+5+3.333...+2.5+2 = 22.833...
 let total: number = 0;
 for (let i = 1; i <= 5; i++) {
   total = total + (10 / i);
 }
-print(`${total}`);  // 22
+print(`${total}`);  // 22.833333333333332
 
 // 5. Fn user com div em path sem guard explicito (number = f64, IEEE)
 function divUnsafe(a: number, b: number): number {
@@ -58,7 +56,7 @@ print(`${Calculator.safeDiv(20, 0)}`);  // -1
 // 7. Try/catch — div/0 nao throw em JS, nem em RTS agora
 try {
   const x = 1 / 0;
-  print(`tried: ${x}`);    // tried: 0 (sentinel)
+  print(`tried: ${x}`);    // tried: Infinity (JS spec)
 } catch (e) {
   print("nao deveria throw");
 }
@@ -80,14 +78,14 @@ print(`${modBy(7, 0)}`);  // NaN (f64 IEEE)
 describe("div_mod_zero", () => {
   test("no trap, sentinel 0 in int /0, IEEE in float /0", () =>
     expect(__rtsCapturedOutput).toBe(
-      "0\nInfinity\n-Infinity\nNaN\n0\nNaN\n" +    // 1
-      "5\n1\n-1\n" +                                // 2
-      "guarded\nskip\n" +                           // 3
-      "22\n" +                                      // 4
-      "5\nInfinity\n" +                             // 5
-      "5\n-1\n" +                                   // 6
-      "tried: 0\n" +                                // 7
-      "5\n" +                                       // 8
-      "1\nNaN\n"                                    // 9
+      "Infinity\nInfinity\n-Infinity\nNaN\n0\nNaN\n" +  // 1
+      "5\n1\n-1\n" +                                    // 2
+      "guarded\nskip\n" +                               // 3
+      "22.833333333333332\n" +                          // 4
+      "5\nInfinity\n" +                                 // 5
+      "5\n-1\n" +                                       // 6
+      "tried: Infinity\n" +                             // 7
+      "5\n" +                                           // 8
+      "1\nNaN\n"                                        // 9
     ));
 });

@@ -1437,6 +1437,41 @@ fn lower_bin(
     ctx: &mut LowerCtx,
 ) -> ValueId {
     let is_float = operand_ty.is_float() || res_ty.is_float();
+
+    // (#584) JS spec: `/` sempre retorna f64. Quando ambos os operandos sao
+    // inteiros, promovemos a f64 e emitimos FDiv. O HIR pode ter inferido
+    // res_ty=I64 a partir dos literais — corrigimos pra F64 aqui.
+    if matches!(op, HirBinOp::Div) && !is_float {
+        let lhs_f = mir.new_value(HirType::F64);
+        let rhs_f = mir.new_value(HirType::F64);
+        ctx.push_inst(
+            mir,
+            Inst::CvtFromSint {
+                dst: lhs_f,
+                src: lhs,
+                to: HirType::F64,
+            },
+        );
+        ctx.push_inst(
+            mir,
+            Inst::CvtFromSint {
+                dst: rhs_f,
+                src: rhs,
+                to: HirType::F64,
+            },
+        );
+        let dst = mir.new_value(HirType::F64);
+        ctx.push_inst(
+            mir,
+            Inst::FDiv {
+                dst,
+                lhs: lhs_f,
+                rhs: rhs_f,
+            },
+        );
+        return dst;
+    }
+
     let dst = mir.new_value(res_ty.clone());
 
     let inst = match (op, is_float) {
