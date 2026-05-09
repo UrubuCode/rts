@@ -780,36 +780,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let v = ctx.builder.inst_results(inst)[0];
                         return Ok(TypedVal::new(v, ValTy::Handle));
                     }
-                    // (#218) Reflect.setPrototypeOf — escreve __proto__ no map.
-                    // Retorna sempre true (sem tracking de extensibilidade v0).
+                    // (#218 phase3) Reflect.setPrototypeOf — wrapper proxy-aware.
                     "setPrototypeOf" if call.args.len() == 2 => {
                         let target_tv = lower_expr(ctx, &call.args[0].expr)?;
                         let target = ctx.coerce_to_i64(target_tv).val;
                         let proto_tv = lower_expr(ctx, &call.args[1].expr)?;
                         let proto = ctx.coerce_to_i64(proto_tv).val;
-                        let key_h = ctx.emit_str_handle(b"__proto__")?.val;
-                        let kp_fn = ctx.get_extern(
-                            "__RTS_FN_NS_GC_STRING_PTR",
-                            &[cl::I64],
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF",
+                            &[cl::I64, cl::I64],
                             Some(cl::I64),
                         )?;
-                        let kl_fn = ctx.get_extern(
-                            "__RTS_FN_NS_GC_STRING_LEN",
-                            &[cl::I64],
-                            Some(cl::I64),
-                        )?;
-                        let inst_p = ctx.builder.ins().call(kp_fn, &[key_h]);
-                        let kp = ctx.builder.inst_results(inst_p)[0];
-                        let inst_l = ctx.builder.ins().call(kl_fn, &[key_h]);
-                        let kl = ctx.builder.inst_results(inst_l)[0];
-                        let set_fn = ctx.get_extern(
-                            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
-                            &[cl::I64, cl::I64, cl::I64, cl::I64],
-                            None,
-                        )?;
-                        ctx.builder.ins().call(set_fn, &[target, kp, kl, proto]);
-                        let t = ctx.builder.ins().iconst(cl::I64, 1);
-                        return Ok(TypedVal::new(t, ValTy::Bool));
+                        let inst = ctx.builder.ins().call(f, &[target, proto]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Bool));
                     }
                     // (#218) Reflect.isExtensible — v0 sempre true.
                     "isExtensible" if call.args.len() == 1 => {
@@ -873,8 +857,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let obj_h = ctx.coerce_to_i64(obj_tv).val;
                         let key_tv = lower_expr(ctx, &call.args[1].expr)?;
                         let key_h = ctx.coerce_to_i64(key_tv).val;
+                        // (#218 phase3) Wrapper proxy-aware substitui o
+                        // REFLECT_GET_OWN_PROPERTY_DESCRIPTOR antigo.
                         let f = ctx.get_extern(
-                            "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR",
+                            "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY",
                             &[cl::I64, cl::I64],
                             Some(cl::I64),
                         )?;
@@ -894,8 +880,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let key_h = ctx.coerce_to_i64(key_tv).val;
                         let desc_tv = lower_expr(ctx, &call.args[2].expr)?;
                         let desc_h = ctx.coerce_to_i64(desc_tv).val;
+                        // (#218 phase3) Wrapper proxy-aware substitui o
+                        // REFLECT_DEFINE_PROPERTY antigo.
                         let f = ctx.get_extern(
-                            "__RTS_FN_GL_REFLECT_DEFINE_PROPERTY",
+                            "__RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY",
                             &[cl::I64, cl::I64, cl::I64],
                             Some(cl::I64),
                         )?;

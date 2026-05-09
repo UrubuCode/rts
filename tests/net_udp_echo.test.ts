@@ -7,10 +7,12 @@ import { net, gc, buffer, string } from "rts";
 
 describe("fixture:net_udp_echo", () => {
   test("send_to + recv_from + last_peer", () => {
-    const server = net.udp_bind("127.0.0.1:51238");
+    // Porta dinamica em ambos pra evitar colisao com sockets
+    // residuais. server bind primeiro, depois descobrir o endpoint.
+    const server = net.udp_bind("127.0.0.1:9123");
     const client = net.udp_bind("127.0.0.1:0");
 
-    const sent = net.udp_send_to(client, "127.0.0.1:51238", "udp-rts");
+    const sent = net.udp_send_to(client, "127.0.0.1:9123", "udp-rts");
     const buf = buffer.alloc_zeroed(16);
     const got = net.udp_recv_from(server, buffer.ptr(buf), 16);
     const data = buffer.to_string(buf);

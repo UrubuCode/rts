@@ -210,6 +210,154 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -
     inst
 }
 
+/// Trap `setPrototypeOf(target, proto)`. Retorna 1 (true) na convencao
+/// JS spec (failure-modes em invariants ficam pra phase com
+/// preventExtensions real).
+pub fn dispatch_set_proto(target: u64, handler: u64, proto: u64) -> i64 {
+    let trap = lookup_trap(handler, "setPrototypeOf");
+    if trap == 0 {
+        // Forward: escreve __proto__ direto no target Map.
+        let key = "__proto__";
+        unsafe {
+            __RTS_FN_NS_COLLECTIONS_MAP_SET(
+                target,
+                key.as_ptr(),
+                key.len() as i64,
+                proto as i64,
+            );
+        }
+        return 1;
+    }
+    let trap_args = build_args_vec(&[target as i64, proto as i64]);
+    let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, trap_args) };
+    if r != 0 { 1 } else { 0 }
+}
+
+/// Wrapper: `Reflect.setPrototypeOf(target, proto)`. Detecta Proxy e
+/// despacha a trap correspondente; senao faz forward direto.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF(target: u64, proto: u64) -> i64 {
+    if let Some((real_target, handler)) = resolve_proxy(target) {
+        return dispatch_set_proto(real_target, handler, proto);
+    }
+    let key = "__proto__";
+    unsafe {
+        __RTS_FN_NS_COLLECTIONS_MAP_SET(
+            target,
+            key.as_ptr(),
+            key.len() as i64,
+            proto as i64,
+        );
+    }
+    1
+}
+
+/// Trap `defineProperty(target, key, descriptor)`. Retorna 1 (true) em
+/// sucesso, 0 em falha (trap retornou falsy). Sem trap, extrai
+/// `descriptor.value` e faz `target[key] = value` (mesma semantica de
+/// `Reflect.defineProperty` v0 sem proxy).
+pub fn dispatch_define_property(
+    target: u64,
+    handler: u64,
+    key_handle: u64,
+    descriptor: u64,
+) -> i64 {
+    let trap = lookup_trap(handler, "defineProperty");
+    if trap == 0 {
+        return forward_define_property(target, key_handle, descriptor);
+    }
+    let trap_args = build_args_vec(&[target as i64, key_handle as i64, descriptor as i64]);
+    let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, trap_args) };
+    if r != 0 { 1 } else { 0 }
+}
+
+fn forward_define_property(target: u64, key_handle: u64, descriptor: u64) -> i64 {
+    let Some(key_bytes) = with_entry(key_handle, |e| match e {
+        Some(Entry::String(b)) => Some(b.clone()),
+        _ => None,
+    }) else {
+        return 0;
+    };
+    let value: i64 = with_entry(descriptor, |e| match e {
+        Some(Entry::Map(m)) => m.get("value").copied().unwrap_or(0),
+        _ => 0,
+    });
+    use crate::namespaces::gc::handles::with_entry_mut;
+    let key_str = String::from_utf8_lossy(&key_bytes).into_owned();
+    let ok = with_entry_mut(target, |e| match e {
+        Some(Entry::Map(m)) => {
+            m.insert(key_str, value);
+            true
+        }
+        _ => false,
+    });
+    if ok { 1 } else { 0 }
+}
+
+/// Trap `getOwnPropertyDescriptor(target, key)`. Retorna handle Map com
+/// descriptor sintetizado, ou 0 quando ausente. Sem trap, monta o
+/// descriptor v0 (writable/enumerable/configurable=true) a partir do
+/// slot do target Map.
+pub fn dispatch_get_own_property_descriptor(
+    target: u64,
+    handler: u64,
+    key_handle: u64,
+) -> u64 {
+    let trap = lookup_trap(handler, "getOwnPropertyDescriptor");
+    if trap == 0 {
+        return forward_get_own_property_descriptor(target, key_handle);
+    }
+    let trap_args = build_args_vec(&[target as i64, key_handle as i64]);
+    let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, trap_args) };
+    r as u64
+}
+
+fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
+    let Some(key_bytes) = with_entry(key_handle, |e| match e {
+        Some(Entry::String(b)) => Some(b.clone()),
+        _ => None,
+    }) else {
+        return 0;
+    };
+    let key_str = String::from_utf8_lossy(&key_bytes).into_owned();
+    let value: Option<i64> = with_entry(target, |e| match e {
+        Some(Entry::Map(m)) => m.get(&key_str).copied(),
+        _ => None,
+    });
+    let Some(v) = value else { return 0 };
+    let mut desc: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+    desc.insert("value".to_string(), v);
+    desc.insert("writable".to_string(), 1);
+    desc.insert("enumerable".to_string(), 1);
+    desc.insert("configurable".to_string(), 1);
+    alloc_entry(Entry::Map(Box::new(desc)))
+}
+
+/// Wrappers expostos pra codegen — trocam os entry-points existentes
+/// em globals/reflect/ops.rs por versoes proxy-aware.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY(
+    target: u64,
+    key_handle: u64,
+    descriptor: u64,
+) -> i64 {
+    if let Some((real_target, handler)) = resolve_proxy(target) {
+        return dispatch_define_property(real_target, handler, key_handle, descriptor);
+    }
+    forward_define_property(target, key_handle, descriptor)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY(
+    target: u64,
+    key_handle: u64,
+) -> u64 {
+    if let Some((real_target, handler)) = resolve_proxy(target) {
+        return dispatch_get_own_property_descriptor(real_target, handler, key_handle);
+    }
+    forward_get_own_property_descriptor(target, key_handle)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
