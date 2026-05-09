@@ -1085,7 +1085,21 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         Some(cl::I64),
                     )?;
                     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, kptr, klen]);
-                    Ok(TypedVal::new(ctx.builder.inst_results(inst)[0], ValTy::I64))
+                    let raw = ctx.builder.inst_results(inst)[0];
+                    // (#261) Pos-MAP_GET com chave dinamica: aplica
+                    // TPL_COERCE_AUTO no slot pra que se for handle de
+                    // string, retorne o handle correto; se for i64 raw
+                    // (number/bool/null), retorne handle de string com
+                    // representacao JS-spec. Sem isto, \`o[k]\` em template
+                    // literal mostraria handle bruto stringificado.
+                    let coerce_fn = ctx.get_extern(
+                        "__RTS_FN_RT_TPL_COERCE_AUTO",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let coerced_inst = ctx.builder.ins().call(coerce_fn, &[raw]);
+                    let coerced = ctx.builder.inst_results(coerced_inst)[0];
+                    Ok(TypedVal::new(coerced, ValTy::Handle))
                 }
                 _ => {
                     let idx = ctx.coerce_to_i64(idx_tv).val;
