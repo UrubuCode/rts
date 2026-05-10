@@ -1085,10 +1085,25 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             ValTy::Bool => {
                 // Bool em string vira "true"/"false" (semantica JS), nao
                 // "1"/"0". Sem isso `${x instanceof C}` saia como `1`.
-                let true_h = self.emit_str_handle(b"true")?;
-                let false_h = self.emit_str_handle(b"false")?;
+                //
+                // Usa __RTS_FN_GL_BOOLEAN_TO_STRING para evitar bug de
+                // ordering de free: quando os 2 handles "true"/"false" eram
+                // alocados separadamente e selecionados, o handle nao
+                // selecionado ficava em str_handle_cache para reuso na
+                // proxima expressao bool, mas o selecionado era freed via
+                // register_temp_handle. Em segunda print, select pegava
+                // handle ja freed -> string vazia. (#XXX)
                 let cond = self.coerce_to_i64(tv).val;
-                let val = self.builder.ins().select(cond, true_h.val, false_h.val);
+                let fref = self.get_extern(
+                    "__RTS_FN_GL_BOOLEAN_TO_STRING",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = self.builder.ins().call(fref, &[cond]);
+                let val = self.builder.inst_results(inst)[0];
+                self.declare_gc_handle(val);
+                self.fresh_handle_set.insert(val);
+                self.register_temp_handle(val);
                 Ok(TypedVal::new(val, ValTy::Handle))
             }
             ValTy::I64 | ValTy::I32
