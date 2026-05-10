@@ -129,17 +129,27 @@ jobs:
 
             const badge = `[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-${pct}%25-${color}?style=flat-square)](docs/specs/cross-runtime-testing.md)`;
 
+            // Barra ASCII de progresso (20 segmentos).
+            const segs = 20;
+            const filled = validBase > 0 ? Math.round((s.pass / validBase) * segs) : 0;
+            const bar = '▰'.repeat(filled) + '▱'.repeat(segs - filled);
+
             const today = new Date().toISOString().slice(0, 10);
+            const remaining = (s.rts_diverge || 0) + (s.errors || 0);
             const stats = `## 🌐 Cross-runtime parity\n\n` +
               `Compatibilidade JS spec validada contra **Bun** e **Node** em ${s.total} fixtures TS standalone.\n\n` +
+              `\`\`\`\n` +
+              `[${bar}] ${pct}%   ${s.pass}/${validBase} fixtures passam\n` +
+              `\`\`\`\n\n` +
               `| Métrica | Valor |\n|---|---|\n` +
               `| **Paridade** | **${pct}%** (${s.pass}/${validBase}) |\n` +
-              `| Total fixtures | ${s.total} |\n` +
               `| ✅ RTS = Bun = Node | ${s.pass} |\n` +
               `| ❌ RTS diverge | ${s.rts_diverge} |\n` +
-              `| 💥 RTS error | ${s.errors} |\n` +
+              `| 💥 RTS runtime error | ${s.errors} |\n` +
+              `| 🛠️  **Falta corrigir** | **${remaining}** |\n` +
               `| ⚠️ Bun ≠ Node (skip) | ${s.bun_node_diverge} |\n` +
-              `| 🚫 Rejeitados (RTS-only) | ${s.rejected || 0} |\n\n` +
+              `| 🚫 Rejeitados (RTS-only) | ${s.rejected || 0} |\n` +
+              `| 📦 Total fixtures | ${s.total} |\n\n` +
               `_Atualizado: ${today} — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_\n`;
 
             // Edita README entre marcadores
@@ -154,16 +164,23 @@ jobs:
             );
             fs.writeFileSync('README.md', readme);
 
-            // Commita se mudou
+            // Copia o report pro repo (versionado em main para consumo externo).
             const { execSync } = require('child_process');
-            const diff = execSync('git diff --stat README.md').toString();
+            try {
+              fs.copyFileSync(path, 'cross_runtime_report.json');
+            } catch (e) {
+              console.log('Nao consegui copiar report:', e.message);
+            }
+
+            // Commita se mudou
+            const diff = execSync('git diff --stat README.md cross_runtime_report.json').toString();
             if (!diff.trim()) {
-              console.log('README ja atualizado, sem mudancas.');
+              console.log('README + report ja atualizados, sem mudancas.');
               return;
             }
             execSync('git config user.name "github-actions[bot]"');
             execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
-            execSync('git add README.md');
+            execSync('git add README.md cross_runtime_report.json');
             execSync(`git commit -m "docs: auto-update cross-runtime parity badge (${pct}%)"`);
             execSync('git push');
 

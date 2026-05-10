@@ -6,9 +6,9 @@
 # para ser consumida pelo workflow CI.
 #
 # Variaveis de ambiente:
-#   RTS_BIN        — path para o binario rts (default: target/release/rts.exe ou rts)
-#   REPORT_FILE    — arquivo JSON de saida
-#   FIXTURES_DIR   — dir das fixtures (default: tests/cross-runtime)
+#   RTS_BIN        - path para o binario rts (default: target/release/rts.exe ou rts)
+#   REPORT_FILE    - arquivo JSON de saida
+#   FIXTURES_DIR   - dir das fixtures (default: tests/cross-runtime)
 
 set -uo pipefail
 
@@ -77,11 +77,11 @@ for fixture in "$FIXTURES_DIR"/*.ts; do
     stripped=$(sed 's|//.*$||' "$fixture")
     if printf '%s\n' "$stripped" | grep -qE "$RTS_ONLY_PATTERNS"; then
         rejected=$((rejected + 1))
-        echo -e "${YELLOW}!${NC} $name (rejeitado: usa API RTS-only/runtime-specific — mover para tests/*.test.ts)"
+        echo -e "${YELLOW}!${NC} $name (rejeitado: usa API RTS-only/runtime-specific - mover para tests/*.test.ts)"
         continue
     fi
 
-    # Cada runtime — captura stdout, ignora stderr (warnings de TS).
+    # Cada runtime - captura stdout, ignora stderr (warnings de TS).
     bun_out=$(bun "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
     node_out=$(node "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
     rts_out=$("$RTS_BIN" run "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
@@ -103,13 +103,14 @@ for fixture in "$FIXTURES_DIR"/*.ts; do
 
     # Print humano
     case "$status" in
-        pass) echo -e "${GREEN}✓${NC} $name" ;;
-        rts_diverge) echo -e "${RED}✗${NC} $name (RTS difere de Bun/Node)" ;;
-        bun_node_diverge) echo -e "${YELLOW}~${NC} $name (Bun != Node — skip)" ;;
-        rts_error) echo -e "${RED}✗${NC} $name (RTS error)" ;;
+        pass) echo -e "${GREEN}ok${NC} $name" ;;
+        rts_diverge) echo -e "${RED}xx${NC} $name (RTS difere de Bun/Node)" ;;
+        bun_node_diverge) echo -e "${YELLOW}~${NC} $name (Bun != Node - skip)" ;;
+        rts_error) echo -e "${RED}xx${NC} $name (RTS error)" ;;
     esac
 
-    # JSON entry (escape via jq se disponivel; fallback raw)
+    # JSON entry: prefere jq (mais rapido), fallback python (sempre tem),
+    # ultimo recurso node. Tab/newline/control chars sao escapados certinho.
     if command -v jq >/dev/null 2>&1; then
         entry=$(jq -n \
             --arg name "$name" \
@@ -118,12 +119,13 @@ for fixture in "$FIXTURES_DIR"/*.ts; do
             --arg node "$node_out" \
             --arg rts "$rts_out" \
             '{name:$name,status:$status,bun:$bun,node:$node,rts:$rts}')
+    elif command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
+        py=$(command -v python3 || command -v python)
+        entry=$(NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
+            "$py" -c 'import json,os; print(json.dumps({"name":os.environ["NAME"],"status":os.environ["STATUS"],"bun":os.environ["BUN"],"node":os.environ["NODE"],"rts":os.environ["RTS"]}))')
     else
-        # Escape minimo (substitui \" e \n)
-        bun_esc=$(printf '%s' "$bun_out" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'BEGIN{ORS="\\n"}{print}')
-        node_esc=$(printf '%s' "$node_out" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'BEGIN{ORS="\\n"}{print}')
-        rts_esc=$(printf '%s' "$rts_out" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'BEGIN{ORS="\\n"}{print}')
-        entry="{\"name\":\"$name\",\"status\":\"$status\",\"bun\":\"$bun_esc\",\"node\":\"$node_esc\",\"rts\":\"$rts_esc\"}"
+        entry=$(NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
+            node -e 'console.log(JSON.stringify({name:process.env.NAME,status:process.env.STATUS,bun:process.env.BUN,node:process.env.NODE,rts:process.env.RTS}))')
     fi
 
     if [ $first -eq 1 ]; then
