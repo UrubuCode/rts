@@ -38,113 +38,113 @@ runtimes antes de PR.
 ═══════════════════════════════════════════════════════════
 ## ES2020-2024 essenciais (produção real)
 
-- [ ] `Array.prototype.flatMap` — depth padrão, mapper retorna array vazio, mapper retorna scalar, mapper retorna array de arrays (não achata 2 níveis), mixing
-- [ ] `Array.prototype.at` — index positivo, -1, -2, 0, fora do range (undefined)
-- [ ] `Array.prototype.findLast` e `findLastIndex` — predicate matching, sem match (undefined / -1)
-- [ ] `String.prototype.matchAll` com `/g` — iterar matches, captures, named groups, lastIndex
-- [ ] `String.prototype.replaceAll` — string pattern, RegExp /g, replacement function
-- [ ] `String.prototype.at` — index neg em string, fora do range, empty string
-- [ ] `Object.hasOwn(obj, "key")` vs `obj.hasOwnProperty` — em prototype chain, inherited, próprio
-- [ ] `Object.fromEntries` — de Map, de `Array.from(map)`, de array de tuplas, de `Object.entries` roundtrip
-- [ ] Logical assignment: `x ||= y`, `x &&= y`, `x ??= y` — em var, em obj.prop, em obj[expr]
-- [ ] Optional catch binding: `try{} catch{}` sem variável, vs `catch(e)`, uso de e fora vs dentro
+- [x] `Array.prototype.flatMap` — `258_array_flatmap.ts`
+- [x] `Array.prototype.at` — `259_array_at.ts`
+- [x] `Array.prototype.findLast` e `findLastIndex` — `260_findlast.ts`
+- [x] `String.prototype.matchAll` com `/g` — `261_string_matchall.ts`
+- [x] `String.prototype.replaceAll` — `262_replaceall.ts`
+- [x] `String.prototype.at` — `263_string_at.ts`
+- [x] `Object.hasOwn(obj, "key")` vs `obj.hasOwnProperty` — `264_object_hasown.ts`
+- [x] `Object.fromEntries` — `265_object_fromentries.ts`
+- [x] Logical assignment: `x ||= y`, `x &&= y`, `x ??= y` — `266_logical_assignment.ts`
+- [x] Optional catch binding: `try{} catch{}` sem variável, vs `catch(e)` — `117_optional_catch_binding.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Class features modernas
 
-- [ ] Private fields `#x` em classe — acesso interno, erro ao acessar de fora (try/catch), em subclasse (não compartilha)
-- [ ] Private methods `#method()` — chamada interna, this binding, herança
-- [ ] Static blocks `static { ... }` — execução em ordem, acesso a private fields da classe
-- [ ] `new.target` — em function regular vs com `new`, em arrow (undefined), em derived constructor
-- [ ] Computed class member names — `[expr]() {}`, `[Symbol.iterator]() {}`, com `Symbol.for`
+- [x] Private fields `#x` em classe — `267_private_fields.ts`
+- [x] Private methods `#method()` — `268_private_methods.ts`
+- [x] Static blocks `static { ... }` — `269_static_blocks.ts`
+- [x] `new.target` — `270_new_target.ts`
+- [x] Computed class member names — `271_computed_class_members.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Symbol + iteração
 
-- [ ] `Symbol.iterator` custom em classe + `for...of` usando a classe
-- [ ] `Symbol.asyncIterator` + `for-await-of` em async iterable
-- [ ] `Symbol.toPrimitive` — controle de hint `"number"/"string"/"default"`, coerção em `+` e `String()`
-- [ ] Generator `yield*` delegation — delegando para outro generator, com return value
-- [ ] `Generator.prototype.return` e `.throw` — comportamento, finally em generator
+- [x] `Symbol.iterator` custom em classe + `for...of` usando a classe — `272_symbol_iterator_custom.ts`
+- [x] `Symbol.asyncIterator` + `for-await-of` em async iterable — `273_symbol_asynciterator.ts`
+- [x] `Symbol.toPrimitive` — `274_symbol_toprimitive.ts`
+- [x] Generator `yield*` delegation — `275_generator_yieldstar.ts`
+- [x] `Generator.prototype.return` e `.throw` — `276_generator_return_throw.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Error handling ES2022
 
-- [ ] `new Error("msg", { cause: err })` — `e.cause` acessível, em TypeError/RangeError subclasses
-- [ ] `AggregateError` construct + `.errors` array + iter
-- [ ] try/catch com Error chain — `error.cause` em chained errors
+- [x] `new Error("msg", { cause: err })` — `277_error_cause.ts`
+- [x] `AggregateError` construct + `.errors` array + iter — `278_aggregate_error.ts`
+- [x] try/catch com Error chain — `279_error_chain_cause.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Date / Number / Math edge
 
-- [ ] `Date.prototype.setUTC*` family — setUTCFullYear, setUTCMonth, setUTCDate, setUTCHours etc + getUTC*
-- [ ] `Number.EPSILON` / `MAX_VALUE` / `MIN_VALUE` / `MAX_SAFE_INTEGER` edge
-- [ ] `Math.imul` (32-bit signed mul wraparound) — casos negativos, overflow
-- [ ] `Math.fround` — perda de precisão f32, NaN, Infinity
-- [ ] `Math.f16round` — ES2024 half-precision (pode dar bun_node_diverge se versões diferem)
+- [x] `Date.prototype.setUTC*` family — `280_date_setutc_family.ts`
+- [x] `Number.EPSILON` / `MAX_VALUE` / `MIN_VALUE` / `MAX_SAFE_INTEGER` edge — `281_number_edges.ts`
+- [x] `Math.imul` (32-bit signed mul wraparound) — `282_math_imul.ts`
+- [x] `Math.fround` — `283_math_fround.ts`
+- [x] `Math.f16round` — `284_math_f16round.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Web APIs / Globals
 
-- [ ] `queueMicrotask` — ordem vs `Promise.resolve().then`, vs `setTimeout(0)`
-- [ ] `setImmediate` — Node-only, RTS pode skip (vai virar rts_error legítimo)
-- [ ] `URL.canParse` — válidos, inválidos, com base, ES2023
-- [ ] `AbortSignal.timeout(ms)` + `AbortSignal.any([sigs])` — ES2024
-- [ ] `Headers.prototype.getSetCookie` — ES2023
+- [x] `queueMicrotask` — `285_queuemicrotask_order.ts`
+- [x] `setImmediate` — `286_setimmediate.ts`
+- [x] `URL.canParse` — `287_url_canparse.ts`
+- [x] `AbortSignal.timeout(ms)` + `AbortSignal.any([sigs])` — `288_abortsignal_timeout_any.ts`
+- [x] `Headers.prototype.getSetCookie` — `289_headers_getsetcookie.ts`
 
 ═══════════════════════════════════════════════════════════
 ## JSON edge
 
-- [ ] `JSON.stringify` com referência circular — try/catch TypeError
-- [ ] `JSON.stringify(BigInt)` — throws TypeError
-- [ ] `JSON.stringify` com `toJSON()` method — em classe custom, em Date (`.toISOString()`)
-- [ ] `JSON.parse` com reviver function — transformação de valores, this binding
+- [x] `JSON.stringify` com referência circular — `290_json_circular.ts`
+- [x] `JSON.stringify(BigInt)` — `291_json_bigint.ts`
+- [x] `JSON.stringify` com `toJSON()` method — `292_json_tojson.ts`
+- [x] `JSON.parse` com reviver function — `293_json_reviver_this.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Sintaxe / semântica
 
-- [ ] Rest params em arrow function — `(a, ...rest) => rest.length`
-- [ ] Labeled break/continue — `outer: for { for { break outer } }`
-- [ ] `delete` operator — em property, em array index (deixa hole, length não muda)
-- [ ] `void` operator — `void 0`, `void expr` (sempre undefined)
-- [ ] Comma operator — `(a, b, c)` avalia tudo, retorna último
-- [ ] `arguments` object em fn não-arrow — `arguments.length`, `arguments[0]`, `arguments[Symbol.iterator]`
-- [ ] `this` em strict mode top-level — undefined em strict, global em sloppy (vai virar bun_node_diverge talvez)
+- [x] Rest params em arrow function — `294_arrow_rest_params.ts`
+- [x] Labeled break/continue — `295_labeled_break_continue.ts`
+- [x] `delete` operator — `296_delete_operator.ts`
+- [x] `void` operator — `297_void_operator.ts`
+- [x] Comma operator — `298_comma_operator.ts`
+- [x] `arguments` object em fn não-arrow — `299_arguments_object.ts`
+- [x] `this` em strict mode top-level — `300_this_strict_top_level.ts`
 
 ═══════════════════════════════════════════════════════════
 ## ES2024+ recentes
 
-- [ ] `Map.groupBy(arr, fn)` e `Object.groupBy(arr, fn)` — agrupamento por chave
-- [ ] `Set.prototype.union/intersection/difference/symmetricDifference/isSubsetOf/isSupersetOf/isDisjointFrom` — ES2025
-- [ ] `Array.fromAsync` — de async iterable, com mapper, com Promise array
-- [ ] `Promise.try(fn)` — ES2025, sync/async error catch
-- [ ] `Iterator.from(iter)` + iterator helpers `.map .filter .take .drop .reduce .toArray`
-- [ ] `Iterator.prototype.toArray` (já consome iterator)
+- [x] `Map.groupBy(arr, fn)` e `Object.groupBy(arr, fn)` — `301_groupby_dedicated.ts`
+- [x] `Set.prototype.union/intersection/difference/symmetricDifference/isSubsetOf/isSupersetOf/isDisjointFrom` — `302_set_ops_dedicated.ts`
+- [x] `Array.fromAsync` — `303_array_fromasync.ts`
+- [x] `Promise.try(fn)` — `304_promise_try.ts`
+- [x] `Iterator.from(iter)` + iterator helpers `.map .filter .take .drop .reduce .toArray` — `305_iterator_helpers.ts`
+- [x] `Iterator.prototype.toArray` (já consome iterator) — `306_iterator_toarray.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Coleções fracas / GC
 
-- [ ] `WeakRef` — `deref()` retorna obj enquanto strong ref existe, undefined após GC (não testar GC real, só API shape)
-- [ ] `FinalizationRegistry` — register + callback shape (sem forçar GC, só verifica API existe)
+- [x] `WeakRef` — `307_weakref_shape.ts`
+- [x] `FinalizationRegistry` — `308_finalization_registry_shape.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Misc útil
 
-- [ ] `console.assert(cond, msg)` — falsy assertion behavior
-- [ ] `console.group` / `groupEnd` indentação
-- [ ] `console.table` com array de objetos
-- [ ] `console.dir(obj, { depth })`
-- [ ] Tagged template raw strings — `String.raw`, tag function custom recebendo strings + expressions
-- [ ] `import.meta` — em ESM module top-level (pode dar bun_node_diverge, mas vale testar)
-- [ ] Hashbang `#!/usr/bin/env node` na primeira linha — ES2023 oficial
-- [ ] `structuredClone()` com Map/Set/Date/RegExp + checar `!==` identidade
+- [x] `console.assert(cond, msg)` — `309_console_assert.ts`
+- [x] `console.group` / `groupEnd` — `310_console_group.ts`
+- [x] `console.table` com array de objetos — `311_console_table.ts`
+- [x] `console.dir(obj, { depth })` — `312_console_dir.ts`
+- [x] Tagged template raw strings — `313_tagged_template_raw.ts`
+- [x] `import.meta` — `314_import_meta.ts`
+- [x] Hashbang `#!/usr/bin/env node` na primeira linha — `315_hashbang.ts`
+- [x] `structuredClone()` com Map/Set/Date/RegExp + checar `!==` identidade — `316_structuredclone_mixed.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Numéricos sutis
 
-- [ ] BigInt literals `10n`, `0xFFn`, comparação BigInt com Number (`1n == 1`, `1n === 1` false)
-- [ ] Numeric separators `1_000_000` em decimal/hex/binary/octal
-- [ ] `**` operator (power) — vs `Math.pow`, com negativos, com BigInt
+- [x] BigInt literals `10n`, `0xFFn`, comparação BigInt com Number (`1n == 1`, `1n === 1` false) — `317_bigint_literals.ts`
+- [x] Numeric separators `1_000_000` em decimal/hex/binary/octal — `318_numeric_separators.ts`
+- [x] `**` operator (power) — vs `Math.pow`, com negativos, com BigInt — `319_exponentiation.ts`
 
 ═══════════════════════════════════════════════════════════
 ## Sugestões futuras (sem prioridade)
