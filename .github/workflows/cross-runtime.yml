@@ -5,8 +5,9 @@ on:
     branches: ["main"]
   pull_request:
   schedule:
-    # Semanal segunda 6h UTC para detectar regressoes em deps (Bun/Node).
-    - cron: "0 6 * * 1"
+    # Semanal segunda 00:00 BRT (03:00 UTC) para detectar regressoes
+    # em deps (Bun/Node) sem afetar horario comercial.
+    - cron: "0 3 * * 1"
   workflow_dispatch:
 
 permissions:
