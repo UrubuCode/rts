@@ -1,6 +1,6 @@
 //! String-producing ABI for the GC namespace.
 
-use super::handles::{Entry, alloc_entry, free_handle, with_entry, with_two_entries};
+use super::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut, with_two_entries};
 
 /// Reads a string handle into an owned Rust `String`.
 pub fn read_string_handle(handle: u64) -> Option<String> {
@@ -145,6 +145,64 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
             alloc_entry(Entry::String(bytes))
         }
     }
+}
+
+/// Spread universal: copia elementos de `src` para o Vec `dst`.
+/// Detecta tipo de Entry e itera apropriadamente:
+/// - Entry::Vec -> push de cada slot
+/// - Entry::String -> push de cada char (handle de string char)
+/// - Entry::Map -> push de cada value (ordem do IndexMap)
+/// - outros -> no-op
+///
+/// Usado por `[...x]` no codegen quando `x` pode ser string/array.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_SPREAD_INTO_VEC(dst: u64, src: u64) {
+    if dst == 0 || src == 0 {
+        return;
+    }
+    enum Snap {
+        Vec(Vec<i64>),
+        Str(Vec<u8>),
+        Map(Vec<i64>),
+        Empty,
+    }
+    let snap = with_entry(src, |entry| match entry {
+        Some(Entry::Vec(slots)) => Snap::Vec(slots.as_ref().clone()),
+        Some(Entry::String(b)) => Snap::Str(b.clone()),
+        Some(Entry::Map(m)) => Snap::Map(m.values().copied().collect()),
+        _ => Snap::Empty,
+    });
+    match snap {
+        Snap::Vec(items) => {
+            for v in items {
+                push_vec_slot(dst, v);
+            }
+        }
+        Snap::Str(bytes) => {
+            // Iter por chars Unicode (string spread JS itera codepoints).
+            let s = String::from_utf8_lossy(&bytes);
+            for ch in s.chars() {
+                let mut buf = [0u8; 4];
+                let ch_bytes = ch.encode_utf8(&mut buf).as_bytes().to_vec();
+                let h = alloc_entry(Entry::String(ch_bytes));
+                push_vec_slot(dst, h as i64);
+            }
+        }
+        Snap::Map(vals) => {
+            for v in vals {
+                push_vec_slot(dst, v);
+            }
+        }
+        Snap::Empty => {}
+    }
+}
+
+fn push_vec_slot(dst: u64, value: i64) {
+    with_entry_mut(dst, |entry| {
+        if let Some(Entry::Vec(slots)) = entry {
+            slots.push(value);
+        }
+    });
 }
 
 /// `.length` universal para handles ambiguous (any/var_member_call):

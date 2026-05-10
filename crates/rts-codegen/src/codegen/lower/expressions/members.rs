@@ -27,14 +27,17 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
         match elem {
             Some(e) => {
                 if e.spread.is_some() {
-                    // #209: array spread — copia cada elemento da fonte
-                    // pro array destino. Fonte deve ser handle Vec
-                    // (qualquer expressao que avalie pra um). v0 nao
-                    // suporta spread de Set/Map nem iteradores nativos
-                    // — caller passa array.
+                    // (#209/spread) Spread universal — runtime helper
+                    // detecta Vec/String/Map e itera. Antes so' funcionava
+                    // pra Vec; `[..."abc"]` retornava vazio.
                     let src_tv = lower_expr(ctx, &e.expr)?;
                     let src_h = ctx.coerce_to_i64(src_tv).val;
-                    emit_vec_extend(ctx, handle, src_h, push_fn)?;
+                    let spread_fn = ctx.get_extern(
+                        "__RTS_FN_RT_SPREAD_INTO_VEC",
+                        &[cl::I64, cl::I64],
+                        None,
+                    )?;
+                    ctx.builder.ins().call(spread_fn, &[handle, src_h]);
                     continue;
                 }
                 let tv = lower_expr(ctx, &e.expr)?;
@@ -136,61 +139,6 @@ fn emit_map_extend(
     // map_set(dst, kp, kl, value)
     ctx.builder.ins().call(set_fn, &[dst, kp, kl, value]);
 
-    let one = ctx.builder.ins().iconst(cl::I64, 1);
-    let next_i = ctx.builder.ins().iadd(i, one);
-    ctx.builder.ins().jump(loop_block, &[next_i.into()]);
-
-    ctx.builder.seal_block(loop_block);
-    ctx.builder.switch_to_block(exit_block);
-    ctx.builder.seal_block(exit_block);
-    Ok(())
-}
-
-/// Para cada elemento `i` em [0, len(src)), faz dst.push(src[i]).
-/// Emite um loop em IR usando block params.
-fn emit_vec_extend(
-    ctx: &mut FnCtx,
-    dst: cranelift_codegen::ir::Value,
-    src: cranelift_codegen::ir::Value,
-    push_fn: cranelift_codegen::ir::FuncRef,
-) -> Result<()> {
-    use cranelift_codegen::ir::condcodes::IntCC;
-
-    let len_fn = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
-        &[cl::I64],
-        Some(cl::I64),
-    )?;
-    let get_fn = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
-        &[cl::I64, cl::I64],
-        Some(cl::I64),
-    )?;
-
-    let len_inst = ctx.builder.ins().call(len_fn, &[src]);
-    let len = ctx.builder.inst_results(len_inst)[0];
-
-    // Loop classico: i = 0; while (i < len) { push(get(src, i)); i++; }
-    let loop_block = ctx.builder.create_block();
-    let body_block = ctx.builder.create_block();
-    let exit_block = ctx.builder.create_block();
-    ctx.builder.append_block_param(loop_block, cl::I64);
-
-    let zero = ctx.builder.ins().iconst(cl::I64, 0);
-    ctx.builder.ins().jump(loop_block, &[zero.into()]);
-
-    ctx.builder.switch_to_block(loop_block);
-    let i = ctx.builder.block_params(loop_block)[0];
-    let cond = ctx.builder.ins().icmp(IntCC::SignedLessThan, i, len);
-    ctx.builder
-        .ins()
-        .brif(cond, body_block, &[], exit_block, &[]);
-
-    ctx.builder.switch_to_block(body_block);
-    ctx.builder.seal_block(body_block);
-    let elem_inst = ctx.builder.ins().call(get_fn, &[src, i]);
-    let elem = ctx.builder.inst_results(elem_inst)[0];
-    ctx.builder.ins().call(push_fn, &[dst, elem]);
     let one = ctx.builder.ins().iconst(cl::I64, 1);
     let next_i = ctx.builder.ins().iadd(i, one);
     ctx.builder.ins().jump(loop_block, &[next_i.into()]);

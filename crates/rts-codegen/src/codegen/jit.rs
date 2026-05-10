@@ -422,6 +422,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_UNIVERSAL_LENGTH", __RTS_FN_RT_UNIVERSAL_LENGTH);
     }
     {
+        use crate::namespaces::gc::string_pool::__RTS_FN_RT_SPREAD_INTO_VEC;
+        add_fn!("__RTS_FN_RT_SPREAD_INTO_VEC", __RTS_FN_RT_SPREAD_INTO_VEC);
+    }
+    {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TYPEOF_HANDLE;
         add_fn!("__RTS_FN_RT_TYPEOF_HANDLE", __RTS_FN_RT_TYPEOF_HANDLE);
     }
