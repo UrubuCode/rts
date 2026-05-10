@@ -69,6 +69,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::parallel::abi::SPEC,
     &crate::namespaces::tls::abi::SPEC,
     &crate::namespaces::globals::json::abi::SPEC,
+    &crate::namespaces::globals::json5::abi::SPEC,
     &crate::namespaces::globals::console::abi::SPEC,
     &crate::namespaces::globals::timers::abi::SPEC,
     &crate::namespaces::globals::fetch::abi::SPEC,

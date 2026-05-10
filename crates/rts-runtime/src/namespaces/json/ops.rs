@@ -34,6 +34,25 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE(ptr: u64, len: i64) -> u64 {
     }
 }
 
+/// JSON5.parse — extensao do JSON com comentarios, trailing commas,
+/// keys nao-quoteadas, strings com aspas simples, hex literals, NaN/
+/// Infinity, etc. Usa o crate `json5` que serializa para
+/// `serde_json::Value`, entao a saida segue o mesmo bridge handle-table
+/// do JSON estrito (sem semantica adicional fora parse-time).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_PARSE5(ptr: u64, len: i64) -> u64 {
+    let Some(bytes) = slice_from(ptr, len) else {
+        return 0;
+    };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return 0;
+    };
+    match json5::from_str::<Value>(text) {
+        Ok(v) => json_value_to_handle(&v),
+        Err(_) => 0,
+    }
+}
+
 /// Converte recursivamente um `serde_json::Value` em handle nativo:
 /// - Object -> Entry::Map (slots = handles ou i64 raw para scalars)
 /// - Array -> Entry::Vec (idem)

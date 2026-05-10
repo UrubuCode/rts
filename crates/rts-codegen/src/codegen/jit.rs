@@ -271,6 +271,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::json ──────────────────────────────────────────────
     use crate::namespaces::json::ops::*;
     add_fn!("__RTS_FN_NS_JSON_PARSE", __RTS_FN_NS_JSON_PARSE);
+    add_fn!("__RTS_FN_NS_JSON_PARSE5", __RTS_FN_NS_JSON_PARSE5);
     add_fn!("__RTS_FN_NS_JSON_STRINGIFY", __RTS_FN_NS_JSON_STRINGIFY);
     add_fn!(
         "__RTS_FN_NS_JSON_STRINGIFY_TYPED",
