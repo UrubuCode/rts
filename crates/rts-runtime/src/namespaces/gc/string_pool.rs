@@ -147,6 +147,30 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     }
 }
 
+/// JS-spec truthiness para Handle ambiguo:
+/// - 0/null/undefined -> falsy (0)
+/// - Entry::String com bytes vazios -> falsy (0)
+/// - Entry::Vec/Map vazios -> truthy (objetos sao sempre truthy em JS)
+/// - Outros handles validos -> truthy (1)
+/// - Handle invalido (nao existe na tabela) e value != 0 -> truthy
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TRUTHY(value: i64) -> i64 {
+    if value == 0 {
+        return 0;
+    }
+    let h = value as u64;
+    let snap = with_entry(h, |entry| match entry {
+        Some(Entry::String(b)) => Some(!b.is_empty()),
+        Some(_) => Some(true),
+        None => None,
+    });
+    match snap {
+        Some(true) => 1,
+        Some(false) => 0,
+        None => 1,
+    }
+}
+
 /// Spread universal: copia elementos de `src` para o Vec `dst`.
 /// Detecta tipo de Entry e itera apropriadamente:
 /// - Entry::Vec -> push de cada slot
