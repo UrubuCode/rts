@@ -6,9 +6,9 @@
 # para ser consumida pelo workflow CI.
 #
 # Variaveis de ambiente:
-#   RTS_BIN        — path para o binario rts (default: target/release/rts.exe ou rts)
-#   REPORT_FILE    — arquivo JSON de saida
-#   FIXTURES_DIR   — dir das fixtures (default: tests/cross-runtime)
+#   RTS_BIN        - path para o binario rts (default: target/release/rts.exe ou rts)
+#   REPORT_FILE    - arquivo JSON de saida
+#   FIXTURES_DIR   - dir das fixtures (default: tests/cross-runtime)
 
 set -uo pipefail
 
@@ -77,11 +77,11 @@ for fixture in "$FIXTURES_DIR"/*.ts; do
     stripped=$(sed 's|//.*$||' "$fixture")
     if printf '%s\n' "$stripped" | grep -qE "$RTS_ONLY_PATTERNS"; then
         rejected=$((rejected + 1))
-        echo -e "${YELLOW}!${NC} $name (rejeitado: usa API RTS-only/runtime-specific — mover para tests/*.test.ts)"
+        echo -e "${YELLOW}!${NC} $name (rejeitado: usa API RTS-only/runtime-specific - mover para tests/*.test.ts)"
         continue
     fi
 
-    # Cada runtime — captura stdout, ignora stderr (warnings de TS).
+    # Cada runtime - captura stdout, ignora stderr (warnings de TS).
     bun_out=$(bun "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
     node_out=$(node "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
     rts_out=$("$RTS_BIN" run "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
@@ -103,10 +103,10 @@ for fixture in "$FIXTURES_DIR"/*.ts; do
 
     # Print humano
     case "$status" in
-        pass) echo -e "${GREEN}✓${NC} $name" ;;
-        rts_diverge) echo -e "${RED}✗${NC} $name (RTS difere de Bun/Node)" ;;
-        bun_node_diverge) echo -e "${YELLOW}~${NC} $name (Bun != Node — skip)" ;;
-        rts_error) echo -e "${RED}✗${NC} $name (RTS error)" ;;
+        pass) echo -e "${GREEN}ok${NC} $name" ;;
+        rts_diverge) echo -e "${RED}xx${NC} $name (RTS difere de Bun/Node)" ;;
+        bun_node_diverge) echo -e "${YELLOW}~${NC} $name (Bun != Node - skip)" ;;
+        rts_error) echo -e "${RED}xx${NC} $name (RTS error)" ;;
     esac
 
     # JSON entry (escape via jq se disponivel; fallback raw)
