@@ -167,22 +167,37 @@ jobs:
             execSync(`git commit -m "docs: auto-update cross-runtime parity badge (${pct}%)"`);
             execSync('git push');
 
-      - name: Auto-create issue em schedule
+      - name: Auto-create issue em schedule (com dedup por hash)
         if: github.event_name == 'schedule' && steps.cross.outcome == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
+            const crypto = require('crypto');
             const path = process.env.GITHUB_WORKSPACE + '/cross_runtime_report.json';
             if (!fs.existsSync(path)) return;
             const r = JSON.parse(fs.readFileSync(path, 'utf8'));
             const divergent = r.results.filter(x => x.status === 'rts_diverge' || x.status === 'rts_error');
             if (divergent.length === 0) return;
 
-            const today = new Date().toISOString().slice(0, 10);
-            const title = `cross-runtime regression detected (${today})`;
+            // Hash por divergência individual: identifica a "assinatura" do bug.
+            // Usa name + status + outputs (truncados) para que o mesmo bug sempre
+            // gere mesmo hash, mesmo em runs diferentes. RTS output muda por
+            // diferentes runs sutilmente (handles)? Truncamos para evitar.
+            const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 12);
+            const sigOf = (d) => sha1(`${d.name}|${d.status}|${d.bun}|${d.node}|${d.rts}`);
+            const sigs = divergent.map(d => ({...d, sig: sigOf(d)}));
 
-            // Procura issue existente com mesmo titulo (evita duplicar)
+            // Hash agregado: ordena sigs e concatena. Conjunto idêntico de
+            // divergências = mesmo hash agregado.
+            const aggregateHash = sha1(sigs.map(d => d.sig).sort().join(','));
+
+            // Marker machine-readable inserido no body (parseado em runs futuros).
+            const HASH_MARKER = `<!-- cross-runtime-hash: ${aggregateHash} -->`;
+            const SIG_PREFIX = '<!-- cross-runtime-sig: ';  // por divergencia
+
+            // Lista issues abertas com label cross-runtime — verifica se ja
+            // existe alguma com esse hash agregado (mesmo conjunto).
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -190,25 +205,77 @@ jobs:
               labels: 'cross-runtime',
               per_page: 100
             });
-            const dup = existing.data.find(i => i.title === title);
-            if (dup) {
-              console.log(`Issue ja existe: #${dup.number}`);
+
+            // Tenta achar issue com mesmo aggregate hash.
+            const exactMatch = existing.data.find(i =>
+              (i.body || '').includes(`cross-runtime-hash: ${aggregateHash}`)
+            );
+
+            const today = new Date().toISOString().slice(0, 10);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            if (exactMatch) {
+              // Mesmo conjunto exato — só comenta atualização sem criar issue nova.
+              console.log(`Issue #${exactMatch.number} ja cobre essas divergencias (hash ${aggregateHash}). Adicionando comentario de atualizacao.`);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: exactMatch.number,
+                body: `🔁 Schedule run ${today} — divergências persistem (mesmas ${divergent.length}). [Run](${runUrl})`
+              });
               return;
             }
 
-            let body = `Detected ${divergent.length} divergência(s) entre RTS e Bun/Node em schedule semanal.\n\n`;
-            for (const d of divergent) {
+            // Verifica se há issues parciais (subconjunto): coleta todos os
+            // sig hashes ja' tracked em issues abertas. Se TODAS as
+            // divergencias atuais ja' estao em alguma issue (mesmo que
+            // distribuidas em varias), nao cria nova — apenas comenta nas
+            // existentes que tocam alguma das atuais.
+            const existingSigs = new Map(); // sig -> issue number
+            for (const issue of existing.data) {
+              const body = issue.body || '';
+              const sigMatches = body.matchAll(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/g);
+              for (const m of sigMatches) {
+                if (!existingSigs.has(m[1])) existingSigs.set(m[1], issue.number);
+              }
+            }
+
+            const newSigs = sigs.filter(d => !existingSigs.has(d.sig));
+            if (newSigs.length === 0) {
+              // Todas as divergencias ja estao tracked individualmente — comenta
+              // em cada issue afetada para manter timeline.
+              const affected = new Set(sigs.map(d => existingSigs.get(d.sig)));
+              for (const num of affected) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: num,
+                  body: `🔁 Schedule run ${today} — divergência ainda presente. [Run](${runUrl})`
+                });
+              }
+              console.log(`Todas divergencias ja tracked. Comentado em ${affected.size} issue(s).`);
+              return;
+            }
+
+            // Cria issue nova so' com as divergencias inéditas.
+            const title = `cross-runtime regression: ${newSigs.length} divergência(s) novas (${today})`;
+            let body = `Detected ${newSigs.length} divergência(s) **inéditas** entre RTS e Bun/Node.\n\n`;
+            body += `(Hash agregado: \`${aggregateHash}\` — usado para dedup em runs futuros.)\n\n`;
+            for (const d of newSigs) {
               body += `### \`${d.name}\` — ${d.status}\n\n`;
+              body += `${SIG_PREFIX}${d.sig} -->\n\n`;
               body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
               body += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
               body += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
             }
-            body += `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n`;
+            body += `Run: ${runUrl}\n\n`;
+            body += `${HASH_MARKER}\n`;
 
-            await github.rest.issues.create({
+            const created = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: title,
               body: body,
               labels: ['cross-runtime', 'bug']
             });
+            console.log(`Issue criada: #${created.data.number} (hash ${aggregateHash}, ${newSigs.length} divergencias)`);
