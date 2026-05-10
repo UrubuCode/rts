@@ -52,6 +52,114 @@ use super::operators::to_f64;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 use crate::codegen::lower::compile::class::class_static_method_name;
 
+/// (#json-bool) Tenta serializar um literal AST diretamente para JSON
+/// em compile time. Suporta: Lit (bool/num/str/null), Object literal e
+/// Array literal recursivamente. Retorna None quando encontra qualquer
+/// expressao nao-literal (var, call, etc.) — caller cai no caminho
+/// runtime que perde tipo de bool/null escalar dentro de containers.
+pub(super) fn try_const_stringify(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Lit(lit) => match lit {
+            swc_ecma_ast::Lit::Bool(b) => Some(if b.value { "true".into() } else { "false".into() }),
+            swc_ecma_ast::Lit::Null(_) => Some("null".into()),
+            swc_ecma_ast::Lit::Num(n) => {
+                // JS spec: NaN/Infinity -> null em JSON.
+                if n.value.is_nan() || n.value.is_infinite() {
+                    Some("null".into())
+                } else if n.value == n.value.trunc() && n.value.abs() < 1e21 {
+                    Some(format!("{}", n.value as i64))
+                } else {
+                    Some(format!("{}", n.value))
+                }
+            }
+            swc_ecma_ast::Lit::Str(s) => Some(json_escape_str(&s.value.to_string_lossy())),
+            _ => None,
+        },
+        Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
+            // -42 -> "-42"
+            if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = u.arg.as_ref() {
+                let v = -n.value;
+                if v.is_nan() || v.is_infinite() {
+                    return Some("null".into());
+                }
+                if v == v.trunc() && v.abs() < 1e21 {
+                    return Some(format!("{}", v as i64));
+                }
+                return Some(format!("{}", v));
+            }
+            None
+        }
+        Expr::Object(obj) => {
+            let mut out = String::from("{");
+            let mut first = true;
+            for prop in &obj.props {
+                let p = match prop {
+                    swc_ecma_ast::PropOrSpread::Prop(p) => p,
+                    _ => return None, // spread nao constante
+                };
+                let (key, val_expr) = match p.as_ref() {
+                    swc_ecma_ast::Prop::KeyValue(kv) => {
+                        let k = match &kv.key {
+                            swc_ecma_ast::PropName::Ident(id) => id.sym.to_string(),
+                            swc_ecma_ast::PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                            swc_ecma_ast::PropName::Num(n) => n.value.to_string(),
+                            _ => return None,
+                        };
+                        (k, kv.value.as_ref())
+                    }
+                    _ => return None, // method/getter/setter/shorthand bail
+                };
+                let val_json = try_const_stringify(val_expr)?;
+                if !first { out.push(','); }
+                first = false;
+                out.push_str(&json_escape_str(&key));
+                out.push(':');
+                out.push_str(&val_json);
+            }
+            out.push('}');
+            Some(out)
+        }
+        Expr::Array(arr) => {
+            let mut out = String::from("[");
+            let mut first = true;
+            for elem in &arr.elems {
+                let e = match elem {
+                    Some(e) => e,
+                    None => return None, // sparse array bail
+                };
+                if e.spread.is_some() { return None; }
+                let val_json = try_const_stringify(&e.expr)?;
+                if !first { out.push(','); }
+                first = false;
+                out.push_str(&val_json);
+            }
+            out.push(']');
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+fn json_escape_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     if matches!(&call.callee, Callee::Super(_)) {
         return lower_super_call(ctx, call);
@@ -144,6 +252,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         return Err(anyhow!("spread not supported in JSON.stringify"));
                     }
                     use crate::codegen::lower::ctx::{TypedVal, ValTy};
+                    // (#json-bool) Pre-stringify literais em compile time.
+                    // Bool/Number/String/null/Object/Array de literais geram
+                    // JSON correto sem passar pelo Map<String,i64> que perde
+                    // tipo de bool/null. Cobre o caso comum
+                    // `JSON.stringify({nested: {x: true}})`.
+                    if let Some(json_str) = try_const_stringify(&call.args[0].expr) {
+                        let h = ctx.emit_str_handle(json_str.as_bytes())?;
+                        return Ok(h);
+                    }
                     let v_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let (raw, kind) = match v_tv.ty {
                         ValTy::Bool => (ctx.coerce_to_i64(v_tv).val, 2i64),
