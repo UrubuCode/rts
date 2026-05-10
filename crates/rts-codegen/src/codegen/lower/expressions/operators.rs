@@ -957,8 +957,37 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
             &[cl::I64, cl::I64],
             Some(cl::I64),
         )?;
-        let lhs_h = ctx.coerce_to_handle(lhs)?.val;
-        let rhs_h = ctx.coerce_to_handle(rhs)?.val;
+        // (#627) Operando i64 ambiguo (resultado de obj.x sem tipo declarado,
+        // member call em var, etc) usa TPL_COERCE_AUTO que detecta em runtime
+        // se eh handle de string ou i64 puro. Sem isso `"X: " + obj.x` com
+        // x: string vinda de destructuring de param emite STRING_FROM_I64
+        // (formata handle bruto como numero).
+        let lhs_ambig = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_member_call_values.contains(&lhs.val);
+        let rhs_ambig = matches!(rhs.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_member_call_values.contains(&rhs.val);
+        let lhs_h = if lhs_ambig {
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[lhs.val]);
+            ctx.builder.inst_results(inst)[0]
+        } else {
+            ctx.coerce_to_handle(lhs)?.val
+        };
+        let rhs_h = if rhs_ambig {
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[rhs.val]);
+            ctx.builder.inst_results(inst)[0]
+        } else {
+            ctx.coerce_to_handle(rhs)?.val
+        };
 
         // coerce_to_handle may have created new fresh handles for numeric operands.
         let lhs_free = lhs_is_fresh || (!matches!(lhs.ty, ValTy::Handle) && lhs_h != lhs.val);

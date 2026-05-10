@@ -468,6 +468,12 @@ pub struct FnCtx<'m, 'fb> {
     /// (consulta entry table via runtime fn).
     pub var_member_call_values: std::collections::HashSet<cranelift_codegen::ir::Value>,
 
+    /// (#627) Var names cujo init veio de obj.x ambiguo (member access
+    /// sem tipo declarado). Cada read_local da var marca o Value carregado
+    /// como var_member_call_values, propagando a flag de ambiguidade
+    /// atraves da var. Sem isso, destructuring de param de fn perde info.
+    pub local_ambiguous_vars: std::collections::HashSet<String>,
+
     /// Dedup de data sections por conteúdo: bytes → DataId já declarado.
     /// Evita criar múltiplos .Lrts_str_N com bytes idênticos quando o mesmo
     /// literal aparece mais de uma vez (dentro ou entre funções do módulo).
@@ -571,6 +577,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             fresh_handle_set: std::collections::HashSet::new(),
             optional_chain_values: std::collections::HashSet::new(),
             var_member_call_values: std::collections::HashSet::new(),
+            local_ambiguous_vars: std::collections::HashSet::new(),
             str_data_cache: HashMap::new(),
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),

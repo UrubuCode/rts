@@ -457,6 +457,14 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             _ => init_val,
         };
 
+        // (#627) Propaga flag de ambiguidade — quando init eh resultado de
+        // obj.x sem tipo declarado, a var herda var_member_call_values para
+        // que `+` em concat use TPL_COERCE_AUTO.
+        let init_was_ambiguous = ctx.var_member_call_values.contains(&init_val);
+        if init_was_ambiguous && ann_ty.is_none() {
+            ctx.local_ambiguous_vars.insert(name.clone());
+        }
+
         if ctx.module_scope && ctx.has_global(&name) {
             ctx.write_local(&name, init_coerced)?;
         } else {
