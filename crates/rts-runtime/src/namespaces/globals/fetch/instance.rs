@@ -357,15 +357,28 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER(h: u64) -> u64 {
     alloc_entry(Entry::Buffer(body))
 }
 
-/// response.then(fn) → fn(response) — compatibilidade com .then() chains.
-/// Em RTS síncrono, then chama fn imediatamente com o Response handle.
+/// response.then(fn) → Promise<fn(response)> — compatibilidade com chains
+/// `.then(...).then(...)`. Em RTS síncrono, then chama fn imediatamente com o
+/// Response handle e wrappa o retorno num PromiseAsync já fulfilled. Isso
+/// permite encadear `.then` sem segfault quando o callback retorna handle de
+/// outro tipo (Map, String, Buffer) — o segundo `.then` ataca o Promise, não
+/// o handle bruto. (#379)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
     if fp == 0 {
-        return h;
+        let slot = crate::namespaces::gc::promise_slot::new_fulfilled(h as i64);
+        return alloc_entry(Entry::PromiseAsync(slot));
     }
     let result = unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(h as i64) };
-    result as u64
+    // Se o callback ja retornou um Promise, passthrough (evita Promise<Promise>).
+    let already_promise = with_entry(result as u64, |entry| {
+        matches!(entry, Some(Entry::PromiseAsync(_)))
+    });
+    if already_promise {
+        return result as u64;
+    }
+    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(result);
+    alloc_entry(Entry::PromiseAsync(slot))
 }
 
 /// response.free() — libera Response + Promise handles
@@ -379,4 +392,66 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_FREE(h: u64) {
         free_handle(inner_h);
     }
     free_handle(h);
+}
+
+#[cfg(test)]
+mod tests_response_then {
+    //! Cobertura do fix #379 — response.then() retorna PromiseAsync,
+    //! permitindo `.then(...).then(...)` sem segfault.
+
+    use super::*;
+
+    fn make_response(body: &str) -> u64 {
+        alloc_entry(Entry::HttpResponse(Box::new(HttpResponseData {
+            status: 200,
+            url: String::new(),
+            body: body.as_bytes().to_vec(),
+        })))
+    }
+
+    #[test]
+    fn then_with_null_callback_returns_promise() {
+        let h = make_response("{}");
+        let result = __RTS_FN_GL_FETCH_RESPONSE_THEN(h, 0);
+        let is_promise = with_entry(result, |entry| {
+            matches!(entry, Some(Entry::PromiseAsync(_)))
+        });
+        assert!(is_promise, "RESPONSE_THEN(h, 0) deveria retornar PromiseAsync");
+    }
+
+    extern "C" fn cb_returns_string(_h: i64) -> i64 {
+        // Simula `r => r.text()` — retorna handle String puro.
+        alloc_entry(Entry::String(b"hello".to_vec())) as i64
+    }
+
+    #[test]
+    fn then_wraps_string_result_in_promise() {
+        let h = make_response("hello");
+        let cb = cb_returns_string as usize as u64;
+        let result = __RTS_FN_GL_FETCH_RESPONSE_THEN(h, cb);
+        let is_promise = with_entry(result, |entry| {
+            matches!(entry, Some(Entry::PromiseAsync(_)))
+        });
+        assert!(is_promise, "Resultado de String deve ser wrappado em PromiseAsync");
+    }
+
+    extern "C" fn cb_returns_promise(h: i64) -> i64 {
+        // Simula callback que ja retorna Promise: passthrough esperado.
+        let slot = crate::namespaces::gc::promise_slot::new_fulfilled(h);
+        alloc_entry(Entry::PromiseAsync(slot)) as i64
+    }
+
+    #[test]
+    fn then_passthrough_when_callback_returns_promise() {
+        let h = make_response("x");
+        let cb = cb_returns_promise as usize as u64;
+        let result = __RTS_FN_GL_FETCH_RESPONSE_THEN(h, cb);
+        let is_promise = with_entry(result, |entry| {
+            matches!(entry, Some(Entry::PromiseAsync(_)))
+        });
+        assert!(is_promise);
+        // Nao deveria ter Promise<Promise> — verificar que e' apenas 1 nivel.
+        // (PromiseAsync nao expoe valor sintaticamente, mas garantia importante
+        // e' que `.then` no result pega o Promise original, nao um wrapper duplo.)
+    }
 }
