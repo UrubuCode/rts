@@ -259,6 +259,16 @@ fn is_pure_for_select(e: &swc_ecma_ast::Expr) -> bool {
 
 pub(super) fn lower_switch_stmt(ctx: &mut FnCtx, sw: &swc_ecma_ast::SwitchStmt) -> Result<bool> {
     let discriminant = lower_expr(ctx, &sw.discriminant)?;
+    // (#sw-str) Detecta switch de string: discriminant ty Handle ou
+    // qualquer case test que seja Lit::Str — comparar handles com icmp
+    // (igualdade de bits) quebra para strings; precisa STRING_EQ.
+    let disc_is_string = matches!(discriminant.ty, crate::codegen::lower::ctx::ValTy::Handle)
+        || sw.cases.iter().any(|c| {
+            c.test.as_ref().map_or(false, |t| matches!(
+                t.as_ref(),
+                swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_))
+            ))
+        });
     let disc_i64 = ctx.coerce_to_i64(discriminant);
     let exit = ctx.builder.create_block();
 
@@ -298,6 +308,16 @@ pub(super) fn lower_switch_stmt(ctx: &mut FnCtx, sw: &swc_ecma_ast::SwitchStmt) 
         let fallback = default_idx.map(|di| case_blocks[di]).unwrap_or(exit);
         table.emit(ctx.builder, disc_i64.val, fallback);
     } else {
+        // (#sw-str) Para switch de string, usa STRING_EQ em vez de icmp.
+        let str_eq_fn = if disc_is_string {
+            Some(ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_EQ",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?)
+        } else {
+            None
+        };
         for (pos, case_idx) in non_default_indices.iter().enumerate() {
             let test_expr = sw.cases[*case_idx]
                 .test
@@ -305,10 +325,14 @@ pub(super) fn lower_switch_stmt(ctx: &mut FnCtx, sw: &swc_ecma_ast::SwitchStmt) 
                 .expect("non-default case must have test expression");
             let test_val = lower_expr(ctx, test_expr)?;
             let test_i64 = ctx.coerce_to_i64(test_val);
-            let eq = ctx
-                .builder
-                .ins()
-                .icmp(IntCC::Equal, disc_i64.val, test_i64.val);
+            let eq = if let Some(seq) = str_eq_fn {
+                let inst = ctx.builder.ins().call(seq, &[disc_i64.val, test_i64.val]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                ctx.builder
+                    .ins()
+                    .icmp(IntCC::Equal, disc_i64.val, test_i64.val)
+            };
 
             let false_block = if pos + 1 < non_default_indices.len() {
                 ctx.builder.create_block()
