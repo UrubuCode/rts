@@ -41,6 +41,53 @@ Cada fixture cai em uma de 5 categorias:
   abre issue automática com label `cross-runtime`.
 - **Em push para `main`**: roda como sanity check (artifact JSON salvo).
 
+## Dedup de issues por hash
+
+O auto-create de issue em schedule usa **dois níveis de hash** para evitar
+duplicatas:
+
+1. **Hash por divergência** (`sig`): SHA-1 truncado de
+   `name|status|bun_output|node_output|rts_output`. Mesma assinatura =
+   mesmo bug. Inserido no body como `<!-- cross-runtime-sig: <12 chars> -->`
+   antes do bloco de outputs.
+
+2. **Hash agregado** (`aggregateHash`): SHA-1 do conjunto de sigs
+   ordenadas. Conjunto idêntico de divergências = mesmo hash. Inserido
+   no footer do body como `<!-- cross-runtime-hash: <12 chars> -->`.
+
+### Lógica de decisão a cada schedule run
+
+```
+divergencias_atuais = run | filter(rts_diverge ou rts_error)
+sigs_atuais = map(divergencias_atuais, sig)
+hash_atual = sha1(sort(sigs_atuais).join(","))
+
+issues_abertas = labels:cross-runtime
+
+if exists(issue with hash_atual no body):
+  # Conjunto idêntico já tem issue — só comenta "ainda presente"
+  comment(issue, "🔁 Schedule run YYYY-MM-DD — persistem")
+elif all(sigs_atuais já estão em alguma issue aberta):
+  # Subconjunto já coberto distribuído em várias issues
+  comment(em cada issue afetada)
+else:
+  # Tem sig(s) inéditos — cria issue nova só com os novos
+  create_issue(divergencias_novas, hash_atual no footer)
+```
+
+Isso garante:
+- **Mesmo bug persistente** → não duplica issue, comentário "ainda presente"
+  marca timeline.
+- **Conjunto novo de bugs** → issue nova só com os inéditos.
+- **Bug novo + bugs antigos** → issue nova só com os novos; antigos ganham
+  comentário em suas issues existentes.
+
+### Por que hash truncado de 12 chars
+
+Suficiente para evitar colisão dado o número de fixtures pequeno (centenas
+no pior cenário). Espaço de 16^12 = 2.8e14, colisão por aniversário em
+~16M divergências distintas — muito além do realista.
+
 ## Adicionar fixture nova
 
 1. Criar `tests/cross-runtime/NN_<descrição>.ts` com `console.log` cobrindo
