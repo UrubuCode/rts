@@ -87,6 +87,12 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         }
     }
     if let Some(tv) = ctx.read_local(name) {
+        // (#627) Propaga ambiguidade para o Value carregado: var declarada
+        // com init de obj.x sem tipo conhecido marca cada read como
+        // var_member_call_values para que `+` use TPL_COERCE_AUTO.
+        if ctx.local_ambiguous_vars.contains(name) {
+            ctx.var_member_call_values.insert(tv.val);
+        }
         return Ok(tv);
     }
     if ctx.user_fns.contains_key(name) {
