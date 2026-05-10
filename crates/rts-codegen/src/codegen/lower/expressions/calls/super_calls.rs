@@ -37,11 +37,47 @@ pub(super) fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<Typed
     ctx.super_already_called = true;
 
     let Some(init_owner) = resolve_init_owner(ctx, &parent) else {
-        for a in &call.args {
-            if a.spread.is_some() {
-                return Err(anyhow!("spread em super(...) nao suportado"));
+        // (#err-extends) Caso especial: parent eh Error class global. Em vez
+        // de descartar args, armazena message+name no map de `this` para que
+        // `e.message`/`e.name` funcionem em subclasse de Error.
+        let is_error_parent = matches!(
+            parent.as_str(),
+            "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+        );
+        if is_error_parent && !call.args.is_empty() {
+            let msg_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let msg_h = ctx.coerce_to_handle(msg_tv)?.val;
+            let this_val = ctx
+                .read_local("this")
+                .ok_or_else(|| anyhow!("`this` indisponivel em super(...)"))?;
+            let this_h = ctx.coerce_to_i64(this_val).val;
+            // map.set(this, "message", msg_h)
+            let set_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                None,
+            )?;
+            let (kptr, klen) = ctx.emit_str_literal(b"message")?;
+            ctx.builder.ins().call(set_fn, &[this_h, kptr, klen, msg_h]);
+            // Tambem armazena "name" = parent (Error/TypeError/etc.) caso
+            // nao seja sobrescrito pelo body do constructor.
+            let name_tv = ctx.emit_str_handle(parent.as_bytes())?;
+            let (nkptr, nklen) = ctx.emit_str_literal(b"name")?;
+            ctx.builder.ins().call(set_fn, &[this_h, nkptr, nklen, name_tv.val]);
+            // Avalia args restantes pra side effects (raro em super de Error).
+            for a in call.args.iter().skip(1) {
+                if a.spread.is_some() {
+                    return Err(anyhow!("spread em super(...) nao suportado"));
+                }
+                let _ = lower_expr(ctx, &a.expr)?;
             }
-            let _ = lower_expr(ctx, &a.expr)?;
+        } else {
+            for a in &call.args {
+                if a.spread.is_some() {
+                    return Err(anyhow!("spread em super(...) nao suportado"));
+                }
+                let _ = lower_expr(ctx, &a.expr)?;
+            }
         }
         return Ok(TypedVal::new(
             ctx.builder.ins().iconst(cl::I64, 0),

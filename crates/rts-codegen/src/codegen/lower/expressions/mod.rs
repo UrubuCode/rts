@@ -672,7 +672,27 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
     let coerced = match ctx.var_ty(&name) {
         Some(ValTy::I32) => ctx.coerce_to_i32(rhs_val),
         Some(ValTy::I64) => ctx.coerce_to_i64(rhs_val),
-        Some(ValTy::Handle) => ctx.coerce_to_handle(rhs_val)?,
+        Some(ValTy::Handle) => {
+            // (#err-extends/627) Quando rhs eh I64 ambiguo (resultado de
+            // obj.x sem tipo) e var declarada como string (Handle), usa
+            // TPL_COERCE_AUTO em vez de STRING_FROM_I64 (que formata
+            // handle bruto como numero).
+            if matches!(rhs_val.ty, ValTy::I64 | ValTy::U64)
+                && ctx.var_member_call_values.contains(&rhs_val.val)
+            {
+                use cranelift_codegen::ir::types as cl;
+                let coerce_fn = ctx.get_extern(
+                    "__RTS_FN_RT_TPL_COERCE_AUTO",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(coerce_fn, &[rhs_val.val]);
+                let v = ctx.builder.inst_results(inst)[0];
+                TypedVal::new(v, ValTy::Handle)
+            } else {
+                ctx.coerce_to_handle(rhs_val)?
+            }
+        }
         _ => rhs_val,
     };
     ctx.write_local(&name, coerced.val)?;
