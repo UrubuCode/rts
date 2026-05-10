@@ -1,14 +1,14 @@
 {
   "date": "2026-05-10",
   "summary": {
-    "total": 107,
-    "pass": 40,
-    "rts_diverge": 22,
-    "bun_node_diverge": 0,
-    "errors": 45,
+    "total": 160,
+    "pass": 58,
+    "rts_diverge": 43,
+    "bun_node_diverge": 2,
+    "errors": 57,
     "rejected": 0
   },
-  "pct": 37.4,
+  "pct": 36.7,
   "divergent": [
     {
       "name": "100_dynamic_import",
@@ -37,6 +37,138 @@
     {
       "name": "107_url_edge_cases",
       "status": "rts_diverge"
+    },
+    {
+      "name": "108_generator_functions",
+      "status": "rts_error"
+    },
+    {
+      "name": "109_async_generator",
+      "status": "rts_error"
+    },
+    {
+      "name": "110_object_getownpropertydescriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "116_promise_finally",
+      "status": "rts_error"
+    },
+    {
+      "name": "118_numeric_separators",
+      "status": "rts_error"
+    },
+    {
+      "name": "119_nullish_assignment",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "126_object_assign",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "127_array_fill",
+      "status": "rts_error"
+    },
+    {
+      "name": "130_number_isfinite_isnan",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "131_number_isinteger_issafeinteger",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "132_array_some_every",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "134_object_is",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "135_array_indexof_lastindexof",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "137_math_cbrt_hypot",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "139_array_reduce_edge_cases",
+      "status": "rts_error"
+    },
+    {
+      "name": "140_string_charat_charcodeat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "141_string_concat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "142_array_join_edge_cases",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "143_array_concat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "145_number_tofixed_toprecision",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "146_number_toexponential",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "147_parseint_parsefloat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "148_isfinite_isnan_global",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "150_array_push_pop_shift_unshift",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "153_object_preventextensions",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "155_object_getprototypeof",
+      "status": "rts_error"
+    },
+    {
+      "name": "156_string_localecompare",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "157_array_tostring_tolocalestring",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "158_encodeuri_decodeuri",
+      "status": "rts_error"
+    },
+    {
+      "name": "159_array_every_callback_args",
+      "status": "rts_error"
+    },
+    {
+      "name": "162_object_create_null",
+      "status": "rts_error"
+    },
+    {
+      "name": "165_string_match_search",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "167_promise_race_any",
+      "status": "rts_error"
     },
     {
       "name": "38_classes_deep",
