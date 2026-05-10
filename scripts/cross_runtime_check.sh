@@ -1,19 +1,36 @@
 #!/usr/bin/env bash
-# Roda cada fixture em tests/cross-runtime/ via Bun + Node + RTS,
-# compara stdouts. Retorna 0 se todos batem; 1 se houve divergencia.
+# Roda cada fixture em tests/cross-runtime/ via Bun + Node + RTS em
+# paralelo, compara stdouts. Retorna 0 se todos batem; 1 se houve
+# divergencia.
 #
-# Saida JSON em $REPORT_FILE (default: /tmp/cross_runtime_report.json)
-# para ser consumida pelo workflow CI.
+# Paralelismo em 2 niveis:
+#   1. Por fixture: invoca os 3 runtimes simultaneamente (background +
+#      wait) — reduz latencia individual de N*M para max(N,M).
+#   2. Entre fixtures: xargs -P JOBS processa N fixtures por vez.
 #
-# Variaveis de ambiente:
-#   RTS_BIN        - path para o binario rts (default: target/release/rts.exe ou rts)
-#   REPORT_FILE    - arquivo JSON de saida
+# Variaveis:
+#   RTS_BIN        - path do binario rts
+#   REPORT_FILE    - JSON de saida
 #   FIXTURES_DIR   - dir das fixtures (default: tests/cross-runtime)
+#   JOBS           - paralelismo entre fixtures (default: nproc/2 ou 4)
 
 set -uo pipefail
 
 FIXTURES_DIR="${FIXTURES_DIR:-tests/cross-runtime}"
 REPORT_FILE="${REPORT_FILE:-/tmp/cross_runtime_report.json}"
+
+# Detecta numero de CPUs para paralelismo. Cada fixture usa 3 processos
+# (Bun + Node + RTS) entao queremos ~nproc/3 workers para nao saturar.
+if [ -z "${JOBS:-}" ]; then
+    if command -v nproc >/dev/null 2>&1; then
+        cpus=$(nproc)
+    else
+        cpus=8
+    fi
+    JOBS=$(( cpus / 2 ))
+    [ "$JOBS" -lt 2 ] && JOBS=2
+    [ "$JOBS" -gt 16 ] && JOBS=16
+fi
 
 # Auto-detect RTS bin
 if [ -z "${RTS_BIN:-}" ]; then
@@ -29,119 +46,180 @@ if [ -z "${RTS_BIN:-}" ]; then
     fi
 fi
 
-# Sanity check
-if ! command -v bun >/dev/null 2>&1; then
-    echo "error: bun nao instalado" >&2
-    exit 2
+if ! command -v bun >/dev/null 2>&1; then echo "error: bun nao instalado" >&2; exit 2; fi
+if ! command -v node >/dev/null 2>&1; then echo "error: node nao instalado" >&2; exit 2; fi
+
+# Resolve interpretador JSON (jq > python > node)
+if command -v jq >/dev/null 2>&1; then
+    JSON_TOOL=jq
+elif command -v python3 >/dev/null 2>&1; then
+    JSON_TOOL=python3
+elif command -v python >/dev/null 2>&1; then
+    JSON_TOOL=python
+else
+    JSON_TOOL=node
 fi
-if ! command -v node >/dev/null 2>&1; then
-    echo "error: node nao instalado" >&2
-    exit 2
-fi
+export JSON_TOOL
 
 # Cores (skip se nao TTY)
 if [ -t 1 ]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    BOLD='\033[1m'
-    NC='\033[0m'
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BOLD='\033[1m'; NC='\033[0m'
 else
-    RED='' GREEN='' YELLOW='' BOLD='' NC=''
+    RED=''; GREEN=''; YELLOW=''; BOLD=''; NC=''
 fi
+export RED GREEN YELLOW NC
 
-# JSON report
-echo '{"results":[' > "$REPORT_FILE"
-first=1
+# Padroes que NAO podem aparecer em fixtures cross-runtime.
+export RTS_ONLY_PATTERNS='(import[[:space:]]+\{[^}]*\}[[:space:]]+from[[:space:]]+["'"'"'"]rts["'"'"'"]|^|[^A-Za-z_])(JSON5|Bun|Deno|process)([^A-Za-z_]|$)'
+export RTS_BIN
 
-total=0
-pass=0
-diverge_rts=0
-diverge_bun_node=0
-errors=0
-rejected=0
+# Dir temporario para outputs intermediarios
+TMP=$(mktemp -d -t crossrt-XXXXXX)
+trap 'rm -rf "$TMP"' EXIT
+export TMP
 
-# Padroes que NAO podem aparecer em fixtures cross-runtime (sao RTS-only
-# ou runtime-specific). Se aparecer, fixture eh rejeitada antes de rodar.
-RTS_ONLY_PATTERNS='(import[[:space:]]+\{[^}]*\}[[:space:]]+from[[:space:]]+["'"'"'"]rts["'"'"'"]|^|[^A-Za-z_])(JSON5|Bun|Deno|process)([^A-Za-z_]|$)'
+# Worker — processa 1 fixture.
+# Argumento: caminho da fixture
+# Saida: linha "STATUS|NAME" em stdout (consumida por main loop) e
+# arquivo TMP/$(basename fixture).json com a entrada JSON completa.
+process_fixture() {
+    local fixture="$1"
+    local name=$(basename "$fixture" .ts)
+    local out_json="$TMP/${name}.json"
+    local out_status="$TMP/${name}.status"
 
-# Encontra todos os .ts na pasta
-shopt -s nullglob
-for fixture in "$FIXTURES_DIR"/*.ts; do
-    total=$((total + 1))
-    name=$(basename "$fixture" .ts)
-
-    # Reject early se a fixture contem APIs RTS-only ou runtime-specific.
-    # Ignora linhas que comecam com `//` (comentarios). Faz check via codigo
-    # com comentarios stripped.
-    stripped=$(sed 's|//.*$||' "$fixture")
+    # Reject early
+    local stripped=$(sed 's|//.*$||' "$fixture")
     if printf '%s\n' "$stripped" | grep -qE "$RTS_ONLY_PATTERNS"; then
-        rejected=$((rejected + 1))
-        echo -e "${YELLOW}!${NC} $name (rejeitado: usa API RTS-only/runtime-specific - mover para tests/*.test.ts)"
-        continue
+        echo "rejected" > "$out_status"
+        echo "!|$name"
+        return
     fi
 
-    # Cada runtime - captura stdout, ignora stderr (warnings de TS).
-    bun_out=$(bun "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
-    node_out=$(node "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
-    rts_out=$("$RTS_BIN" run "$fixture" 2>/dev/null || echo "__RUNTIME_ERROR__")
+    # Roda os 3 runtimes em paralelo. Cada um escreve seu output em
+    # arquivo separado; main thread espera todos.
+    bun "$fixture" >"$TMP/${name}.bun" 2>/dev/null &
+    local bun_pid=$!
+    node "$fixture" >"$TMP/${name}.node" 2>/dev/null &
+    local node_pid=$!
+    "$RTS_BIN" run "$fixture" >"$TMP/${name}.rts" 2>/dev/null &
+    local rts_pid=$!
 
-    # Categoriza
-    status="pass"
+    wait $bun_pid; local bun_rc=$?
+    wait $node_pid; local node_rc=$?
+    wait $rts_pid; local rts_rc=$?
+
+    local bun_out=$(cat "$TMP/${name}.bun")
+    local node_out=$(cat "$TMP/${name}.node")
+    local rts_out=$(cat "$TMP/${name}.rts")
+    [ $bun_rc -ne 0 ] && bun_out="__RUNTIME_ERROR__"
+    [ $node_rc -ne 0 ] && node_out="__RUNTIME_ERROR__"
+    [ $rts_rc -ne 0 ] && rts_out="__RUNTIME_ERROR__"
+
+    rm -f "$TMP/${name}.bun" "$TMP/${name}.node" "$TMP/${name}.rts"
+
+    local status
     if [ "$bun_out" != "$node_out" ]; then
         status="bun_node_diverge"
-        diverge_bun_node=$((diverge_bun_node + 1))
     elif [ "$rts_out" = "__RUNTIME_ERROR__" ]; then
         status="rts_error"
-        errors=$((errors + 1))
     elif [ "$rts_out" != "$bun_out" ]; then
         status="rts_diverge"
-        diverge_rts=$((diverge_rts + 1))
     else
-        pass=$((pass + 1))
+        status="pass"
     fi
+    echo "$status" > "$out_status"
 
-    # Print humano
-    case "$status" in
-        pass) echo -e "${GREEN}ok${NC} $name" ;;
-        rts_diverge) echo -e "${RED}xx${NC} $name (RTS difere de Bun/Node)" ;;
-        bun_node_diverge) echo -e "${YELLOW}~${NC} $name (Bun != Node - skip)" ;;
-        rts_error) echo -e "${RED}xx${NC} $name (RTS error)" ;;
+    # JSON entry
+    case "$JSON_TOOL" in
+        jq)
+            jq -n --arg name "$name" --arg status "$status" \
+                  --arg bun "$bun_out" --arg node "$node_out" --arg rts "$rts_out" \
+                  '{name:$name,status:$status,bun:$bun,node:$node,rts:$rts}' > "$out_json"
+            ;;
+        python|python3)
+            NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
+                "$JSON_TOOL" -c 'import json,os; print(json.dumps({"name":os.environ["NAME"],"status":os.environ["STATUS"],"bun":os.environ["BUN"],"node":os.environ["NODE"],"rts":os.environ["RTS"]}))' > "$out_json"
+            ;;
+        node)
+            NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
+                node -e 'console.log(JSON.stringify({name:process.env.NAME,status:process.env.STATUS,bun:process.env.BUN,node:process.env.NODE,rts:process.env.RTS}))' > "$out_json"
+            ;;
     esac
 
-    # JSON entry: prefere jq (mais rapido), fallback python (sempre tem),
-    # ultimo recurso node. Tab/newline/control chars sao escapados certinho.
-    if command -v jq >/dev/null 2>&1; then
-        entry=$(jq -n \
-            --arg name "$name" \
-            --arg status "$status" \
-            --arg bun "$bun_out" \
-            --arg node "$node_out" \
-            --arg rts "$rts_out" \
-            '{name:$name,status:$status,bun:$bun,node:$node,rts:$rts}')
-    elif command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
-        py=$(command -v python3 || command -v python)
-        entry=$(NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
-            "$py" -c 'import json,os; print(json.dumps({"name":os.environ["NAME"],"status":os.environ["STATUS"],"bun":os.environ["BUN"],"node":os.environ["NODE"],"rts":os.environ["RTS"]}))')
-    else
-        entry=$(NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
-            node -e 'console.log(JSON.stringify({name:process.env.NAME,status:process.env.STATUS,bun:process.env.BUN,node:process.env.NODE,rts:process.env.RTS}))')
-    fi
+    # Marker pra main loop reportar progresso
+    case "$status" in
+        pass) echo "ok|$name" ;;
+        rts_diverge) echo "xx|$name (RTS difere de Bun/Node)" ;;
+        bun_node_diverge) echo "~|$name (Bun != Node - skip)" ;;
+        rts_error) echo "xx|$name (RTS error)" ;;
+    esac
+}
+export -f process_fixture
 
-    if [ $first -eq 1 ]; then
-        first=0
-    else
-        echo "," >> "$REPORT_FILE"
-    fi
-    printf '%s' "$entry" >> "$REPORT_FILE"
+# Coleta lista de fixtures
+shopt -s nullglob
+mapfile -t FIXTURES < <(printf '%s\n' "$FIXTURES_DIR"/*.ts | sort)
+TOTAL=${#FIXTURES[@]}
+
+if [ "$TOTAL" -eq 0 ]; then
+    echo "Nenhum fixture em $FIXTURES_DIR" >&2
+    exit 0
+fi
+
+echo -e "${BOLD}Rodando $TOTAL fixtures com paralelismo=$JOBS...${NC}"
+start_time=$(date +%s)
+
+# Dispara workers via xargs -P. Cada worker imprime "TAG|NAME" na stdout.
+printf '%s\n' "${FIXTURES[@]}" | xargs -I{} -P "$JOBS" bash -c 'process_fixture "$@"' _ {} | while IFS='|' read -r tag rest; do
+    case "$tag" in
+        ok) echo -e "${GREEN}ok${NC} $rest" ;;
+        xx) echo -e "${RED}xx${NC} $rest" ;;
+        '~') echo -e "${YELLOW}~${NC} $rest" ;;
+        '!') echo -e "${YELLOW}!${NC} $rest" ;;
+    esac
 done
 
-echo "" >> "$REPORT_FILE"
-echo "],\"summary\":{\"total\":$total,\"pass\":$pass,\"rts_diverge\":$diverge_rts,\"bun_node_diverge\":$diverge_bun_node,\"errors\":$errors,\"rejected\":$rejected}}" >> "$REPORT_FILE"
+elapsed=$(($(date +%s) - start_time))
+
+# Conta status
+pass=0; diverge_rts=0; diverge_bun_node=0; errors=0; rejected=0
+for fixture in "${FIXTURES[@]}"; do
+    name=$(basename "$fixture" .ts)
+    s_file="$TMP/${name}.status"
+    [ -f "$s_file" ] || continue
+    s=$(cat "$s_file")
+    case "$s" in
+        pass) pass=$((pass + 1)) ;;
+        rts_diverge) diverge_rts=$((diverge_rts + 1)) ;;
+        bun_node_diverge) diverge_bun_node=$((diverge_bun_node + 1)) ;;
+        rts_error) errors=$((errors + 1)) ;;
+        rejected) rejected=$((rejected + 1)) ;;
+    esac
+done
+
+# Monta JSON report final agrupando entries por ordem alfabetica de nome
+{
+    printf '{"results":[\n'
+    first=1
+    for fixture in "${FIXTURES[@]}"; do
+        name=$(basename "$fixture" .ts)
+        entry_file="$TMP/${name}.json"
+        [ -f "$entry_file" ] || continue
+        if [ $first -eq 1 ]; then
+            first=0
+        else
+            printf ',\n'
+        fi
+        cat "$entry_file"
+    done
+    printf '\n],"summary":{"total":%d,"pass":%d,"rts_diverge":%d,"bun_node_diverge":%d,"errors":%d,"rejected":%d}}\n' \
+        "$TOTAL" "$pass" "$diverge_rts" "$diverge_bun_node" "$errors" "$rejected"
+} > "$REPORT_FILE"
 
 echo ""
-echo -e "${BOLD}Summary:${NC}"
-echo "  Total:               $total"
+echo -e "${BOLD}Summary:${NC} (tempo: ${elapsed}s, $JOBS jobs paralelos)"
+echo "  Total:               $TOTAL"
 echo -e "  ${GREEN}Pass:                $pass${NC}"
 echo -e "  ${RED}RTS divergente:      $diverge_rts${NC}"
 echo -e "  ${YELLOW}Bun/Node divergem:   $diverge_bun_node${NC}"
@@ -150,7 +228,6 @@ echo -e "  ${YELLOW}Rejeitados (RTS-only): $rejected${NC}"
 echo ""
 echo "Report: $REPORT_FILE"
 
-# Exit code: 1 se RTS divergiu OU teve erro
 if [ $diverge_rts -gt 0 ] || [ $errors -gt 0 ]; then
     exit 1
 fi

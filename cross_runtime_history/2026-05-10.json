@@ -1,14 +1,14 @@
 {
   "date": "2026-05-10",
   "summary": {
-    "total": 233,
-    "pass": 74,
-    "rts_diverge": 76,
+    "total": 250,
+    "pass": 77,
+    "rts_diverge": 72,
     "bun_node_diverge": 3,
-    "errors": 80,
+    "errors": 98,
     "rejected": 0
   },
-  "pct": 32.2,
+  "pct": 31.2,
   "divergent": [
     {
       "name": "100_dynamic_import",
@@ -132,7 +132,7 @@
     },
     {
       "name": "150_array_push_pop_shift_unshift",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "153_object_preventextensions",
@@ -148,7 +148,7 @@
     },
     {
       "name": "157_array_tostring_tolocalestring",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "158_encodeuri_decodeuri",
@@ -236,7 +236,7 @@
     },
     {
       "name": "191_object_values_entries_iteration",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "192_object_getownpropertysymbols",
@@ -280,7 +280,7 @@
     },
     {
       "name": "202_array_reduceright",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "203_string_localecompare_numeric",
@@ -304,7 +304,7 @@
     },
     {
       "name": "209_array_unshift_return",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "210_object_tostring",
@@ -336,7 +336,7 @@
     },
     {
       "name": "220_array_map_sparse",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "221_object_constructor",
@@ -395,8 +395,64 @@
       "status": "rts_diverge"
     },
     {
-      "name": "38_classes_deep",
+      "name": "242_array_map_return",
+      "status": "rts_error"
+    },
+    {
+      "name": "243_string_split_regex",
       "status": "rts_diverge"
+    },
+    {
+      "name": "244_string_valueof",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "245_number_valueof",
+      "status": "rts_error"
+    },
+    {
+      "name": "246_boolean_valueof",
+      "status": "rts_error"
+    },
+    {
+      "name": "247_object_isprototypeof",
+      "status": "rts_error"
+    },
+    {
+      "name": "248_array_foreach_return",
+      "status": "rts_error"
+    },
+    {
+      "name": "250_regexp_source",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "251_array_constructor_spread",
+      "status": "rts_error"
+    },
+    {
+      "name": "252_string_match_groups",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "253_object_keys_empty",
+      "status": "rts_error"
+    },
+    {
+      "name": "254_array_reduce_no_initial",
+      "status": "rts_error"
+    },
+    {
+      "name": "256_string_replace_function",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "257_array_flat_depth",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "38_classes_deep",
+      "status": "rts_error"
     },
     {
       "name": "39_regex_deep",
@@ -448,7 +504,7 @@
     },
     {
       "name": "52_sparse_arrays",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "53_proxy_reflect",
@@ -488,7 +544,7 @@
     },
     {
       "name": "62_abort_controller",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "63_event_target",
@@ -612,7 +668,7 @@
     },
     {
       "name": "94_sparse_array_enumeration",
-      "status": "rts_diverge"
+      "status": "rts_error"
     },
     {
       "name": "95_nan_negative_zero",
