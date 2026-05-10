@@ -188,3 +188,128 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_BYTES(ptr: i64, len: i64) -> u64 {
     let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     intern(&to_hex(&sha256(slice)))
 }
+
+// ── Streaming Hash API (#289) ───────────────────────────────────────
+// node:crypto.createHash(alg).update(data).digest(enc) pattern.
+// Usa o crate `sha2` direto — state machine real, sem reprocessar
+// buffer no digest. Suporta apenas SHA-256 v0.
+
+use crate::namespaces::gc::handles::{Entry, HasherState, alloc_entry, with_entry_mut};
+use sha2::Digest;
+
+/// `crypto.createHash("sha256")` — aloca novo hasher streaming via sha2::Sha256.
+/// Retorna 0 se algoritmo nao suportado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_NEW(alg_ptr: *const u8, alg_len: i64) -> u64 {
+    if alg_ptr.is_null() || alg_len < 0 {
+        return 0;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(alg_ptr, alg_len as usize) };
+    let alg = std::str::from_utf8(bytes).unwrap_or("");
+    let state = match alg {
+        "sha256" | "SHA-256" | "SHA256" => HasherState::Sha256(sha2::Sha256::new()),
+        _ => return 0, // outros algoritmos pendentes
+    };
+    alloc_entry(Entry::Hasher(Box::new(state)))
+}
+
+/// `hash.update(data: string)` — acrescenta bytes ao hasher streaming.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR(
+    handle: u64,
+    data_ptr: *const u8,
+    data_len: i64,
+) -> i64 {
+    if data_ptr.is_null() || data_len < 0 {
+        return 0;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data_ptr, data_len as usize) };
+    update_hasher(handle, bytes)
+}
+
+/// `hash.update(buf: Buffer)` — acrescenta bytes via ptr+len cru.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES(
+    handle: u64,
+    data_ptr: i64,
+    data_len: i64,
+) -> i64 {
+    if data_ptr == 0 || data_len < 0 {
+        return 0;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    update_hasher(handle, bytes)
+}
+
+fn update_hasher(handle: u64, bytes: &[u8]) -> i64 {
+    with_entry_mut(handle, |e| {
+        if let Some(Entry::Hasher(state)) = e {
+            match state.as_mut() {
+                HasherState::Sha256(h) => h.update(bytes),
+            }
+            1
+        } else {
+            0
+        }
+    })
+}
+
+/// `hash.digest("hex")` — finaliza e retorna hex string handle.
+/// Apos digest, o estado eh resetado (rebinda com `Sha256::new()`).
+/// Reusar o handle pos-digest equivale a um hash novo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX(handle: u64) -> u64 {
+    let digest_bytes = finalize_hasher(handle);
+    if digest_bytes.is_empty() {
+        return 0;
+    }
+    intern(&to_hex(&digest_bytes))
+}
+
+/// `hash.digest("base64")` — finaliza e retorna base64 string handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64(handle: u64) -> u64 {
+    let digest_bytes = finalize_hasher(handle);
+    if digest_bytes.is_empty() {
+        return 0;
+    }
+    intern(&b64_encode(&digest_bytes))
+}
+
+fn finalize_hasher(handle: u64) -> Vec<u8> {
+    with_entry_mut(handle, |e| {
+        let Some(Entry::Hasher(state)) = e else { return Vec::new() };
+        match state.as_mut() {
+            HasherState::Sha256(h) => {
+                // finalize_reset zera o estado interno e retorna o digest atual.
+                let d = h.finalize_reset();
+                d.to_vec()
+            }
+        }
+    })
+}
+
+/// Base64 encoder padrao (RFC 4648), com padding `=`.
+fn b64_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = chunk.get(1).copied().unwrap_or(0);
+        let b2 = chunk.get(2).copied().unwrap_or(0);
+        out.push(ALPHABET[(b0 >> 2) as usize] as char);
+        out.push(ALPHABET[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[(((b1 & 0x0F) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(b2 & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
