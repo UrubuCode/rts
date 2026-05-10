@@ -12,8 +12,30 @@
 [![Rust](https://img.shields.io/badge/runtime-Rust-black?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
+<!-- CROSS_RUNTIME_BADGE_START -->
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-100%25-brightgreen?style=flat-square)](docs/specs/cross-runtime-testing.md)
+<!-- CROSS_RUNTIME_BADGE_END -->
 
 </div>
+
+<!-- CROSS_RUNTIME_STATS_START -->
+## 🌐 Cross-runtime parity
+
+Compatibilidade JS spec validada contra **Bun** e **Node** em 8 fixtures TS standalone.
+
+| Métrica | Valor |
+|---|---|
+| **Paridade** | **100%** (8/8) |
+| Total fixtures | 8 |
+| ✅ RTS = Bun = Node | 8 |
+| ❌ RTS diverge | 0 |
+| 💥 RTS error | 0 |
+| ⚠️ Bun ≠ Node (skip) | 0 |
+| 🚫 Rejeitados (RTS-only) | 0 |
+
+_Atualizado: 2026-05-10_
+
+<!-- CROSS_RUNTIME_STATS_END -->
 
 ---
 

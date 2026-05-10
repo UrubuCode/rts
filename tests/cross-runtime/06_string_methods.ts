@@ -1,0 +1,19 @@
+// Cross-runtime: String methods basicos.
+const s = "Hello World";
+console.log("len=" + s.length);
+console.log("upper=" + s.toUpperCase());
+console.log("lower=" + s.toLowerCase());
+console.log("indexOf(World)=" + s.indexOf("World"));
+console.log("indexOf(zzz)=" + s.indexOf("zzz"));
+console.log("includes(Wor)=" + s.includes("Wor"));
+console.log("startsWith(He)=" + s.startsWith("He"));
+console.log("endsWith(ld)=" + s.endsWith("ld"));
+console.log("slice(0,5)=" + s.slice(0, 5));
+console.log("slice(-5)=" + s.slice(-5));
+console.log("split=" + s.split(" ").join("|"));
+console.log("replace=" + s.replace("World", "TS"));
+console.log("repeat3=" + "ab".repeat(3));
+console.log("trim=" + "  hi  ".trim());
+console.log("padStart=" + "5".padStart(3, "0"));
+console.log("charAt(1)=" + s.charAt(1));
+console.log("charCodeAt(0)=" + s.charCodeAt(0));
