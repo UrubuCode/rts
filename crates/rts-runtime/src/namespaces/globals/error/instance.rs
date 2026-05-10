@@ -24,12 +24,29 @@ fn alloc_error(name: &str, message: String) -> u64 {
 }
 
 fn get_field(handle: u64, field: &str) -> String {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::ErrorObj { message, name }) => match field {
+    // Tenta primeiro Entry::ErrorObj (caso comum: new Error("msg"))
+    let direct = with_entry(handle, |entry| match entry {
+        Some(Entry::ErrorObj { message, name }) => Some(match field {
             "message" => message.clone(),
             "name" => name.clone(),
             _ => String::new(),
-        },
+        }),
+        _ => None,
+    });
+    if let Some(s) = direct {
+        return s;
+    }
+    // Fallback: Entry::Map com keys "message"/"name" — usado quando
+    // user class extends Error e super(msg) armazena no Map.
+    let slot_handle: u64 = with_entry(handle, |entry| match entry {
+        Some(Entry::Map(m)) => m.get(field).copied().unwrap_or(0) as u64,
+        _ => 0,
+    });
+    if slot_handle == 0 {
+        return String::new();
+    }
+    with_entry(slot_handle, |entry| match entry {
+        Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
         _ => String::new(),
     })
 }
