@@ -33,7 +33,7 @@ Compatibilidade JS spec validada contra **Bun** e **Node** em 8 fixtures TS stan
 | ⚠️ Bun ≠ Node (skip) | 0 |
 | 🚫 Rejeitados (RTS-only) | 0 |
 
-_Atualizado: 2026-05-10_
+_Atualizado: 2026-05-10 — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
