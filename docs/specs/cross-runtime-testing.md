@@ -20,6 +20,35 @@ bash scripts/cross_runtime_check.sh
 
 Pre-requisitos: `bun` e `node` no PATH.
 
+## Report JSON consumivel externamente
+
+O CI commita `cross_runtime_report.json` na raiz do repo a cada atualizacao
+(push para `main` + schedule semanal). Qualquer dashboard externo pode
+consumir via raw URL:
+
+```
+https://raw.githubusercontent.com/UrubuCode/rts/main/cross_runtime_report.json
+```
+
+Estrutura:
+
+```json
+{
+  "results": [
+    { "name": "01_logical_truthy", "status": "pass",
+      "bun": "...", "node": "...", "rts": "..." },
+    ...
+  ],
+  "summary": {
+    "total": 107, "pass": 40, "rts_diverge": 22,
+    "bun_node_diverge": 0, "errors": 45, "rejected": 0
+  }
+}
+```
+
+Sites/dashboards externos podem fetchar o JSON e renderizar grafico de
+progresso da paridade ao longo do tempo (comparar releases diferentes).
+
 ## Categorias de output
 
 Cada fixture cai em uma de 5 categorias:
