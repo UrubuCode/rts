@@ -1066,7 +1066,11 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         Some(cl::I64),
                     )?;
                     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx]);
-                    Ok(TypedVal::new(ctx.builder.inst_results(inst)[0], ValTy::I64))
+                    let v = ctx.builder.inst_results(inst)[0];
+                    // Slot pode ser i64 puro (number) ou handle (string/obj).
+                    // Marca como ambiguo pra que `+` em concat use TPL_COERCE_AUTO.
+                    ctx.var_member_call_values.insert(v);
+                    Ok(TypedVal::new(v, ValTy::I64))
                 }
             }
         }

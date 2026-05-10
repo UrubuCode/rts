@@ -105,12 +105,26 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
         return 0;
     };
     let s_owned = s.to_string();
-    let result = with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rx)) => rx.find(&s_owned).map(|m| m.as_str().as_bytes().to_vec()),
+    // (#match-spec) JS: str.match(regex) retorna array [fullMatch, ...groups].
+    // Antes retornava Entry::String com so' o fullMatch — m[0] e m.length
+    // nao funcionavam no template/index. Agora aloca Entry::Vec onde
+    // slot[0] eh handle do fullMatch e slot[i+1] handle do grupo i.
+    let groups: Option<Vec<Vec<u8>>> = with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rx)) => rx.captures(&s_owned).map(|caps| {
+            (0..caps.len())
+                .map(|i| caps.get(i).map(|m| m.as_str().as_bytes().to_vec()).unwrap_or_default())
+                .collect()
+        }),
         _ => None,
     });
-    match result {
-        Some(bytes) => alloc_entry(Entry::String(bytes)),
+    match groups {
+        Some(items) => {
+            let slots: Vec<i64> = items
+                .into_iter()
+                .map(|bytes| alloc_entry(Entry::String(bytes)) as i64)
+                .collect();
+            alloc_entry(Entry::Vec(Box::new(slots)))
+        }
         None => 0,
     }
 }
