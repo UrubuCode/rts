@@ -266,10 +266,6 @@ fn lift_arrows_in_expr(
                     };
                     if let Some((arg_idx, n_args, arrow_arity)) = lift_info {
                         if call.args.len() == n_args && arg_idx < call.args.len() {
-                            let try_lift = matches!(
-                                call.args[arg_idx].expr.as_ref(),
-                                Expr::Arrow(_)
-                            );
                             // (#479 follow-up) Se o receiver e' Object.entries(...),
                             // o param recebe [string, V] — slot 0 do destructure
                             // deveria ser Handle, nao I64.
@@ -285,7 +281,111 @@ fn lift_arrows_in_expr(
                                     )
                                 )
                             );
-                            if try_lift {
+                            // Quando arg eh Ident referenciando user fn (named callback),
+                            // wrappamos em arrow inline `(p1..pN) => ident(p1..pN)` antes
+                            // do try_lift_arrow_arg. Garante adapter de signature
+                            // (parallel ABI usa `extern "C" fn(i64) -> i64`, user fn TS
+                            // usa `tail (f64) -> X`). Sem isso, parallel.* recebe ptr nu
+                            // e callback interpreta i64 bits como f64 (#XXX).
+                            if let Expr::Ident(ident) = call.args[arg_idx].expr.as_ref() {
+                                if user_fn_names.contains(ident.sym.as_str()) {
+                                    let ident_clone = ident.clone();
+                                    let mut params: Vec<swc_ecma_ast::Pat> = Vec::with_capacity(arrow_arity);
+                                    let mut call_args: Vec<swc_ecma_ast::ExprOrSpread> = Vec::with_capacity(arrow_arity);
+                                    for i in 0..arrow_arity {
+                                        let pname = format!("__wrap_p_{}_{}", counter.load(std::sync::atomic::Ordering::Relaxed), i);
+                                        params.push(swc_ecma_ast::Pat::Ident(swc_ecma_ast::BindingIdent {
+                                            id: swc_ecma_ast::Ident {
+                                                span: Default::default(),
+                                                ctxt: Default::default(),
+                                                sym: pname.clone().into(),
+                                                optional: false,
+                                            },
+                                            type_ann: None,
+                                        }));
+                                        call_args.push(swc_ecma_ast::ExprOrSpread {
+                                            spread: None,
+                                            expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                                                span: Default::default(),
+                                                ctxt: Default::default(),
+                                                sym: pname.into(),
+                                                optional: false,
+                                            })),
+                                        });
+                                    }
+                                    let inner_call = Expr::Call(swc_ecma_ast::CallExpr {
+                                        span: Default::default(),
+                                        ctxt: Default::default(),
+                                        callee: Callee::Expr(Box::new(Expr::Ident(ident_clone))),
+                                        args: call_args,
+                                        type_args: None,
+                                    });
+                                    // Wrap em ternario `(call) ? 1 : 0` para boolean cb,
+                                    // ou multiply by 1 (`+(call)`) para forcar conversao
+                                    // numerica e quebrar tail call (lifted retorna i64,
+                                    // user fn pode retornar f64 — mismatch sem coercao).
+                                    // Para callbacks que retornam number (map/reduce),
+                                    // o codegen faz fcvt_to_sint_sat naturalmente. Para
+                                    // boolean (filter/find/some/every/findIndex), o ternario
+                                    // mapeia true→1, false→0 sem ambiguidade.
+                                    let is_bool_cb = matches!(
+                                        method,
+                                        "filter" | "find" | "findIndex" | "some" | "every"
+                                    );
+                                    let body_expr: Expr = if is_bool_cb {
+                                        // `cb(p) ? 1 : 0` — boolean -> int explicit.
+                                        Expr::Cond(swc_ecma_ast::CondExpr {
+                                            span: Default::default(),
+                                            test: Box::new(inner_call),
+                                            cons: Box::new(Expr::Lit(swc_ecma_ast::Lit::Num(
+                                                swc_ecma_ast::Number {
+                                                    span: Default::default(),
+                                                    value: 1.0,
+                                                    raw: None,
+                                                },
+                                            ))),
+                                            alt: Box::new(Expr::Lit(swc_ecma_ast::Lit::Num(
+                                                swc_ecma_ast::Number {
+                                                    span: Default::default(),
+                                                    value: 0.0,
+                                                    raw: None,
+                                                },
+                                            ))),
+                                        })
+                                    } else {
+                                        // `cb(p) + 0` quebra TCO e forca conversao numerica
+                                        // (user fn retorna f64, lifted ABI retorna i64).
+                                        Expr::Bin(swc_ecma_ast::BinExpr {
+                                            span: Default::default(),
+                                            op: swc_ecma_ast::BinaryOp::Add,
+                                            left: Box::new(inner_call),
+                                            right: Box::new(Expr::Lit(swc_ecma_ast::Lit::Num(
+                                                swc_ecma_ast::Number {
+                                                    span: Default::default(),
+                                                    value: 0.0,
+                                                    raw: None,
+                                                },
+                                            ))),
+                                        })
+                                    };
+                                    let arrow = swc_ecma_ast::ArrowExpr {
+                                        span: Default::default(),
+                                        ctxt: Default::default(),
+                                        params,
+                                        body: Box::new(swc_ecma_ast::BlockStmtOrExpr::Expr(Box::new(body_expr))),
+                                        is_async: false,
+                                        is_generator: false,
+                                        type_params: None,
+                                        return_type: None,
+                                    };
+                                    call.args[arg_idx].expr = Box::new(Expr::Arrow(arrow));
+                                }
+                            }
+                            let try_lift_now = matches!(
+                                call.args[arg_idx].expr.as_ref(),
+                                Expr::Arrow(_)
+                            );
+                            if try_lift_now {
                                 if let Some(fn_name) = try_lift_arrow_arg(
                                     &call.args[arg_idx].expr,
                                     arrow_arity,
