@@ -9,10 +9,11 @@
 #   2. Entre fixtures: xargs -P JOBS processa N fixtures por vez.
 #
 # Variaveis:
-#   RTS_BIN        - path do binario rts
-#   REPORT_FILE    - JSON de saida
-#   FIXTURES_DIR   - dir das fixtures (default: tests/cross-runtime)
-#   JOBS           - paralelismo entre fixtures (default: nproc/2 ou 4)
+#   RTS_BIN          - path do binario rts
+#   REPORT_FILE      - JSON de saida
+#   FIXTURES_DIR     - dir das fixtures (default: tests/cross-runtime)
+#   JOBS             - paralelismo entre fixtures (default: nproc/2 ou 4)
+#   FIXTURE_TIMEOUT  - segundos antes de matar fixture travada (default: 10)
 
 set -uo pipefail
 
@@ -96,13 +97,16 @@ process_fixture() {
         return
     fi
 
-    # Roda os 3 runtimes em paralelo. Cada um escreve seu output em
-    # arquivo separado; main thread espera todos.
-    bun "$fixture" >"$TMP/${name}.bun" 2>/dev/null &
+    # Roda os 3 runtimes em paralelo com timeout (evita loop infinito
+    # travar CI — ex: JSON.stringify de objeto circular em RTS sem
+    # detecao de ciclo). 10s eh generoso demais pra qualquer fixture
+    # legitima (que rodam em <1s).
+    local TO="${FIXTURE_TIMEOUT:-10}"
+    timeout "$TO" bun "$fixture" >"$TMP/${name}.bun" 2>/dev/null &
     local bun_pid=$!
-    node "$fixture" >"$TMP/${name}.node" 2>/dev/null &
+    timeout "$TO" node "$fixture" >"$TMP/${name}.node" 2>/dev/null &
     local node_pid=$!
-    "$RTS_BIN" run "$fixture" >"$TMP/${name}.rts" 2>/dev/null &
+    timeout "$TO" "$RTS_BIN" run "$fixture" >"$TMP/${name}.rts" 2>/dev/null &
     local rts_pid=$!
 
     wait $bun_pid; local bun_rc=$?
