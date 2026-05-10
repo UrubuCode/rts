@@ -5,6 +5,7 @@
 //! across the codebase ultimately calls into this module's tables.
 
 pub mod abi;
+pub mod closure;
 pub mod collector;
 pub mod debug;
 pub mod env;
