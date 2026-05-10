@@ -1,0 +1,214 @@
+name: Cross-Runtime Parity
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  schedule:
+    # Semanal segunda 6h UTC para detectar regressoes em deps (Bun/Node).
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write    # auto-update do README
+  issues: write      # auto-create de issue em divergencia
+  pull-requests: write  # comentar em PR
+
+jobs:
+  cross-runtime:
+    runs-on: ubuntu-latest
+    # Reporta divergencias mas nao bloqueia merge — pull-request continua
+    # passando mesmo se RTS divergir (issue eh aberta automaticamente).
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install FLTK system deps (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxft-dev libxinerama-dev \
+            libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev \
+            libglu1-mesa-dev libfontconfig1-dev libcairo2-dev jq
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build RTS (release)
+        run: cargo build --release
+
+      - name: Run cross-runtime check
+        id: cross
+        run: |
+          RTS_BIN=target/release/rts \
+          REPORT_FILE=$GITHUB_WORKSPACE/cross_runtime_report.json \
+          bash scripts/cross_runtime_check.sh
+        continue-on-error: true
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cross-runtime-report
+          path: cross_runtime_report.json
+
+      - name: PR comment with divergencias
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.GITHUB_WORKSPACE + '/cross_runtime_report.json';
+            if (!fs.existsSync(path)) return;
+            const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const s = r.summary;
+            const divergent = r.results.filter(x => x.status === 'rts_diverge' || x.status === 'rts_error');
+
+            let body = `## Cross-runtime parity (RTS vs Bun vs Node)\n\n`;
+            body += `| Métrica | Valor |\n|---|---|\n`;
+            body += `| Total | ${s.total} |\n`;
+            body += `| ✅ Pass | ${s.pass} |\n`;
+            body += `| ❌ RTS diverge | ${s.rts_diverge} |\n`;
+            body += `| ⚠️ Bun ≠ Node | ${s.bun_node_diverge} |\n`;
+            body += `| 💥 RTS error | ${s.errors} |\n`;
+            body += `| 🚫 Rejeitados | ${s.rejected || 0} |\n\n`;
+
+            if (divergent.length > 0) {
+              body += `### Divergências detectadas\n\n`;
+              for (const d of divergent) {
+                body += `<details><summary><code>${d.name}</code> — ${d.status}</summary>\n\n`;
+                body += `**Bun output:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
+                body += `**Node output:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
+                body += `**RTS output:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
+                body += `</details>\n\n`;
+              }
+            } else if (s.pass === s.total) {
+              body += `🎉 Paridade completa.\n`;
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Atualizar README com % paridade (main + schedule)
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.GITHUB_WORKSPACE + '/cross_runtime_report.json';
+            if (!fs.existsSync(path)) return;
+            const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const s = r.summary;
+
+            const validBase = s.pass + s.rts_diverge + s.errors;
+            const pct = validBase > 0 ? Math.round((s.pass / validBase) * 1000) / 10 : 0;
+
+            // Cor da badge baseada em %
+            let color = 'red';
+            if (pct >= 95) color = 'brightgreen';
+            else if (pct >= 85) color = 'green';
+            else if (pct >= 70) color = 'yellowgreen';
+            else if (pct >= 50) color = 'yellow';
+            else if (pct >= 30) color = 'orange';
+
+            const badge = `[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-${pct}%25-${color}?style=flat-square)](docs/specs/cross-runtime-testing.md)`;
+
+            const today = new Date().toISOString().slice(0, 10);
+            const stats = `## 🌐 Cross-runtime parity\n\n` +
+              `Compatibilidade JS spec validada contra **Bun** e **Node** em ${s.total} fixtures TS standalone.\n\n` +
+              `| Métrica | Valor |\n|---|---|\n` +
+              `| **Paridade** | **${pct}%** (${s.pass}/${validBase}) |\n` +
+              `| Total fixtures | ${s.total} |\n` +
+              `| ✅ RTS = Bun = Node | ${s.pass} |\n` +
+              `| ❌ RTS diverge | ${s.rts_diverge} |\n` +
+              `| 💥 RTS error | ${s.errors} |\n` +
+              `| ⚠️ Bun ≠ Node (skip) | ${s.bun_node_diverge} |\n` +
+              `| 🚫 Rejeitados (RTS-only) | ${s.rejected || 0} |\n\n` +
+              `_Atualizado: ${today} — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_\n`;
+
+            // Edita README entre marcadores
+            let readme = fs.readFileSync('README.md', 'utf8');
+            readme = readme.replace(
+              /<!-- CROSS_RUNTIME_BADGE_START -->[\s\S]*?<!-- CROSS_RUNTIME_BADGE_END -->/,
+              `<!-- CROSS_RUNTIME_BADGE_START -->\n${badge}\n<!-- CROSS_RUNTIME_BADGE_END -->`
+            );
+            readme = readme.replace(
+              /<!-- CROSS_RUNTIME_STATS_START -->[\s\S]*?<!-- CROSS_RUNTIME_STATS_END -->/,
+              `<!-- CROSS_RUNTIME_STATS_START -->\n${stats}\n<!-- CROSS_RUNTIME_STATS_END -->`
+            );
+            fs.writeFileSync('README.md', readme);
+
+            // Commita se mudou
+            const { execSync } = require('child_process');
+            const diff = execSync('git diff --stat README.md').toString();
+            if (!diff.trim()) {
+              console.log('README ja atualizado, sem mudancas.');
+              return;
+            }
+            execSync('git config user.name "github-actions[bot]"');
+            execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
+            execSync('git add README.md');
+            execSync(`git commit -m "docs: auto-update cross-runtime parity badge (${pct}%)"`);
+            execSync('git push');
+
+      - name: Auto-create issue em schedule
+        if: github.event_name == 'schedule' && steps.cross.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.GITHUB_WORKSPACE + '/cross_runtime_report.json';
+            if (!fs.existsSync(path)) return;
+            const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const divergent = r.results.filter(x => x.status === 'rts_diverge' || x.status === 'rts_error');
+            if (divergent.length === 0) return;
+
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `cross-runtime regression detected (${today})`;
+
+            // Procura issue existente com mesmo titulo (evita duplicar)
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'cross-runtime',
+              per_page: 100
+            });
+            const dup = existing.data.find(i => i.title === title);
+            if (dup) {
+              console.log(`Issue ja existe: #${dup.number}`);
+              return;
+            }
+
+            let body = `Detected ${divergent.length} divergência(s) entre RTS e Bun/Node em schedule semanal.\n\n`;
+            for (const d of divergent) {
+              body += `### \`${d.name}\` — ${d.status}\n\n`;
+              body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
+              body += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
+              body += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
+            }
+            body += `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['cross-runtime', 'bug']
+            });
