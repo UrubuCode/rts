@@ -745,20 +745,29 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
         Some("Map") | Some("Set") => None,
         other => other,
     };
-    if matches!(obj_tv.ty, ValTy::Handle) && rc_for_size.is_none() {
+    // (#json-bridge) Tambem cobre U64 (handle opaco de extern call,
+    // ex: JSON.parse) e I64+var_member_call_values — usa UNIVERSAL_LENGTH
+    // que detecta tipo de Entry em runtime. Sem isso
+    // `JSON.parse("[1,2,3]").length` caia no MAP_GET("length") -> 0.
+    let recv_is_ambiguous = matches!(obj_tv.ty, ValTy::U64)
+        || (matches!(obj_tv.ty, ValTy::I64)
+            && ctx.var_member_call_values.contains(&obj_tv.val));
+    if (matches!(obj_tv.ty, ValTy::Handle) || recv_is_ambiguous) && rc_for_size.is_none() {
         if let MemberProp::Ident(id) = &m.prop {
             let key = id.sym.as_str();
             if (key == "size" || key == "length")
                 && lhs_object_field_known(ctx, &m.obj, key).is_none()
             {
                 // gc.handle_len despacha pelo tipo do Entry — funciona
-                // para String/Map/Vec/Buffer/Env. Caller nao precisa
-                // saber se receiver eh Map vs Set vs Array.
-                let len_fn = ctx.get_extern(
-                    "__RTS_FN_NS_GC_HANDLE_LEN",
-                    &[cl::I64],
-                    Some(cl::I64),
-                )?;
+                // para String/Map/Vec/Buffer/Env. Para handle ambiguo
+                // (U64/I64 marcado), usa UNIVERSAL_LENGTH que tambem
+                // cobre Entry::Json.
+                let sym = if recv_is_ambiguous {
+                    "__RTS_FN_RT_UNIVERSAL_LENGTH"
+                } else {
+                    "__RTS_FN_NS_GC_HANDLE_LEN"
+                };
+                let len_fn = ctx.get_extern(sym, &[cl::I64], Some(cl::I64))?;
                 let inst = ctx.builder.ins().call(len_fn, &[obj_handle]);
                 let v = ctx.builder.inst_results(inst)[0];
                 return Ok(TypedVal::new(v, ValTy::I64));

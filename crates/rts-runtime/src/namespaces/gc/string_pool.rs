@@ -147,6 +147,29 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     }
 }
 
+/// `.length` universal para handles ambiguous (any/var_member_call):
+/// detecta Entry::Vec/Map/String e retorna size; retorna -1 quando
+/// handle invalido ou tipo sem length. Usado pelo codegen quando
+/// recv de `.length` tem tipo dinamico (e.g. `JSON.parse(s).length`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_UNIVERSAL_LENGTH(handle: u64) -> i64 {
+    if handle == 0 {
+        return -1;
+    }
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Vec(slots)) => slots.len() as i64,
+        Some(Entry::Map(map)) => map.len() as i64,
+        Some(Entry::String(b)) => b.len() as i64,
+        Some(Entry::Json(v)) => match v.as_ref() {
+            serde_json::Value::Array(a) => a.len() as i64,
+            serde_json::Value::Object(o) => o.len() as i64,
+            serde_json::Value::String(s) => s.len() as i64,
+            _ => -1,
+        },
+        _ => -1,
+    })
+}
+
 /// Helper: nome textual do kind de Entry (para fallback `[object Kind]`).
 fn entry_kind_name(e: &Entry) -> &'static str {
     match e {
