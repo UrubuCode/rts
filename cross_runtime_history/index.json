@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "date": "2026-05-10",
+      "pct": 37.4,
+      "pass": 40,
+      "total_valid": 107,
+      "total": 107,
+      "rts_diverge": 22,
+      "errors": 45
+    }
+  ]
+}

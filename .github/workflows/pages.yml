@@ -2,9 +2,15 @@ name: Deploy Pages
 
 on:
   workflow_run:
-    workflows: ["Build Artifacts"]
+    workflows: ["Build Artifacts", "Cross-Runtime Parity"]
     types: [completed]
     branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'cross_runtime_report.json'
+      - 'cross_runtime_history/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
@@ -19,7 +25,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -331,6 +337,178 @@ jobs:
           </body>
           </html>
           HTMLEOF
+
+      - name: Copy cross-runtime data + parity dashboard
+        run: |
+          mkdir -p site/cross-runtime
+          # Snapshot atual (consumido por parity.html)
+          if [ -f cross_runtime_report.json ]; then
+            cp cross_runtime_report.json site/cross-runtime/report.json
+          fi
+          # Historico semanal
+          if [ -d cross_runtime_history ]; then
+            cp -r cross_runtime_history site/cross-runtime/history
+          fi
+
+          cat > site/parity.html <<'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>RTS — Cross-runtime parity (Bun/Node)</title>
+            <style>
+              :root {
+                --bg: #0d1117; --fg: #e6edf3; --muted: #7d8590;
+                --accent: #f78166; --card: #161b22; --border: #30363d;
+                --link: #2f81f7; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+              }
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+                background: var(--bg); color: var(--fg); line-height: 1.6;
+                min-height: 100vh; padding: 2rem 1rem;
+              }
+              .container { max-width: 1100px; margin: 0 auto; }
+              header { margin-bottom: 2rem; }
+              h1 {
+                font-size: 2.5rem; font-weight: 700;
+                background: linear-gradient(135deg, var(--accent), var(--link));
+                -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                background-clip: text; margin-bottom: 0.5rem;
+              }
+              .tagline { color: var(--muted); font-size: 1rem; margin-bottom: 1rem; }
+              nav a { color: var(--link); text-decoration: none; margin-right: 1rem; }
+              nav a:hover { text-decoration: underline; }
+              .big-pct {
+                font-size: 5rem; font-weight: 700; color: var(--accent);
+                line-height: 1; margin: 1rem 0;
+              }
+              .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+              .stat {
+                background: var(--card); border: 1px solid var(--border);
+                border-radius: 8px; padding: 1rem; text-align: center;
+              }
+              .stat .v { font-size: 1.8rem; font-weight: 600; }
+              .stat .l { color: var(--muted); font-size: 0.85rem; }
+              .pass { color: var(--ok); }
+              .div { color: var(--warn); }
+              .err { color: var(--bad); }
+              h2 { font-size: 1.4rem; margin: 2rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+              #chart {
+                background: var(--card); border: 1px solid var(--border);
+                border-radius: 8px; padding: 1rem; margin-bottom: 2rem;
+              }
+              svg { width: 100%; height: 300px; }
+              .axis text { fill: var(--muted); font-size: 11px; }
+              .axis path, .axis line { stroke: var(--border); }
+              .line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+              .dot { fill: var(--accent); }
+              .grid { stroke: var(--border); stroke-dasharray: 2,2; opacity: 0.5; }
+              table {
+                width: 100%; border-collapse: collapse; margin-top: 1rem;
+                background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+              }
+              th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+              th { background: rgba(255,255,255,0.03); color: var(--muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+              tr:last-child td { border-bottom: none; }
+              td.fixture { font-family: 'SF Mono', monospace; font-size: 0.85rem; }
+              .status-rts_diverge { color: var(--warn); }
+              .status-rts_error { color: var(--bad); }
+              footer { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+              footer a { color: var(--link); text-decoration: none; }
+              .empty { text-align: center; padding: 3rem; color: var(--muted); }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <header>
+                <h1>Cross-runtime parity</h1>
+                <p class="tagline">RTS vs Bun vs Node — compatibilidade JS spec medida em fixtures TS standalone.</p>
+                <nav><a href="index.html">← Builds</a><a href="https://github.com/UrubuCode/rts">GitHub →</a></nav>
+              </header>
+              <div id="content"><div class="empty">Carregando dados...</div></div>
+              <footer>
+                <p>Fonte: <code>cross_runtime_report.json</code> + <code>cross_runtime_history/</code> versionados em main. Atualizado automaticamente pelo workflow <a href="https://github.com/UrubuCode/rts/actions/workflows/cross-runtime.yml">Cross-Runtime Parity</a>.</p>
+              </footer>
+            </div>
+            <script>
+              const REPO = 'UrubuCode/rts';
+              async function load() {
+                try {
+                  const [report, indexHist] = await Promise.all([
+                    fetch('cross-runtime/report.json').then(r => r.json()),
+                    fetch('cross-runtime/history/index.json').then(r => r.json()).catch(() => ({ entries: [] }))
+                  ]);
+                  render(report, indexHist);
+                } catch (e) {
+                  document.getElementById('content').innerHTML = '<div class="empty">Erro ao carregar: ' + e.message + '</div>';
+                }
+              }
+
+              function render(report, indexHist) {
+                const s = report.summary;
+                const validBase = s.pass + s.rts_diverge + s.errors;
+                const pct = validBase > 0 ? (s.pass / validBase * 100).toFixed(1) : 0;
+
+                const failures = report.results.filter(r => r.status === 'rts_diverge' || r.status === 'rts_error');
+                failures.sort((a, b) => a.name.localeCompare(b.name));
+
+                const html = `
+                  <div class="big-pct">${pct}%</div>
+                  <div class="stats">
+                    <div class="stat"><div class="v pass">${s.pass}</div><div class="l">✅ Pass</div></div>
+                    <div class="stat"><div class="v div">${s.rts_diverge}</div><div class="l">❌ Diverge</div></div>
+                    <div class="stat"><div class="v err">${s.errors}</div><div class="l">💥 Error</div></div>
+                    <div class="stat"><div class="v">${s.total}</div><div class="l">📦 Total fixtures</div></div>
+                  </div>
+
+                  <h2>Evolução ao longo do tempo</h2>
+                  <div id="chart">${indexHist.entries.length >= 2 ? '' : '<p style="color:var(--muted);padding:1rem;">Histórico ainda não disponível (menos de 2 snapshots).</p>'}</div>
+
+                  <h2>${failures.length} fixtures pendentes</h2>
+                  <table>
+                    <thead><tr><th>Fixture</th><th>Status</th></tr></thead>
+                    <tbody>
+                      ${failures.map(f => `<tr><td class="fixture">${f.name}</td><td class="status-${f.status}">${f.status}</td></tr>`).join('')}
+                    </tbody>
+                  </table>
+                `;
+                document.getElementById('content').innerHTML = html;
+
+                if (indexHist.entries.length >= 2) drawChart(indexHist.entries);
+              }
+
+              function drawChart(entries) {
+                const W = 1000, H = 280, PAD = 40;
+                const xs = entries.map((_, i) => i);
+                const ys = entries.map(e => e.pct);
+                const xMin = 0, xMax = entries.length - 1;
+                const yMin = 0, yMax = 100;
+                const xScale = (x) => PAD + (x - xMin) / (xMax - xMin || 1) * (W - 2 * PAD);
+                const yScale = (y) => H - PAD - (y - yMin) / (yMax - yMin) * (H - 2 * PAD);
+                const path = entries.map((e, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(e.pct)}`).join(' ');
+                const dots = entries.map((e, i) => `<circle class="dot" cx="${xScale(i)}" cy="${yScale(e.pct)}" r="4"><title>${e.date}: ${e.pct}%</title></circle>`).join('');
+                const yTicks = [0, 25, 50, 75, 100].map(v => `<line class="grid" x1="${PAD}" y1="${yScale(v)}" x2="${W - PAD}" y2="${yScale(v)}"/><text x="${PAD - 8}" y="${yScale(v) + 4}" text-anchor="end">${v}%</text>`).join('');
+                const xTicks = entries.map((e, i) => i % Math.ceil(entries.length / 8) === 0 ? `<text x="${xScale(i)}" y="${H - PAD + 16}" text-anchor="middle">${e.date.slice(5)}</text>` : '').join('');
+                document.getElementById('chart').innerHTML = `
+                  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+                    <g class="axis">${yTicks}${xTicks}</g>
+                    <path class="line" d="${path}"/>${dots}
+                  </svg>
+                `;
+              }
+
+              load();
+            </script>
+          </body>
+          </html>
+          HTMLEOF
+
+          # Botao na index principal pra navegar
+          if [ -f site/index.html ]; then
+            sed -i 's|<a href="https://github.com/$REPO">GitHub →</a>|<a href="parity.html">Parity →</a><a href="https://github.com/$REPO">GitHub →</a>|' site/index.html || true
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

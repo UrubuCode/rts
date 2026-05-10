@@ -1,0 +1,282 @@
+{
+  "date": "2026-05-10",
+  "summary": {
+    "total": 107,
+    "pass": 40,
+    "rts_diverge": 22,
+    "bun_node_diverge": 0,
+    "errors": 45,
+    "rejected": 0
+  },
+  "pct": 37.4,
+  "divergent": [
+    {
+      "name": "100_dynamic_import",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "101_textdecoder_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "102_bigint_ops",
+      "status": "rts_error"
+    },
+    {
+      "name": "103_property_order_weird",
+      "status": "rts_error"
+    },
+    {
+      "name": "105_template_tagged_raw",
+      "status": "rts_error"
+    },
+    {
+      "name": "106_error_stack_presence",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "107_url_edge_cases",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "38_classes_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "39_regex_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "40_object_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "41_closures_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "42_promise_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "43_date_setters_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "44_bitwise_unsigned",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "45_array_iterators_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "46_number_format_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "47_error_instanceof_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "49_function_meta",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "50_json_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "51_coercion_weird",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "52_sparse_arrays",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "53_proxy_reflect",
+      "status": "rts_error"
+    },
+    {
+      "name": "54_symbol_registry",
+      "status": "rts_error"
+    },
+    {
+      "name": "55_url_searchparams",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "56_microtask_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "57_dataview_endianness",
+      "status": "rts_error"
+    },
+    {
+      "name": "58_text_encoding",
+      "status": "rts_error"
+    },
+    {
+      "name": "59_intl_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "60_aggregate_error",
+      "status": "rts_error"
+    },
+    {
+      "name": "61_structured_clone",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "62_abort_controller",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "63_event_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "64_readable_stream",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "65_bigint_typed_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "67_url_patternish",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "68_arraybuffer_transfer_clone",
+      "status": "rts_error"
+    },
+    {
+      "name": "69_atomics_sharedarraybuffer",
+      "status": "rts_error"
+    },
+    {
+      "name": "70_regex_indices",
+      "status": "rts_error"
+    },
+    {
+      "name": "71_intl_segmenter",
+      "status": "rts_error"
+    },
+    {
+      "name": "72_formdata",
+      "status": "rts_error"
+    },
+    {
+      "name": "73_headers",
+      "status": "rts_error"
+    },
+    {
+      "name": "74_blob_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "75_file_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "76_message_channel",
+      "status": "rts_error"
+    },
+    {
+      "name": "77_domexception",
+      "status": "rts_error"
+    },
+    {
+      "name": "78_intl_more",
+      "status": "rts_error"
+    },
+    {
+      "name": "79_subtle_digest",
+      "status": "rts_error"
+    },
+    {
+      "name": "80_urlsearchparams_sort",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "81_regex_named_groups",
+      "status": "rts_error"
+    },
+    {
+      "name": "82_dataview_floats",
+      "status": "rts_error"
+    },
+    {
+      "name": "83_promise_combinators",
+      "status": "rts_error"
+    },
+    {
+      "name": "84_abortsignal_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "85_request_response",
+      "status": "rts_error"
+    },
+    {
+      "name": "86_blob_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "87_modern_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "88_compression_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "89_groupby",
+      "status": "rts_error"
+    },
+    {
+      "name": "90_set_operations",
+      "status": "rts_error"
+    },
+    {
+      "name": "91_string_wellformed",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "92_promise_with_resolvers",
+      "status": "rts_error"
+    },
+    {
+      "name": "93_typedarray_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "94_sparse_array_enumeration",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "95_nan_negative_zero",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "96_streams_transform",
+      "status": "rts_error"
+    },
+    {
+      "name": "97_structured_clone_edge",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "98_proxy_invariants",
+      "status": "rts_error"
+    },
+    {
+      "name": "99_regexp_unicode",
+      "status": "rts_error"
+    }
+  ]
+}
