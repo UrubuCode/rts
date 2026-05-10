@@ -139,6 +139,68 @@ usam (regex check pre-execução):
 Se a fixture precisa de qualquer uma, ela vai em `tests/<nome>.test.ts`
 (suite RTS via `rts:test`) em vez de cross-runtime.
 
+## Categorias de issue auto-criada
+
+Em vez de criar uma issue gigante com todas as divergências, o workflow
+agrupa por **categoria temática** (uma issue por área). Mapeamento atual
+em `.github/workflows/cross-runtime.yml` no step "Auto-create issues":
+
+| Categoria | Cobre |
+|---|---|
+| `regex` | regex methods, named groups, indices, unicode |
+| `url` | URL, URLSearchParams |
+| `json` | JSON.parse/stringify, replacer/reviver |
+| `intl` | Intl.NumberFormat/DateTimeFormat/Segmenter |
+| `streams` | ReadableStream, CompressionStream, TextDecoder stream |
+| `typed-buffers` | ArrayBuffer, DataView, TypedArray, BigInt, Atomics |
+| `web-api` | Blob, File, FormData, Headers, Request/Response |
+| `events-async` | AbortController, EventTarget, MessageChannel, microtask |
+| `classes-errors` | classes, instanceof, Error family, typeof |
+| `promises` | Promise.all/race/withResolvers, async/await |
+| `fn-closure-syntax` | closures, function meta, destructuring, templates |
+| `array` | array methods, iter, sparse, groupBy, set ops |
+| `object-meta` | Object methods, Proxy, Reflect, Symbol |
+| `string` | string methods avançados |
+| `numeric` | Math, Number format, coercion, bitwise, NaN |
+| `date` | Date methods |
+| `misc-platform` | WeakRef, structuredClone, dynamic import, etc. |
+| `other` | fallback se nome não bate |
+
+Cada categoria com ≥1 divergência inédita gera/atualiza issue própria
+com labels `cat:<categoria>` + `cross-runtime` + `bug`.
+
+## Histórico semanal
+
+O CI commita um snapshot em `cross_runtime_history/YYYY-MM-DD.json`
+a cada schedule run (1× semana). O arquivo `cross_runtime_history/index.json`
+mantém lista cronológica para dashboards consumirem:
+
+```json
+{
+  "entries": [
+    { "date": "2026-05-10", "pct": 37.4, "pass": 40, "total_valid": 107, ... }
+  ]
+}
+```
+
+Snapshots detalhados (`YYYY-MM-DD.json`) trazem nomes dos divergentes
+sem outputs completos — economiza espaço a longo prazo.
+
+## Dashboard GitHub Pages
+
+Página `parity.html` no GitHub Pages do projeto consome
+`cross_runtime_report.json` + `cross_runtime_history/index.json` e renderiza:
+
+- **% paridade atual** (big number)
+- **Stats**: pass / diverge / error / total
+- **Gráfico SVG** de evolução de % ao longo das semanas
+- **Tabela** com fixtures pendentes
+
+URL final: `https://urubucode.github.io/rts/parity.html`
+
+Atualizado automaticamente quando o workflow cross-runtime termina em
+main ou quando `cross_runtime_report.json` muda.
+
 ## Bugs cross-runtime conhecidos (track)
 
 Lista vai vivendo aqui conforme aparecem:
