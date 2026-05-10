@@ -270,7 +270,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
 /// recebe o valor inline.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
-    use crate::namespaces::gc::handles::with_entry as _;
+    
     let kind = with_entry(value, |entry| match entry {
         Some(Entry::Promise(v)) => Some(*v),
         Some(Entry::PromiseAsync(_)) => Some(i64::MIN), // sentinela: ja e' Promise

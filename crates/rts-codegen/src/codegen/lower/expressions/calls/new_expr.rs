@@ -5,13 +5,10 @@
 //!   chamadas em handles `Function` reificados (.call/.apply/.bind/etc).
 
 use anyhow::{Result, anyhow};
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
-use cranelift_module::{Linkage, Module};
-use swc_ecma_ast::{CallExpr, Expr, MemberProp};
+use cranelift_codegen::ir::{InstBuilder, types as cl};
+use swc_ecma_ast::{CallExpr, Expr};
 
-use crate::abi::lookup;
 use crate::abi::types::AbiType;
-use crate::codegen::lower::compile::class::class_init_name;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 use super::super::lower_expr;
 use super::super::operators::to_f64;

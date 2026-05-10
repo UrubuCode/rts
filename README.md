@@ -231,7 +231,7 @@ inline + integração + fixed-point (4.2/4.3/4.7), CSE (4.5), FMA
 
 - 438 user fns reais da suite TS rodam pelo MIR
 - `cargo test --release --workspace`: **100/100** verde
-- `target/release/rts.exe test`: **977/977** (cobertura completa, zero falhas)
+- `target/release/rts.exe test`: **1015/1015** (cobertura completa, zero falhas)
 
 Variável `RTS_USE_MIR` controla o routing:
 
@@ -291,7 +291,7 @@ oportunidades de intrinsic. Ver `CLAUDE.md` § Debug do codegen.
 
 ## 🎯 Compatibilidade JS/TS
 
-Suite TS atual: **977/977 testes passando**. Cobertura ampla:
+Suite TS atual: **1015/1015 testes passando**. Cobertura ampla:
 
 - **Sintaxe core**: classes (extends/super/static/getters/setters), generics,
   destructuring (array/objeto/nested/defaults/rest/params), spread, optional
@@ -313,9 +313,16 @@ Suite TS atual: **977/977 testes passando**. Cobertura ampla:
 - **Diagnóstico**: identificadores não-resolvidos viram erro de compilação
   (não segfault)
 
+- **Timers**: `setTimeout`, `setInterval`, `setImmediate` + `clear*`
+  (via `thread::spawn` + AtomicBool de cancelamento)
+- **GC**: scanner conservativo com transitive marking em Map/Vec/Function/Proxy
+  + globals top-level registrados como roots — servidores de longa duração
+  com estado em memória são suportados
+
 Cobertura node:* parcial: `node:fs` (readFileSync/writeFileSync/exists/
-append/mkdir), `node:path/os/process/util/crypto`. Compatibilidade
-completa com Node está em #226 (epic tracking).
+append/mkdir), `node:path/os/process/util`, `node:crypto` (sha256
+streaming via `createHash`/`update`/`digest`, `randomUUID`, hex/base64).
+Compatibilidade completa com Node está em #226 (epic tracking).
 
 ---
 

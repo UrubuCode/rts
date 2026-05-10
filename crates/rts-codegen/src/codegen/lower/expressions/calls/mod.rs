@@ -7,19 +7,19 @@ mod ns_call;
 mod super_calls;
 
 use self::indirect::{
-    emit_function_handle_indirect_call, lower_indirect_call, lower_var_member_call,
+    lower_indirect_call, lower_var_member_call,
 };
-use self::new_expr::{lower_function_handle_method, lower_function_method_call, lower_new_function};
+use self::new_expr::{lower_function_handle_method, lower_function_method_call};
 
 pub(super) use self::new_expr::lower_new;
 
 use self::builtins::{
-    lower_array_builtin, lower_console_call, lower_map_set_builtin, lower_number_builtin,
+    lower_array_builtin, lower_console_call, lower_number_builtin,
     lower_string_builtin,
 };
 use self::ns_call::{
-    emit_constant_load, lower_global_instance_call, lower_intrinsic, lower_node_ns_call,
-    lower_ns_call, lower_ns_call_body, lower_ns_call_member,
+    lower_global_instance_call, lower_node_ns_call,
+    lower_ns_call, lower_ns_call_member,
 };
 use self::super_calls::{lower_super_call, lower_super_method_call};
 
@@ -27,14 +27,13 @@ pub(super) use self::ns_call::emit_namespace_constant;
 pub(super) use self::super_calls::{lower_super_prop_assign, lower_super_prop_read};
 
 pub(super) use class_dispatch::{
-    AccessorKind, emit_method_call, emit_named_method_call, emit_virtual_accessor_dispatch,
-    fn_name_has_this_param, lower_class_method_call_with_recv, resolve_getter_owner,
-    resolve_init_owner, resolve_method_owner, resolve_setter_owner,
+    AccessorKind, emit_virtual_accessor_dispatch,
+    fn_name_has_this_param, lower_class_method_call_with_recv, resolve_method_owner, resolve_setter_owner,
 };
 
 use anyhow::{Result, anyhow};
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
-use cranelift_module::{Linkage, Module};
+use cranelift_codegen::ir::{InstBuilder, types as cl};
+use cranelift_module::Module;
 use swc_ecma_ast::{CallExpr, Callee, Expr, MemberProp};
 
 use self::coerce::{
@@ -43,19 +42,15 @@ use self::coerce::{
 };
 
 use crate::abi::lookup;
-use crate::abi::signature::lower_member;
-use crate::abi::types::AbiType;
 
 use super::lower_expr;
 use super::members::{
-    emit_class_tag_read, field_type_in_hierarchy, lhs_static_class, map_get_static_typed,
-    qualified_member_name, validate_visibility,
+    lhs_static_class,
+    qualified_member_name,
 };
 use super::operators::to_f64;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
-use crate::codegen::lower::compile::class::{
-    class_getter_name, class_setter_name, class_static_method_name,
-};
+use crate::codegen::lower::compile::class::class_static_method_name;
 
 pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     if matches!(&call.callee, Callee::Super(_)) {

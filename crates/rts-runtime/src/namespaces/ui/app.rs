@@ -67,7 +67,7 @@ pub extern "C" fn __RTS_FN_NS_UI_APP_ADD_TIMEOUT(tm_secs: f64, cb: i64) {
     if cb == 0 {
         return;
     }
-    app::add_timeout(tm_secs, move || {
+    app::add_timeout3(tm_secs, move |_| {
         invoke_no_args(cb);
     });
 }
@@ -84,7 +84,7 @@ pub extern "C" fn __RTS_FN_NS_UI_APP_REPEAT_TIMEOUT(tm_secs: f64, cb: i64) {
 }
 
 fn schedule_repeat(tm_secs: f64, cb: i64) {
-    app::add_timeout(tm_secs, move || {
+    app::add_timeout3(tm_secs, move |_| {
         invoke_no_args(cb);
         // Auto-reagenda. Em FLTK puro o user chama repeat_timeout no body
         // do callback — aqui fazemos transparente.
@@ -99,7 +99,7 @@ pub extern "C" fn __RTS_FN_NS_UI_APP_ADD_IDLE(cb: i64) {
     if cb == 0 {
         return;
     }
-    app::add_idle(move || {
+    app::add_idle3(move |_| {
         invoke_no_args(cb);
     });
 }

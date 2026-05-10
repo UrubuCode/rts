@@ -1314,14 +1314,6 @@ pub(crate) fn emit_class_tag_read(
     Ok(ctx.builder.inst_results(inst)[0])
 }
 
-pub(super) fn map_get_static(
-    ctx: &mut FnCtx,
-    obj_handle: cranelift_codegen::ir::Value,
-    key: &[u8],
-) -> Result<TypedVal> {
-    map_get_static_typed(ctx, obj_handle, key, None)
-}
-
 pub(super) fn map_get_static_typed(
     ctx: &mut FnCtx,
     obj_handle: cranelift_codegen::ir::Value,

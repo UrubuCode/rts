@@ -20,10 +20,10 @@ use crate::parser::ast::FunctionDecl;
 use super::super::ctx::ValTy;
 use super::program::UserFn;
 
-/// Thread-local cache de MirFuncs ja lowered nesta passada de
-/// `compile_program`. Permite inline aplicar quando o callee foi
-/// declarado antes do caller no source. Limpado pelo `compile_program`
-/// no inicio de cada nova chamada via `clear_mir_cache_for_program`.
+// Thread-local cache de MirFuncs ja lowered nesta passada de
+// compile_program. Permite inline aplicar quando o callee foi
+// declarado antes do caller no source. Limpado por
+// clear_mir_cache_for_program no inicio de cada nova chamada.
 thread_local! {
     static MIR_CACHE: std::cell::RefCell<HashMap<String, rts_mir::ir::MirFunc>>
         = std::cell::RefCell::new(HashMap::new());

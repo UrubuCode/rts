@@ -22,7 +22,6 @@ use crate::abi::types::AbiType;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 use super::super::lower_expr;
 use super::super::operators::to_f64;
-use super::emit_user_fn_addr;
 
 pub(super) fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> Result<TypedVal> {
     use crate::abi::signature::scalar_to_cl;
