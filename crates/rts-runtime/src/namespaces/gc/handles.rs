@@ -156,9 +156,20 @@ pub enum Entry {
     /// direto pra target. Acesso transparente a Maps padrao via dispatch
     /// em `is_proxy(handle)`.
     Proxy { target: u64, handler: u64 },
+    /// Streaming hasher (#289 node:crypto.createHash). State machine
+    /// real do crate `sha2` — `update()` incremental, `finalize()` nao
+    /// reprocessa buffer.
+    Hasher(Box<HasherState>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
+}
+
+/// State enum dos algoritmos suportados em `Entry::Hasher`. Wrap em Box
+/// no Entry pra nao inflar o tamanho dos demais variants.
+#[derive(Debug)]
+pub enum HasherState {
+    Sha256(sha2::Sha256),
 }
 
 #[derive(Debug)]

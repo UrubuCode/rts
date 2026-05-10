@@ -808,6 +808,26 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             random::__RTS_FN_NS_CRYPTO_RANDOM_UUID
         );
         add_fn!(
+            "__RTS_FN_NS_CRYPTO_HASH_NEW",
+            hash::__RTS_FN_NS_CRYPTO_HASH_NEW
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR",
+            hash::__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES",
+            hash::__RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX",
+            hash::__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX
+        );
+        add_fn!(
+            "__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64",
+            hash::__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64
+        );
+        add_fn!(
             "__RTS_FN_NS_CRYPTO_SHA256_STR",
             hash::__RTS_FN_NS_CRYPTO_SHA256_STR
         );

@@ -31,6 +31,36 @@ pub const MEMBERS: &[NodespaceMember] = &[
         args: &[],
         returns: AbiType::Handle,
     },
+    // Streaming hash. Builder pattern (`createHash(alg).update(d).digest(enc)`)
+    // exigiria classe Hash com instance methods em GLOBAL_CLASS_SPECS;
+    // como atalho compativel, exportamos as fns standalone. Uso:
+    //   const h = createHash("sha256");
+    //   hashUpdate(h, "data");
+    //   const hex = hashDigestHex(h);
+    NodespaceMember {
+        name: "createHash",
+        symbol: "__RTS_FN_NS_CRYPTO_HASH_NEW",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+    },
+    NodespaceMember {
+        name: "hashUpdate",
+        symbol: "__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR",
+        args: &[AbiType::Handle, AbiType::StrPtr],
+        returns: AbiType::I64,
+    },
+    NodespaceMember {
+        name: "hashDigestHex",
+        symbol: "__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+    },
+    NodespaceMember {
+        name: "hashDigestBase64",
+        symbol: "__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+    },
     NodespaceMember {
         name: "hexEncode",
         symbol: "__RTS_FN_NS_CRYPTO_HEX_ENCODE",
