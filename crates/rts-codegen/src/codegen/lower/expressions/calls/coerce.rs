@@ -74,7 +74,31 @@ pub(super) fn lower_coerce_to_string(ctx: &mut FnCtx, call: &CallExpr) -> Result
         if arg.spread.is_some() {
             return Ok(None);
         }
+        // (#643/JS spec) String(null) -> "null", String(undefined) -> "undefined".
+        // Detecta literais direto antes de avaliar (evita lower_expr).
+        if let swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Null(_)) = arg.expr.as_ref() {
+            return Ok(Some(ctx.emit_str_handle(b"null")?));
+        }
+        if let swc_ecma_ast::Expr::Ident(id) = arg.expr.as_ref() {
+            if id.sym.as_str() == "undefined" {
+                return Ok(Some(ctx.emit_str_handle(b"undefined")?));
+            }
+        }
         let tv = super::lower_expr(ctx, &arg.expr)?;
+        // Handle 0 (null em RTS) tambem stringifica como "null" via
+        // TPL_COERCE_AUTO. Caso geral.
+        let needs_auto = matches!(tv.ty, crate::codegen::lower::ctx::ValTy::Handle | crate::codegen::lower::ctx::ValTy::U64);
+        if needs_auto {
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let val_i64 = ctx.coerce_to_i64(tv).val;
+            let inst = ctx.builder.ins().call(coerce_fn, &[val_i64]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(crate::codegen::lower::ctx::TypedVal::new(v, crate::codegen::lower::ctx::ValTy::Handle)));
+        }
         let h = ctx.coerce_to_handle(tv)?;
         return Ok(Some(h));
     }

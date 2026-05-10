@@ -341,6 +341,24 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return lower_instanceof(ctx, bin);
     }
 
+    // (#643/null-undef) `null == undefined` deve ser true em JS abstract
+    // equality. Em RTS, null vira (0, Handle) e undefined vira handle
+    // de string "undefined" — comparacao normal falharia. Detecta caso
+    // especial em compile-time.
+    if matches!(bin.op, BinaryOp::EqEq | BinaryOp::NotEq) {
+        let is_null_lit = |e: &Expr| matches!(e, Expr::Lit(Lit::Null(_)));
+        let is_undef = |e: &Expr| matches!(e, Expr::Ident(id) if id.sym.as_str() == "undefined");
+        let lhs_nu = is_null_lit(&bin.left) || is_undef(&bin.left);
+        let rhs_nu = is_null_lit(&bin.right) || is_undef(&bin.right);
+        if lhs_nu && rhs_nu {
+            // `null == null`, `null == undefined`, `undefined == null`,
+            // `undefined == undefined` — todos true em loose equality.
+            let val = if matches!(bin.op, BinaryOp::EqEq) { 1 } else { 0 };
+            let v = ctx.builder.ins().iconst(cl::I64, val);
+            return Ok(TypedVal::new(v, ValTy::Bool));
+        }
+    }
+
     let lhs = lower_expr(ctx, &bin.left)?;
     let rhs = lower_expr(ctx, &bin.right)?;
 
