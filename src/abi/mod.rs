@@ -97,6 +97,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     // Global JS object namespaces — name matches JS global (e.g. "JSON", "console").
     // Codegen routes JSON.parse() / console.log() through these specs.
     &crate::namespaces::globals::json::abi::SPEC,
+    &crate::namespaces::globals::json5::abi::SPEC,
     &crate::namespaces::globals::console::abi::SPEC,
     &crate::namespaces::globals::timers::abi::SPEC,
     &crate::namespaces::globals::fetch::abi::SPEC,
