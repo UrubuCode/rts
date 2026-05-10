@@ -256,28 +256,58 @@ jobs:
             const sigOf = (d) => sha1(`${d.name}|${d.status}|${d.bun}|${d.node}|${d.rts}`);
 
             // ─── Categorização ───────────────────────────────────────
-            // Mapeia fixture name → categoria temática. Cobertura
-            // baseada nas fixtures atuais; nomes novos caem em "other"
-            // até alguém atualizar este mapa.
+            // Mapeia fixture name → categoria temática. Ordem importa:
+            // padroes mais especificos primeiro. Nomes novos caem em
+            // "other" até alguem atualizar este mapa.
             function categorize(name) {
               const n = name.toLowerCase();
+              // APIs Web e platform-specific (alto nivel)
+              if (/(stream|compression|textdecoder_stream|textencoder)/.test(n)) return 'streams';
+              if (/(arraybuffer|dataview|typedarray|atomics|sharedarraybuffer)/.test(n)) return 'typed-buffers';
+              if (/(blob|file|formdata|headers|request|response)/.test(n)) return 'web-api';
+              if (/(abort[_]?controller|abort[_]?signal|event[_]?target|message[_]?channel|microtask|queuemicrotask)/.test(n)) return 'events-async';
+              if (/(weak[_]?refs?|finalization[_]?registry)/.test(n)) return 'gc-weak';
+              if (/(structured[_]?clone|domexception|aggregate[_]?error|modern_helpers|property_order)/.test(n)) return 'misc-platform';
+              if (/intl/.test(n)) return 'intl';
               if (/regex/.test(n)) return 'regex';
               if (/url/.test(n)) return 'url';
-              if (/json/.test(n)) return 'json';
-              if (/intl/.test(n)) return 'intl';
-              if (/(stream|compression|textdecoder_stream|textencoder)/.test(n)) return 'streams';
-              if (/(arraybuffer|dataview|typedarray|bigint|atomics)/.test(n)) return 'typed-buffers';
-              if (/(blob|file|formdata|headers|request|response)/.test(n)) return 'web-api';
-              if (/(abortcontroller|abortsignal|eventtarget|messagechannel|microtask)/.test(n)) return 'events-async';
-              if (/(class|instanceof|error|typeof)/.test(n)) return 'classes-errors';
-              if (/(promise|await)/.test(n)) return 'promises';
-              if (/(closure|function_meta|destructur|template)/.test(n)) return 'fn-closure-syntax';
-              if (/(array_iter|array_search|sparse|set_operations|groupby)/.test(n)) return 'array';
-              if (/(object|proxy|reflect|symbol)/.test(n)) return 'object-meta';
-              if (/(string_)/.test(n)) return 'string';
-              if (/(number_format|math|coercion|bitwise|nan_negative_zero)/.test(n)) return 'numeric';
-              if (/(date)/.test(n)) return 'date';
-              if (/(weak_refs|structured_clone|dynamic_import|domexception|aggregate_error)/.test(n)) return 'misc-platform';
+              // Encoding / hash
+              if (/(encodeuri|decodeuri|text_encoding|subtle_digest|encode_decode)/.test(n)) return 'encoding';
+              // BigInt e numericos
+              if (/(bigint)/.test(n)) return 'bigint';
+              if (/(json)/.test(n)) return 'json';
+              // Generators e iteracao
+              if (/(generator|yield|yieldstar)/.test(n)) return 'generators';
+              if (/(iterator_helpers|iterator_toarray)/.test(n)) return 'iteration';
+              // Promises e async
+              if (/(promise|await|promiseall|allsettled|withresolvers)/.test(n)) return 'promises';
+              // Classes
+              if (/(class|extends|super_|private_field|private_method|static_block|new_target|computed_class)/.test(n)) return 'classes';
+              if (/(instanceof|typeof|error)/.test(n)) return 'classes-errors';
+              // Console
+              if (/console/.test(n)) return 'console';
+              // Function / closures / argumentos
+              if (/(function_meta|function_bind|function_call_apply|function_name_length|arrow_rest_params|arguments_object|new_target|closure)/.test(n)) return 'fn-meta';
+              // Templates, destructuring, syntax
+              if (/(template|tagged_template|destructur|spread|labeled_break|delete_operator|void_operator|comma_operator|this_strict|hashbang|import_meta|numeric_separator|nullish_assignment|logical_assignment|optional_catch|exponentiation)/.test(n)) return 'syntax';
+              // Coercoes e operadores numericos
+              if (/(coercion|number_format|nan_negative_zero|bitwise|number_tostring|number_constructor|number_valueof|number_parseint|number_parsefloat|number_isfinite|number_isinteger|number_issafeinteger|parseint|parsefloat|isfinite|isnan|tofixed|toexponential|toprecision)/.test(n)) return 'numeric';
+              if (/math/.test(n)) return 'math';
+              // Date
+              if (/date/.test(n)) return 'date';
+              // Boolean
+              if (/boolean/.test(n)) return 'boolean';
+              // Array methods (catch-all amplo + nomes sem prefixo "array_")
+              if (/array|findlast|findlastindex|flatmap|toreversed|tosorted|tospliced/.test(n)) return 'array';
+              // Object / Proxy / Reflect / Symbol
+              if (/(object|proxy|reflect)/.test(n)) return 'object-meta';
+              if (/symbol/.test(n)) return 'symbol';
+              // Set / Map / collections
+              if (/(map|set_operations|set_ops|map_set|groupby|map_iter|map_foreach)/.test(n)) return 'collections';
+              // String (catch-all)
+              if (/string|replaceall|matchall|substring|substr/.test(n)) return 'string';
+              // Dynamic features
+              if (/(dynamic_import|setimmediate|setinterval)/.test(n)) return 'misc-platform';
               return 'other';
             }
 
