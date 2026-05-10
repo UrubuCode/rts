@@ -23,7 +23,7 @@ fn key_bytes(handle: u64) -> Option<Vec<u8>> {
     })
 }
 
-/// Helper: aloca string handle a partir de bytes UTF-8 estaticos.
+#[cfg(test)]
 fn alloc_str(s: &str) -> u64 {
     alloc_entry(Entry::String(s.as_bytes().to_vec()))
 }

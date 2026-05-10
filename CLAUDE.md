@@ -157,7 +157,7 @@ src/                — fachada bin (re-exports), runtime_objects.rs, main.rs
 > inline+integracao+fixed-point (4.2/4.3/4.7), CSE (4.5), FMA (4.8), arr[i]=v
 > + smoke e2e (4.4/4.6). Restam escape analysis, SIMD e narrow storage real.
 > Metricas atuais: rts-mir 59/59, rts-codegen --lib mir_codegen 61/61,
-> cargo test --workspace 100/100, rts.exe test **977/977** (zero falhas).
+> cargo test --workspace 100/100, rts.exe test **1015/1015** (zero falhas).
 
 Pipeline atual (default, MIR ON):
 
@@ -180,9 +180,11 @@ Cada user fn tenta o caminho HIR→MIR→Cranelift; se bate em construct
 ainda nao modelado (member em `this`/objetos, classes, async/await,
 address-taken fns, string em params/ret de user fn), cai automaticamente
 no codegen AST sem perder semantica. 438 user fns reais da suite TS
-hoje rodam pelo MIR; suite mantem **977/977 verde** (zero falhas apos
-PRs #213, #218 (Reflect/Proxy), #261, #287, #383, #450, #573, #584,
-#592, #602, #617, #618, #619, #224, mais varios fixes de bugs).
+hoje rodam pelo MIR; suite mantem **1015/1015 verde** (zero falhas
+apos PRs #213, #218 (Reflect/Proxy), #261, #287, #289 (sha256
+streaming), #377 (timers), #383, #398 (GC transitive), #407 (globals
+roots), #450, #573, #584, #592, #602, #617, #618, #619, #224 (UI
+event loop), mais randomUUID e varios fixes de bugs).
 
 Pipeline AOT/JIT: ambos passam pelo mesmo `compile_program`; `FnCtx.module`
 e' `&mut dyn Module` para servir os dois sem duplicar codegen.
@@ -535,23 +537,28 @@ sao bem-vindos pra cobrir variacoes sem inflar o numero de arquivos.
 
 ## Status do epic #226 (paridade JS/TS)
 
-Suite TS: **977/977 (100%)**. Lotes recentes (sessao 2026-05-09) entregaram:
+Suite TS: **1015/1015 (100%)**. Lotes recentes (sessao 2026-05-09) entregaram:
 
 - **#213/#618/#619** module system completo: named/default/star imports,
   re-exports, alias `import { x as y }`, `export * as ns`, AOT module graph
 - **#218** Reflect API completa (13 metodos) + Proxy fase 1+2+3 com 13 traps
   (get/set/has/delete/apply/construct/ownKeys/getPrototypeOf/setPrototypeOf/
   defineProperty/getOwnPropertyDescriptor/isExtensible/preventExtensions)
+- **#224** ui.app_check/add_timeout/repeat_timeout/add_idle
+- **#261** computed key (`obj["x"]` e `obj[k]`) propagam field type
+- **#287** node:fs.readFileSync funcional (READ_TEXT)
+- **#289 fase SHA-256** streaming hash via `sha2` crate
+  (`createHash`/`update`/`digest`) + `randomUUID` v4
+- **#377** setTimeout/setInterval/setImmediate + clear* (cobertura formal)
 - **#383** ident desconhecido vira erro de compilacao (era warning + segfault)
+- **#398** GC scanner com transitive marking em Map/Vec/Function/Proxy
+- **#407** top-level globals registrados como GC roots (cobertura formal)
 - **#450** \`arguments.length\` em fn user nao-arrow + fix em arrow VarDecl
+- **#573** \`console.log(null)\` -> \"null\", U64 ambiguo via TPL_COERCE_AUTO
 - **#584** divisao `/` segue JS spec (sempre f64)
 - **#592** \`users[i].field\` em \`Cls[]\` propaga tipo
 - **#602** optchain 3+ niveis em obj literal
-- **#573** \`console.log(null)\` -> \"null\", U64 ambiguo via TPL_COERCE_AUTO
 - **#617** AOT classes (Function archive)
-- **#287** node:fs.readFileSync funcional (READ_TEXT)
-- **#224** ui.app_check/add_timeout/repeat_timeout/add_idle
-- **#261** computed key (`obj["x"]` e `obj[k]`) propagam field type
 
 Issues filhas pesadas que continuam abertas (refactor necessario, fora
 de escopo de PR pequena):

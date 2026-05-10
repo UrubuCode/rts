@@ -8,7 +8,7 @@
 
 use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::Module;
 use swc_ecma_ast::{CallExpr, Expr};
 
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};

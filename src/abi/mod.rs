@@ -51,14 +51,6 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::weakset::WEAKSET_CLASS_SPEC,
 ];
 
-/// Looks up a global class spec by JS class name (e.g. `"Date"`).
-pub(crate) fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
-    GLOBAL_CLASS_SPECS
-        .iter()
-        .copied()
-        .find(|s| s.name == name)
-}
-
 /// Global registry of namespaces exposed through the new ABI.
 ///
 /// Each migrated namespace appends its `SPEC` here. Codegen consults this
@@ -114,21 +106,3 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::events::abi::SPEC,
 ];
 
-/// Locates a member by its fully qualified name (e.g. `"io.print"`).
-///
-/// **Trust boundary (#204)**: este lookup eh `pub(crate)` por design.
-/// Todos os call sites estao em `src/codegen/lower/` — sao alimentados
-/// por strings derivadas de AST nodes static (Member expressions),
-/// nunca de input arbitrario do usuario em runtime. Se um caminho
-/// futuro (`runtime.eval_file`, reflection API) precisar resolver
-/// nomes em runtime, deve usar uma allowlist explicita em vez de
-/// expor este lookup.
-///
-/// Auditoria de uso: `grep -rn "abi::lookup" src/` deve retornar
-/// apenas codegen, nunca runtime/* ou cli/*.
-pub(crate) fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
-    let (ns_name, fn_name) = qualified.split_once('.')?;
-    let spec = SPECS.iter().copied().find(|spec| spec.name == ns_name)?;
-    let member = spec.members.iter().find(|m| m.name == fn_name)?;
-    Some((spec, member))
-}

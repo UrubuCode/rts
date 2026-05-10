@@ -1045,34 +1045,6 @@ fn lower_mod(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> 
 
 /// Emite sdiv com guard pra divisor 0. (#296) Em divisor 0 retorna 0.
 /// Estrategia branchless: bor(rv, is_zero_flag) garante divisor != 0;
-/// em divisor 0, divide por 1 (mascara is_zero=1 entra no rv). Depois
-/// AND com !is_zero zera o resultado quando original era 0.
-/// Sem branches, sem select — IR mais previsivel pra Cranelift.
-/// Emite sdiv com guard branchless pra divisor 0. (#296) Em divisor 0
-/// retorna 0 (sentinel). Estrategia: `safe_rv = rv | is_zero` evita o
-/// trap, depois `result & (is_zero - 1)` mascara para 0 no caso original 0.
-fn lower_idiv_safe(
-    ctx: &mut FnCtx,
-    lv: cranelift_codegen::ir::Value,
-    rv: cranelift_codegen::ir::Value,
-    ty: ValTy,
-) -> cranelift_codegen::ir::Value {
-    let cl_ty = if matches!(ty, ValTy::I32) { cl::I32 } else { cl::I64 };
-    let zero = ctx.builder.ins().iconst(cl_ty, 0);
-    let is_zero_b = ctx.builder.ins().icmp(IntCC::Equal, rv, zero);
-    let bool_ty = ctx.builder.func.dfg.value_type(is_zero_b);
-    let is_zero = if bool_ty == cl_ty {
-        is_zero_b
-    } else {
-        ctx.builder.ins().uextend(cl_ty, is_zero_b)
-    };
-    let safe_rv = ctx.builder.ins().bor(rv, is_zero);
-    let q = ctx.builder.ins().sdiv(lv, safe_rv);
-    let one = ctx.builder.ins().iconst(cl_ty, 1);
-    let mask = ctx.builder.ins().isub(is_zero, one);
-    ctx.builder.ins().band(q, mask)
-}
-
 fn lower_imod_safe(
     ctx: &mut FnCtx,
     lv: cranelift_codegen::ir::Value,
