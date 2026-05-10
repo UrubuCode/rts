@@ -770,9 +770,26 @@ pub(super) fn lower_opt_chain(
 
 pub(super) fn lower_cond(ctx: &mut FnCtx, cond: &swc_ecma_ast::CondExpr) -> Result<TypedVal> {
     let test = lower_expr(ctx, &cond.test)?;
+    let test_ty = test.ty;
     let test_i64 = ctx.coerce_to_i64(test).val;
     let zero = ctx.builder.ins().iconst(cl::I64, 0);
-    let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, test_i64, zero);
+    // (#or-empty-str) Mesma logica de truthy do logical: string vazia
+    // (handle != 0) precisa ser tratada como falsy.
+    let test_needs_truthy = matches!(test_ty, ValTy::Handle | ValTy::U64)
+        || (matches!(test_ty, ValTy::I64)
+            && ctx.var_member_call_values.contains(&test_i64));
+    let truthy_val = if test_needs_truthy {
+        let truthy_fn = ctx.get_extern(
+            "__RTS_FN_RT_TRUTHY",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(truthy_fn, &[test_i64]);
+        ctx.builder.inst_results(inst)[0]
+    } else {
+        test_i64
+    };
+    let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, truthy_val, zero);
 
     let then_block = ctx.builder.create_block();
     let else_block = ctx.builder.create_block();
@@ -812,11 +829,29 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     let merge = ctx.builder.create_block();
     let result = ctx.builder.append_block_param(merge, cl::I64);
 
+    // (#or-empty-str) Quando lhs eh Handle/U64, usa __RTS_FN_RT_TRUTHY
+    // que reconhece string vazia como falsy (JS spec). Sem isso,
+    // `'' || 'fb'` retornava '' porque handle de "" eh != 0.
+    let lhs_needs_truthy = matches!(lhs_ty, ValTy::Handle | ValTy::U64)
+        || (matches!(lhs_ty, ValTy::I64)
+            && ctx.var_member_call_values.contains(&lhs_i64));
+    let truthy_val = if lhs_needs_truthy {
+        let truthy_fn = ctx.get_extern(
+            "__RTS_FN_RT_TRUTHY",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(truthy_fn, &[lhs_i64]);
+        ctx.builder.inst_results(inst)[0]
+    } else {
+        lhs_i64
+    };
+
     let rhs_ty: ValTy;
     match bin.op {
         BinaryOp::LogicalAnd => {
             let rhs_block = ctx.builder.create_block();
-            let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, lhs_i64, zero);
+            let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, truthy_val, zero);
             ctx.builder
                 .ins()
                 .brif(is_true, rhs_block, &[], merge, &[lhs_i64.into()]);
@@ -829,7 +864,7 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         }
         BinaryOp::LogicalOr => {
             let rhs_block = ctx.builder.create_block();
-            let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, lhs_i64, zero);
+            let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, truthy_val, zero);
             ctx.builder
                 .ins()
                 .brif(is_true, merge, &[lhs_i64.into()], rhs_block, &[]);
