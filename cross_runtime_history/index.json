@@ -2,12 +2,12 @@
   "entries": [
     {
       "date": "2026-05-10",
-      "pct": 36.7,
-      "pass": 58,
-      "total_valid": 158,
-      "total": 160,
-      "rts_diverge": 43,
-      "errors": 57
+      "pct": 32.2,
+      "pass": 74,
+      "total_valid": 230,
+      "total": 233,
+      "rts_diverge": 76,
+      "errors": 80
     }
   ]
 }
