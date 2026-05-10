@@ -209,6 +209,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_ENV_GET", __RTS_FN_NS_GC_ENV_GET);
     add_fn!("__RTS_FN_NS_GC_ENV_SET", __RTS_FN_NS_GC_ENV_SET);
     add_fn!("__RTS_FN_NS_GC_ENV_FREE", __RTS_FN_NS_GC_ENV_FREE);
+    use crate::namespaces::gc::closure::*;
+    add_fn!("__RTS_FN_NS_GC_CLOSURE_ALLOC", __RTS_FN_NS_GC_CLOSURE_ALLOC);
+    add_fn!("__RTS_FN_NS_GC_CLOSURE_FN_PTR", __RTS_FN_NS_GC_CLOSURE_FN_PTR);
+    add_fn!("__RTS_FN_NS_GC_CLOSURE_ENV", __RTS_FN_NS_GC_CLOSURE_ENV);
     use crate::namespaces::gc::instance::*;
     add_fn!("__RTS_FN_NS_GC_INSTANCE_NEW", __RTS_FN_NS_GC_INSTANCE_NEW);
     add_fn!(
