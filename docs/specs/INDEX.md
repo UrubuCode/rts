@@ -20,6 +20,10 @@ narrow storage real.
 - [Cross-runtime parity testing](cross-runtime-testing.md) — Sistema CI
   que valida RTS vs Bun vs Node em fixtures TS standalone. Diff de stdout
   linha-a-linha, issue automatica em divergencia detectada em schedule.
+- [Cross-runtime coverage roadmap](cross-runtime-roadmap.md) — Lista
+  viva das fixtures planejadas (63 itens prioritarios + sugestoes
+  futuras). Checklist marcavel conforme batches sao adicionados pelo
+  codex/kiro.
 - [Como criar um namespace](namespace-creation-guide.md) — Processo atual
   baseado em `crates/rts-abi/` (SPECS centralizado, simbolos `__RTS_FN_NS_*`,
   `AbiType`). Reflete a branch `feat/remake-namespaces`.

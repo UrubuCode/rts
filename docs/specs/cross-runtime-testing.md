@@ -7,9 +7,11 @@ outputs contra **Bun** e **Node** em fixtures TypeScript standalone.
 
 - **`tests/cross-runtime/*.ts`** — fixtures TS rodáveis em qualquer um dos 3
   runtimes. Sem `import "rts"`, sem `JSON5`/`Bun`/`Deno`/`process`.
-- **`scripts/cross_runtime_check.sh`** — roda cada fixture nos 3 runtimes,
-  compara stdouts linha-a-linha, gera relatório JSON.
+- **`scripts/cross_runtime_check.sh`** — roda cada fixture nos 3 runtimes
+  (paralelizado via `xargs -P`), compara stdouts, gera JSON.
 - **`.github/workflows/cross-runtime.yml`** — CI que roda em PR + schedule.
+- **`docs/specs/cross-runtime-roadmap.md`** — lista viva de fixtures
+  planejadas (checklist marcavel conforme novos batches sao adicionados).
 
 ## Como rodar localmente
 
