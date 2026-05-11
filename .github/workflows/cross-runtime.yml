@@ -254,7 +254,20 @@ jobs:
             if (divergent.length === 0) return;
 
             const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 12);
-            const sigOf = (d) => sha1(`${d.name}|${d.status}|${d.bun}|${d.node}|${d.rts}`);
+            // Normaliza outputs antes do hash para estabilizar sig entre
+            // runs. RTS vaza handles GC (ex: 281474976710657) que mudam
+            // a cada execucao por causa de alocacao round-robin em 32
+            // shards do HandleTable. Substituimos runs de >= 12 digitos
+            // por placeholder <handle>. Bun/Node nao tem esse problema
+            // mas aplicamos por simetria.
+            const normalizeOutput = (s) => (s || '').replace(/\b\d{12,}\b/g, '<handle>');
+            const sigOf = (d) => sha1([
+              d.name,
+              d.status,
+              normalizeOutput(d.bun),
+              normalizeOutput(d.node),
+              normalizeOutput(d.rts),
+            ].join('|'));
 
             // ─── Categorização (apenas para label cat:<nome>) ───────
             function categorize(name) {
