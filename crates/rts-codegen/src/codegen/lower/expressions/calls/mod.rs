@@ -1383,6 +1383,7 @@ fn lower_js_global_call(
             Ok(Some(TypedVal::new(r, ValTy::Handle)))
         }
         // (#208) parseInt(s, radix?) — JS spec com radix opcional, tolerante.
+        // Retorna NaN quando parse falha (runtime retorna i64::MIN sentinel).
         "parseInt" if (1..=2).contains(&call.args.len())
             && call.args.iter().all(|a| a.spread.is_none()) =>
         {
@@ -1407,8 +1408,21 @@ fn lower_js_global_call(
                 Some(cl::I64),
             )?;
             let inst = ctx.builder.ins().call(f, &[p, l, radix]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
+            let result = ctx.builder.inst_results(inst)[0];
+            
+            // Se result == i64::MIN (sentinel de erro), retorna NaN.
+            // Caso contrário, converte i64 para f64.
+            let i64_min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+            let is_error = ctx.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                result,
+                i64_min,
+            );
+            let nan = ctx.builder.ins().f64const(f64::NAN);
+            let result_f64 = ctx.builder.ins().fcvt_from_sint(cl::F64, result);
+            let final_result = ctx.builder.ins().select(is_error, nan, result_f64);
+            
+            Ok(Some(TypedVal::new(final_result, ValTy::F64)))
         }
         "parseFloat" if call.args.len() == 1 && call.args[0].spread.is_none() => {
             let arg_tv = super::lower_expr(ctx, &call.args[0].expr)?;
