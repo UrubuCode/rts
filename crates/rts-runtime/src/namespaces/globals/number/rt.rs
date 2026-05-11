@@ -134,12 +134,36 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v: f64, digits: i64) -> u64 
     // JS spec: sem arg (digits < 0) usa precisao minima necessaria.
     // Com arg, formata com precisao fixa.
     let s = if digits < 0 {
-        format!("{v:e}")
+        // Sem argumento: usa precisão mínima (remove trailing zeros).
+        // Formata com alta precisão e remove zeros trailing.
+        let formatted = format!("{v:e}");
+        let with_js_notation = js_exp_notation(&formatted);
+        remove_trailing_zeros_exp(&with_js_notation)
     } else {
         let d = digits.clamp(0, 100) as usize;
-        format!("{v:.prec$e}", prec = d)
+        let formatted = format!("{v:.prec$e}", prec = d);
+        js_exp_notation(&formatted)
     };
-    alloc_str(&js_exp_notation(&s))
+    alloc_str(&s)
+}
+
+// Remove trailing zeros da mantissa em notação exponencial.
+// Ex: "1.234500e+4" -> "1.2345e+4"
+fn remove_trailing_zeros_exp(s: &str) -> String {
+    if let Some(e_pos) = s.find('e') {
+        let (mantissa, exp_part) = s.split_at(e_pos);
+        // Remove trailing zeros e ponto decimal se necessário
+        let trimmed = mantissa.trim_end_matches('0');
+        // Se ficou só o ponto, remove também (ex: "1." -> "1")
+        let trimmed = if trimmed.ends_with('.') {
+            &trimmed[..trimmed.len() - 1]
+        } else {
+            trimmed
+        };
+        format!("{trimmed}{exp_part}")
+    } else {
+        s.to_string()
+    }
 }
 
 // Converts Rust's `1.5e10` / `1.5e-3` to JS-style `1.5e+10` / `1.5e-3`.
