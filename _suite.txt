@@ -1,0 +1,5802 @@
+﻿rts.exe : 
+No linha:1 caractere:8
++ $out = & "E:\rts\target\release\rts.exe" test 2>&1 | Out-String; Set- ...
++        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[2mtests\abstract_chain.test.ts[0m
+
+[2mE:\rts\tests\abstract_chain.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:abstract_chain[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\abstract_class_basic.test.ts[0m
+
+[2mE:\rts\tests\abstract_class_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:abstract_class_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\abstract_class_no_new_err.test.ts[0m
+
+[2mE:\rts\tests\abstract_class_no_new_err.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:abstract_class_no_new_err[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_REF_ERROR_NEW", "__RTS_FN_GL_PROMISE_THEN2", "__RTS_FN_GL_STRING_TRIM_START"]
+error: classe abstract `Shape` nao pode ser instanciada via `new`
+      at in top-level runtime entry
+    [32mÔ£ô[0m [2mfails with non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\abstract_missing_impl_err.test.ts[0m
+
+[2mE:\rts\tests\abstract_missing_impl_err.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:abstract_missing_impl_err[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_EE_EVENT_NAMES", "__RTS_FN_GL_DATE_NEW_NOW", "__RTS_FN_GL_DATE_GET_TIME"]
+error: classe concreta `Square` nao implementa metodo(s) abstract: perimeter
+    [32mÔ£ô[0m [2mfails with non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\alloc_basic.test.ts[0m
+
+[2mE:\rts\tests\alloc_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:alloc_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\alloc_realloc.test.ts[0m
+
+[2mE:\rts\tests\alloc_realloc.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:alloc_realloc[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\arithmetic.test.ts[0m
+
+[2mE:\rts\tests\arithmetic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1marithmetic ÔÇö sinais, precedencia, unario, ++/--[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\array_callback_methods.test.ts[0m
+
+[2mE:\rts\tests\array_callback_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1marray_callback_methods[0m[0m
+    [32mÔ£ô[0m [2mmap with arrow[0m
+    [32mÔ£ô[0m [2mreduce sum[0m
+    [32mÔ£ô[0m [2mreduce product[0m
+    [32mÔ£ô[0m [2mmap with block-return arrow[0m
+    [32mÔ£ô[0m [2mmap with paren param arrow[0m
+    [32mÔ£ô[0m [2mcaptured output[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m6 tests passed[0m
+
+
+[2mtests\array_native_methods.test.ts[0m
+
+[2mE:\rts\tests\array_native_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [31mÔ£ù[0m [31mcrashed[0m ÔÇö codigo -1073741795 (Windows: -1073741819=ACCESS_VIOLATION, 
+-1073740791=HEAP_CORRUPTION)
+
+[2mtests\array_no_callback_methods.test.ts[0m
+
+[2mE:\rts\tests\array_no_callback_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1marray_no_callback_methods[0m[0m
+    [32mÔ£ô[0m [2mall[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\array_predicate_methods.test.ts[0m
+
+[2mE:\rts\tests\array_predicate_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1marray_predicate_methods[0m[0m
+    [32mÔ£ô[0m [2mall[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\arrow_capture_local.test.ts[0m
+
+[2mE:\rts\tests\arrow_capture_local.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:arrow_capture_local[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\arrow_destructure_object_param.test.ts[0m
+
+[2mE:\rts\tests\arrow_destructure_object_param.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1marrow com destructuring de object param[0m[0m
+    [32mÔ£ô[0m [2m{x,y} destructure prologue funciona[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\arrow_destructure_param.test.ts[0m
+
+[2mE:\rts\tests\arrow_destructure_param.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1marrow com destructuring de array param[0m[0m
+    [32mÔ£ô[0m [2m[k,v] destructure prologue funciona[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\arrow_functions.test.ts[0m
+
+[2mE:\rts\tests\arrow_functions.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:arrow_functions[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\arrow_lift_return.test.ts[0m
+
+[2mE:\rts\tests\arrow_lift_return.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:arrow_lift_return[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\arrow_var_with_type_ann.test.ts[0m
+
+[2mE:\rts\tests\arrow_var_with_type_ann.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1marrow via var com type ann (#455)[0m[0m
+    [32mÔ£ô[0m [2mpropaga return type da binding pro arrow lifted[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\async_fn_advanced.test.ts[0m
+
+[2mE:\rts\tests\async_fn_advanced.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1masync function ÔÇö casos avancados[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\async_function.test.ts[0m
+
+[2mE:\rts\tests\async_function.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1masync function codegen (issue #413, F2)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\async_multi_arg.test.ts[0m
+
+[2mE:\rts\tests\async_multi_arg.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1masync fn com multiplos argumentos (#425)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\async_try_catch_no_throw.test.ts[0m
+
+[2mE:\rts\tests\async_try_catch_no_throw.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1masync_try_catch_no_throw[0m[0m
+    [32mÔ£ô[0m [2mcatch nao executa quando nao ha throw[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\async_with_loops.test.ts[0m
+
+[2mE:\rts\tests\async_with_loops.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1masync functions com loops e control flow[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\atob_btoa.test.ts[0m
+
+[2mE:\rts\tests\atob_btoa.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:atob_btoa[0m[0m
+    [32mÔ£ô[0m [2mbtoa/atob globais ÔÇö encode/decode/round-trip[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\atomic_basic.test.ts[0m
+
+[2mE:\rts\tests\atomic_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:atomic_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\await_basic.test.ts[0m
+
+[2mE:\rts\tests\await_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mawait codegen (issue #414, F3)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\await_edge_cases.test.ts[0m
+
+[2mE:\rts\tests\await_edge_cases.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mawait edge cases[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\await_in_contexts.test.ts[0m
+
+[2mE:\rts\tests\await_in_contexts.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mawait em diferentes contextos[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\bitwise_ops.test.ts[0m
+
+[2mE:\rts\tests\bitwise_ops.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mbitwise ÔÇö vars, NOT, sinal em shr, idioms[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\boolean_class.test.ts[0m
+
+[2mE:\rts\tests\boolean_class.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mboolean_class[0m[0m
+    [31mÔ£ù[0m [1mcoerce + toString + valueOf[0m
+      [2mExpected:[0m [36m"f\nt\nt\nt\nt\ntrue\nfalse\nt\nf\n"[0m
+      [2mReceived:[0m [31m"f\nt\nt\nt\nt\n\n\nt\nf\n"[0m
+      [2mDiff:[0m
+        [2m  f[0m
+        [2m  t[0m
+        [2m  t[0m
+        [2m  t[0m
+        [2m  t[0m
+        [32m+ true[0m
+        [32m+ false[0m
+        [2m  t[0m
+        [2m  f[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [31mÔ£ù[0m [31m1 test failed[0m
+ [2m┬À[0m 1 total
+
+
+[2mtests\buffer_equals_indexof.test.ts[0m
+
+[2mE:\rts\tests\buffer_equals_indexof.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:buffer_equals_indexof[0m[0m
+    [32mÔ£ô[0m [2mequals + index_of edge cases[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\catch_error_message.test.ts[0m
+
+[2mE:\rts\tests\catch_error_message.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:catch_error_message[0m[0m
+    [32mÔ£ô[0m [2mcatch (e: Error) routes e.message correctly (#300)[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_basic.test.ts[0m
+
+[2mE:\rts\tests\class_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:class_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_extras.test.ts[0m
+
+[2mE:\rts\tests\class_extras.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:class_extras[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_flat_dispatch.test.ts[0m
+
+[2mE:\rts\tests\class_flat_dispatch.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:class_flat_dispatch[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_flat_layout.test.ts[0m
+
+[2mE:\rts\tests\class_flat_layout.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mclass_flat_layout[0m[0m
+    [32mÔ£ô[0m [2mflat classes round-trip por offset, regulares via map[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_inheritance.test.ts[0m
+
+[2mE:\rts\tests\class_inheritance.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:class_inheritance[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_private_methods.test.ts[0m
+
+[2mE:\rts\tests\class_private_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mclass_private_methods[0m[0m
+    [32mÔ£ô[0m [2mbasic[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_static_fields.test.ts[0m
+
+[2mE:\rts\tests\class_static_fields.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mclass_static_fields[0m[0m
+    [32mÔ£ô[0m [2mbasic[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_static_init.test.ts[0m
+
+[2mE:\rts\tests\class_static_init.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mclass_static_init[0m[0m
+    [32mÔ£ô[0m [2mbasic[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\class_virtual_dispatch.test.ts[0m
+
+[2mE:\rts\tests\class_virtual_dispatch.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:class_virtual_dispatch[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_local_capture.test.ts[0m
+
+[2mE:\rts\tests\closure_local_capture.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_local_capture[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_local_multi.test.ts[0m
+
+[2mE:\rts\tests\closure_local_multi.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_local_multi[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_local_param.test.ts[0m
+
+[2mE:\rts\tests\closure_local_param.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_local_param[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_nested.test.ts[0m
+
+[2mE:\rts\tests\closure_nested.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_nested[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_per_instance.test.ts[0m
+
+[2mE:\rts\tests\closure_per_instance.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_per_instance[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_super.test.ts[0m
+
+[2mE:\rts\tests\closure_super.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_super[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_this_field.test.ts[0m
+
+[2mE:\rts\tests\closure_this_field.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_this_field[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\closure_this_method.test.ts[0m
+
+[2mE:\rts\tests\closure_this_method.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:closure_this_method[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\compound_assign.test.ts[0m
+
+[2mE:\rts\tests\compound_assign.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:compound_assign[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\computed_accessor.test.ts[0m
+
+[2mE:\rts\tests\computed_accessor.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:computed_accessor[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\computed_method_str.test.ts[0m
+
+[2mE:\rts\tests\computed_method_str.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:computed_method_str[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\computed_property_str.test.ts[0m
+
+[2mE:\rts\tests\computed_property_str.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:computed_property_str[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\computed_template.test.ts[0m
+
+[2mE:\rts\tests\computed_template.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:computed_template[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\console_log_types.test.ts[0m
+
+[2mE:\rts\tests\console_log_types.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mconsole_log_types[0m[0m
+    [32mÔ£ô[0m [2mmixed types do not crash[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\date_basics.test.ts[0m
+
+[2mE:\rts\tests\date_basics.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mdate_basics[0m[0m
+    [32mÔ£ô[0m [2macceptance criteria #220[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\date_global.test.ts[0m
+
+[2mE:\rts\tests\date_global.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mdate_global[0m[0m
+    [32mÔ£ô[0m [2mDate.now() retorna timestamp positivo[0m
+    [32mÔ£ô[0m [2mnew Date() ÔÇö getTime > 0[0m
+    [32mÔ£ô[0m [2mnew Date(ms) ÔÇö getFullYear[0m
+    [32mÔ£ô[0m [2mnew Date(ms) ÔÇö getMonth[0m
+    [32mÔ£ô[0m [2mDate.parse() ÔÇö milissegundos exatos[0m
+    [32mÔ£ô[0m [2mtoISOString() ÔÇö formato ISO 8601[0m
+    [32mÔ£ô[0m [2msaida capturada completa[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m7 tests passed[0m
+
+
+[2mtests\decorator_class.test.ts[0m
+
+[2mE:\rts\tests\decorator_class.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:decorator_class[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\decorator_factory.test.ts[0m
+
+[2mE:\rts\tests\decorator_factory.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:decorator_factory[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\decorator_method_tolerated.test.ts[0m
+
+[2mE:\rts\tests\decorator_method_tolerated.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:decorator_method_tolerated[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\decorator_multiple.test.ts[0m
+
+[2mE:\rts\tests\decorator_multiple.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:decorator_multiple[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\default_param_basic.test.ts[0m
+
+[2mE:\rts\tests\default_param_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:default_param_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\default_param_expr.test.ts[0m
+
+[2mE:\rts\tests\default_param_expr.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:default_param_expr[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\default_param_multi.test.ts[0m
+
+[2mE:\rts\tests\default_param_multi.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:default_param_multi[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\default_param_string.test.ts[0m
+
+[2mE:\rts\tests\default_param_string.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:default_param_string[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destruct_alias.test.ts[0m
+
+[2mE:\rts\tests\destruct_alias.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:destruct_alias[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destruct_array.test.ts[0m
+
+[2mE:\rts\tests\destruct_array.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:destruct_array[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destruct_in_fn.test.ts[0m
+
+[2mE:\rts\tests\destruct_in_fn.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:destruct_in_fn[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destruct_object.test.ts[0m
+
+[2mE:\rts\tests\destruct_object.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:destruct_object[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destructure_advanced.test.ts[0m
+
+[2mE:\rts\tests\destructure_advanced.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mdestructure_advanced[0m[0m
+    [32mÔ£ô[0m [2mnested object + rest object + default array + nested array[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destructuring_array.test.ts[0m
+
+[2mE:\rts\tests\destructuring_array.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mdestructuring_array[0m[0m
+    [32mÔ£ô[0m [2mbasic[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destructuring_object.test.ts[0m
+
+[2mE:\rts\tests\destructuring_object.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mdestructuring_object[0m[0m
+    [32mÔ£ô[0m [2mbasic[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\destructuring_params.test.ts[0m
+
+[2mE:\rts\tests\destructuring_params.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mdestructuring_params[0m[0m
+    [32mÔ£ô[0m [2mall[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\div_mod_zero.test.ts[0m
+
+[2mE:\rts\tests\div_mod_zero.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mdiv_mod_zero[0m[0m
+    [32mÔ£ô[0m [2mno trap, sentinel 0 in int /0, IEEE in float /0[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\empty.test.ts[0m
+
+[2mE:\rts\tests\empty.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:empty[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_basic.test.ts[0m
+
+[2mE:\rts\tests\enum_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_compare.test.ts[0m
+
+[2mE:\rts\tests\enum_compare.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_compare[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_explicit.test.ts[0m
+
+[2mE:\rts\tests\enum_explicit.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_explicit[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_mixed.test.ts[0m
+
+[2mE:\rts\tests\enum_mixed.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_mixed[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_string.test.ts[0m
+
+[2mE:\rts\tests\enum_string.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_string[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_string_concat.test.ts[0m
+
+[2mE:\rts\tests\enum_string_concat.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_string_concat[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_string_eq.test.ts[0m
+
+[2mE:\rts\tests\enum_string_eq.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_string_eq[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\enum_string_switch.test.ts[0m
+
+[2mE:\rts\tests\enum_string_switch.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:enum_string_switch[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\error_class.test.ts[0m
+
+[2mE:\rts\tests\error_class.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1merror_class[0m[0m
+    [32mÔ£ô[0m [2mError builtin com message/name[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\error_empty_string.test.ts[0m
+
+[2mE:\rts\tests\error_empty_string.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1merror com message vazia explicita (#452)[0m[0m
+    [32mÔ£ô[0m [2mnew Error('') / throw new Error('') / TypeError('')[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\error_global.test.ts[0m
+
+[2mE:\rts\tests\error_global.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1merror_global[0m[0m
+    [32mÔ£ô[0m [2mError ÔÇö message[0m
+    [32mÔ£ô[0m [2mError ÔÇö name[0m
+    [32mÔ£ô[0m [2mError ÔÇö toString[0m
+    [32mÔ£ô[0m [2mTypeError ÔÇö name e message[0m
+    [32mÔ£ô[0m [2mRangeError ÔÇö name[0m
+    [32mÔ£ô[0m [2mSyntaxError ÔÇö name[0m
+    [32mÔ£ô[0m [2mError vazio ÔÇö toString retorna so name[0m
+    [32mÔ£ô[0m [2msaida capturada completa[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m8 tests passed[0m
+
+
+[2mtests\error_no_args.test.ts[0m
+
+[2mE:\rts\tests\error_no_args.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1merror sem args (#452)[0m[0m
+    [32mÔ£ô[0m [2mError() => message vazia, name preservado[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\error_no_args_chain.test.ts[0m
+
+[2mE:\rts\tests\error_no_args_chain.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mctor sem args nao engole stmt seguinte (#452)[0m[0m
+    [32mÔ£ô[0m [2msequencias antes/depois preservadas[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\eventemitter_global.test.ts[0m
+
+[2mE:\rts\tests\eventemitter_global.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1meventemitter_global[0m[0m
+    [32mÔ£ô[0m [2mon ÔÇö listenerCount = 1[0m
+    [32mÔ£ô[0m [2memit acumula 42[0m
+    [32mÔ£ô[0m [2memit acumula 50[0m
+    [32mÔ£ô[0m [2monce ÔÇö dispara exatamente 1x[0m
+    [32mÔ£ô[0m [2moff ÔÇö remove listener[0m
+    [32mÔ£ô[0m [2memit sem listeners ÔÇö false[0m
+    [32mÔ£ô[0m [2mremoveAllListeners[0m
+    [32mÔ£ô[0m [2mEventEmitter async ÔÇö sem crash[0m
+    [32mÔ£ô[0m [2msaida capturada completa[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m9 tests passed[0m
+
+
+[2mtests\events_namespace.test.ts[0m
+
+[2mE:\rts\tests\events_namespace.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mevents_namespace[0m[0m
+    [32mÔ£ô[0m [2memit dispatches and listener_count tracks[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\exponentiation.test.ts[0m
+
+[2mE:\rts\tests\exponentiation.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mexponentiation ÔÇö identidades, neg base/exp, right-assoc, fn, loop[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\f64_modulo.test.ts[0m
+
+[2mE:\rts\tests\f64_modulo.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mf64 modulo ÔÇö sinais, zero, Inf/NaN, fn, loop[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\ffi_basic.test.ts[0m
+
+[2mE:\rts\tests\ffi_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:ffi_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\first_class_functions.test.ts[0m
+
+[2mE:\rts\tests\first_class_functions.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:first_class_functions[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\fn_call_with_tsas.test.ts[0m
+
+[2mE:\rts\tests\fn_call_with_tsas.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfn.call com TsAs em fn body (#264)[0m[0m
+    [32mÔ£ô[0m [2m(Init as any).call(this, ...) propaga this slot[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\fn_prototype_assign.test.ts[0m
+
+[2mE:\rts\tests\fn_prototype_assign.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfn.prototype assignment (#264 PR2)[0m[0m
+    [32mÔ£ô[0m [2massign + read + multiplos campos + protos distintos + reescrita[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\fn_prototype_distinct.test.ts[0m
+
+[2mE:\rts\tests\fn_prototype_distinct.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mprototype distinto por fn (#264 PR1)[0m[0m
+    [32mÔ£ô[0m [2mAnimal.prototype != Plant.prototype, ambos non-zero[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\fn_prototype_lazy.test.ts[0m
+
+[2mE:\rts\tests\fn_prototype_lazy.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfn.prototype lazy alloc (#264 PR1)[0m[0m
+    [32mÔ£ô[0m [2mretorna handle nao-zero[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\fn_prototype_set_explicit.test.ts[0m
+
+[2mE:\rts\tests\fn_prototype_set_explicit.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfn.prototype set explicito (#264)[0m[0m
+    [32mÔ£ô[0m [2mprototype = Object.create(parent) cria chain 2 niveis[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\for_in_basic.test.ts[0m
+
+[2mE:\rts\tests\for_in_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:for_in_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\for_in_break.test.ts[0m
+
+[2mE:\rts\tests\for_in_break.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:for_in_break[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\for_in_empty.test.ts[0m
+
+[2mE:\rts\tests\for_in_empty.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:for_in_empty[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\for_in_enumeration_order.test.ts[0m
+
+[2mE:\rts\tests\for_in_enumeration_order.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfor_in_enumeration_order[0m[0m
+    [32mÔ£ô[0m [2mintegers first ascending then strings in insertion order[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\for_in_values.test.ts[0m
+
+[2mE:\rts\tests\for_in_values.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:for_in_values[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\for_of.test.ts[0m
+
+[2mE:\rts\tests\for_of.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:for_of[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\forof_destructure.test.ts[0m
+
+[2mE:\rts\tests\forof_destructure.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mforof_destructure[0m[0m
+    [32mÔ£ô[0m [2mentries + tuples[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\function_expression.test.ts[0m
+
+[2mE:\rts\tests\function_expression.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfunction_expression[0m[0m
+    [32mÔ£ô[0m [2mbasic[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\function_expressions.test.ts[0m
+
+[2mE:\rts\tests\function_expressions.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:function_expressions[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\function_global.test.ts[0m
+
+[2mE:\rts\tests\function_global.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mFunction global (#359)[0m[0m
+    [32mÔ£ô[0m [2mcall/apply/toString/new/bind + variadic + getters[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\functions.test.ts[0m
+
+[2mE:\rts\tests\functions.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:functions[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\gc_collect_basic.test.ts[0m
+
+[2mE:\rts\tests\gc_collect_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mgc_collect_basic[0m[0m
+    [32mÔ£ô[0m [2mcollect_runs_without_crashing[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\gc_env_basic.test.ts[0m
+
+[2mE:\rts\tests\gc_env_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:gc_env_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\gc_env_closure_pattern.test.ts[0m
+
+[2mE:\rts\tests\gc_env_closure_pattern.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:gc_env_closure_pattern[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\gc_instance_basic.test.ts[0m
+
+[2mE:\rts\tests\gc_instance_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mgc.instance basics[0m[0m
+    [32mÔ£ô[0m [2minstance_new aloca e instance_class le tag[0m
+    [32mÔ£ô[0m [2mstore/load i64 roundtrip[0m
+    [32mÔ£ô[0m [2mstore/load i32 roundtrip[0m
+    [32mÔ£ô[0m [2mstore/load f64 roundtrip[0m
+    [32mÔ£ô[0m [2mhandle invalido retorna 0[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m5 tests passed[0m
+
+
+[2mtests\generator_basic.test.ts[0m
+
+[2mE:\rts\tests\generator_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+RTS runtime: vec push exceeded limit of 1000000 elements; aborting (likely infinite generator or unbounded loop)
+  [31mÔ£ù[0m [31mcrashed[0m ÔÇö codigo -1073740791 (Windows: -1073741819=ACCESS_VIOLATION, 
+-1073740791=HEAP_CORRUPTION)
+
+[2mtests\generator_conditional.test.ts[0m
+
+[2mE:\rts\tests\generator_conditional.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_conditional[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_empty.test.ts[0m
+
+[2mE:\rts\tests\generator_empty.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_empty[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_inherited.test.ts[0m
+
+[2mE:\rts\tests\generator_inherited.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_inherited[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_loop.test.ts[0m
+
+[2mE:\rts\tests\generator_loop.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_loop[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_method.test.ts[0m
+
+[2mE:\rts\tests\generator_method.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_method[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_nested_loop.test.ts[0m
+
+[2mE:\rts\tests\generator_nested_loop.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_nested_loop[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_override.test.ts[0m
+
+[2mE:\rts\tests\generator_override.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_override[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_static.test.ts[0m
+
+[2mE:\rts\tests\generator_static.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_static[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_super.test.ts[0m
+
+[2mE:\rts\tests\generator_super.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_super[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_while.test.ts[0m
+
+[2mE:\rts\tests\generator_while.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_while[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generator_yield_star.test.ts[0m
+
+[2mE:\rts\tests\generator_yield_star.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generator_yield_star[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generic_class.test.ts[0m
+
+[2mE:\rts\tests\generic_class.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generic_class[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generic_constraint.test.ts[0m
+
+[2mE:\rts\tests\generic_constraint.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generic_constraint[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generic_first_array.test.ts[0m
+
+[2mE:\rts\tests\generic_first_array.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generic_first_array[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generic_identity.test.ts[0m
+
+[2mE:\rts\tests\generic_identity.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generic_identity[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generic_multi_params.test.ts[0m
+
+[2mE:\rts\tests\generic_multi_params.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generic_multi_params[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\generic_stack.test.ts[0m
+
+[2mE:\rts\tests\generic_stack.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:generic_stack[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\handle_cleanup.test.ts[0m
+
+[2mE:\rts\tests\handle_cleanup.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mhandle_cleanup[0m[0m
+    [32mÔ£ô[0m [2mfree reuses slots[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\hasownproperty.test.ts[0m
+
+[2mE:\rts\tests\hasownproperty.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mhasOwnProperty (#264 PR5)[0m[0m
+    [32mÔ£ô[0m [2mdistingue own de inheritado em Object.create e new fn[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\hint_basic.test.ts[0m
+
+[2mE:\rts\tests\hint_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:hint_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\if_else.test.ts[0m
+
+[2mE:\rts\tests\if_else.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mif/else ÔÇö chains, nested, short-circuit[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\instanceof_operator.test.ts[0m
+
+[2mE:\rts\tests\instanceof_operator.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1minstanceof_operator[0m[0m
+    [32mÔ£ô[0m [2mhierarchy[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\intersection_extended.test.ts[0m
+
+[2mE:\rts\tests\intersection_extended.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:intersection_extended[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\intersection_type.test.ts[0m
+
+[2mE:\rts\tests\intersection_type.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:intersection_type[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\isnan_isfinite.test.ts[0m
+
+[2mE:\rts\tests\isnan_isfinite.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1misnan_isfinite[0m[0m
+    [32mÔ£ô[0m [2mglobais NaN/Finite checks[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\javascript_utf.test.ts[0m
+
+[2mE:\rts\tests\javascript_utf.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mJS UTF ÔÇö byte_len vs char_count vs length[0m[0m
+    [32mÔ£ô[0m [2mASCII tem 1:1, multi-byte diverge[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\js_conversions.test.ts[0m
+
+[2mE:\rts\tests\js_conversions.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mjs_conversions[0m[0m
+    [32mÔ£ô[0m [2mNumber/String/Boolean globais[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\labeled_break.test.ts[0m
+
+[2mE:\rts\tests\labeled_break.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mlabeled break/continue ÔÇö niveis, while, do-while[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\labeled_continue.test.ts[0m
+
+[2mE:\rts\tests\labeled_continue.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:labeled_continue[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\labeled_nested.test.ts[0m
+
+[2mE:\rts\tests\labeled_nested.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:labeled_nested[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\let_const_var.test.ts[0m
+
+[2mE:\rts\tests\let_const_var.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:let_const_var[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\logical_assign.test.ts[0m
+
+[2mE:\rts\tests\logical_assign.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mlogical_assign[0m[0m
+    [32mÔ£ô[0m [2mnullish[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\loose_equality.test.ts[0m
+
+[2mE:\rts\tests\loose_equality.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mloose_equality[0m[0m
+    [32mÔ£ô[0m [2m=== strict, == coerces[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\map_iteration.test.ts[0m
+
+[2mE:\rts\tests\map_iteration.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mmap_iteration[0m[0m
+    [32mÔ£ô[0m [2macceptance #222 v0[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\map_set_native.test.ts[0m
+
+[2mE:\rts\tests\map_set_native.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mmap_set_native[0m[0m
+    [31mÔ£ù[0m [1mbasic[0m
+      [2mExpected:[0m [36m"3\n2\ntrue\nfalse\n2\na:1\nc:3\n10 20\n4\ntrue\nfalse\n4\n2,3,4,5\ntrue\nvalue\n"[0m
+      [2mReceived:[0m [31m"3\n2\ntrue\nfalse\n2\n0 0\n0\nfalse\nfalse\n1\n\n1\n281474976710748\n"[0m
+      [2mDiff:[0m
+        [2m  3[0m
+        [2m  2[0m
+        [2m  true[0m
+        [2m  false[0m
+        [2m  2[0m
+        [32m+ a:1[0m
+        [32m+ c:3[0m
+        [32m+ 10 20[0m
+        [32m+ 4[0m
+        [32m+ true[0m
+        [32m+ false[0m
+        [32m+ 4[0m
+        [32m+ 2,3,4,5[0m
+        [32m+ true[0m
+        [32m+ value[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [31mÔ£ù[0m [31m1 test failed[0m
+ [2m┬À[0m 1 total
+
+
+[2mtests\math_random_thread_local.test.ts[0m
+
+[2mE:\rts\tests\math_random_thread_local.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:math_random_thread_local[0m[0m
+    [32mÔ£ô[0m [2mseed determinism + range + thread-local state[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\mem_handles.test.ts[0m
+
+[2mE:\rts\tests\mem_handles.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:mem_handles[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\mem_layout.test.ts[0m
+
+[2mE:\rts\tests\mem_layout.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:mem_layout[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\mod_negative.test.ts[0m
+
+[2mE:\rts\tests\mod_negative.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mmod_negative[0m[0m
+    [32mÔ£ô[0m [2mpreserves sign of dividend[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\namespace_basic.test.ts[0m
+
+[2mE:\rts\tests\namespace_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:namespace_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\namespace_const.test.ts[0m
+
+[2mE:\rts\tests\namespace_const.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:namespace_const[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\namespace_enum.test.ts[0m
+
+[2mE:\rts\tests\namespace_enum.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:namespace_enum[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\nan_infinity.test.ts[0m
+
+[2mE:\rts\tests\nan_infinity.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnan_infinity[0m[0m
+    [32mÔ£ô[0m [2mglobals + IEEE-754 propagation[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\net_basic.test.ts[0m
+
+[2mE:\rts\tests\net_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:net_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\net_tcp_echo.test.ts[0m
+
+[2mE:\rts\tests\net_tcp_echo.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:net_tcp_echo[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+    [32mÔ£ô[0m [2mclient RTS faz echo roundtrip contra server RTS subprocess[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\net_udp_echo.test.ts[0m
+
+[2mE:\rts\tests\net_udp_echo.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:net_udp_echo[0m[0m
+    [32mÔ£ô[0m [2msend_to + recv_from + last_peer[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\new_user_fn_chained_state.test.ts[0m
+
+[2mE:\rts\tests\new_user_fn_chained_state.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnew UserFn cenario carrinho (#264 PR3)[0m[0m
+    [32mÔ£ô[0m [2mmultiplas instances + agregacao + mutacao isolada[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\new_user_fn_constructor.test.ts[0m
+
+[2mE:\rts\tests\new_user_fn_constructor.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnew UserFn(...) constructor function (#264 PR3)[0m[0m
+    [32mÔ£ô[0m [2maloca, this persiste, instancias distintas[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\new_user_fn_in_conditional.test.ts[0m
+
+[2mE:\rts\tests\new_user_fn_in_conditional.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnew UserFn em conditional/ternary (#264 PR3)[0m[0m
+    [32mÔ£ô[0m [2mif/else + ternary ÔÇö this slot disciplinado[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\new_user_fn_in_loop.test.ts[0m
+
+[2mE:\rts\tests\new_user_fn_in_loop.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnew UserFn em loop e nested (#264 PR3)[0m[0m
+    [32mÔ£ô[0m [2minstances distintas no loop, this slot stack-based em nested[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\new_user_fn_no_args.test.ts[0m
+
+[2mE:\rts\tests\new_user_fn_no_args.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnew UserFn() sem args (#264 PR3)[0m[0m
+    [32mÔ£ô[0m [2mctor sem args, corpo opcional[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\new_user_fn_with_args_propagation.test.ts[0m
+
+[2mE:\rts\tests\new_user_fn_with_args_propagation.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnew UserFn com args propagados (#264 PR3)[0m[0m
+    [32mÔ£ô[0m [2mPoint e Triangle recebem args corretamente[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\node_crypto_basic.test.ts[0m
+
+[2mE:\rts\tests\node_crypto_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:node_crypto_basic[0m[0m
+    [32mÔ£ô[0m [2msha256 known vectors + randomBytesBuffer length[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\node_fs_size_match.test.ts[0m
+
+[2mE:\rts\tests\node_fs_size_match.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:node_fs_size_match[0m[0m
+    [32mÔ£ô[0m [2msize after write/overwrite/empty/missing[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\node_fs_stat_helpers.test.ts[0m
+
+[2mE:\rts\tests\node_fs_stat_helpers.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:node_fs_stat_helpers[0m[0m
+    [32mÔ£ô[0m [2mexists/isFile/isDirectory/size[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\node_fs_write_then_exists.test.ts[0m
+
+[2mE:\rts\tests\node_fs_write_then_exists.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:node_fs_write_then_exists[0m[0m
+    [32mÔ£ô[0m [2mwrite+exists, overwrite, remove[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\node_util_basic.test.ts[0m
+
+[2mE:\rts\tests\node_util_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:node_util_basic[0m[0m
+    [32mÔ£ô[0m [2mformatHex / formatBin / formatOct / parseInt[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\nodespace_fs_readdir.test.ts[0m
+
+[2mE:\rts\tests\nodespace_fs_readdir.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnodespace_fs_readdir[0m[0m
+    [32mÔ£ô[0m [2mreaddirSync returns entry names[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\nodespace_process.test.ts[0m
+
+[2mE:\rts\tests\nodespace_process.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnodespace_process[0m[0m
+    [32mÔ£ô[0m [2mpid/cwd/platform/arch return non-empty[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\nullish_optional.test.ts[0m
+
+[2mE:\rts\tests\nullish_optional.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:nullish_optional[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\num_bits.test.ts[0m
+
+[2mE:\rts\tests\num_bits.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:num_bits[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\num_checked.test.ts[0m
+
+[2mE:\rts\tests\num_checked.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:num_checked[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\num_saturating.test.ts[0m
+
+[2mE:\rts\tests\num_saturating.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:num_saturating[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\num_wrapping.test.ts[0m
+
+[2mE:\rts\tests\num_wrapping.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:num_wrapping[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\number_class.test.ts[0m
+
+[2mE:\rts\tests\number_class.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnumber_class/static[0m[0m
+    [32mÔ£ô[0m [2misNaN[0m
+    [32mÔ£ô[0m [2misFinite[0m
+    [32mÔ£ô[0m [2misInteger[0m
+    [32mÔ£ô[0m [2misSafeInteger[0m
+
+  [33m[1mnumber_class/constants[0m[0m
+    [32mÔ£ô[0m [2mMAX_SAFE_INTEGER[0m
+    [32mÔ£ô[0m [2mMIN_SAFE_INTEGER[0m
+
+  [33m[1mnumber_class/coercion[0m[0m
+    [32mÔ£ô[0m [2mNumber(string) ÔÇö numeros validos[0m
+    [32mÔ£ô[0m [2mNumber('') === NaN[0m
+    [32mÔ£ô[0m [2mNumber('abc') === NaN[0m
+    [32mÔ£ô[0m [2mNumber() === 0[0m
+
+  [33m[1mnumber_class/instance[0m[0m
+    [32mÔ£ô[0m [2mtoFixed[0m
+    [32mÔ£ô[0m [2mtoString() ÔÇö base 10[0m
+    [32mÔ£ô[0m [2mtoString(16) ÔÇö hex[0m
+    [32mÔ£ô[0m [2mtoString(2) ÔÇö binario[0m
+    [32mÔ£ô[0m [2mtoExponential[0m
+    [32mÔ£ô[0m [2mtoPrecision[0m
+    [32mÔ£ô[0m [2mvalueOf[0m
+
+  [33m[1mnumber_class/globals[0m[0m
+    [32mÔ£ô[0m [2mglobal isNaN[0m
+    [32mÔ£ô[0m [2mglobal isFinite[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m19 tests passed[0m
+
+
+[2mtests\number_coercion_nan.test.ts[0m
+
+[2mE:\rts\tests\number_coercion_nan.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnumber_coercion_nan[0m[0m
+    [32mÔ£ô[0m [2mNumber() retorna NaN para parse falha (incl. string vazia)[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\number_constants.test.ts[0m
+
+[2mE:\rts\tests\number_constants.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mnumber_constants[0m[0m
+    [32mÔ£ô[0m [2mglobals_match_js[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\number_is_f64.test.ts[0m
+
+[2mE:\rts\tests\number_is_f64.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:number_is_f64[0m[0m
+    [32mÔ£ô[0m [2mnumber type is f64 with correct semantics[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_array_literals.test.ts[0m
+
+[2mE:\rts\tests\object_array_literals.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:object_array_literals[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_builtins.test.ts[0m
+
+[2mE:\rts\tests\object_builtins.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mobject_builtins[0m[0m
+    [31mÔ£ù[0m [1mbasic[0m
+      [2mExpected:[0m [36m"a,b,c\n1,2,3\na=1\nb=2\nc=3\n1 2 3\n42\n42\n1 2 3\ntrue\nfalse\n"[0m
+      [2mReceived:[0m [31m"1 2 3\n42\n99\n1 2 3\ntrue\nfalse\n"[0m
+      [2mDiff:[0m
+        [32m+ a,b,c[0m
+        [32m+ 1,2,3[0m
+        [32m+ a=1[0m
+        [32m+ b=2[0m
+        [32m+ c=3[0m
+        [32m+ 1 2 3[0m
+        [32m+ 42[0m
+        [32m+ 42[0m
+        [32m+ 1 2 3[0m
+        [32m+ true[0m
+        [32m+ false[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [31mÔ£ù[0m [31m1 test failed[0m
+ [2m┬À[0m 1 total
+
+
+[2mtests\object_computed_keys.test.ts[0m
+
+[2mE:\rts\tests\object_computed_keys.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mobject_computed_keys[0m[0m
+    [32mÔ£ô[0m [2mcomputed[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_computed_methods.test.ts[0m
+
+[2mE:\rts\tests\object_computed_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mobject_computed_methods[0m[0m
+    [31mÔ£ù[0m [1mbasic[0m
+      [2mExpected:[0m [36m"42 99\nclicked\nhovered\n12\n100\n212\n"[0m
+      [2mReceived:[0m [31m"42 99\nclicked\nhovered\n0\n"[0m
+      [2mDiff:[0m
+        [2m  42 99[0m
+        [2m  clicked[0m
+        [2m  hovered[0m
+        [32m+ 12[0m
+        [32m+ 100[0m
+        [32m+ 212[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [31mÔ£ù[0m [31m1 test failed[0m
+ [2m┬À[0m 1 total
+
+
+[2mtests\object_create_basic.test.ts[0m
+
+[2mE:\rts\tests\object_create_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mObject.create + chain (#264 PR5)[0m[0m
+    [32mÔ£ô[0m [2maloca, herda do proto, own sobrescreve, sem proto = 0 chain[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_create_inheritance_2_levels.test.ts[0m
+
+[2mE:\rts\tests\object_create_inheritance_2_levels.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mObject.create cadeia 2 niveis (#264 PR5)[0m[0m
+    [32mÔ£ô[0m [2mwalk multi-nivel + hasOwnProperty[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_globals.test.ts[0m
+
+[2mE:\rts\tests\object_globals.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mobject_globals[0m[0m
+    [32mÔ£ô[0m [2mObject.keys/values/hasOwn[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_method_nested_call.test.ts[0m
+
+[2mE:\rts\tests\object_method_nested_call.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mmethod nested call (#261)[0m[0m
+    [32mÔ£ô[0m [2mstack this slot preserva receiver apos nested invoke[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_method_shorthand_basic.test.ts[0m
+
+[2mE:\rts\tests\object_method_shorthand_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mmethod shorthand basico (#261)[0m[0m
+    [32mÔ£ô[0m [2mgreet sem args; add com args[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_method_this_binding.test.ts[0m
+
+[2mE:\rts\tests\object_method_this_binding.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mmethod shorthand this binding (#261)[0m[0m
+    [32mÔ£ô[0m [2mthis referencia receiver, estado isolado entre objs[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\object_static_methods.test.ts[0m
+
+[2mE:\rts\tests\object_static_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mobject_static_methods[0m[0m
+    [32mÔ£ô[0m [2mall[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\operator_overload.test.ts[0m
+
+[2mE:\rts\tests\operator_overload.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:operator_overload[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\opt_chain_chained.test.ts[0m
+
+[2mE:\rts\tests\opt_chain_chained.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1m?. cadeia com null intermediario (#432)[0m[0m
+    [32mÔ£ô[0m [2mcurto-circuito em qualquer null da cadeia[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\opt_chain_member.test.ts[0m
+
+[2mE:\rts\tests\opt_chain_member.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mopt_chain_member[0m[0m
+    [32mÔ£ô[0m [2mnull guard funcional[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\opt_chain_method_call.test.ts[0m
+
+[2mE:\rts\tests\opt_chain_method_call.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mobj?.method() com null receiver (#432)[0m[0m
+    [32mÔ£ô[0m [2mnull -> undefined; non-null -> retorno real[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\opt_chain_undefined_in_tpl.test.ts[0m
+
+[2mE:\rts\tests\opt_chain_undefined_in_tpl.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1m?. produz 'undefined' em template literal (#432)[0m[0m
+    [32mÔ£ô[0m [2mnull obj -> undefined; non-null -> valor real[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\optchain_call_member.test.ts[0m
+
+[2mE:\rts\tests\optchain_call_member.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:optchain_call_member[0m[0m
+    [32mÔ£ô[0m [2mobj?.method() em obj null nao crasha + Verifier passes[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\optional_chain_advanced.test.ts[0m
+
+[2mE:\rts\tests\optional_chain_advanced.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1moptional_chain_advanced[0m[0m
+    [31mÔ£ù[0m [1mcombined[0m
+      [2mExpected:[0m [36m"localhost\n3000\n5000\n[42]\nundefined\nAlice: NY\nBob: no city\n1\n2\n3\nnone\n"[0m
+      [2mReceived:[0m [31m"281474976710660\n3000\n5000\n281474976710685\nundefined\n: 281474976710703\n: 
+281474976710721\n1\n2\n3\n281474976710762\n"[0m
+      [2mDiff:[0m
+        [32m+ localhost[0m
+        [2m  3000[0m
+        [2m  5000[0m
+        [32m+ [42][0m
+        [2m  undefined[0m
+        [32m+ Alice: NY[0m
+        [32m+ Bob: no city[0m
+        [2m  1[0m
+        [2m  2[0m
+        [2m  3[0m
+        [32m+ none[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [31mÔ£ù[0m [31m1 test failed[0m
+ [2m┬À[0m 1 total
+
+
+[2mtests\optional_chain_null_guard.test.ts[0m
+
+[2mE:\rts\tests\optional_chain_null_guard.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1moptional_chain_null_guard[0m[0m
+    [32mÔ£ô[0m [2mnull_guard[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\parallel_array_methods.test.ts[0m
+
+[2mE:\rts\tests\parallel_array_methods.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:parallel_array_methods[0m[0m
+    [32mÔ£ô[0m [2marr.map(fn) retorna vec com elementos transformados[0m
+    [32mÔ£ô[0m [2marr.reduce(fn, init) acumula via parallel.reduce[0m
+    [32mÔ£ô[0m [2marr.forEach(fn) executa callback pra cada elemento[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m3 tests passed[0m
+
+
+[2mtests\parallel_array_sources.test.ts[0m
+
+[2mE:\rts\tests\parallel_array_sources.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:parallel_array_sources[0m[0m
+    [32mÔ£ô[0m [2marr.map em variavel local funciona[0m
+    [32mÔ£ô[0m [2marr.reduce em variavel local funciona[0m
+    [32mÔ£ô[0m [2marr.forEach em variavel local funciona[0m
+    [32mÔ£ô[0m [2marray literal direto via reduce funciona (controle)[0m
+    [32mÔ£ô[0m [2mparallel.map() chamado direto aceita variavel[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m5 tests passed[0m
+
+
+[2mtests\parallel_map_collections.test.ts[0m
+
+[2mE:\rts\tests\parallel_map_collections.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:parallel_map_collections[0m[0m
+    [32mÔ£ô[0m [2mparallel.map integrates with sharded HandleTable[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\parallel_purity_in_fn.test.ts[0m
+
+[2mE:\rts\tests\parallel_purity_in_fn.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:parallel_purity_in_fn[0m[0m
+    [32mÔ£ô[0m [2mfor...of pura dentro de fn nao crasha (purity_pass)[0m
+    [32mÔ£ô[0m [2mreduce dentro de fn ÔÇö sum 10+20+30+40+50 = 150[0m
+    [32mÔ£ô[0m [2mreduce dentro de fn com fn pura ÔÇö sum abs = 15[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m3 tests passed[0m
+
+
+[2mtests\parallel_purity_num_mem.test.ts[0m
+
+[2mE:\rts\tests\parallel_purity_num_mem.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:parallel_purity_num_mem[0m[0m
+    [32mÔ£ô[0m [2mnum.* dentro de for...of: correctness + sem crash[0m
+    [32mÔ£ô[0m [2mmem.size_of dentro de for...of: constantes funcionam paralelo[0m
+    [32mÔ£ô[0m [2mnum.* operacoes determin├¡sticas ÔÇö multi-runs dao mesmo resultado[0m
+    [32mÔ£ô[0m [2mnum.wrapping_add comportamento esperado[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m4 tests passed[0m
+
+
+[2mtests\parallel_purity_pass.test.ts[0m
+
+[2mE:\rts\tests\parallel_purity_pass.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:parallel_purity_pass[0m[0m
+    [32mÔ£ô[0m [2mparallel infrastructure + purity pass smoke[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\parallel_reduce_silent.test.ts[0m
+
+[2mE:\rts\tests\parallel_reduce_silent.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:parallel_reduce_silent[0m[0m
+    [32mÔ£ô[0m [2msum via assignment combine[0m
+    [32mÔ£ô[0m [2msum via +=[0m
+    [32mÔ£ô[0m [2mproduto via *=[0m
+    [32mÔ£ô[0m [2msum com fn pura no body (math.abs_i64)[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m4 tests passed[0m
+
+
+[2mtests\performance_global.test.ts[0m
+
+[2mE:\rts\tests\performance_global.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:performance_global[0m[0m
+    [32mÔ£ô[0m [2mperformance.now() monotonico + timeOrigin sane[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\print.test.ts[0m
+
+[2mE:\rts\tests\print.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mprint ÔÇö cobertura ampla[0m[0m
+    [32mÔ£ô[0m [2mescapes, unicode, concat, loop, long[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\private_field_basic.test.ts[0m
+
+[2mE:\rts\tests\private_field_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:private_field_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\private_field_cross_class_err.test.ts[0m
+
+[2mE:\rts\tests\private_field_cross_class_err.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:private_field_cross_class_err[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_STRING_TO_STRING", "__RTS_FN_GL_EE_ONCE", "__RTS_FN_GL_DATE_GET_HOURS"]
+error: private `#x` nao e visivel em `A` (privates nao sao herdados de ancestrais)
+      at in function `__class_A_foo`
+    [32mÔ£ô[0m [2mfails with non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\private_field_no_collision.test.ts[0m
+
+[2mE:\rts\tests\private_field_no_collision.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:private_field_no_collision[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\private_field_other_instance.test.ts[0m
+
+[2mE:\rts\tests\private_field_other_instance.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:private_field_other_instance[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\private_method_err.test.ts[0m
+
+[2mE:\rts\tests\private_method_err.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:private_method_err[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_NUMBER_IS_INTEGER", "__RTS_FN_GL_STRING_TRIM_END", "__RTS_FN_GL_EE_NEW_ASYNC"]
+error: membro `secret` ├® private em `C`
+      at in top-level runtime entry
+    [32mÔ£ô[0m [2mfails with non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\private_modifier_basic.test.ts[0m
+
+[2mE:\rts\tests\private_modifier_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:private_modifier_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\private_modifier_err.test.ts[0m
+
+[2mE:\rts\tests\private_modifier_err.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:private_modifier_err[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_FETCH_RESPONSE_TEXT", "__RTS_FN_GL_FUNCTION_CALL", "__RTS_FN_GL_FETCH_RESPONSE_STATUS"]
+error: membro `secret` ├® private em `C`
+      at in top-level runtime entry
+    [32mÔ£ô[0m [2mfails with non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_all_parallel.test.ts[0m
+
+[2mE:\rts\tests\promise_all_parallel.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise combinators paralelismo + mix de tipos[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_basic.test.ts[0m
+
+[2mE:\rts\tests\promise_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise primitive (issue #412)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_combinators.test.ts[0m
+
+[2mE:\rts\tests\promise_combinators.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise combinators (issue #415, F4)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_invalid_handles.test.ts[0m
+
+[2mE:\rts\tests\promise_invalid_handles.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise invalid handles + edge cases[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_rejection_basic.test.ts[0m
+
+[2mE:\rts\tests\promise_rejection_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise rejection propagation (F5, #416)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_rejection_combinators.test.ts[0m
+
+[2mE:\rts\tests\promise_rejection_combinators.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise rejection com combinators[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_resolve_chain.test.ts[0m
+
+[2mE:\rts\tests\promise_resolve_chain.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise resolve com varios valores e cadeias[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_state_transitions.test.ts[0m
+
+[2mE:\rts\tests\promise_state_transitions.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise state transitions[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+error: <non-string error handle:666>
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_then_basic.test.ts[0m
+
+[2mE:\rts\tests\promise_then_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise.then/catch/finally namespace (F6, #417)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_threading.test.ts[0m
+
+[2mE:\rts\tests\promise_threading.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise + threading sob carga[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_threads_stress.test.ts[0m
+
+[2mE:\rts\tests\promise_threads_stress.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise + threading sob stress real[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\promise_with_function.test.ts[0m
+
+[2mE:\rts\tests\promise_with_function.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mpromise + function (#359 followup)[0m[0m
+    [32mÔ£ô[0m [2mthen aceita handle Function + promise.create entrypoint[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_basic.test.ts[0m
+
+[2mE:\rts\tests\property_init_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_expr.test.ts[0m
+
+[2mE:\rts\tests\property_init_expr.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_expr[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_extends.test.ts[0m
+
+[2mE:\rts\tests\property_init_extends.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_extends[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_fn_call.test.ts[0m
+
+[2mE:\rts\tests\property_init_fn_call.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_fn_call[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_inherited_access.test.ts[0m
+
+[2mE:\rts\tests\property_init_inherited_access.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_inherited_access[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_many.test.ts[0m
+
+[2mE:\rts\tests\property_init_many.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_many[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_multi_instance.test.ts[0m
+
+[2mE:\rts\tests\property_init_multi_instance.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_multi_instance[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_no_ctor.test.ts[0m
+
+[2mE:\rts\tests\property_init_no_ctor.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_no_ctor[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_no_super_call.test.ts[0m
+
+[2mE:\rts\tests\property_init_no_super_call.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_no_super_call[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_override.test.ts[0m
+
+[2mE:\rts\tests\property_init_override.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_override[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_self_ref.test.ts[0m
+
+[2mE:\rts\tests\property_init_self_ref.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_self_ref[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\property_init_types.test.ts[0m
+
+[2mE:\rts\tests\property_init_types.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:property_init_types[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\protected_modifier_basic.test.ts[0m
+
+[2mE:\rts\tests\protected_modifier_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:protected_modifier_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\protected_modifier_err.test.ts[0m
+
+[2mE:\rts\tests\protected_modifier_err.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:protected_modifier_err[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_STRING_REPEAT", "__RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT", "__RTS_FN_GL_STRING_PAD_END"]
+error: membro `y` ├® protected em `Base`
+      at in top-level runtime entry
+    [32mÔ£ô[0m [2mfails with non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\proto_chain_class_es6_unaffected.test.ts[0m
+
+[2mE:\rts\tests\proto_chain_class_es6_unaffected.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mclasses ES6 nao quebram com chain walk (#264 PR4)[0m[0m
+    [32mÔ£ô[0m [2mclasse ES6 funciona normalmente; constructor fn ao lado[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\proto_chain_method_lookup.test.ts[0m
+
+[2mE:\rts\tests\proto_chain_method_lookup.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mproto chain lookup em instance.field (#264 PR4)[0m[0m
+    [32mÔ£ô[0m [2mown + proto + missing + isolacao entre instances[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\proto_chain_shared_proto.test.ts[0m
+
+[2mE:\rts\tests\proto_chain_shared_proto.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mproto compartilhado (#264 PR4)[0m[0m
+    [32mÔ£ô[0m [2mmutacao no proto afeta instances; own prop sobrescreve[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\proto_method_int_return.test.ts[0m
+
+[2mE:\rts\tests\proto_method_int_return.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mproto method retorna int (#proto-method)[0m[0m
+    [32mÔ£ô[0m [2mints nao sao confundidos com handles[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\proto_method_string_return.test.ts[0m
+
+[2mE:\rts\tests\proto_method_string_return.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mproto method retorna string em template (#proto-method)[0m[0m
+    [32mÔ£ô[0m [2mINVOKE_AUTO + TPL_COERCE_AUTO mostra handle como string[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\prototype_chain.test.ts[0m
+
+[2mE:\rts\tests\prototype_chain.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mprototype_chain[0m[0m
+    [31mÔ£ù[0m [1mbasic[0m
+      [2mExpected:[0m [36m"Dog makes a sound\nAnimal(Dog)\nRex makes a sound\nRex barks\ntrue\nfalse\n"[0m
+      [2mReceived:[0m [31m" makes a sound\n\n makes a sound\n barks\ntrue\nfalse\n"[0m
+      [2mDiff:[0m
+        [32m+ Dog makes a sound[0m
+        [32m+ Animal(Dog)[0m
+        [32m+ Rex makes a sound[0m
+        [32m+ Rex barks[0m
+        [2m  true[0m
+        [2m  false[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [31mÔ£ù[0m [31m1 test failed[0m
+ [2m┬À[0m 1 total
+
+
+[2mtests\ptr_basic.test.ts[0m
+
+[2mE:\rts\tests\ptr_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:ptr_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\ptr_buffer_rw.test.ts[0m
+
+[2mE:\rts\tests\ptr_buffer_rw.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:ptr_buffer_rw[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\ptr_copy.test.ts[0m
+
+[2mE:\rts\tests\ptr_copy.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:ptr_copy[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\readonly_field_ctor.test.ts[0m
+
+[2mE:\rts\tests\readonly_field_ctor.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:readonly_field_ctor[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\readonly_field_reassign_err.test.ts[0m
+
+[2mE:\rts\tests\readonly_field_reassign_err.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:readonly_field_reassign_err[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_STRING_LAST_INDEX_OF", "__RTS_FN_GL_EE_ONCE", "__RTS_FN_GL_EE_EVENT_NAMES"]
+error: readonly `C.x` so pode ser atribuido dentro do constructor de `C`
+      at in function `__class_C_set`
+    [32mÔ£ô[0m [2mfails with non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\reflect_v0.test.ts[0m
+
+[2mE:\rts\tests\reflect_v0.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mreflect_v0[0m[0m
+    [32mÔ£ô[0m [2macceptance #218 v0[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\regex_find_at.test.ts[0m
+
+[2mE:\rts\tests\regex_find_at.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:regex_find_at[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\regex_replace.test.ts[0m
+
+[2mE:\rts\tests\regex_replace.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:regex_replace[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\regex_test.test.ts[0m
+
+[2mE:\rts\tests\regex_test.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:regex_test[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\regexp_global.test.ts[0m
+
+[2mE:\rts\tests\regexp_global.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mregexp_global[0m[0m
+    [32mÔ£ô[0m [2mtest() ÔÇö match positivo[0m
+    [32mÔ£ô[0m [2mtest() ÔÇö match negativo[0m
+    [32mÔ£ô[0m [2mflag 'i' ÔÇö case-insensitive[0m
+    [32mÔ£ô[0m [2mexec() ÔÇö null/0 sem match[0m
+    [32mÔ£ô[0m [2msource ÔÇö padrao original[0m
+    [32mÔ£ô[0m [2msaida capturada completa[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m6 tests passed[0m
+
+
+[2mtests\rest_param_basic.test.ts[0m
+
+[2mE:\rts\tests\rest_param_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:rest_param_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\rest_param_empty.test.ts[0m
+
+[2mE:\rts\tests\rest_param_empty.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:rest_param_empty[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\rest_param_mixed.test.ts[0m
+
+[2mE:\rts\tests\rest_param_mixed.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:rest_param_mixed[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\rest_params_variations.test.ts[0m
+
+[2mE:\rts\tests\rest_params_variations.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mrest_params_variations[0m[0m
+    [32mÔ£ô[0m [2mrest=0 quando caller nao passa extras[0m
+    [32mÔ£ô[0m [2mrest[0] retorna primeiro extra[0m
+    [32mÔ£ô[0m [2mfor...of em rest soma corretamente[0m
+    [32mÔ£ô[0m [2mspread literal no caller[0m
+    [32mÔ£ô[0m [2mspread de const no caller[0m
+    [32mÔ£ô[0m [2moutput capturado[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m6 tests passed[0m
+
+
+[2mtests\rts_threads_env.test.ts[0m
+
+[2mE:\rts\tests\rts_threads_env.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:rts_threads_env[0m[0m
+    [32mÔ£ô[0m [2mparallel.num_threads >= 1[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\satisfies_op.test.ts[0m
+
+[2mE:\rts\tests\satisfies_op.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:satisfies_op[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\sequence_expr.test.ts[0m
+
+[2mE:\rts\tests\sequence_expr.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1msequence_expr[0m[0m
+    [32mÔ£ô[0m [2mcomma_op[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\spread_call_basic.test.ts[0m
+
+[2mE:\rts\tests\spread_call_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:spread_call_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\spread_call_mixed.test.ts[0m
+
+[2mE:\rts\tests\spread_call_mixed.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:spread_call_mixed[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\spread_new.test.ts[0m
+
+[2mE:\rts\tests\spread_new.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:spread_new[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\spread_rest_params.test.ts[0m
+
+[2mE:\rts\tests\spread_rest_params.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mspread_rest_params[0m[0m
+    [32mÔ£ô[0m [2mrest[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\spread_super.test.ts[0m
+
+[2mE:\rts\tests\spread_super.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:spread_super[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\spread_with_rest.test.ts[0m
+
+[2mE:\rts\tests\spread_with_rest.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:spread_with_rest[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\string_concat.test.ts[0m
+
+[2mE:\rts\tests\string_concat.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mstring concat ÔÇö empty, chains, loop, mix tipos[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\string_concat_repeated_literal.test.ts[0m
+
+[2mE:\rts\tests\string_concat_repeated_literal.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mstring concat with repeated literals (#chat-tab fix)[0m[0m
+    [32mÔ£ô[0m [2mpreserva todos os literais[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\string_eq.test.ts[0m
+
+[2mE:\rts\tests\string_eq.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mstring == ÔÇö empty, concat, case, condicional, loop[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\string_number_concat.test.ts[0m
+
+[2mE:\rts\tests\string_number_concat.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mstring_number_concat[0m[0m
+    [32mÔ£ô[0m [2mordem do AST preservada em concat[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\super_call_once.test.ts[0m
+
+[2mE:\rts\tests\super_call_once.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1msuper_call_once[0m[0m
+    [32mÔ£ô[0m [2msuper legal flows OK[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\super_field_getter.test.ts[0m
+
+[2mE:\rts\tests\super_field_getter.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:super_field_getter[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\super_field_read.test.ts[0m
+
+[2mE:\rts\tests\super_field_read.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:super_field_read[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\super_field_setter.test.ts[0m
+
+[2mE:\rts\tests\super_field_setter.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:super_field_setter[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\super_field_write.test.ts[0m
+
+[2mE:\rts\tests\super_field_write.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:super_field_write[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\switch_jump_table.test.ts[0m
+
+[2mE:\rts\tests\switch_jump_table.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mswitch ÔÇö fall-through, return, expression, in-loop[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\symbol_v0.test.ts[0m
+
+[2mE:\rts\tests\symbol_v0.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1msymbol_v0[0m[0m
+    [32mÔ£ô[0m [2macceptance #216 (subset v0)[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\sync_basic.test.ts[0m
+
+[2mE:\rts\tests\sync_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:sync_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\sync_mutex_free_before_unlock.test.ts[0m
+
+[2mE:\rts\tests\sync_mutex_free_before_unlock.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:sync_mutex_free_before_unlock[0m[0m
+    [32mÔ£ô[0m [2mfree before unlock no longer UB; normal flow still works[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\tagged_template.test.ts[0m
+
+[2mE:\rts\tests\tagged_template.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mtagged_template[0m[0m
+    [32mÔ£ô[0m [2mcall with interpolated values[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\tail_call.test.ts[0m
+
+[2mE:\rts\tests\tail_call.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:tail_call[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\template_literals.test.ts[0m
+
+[2mE:\rts\tests\template_literals.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mtemplate literals ÔÇö interpolacao, escape, vazia, expressoes[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\ternary.test.ts[0m
+
+[2mE:\rts\tests\ternary.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:ternary[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\test.test.ts[0m
+
+[2mE:\rts\tests\test.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mrts:test matchers[0m[0m
+    [32mÔ£ô[0m [2mtoBe with string[0m
+    [32mÔ£ô[0m [2mtoBe with numeric interpolation[0m
+    [32mÔ£ô[0m [2mtoContain[0m
+    [32mÔ£ô[0m [2mtoStartWith[0m
+    [32mÔ£ô[0m [2mtoEndWith[0m
+    [32mÔ£ô[0m [2mtoBeGreaterThan[0m
+    [32mÔ£ô[0m [2mtoBeLessThanOrEqual[0m
+    [32mÔ£ô[0m [2mtoBeTruthy[0m
+    [32mÔ£ô[0m [2mtoBeFalsy[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m9 tests passed[0m
+
+
+[2mtests\thread_arg_f64.test.ts[0m
+
+[2mE:\rts\tests\thread_arg_f64.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:thread_arg_f64[0m[0m
+    [32mÔ£ô[0m [2mspawn(fp, 3.14) preserva 3.14 (nao truncado pra 3)[0m
+    [32mÔ£ô[0m [2mspawn(fp, -2.5) com worker que dobra ÔåÆ -5.0[0m
+    [32mÔ£ô[0m [2mspawn(fp, 9999999999.5) magnitude grande f64 (com fracao)[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m3 tests passed[0m
+
+
+[2mtests\thread_arg_f64_edge.test.ts[0m
+
+[2mE:\rts\tests\thread_arg_f64_edge.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:thread_arg_f64_edge[0m[0m
+    [32mÔ£ô[0m [2mspawn(fp, -0.0) preserva sign bit (1/x = -Infinity)[0m
+    [32mÔ£ô[0m [2mspawn(fp, 42.5) preserva fracao mesmo com parte inteira pequena[0m
+    [32mÔ£ô[0m [2mspawn(fp, Infinity) preserva bit pattern de Infinity[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m3 tests passed[0m
+
+
+[2mtests\thread_arg_passing.test.ts[0m
+
+[2mE:\rts\tests\thread_arg_passing.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:thread_arg_passing[0m[0m
+    [32mÔ£ô[0m [2mspawn(fp, N) entrega N ao worker(arg: i64)[0m
+    [32mÔ£ô[0m [2mmultiplos spawns paralelos com args diferentes[0m
+    [32mÔ£ô[0m [2mspawn dentro de fn helper (nao top-level) ÔÇö caso #206 historico[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m3 tests passed[0m
+
+
+[2mtests\thread_basic.test.ts[0m
+
+[2mE:\rts\tests\thread_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:thread_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\throw_unhandled_runtime.test.ts[0m
+
+[2mE:\rts\tests\throw_unhandled_runtime.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1muncaught throw[0m[0m
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+[info] 117 fns registradas no JIT alem do contrato ABI (helpers internos do codegen, ex: try/catch slots). Primeiras: 
+["__RTS_FN_GL_DATE_NEW_NOW", "__RTS_FN_GL_PROMISE_FINALLY", "__RTS_FN_GL_EE_NEW"]
+  [trace] invoking __RTS_MAIN
+  [trace] post-main cleanup
+error: boom
+    [32mÔ£ô[0m [2mrts run returns non-zero exit code[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\tls_basic.test.ts[0m
+
+[2mE:\rts\tests\tls_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:tls_basic[0m[0m
+    [32mÔ£ô[0m [2mhandshake TLS + GET HTTPS retorna 200[0m
+    [32mÔ£ô[0m [2mclient com SNI/hostname mismatch falha graceful[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m2 tests passed[0m
+
+
+[2mtests\top_level_await.test.ts[0m
+
+[2mE:\rts\tests\top_level_await.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mtop-level await (F7, #418)[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\trace_basic.test.ts[0m
+
+[2mE:\rts\tests\trace_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:trace_basic[0m[0m
+    [32mÔ£ô[0m [2mtrace operations[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\trace_manual_stack.test.ts[0m
+
+[2mE:\rts\tests\trace_manual_stack.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:trace_manual_stack[0m[0m
+    [32mÔ£ô[0m [2mpush/pop multi-frame stack[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\trace_no_frames.test.ts[0m
+
+[2mE:\rts\tests\trace_no_frames.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:trace_no_frames[0m[0m
+    [32mÔ£ô[0m [2mempty stack behavior[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\try_catch.test.ts[0m
+
+[2mE:\rts\tests\try_catch.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:try_catch[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\try_catch_nested.test.ts[0m
+
+[2mE:\rts\tests\try_catch_nested.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:try_catch_nested[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\try_catch_no_binding.test.ts[0m
+
+[2mE:\rts\tests\try_catch_no_binding.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:try_catch_no_binding[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\try_catch_propagation.test.ts[0m
+
+[2mE:\rts\tests\try_catch_propagation.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:try_catch_propagation[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\try_catch_rethrow.test.ts[0m
+
+[2mE:\rts\tests\try_catch_rethrow.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:try_catch_rethrow[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\try_catch_trace.test.ts[0m
+
+[2mE:\rts\tests\try_catch_trace.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:try_catch_trace[0m[0m
+    [32mÔ£ô[0m [2mtrace stack survives try/catch[0m
+    [32mÔ£ô[0m [2mno frames: throw/catch still works[0m
+    [32mÔ£ô[0m [2mnested try/catch with frames[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m3 tests passed[0m
+
+
+[2mtests\ts_runtime_operators.test.ts[0m
+
+[2mE:\rts\tests\ts_runtime_operators.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mts_runtime_operators[0m[0m
+    [32mÔ£ô[0m [2mstrip_to_runtime[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\ts_satisfies_variations.test.ts[0m
+
+[2mE:\rts\tests\ts_satisfies_variations.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mts_satisfies_variations[0m[0m
+    [32mÔ£ô[0m [2mcaptura todas as variacoes[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\type_assertion_basic.test.ts[0m
+
+[2mE:\rts\tests\type_assertion_basic.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:type_assertion_basic[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\type_assertion_class.test.ts[0m
+
+[2mE:\rts\tests\type_assertion_class.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:type_assertion_class[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\type_assertion_class_method.test.ts[0m
+
+[2mE:\rts\tests\type_assertion_class_method.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1m(receiver as Class).method() (#fix)[0m[0m
+    [32mÔ£ô[0m [2mclass method routing preservado com TsAs[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\type_assertion_member.test.ts[0m
+
+[2mE:\rts\tests\type_assertion_member.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:type_assertion_member[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\type_assertion_misc.test.ts[0m
+
+[2mE:\rts\tests\type_assertion_misc.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:type_assertion_misc[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\typeof_operator.test.ts[0m
+
+[2mE:\rts\tests\typeof_operator.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mtypeof_operator[0m[0m
+    [32mÔ£ô[0m [2mbasic[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\typeof_void_delete.test.ts[0m
+
+[2mE:\rts\tests\typeof_void_delete.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:typeof_void_delete[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\ui_window.test.ts[0m
+
+[2mE:\rts\tests\ui_window.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:ui_window[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\union_null.test.ts[0m
+
+[2mE:\rts\tests\union_null.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:union_null[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\union_nullable_string.test.ts[0m
+
+[2mE:\rts\tests\union_nullable_string.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:union_nullable_string[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\union_number_literal.test.ts[0m
+
+[2mE:\rts\tests\union_number_literal.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:union_number_literal[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\union_param.test.ts[0m
+
+[2mE:\rts\tests\union_param.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:union_param[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\union_status_codes.test.ts[0m
+
+[2mE:\rts\tests\union_status_codes.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:union_status_codes[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\union_string_literal.test.ts[0m
+
+[2mE:\rts\tests\union_string_literal.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:union_string_literal[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\union_var.test.ts[0m
+
+[2mE:\rts\tests\union_var.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:union_var[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\var_hoisting.test.ts[0m
+
+[2mE:\rts\tests\var_hoisting.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mfixture:var_hoisting[0m[0m
+    [32mÔ£ô[0m [2mvar declarations are hoisted to function/module scope (#301)[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\weakmap_v0.test.ts[0m
+
+[2mE:\rts\tests\weakmap_v0.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mweakmap_v0[0m[0m
+    [32mÔ£ô[0m [2macceptance #217 v0[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\weakset_v0.test.ts[0m
+
+[2mE:\rts\tests\weakset_v0.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mweakset_v0[0m[0m
+    [32mÔ£ô[0m [2macceptance #217 v0[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mtests\while_loop.test.ts[0m
+
+[2mE:\rts\tests\while_loop.test.ts[0m
+
+  [trace] loading module graph
+  [trace] flattening for JIT
+  [trace] compiling to JIT
+  [trace] invoking __RTS_MAIN
+  [33m[1mwhile/do-while ÔÇö break, continue, nested, do-once[0m[0m
+    [32mÔ£ô[0m [2mmatches expected stdout[0m
+
+  [trace] post-main cleanup
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ [32mÔ£ô[0m [32m1 test passed[0m
+
+
+[2mÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔ
+öÇÔöÇ[0m
+ Files  319 passed, [31m8[0m failed, 327 total
+ Tests  408 passed, [31m8[0m failed, 416 total
+
+
