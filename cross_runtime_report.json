@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94432000495904 w94432000495904rld\ndoubled=a94432000495840b94432000495840c94432000495840\nswapped=94432000495616"
+  "rts": "replaced=hell94767862124832 w94767862124832rld\ndoubled=a94767862124768b94767862124768c94767862124768\nswapped=94767862124544"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94526942978048b94526942978048"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94517875396608b94517875396608"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":87,"rts_diverge":90,"bun_node_diverge":3,"errors":132,"rejected":0}}
+],"summary":{"total":312,"pass":87,"rts_diverge":91,"bun_node_diverge":3,"errors":131,"rejected":0}}
