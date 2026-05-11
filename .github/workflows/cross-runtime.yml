@@ -240,8 +240,8 @@ jobs:
             execSync(`git commit -m "${msg}"`);
             execSync('git push');
 
-      - name: Auto-create issues em schedule (categorizadas + dedup)
-        if: github.event_name == 'schedule' && steps.cross.outcome == 'failure'
+      - name: Auto-create issues em schedule/dispatch (categorizadas + dedup)
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && steps.cross.outcome == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
