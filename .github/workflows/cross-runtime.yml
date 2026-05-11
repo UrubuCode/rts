@@ -240,7 +240,7 @@ jobs:
             execSync(`git commit -m "${msg}"`);
             execSync('git push');
 
-      - name: Auto-create issues em schedule/dispatch (categorizadas + dedup)
+      - name: Auto-create issues em schedule/dispatch (1 por fixture + dedup)
         if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && steps.cross.outcome == 'failure'
         uses: actions/github-script@v7
         with:
@@ -256,13 +256,9 @@ jobs:
             const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 12);
             const sigOf = (d) => sha1(`${d.name}|${d.status}|${d.bun}|${d.node}|${d.rts}`);
 
-            // ─── Categorização ───────────────────────────────────────
-            // Mapeia fixture name → categoria temática. Ordem importa:
-            // padroes mais especificos primeiro. Nomes novos caem em
-            // "other" até alguem atualizar este mapa.
+            // ─── Categorização (apenas para label cat:<nome>) ───────
             function categorize(name) {
               const n = name.toLowerCase();
-              // APIs Web e platform-specific (alto nivel)
               if (/(stream|compression|textdecoder_stream|textencoder)/.test(n)) return 'streams';
               if (/(arraybuffer|dataview|typedarray|atomics|sharedarraybuffer)/.test(n)) return 'typed-buffers';
               if (/(blob|file|formdata|headers|request|response)/.test(n)) return 'web-api';
@@ -272,173 +268,153 @@ jobs:
               if (/intl/.test(n)) return 'intl';
               if (/regex/.test(n)) return 'regex';
               if (/url/.test(n)) return 'url';
-              // Encoding / hash
               if (/(encodeuri|decodeuri|text_encoding|subtle_digest|encode_decode)/.test(n)) return 'encoding';
-              // BigInt e numericos
               if (/(bigint)/.test(n)) return 'bigint';
               if (/(json)/.test(n)) return 'json';
-              // Generators e iteracao
               if (/(generator|yield|yieldstar)/.test(n)) return 'generators';
               if (/(iterator_helpers|iterator_toarray)/.test(n)) return 'iteration';
-              // Promises e async
               if (/(promise|await|promiseall|allsettled|withresolvers)/.test(n)) return 'promises';
-              // Classes
               if (/(class|extends|super_|private_field|private_method|static_block|new_target|computed_class)/.test(n)) return 'classes';
               if (/(instanceof|typeof|error)/.test(n)) return 'classes-errors';
-              // Console
               if (/console/.test(n)) return 'console';
-              // Function / closures / argumentos
               if (/(function_meta|function_bind|function_call_apply|function_name_length|arrow_rest_params|arguments_object|new_target|closure)/.test(n)) return 'fn-meta';
-              // Templates, destructuring, syntax
               if (/(template|tagged_template|destructur|spread|labeled_break|delete_operator|void_operator|comma_operator|this_strict|hashbang|import_meta|numeric_separator|nullish_assignment|logical_assignment|optional_catch|exponentiation)/.test(n)) return 'syntax';
-              // Coercoes e operadores numericos
               if (/(coercion|number_format|nan_negative_zero|bitwise|number_tostring|number_constructor|number_valueof|number_parseint|number_parsefloat|number_isfinite|number_isinteger|number_issafeinteger|parseint|parsefloat|isfinite|isnan|tofixed|toexponential|toprecision)/.test(n)) return 'numeric';
               if (/math/.test(n)) return 'math';
-              // Date
               if (/date/.test(n)) return 'date';
-              // Boolean
               if (/boolean/.test(n)) return 'boolean';
-              // Array methods (catch-all amplo + nomes sem prefixo "array_")
               if (/array|findlast|findlastindex|flatmap|toreversed|tosorted|tospliced/.test(n)) return 'array';
-              // Object / Proxy / Reflect / Symbol
               if (/(object|proxy|reflect)/.test(n)) return 'object-meta';
               if (/symbol/.test(n)) return 'symbol';
-              // Set / Map / collections
               if (/(map|set_operations|set_ops|map_set|groupby|map_iter|map_foreach)/.test(n)) return 'collections';
-              // String (catch-all)
               if (/string|replaceall|matchall|substring|substr/.test(n)) return 'string';
-              // Dynamic features
               if (/(dynamic_import|setimmediate|setinterval)/.test(n)) return 'misc-platform';
               return 'other';
             }
 
-            // Agrupa divergencias por categoria.
-            const byCategory = new Map();
-            for (const d of divergent) {
-              const cat = categorize(d.name);
-              const sig = sigOf(d);
-              const entry = {...d, sig};
-              if (!byCategory.has(cat)) byCategory.set(cat, []);
-              byCategory.get(cat).push(entry);
-            }
-
             const today = new Date().toISOString().slice(0, 10);
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            // Cap: maximo de issues criadas por run para nao inundar.
+            // Sobras esperam proximo schedule.
+            const MAX_PER_RUN = parseInt(process.env.MAX_ISSUES_PER_RUN || '50', 10);
 
-            // Lista issues abertas com label cross-runtime
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'cross-runtime',
-              per_page: 100
-            });
-
-            // Mapeia categoria -> issue existente (parseia footer marker)
-            const issuesByCategory = new Map(); // category -> issue
-            for (const issue of existing.data) {
-              const m = (issue.body || '').match(/<!-- cross-runtime-category: ([\w-]+) -->/);
-              if (m) issuesByCategory.set(m[1], issue);
+            // Coleta issues abertas com label cross-runtime
+            // (paginar — pode ter centenas).
+            let existing = [];
+            for (let page = 1; page <= 10; page++) {
+              const res = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'cross-runtime',
+                per_page: 100,
+                page
+              });
+              existing.push(...res.data);
+              if (res.data.length < 100) break;
             }
 
-            // Indexa sigs ja' rastreados em qualquer issue
-            const existingSigs = new Map(); // sig -> issue number
-            for (const issue of existing.data) {
-              const body = issue.body || '';
-              const sigMatches = body.matchAll(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/g);
-              for (const m of sigMatches) {
-                if (!existingSigs.has(m[1])) existingSigs.set(m[1], issue.number);
-              }
+            // Indexa por fixture name — marker "<!-- cross-runtime-fixture: NAME -->"
+            const issueByFixture = new Map();
+            for (const issue of existing) {
+              const m = (issue.body || '').match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
+              if (m) issueByFixture.set(m[1], issue);
             }
 
-            // Para cada categoria com divergencias atuais:
-            //   - Calcula hash agregado da categoria
-            //   - Se issue da categoria existe e hash bate -> comenta "persiste"
-            //   - Se categoria tem issue mas com hash diferente:
-            //       * sigs ineditos -> atualiza body (append novos) + comenta
-            //       * todos ja tracked -> so' comenta
-            //   - Se categoria nao tem issue -> cria
-            let actionsTaken = [];
-            for (const [category, items] of byCategory.entries()) {
-              const sigs = items.map(d => d.sig).sort();
-              const catHash = sha1(category + '|' + sigs.join(','));
-              const HASH_MARKER = `<!-- cross-runtime-hash: ${catHash} -->`;
-              const CAT_MARKER = `<!-- cross-runtime-category: ${category} -->`;
-              const SIG_PREFIX = '<!-- cross-runtime-sig: ';
+            // Indexa sigs ja' tracked (em qualquer issue) — usado para
+            // detectar mudanca da assinatura (output mudou) sem precisar
+            // criar nova issue.
+            const sigByFixture = new Map();
+            for (const issue of existing) {
+              const fm = (issue.body || '').match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
+              const sm = (issue.body || '').match(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/);
+              if (fm && sm) sigByFixture.set(fm[1], { issue, sig: sm[1] });
+            }
 
-              const existingIssue = issuesByCategory.get(category);
+            let created = 0;
+            let commented = 0;
+            let updated = 0;
+            let skipped = 0;
+            const actionsTaken = [];
+
+            for (const d of divergent) {
+              const sig = sigOf(d);
+              const cat = categorize(d.name);
+              const existingIssue = issueByFixture.get(d.name);
 
               if (existingIssue) {
-                // Issue da categoria ja existe — verifica hash agregado
-                if ((existingIssue.body || '').includes(`cross-runtime-hash: ${catHash}`)) {
-                  // Mesmo conjunto exato — só comenta persistencia
+                const prev = sigByFixture.get(d.name);
+                if (prev && prev.sig === sig) {
+                  // Mesma assinatura — só comenta persistencia
                   await github.rest.issues.createComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     issue_number: existingIssue.number,
-                    body: `🔁 Schedule run ${today} — ${items.length} divergência(s) persistem nesta categoria. [Run](${runUrl})`
+                    body: `🔁 Schedule run ${today} — divergência persiste. [Run](${runUrl})`
                   });
-                  actionsTaken.push(`#${existingIssue.number} (${category}): comentado (persiste)`);
+                  commented++;
                   continue;
                 }
-                // Conjunto mudou na categoria — verifica se há sigs ineditos
-                const newSigs = items.filter(d => !existingSigs.has(d.sig));
-                if (newSigs.length === 0) {
-                  // Todos tracked — apenas comenta
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: existingIssue.number,
-                    body: `🔁 Schedule run ${today} — ${items.length} divergência(s) ainda presente(s); ${(items.length - newSigs.length)} ja' tracked. [Run](${runUrl})`
-                  });
-                  actionsTaken.push(`#${existingIssue.number} (${category}): comentado (subset)`);
-                  continue;
-                }
-                // Edita body: append sigs novos + atualiza hash
-                let newBody = (existingIssue.body || '').replace(/<!-- cross-runtime-hash: [a-f0-9]{12} -->/, HASH_MARKER);
-                newBody += `\n\n### 🆕 Novos sigs detectados em ${today}\n\n`;
-                for (const d of newSigs) {
-                  newBody += `### \`${d.name}\` — ${d.status}\n\n${SIG_PREFIX}${d.sig} -->\n\n`;
-                  newBody += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
-                  newBody += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
-                  newBody += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
-                }
+                // Assinatura mudou — atualiza body com novo sig + outputs
+                let newBody = (existingIssue.body || '')
+                  .replace(/<!-- cross-runtime-sig: [a-f0-9]{12} -->/, `<!-- cross-runtime-sig: ${sig} -->`);
+                newBody += `\n\n### 🆕 Atualizado em ${today} (assinatura mudou)\n\n`;
+                newBody += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
+                newBody += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
+                newBody += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
+                newBody += `Run: ${runUrl}\n`;
                 await github.rest.issues.update({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: existingIssue.number,
                   body: newBody
                 });
-                actionsTaken.push(`#${existingIssue.number} (${category}): atualizada com ${newSigs.length} sig(s) novos`);
+                updated++;
                 continue;
               }
 
-              // Categoria sem issue — cria
-              const errCount = items.filter(d => d.status === 'rts_error').length;
-              const divCount = items.length - errCount;
-              const title = `cross-runtime [${category}]: ${items.length} divergência(s) (${divCount} diverge, ${errCount} error)`;
-              let body = `## Cross-runtime — categoria **${category}**\n\n`;
-              body += `Detected ${items.length} divergência(s) entre RTS e Bun/Node nesta categoria.\n\n`;
-              body += `- ❌ \`rts_diverge\`: ${divCount}\n`;
-              body += `- 💥 \`rts_error\`: ${errCount}\n\n`;
-              body += `(Hash agregado: \`${catHash}\` — dedup em runs futuros.)\n\n`;
-              for (const d of items) {
-                body += `### \`${d.name}\` — ${d.status}\n\n${SIG_PREFIX}${d.sig} -->\n\n`;
-                body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
-                body += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
-                body += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
+              // Nova fixture — criar issue (respeitar cap)
+              if (created >= MAX_PER_RUN) {
+                skipped++;
+                continue;
               }
-              body += `Run: ${runUrl}\n\n`;
-              body += `${CAT_MARKER}\n${HASH_MARKER}\n`;
 
-              const created = await github.rest.issues.create({
+              const statusEmoji = d.status === 'rts_error' ? '💥' : '❌';
+              const title = `${statusEmoji} cross-runtime: ${d.name} — ${d.status}`;
+
+              // Le codigo-fonte do fixture (best-effort)
+              let fixtureCode = '';
+              try {
+                const p = `${process.env.GITHUB_WORKSPACE}/tests/cross-runtime/${d.name}.ts`;
+                if (fs.existsSync(p)) {
+                  fixtureCode = fs.readFileSync(p, 'utf8');
+                }
+              } catch (e) {
+                console.log(`Falha ao ler fixture ${d.name}:`, e.message);
+              }
+
+              let body = `## \`${d.name}\` — ${d.status}\n\n`;
+              body += `Categoria: \`${cat}\`. Fixture: [\`tests/cross-runtime/${d.name}.ts\`](../blob/main/tests/cross-runtime/${d.name}.ts)\n\n`;
+              if (fixtureCode) {
+                body += `### Código do teste\n\n\`\`\`ts\n${fixtureCode}\n\`\`\`\n\n`;
+              }
+              body += `### Outputs\n\n`;
+              body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
+              body += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
+              body += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
+              body += `Detectado em: ${today}\nRun: ${runUrl}\n\n`;
+              body += `<!-- cross-runtime-fixture: ${d.name} -->\n`;
+              body += `<!-- cross-runtime-sig: ${sig} -->\n`;
+              body += `<!-- cross-runtime-category: ${cat} -->\n`;
+
+              await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: title,
                 body: body,
-                labels: ['cross-runtime', 'bug', `cat:${category}`]
+                labels: ['cross-runtime', 'bug', `cat:${cat}`, `status:${d.status}`]
               });
-              actionsTaken.push(`#${created.data.number} (${category}): criada (${items.length} divergencias)`);
+              created++;
             }
 
-            console.log('Ações:\n' + actionsTaken.join('\n'));
+            console.log(`Criadas: ${created}, comentadas: ${commented}, atualizadas: ${updated}, skipped (cap): ${skipped}`);
