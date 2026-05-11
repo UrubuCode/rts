@@ -7,7 +7,7 @@ on:
   schedule:
     # Semanal segunda 00:00 BRT (03:00 UTC) para detectar regressoes
     # em deps (Bun/Node) sem afetar horario comercial.
-    - cron: "0 3 * * 1"
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
