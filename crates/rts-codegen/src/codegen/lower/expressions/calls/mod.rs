@@ -14,7 +14,7 @@ use self::new_expr::{lower_function_handle_method, lower_function_method_call};
 pub(super) use self::new_expr::lower_new;
 
 use self::builtins::{
-    lower_array_builtin, lower_console_call, lower_number_builtin,
+    lower_array_builtin, lower_console_call, lower_math_builtin, lower_number_builtin,
     lower_string_builtin,
 };
 use self::ns_call::{
@@ -224,6 +224,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if let Some(qualified) = qualified_member_name(callee) {
                 // Console builtin precisa preceder o lookup (#380).
                 if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
+                    return Ok(tv);
+                }
+                // Math builtin variádico (#760).
+                if let Some(tv) = lower_math_builtin(ctx, &qualified, call)? {
                     return Ok(tv);
                 }
                 // JSON.stringify(value, replacer, indent) — JS 3-arg form.

@@ -1379,3 +1379,84 @@ pub(super) fn lower_regexp_builtin(
     }
 }
 
+
+/// Math object (#760) — trata Math.hypot variádico.
+/// JS spec: Math.hypot(...values) calcula sqrt(sum(values[i]²)).
+/// Casos especiais: hypot() = 0, hypot(x) = abs(x).
+pub(super) fn lower_math_builtin(
+    ctx: &mut FnCtx,
+    qualified: &str,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    let Some(method) = qualified.strip_prefix("Math.") else {
+        return Ok(None);
+    };
+
+    match method {
+        "hypot" => {
+            // Implementação variádica de Math.hypot
+            if call.args.is_empty() {
+                // hypot() = 0
+                let zero = ctx.builder.ins().f64const(0.0);
+                return Ok(Some(TypedVal::new(zero, ValTy::F64)));
+            }
+
+            if call.args.len() == 1 {
+                // hypot(x) = abs(x)
+                if call.args[0].spread.is_some() {
+                    return Err(anyhow!("spread not supported in Math.hypot"));
+                }
+                let tv = lower_expr(ctx, &call.args[0].expr)?;
+                let x = ctx.coerce_to_f64(tv).val;
+                let abs_val = ctx.builder.ins().fabs(x);
+                return Ok(Some(TypedVal::new(abs_val, ValTy::F64)));
+            }
+
+            // hypot(x1, x2, ..., xn) = sqrt(x1² + x2² + ... + xn²)
+            // Implementação numericamente estável: encontra o máximo absoluto
+            // e normaliza para evitar overflow/underflow.
+            let mut values = Vec::new();
+            for arg in &call.args {
+                if arg.spread.is_some() {
+                    return Err(anyhow!("spread not supported in Math.hypot"));
+                }
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let v = ctx.coerce_to_f64(tv).val;
+                values.push(v);
+            }
+
+            // Encontra o máximo absoluto
+            let mut max_abs = ctx.builder.ins().fabs(values[0]);
+            for &v in &values[1..] {
+                let abs_v = ctx.builder.ins().fabs(v);
+                max_abs = ctx.builder.ins().fmax(max_abs, abs_v);
+            }
+
+            // Se max_abs é 0, retorna 0 (evita divisão por zero)
+            let zero = ctx.builder.ins().f64const(0.0);
+            let is_zero = ctx.builder.ins().fcmp(
+                cranelift_codegen::ir::condcodes::FloatCC::Equal,
+                max_abs,
+                zero,
+            );
+
+            // Normaliza e soma os quadrados
+            let mut sum_sq = zero;
+            for &v in &values {
+                let normalized = ctx.builder.ins().fdiv(v, max_abs);
+                let sq = ctx.builder.ins().fmul(normalized, normalized);
+                sum_sq = ctx.builder.ins().fadd(sum_sq, sq);
+            }
+
+            // result = max_abs * sqrt(sum_sq)
+            let sqrt_sum = ctx.builder.ins().sqrt(sum_sq);
+            let result = ctx.builder.ins().fmul(max_abs, sqrt_sum);
+
+            // Se max_abs era zero, retorna zero; senão retorna result
+            let final_result = ctx.builder.ins().select(is_zero, zero, result);
+
+            Ok(Some(TypedVal::new(final_result, ValTy::F64)))
+        }
+        _ => Ok(None),
+    }
+}
