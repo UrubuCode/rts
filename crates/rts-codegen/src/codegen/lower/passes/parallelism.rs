@@ -281,6 +281,16 @@ fn lift_arrows_in_expr(
                                     )
                                 )
                             );
+                            // Array.from(string, mapper) — primeiro arg do
+                            // mapper eh char (Handle). Sem essa flag, params
+                            // sem type-annotation default para I64 e member
+                            // call \`c.toUpperCase()\` cai em map_get + trapz.
+                            // Detecta call.args[0] como Tpl/Lit::Str.
+                            let mapper_slot0_is_string = is_array_from
+                                && matches!(
+                                    call.args[0].expr.as_ref(),
+                                    Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+                                );
                             // Quando arg eh Ident referenciando user fn (named callback),
                             // wrappamos em arrow inline `(p1..pN) => ident(p1..pN)` antes
                             // do try_lift_arrow_arg. Garante adapter de signature
@@ -393,7 +403,7 @@ fn lift_arrows_in_expr(
                                     new_fns,
                                     counter,
                                     method == "forEach",
-                                    recv_is_object_entries,
+                                    recv_is_object_entries || mapper_slot0_is_string,
                                 ) {
                                     // Substitui arg por Ident.
                                     call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -467,7 +477,11 @@ fn try_lift_arrow_arg(
         _ => return None,
     };
 
-    if arrow.params.len() != expected_arity {
+    // JS spec permite callback com menos params do que o esperado
+    // (extras ficam undefined). Aceita arrow.params.len() <= expected_arity.
+    // Lifted vai gerar fn(p1, p2, ...) com expected_arity params; o body
+    // referencia apenas os declarados na arrow original.
+    if arrow.params.len() > expected_arity {
         return None;
     }
 
@@ -567,6 +581,17 @@ fn try_lift_arrow_arg(
         }
     }
 
+    // Completa param_names com synth ate expected_arity (JS spec aceita
+    // callback com menos params; extras viram unused).
+    while param_names.len() < expected_arity {
+        let synth = format!(
+            "__unused_p_{}_{}",
+            counter.load(std::sync::atomic::Ordering::Relaxed),
+            param_names.len()
+        );
+        param_names.push(synth);
+    }
+
     // Body: Expr direto OU BlockStmt com 1 return.
     let body_expr: Expr = match arrow.body.as_ref() {
         BlockStmtOrExpr::Expr(e) => (**e).clone(),
@@ -597,9 +622,17 @@ fn try_lift_arrow_arg(
 
     let parameters: Vec<Parameter> = param_names
         .iter()
-        .map(|n| Parameter {
+        .enumerate()
+        .map(|(i, n)| Parameter {
             name: n.clone(),
-            type_annotation: Some("i64".to_string()),
+            // slot 0 marcado como string quando recv eh string ou
+            // Object.entries (param eh [string, V] destructured); demais
+            // como i64 default.
+            type_annotation: Some(if i == 0 && slot0_is_handle {
+                "string".to_string()
+            } else {
+                "i64".to_string()
+            }),
             modifiers: MemberModifiers::default(),
             variadic: false,
             default: None,

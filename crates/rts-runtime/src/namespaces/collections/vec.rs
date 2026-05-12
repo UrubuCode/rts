@@ -519,7 +519,23 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
 /// mapeando cada elemento. Sem fn, retorna copia rasa.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
-    let src_items: Vec<i64> = with_vec(src, Vec::new(), |v| v.clone());
+    // Aceita Entry::Vec OU Entry::Map (Set/Map). Para Set (backing eh
+    // Map<key,1>), itera keys parseando como i64. Para Map normal,
+    // itera values.
+    let is_set = crate::namespaces::collections::map::handle_is_set_kind(src);
+    let src_items: Vec<i64> = with_entry(src, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Map(m)) => {
+            if is_set {
+                m.keys()
+                    .filter_map(|k| k.parse::<i64>().ok())
+                    .collect()
+            } else {
+                m.values().copied().collect()
+            }
+        }
+        _ => Vec::new(),
+    });
     if fn_ptr == 0 {
         return alloc_entry(Entry::Vec(Box::new(src_items)));
     }

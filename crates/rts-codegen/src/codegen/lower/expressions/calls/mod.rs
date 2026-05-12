@@ -1155,6 +1155,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                     // Array.from(string): split em chars via STRING_SPLIT(s, "").
+                    // Se ha mapper, aplica via ARRAY_FROM_VEC apos split.
                     let is_string_arg = matches!(
                         first.expr.as_ref(),
                         Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
@@ -1169,7 +1170,23 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             Some(cl::I64),
                         )?;
                         let inst = ctx.builder.ins().call(split_fn, &[s_h, empty]);
-                        let v = ctx.builder.inst_results(inst)[0];
+                        let split_h = ctx.builder.inst_results(inst)[0];
+                        // Sem mapper: passthrough do vec gerado.
+                        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                        let has_mapper = call.args.len() == 2;
+                        if !has_mapper {
+                            return Ok(TypedVal::new(split_h, ValTy::Handle));
+                        }
+                        // Aplica mapper via ARRAY_FROM_VEC (mesma rotina
+                        // do caso Vec normal).
+                        let from_vec = ctx.get_extern(
+                            "__RTS_FN_GL_ARRAY_FROM_VEC",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let _ = zero;
+                        let inst2 = ctx.builder.ins().call(from_vec, &[split_h, fn_ptr]);
+                        let v = ctx.builder.inst_results(inst2)[0];
                         return Ok(TypedVal::new(v, ValTy::Handle));
                     }
                     // Fallback: src e' Vec handle.
