@@ -158,9 +158,25 @@ pub extern "C" fn __RTS_FN_RT_TRUTHY(value: i64) -> i64 {
     if value == 0 {
         return 0;
     }
+    // Sentinela bool em slot de Vec/Map (codegen empacota false como
+    // i64::MIN, true como i64::MIN+1). Trata como JS bool.
+    if value == i64::MIN {
+        return 0;
+    }
+    if value == i64::MIN + 1 {
+        return 1;
+    }
     let h = value as u64;
     let snap = with_entry(h, |entry| match entry {
-        Some(Entry::String(b)) => Some(!b.is_empty()),
+        Some(Entry::String(b)) => {
+            // `undefined` (handle de string literal "undefined") eh falsy.
+            // String vazia tambem.
+            if b.is_empty() || b.as_slice() == b"undefined" {
+                Some(false)
+            } else {
+                Some(true)
+            }
+        }
         Some(_) => Some(true),
         None => None,
     });
