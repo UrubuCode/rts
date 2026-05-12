@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94126395830560 w94126395830560rld\ndoubled=a94126395830496b94126395830496c94126395830496\nswapped=94126395830272"
+  "rts": "replaced=hell94006328856864 w94006328856864rld\ndoubled=a94006328856800b94006328856800c94006328856800\nswapped=94006328856576"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94703232552960b94703232552960"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94122521997312b94122521997312"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order="
+  "rts": ""
 }
 ,
 {
