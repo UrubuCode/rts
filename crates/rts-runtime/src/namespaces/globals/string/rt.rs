@@ -72,6 +72,73 @@ pub extern "C" fn __RTS_FN_GL_STRING_LAST_INDEX_OF(recv: u64, needle: u64) -> i6
     }
 }
 
+/// `str.indexOf(needle, fromIndex)` — semantica JS:
+/// - fromIndex clamped a [0, s.len()]
+/// - needle vazio: retorna min(fromIndex, s.len())
+/// - resto: busca a partir de fromIndex em chars Unicode
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_INDEX_OF_FROM(recv: u64, needle: u64, from: i64) -> i64 {
+    let Some(s) = handle_to_str(recv) else { return -1; };
+    let Some(n) = handle_to_str(needle) else { return -1; };
+    let len = s.chars().count() as i64;
+    let from_clamped = from.max(0).min(len);
+    if n.is_empty() {
+        return from_clamped;
+    }
+    // Converte fromIndex (em chars) pra byte offset.
+    let byte_start = s
+        .char_indices()
+        .nth(from_clamped as usize)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len());
+    // Busca no slice apos byte_start; resultado precisa virar char index global.
+    let slice = &s[byte_start..];
+    match slice.find(n) {
+        Some(byte_off) => {
+            // Conta chars desde o inicio ate byte_start + byte_off.
+            let abs_byte = byte_start + byte_off;
+            s[..abs_byte].chars().count() as i64
+        }
+        None => -1,
+    }
+}
+
+/// `str.lastIndexOf(needle, fromIndex)` — semantica JS:
+/// - fromIndex clamped a [0, s.len()]; NaN ou ausente = length
+/// - needle vazio: retorna min(fromIndex, s.len())
+/// - busca a ultima ocorrencia cujo INICIO seja <= fromIndex
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_LAST_INDEX_OF_FROM(recv: u64, needle: u64, from: i64) -> i64 {
+    let Some(s) = handle_to_str(recv) else { return -1; };
+    let Some(n) = handle_to_str(needle) else { return -1; };
+    let len = s.chars().count() as i64;
+    let from_clamped = from.max(0).min(len);
+    if n.is_empty() {
+        return from_clamped;
+    }
+    let limit_byte = s
+        .char_indices()
+        .nth(from_clamped as usize)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len());
+    // Encontra ultima posicao de byte tal que o match comece em <= limit_byte.
+    let mut best: Option<usize> = None;
+    let mut search_from = 0usize;
+    while let Some(rel) = s[search_from..].find(n) {
+        let abs = search_from + rel;
+        if abs > limit_byte {
+            break;
+        }
+        best = Some(abs);
+        // Avanca pelo menos 1 byte pra evitar loop em casos degenerados.
+        search_from = abs + n.len().max(1);
+    }
+    match best {
+        Some(byte_pos) => s[..byte_pos].chars().count() as i64,
+        None => -1,
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_INCLUDES(recv: u64, needle: u64) -> i64 {
     match (handle_to_str(recv), handle_to_str(needle)) {
