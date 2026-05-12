@@ -240,8 +240,10 @@ jobs:
             execSync(`git commit -m "${msg}"`);
             execSync('git push');
 
-      - name: Auto-create issues em schedule/dispatch (1 por fixture + dedup)
-        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && steps.cross.outcome == 'failure'
+      - name: Auto-sync cross-runtime issues (GraphQL bulk + state-aware)
+        # Roda tambem em push para main para fechar issues quando fixture
+        # passa a bater. Sem isso, fixture resolvida ficava com issue OPEN.
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && always()
         uses: actions/github-script@v7
         env:
           MAX_ISSUES_PER_RUN: "5"
@@ -252,8 +254,11 @@ jobs:
             const path = process.env.GITHUB_WORKSPACE + '/cross_runtime_report.json';
             if (!fs.existsSync(path)) return;
             const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+            // Conjuntos por fixture name:
+            // - divergent: fixtures que diferem de Bun/Node nesta run
+            // - passing: fixtures que passam (RTS = Bun = Node)
             const divergent = r.results.filter(x => x.status === 'rts_diverge' || x.status === 'rts_error');
-            if (divergent.length === 0) return;
+            const passing = new Set(r.results.filter(x => x.status === 'pass').map(x => x.name));
 
             // Pausa entre requests para evitar secondary rate limit.
             // GitHub bloqueia bursts de criacao mesmo abaixo do primary
@@ -321,115 +326,169 @@ jobs:
             // proximo schedule (semanal). Override via env MAX_ISSUES_PER_RUN.
             const MAX_PER_RUN = parseInt(process.env.MAX_ISSUES_PER_RUN || '5', 10);
 
-            // Coleta issues com label cross-runtime — INCLUI fechadas
-            // (state:'all'). Issues fechadas representam fixtures ja'
-            // resolvidas; o dedup precisa enxerga-las para nao recriar
-            // duplicata se a divergencia voltar (ou se a flag persistir
-            // num run intermediario). Bug anterior usava state:'open' e
-            // recriava issue toda vez que PR fechava a anterior — 35
-            // duplicatas + secondary rate limit em 1 schedule run.
-            let existing = [];
-            for (let page = 1; page <= 10; page++) {
-              const res = await github.rest.issues.listForRepo({
+            // Coleta TODAS as issues cross-runtime (open + closed) via
+            // GraphQL — 1 query traz 100 issues + body em uma chamada,
+            // bem mais barato que REST paginado e dentro do safe rate.
+            // Body eh truncado para 32 KB para evitar payload gigante;
+            // os marker tags ficam no fim mas sempre <300 bytes.
+            const fetchPage = async (cursor) => {
+              const query = `query($owner: String!, $repo: String!, $cursor: String) {
+                repository(owner: $owner, name: $repo) {
+                  issues(
+                    first: 100,
+                    after: $cursor,
+                    states: [OPEN, CLOSED],
+                    labels: ["cross-runtime"],
+                    orderBy: { field: CREATED_AT, direction: DESC }
+                  ) {
+                    nodes { number, state, body, title }
+                    pageInfo { hasNextPage, endCursor }
+                  }
+                }
+              }`;
+              return await github.graphql(query, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                state: 'all',
-                labels: 'cross-runtime',
-                per_page: 100,
-                page
+                cursor: cursor,
               });
-              existing.push(...res.data);
-              if (res.data.length < 100) break;
+            };
+
+            let allIssues = [];
+            let cursor = null;
+            for (let page = 0; page < 20; page++) {
+              const res = await fetchPage(cursor);
+              const issues = res.repository.issues;
+              allIssues.push(...issues.nodes);
+              if (!issues.pageInfo.hasNextPage) break;
+              cursor = issues.pageInfo.endCursor;
+            }
+            console.log(`GraphQL: ${allIssues.length} issues cross-runtime (all states)`);
+
+            // Indexa por fixture name. Cada fixture pode ter multiplas
+            // issues (OPEN + varias CLOSED de runs antigos); guardamos:
+            // - openIssue: a unica OPEN existente (se houver)
+            // - closedSigs: sigs ja vistas em qualquer issue CLOSED — pra
+            //   bloquear recriacao quando a divergencia eh exatamente a
+            //   mesma de antes
+            const fixtureMap = new Map(); // name -> { openIssue?, closedSigs: Set }
+            for (const issue of allIssues) {
+              const body = issue.body || '';
+              const fm = body.match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
+              if (!fm) continue;
+              const sm = body.match(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/);
+              const sig = sm ? sm[1] : null;
+              const name = fm[1];
+              let entry = fixtureMap.get(name);
+              if (!entry) {
+                entry = { openIssue: null, closedSigs: new Set() };
+                fixtureMap.set(name, entry);
+              }
+              if (issue.state === 'OPEN') {
+                // Se ja temos uma OPEN (duplicata historica), preferimos
+                // a mais recente (estamos iterando em DESC).
+                if (!entry.openIssue) entry.openIssue = { ...issue, sig };
+              } else {
+                if (sig) entry.closedSigs.add(sig);
+              }
             }
 
-            // Indexa por fixture name — marker "<!-- cross-runtime-fixture: NAME -->"
-            const issueByFixture = new Map();
-            for (const issue of existing) {
-              const m = (issue.body || '').match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
-              if (m) issueByFixture.set(m[1], issue);
+            // ─── PASSO 1: fechar issues OPEN cujas fixtures agora passam.
+            let closed = 0;
+            for (const [name, entry] of fixtureMap.entries()) {
+              if (!entry.openIssue) continue;
+              if (!passing.has(name)) continue;
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: entry.openIssue.number,
+                  body: `✅ Fixture passa nesta run. Fechando automaticamente.\n\nRun: ${runUrl}`
+                });
+                await sleep(THROTTLE_MS);
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: entry.openIssue.number,
+                  state: 'closed',
+                  state_reason: 'completed'
+                });
+                closed++;
+                await sleep(THROTTLE_MS);
+              } catch (e) {
+                console.log(`Falha fechar #${entry.openIssue.number}: ${e.message}`);
+                if (/secondary rate limit|abuse/i.test(e.message)) break;
+              }
             }
 
-            // Indexa sigs ja' tracked (em qualquer issue) — usado para
-            // detectar mudanca da assinatura (output mudou) sem precisar
-            // criar nova issue.
-            const sigByFixture = new Map();
-            for (const issue of existing) {
-              const fm = (issue.body || '').match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
-              const sm = (issue.body || '').match(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/);
-              if (fm && sm) sigByFixture.set(fm[1], { issue, sig: sm[1] });
-            }
-
+            // ─── PASSO 2: processa divergencias.
             let created = 0;
-            let commented = 0;
             let updated = 0;
-            let skippedClosed = 0;
+            let silentOpen = 0;       // OPEN + sig igual
+            let silentClosed = 0;     // CLOSED + sig igual
             let skippedCap = 0;
 
             for (const d of divergent) {
               const sig = sigOf(d);
               const cat = categorize(d.name);
-              const existingIssue = issueByFixture.get(d.name);
+              const entry = fixtureMap.get(d.name);
 
-              if (existingIssue) {
-                // Issue ja existe — pode estar OPEN ou CLOSED.
-                if (existingIssue.state === 'closed') {
-                  // Fixture marcada como resolvida mas divergiu de novo.
-                  // Skip silencioso (sem reabrir nem comentar): se quiser
-                  // tracker, pode reabrir manualmente. Decisao conservadora
-                  // pra nao spammar. TODO: reabrir se sig mudou apos N runs.
-                  skippedClosed++;
+              // ─── Caso A: ha issue OPEN para essa fixture
+              if (entry && entry.openIssue) {
+                if (entry.openIssue.sig === sig) {
+                  // Mesma assinatura: silencio (issue OPEN ja eh sinal).
+                  silentOpen++;
                   continue;
                 }
-                const prev = sigByFixture.get(d.name);
-                if (prev && prev.sig === sig) {
-                  // Mesma assinatura — NAO comenta (era spam diario).
-                  // Issue OPEN persistente eh sinal suficiente.
-                  continue;
+                // Sig mudou: atualiza body. Mantem marker; appenda
+                // sub-secao com novos outputs.
+                const newBody = (entry.openIssue.body || '')
+                  .replace(/<!-- cross-runtime-sig: [a-f0-9]{12} -->/, `<!-- cross-runtime-sig: ${sig} -->`)
+                  + `\n\n### 🆕 Atualizado em ${today} (assinatura mudou)\n\n`
+                  + `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`
+                  + `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`
+                  + `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`
+                  + `Run: ${runUrl}\n`;
+                try {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: entry.openIssue.number,
+                    body: newBody
+                  });
+                  updated++;
+                  await sleep(THROTTLE_MS);
+                } catch (e) {
+                  console.log(`Falha update #${entry.openIssue.number}: ${e.message}`);
+                  if (/secondary rate limit|abuse/i.test(e.message)) break;
                 }
-                // Assinatura mudou — atualiza body com novo sig + outputs
-                let newBody = (existingIssue.body || '')
-                  .replace(/<!-- cross-runtime-sig: [a-f0-9]{12} -->/, `<!-- cross-runtime-sig: ${sig} -->`);
-                newBody += `\n\n### 🆕 Atualizado em ${today} (assinatura mudou)\n\n`;
-                newBody += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
-                newBody += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
-                newBody += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
-                newBody += `Run: ${runUrl}\n`;
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: existingIssue.number,
-                  body: newBody
-                });
-                updated++;
-                await sleep(THROTTLE_MS);
                 continue;
               }
 
-              // Nova fixture — criar issue (respeitar cap)
+              // ─── Caso B: sem issue OPEN. Checar se a sig ja foi vista
+              // em issue CLOSED — se sim, foi resolvida e voltou identica,
+              // skipamos pra evitar spam. Se sig nova, abrimos issue.
+              if (entry && entry.closedSigs.has(sig)) {
+                silentClosed++;
+                continue;
+              }
+
+              // Nova issue (respeita cap).
               if (created >= MAX_PER_RUN) {
                 skippedCap++;
                 continue;
               }
-
               const statusEmoji = d.status === 'rts_error' ? '💥' : '❌';
               const title = `${statusEmoji} cross-runtime: ${d.name} — ${d.status}`;
-
-              // Le codigo-fonte do fixture (best-effort)
               let fixtureCode = '';
               try {
                 const p = `${process.env.GITHUB_WORKSPACE}/tests/cross-runtime/${d.name}.ts`;
-                if (fs.existsSync(p)) {
-                  fixtureCode = fs.readFileSync(p, 'utf8');
-                }
+                if (fs.existsSync(p)) fixtureCode = fs.readFileSync(p, 'utf8');
               } catch (e) {
-                console.log(`Falha ao ler fixture ${d.name}:`, e.message);
+                console.log(`Falha ler fixture ${d.name}: ${e.message}`);
               }
-
               let body = `## \`${d.name}\` — ${d.status}\n\n`;
               body += `Categoria: \`${cat}\`. Fixture: [\`tests/cross-runtime/${d.name}.ts\`](../blob/main/tests/cross-runtime/${d.name}.ts)\n\n`;
-              if (fixtureCode) {
-                body += `### Código do teste\n\n\`\`\`ts\n${fixtureCode}\n\`\`\`\n\n`;
-              }
+              if (fixtureCode) body += `### Código do teste\n\n\`\`\`ts\n${fixtureCode}\n\`\`\`\n\n`;
               body += `### Outputs\n\n`;
               body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
               body += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
@@ -438,26 +497,22 @@ jobs:
               body += `<!-- cross-runtime-fixture: ${d.name} -->\n`;
               body += `<!-- cross-runtime-sig: ${sig} -->\n`;
               body += `<!-- cross-runtime-category: ${cat} -->\n`;
-
               try {
                 await github.rest.issues.create({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  title: title,
-                  body: body,
+                  title, body,
                   labels: ['cross-runtime', 'bug', `cat:${cat}`, `status:${d.status}`]
                 });
                 created++;
                 await sleep(THROTTLE_MS);
               } catch (e) {
-                // Secondary rate limit ou outro erro — para de criar para
-                // nao agravar. Sobras viram no proximo run.
-                console.log(`Erro ao criar issue ${d.name}: ${e.message}`);
+                console.log(`Erro criar issue ${d.name}: ${e.message}`);
                 if (/secondary rate limit|abuse/i.test(e.message)) {
-                  console.log('Secondary rate limit detectado — abortando creates.');
+                  console.log('Secondary rate limit — abortando creates.');
                   break;
                 }
               }
             }
 
-            console.log(`Criadas: ${created}, atualizadas: ${updated}, skipped (closed): ${skippedClosed}, skipped (cap): ${skippedCap}`);
+            console.log(`closed:${closed} created:${created} updated:${updated} silentOpen:${silentOpen} silentClosed:${silentClosed} cap:${skippedCap}`);
