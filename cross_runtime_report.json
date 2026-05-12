@@ -508,7 +508,7 @@
   "status": "rts_diverge",
   "bun": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
   "node": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
-  "rts": "a_b=true\nb_a=false\na_a=-1\napple_banana=true\nA_a=-2\na_A=0"
+  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=-1\na_A=1"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94544953049376 w94544953049376rld\ndoubled=a94544953049312b94544953049312c94544953049312\nswapped=94544953049088"
+  "rts": "replaced=hell94027872891168 w94027872891168rld\ndoubled=a94027872891104b94027872891104c94027872891104\nswapped=94027872890880"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94447813906432b94447813906432"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94266861510656b94266861510656"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order="
+  "rts": ""
 }
 ,
 {
