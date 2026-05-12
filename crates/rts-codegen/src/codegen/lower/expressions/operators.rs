@@ -327,6 +327,29 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     ) {
         return lower_logical(ctx, bin);
     }
+    // Identidade JS: `Number.parseInt === parseInt`, `Number.parseFloat ===
+    // parseFloat` sao true em JS (aliases). RTS resolve em compile-time —
+    // sem essa shortcut, lower_expr de \`Number.parseInt\` (Member) falharia
+    // ou geraria valor incompativel com \`parseInt\` (Ident).
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq) {
+        let is_number_alias = |left: &Expr, right: &Expr, name: &str| -> bool {
+            let left_is_member = matches!(left, Expr::Member(m)
+                if matches!(m.obj.as_ref(), Expr::Ident(i) if i.sym.as_str() == "Number")
+                && matches!(&m.prop, swc_ecma_ast::MemberProp::Ident(p) if p.sym.as_str() == name)
+            );
+            let right_is_ident = matches!(right, Expr::Ident(i) if i.sym.as_str() == name);
+            left_is_member && right_is_ident
+        };
+        for name in ["parseInt", "parseFloat", "isNaN", "isFinite"] {
+            if is_number_alias(&bin.left, &bin.right, name)
+                || is_number_alias(&bin.right, &bin.left, name)
+            {
+                let val = if matches!(bin.op, BinaryOp::EqEqEq) { 1 } else { 0 };
+                let v = ctx.builder.ins().iconst(cl::I64, val);
+                return Ok(TypedVal::new(v, ValTy::Bool));
+            }
+        }
+    }
     if let Some(tv) = try_operator_overload(ctx, bin)? {
         return Ok(tv);
     }

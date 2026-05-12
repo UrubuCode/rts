@@ -641,6 +641,16 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 let v = ctx.builder.inst_results(inst)[0];
                 return Ok(TypedVal::new(v, ValTy::I64));
             }
+            // `Number.parseInt` / `Number.parseFloat` aliases globais —
+            // delega para o handler de \`parseInt\` (com suporte a radix)
+            // em vez do static_member do namespace (que tem arity fixa).
+            // JS spec: \`Number.parseInt === parseInt\`.
+            if qualified == "Number.parseInt" || qualified == "Number.parseFloat" {
+                let alias = if qualified == "Number.parseInt" { "parseInt" } else { "parseFloat" };
+                if let Some(tv) = lower_js_global_call(ctx, alias, call)? {
+                    return Ok(tv);
+                }
+            }
             // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
             if let Some((cls, method)) = qualified.split_once('.') {
                 if let Some(spec) = crate::abi::global_class_lookup(cls) {
