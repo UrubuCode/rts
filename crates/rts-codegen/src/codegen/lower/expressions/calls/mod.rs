@@ -527,7 +527,12 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
             // (#208) Math.max/min variadico — JS spec aceita N args.
             // ABI namespace fixou em 2 args; aqui suportamos N reduzindo
-            // pairwise.
+            // pairwise. Caso 1 arg: retorna `Number(arg)` (sem call).
+            if (qualified == "Math.max" || qualified == "Math.min") && call.args.len() == 1 {
+                let tv = lower_expr(ctx, &call.args[0].expr)?;
+                let v = ctx.coerce_to_f64(tv).val;
+                return Ok(TypedVal::new(v, ValTy::F64));
+            }
             if (qualified == "Math.max" || qualified == "Math.min") && call.args.len() > 2 {
                 if call.args.iter().any(|a| a.spread.is_some()) {
                     return Err(anyhow!("spread not supported in Math.max/min"));
