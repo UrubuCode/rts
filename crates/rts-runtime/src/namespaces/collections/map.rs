@@ -313,12 +313,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
     let keys: Vec<String> = with_map(handle, Vec::new(), |m| {
         // (#208) Filtra `__proto__` — JS spec: Object.keys retorna so
         // own enumeravel, e __proto__ nao deve aparecer em iteracao.
-        let mut ks: Vec<String> = m.keys()
-            .filter(|k| k.as_str() != "__proto__")
-            .cloned()
-            .collect();
-        ks.sort();
-        ks
+        // Ordem JS (ECMA-262): integer-indexed keys ascendentes, depois
+        // string keys em ordem de insercao. Mesmo criterio de MAP_KEY_AT
+        // (era `ks.sort()` lexicografico — quebrava 216_object_keys_order).
+        let mut int_keys: Vec<(u32, String)> = Vec::new();
+        let mut str_keys: Vec<String> = Vec::new();
+        for k in m.keys() {
+            if k.as_str() == "__proto__" {
+                continue;
+            }
+            match parse_array_index(k) {
+                Some(n) => int_keys.push((n, k.clone())),
+                None => str_keys.push(k.clone()),
+            }
+        }
+        int_keys.sort_by_key(|(n, _)| *n);
+        let mut out: Vec<String> = int_keys.into_iter().map(|(_, k)| k).collect();
+        out.extend(str_keys);
+        out
     });
     let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
     for k in keys {
@@ -333,17 +345,25 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
     )
 }
 
-/// (#266) Object.values(obj) — retorna Vec<i64> com valores. Ordem por
-/// keys sorted asc.
+/// (#266) Object.values(obj) — retorna Vec<i64> com valores em ordem
+/// JS: integer-indexed keys ascendentes, depois string keys em ordem
+/// de insercao (mesmo criterio de Object.keys).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
     let vals: Vec<i64> = with_map(handle, Vec::new(), |m| {
-        // (#208) Filtra `__proto__` — JS spec.
-        let mut entries: Vec<(&String, &i64)> = m.iter()
-            .filter(|(k, _)| k.as_str() != "__proto__")
-            .collect();
-        entries.sort_by(|a, b| a.0.cmp(b.0));
-        entries.into_iter().map(|(_, v)| *v).collect()
+        let mut int_entries: Vec<(u32, i64)> = Vec::new();
+        let mut str_entries: Vec<i64> = Vec::new();
+        for (k, v) in m.iter() {
+            if k.as_str() == "__proto__" { continue; }
+            match parse_array_index(k) {
+                Some(n) => int_entries.push((n, *v)),
+                None => str_entries.push(*v),
+            }
+        }
+        int_entries.sort_by_key(|(n, _)| *n);
+        let mut out: Vec<i64> = int_entries.into_iter().map(|(_, v)| v).collect();
+        out.extend(str_entries);
+        out
     });
     crate::namespaces::gc::handles::alloc_entry(
         crate::namespaces::gc::handles::Entry::Vec(Box::new(vals)),
@@ -360,13 +380,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
     let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
-        // (#208) Filtra `__proto__` — JS spec.
-        let mut entries: Vec<(String, i64)> = m.iter()
-            .filter(|(k, _)| k.as_str() != "__proto__")
-            .map(|(k, v)| (k.clone(), *v))
+        // Ordem JS: integer-indexed keys ascendentes, depois string
+        // keys em ordem de insercao.
+        let mut int_entries: Vec<(u32, String, i64)> = Vec::new();
+        let mut str_entries: Vec<(String, i64)> = Vec::new();
+        for (k, v) in m.iter() {
+            if k.as_str() == "__proto__" { continue; }
+            match parse_array_index(k) {
+                Some(n) => int_entries.push((n, k.clone(), *v)),
+                None => str_entries.push((k.clone(), *v)),
+            }
+        }
+        int_entries.sort_by_key(|(n, _, _)| *n);
+        let mut out: Vec<(String, i64)> = int_entries
+            .into_iter()
+            .map(|(_, k, v)| (k, v))
             .collect();
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        entries
+        out.extend(str_entries);
+        out
     });
     let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
     for (k, v) in pairs {
@@ -439,12 +470,26 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     }
     let result: Vec<i64> = with_entry(handle, |e| match e {
         Some(Entry::Map(m)) => {
-            m.keys()
-                .filter(|k| k.as_str() != "__proto__")
-                .map(|k| {
-                    alloc_entry(Entry::String(k.as_bytes().to_vec())) as i64
-                })
-                .collect()
+            // Ordem JS (ECMA-262 OrdinaryOwnPropertyKeys): integer-indexed
+            // ascendentes, depois string keys em ordem de insercao.
+            let mut int_keys: Vec<(u32, String)> = Vec::new();
+            let mut str_keys: Vec<String> = Vec::new();
+            for k in m.keys() {
+                if k.as_str() == "__proto__" { continue; }
+                match parse_array_index(k) {
+                    Some(n) => int_keys.push((n, k.clone())),
+                    None => str_keys.push(k.clone()),
+                }
+            }
+            int_keys.sort_by_key(|(n, _)| *n);
+            let mut out: Vec<i64> = Vec::with_capacity(int_keys.len() + str_keys.len());
+            for (_, k) in int_keys {
+                out.push(alloc_entry(Entry::String(k.into_bytes())) as i64);
+            }
+            for k in str_keys {
+                out.push(alloc_entry(Entry::String(k.into_bytes())) as i64);
+            }
+            out
         }
         Some(Entry::Vec(v)) => {
             (0..v.len())
