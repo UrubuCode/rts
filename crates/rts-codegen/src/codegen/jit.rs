@@ -281,6 +281,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         "__RTS_FN_NS_JSON_STRINGIFY_PRETTY",
         __RTS_FN_NS_JSON_STRINGIFY_PRETTY
     );
+    add_fn!(
+        "__RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR",
+        __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR
+    );
     add_fn!("__RTS_FN_NS_JSON_FREE", __RTS_FN_NS_JSON_FREE);
     add_fn!("__RTS_FN_NS_JSON_TYPE_OF", __RTS_FN_NS_JSON_TYPE_OF);
     add_fn!("__RTS_FN_NS_JSON_AS_BOOL", __RTS_FN_NS_JSON_AS_BOOL);
