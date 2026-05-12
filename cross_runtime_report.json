@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -985,10 +985,10 @@
 ,
 {
   "name": "210_object_tostring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
   "node": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94758822056224 w94758822056224rld\ndoubled=a94758822056160b94758822056160c94758822056160\nswapped=94758822055936"
+  "rts": "replaced=hell94544953049376 w94544953049376rld\ndoubled=a94544953049312b94544953049312c94544953049312\nswapped=94544953049088"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a93875705733120b93875705733120"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94447813906432b94447813906432"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order="
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":107,"rts_diverge":79,"bun_node_diverge":3,"errors":123,"rejected":0}}
+],"summary":{"total":312,"pass":108,"rts_diverge":80,"bun_node_diverge":3,"errors":121,"rejected":0}}
