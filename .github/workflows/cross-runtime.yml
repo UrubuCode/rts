@@ -583,6 +583,7 @@ jobs:
 
             let trackersCreated = 0;
             let trackersUpdated = 0;
+            let trackersSkipped = 0;
 
             for (const [cat, fixtures] of byCategory.entries()) {
               fixtures.sort((a, b) => a.name.localeCompare(b.name));
@@ -596,32 +597,59 @@ jobs:
               const bar = '▰'.repeat(filled) + '▱'.repeat(segs - filled);
 
               const title = `📊 cross-runtime [${cat}]: ${passing}/${total} (${pct}%)`;
-              let body = `## Tracker: categoria \`${cat}\`\n\n`;
-              body += `\`\`\`\n[${bar}] ${pct}%  ${passing}/${total} fixtures passam\n\`\`\`\n\n`;
-              body += `**Atualizado em**: ${today} — [run](${runUrl})\n\n`;
-              body += `### Fixtures\n\n`;
-              for (const f of fixtures) {
-                const checkbox = f.status === 'pass' ? '[x]' : '[ ]';
-                const emoji = f.status === 'pass' ? '✅' : (f.status === 'rts_error' ? '💥' : '❌');
-                const ref = issueRefForFixture(f.name);
-                const refLink = ref ? ` (${ref})` : '';
-                body += `- ${checkbox} ${emoji} \`${f.name}\`${refLink}\n`;
-              }
-              body += `\n<!-- cross-runtime-tracker: ${cat} -->\n`;
+              // Body "estavel" (sem timestamp/runUrl) usado SO' para
+              // comparacao de diff. Se nada mudou desde o ultimo run,
+              // skipamos o update — evita poluir historico com edicao
+              // identica e nao spammar subscribers.
+              const stableBody = (() => {
+                let b = `## Tracker: categoria \`${cat}\`\n\n`;
+                b += `\`\`\`\n[${bar}] ${pct}%  ${passing}/${total} fixtures passam\n\`\`\`\n\n`;
+                b += `### Fixtures\n\n`;
+                for (const f of fixtures) {
+                  const checkbox = f.status === 'pass' ? '[x]' : '[ ]';
+                  const emoji = f.status === 'pass' ? '✅' : (f.status === 'rts_error' ? '💥' : '❌');
+                  const ref = issueRefForFixture(f.name);
+                  const refLink = ref ? ` (${ref})` : '';
+                  b += `- ${checkbox} ${emoji} \`${f.name}\`${refLink}\n`;
+                }
+                return b;
+              })();
+              // Body completo com timestamp/run, usado em creates e
+              // updates reais.
+              const body = stableBody
+                .replace(/\n### Fixtures/, `\n**Atualizado em**: ${today} — [run](${runUrl})\n\n### Fixtures`)
+                + `\n<!-- cross-runtime-tracker: ${cat} -->\n`;
 
               const existing = trackerByCategory.get(cat);
               try {
                 if (existing) {
-                  // Update body + title (sempre — pct muda a cada run).
+                  // Diff stable: extrai o stableBody atual da issue (tira
+                  // a linha de "Atualizado em" e o marker) e compara.
+                  const currentStable = (existing.body || '')
+                    .replace(/\*\*Atualizado em\*\*:[^\n]*\n\n/, '')
+                    .replace(/\n<!-- cross-runtime-tracker:[^>]+-->\n?/, '');
+                  const wantedState = passing === total ? 'closed' : 'open';
+                  const currentState = (existing.state || 'open').toLowerCase();
+                  const wantedTitle = title;
+                  const currentTitle = existing.title || '';
+
+                  if (
+                    currentStable.trim() === stableBody.trim() &&
+                    currentState === wantedState &&
+                    currentTitle === wantedTitle
+                  ) {
+                    // Nada mudou — skip silencioso.
+                    trackersSkipped++;
+                    continue;
+                  }
                   await github.rest.issues.update({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     issue_number: existing.number,
                     title,
                     body,
-                    // Se todas passam, fechar; se alguma diverge, abrir.
-                    state: passing === total ? 'closed' : 'open',
-                    state_reason: passing === total ? 'completed' : undefined,
+                    state: wantedState,
+                    state_reason: wantedState === 'closed' ? 'completed' : undefined,
                   });
                   trackersUpdated++;
                 } else {
@@ -643,4 +671,4 @@ jobs:
               }
             }
 
-            console.log(`trackersCreated:${trackersCreated} trackersUpdated:${trackersUpdated}`);
+            console.log(`trackersCreated:${trackersCreated} trackersUpdated:${trackersUpdated} trackersSkipped:${trackersSkipped}`);
