@@ -1045,8 +1045,11 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     )?;
                     for arg in &call.args {
                         let tv = lower_expr(ctx, &arg.expr)?;
+                        // Mesma sentinela de array literal (members.rs).
                         let v = if matches!(tv.ty, ValTy::Bool) {
-                            ctx.coerce_to_handle(tv)?.val
+                            let b = ctx.coerce_to_i64(tv).val;
+                            let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                            ctx.builder.ins().iadd(min, b)
                         } else {
                             ctx.coerce_to_i64(tv).val
                         };

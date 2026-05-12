@@ -663,12 +663,12 @@ pub(super) fn lower_console_call(
         Some(cl::I64),
     )?;
 
-    // (#573) Para Handle ambiguo (retorno de var member call, WeakMap.get,
-    // ?? heterogeneo, etc.), usa TPL_COERCE_AUTO que detecta string vs
-    // numero em runtime. Literals string/template ja sao Handle conhecido,
-    // skip da coercao auto via heuristica simples: arg e' Lit::Str ou Tpl.
+    // Para console.* usamos INSPECT (pretty-print estilo Node/Bun):
+    // arrays viram `[ 1, 2, 'a' ]`, objetos `{ k: v }`, strings top-level
+    // sem aspas. Literals string/template ja sao Handle conhecido, skip
+    // da coercao via heuristica simples: arg e' Lit::Str ou Tpl.
     let auto_coerce = ctx.get_extern(
-        "__RTS_FN_RT_TPL_COERCE_AUTO",
+        "__RTS_FN_RT_INSPECT",
         &[cl::I64],
         Some(cl::I64),
     )?;
