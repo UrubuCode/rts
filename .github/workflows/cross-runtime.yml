@@ -540,3 +540,107 @@ jobs:
             }
 
             console.log(`closed:${closed} created:${created} updated:${updated} silentOpen:${silentOpen} silentClosed:${silentClosed} cap:${skippedCap}`);
+
+            // ────────────────────────────────────────────────────────────
+            // PASSO 3: tracking issues por categoria
+            //
+            // Mantem 1 issue por categoria (cat:array, cat:string, etc) com:
+            // - checkbox-list de todas as fixtures da categoria
+            // - barra de progresso (passing / total)
+            // - links para issues filhas (modernas com marker OU grouped)
+            // - atualizada a cada run; nunca duplica (lookup por marker
+            //   <!-- cross-runtime-tracker: <cat> -->)
+            // ────────────────────────────────────────────────────────────
+            const allResults = r.results.filter(x =>
+              x.status === 'pass' || x.status === 'rts_diverge' || x.status === 'rts_error'
+            );
+            const byCategory = new Map(); // cat -> [{name, status}, ...]
+            for (const res of allResults) {
+              const cat = categorize(res.name);
+              if (!byCategory.has(cat)) byCategory.set(cat, []);
+              byCategory.get(cat).push({ name: res.name, status: res.status });
+            }
+
+            // Indexa trackers existentes (busca marker proprio).
+            const trackerByCategory = new Map();
+            for (const issue of allIssues) {
+              const tm = (issue.body || '').match(/<!-- cross-runtime-tracker: ([^\s]+) -->/);
+              if (tm) trackerByCategory.set(tm[1], issue);
+            }
+
+            // Lookup rapido: fixture name -> issue (qualquer, OPEN ou
+            // CLOSED, moderna ou agrupada).
+            const issueRefForFixture = (name) => {
+              const entry = fixtureMap.get(name);
+              if (!entry) return null;
+              if (entry.openIssue) return `#${entry.openIssue.number}`;
+              if (entry.groupedRefs.size > 0) {
+                // Pega o primeiro grouped ref (formato \"#N(STATE)\").
+                return [...entry.groupedRefs][0].replace(/\((OPEN|CLOSED)\)/, '');
+              }
+              return null;
+            };
+
+            let trackersCreated = 0;
+            let trackersUpdated = 0;
+
+            for (const [cat, fixtures] of byCategory.entries()) {
+              fixtures.sort((a, b) => a.name.localeCompare(b.name));
+              const total = fixtures.length;
+              const passing = fixtures.filter(f => f.status === 'pass').length;
+              const pct = total > 0 ? Math.round((passing / total) * 1000) / 10 : 0;
+
+              // Barra ASCII 20 segmentos.
+              const segs = 20;
+              const filled = total > 0 ? Math.round((passing / total) * segs) : 0;
+              const bar = '▰'.repeat(filled) + '▱'.repeat(segs - filled);
+
+              const title = `📊 cross-runtime [${cat}]: ${passing}/${total} (${pct}%)`;
+              let body = `## Tracker: categoria \`${cat}\`\n\n`;
+              body += `\`\`\`\n[${bar}] ${pct}%  ${passing}/${total} fixtures passam\n\`\`\`\n\n`;
+              body += `**Atualizado em**: ${today} — [run](${runUrl})\n\n`;
+              body += `### Fixtures\n\n`;
+              for (const f of fixtures) {
+                const checkbox = f.status === 'pass' ? '[x]' : '[ ]';
+                const emoji = f.status === 'pass' ? '✅' : (f.status === 'rts_error' ? '💥' : '❌');
+                const ref = issueRefForFixture(f.name);
+                const refLink = ref ? ` (${ref})` : '';
+                body += `- ${checkbox} ${emoji} \`${f.name}\`${refLink}\n`;
+              }
+              body += `\n<!-- cross-runtime-tracker: ${cat} -->\n`;
+
+              const existing = trackerByCategory.get(cat);
+              try {
+                if (existing) {
+                  // Update body + title (sempre — pct muda a cada run).
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: existing.number,
+                    title,
+                    body,
+                    // Se todas passam, fechar; se alguma diverge, abrir.
+                    state: passing === total ? 'closed' : 'open',
+                    state_reason: passing === total ? 'completed' : undefined,
+                  });
+                  trackersUpdated++;
+                } else {
+                  await github.rest.issues.create({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    title, body,
+                    labels: ['cross-runtime', 'tracking', `cat:${cat}`],
+                  });
+                  trackersCreated++;
+                }
+                await sleep(THROTTLE_MS);
+              } catch (e) {
+                console.log(`Tracker [${cat}] falhou: ${e.message}`);
+                if (/secondary rate limit|abuse/i.test(e.message)) {
+                  console.log('Secondary rate limit em trackers — abortando.');
+                  break;
+                }
+              }
+            }
+
+            console.log(`trackersCreated:${trackersCreated} trackersUpdated:${trackersUpdated}`);
