@@ -205,6 +205,15 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
 /// Tenta interpretar um i64 dentro de Map/Vec: se o handle apontar para
 /// String/Map/Vec/Json, recurse; senao, formata como numero.
 fn stringify_value_i64(v: i64) -> String {
+    // (cross-runtime #94/#142) Sentinelas de array literal:
+    //   MIN     = false, MIN+1 = true (codegen de array de bool)
+    //   MIN+2   = undefined, MIN+3 = null (codegen de undefined/null literal)
+    // JSON.stringify: undefined/null em array vira "null" (JS spec).
+    if v == i64::MIN { return "false".to_string(); }
+    if v == i64::MIN + 1 { return "true".to_string(); }
+    if v == i64::MIN + 2 || v == i64::MIN + 3 {
+        return "null".to_string();
+    }
     let h = v as u64;
     // Heuristica: handles RTS tem bits altos setados (gen+slot). Inteiros
     // pequenos (<= 2^31) tipicamente sao numeros, nao handles.
