@@ -848,7 +848,6 @@ pub(super) fn lower_array_builtin(
                 let tv = lower_expr(ctx, &arg.expr)?;
                 ctx.coerce_to_handle(tv)?.val
             } else {
-                // Default JS: separador "," sem argumento.
                 ctx.emit_str_handle(b",")?.val
             };
             let join_fn = ctx.get_extern(
