@@ -400,8 +400,13 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_LIMIT(recv: u64, sep: u64, limit: i64
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_LOCALE_COMPARE(recv: u64, other: u64) -> i64 {
+    use std::cmp::Ordering;
     match (handle_to_str(recv), handle_to_str(other)) {
-        (Some(a), Some(b)) => a.cmp(b) as i64 - 1, // Less=-1, Equal=0, Greater=1 via (ord as i64 - 1)
+        (Some(a), Some(b)) => match a.cmp(b) {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        },
         _ => 0,
     }
 }
