@@ -151,6 +151,27 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
     }
 
     if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
+        // `arr.length = N` — JS spec: trunca/extende o array.
+        // Detecta via prop name; runtime decide se eh Vec mesmo.
+        if matches!(a.op, AssignOp::Assign) {
+            if let MemberProp::Ident(prop) = &m.prop {
+                if prop.sym.as_str() == "length" {
+                    use cranelift_codegen::ir::types as cl;
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                    let val_tv = lower_expr(ctx, &a.right)?;
+                    let n = ctx.coerce_to_i64(val_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH",
+                        &[cl::I64, cl::I64],
+                        None,
+                    )?;
+                    ctx.builder.ins().call(f, &[obj_h, n]);
+                    // JS: assignment retorna o RHS.
+                    return Ok(TypedVal::new(n, ValTy::I64));
+                }
+            }
+        }
         // (#object-setter) Intercepta `obj.X = value` quando obj tem
         // setter `__set_X`. Chama o setter via INVOKE_AUTO em vez do
         // MAP_SET direto. Detecta em runtime via map_get(__set_X).
