@@ -47,6 +47,53 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         return lower_new_function(ctx, new_expr);
     }
 
+    // `new Object()` / `Object(x)`: JS spec eh boxing.
+    // - 0 args: novo Map vazio
+    // - 1 arg null/undefined: novo Map vazio
+    // - 1 arg object (Handle): passthrough
+    // - 1 arg primitivo: Map vazio (perde valor mas \`typeof === \"object\"\` ok)
+    // Cobre fixture #823. Boxing real de primitivos eh follow-up.
+    if class_name == "Object" {
+        let args = new_expr.args.as_ref();
+        let n_args = args.map(|a| a.len()).unwrap_or(0);
+        if n_args == 0 {
+            let map_new = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+                &[],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(map_new, &[]);
+            let h = ctx.builder.inst_results(inst)[0];
+            return Ok(TypedVal::new(h, ValTy::Handle));
+        }
+        let arg = &args.unwrap()[0];
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in `new Object`"));
+        }
+        // Strings literais sao primitivos em JS — `new Object("s")` faz
+        // boxing em objeto (typeof === "object"). Detecta antes de
+        // lower_expr para nao confundir com passthrough de string Handle.
+        let is_string_lit = matches!(
+            arg.expr.as_ref(),
+            Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+        );
+        let tv = lower_expr(ctx, &arg.expr)?;
+        if matches!(tv.ty, ValTy::Handle) && !is_string_lit {
+            // null/undefined ou objeto: passthrough.
+            return Ok(TypedVal::new(tv.val, ValTy::Handle));
+        }
+        // Primitivo (Bool, I64, F64): Map vazio para satisfazer
+        // `typeof === "object"`. Valor primitivo descartado (TODO: boxing).
+        let map_new = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+            &[],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(map_new, &[]);
+        let h = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(h, ValTy::Handle));
+    }
+
     // Global class constructors: new Date(), new Date(ms), new Date(isoStr)
     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
         let n_args = new_expr.args.as_ref().map(|a| a.len()).unwrap_or(0);
