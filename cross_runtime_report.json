@@ -953,10 +953,10 @@
 ,
 {
   "name": "207_json_stringify_space",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
   "node": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
-  "rts": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=false\narr_lines=5"
+  "rts": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94081898610976 w94081898610976rld\ndoubled=a94081898610912b94081898610912c94081898610912\nswapped=94081898610688"
+  "rts": "replaced=hell94395776962848 w94395776962848rld\ndoubled=a94395776962784b94395776962784c94395776962784\nswapped=94395776962560"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94811151966208b94811151966208"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94052441579520b94052441579520"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":105,"rts_diverge":81,"bun_node_diverge":3,"errors":123,"rejected":0}}
+],"summary":{"total":312,"pass":106,"rts_diverge":80,"bun_node_diverge":3,"errors":123,"rejected":0}}
