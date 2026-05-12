@@ -937,9 +937,13 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
 
     ctx.builder.switch_to_block(merge);
     ctx.builder.seal_block(merge);
-    // Tipo de resultado: se lhs ou rhs era Handle, propaga Handle.
+    // Tipo de resultado: Handle se qualquer lado eh Handle; Bool se
+    // ambos sao Bool (preserva semantica de \`a && b\` retornar bool em
+    // JS quando ambos sao bool); senao I64.
     let out_ty = if matches!(lhs_ty, ValTy::Handle) || matches!(rhs_ty, ValTy::Handle) {
         ValTy::Handle
+    } else if matches!(lhs_ty, ValTy::Bool) && matches!(rhs_ty, ValTy::Bool) {
+        ValTy::Bool
     } else {
         ValTy::I64
     };
