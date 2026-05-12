@@ -56,11 +56,31 @@ pub(super) fn lower_string_builtin(
         // ── search ──────────────────────────────────────────────────────
         "indexOf" => {
             let needle = arg_handle(ctx, call, 0)?;
+            if call.args.len() >= 2 {
+                let from = arg_i64(ctx, call, 1)?;
+                let v = call_h!(
+                    "__RTS_FN_GL_STRING_INDEX_OF_FROM",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                    &[recv_h, needle, from]
+                );
+                return Ok(Some(TypedVal::new(v, ValTy::I64)));
+            }
             let v = call_h!("__RTS_FN_GL_STRING_INDEX_OF", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle]);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "lastIndexOf" => {
             let needle = arg_handle(ctx, call, 0)?;
+            if call.args.len() >= 2 {
+                let from = arg_i64(ctx, call, 1)?;
+                let v = call_h!(
+                    "__RTS_FN_GL_STRING_LAST_INDEX_OF_FROM",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                    &[recv_h, needle, from]
+                );
+                return Ok(Some(TypedVal::new(v, ValTy::I64)));
+            }
             let v = call_h!("__RTS_FN_GL_STRING_LAST_INDEX_OF", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle]);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }

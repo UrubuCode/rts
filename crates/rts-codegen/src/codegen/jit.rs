@@ -1429,6 +1429,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_FROM_CODE_POINT",  rt::__RTS_FN_GL_STRING_FROM_CODE_POINT);
     add_fn!("__RTS_FN_GL_STRING_INDEX_OF",         rt::__RTS_FN_GL_STRING_INDEX_OF);
     add_fn!("__RTS_FN_GL_STRING_LAST_INDEX_OF",    rt::__RTS_FN_GL_STRING_LAST_INDEX_OF);
+    add_fn!("__RTS_FN_GL_STRING_INDEX_OF_FROM",    rt::__RTS_FN_GL_STRING_INDEX_OF_FROM);
+    add_fn!("__RTS_FN_GL_STRING_LAST_INDEX_OF_FROM", rt::__RTS_FN_GL_STRING_LAST_INDEX_OF_FROM);
     add_fn!("__RTS_FN_GL_STRING_INCLUDES",         rt::__RTS_FN_GL_STRING_INCLUDES);
     add_fn!("__RTS_FN_GL_STRING_STARTS_WITH",      rt::__RTS_FN_GL_STRING_STARTS_WITH);
     add_fn!("__RTS_FN_GL_STRING_ENDS_WITH",        rt::__RTS_FN_GL_STRING_ENDS_WITH);
