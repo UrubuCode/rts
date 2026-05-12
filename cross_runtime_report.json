@@ -273,10 +273,10 @@
 ,
 {
   "name": "12_array_higher_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
   "node": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
-  "rts": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321"
+  "rts": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=\nreduceRight=321"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94456305639712 w94456305639712rld\ndoubled=a94456305639648b94456305639648c94456305639648\nswapped=94456305639424"
+  "rts": "replaced=hell93986272543008 w93986272543008rld\ndoubled=a93986272542944b93986272542944c93986272542944\nswapped=93986272542720"
 }
 ,
 {
@@ -1409,10 +1409,10 @@
 ,
 {
   "name": "259_array_at",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
   "node": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
-  "rts": "p1=281474976710658\nn1=281474976710659\nn2=281474976710658\nz=281474976710657\noor=0"
+  "rts": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94712383029248b94712383029248"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a93982128824320b93982128824320"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order="
 }
 ,
 {
