@@ -133,7 +133,9 @@ pub(super) fn lower_var_member_call(
     // (#264 PR5) `obj.hasOwnProperty(key)` — verifica own props sem chain.
     if prop == "hasOwnProperty" && call.args.len() == 1 {
         let key_tv = lower_expr(ctx, &call.args[0].expr)?;
-        let key_h = ctx.coerce_to_i64(key_tv).val;
+        // Numero -> string handle (JS converte: `arr.hasOwnProperty(0)`
+        // testa key "0"). `coerce_to_handle` ja' faz stringify de I64/F64.
+        let key_h = ctx.coerce_to_handle(key_tv)?.val;
         let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
         let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
         let inst_p = ctx.builder.ins().call(str_ptr_fn, &[key_h]);

@@ -151,6 +151,23 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
+    // Arrays (Vec): "length" eh own; chaves de indice (parsam como
+    // uint32) sao own quando < length. Demais nao.
+    let vec_result: Option<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => {
+            if key == "length" {
+                Some(1)
+            } else if let Some(n) = parse_array_index(key) {
+                Some(if (n as usize) < v.len() { 1 } else { 0 })
+            } else {
+                Some(0)
+            }
+        }
+        _ => None,
+    });
+    if let Some(r) = vec_result {
+        return r;
+    }
     with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
 }
 
