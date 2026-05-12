@@ -321,10 +321,10 @@
 ,
 {
   "name": "135_array_indexof_lastindexof",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12",
   "node": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12",
-  "rts": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12"
+  "rts": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94381722407200 w94381722407200rld\ndoubled=a94381722407136b94381722407136c94381722407136\nswapped=94381722406912"
+  "rts": "replaced=hell94058499166496 w94058499166496rld\ndoubled=a94058499166432b94058499166432c94058499166432\nswapped=94058499166208"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94570694139904b94570694139904"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94143178297344b94143178297344"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":116,"rts_diverge":74,"bun_node_diverge":3,"errors":119,"rejected":0}}
+],"summary":{"total":312,"pass":117,"rts_diverge":73,"bun_node_diverge":3,"errors":119,"rejected":0}}
