@@ -367,6 +367,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(handle: u64, other: u64) ->
     alloc_entry(Entry::Vec(Box::new(out)))
 }
 
+/// (cross-runtime #143) Append de um arg `arr.concat(arg, ...)`. Se `arg`
+/// eh handle de Vec, faz extend; caso contrario push do escalar. JS spec:
+/// `Array.prototype.concat` so' faz spread em arrays "concat-spreadable".
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(handle: u64, arg: i64) -> u64 {
+    let arg_h = arg as u64;
+    let as_vec: Option<Vec<i64>> = with_entry(arg_h, |entry| match entry {
+        Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+        _ => None,
+    });
+    if let Some(items) = as_vec {
+        with_vec_mut(handle, (), |v| v.extend(items));
+    } else {
+        with_vec_mut(handle, (), |v| v.push(arg));
+    }
+    handle
+}
+
 /// `arr.fill(value, start, end)` — preenche range com `value` in-place.
 /// Retorna o proprio handle.
 #[unsafe(no_mangle)]
