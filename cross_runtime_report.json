@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94312082202912 w94312082202912rld\ndoubled=a94312082202848b94312082202848c94312082202848\nswapped=94312082202624"
+  "rts": "replaced=hell94126395830560 w94126395830560rld\ndoubled=a94126395830496b94126395830496c94126395830496\nswapped=94126395830272"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a93873590517760b93873590517760"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94703232552960b94703232552960"
 }
 ,
 {
