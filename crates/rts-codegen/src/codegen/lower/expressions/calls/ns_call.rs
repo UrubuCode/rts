@@ -308,6 +308,12 @@ pub(super) fn lower_ns_call_body(
     let inst = ctx.builder.ins().call(fref, &values);
     if lowered.ret.is_some() {
         let v = ctx.builder.inst_results(inst)[0];
+        // `parallel.find` retorna I64 mas o slot pode ser handle de
+        // "undefined" quando nao acha. Marca como ambiguo para que
+        // template literal/console use TPL_COERCE_AUTO/INSPECT.
+        if member.symbol == "__RTS_FN_NS_PARALLEL_FIND" {
+            ctx.var_member_call_values.insert(v);
+        }
         Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
     } else {
         Ok(TypedVal::new(

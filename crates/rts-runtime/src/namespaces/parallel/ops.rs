@@ -113,7 +113,16 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND(vec_handle: u64, fn_ptr: u64) -> i64
         return 0;
     }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    items.into_iter().find(|&x| cb_truthy(f(x))).unwrap_or(0)
+    match items.into_iter().find(|&x| cb_truthy(f(x))) {
+        Some(v) => v,
+        None => {
+            // JS spec: find sem match retorna `undefined`. Aloca handle
+            // de string "undefined" — codegen marca .find(...) como
+            // ambiguo (var_member_call_values), template literal/console
+            // formata corretamente via TPL_COERCE_AUTO/INSPECT.
+            alloc_entry(Entry::String(b"undefined".to_vec())) as i64
+        }
+    }
 }
 
 /// Retorna index do primeiro elemento que satisfaz predicate, ou -1.
