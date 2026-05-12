@@ -874,6 +874,17 @@ pub(super) fn lower_array_builtin(
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
+            // (cross-runtime #135) JS spec: indexOf/lastIndexOf usam strict
+            // equality (===), e NaN !== NaN, entao sempre retornam -1.
+            // `includes` por outro lado usa SameValueZero e ACHA NaN.
+            if matches!(method, "indexOf" | "lastIndexOf") {
+                if let swc_ecma_ast::Expr::Ident(id) = call.args[0].expr.as_ref() {
+                    if id.sym.as_str() == "NaN" {
+                        let neg1 = ctx.builder.ins().iconst(cl::I64, -1);
+                        return Ok(Some(TypedVal::new(neg1, ValTy::I64)));
+                    }
+                }
+            }
             let needle_tv = lower_expr(ctx, &call.args[0].expr)?;
             let needle = ctx.coerce_to_i64(needle_tv).val;
             // (#208) indexOf/lastIndexOf/includes(needle, fromIndex) — 2-arg.
