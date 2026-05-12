@@ -681,10 +681,10 @@
 ,
 {
   "name": "176_number_constructor",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true",
   "node": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true",
-  "rts": "MAX_VALUE=true\nMIN_VALUE=1\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=1"
+  "rts": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true"
 }
 ,
 {
@@ -905,10 +905,10 @@
 ,
 {
   "name": "201_math_random_deterministic",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "range=true\ndifferent=true\ntype=number\nall_in_range=true",
   "node": "range=true\ndifferent=true\ntype=number\nall_in_range=true",
-  "rts": "range=1\ndifferent=true\ntype=number\nall_in_range=true"
+  "rts": "range=true\ndifferent=true\ntype=number\nall_in_range=true"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94284309045536 w94284309045536rld\ndoubled=a94284309045472b94284309045472c94284309045472\nswapped=94284309045248"
+  "rts": "replaced=hell94570266648864 w94570266648864rld\ndoubled=a94570266648800b94570266648800c94570266648800\nswapped=94570266648576"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94551630737408b94551630737408"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94902545326080b94902545326080"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order="
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":109,"rts_diverge":79,"bun_node_diverge":3,"errors":121,"rejected":0}}
+],"summary":{"total":312,"pass":111,"rts_diverge":77,"bun_node_diverge":3,"errors":121,"rejected":0}}
