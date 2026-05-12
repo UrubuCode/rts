@@ -513,10 +513,10 @@
 ,
 {
   "name": "157_array_tostring_tolocalestring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
   "node": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3"
 }
 ,
 {
@@ -1169,10 +1169,10 @@
 ,
 {
   "name": "231_array_tolocalestring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "has_commas=true\nmixed=true\nempty=",
   "node": "has_commas=true\nmixed=true\nempty=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "has_commas=true\nmixed=true\nempty="
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94416141840672 w94416141840672rld\ndoubled=a94416141840608b94416141840608c94416141840608\nswapped=94416141840384"
+  "rts": "replaced=hell94547388104992 w94547388104992rld\ndoubled=a94547388104928b94547388104928c94547388104928\nswapped=94547388104704"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94397195407360b94397195407360"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94151046729728b94151046729728"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":117,"rts_diverge":74,"bun_node_diverge":4,"errors":117,"rejected":0}}
+],"summary":{"total":312,"pass":119,"rts_diverge":74,"bun_node_diverge":4,"errors":115,"rejected":0}}
