@@ -947,19 +947,39 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "unshift" => {
-            if call.args.len() != 1 || call.args[0].spread.is_some() {
+            // JS spec: \`arr.unshift(a, b, c)\` resulta em \`[a, b, c, ...arr]\`.
+            // Para preservar ordem com chamadas individuais de unshift (que
+            // insere no inicio), aplica em ordem reversa: unshift(c), unshift(b),
+            // unshift(a). Retorna novo length (resultado da ultima chamada).
+            if call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
-            let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let arg = ctx.coerce_to_i64(arg_tv).val;
+            if call.args.is_empty() {
+                let len_fref = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(len_fref, &[obj_h]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(Some(TypedVal::new(v, ValTy::I64)));
+            }
             let fref = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT",
                 &[cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, arg]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
+            // Avalia args na ordem (left-to-right) — JS spec exige.
+            let arg_vals: Vec<_> = call.args.iter().map(|a| {
+                let tv = lower_expr(ctx, &a.expr)?;
+                Ok::<_, anyhow::Error>(ctx.coerce_to_i64(tv).val)
+            }).collect::<Result<Vec<_>>>()?;
+            let mut last = ctx.builder.ins().iconst(cl::I64, 0);
+            for v in arg_vals.iter().rev() {
+                let inst = ctx.builder.ins().call(fref, &[obj_h, *v]);
+                last = ctx.builder.inst_results(inst)[0];
+            }
+            Ok(Some(TypedVal::new(last, ValTy::I64)))
         }
         "slice" => {
             // arr.slice(start?, end?). end omitido = i64::MIN sentinel.
