@@ -12,6 +12,14 @@ fn snapshot_vec(handle: u64) -> Option<Vec<i64>> {
     })
 }
 
+/// JS-spec truthy do retorno de callback: chama __RTS_FN_RT_TRUTHY que
+/// trata 0/null/undefined/""/false como falsy. Sem isso, filter com
+/// `x => x` em array `[0, false, "", null]` so' descartava 0 e null
+/// (bool/string handles passavam como nao-zero).
+fn cb_truthy(v: i64) -> bool {
+    crate::namespaces::gc::string_pool::__RTS_FN_RT_TRUTHY(v) != 0
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 {
     let Some(items) = snapshot_vec(vec_handle) else {
@@ -91,7 +99,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FILTER(vec_handle: u64, fn_ptr: u64) -> u
         return 0;
     }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let result: Vec<i64> = items.into_iter().filter(|&x| f(x) != 0).collect();
+    let result: Vec<i64> = items.into_iter().filter(|&x| cb_truthy(f(x))).collect();
     alloc_entry(Entry::Vec(Box::new(result)))
 }
 
@@ -105,7 +113,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND(vec_handle: u64, fn_ptr: u64) -> i64
         return 0;
     }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    items.into_iter().find(|&x| f(x) != 0).unwrap_or(0)
+    items.into_iter().find(|&x| cb_truthy(f(x))).unwrap_or(0)
 }
 
 /// Retorna index do primeiro elemento que satisfaz predicate, ou -1.
@@ -120,7 +128,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_INDEX(vec_handle: u64, fn_ptr: u64) 
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
     items
         .into_iter()
-        .position(|x| f(x) != 0)
+        .position(|x| cb_truthy(f(x)))
         .map(|i| i as i64)
         .unwrap_or(-1)
 }
@@ -135,7 +143,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_SOME(vec_handle: u64, fn_ptr: u64) -> i64
         return 0;
     }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    if items.into_iter().any(|x| f(x) != 0) { 1 } else { 0 }
+    if items.into_iter().any(|x| cb_truthy(f(x))) { 1 } else { 0 }
 }
 
 /// Retorna 1 se todos os elementos satisfazem predicate, 0 caso contrario.
@@ -149,5 +157,5 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_EVERY(vec_handle: u64, fn_ptr: u64) -> i6
         return 1;
     }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    if items.into_iter().all(|x| f(x) != 0) { 1 } else { 0 }
+    if items.into_iter().all(|x| cb_truthy(f(x))) { 1 } else { 0 }
 }
