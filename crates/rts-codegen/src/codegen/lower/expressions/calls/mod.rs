@@ -1406,6 +1406,40 @@ fn lower_js_global_call(
 ) -> Result<Option<crate::codegen::lower::ctx::TypedVal>> {
     use crate::codegen::lower::ctx::{TypedVal, ValTy};
     match name {
+        // (cross-runtime #178) `Array(n)` / `Array(...)` sem `new` — JS spec
+        // trata identico a `new Array(...)`. 1 arg numerico = length, senao push de cada arg.
+        "Array" => {
+            use crate::codegen::lower::ctx::{TypedVal, ValTy};
+            let n_args = call.args.len();
+            if n_args == 1 && call.args[0].spread.is_none() {
+                let tv = super::lower_expr(ctx, &call.args[0].expr)?;
+                if matches!(tv.ty, ValTy::I64 | ValTy::I32 | ValTy::F64 | ValTy::U64) {
+                    let len_i64 = ctx.coerce_to_i64(tv).val;
+                    let f = ctx.get_extern("__RTS_FN_GL_ARRAY_NEW_WITH_LENGTH", &[cl::I64], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(f, &[len_i64]);
+                    let h = ctx.builder.inst_results(inst)[0];
+                    return Ok(Some(TypedVal::new(h, ValTy::Handle)));
+                }
+                // Handle: cai pro fallback abaixo (Array.of-like, push do unico arg).
+            }
+            let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(new_fn, &[]);
+            let vec_h = ctx.builder.inst_results(inst)[0];
+            let push_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+            for arg in &call.args {
+                if arg.spread.is_some() {
+                    return Ok(None);
+                }
+                let tv = super::lower_expr(ctx, &arg.expr)?;
+                let v = if matches!(tv.ty, ValTy::Bool) {
+                    ctx.coerce_to_handle(tv)?.val
+                } else {
+                    ctx.coerce_to_i64(tv).val
+                };
+                ctx.builder.ins().call(push_fn, &[vec_h, v]);
+            }
+            return Ok(Some(TypedVal::new(vec_h, ValTy::Handle)));
+        }
         "isNaN" => lower_coerce_is_nan(ctx, call).map(Some),
         "isFinite" => lower_coerce_is_finite(ctx, call).map(Some),
         "Number" => lower_coerce_to_number(ctx, call),
