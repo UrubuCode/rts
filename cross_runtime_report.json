@@ -1388,15 +1388,15 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94547388104992 w94547388104992rld\ndoubled=a94547388104928b94547388104928c94547388104928\nswapped=94547388104704"
+  "rts": "replaced=hell94456305639712 w94456305639712rld\ndoubled=a94456305639648b94456305639648c94456305639648\nswapped=94456305639424"
 }
 ,
 {
   "name": "257_array_flat_depth",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
   "node": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
-  "rts": "depth0=1,2,3,281474976710659\ndepth1=1,2,3,4,281474976710660\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3"
+  "rts": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94151046729728b94151046729728"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94712383029248b94712383029248"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":119,"rts_diverge":74,"bun_node_diverge":4,"errors":115,"rejected":0}}
+],"summary":{"total":312,"pass":120,"rts_diverge":74,"bun_node_diverge":3,"errors":115,"rejected":0}}
