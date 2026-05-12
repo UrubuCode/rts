@@ -993,10 +993,10 @@
 ,
 {
   "name": "211_array_shift_empty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined",
   "node": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined",
-  "rts": "result=0\nlength=0\nval=1\nempty_after=0\npopped=0"
+  "rts": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94760937775392 w94760937775392rld\ndoubled=a94760937775328b94760937775328c94760937775328\nswapped=94760937775104"
+  "rts": "replaced=hell94081898610976 w94081898610976rld\ndoubled=a94081898610912b94081898610912c94081898610912\nswapped=94081898610688"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94900808093696b94900808093696"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94811151966208b94811151966208"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order="
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":104,"rts_diverge":82,"bun_node_diverge":3,"errors":123,"rejected":0}}
+],"summary":{"total":312,"pass":105,"rts_diverge":81,"bun_node_diverge":3,"errors":123,"rejected":0}}
