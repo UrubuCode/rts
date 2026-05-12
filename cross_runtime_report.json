@@ -492,7 +492,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=100\nkeys=a,b\nb=10\ngetter=5"
+  "rts": "value=42\nstill=100\nkeys=a\nb=10\ngetter=5"
 }
 ,
 {
@@ -817,10 +817,10 @@
 ,
 {
   "name": "191_object_values_entries_iteration",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
   "node": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
-  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3,4\nempty_values=\nempty_entries="
+  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries="
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell93961676726560 w93961676726560rld\ndoubled=a93961676726496b93961676726496c93961676726496\nswapped=93961676726272"
+  "rts": "replaced=hell94010123186464 w94010123186464rld\ndoubled=a94010123186400b94010123186400c94010123186400\nswapped=94010123186176"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94078018961408b94078018961408"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94902989107200b94902989107200"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":113,"rts_diverge":76,"bun_node_diverge":3,"errors":120,"rejected":0}}
+],"summary":{"total":312,"pass":114,"rts_diverge":75,"bun_node_diverge":3,"errors":120,"rejected":0}}
