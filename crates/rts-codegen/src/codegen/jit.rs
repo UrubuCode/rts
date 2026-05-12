@@ -1139,6 +1139,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_POP
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_GET",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_GET
         );

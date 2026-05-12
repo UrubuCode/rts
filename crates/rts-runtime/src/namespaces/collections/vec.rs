@@ -67,6 +67,29 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(handle: u64) -> i64 {
     with_vec_mut(handle, 0, |v| v.pop().unwrap_or(0))
 }
 
+/// `arr.length = n` — JS spec: trunca se n < length, extende com
+/// undefined (slot 0) se n > length, no-op se n == length.
+/// n negativo gera RangeError em JS; aqui silently no-op (RTS nao
+/// tem throw real; alternativa seria abort).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH(handle: u64, n: i64) {
+    if n < 0 {
+        return;
+    }
+    let n = n as usize;
+    with_vec_mut(handle, (), |v| {
+        if n < v.len() {
+            v.truncate(n);
+        } else if n > v.len() {
+            // JS extension: novos slots viram `undefined`. RTS slots sao
+            // i64 raw; usamos 0 como sentinela de hole. `arr[i] ===
+            // undefined` ainda diverge porque vec_get retorna I64 e
+            // codegen impoe strict-kind — tracking separado.
+            v.resize(n, 0);
+        }
+    });
+}
+
 /// Valor em `index`, ou 0 fora do range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(handle: u64, index: i64) -> i64 {
