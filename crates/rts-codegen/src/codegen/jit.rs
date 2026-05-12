@@ -1810,6 +1810,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE
         );
         add_fn!(
+            "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT",
+            parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT
+        );
+        add_fn!(
             "__RTS_FN_NS_PARALLEL_NUM_THREADS",
             parallel_ops::__RTS_FN_NS_PARALLEL_NUM_THREADS
         );
