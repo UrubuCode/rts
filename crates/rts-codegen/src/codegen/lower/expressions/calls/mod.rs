@@ -239,9 +239,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let v_h = ctx.coerce_to_i64(v_tv).val;
                     let i_tv = lower_expr(ctx, &call.args[2].expr)?;
-                    let indent = ctx.coerce_to_i64(i_tv).val;
+                    // JS spec: indent pode ser number ou string. Detecta
+                    // pelo tipo e roteia para PRETTY (i64) ou PRETTY_STR
+                    // (handle de string).
+                    let sym = if matches!(i_tv.ty, ValTy::Handle) {
+                        "__RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR"
+                    } else {
+                        "__RTS_FN_NS_JSON_STRINGIFY_PRETTY"
+                    };
+                    let indent = if matches!(i_tv.ty, ValTy::Handle) {
+                        i_tv.val
+                    } else {
+                        ctx.coerce_to_i64(i_tv).val
+                    };
                     let f = ctx.get_extern(
-                        "__RTS_FN_NS_JSON_STRINGIFY_PRETTY",
+                        sym,
                         &[cl::I64, cl::I64],
                         Some(cl::I64),
                     )?;

@@ -261,10 +261,10 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64
 }
 
 /// Pretty-printer recursivo para Map/Vec/String/Json com indent.
-fn stringify_pretty_inner(handle: u64, indent: usize, depth: usize) -> Option<String> {
+fn stringify_pretty_inner_str(handle: u64, indent: &str, depth: usize) -> Option<String> {
     use std::fmt::Write;
-    let pad_outer = " ".repeat(indent * depth);
-    let pad_inner = " ".repeat(indent * (depth + 1));
+    let pad_outer = indent.repeat(depth);
+    let pad_inner = indent.repeat(depth + 1);
     with_entry(handle, |e| {
         let v = e?;
         let mut out = String::new();
@@ -290,7 +290,7 @@ fn stringify_pretty_inner(handle: u64, indent: usize, depth: usize) -> Option<St
                         }
                     }
                     out.push_str("\": ");
-                    out.push_str(&stringify_pretty_value_i64(**val, indent, depth + 1));
+                    out.push_str(&stringify_pretty_value_i64_str(**val, indent, depth + 1));
                     if i + 1 < entries.len() { out.push(','); }
                     out.push('\n');
                 }
@@ -306,7 +306,7 @@ fn stringify_pretty_inner(handle: u64, indent: usize, depth: usize) -> Option<St
                 out.push_str("[\n");
                 for (i, val) in arr.iter().enumerate() {
                     out.push_str(&pad_inner);
-                    out.push_str(&stringify_pretty_value_i64(*val, indent, depth + 1));
+                    out.push_str(&stringify_pretty_value_i64_str(*val, indent, depth + 1));
                     if i + 1 < arr.len() { out.push(','); }
                     out.push('\n');
                 }
@@ -315,9 +315,8 @@ fn stringify_pretty_inner(handle: u64, indent: usize, depth: usize) -> Option<St
                 Some(out)
             }
             Entry::Json(j) => {
-                let pad = " ".repeat(indent);
                 let mut buf = Vec::with_capacity(64);
-                let formatter = serde_json::ser::PrettyFormatter::with_indent(pad.as_bytes());
+                let formatter = serde_json::ser::PrettyFormatter::with_indent(indent.as_bytes());
                 let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
                 serde::Serialize::serialize(j.as_ref(), &mut ser).ok()?;
                 let _ = write!(out, "{}", String::from_utf8(buf).ok()?);
@@ -328,10 +327,10 @@ fn stringify_pretty_inner(handle: u64, indent: usize, depth: usize) -> Option<St
     })
 }
 
-fn stringify_pretty_value_i64(v: i64, indent: usize, depth: usize) -> String {
+fn stringify_pretty_value_i64_str(v: i64, indent: &str, depth: usize) -> String {
     let h = v as u64;
     if h > 0xFFFF_FFFF {
-        if let Some(s) = stringify_pretty_inner(h, indent, depth) {
+        if let Some(s) = stringify_pretty_inner_str(h, indent, depth) {
             return s;
         }
     }
@@ -344,7 +343,34 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY(handle: u64, indent: i64) ->
     if indent == 0 {
         return __RTS_FN_NS_JSON_STRINGIFY(handle);
     }
-    if let Some(s) = stringify_pretty_inner(handle, indent, 0) {
+    let indent_str = " ".repeat(indent);
+    if let Some(s) = stringify_pretty_inner_str(handle, &indent_str, 0) {
+        return alloc_entry(Entry::String(s.into_bytes()));
+    }
+    if handle == 0 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
+    alloc_entry(Entry::String(handle.to_string().into_bytes()))
+}
+
+/// `JSON.stringify(value, null, "<str>")` — indent eh string custom (ate
+/// 10 chars conforme JS spec). String vazia desativa pretty.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR(
+    handle: u64,
+    indent_h: u64,
+) -> u64 {
+    let indent_str: String = match crate::namespaces::gc::string_pool::read_string_handle(indent_h) {
+        Some(s) => {
+            // JS spec: trunca em 10 caracteres.
+            s.chars().take(10).collect()
+        }
+        None => String::new(),
+    };
+    if indent_str.is_empty() {
+        return __RTS_FN_NS_JSON_STRINGIFY(handle);
+    }
+    if let Some(s) = stringify_pretty_inner_str(handle, &indent_str, 0) {
         return alloc_entry(Entry::String(s.into_bytes()));
     }
     if handle == 0 {
