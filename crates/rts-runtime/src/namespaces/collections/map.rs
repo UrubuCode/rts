@@ -328,15 +328,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
         return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
     }
     let keys: Vec<String> = with_map(handle, Vec::new(), |m| {
-        // (#208) Filtra `__proto__` — JS spec: Object.keys retorna so
-        // own enumeravel, e __proto__ nao deve aparecer em iteracao.
+        // (#208) Filtra `__proto__` e nao-enumeraveis (defineProperty) —
+        // JS spec: Object.keys retorna so own enumeravel.
         // Ordem JS (ECMA-262): integer-indexed keys ascendentes, depois
-        // string keys em ordem de insercao. Mesmo criterio de MAP_KEY_AT
-        // (era `ks.sort()` lexicografico — quebrava 216_object_keys_order).
+        // string keys em ordem de insercao.
         let mut int_keys: Vec<(u32, String)> = Vec::new();
         let mut str_keys: Vec<String> = Vec::new();
         for k in m.keys() {
             if k.as_str() == "__proto__" {
+                continue;
+            }
+            if is_non_enumerable(handle, k.as_str()) {
                 continue;
             }
             match parse_array_index(k) {
@@ -372,6 +374,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
         let mut str_entries: Vec<i64> = Vec::new();
         for (k, v) in m.iter() {
             if k.as_str() == "__proto__" { continue; }
+            if is_non_enumerable(handle, k.as_str()) { continue; }
             match parse_array_index(k) {
                 Some(n) => int_entries.push((n, *v)),
                 None => str_entries.push(*v),
@@ -403,6 +406,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
         let mut str_entries: Vec<(String, i64)> = Vec::new();
         for (k, v) in m.iter() {
             if k.as_str() == "__proto__" { continue; }
+            if is_non_enumerable(handle, k.as_str()) { continue; }
             match parse_array_index(k) {
                 Some(n) => int_entries.push((n, k.clone(), *v)),
                 None => str_entries.push((k.clone(), *v)),
@@ -493,6 +497,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                if is_non_enumerable(handle, k.as_str()) { continue; }
                 match parse_array_index(k) {
                     Some(n) => int_keys.push((n, k.clone())),
                     None => str_keys.push(k.clone()),
@@ -611,9 +616,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     proto as u64
 }
 
-/// (#208) `Object.defineProperty(obj, key, descriptor)` — v0 simples.
-/// Suporta apenas `{ value: x }`. Demais (get/set/writable/enumerable)
-/// caem em PR separada.
+/// Set global de (handle, key) marcados como nao-enumeravel via
+/// `Object.defineProperty(obj, key, { enumerable: false, ... })`. Usado
+/// por Object.keys/values/entries e for-in para filtrar.
+fn non_enumerable_set() -> &'static Mutex<HashSet<(u64, String)>> {
+    static S: OnceLock<Mutex<HashSet<(u64, String)>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) fn is_non_enumerable(handle: u64, key: &str) -> bool {
+    non_enumerable_set()
+        .lock()
+        .unwrap()
+        .contains(&(handle, key.to_string()))
+}
+
+/// (#208) `Object.defineProperty(obj, key, descriptor)`.
+/// Suporta `{ value: x }` e `{ enumerable: false }`. Demais
+/// (get/set/writable/configurable) caem em PR separada.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     obj: u64,
@@ -622,6 +642,37 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     descriptor: u64,
 ) -> u64 {
     let value: i64 = with_map(descriptor, 0, |m| m.get("value").copied().unwrap_or(0));
+    // enumerable: descritor com "enumerable" = 0 (bool false) marca a key
+    // como nao-enumeravel. Default JS quando ausente eh false; mas pra
+    // compat com codigo TS comum (object literal padrao tem enumerable=true)
+    // RTS so' marca quando explicitamente false.
+    // Bool eh empacotado em object literal via sentinela i64::MIN (false)
+    // / i64::MIN+1 (true) pelo codegen. Strict check para evitar false
+    // positive de handle nao-zero.
+    let is_enumerable: Option<bool> = with_map(descriptor, None, |m| {
+        m.get("enumerable").map(|v| {
+            if *v == i64::MIN { false }
+            else if *v == i64::MIN + 1 { true }
+            else { *v != 0 }
+        })
+    });
+    let key_str = match str_from_abi(key_ptr, key_len) {
+        Some(s) => s.to_string(),
+        None => return obj,
+    };
+    if matches!(is_enumerable, Some(false)) {
+        non_enumerable_set()
+            .lock()
+            .unwrap()
+            .insert((obj, key_str.clone()));
+    } else {
+        // Se redefiniu com enumerable=true (ou ausente, default keep),
+        // remove marca antiga.
+        non_enumerable_set()
+            .lock()
+            .unwrap()
+            .remove(&(obj, key_str.clone()));
+    }
     __RTS_FN_NS_COLLECTIONS_MAP_SET(obj, key_ptr, key_len, value);
     obj
 }
