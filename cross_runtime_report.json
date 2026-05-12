@@ -857,10 +857,10 @@
 ,
 {
   "name": "196_string_fromcodepoint",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode=",
   "node": "ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode=",
-  "rts": "ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode=😀"
+  "rts": "ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode="
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94570266648864 w94570266648864rld\ndoubled=a94570266648800b94570266648800c94570266648800\nswapped=94570266648576"
+  "rts": "replaced=hell94530570072352 w94530570072352rld\ndoubled=a94530570072288b94530570072288c94530570072288\nswapped=94530570072064"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94902545326080b94902545326080"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94666602352640b94666602352640"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":111,"rts_diverge":77,"bun_node_diverge":3,"errors":121,"rejected":0}}
+],"summary":{"total":312,"pass":112,"rts_diverge":75,"bun_node_diverge":4,"errors":121,"rejected":0}}
