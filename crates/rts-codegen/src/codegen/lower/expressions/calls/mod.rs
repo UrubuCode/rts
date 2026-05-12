@@ -1045,7 +1045,11 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     )?;
                     for arg in &call.args {
                         let tv = lower_expr(ctx, &arg.expr)?;
-                        let v = ctx.coerce_to_i64(tv).val;
+                        let v = if matches!(tv.ty, ValTy::Bool) {
+                            ctx.coerce_to_handle(tv)?.val
+                        } else {
+                            ctx.coerce_to_i64(tv).val
+                        };
                         ctx.builder.ins().call(push_fn, &[vec_h, v]);
                     }
                     return Ok(TypedVal::new(vec_h, ValTy::Handle));

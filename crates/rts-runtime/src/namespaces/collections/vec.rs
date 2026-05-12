@@ -428,6 +428,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
     alloc_entry(Entry::Vec(Box::new(removed)))
 }
 
+/// (#780) `new Array(len)` — cria Vec preenchido com 0 (undefined em V0)
+/// Limitado ao `VEC_MAX_LEN` pra evitar OOM.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
+    let len = len.max(0).min(VEC_MAX_LEN as i64) as usize;
+    let v = vec![0; len];
+    alloc_entry(Entry::Vec(Box::new(v)))
+}
+
 /// (#208) `Array.from({length: n}, fn?)` — gera Vec [fn(0), fn(1), ...].
 /// Se fn_ptr == 0, gera [0, 1, ..., n-1] (sem mapeamento).
 /// fn_ptr e' `extern "C" fn(item: i64, idx: i64) -> i64`.

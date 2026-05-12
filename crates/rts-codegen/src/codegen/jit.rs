@@ -1221,6 +1221,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_GL_ARRAY_FROM_LENGTH
         );
         add_fn!(
+            "__RTS_FN_GL_ARRAY_NEW_WITH_LENGTH",
+            vec::__RTS_FN_GL_ARRAY_NEW_WITH_LENGTH
+        );
+        add_fn!(
             "__RTS_FN_GL_ARRAY_FROM_VEC",
             vec::__RTS_FN_GL_ARRAY_FROM_VEC
         );

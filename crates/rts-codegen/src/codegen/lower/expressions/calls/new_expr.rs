@@ -163,6 +163,46 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         ));
     }
 
+    // (#780) `new Array()`
+    if class_name == "Array" && !ctx.classes.contains_key(&class_name) {
+        let n_args = new_expr.args.as_ref().map(|a| a.len()).unwrap_or(0);
+        if n_args == 1 {
+            let arg = &new_expr.args.as_ref().unwrap()[0];
+            let tv = super::super::lower_expr(ctx, &arg.expr)?;
+            // Se argumento for numérico, aloca array vazio com aquele length
+            if matches!(tv.ty, ValTy::I64 | ValTy::I32 | ValTy::F64 | ValTy::U64) {
+                let len_i64 = ctx.coerce_to_i64(tv).val;
+                let f = ctx.get_extern("__RTS_FN_GL_ARRAY_NEW_WITH_LENGTH", &[cl::I64], Some(cl::I64))?;
+                let inst = ctx.builder.ins().call(f, &[len_i64]);
+                let h = ctx.builder.inst_results(inst)[0];
+                return Ok(crate::codegen::lower::ctx::TypedVal::new(h, ValTy::Handle));
+            }
+            // Se for handle (string/bool convertido), cai no fallback Array.of abaixo
+        }
+        
+        // Fallback pra Array.of logic: aloca Vec e da push
+        let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(new_fn, &[]);
+        let vec_h = ctx.builder.inst_results(inst)[0];
+        let push_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+        
+        if let Some(args) = &new_expr.args {
+            for arg in args {
+                if arg.spread.is_some() {
+                    return Err(anyhow!("spread not supported in new Array"));
+                }
+                let tv = super::super::lower_expr(ctx, &arg.expr)?;
+                let v = if matches!(tv.ty, ValTy::Bool) {
+                    ctx.coerce_to_handle(tv)?.val
+                } else {
+                    ctx.coerce_to_i64(tv).val
+                };
+                ctx.builder.ins().call(push_fn, &[vec_h, v]);
+            }
+        }
+        return Ok(crate::codegen::lower::ctx::TypedVal::new(vec_h, ValTy::Handle));
+    }
+
     // #222 Map/Set v0 — `new Map()` e `new Set()` mapeiam para
     // collections.map_new (mesmo backing store HashMap<string, i64>).
     // Set usa value=1 sentinel; metodos respectivos sao lower em
