@@ -254,6 +254,7 @@ fn lift_arrows_in_expr(
                     let lift_info: Option<(usize, usize, usize)> = match method {
                         // (arg_idx_to_lift, n_args, arrow_arity)
                         "map" | "forEach" => Some((0, 1, 1)),
+                        "reduce" if call.args.len() == 1 => Some((0, 1, 2)),
                         "reduce" => Some((0, 2, 2)),
                         "filter" | "find" | "findIndex" | "some" | "every" => {
                             Some((0, 1, 1))
@@ -877,6 +878,8 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         "map" if call.args.len() == 1 && arg0_is_user_fn => Some("map"),
                         "forEach" if call.args.len() == 1 && arg0_is_user_fn => Some("for_each"),
                         "reduce" if call.args.len() == 2 && arg0_is_user_fn => Some("reduce"),
+                        // (cross-runtime #254) reduce sem initial value.
+                        "reduce" if call.args.len() == 1 && arg0_is_user_fn => Some("reduce_no_init"),
                         "filter" if call.args.len() == 1 && arg0_is_user_fn => Some("filter"),
                         "find" if call.args.len() == 1 && arg0_is_user_fn => Some("find"),
                         "findIndex" if call.args.len() == 1 && arg0_is_user_fn => {
@@ -898,6 +901,7 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: fn_arg },
                             ]
                         } else {
+                            // reduce_no_init / map / forEach / etc: (arr, fn)
                             vec![
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: Box::new(arr_expr) },
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: fn_arg },

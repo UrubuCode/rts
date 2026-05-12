@@ -56,6 +56,26 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: u64, fn_ptr: u64) {
     items.iter().for_each(|&x| f(x));
 }
 
+/// (cross-runtime #254) `arr.reduce(fn)` sem initial value. JS spec:
+/// primeiro elemento vira acc, loop comeca do index 1. Array vazio
+/// joga TypeError; aqui retornamos 0 (caller pode adicionar guard se
+/// quiser distinguir). Sequencial — sem identity, paralelizar exige
+/// fn associativa garantida.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE_NO_INIT(
+    vec_handle: u64,
+    fn_ptr: u64,
+) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_ptr == 0 || items.is_empty() { return 0; }
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let mut acc = items[0];
+    for &x in &items[1..] {
+        acc = f(acc, x);
+    }
+    acc
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE(
     vec_handle: u64,
