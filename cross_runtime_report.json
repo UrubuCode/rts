@@ -393,10 +393,10 @@
 ,
 {
   "name": "143_array_concat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
   "node": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
-  "rts": "basic=1,2,3,4\noriginal=1,2\nmulti=\nvalues=\nnested=1,2,3\nempty=1,2"
+  "rts": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94448272122144 w94448272122144rld\ndoubled=a94448272122080b94448272122080c94448272122080\nswapped=94448272121856"
+  "rts": "replaced=hell94381722407200 w94381722407200rld\ndoubled=a94381722407136b94381722407136c94381722407136\nswapped=94381722406912"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a93908718182400b93908718182400"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94570694139904b94570694139904"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order="
+  "rts": ""
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":115,"rts_diverge":74,"bun_node_diverge":3,"errors":120,"rejected":0}}
+],"summary":{"total":312,"pass":116,"rts_diverge":74,"bun_node_diverge":3,"errors":119,"rejected":0}}
