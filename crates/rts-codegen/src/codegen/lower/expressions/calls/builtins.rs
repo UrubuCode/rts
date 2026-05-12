@@ -135,6 +135,9 @@ pub(super) fn lower_string_builtin(
         "codePointAt" => {
             let idx = arg_i64(ctx, call, 0)?;
             let v = call_h!("__RTS_FN_GL_STRING_CODE_POINT_AT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, idx]);
+            // Fora de range retorna handle "undefined"; marca como ambiguo
+            // pra template/console formatar corretamente.
+            ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "at" => {
