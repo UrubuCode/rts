@@ -427,6 +427,32 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // mesmo cl_type, e Handle (string) e' distinto de numericos.
     if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq) {
         if !same_strict_kind(lhs.ty, rhs.ty) {
+            // (#819) Se uma ponta eh I64 ambiguo (vec_get/map_get/etc),
+            // o tipo estatico nao reflete o conteudo: pode ser handle.
+            // Roteia para runtime helper que decide em runtime.
+            let lhs_ambig = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
+                && ctx.var_member_call_values.contains(&lhs.val);
+            let rhs_ambig = matches!(rhs.ty, ValTy::I64 | ValTy::U64)
+                && ctx.var_member_call_values.contains(&rhs.val);
+            let other_is_handle = lhs.ty == ValTy::Handle || rhs.ty == ValTy::Handle;
+            if (lhs_ambig || rhs_ambig) && other_is_handle {
+                let lv = ctx.coerce_to_i64(lhs).val;
+                let rv = ctx.coerce_to_i64(rhs).val;
+                let fref = ctx.get_extern(
+                    "__RTS_FN_RT_STRICT_EQ_AMBIG",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(fref, &[lv, rv]);
+                let eq = ctx.builder.inst_results(inst)[0];
+                let result = if matches!(bin.op, BinaryOp::NotEqEq) {
+                    let one = ctx.builder.ins().iconst(cl::I64, 1);
+                    ctx.builder.ins().bxor(eq, one)
+                } else {
+                    eq
+                };
+                return Ok(TypedVal::new(result, ValTy::Bool));
+            }
             let result = if matches!(bin.op, BinaryOp::NotEqEq) { 1 } else { 0 };
             let v = ctx.builder.ins().iconst(cl::I64, result);
             return Ok(TypedVal::new(v, ValTy::Bool));

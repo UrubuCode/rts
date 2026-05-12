@@ -81,11 +81,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH(handle: u64, n: i64) {
         if n < v.len() {
             v.truncate(n);
         } else if n > v.len() {
-            // JS extension: novos slots viram `undefined`. RTS slots sao
-            // i64 raw; usamos 0 como sentinela de hole. `arr[i] ===
-            // undefined` ainda diverge porque vec_get retorna I64 e
-            // codegen impoe strict-kind — tracking separado.
-            v.resize(n, 0);
+            // JS extension: novos slots viram `undefined`. Aloca um
+            // handle `Entry::String(b"undefined")` para cada novo slot,
+            // permitindo `arr[i] === undefined` retornar true via
+            // STRICT_EQ_AMBIG (codegen detecta arr[i] como I64 ambiguo
+            // e roteia para o runtime).
+            let needed = n - v.len();
+            for _ in 0..needed {
+                let h = alloc_entry(Entry::String(b"undefined".to_vec()));
+                v.push(h as i64);
+            }
         }
     });
 }

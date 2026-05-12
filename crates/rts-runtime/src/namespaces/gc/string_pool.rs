@@ -529,6 +529,39 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
     })
 }
 
+/// Strict equality (===) entre dois i64 quando pelo menos um eh
+/// ambiguo (resultado de vec_get/map_get sem tipo declarado). Cada
+/// lado eh interpretado dinamicamente:
+/// - handle valido (Entry::String/Vec/Map/...) -> objeto JS
+/// - i64 fora do range de handle -> numero JS
+///
+/// Regras JS strict equality:
+/// - Mesmo tipo + mesmo valor -> 1
+/// - Tipos diferentes -> 0
+/// - Dois handles String iguais em conteudo -> 1
+/// - Dois handles do mesmo objeto (Vec/Map) -> 1 (identidade)
+/// - Numero vs handle -> 0
+///
+/// Usado quando codegen detecta uma das pontas em `var_member_call_values`
+/// e a comparacao seria short-circuit por strict-kind.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_STRICT_EQ_AMBIG(a: i64, b: i64) -> i64 {
+    // Mesmo bit pattern -> sempre igual (cobre handles identicos e
+    // numeros iguais).
+    if a == b {
+        return 1;
+    }
+    let snap_a = if a == 0 { EntrySnap::None } else { snapshot_entry(a as u64) };
+    let snap_b = if b == 0 { EntrySnap::None } else { snapshot_entry(b as u64) };
+    match (&snap_a, &snap_b) {
+        (EntrySnap::Str(sa), EntrySnap::Str(sb)) => {
+            if sa == sb { 1 } else { 0 }
+        }
+        // Tipos compostos diferentes ou um lado handle e o outro numero: 0.
+        _ => 0,
+    }
+}
+
 /// Inspect/pretty-print no estilo Node/Bun para `console.log` — arrays
 /// viram `[ 1, 2, 'a' ]`, objetos `{ k: v }`, strings TOP-LEVEL sem
 /// aspas (strings DENTRO de array/object recebem aspas simples).
