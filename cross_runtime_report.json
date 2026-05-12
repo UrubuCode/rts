@@ -1017,10 +1017,10 @@
 ,
 {
   "name": "214_array_length_setter",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
   "node": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
-  "rts": "initial=5\ntruncated=1,2,3,4,5\nnew_length=5\nextended=5\nundef=false\ncleared=5\nempty=1,2,3,4,5"
+  "rts": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty="
 }
 ,
 {
@@ -1033,10 +1033,10 @@
 ,
 {
   "name": "216_object_keys_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
   "node": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
-  "rts": "keys=c,a,b\nnumeric=2,1,3\nmixed=b,1,a,2\nwithSym=a,b"
+  "rts": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94264878563616 w94264878563616rld\ndoubled=a94264878563552b94264878563552c94264878563552\nswapped=94264878563328"
+  "rts": "replaced=hell94726674506016 w94726674506016rld\ndoubled=a94726674505952b94726674505952c94726674505952\nswapped=94726674505728"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a93988208930816b93988208930816"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94786052784128b94786052784128"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order="
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":95,"rts_diverge":84,"bun_node_diverge":3,"errors":130,"rejected":0}}
+],"summary":{"total":312,"pass":97,"rts_diverge":82,"bun_node_diverge":3,"errors":130,"rejected":0}}
