@@ -1,0 +1,882 @@
+{
+  "date": "2026-05-12",
+  "summary": {
+    "total": 312,
+    "pass": 92,
+    "rts_diverge": 87,
+    "bun_node_diverge": 3,
+    "errors": 130,
+    "rejected": 0
+  },
+  "pct": 29.8,
+  "divergent": [
+    {
+      "name": "100_dynamic_import",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "101_textdecoder_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "102_bigint_ops",
+      "status": "rts_error"
+    },
+    {
+      "name": "103_property_order_weird",
+      "status": "rts_error"
+    },
+    {
+      "name": "105_template_tagged_raw",
+      "status": "rts_error"
+    },
+    {
+      "name": "106_error_stack_presence",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "107_url_edge_cases",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "108_generator_functions",
+      "status": "rts_error"
+    },
+    {
+      "name": "109_async_generator",
+      "status": "rts_error"
+    },
+    {
+      "name": "110_object_getownpropertydescriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "116_promise_finally",
+      "status": "rts_error"
+    },
+    {
+      "name": "118_numeric_separators",
+      "status": "rts_error"
+    },
+    {
+      "name": "119_nullish_assignment",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "126_object_assign",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "130_number_isfinite_isnan",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "131_number_isinteger_issafeinteger",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "132_array_some_every",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "134_object_is",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "135_array_indexof_lastindexof",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "139_array_reduce_edge_cases",
+      "status": "rts_error"
+    },
+    {
+      "name": "140_string_charat_charcodeat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "141_string_concat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "142_array_join_edge_cases",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "143_array_concat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "145_number_tofixed_toprecision",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "148_isfinite_isnan_global",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "150_array_push_pop_shift_unshift",
+      "status": "rts_error"
+    },
+    {
+      "name": "153_object_preventextensions",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "155_object_getprototypeof",
+      "status": "rts_error"
+    },
+    {
+      "name": "156_string_localecompare",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "157_array_tostring_tolocalestring",
+      "status": "rts_error"
+    },
+    {
+      "name": "158_encodeuri_decodeuri",
+      "status": "rts_error"
+    },
+    {
+      "name": "159_array_every_callback_args",
+      "status": "rts_error"
+    },
+    {
+      "name": "162_object_create_null",
+      "status": "rts_error"
+    },
+    {
+      "name": "165_string_match_search",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "167_promise_race_any",
+      "status": "rts_error"
+    },
+    {
+      "name": "170_regexp_flags",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "171_regexp_lastindex",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "174_date_parse",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "175_boolean_constructor",
+      "status": "rts_error"
+    },
+    {
+      "name": "176_number_constructor",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "178_array_constructor",
+      "status": "rts_error"
+    },
+    {
+      "name": "181_function_bind",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "182_object_propertyisenumerable",
+      "status": "rts_error"
+    },
+    {
+      "name": "183_object_getownpropertynames",
+      "status": "rts_error"
+    },
+    {
+      "name": "184_symbol_for_keyfor",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "186_map_foreach",
+      "status": "rts_error"
+    },
+    {
+      "name": "187_error_types",
+      "status": "rts_error"
+    },
+    {
+      "name": "189_reflect_defineproperty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "190_array_entries_keys_values",
+      "status": "rts_error"
+    },
+    {
+      "name": "191_object_values_entries_iteration",
+      "status": "rts_error"
+    },
+    {
+      "name": "192_object_getownpropertysymbols",
+      "status": "rts_error"
+    },
+    {
+      "name": "193_reflect_construct",
+      "status": "rts_error"
+    },
+    {
+      "name": "194_string_normalize",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "195_string_codepointat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "196_string_fromcodepoint",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "197_string_raw",
+      "status": "rts_error"
+    },
+    {
+      "name": "198_number_parseint_parsefloat",
+      "status": "rts_error"
+    },
+    {
+      "name": "199_array_from_mapfn",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "200_promise_allsettled",
+      "status": "rts_error"
+    },
+    {
+      "name": "201_math_random_deterministic",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "202_array_reduceright",
+      "status": "rts_error"
+    },
+    {
+      "name": "203_string_localecompare_numeric",
+      "status": "rts_error"
+    },
+    {
+      "name": "204_typedarray_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "205_arraybuffer_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "206_dataview_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "207_json_stringify_space",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "209_array_unshift_return",
+      "status": "rts_error"
+    },
+    {
+      "name": "210_object_tostring",
+      "status": "rts_error"
+    },
+    {
+      "name": "211_array_shift_empty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "212_string_indexof_empty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "213_math_min_max_empty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "214_array_length_setter",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "216_object_keys_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "217_array_sort_stability",
+      "status": "rts_error"
+    },
+    {
+      "name": "220_array_map_sparse",
+      "status": "rts_error"
+    },
+    {
+      "name": "221_object_constructor",
+      "status": "rts_error"
+    },
+    {
+      "name": "223_array_filter_truthy",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "226_array_find_undefined",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "227_object_hasownproperty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "228_json_parse_reviver",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "229_json_stringify_replacer_array",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "230_object_valueof",
+      "status": "rts_error"
+    },
+    {
+      "name": "231_array_tolocalestring",
+      "status": "rts_error"
+    },
+    {
+      "name": "232_string_codeunits",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "233_array_some_short_circuit",
+      "status": "rts_error"
+    },
+    {
+      "name": "235_array_every_short_circuit",
+      "status": "rts_error"
+    },
+    {
+      "name": "236_string_includes_position",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "238_string_lastindexof_fromindex",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "240_regexp_test_stateful",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "242_array_map_return",
+      "status": "rts_error"
+    },
+    {
+      "name": "243_string_split_regex",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "244_string_valueof",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "245_number_valueof",
+      "status": "rts_error"
+    },
+    {
+      "name": "246_boolean_valueof",
+      "status": "rts_error"
+    },
+    {
+      "name": "247_object_isprototypeof",
+      "status": "rts_error"
+    },
+    {
+      "name": "248_array_foreach_return",
+      "status": "rts_error"
+    },
+    {
+      "name": "250_regexp_source",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "251_array_constructor_spread",
+      "status": "rts_error"
+    },
+    {
+      "name": "252_string_match_groups",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "253_object_keys_empty",
+      "status": "rts_error"
+    },
+    {
+      "name": "254_array_reduce_no_initial",
+      "status": "rts_error"
+    },
+    {
+      "name": "256_string_replace_function",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "257_array_flat_depth",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "258_array_flatmap",
+      "status": "rts_error"
+    },
+    {
+      "name": "259_array_at",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "260_findlast",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "261_string_matchall",
+      "status": "rts_error"
+    },
+    {
+      "name": "262_replaceall",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "263_string_at",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "265_object_fromentries",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "267_private_fields",
+      "status": "rts_error"
+    },
+    {
+      "name": "268_private_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "269_static_blocks",
+      "status": "rts_error"
+    },
+    {
+      "name": "270_new_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "271_computed_class_members",
+      "status": "rts_error"
+    },
+    {
+      "name": "272_symbol_iterator_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "273_symbol_asynciterator",
+      "status": "rts_error"
+    },
+    {
+      "name": "274_symbol_toprimitive",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "275_generator_yieldstar",
+      "status": "rts_error"
+    },
+    {
+      "name": "276_generator_return_throw",
+      "status": "rts_error"
+    },
+    {
+      "name": "277_error_cause",
+      "status": "rts_error"
+    },
+    {
+      "name": "278_aggregate_error",
+      "status": "rts_error"
+    },
+    {
+      "name": "279_error_chain_cause",
+      "status": "rts_error"
+    },
+    {
+      "name": "280_date_setutc_family",
+      "status": "rts_error"
+    },
+    {
+      "name": "284_math_f16round",
+      "status": "rts_error"
+    },
+    {
+      "name": "285_queuemicrotask_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "286_setimmediate",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "287_url_canparse",
+      "status": "rts_error"
+    },
+    {
+      "name": "288_abortsignal_timeout_any",
+      "status": "rts_error"
+    },
+    {
+      "name": "289_headers_getsetcookie",
+      "status": "rts_error"
+    },
+    {
+      "name": "290_json_circular",
+      "status": "rts_error"
+    },
+    {
+      "name": "291_json_bigint",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "292_json_tojson",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "293_json_reviver_this",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "294_arrow_rest_params",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "296_delete_operator",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "297_void_operator",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "299_arguments_object",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "300_this_strict_top_level",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "301_groupby_dedicated",
+      "status": "rts_error"
+    },
+    {
+      "name": "302_set_ops_dedicated",
+      "status": "rts_error"
+    },
+    {
+      "name": "303_array_fromasync",
+      "status": "rts_error"
+    },
+    {
+      "name": "304_promise_try",
+      "status": "rts_error"
+    },
+    {
+      "name": "305_iterator_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "306_iterator_toarray",
+      "status": "rts_error"
+    },
+    {
+      "name": "307_weakref_shape",
+      "status": "rts_error"
+    },
+    {
+      "name": "308_finalization_registry_shape",
+      "status": "rts_error"
+    },
+    {
+      "name": "309_console_assert",
+      "status": "rts_error"
+    },
+    {
+      "name": "310_console_group",
+      "status": "rts_error"
+    },
+    {
+      "name": "311_console_table",
+      "status": "rts_error"
+    },
+    {
+      "name": "312_console_dir",
+      "status": "rts_error"
+    },
+    {
+      "name": "313_tagged_template_raw",
+      "status": "rts_error"
+    },
+    {
+      "name": "314_import_meta",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "316_structuredclone_mixed",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "317_bigint_literals",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "319_exponentiation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "38_classes_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "39_regex_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "40_object_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "41_closures_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "42_promise_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "43_date_setters_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "44_bitwise_unsigned",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "45_array_iterators_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "46_number_format_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "47_error_instanceof_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "49_function_meta",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "50_json_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "51_coercion_weird",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "52_sparse_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "53_proxy_reflect",
+      "status": "rts_error"
+    },
+    {
+      "name": "54_symbol_registry",
+      "status": "rts_error"
+    },
+    {
+      "name": "55_url_searchparams",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "56_microtask_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "57_dataview_endianness",
+      "status": "rts_error"
+    },
+    {
+      "name": "58_text_encoding",
+      "status": "rts_error"
+    },
+    {
+      "name": "59_intl_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "60_aggregate_error",
+      "status": "rts_error"
+    },
+    {
+      "name": "61_structured_clone",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "62_abort_controller",
+      "status": "rts_error"
+    },
+    {
+      "name": "63_event_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "64_readable_stream",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "65_bigint_typed_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "67_url_patternish",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "68_arraybuffer_transfer_clone",
+      "status": "rts_error"
+    },
+    {
+      "name": "69_atomics_sharedarraybuffer",
+      "status": "rts_error"
+    },
+    {
+      "name": "70_regex_indices",
+      "status": "rts_error"
+    },
+    {
+      "name": "71_intl_segmenter",
+      "status": "rts_error"
+    },
+    {
+      "name": "72_formdata",
+      "status": "rts_error"
+    },
+    {
+      "name": "73_headers",
+      "status": "rts_error"
+    },
+    {
+      "name": "74_blob_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "75_file_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "76_message_channel",
+      "status": "rts_error"
+    },
+    {
+      "name": "77_domexception",
+      "status": "rts_error"
+    },
+    {
+      "name": "78_intl_more",
+      "status": "rts_error"
+    },
+    {
+      "name": "79_subtle_digest",
+      "status": "rts_error"
+    },
+    {
+      "name": "80_urlsearchparams_sort",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "81_regex_named_groups",
+      "status": "rts_error"
+    },
+    {
+      "name": "82_dataview_floats",
+      "status": "rts_error"
+    },
+    {
+      "name": "83_promise_combinators",
+      "status": "rts_error"
+    },
+    {
+      "name": "84_abortsignal_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "85_request_response",
+      "status": "rts_error"
+    },
+    {
+      "name": "86_blob_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "87_modern_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "88_compression_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "89_groupby",
+      "status": "rts_error"
+    },
+    {
+      "name": "90_set_operations",
+      "status": "rts_error"
+    },
+    {
+      "name": "91_string_wellformed",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "92_promise_with_resolvers",
+      "status": "rts_error"
+    },
+    {
+      "name": "93_typedarray_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "94_sparse_array_enumeration",
+      "status": "rts_error"
+    },
+    {
+      "name": "95_nan_negative_zero",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "96_streams_transform",
+      "status": "rts_error"
+    },
+    {
+      "name": "97_structured_clone_edge",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "98_proxy_invariants",
+      "status": "rts_error"
+    },
+    {
+      "name": "99_regexp_unicode",
+      "status": "rts_error"
+    }
+  ]
+}
