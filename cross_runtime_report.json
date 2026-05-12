@@ -425,10 +425,10 @@
 ,
 {
   "name": "147_parseint_parsefloat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "int_123=123\nint_123.45=123\nint_0x10=16\nint_10_base2=2\nint_10_base8=8\nint_10_base16=16\nint_ff_base16=255\nfloat_123.45=123.45\nfloat_0.5=0.5\nfloat_.5=0.5\nfloat_3.14e2=314\nint_abc=NaN\nfloat_abc=NaN\nint_12abc=12",
   "node": "int_123=123\nint_123.45=123\nint_0x10=16\nint_10_base2=2\nint_10_base8=8\nint_10_base16=16\nint_ff_base16=255\nfloat_123.45=123.45\nfloat_0.5=0.5\nfloat_.5=0.5\nfloat_3.14e2=314\nint_abc=NaN\nfloat_abc=NaN\nint_12abc=12",
-  "rts": "int_123=123\nint_123.45=123\nint_0x10=16\nint_10_base2=2\nint_10_base8=8\nint_10_base16=16\nint_ff_base16=255\nfloat_123.45=123.45\nfloat_0.5=0.5\nfloat_.5=0.5\nfloat_3.14e2=314\nint_abc=-9223372036854775808\nfloat_abc=NaN\nint_12abc=12"
+  "rts": "int_123=123\nint_123.45=123\nint_0x10=16\nint_10_base2=2\nint_10_base8=8\nint_10_base16=16\nint_ff_base16=255\nfloat_123.45=123.45\nfloat_0.5=0.5\nfloat_.5=0.5\nfloat_3.14e2=314\nint_abc=NaN\nfloat_abc=NaN\nint_12abc=12"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94586536534304 w94586536534304rld\ndoubled=a94586536534240b94586536534240c94586536534240\nswapped=94586536534016"
+  "rts": "replaced=hell94870876754208 w94870876754208rld\ndoubled=a94870876754144b94870876754144c94870876754144\nswapped=94870876753920"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94696021389312b94696021389312"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94850792583168b94850792583168"
 }
 ,
 {
@@ -1644,14 +1644,14 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order="
 }
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":88,"rts_diverge":90,"bun_node_diverge":3,"errors":131,"rejected":0}}
+],"summary":{"total":312,"pass":89,"rts_diverge":88,"bun_node_diverge":4,"errors":131,"rejected":0}}
