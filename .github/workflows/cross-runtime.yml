@@ -370,25 +370,39 @@ jobs:
             // - closedSigs: sigs ja vistas em qualquer issue CLOSED — pra
             //   bloquear recriacao quando a divergencia eh exatamente a
             //   mesma de antes
-            const fixtureMap = new Map(); // name -> { openIssue?, closedSigs: Set }
+            const fixtureMap = new Map(); // name -> { openIssue?, closedSigs: Set, groupedRefs: Set }
             for (const issue of allIssues) {
               const body = issue.body || '';
               const fm = body.match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
-              if (!fm) continue;
-              const sm = body.match(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/);
-              const sig = sm ? sm[1] : null;
-              const name = fm[1];
-              let entry = fixtureMap.get(name);
-              if (!entry) {
-                entry = { openIssue: null, closedSigs: new Set() };
-                fixtureMap.set(name, entry);
+              if (fm) {
+                // Issue moderna (1 fixture, com marker).
+                const sm = body.match(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/);
+                const sig = sm ? sm[1] : null;
+                const name = fm[1];
+                let entry = fixtureMap.get(name);
+                if (!entry) {
+                  entry = { openIssue: null, closedSigs: new Set(), groupedRefs: new Set() };
+                  fixtureMap.set(name, entry);
+                }
+                if (issue.state === 'OPEN') {
+                  if (!entry.openIssue) entry.openIssue = { ...issue, sig };
+                } else {
+                  if (sig) entry.closedSigs.add(sig);
+                }
+                continue;
               }
-              if (issue.state === 'OPEN') {
-                // Se ja temos uma OPEN (duplicata historica), preferimos
-                // a mais recente (estamos iterando em DESC).
-                if (!entry.openIssue) entry.openIssue = { ...issue, sig };
-              } else {
-                if (sig) entry.closedSigs.add(sig);
+              // Fallback: issue agrupada antiga (sem marker). Reconhece
+              // padrao \`### fixture_name —\` ou \`### \`fixture_name\` —\` no body
+              // para popular groupedRefs. Sem isso, o dedup nao via essas
+              // issues e o workflow criava duplicatas.
+              const groupedNames = [...body.matchAll(/###\s+`?(\d+_\w+)`?\s+[—-]/g)].map(m => m[1]);
+              for (const name of groupedNames) {
+                let entry = fixtureMap.get(name);
+                if (!entry) {
+                  entry = { openIssue: null, closedSigs: new Set(), groupedRefs: new Set() };
+                  fixtureMap.set(name, entry);
+                }
+                entry.groupedRefs.add(`#${issue.number}(${issue.state})`);
               }
             }
 
@@ -468,6 +482,16 @@ jobs:
               // em issue CLOSED — se sim, foi resolvida e voltou identica,
               // skipamos pra evitar spam. Se sig nova, abrimos issue.
               if (entry && entry.closedSigs.has(sig)) {
+                silentClosed++;
+                continue;
+              }
+
+              // ─── Caso C: fixture aparece em issue agrupada antiga
+              // (sem marker), provavelmente issue guarda-chuva listando
+              // varias divergencias do mesmo run inicial. Skip silencioso
+              // para nao duplicar. Quem quiser issue dedicada precisa
+              // criar manualmente; ou extrair via cleanup script.
+              if (entry && entry.groupedRefs.size > 0) {
                 silentClosed++;
                 continue;
               }
