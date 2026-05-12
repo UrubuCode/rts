@@ -837,7 +837,15 @@ pub(super) fn lower_array_builtin(
             )?;
             let inst = ctx.builder.ins().call(get_fn, &[obj_h, final_idx]);
             let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
+            // (cross-runtime #259) OOR (idx<0 ou idx>=len apos ajuste) retorna
+            // undefined; senao retorna o valor. Marca como Handle pra TPL_COERCE
+            // resolver string handle / decimal.
+            let below = ctx.builder.ins().icmp(IntCC::SignedLessThan, final_idx, zero);
+            let above = ctx.builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, final_idx, len);
+            let oor = ctx.builder.ins().bor(below, above);
+            let undef_h = ctx.emit_str_handle(b"undefined")?.val;
+            let result = ctx.builder.ins().select(oor, undef_h, v);
+            Ok(Some(TypedVal::new(result, ValTy::Handle)))
         }
         "join" => {
             // arr.join(sep): converte sep para string handle, chama runtime.
