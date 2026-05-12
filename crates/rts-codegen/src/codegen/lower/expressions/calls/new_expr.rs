@@ -260,6 +260,15 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                 ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
             let inst = ctx.builder.ins().call(new_fn, &[]);
             let h = ctx.builder.inst_results(inst)[0];
+            // Marca o kind do handle para que Object.prototype.toString
+            // diferencie Map de Set (mesmo backing store).
+            let mark_sym = if class_name == "Set" {
+                "__RTS_FN_NS_COLLECTIONS_MARK_AS_SET"
+            } else {
+                "__RTS_FN_NS_COLLECTIONS_MARK_AS_MAP"
+            };
+            let mark_fn = ctx.get_extern(mark_sym, &[cl::I64], None)?;
+            ctx.builder.ins().call(mark_fn, &[h]);
             // Initial entries: \`new Set([1,2,3])\` ou \`new Map([[\"a\",1],[\"b\",2]])\`.
             // v0: aceita Expr::Array literal; outros casos sao no-op.
             let init_arg = new_expr.args.as_ref().and_then(|args| args.first());

@@ -533,6 +533,37 @@ fn frozen_set() -> &'static Mutex<HashSet<u64>> {
     S.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+/// Handles marcados como Set vs Map. Backing eh o mesmo IndexMap, mas
+/// codigo que diferencia (\`Object.prototype.toString.call\`, \`typeof\`)
+/// consulta esses sets.
+fn map_kind_set() -> &'static Mutex<HashSet<u64>> {
+    static S: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn set_kind_set() -> &'static Mutex<HashSet<u64>> {
+    static S: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MARK_AS_MAP(handle: u64) {
+    map_kind_set().lock().unwrap().insert(handle);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MARK_AS_SET(handle: u64) {
+    set_kind_set().lock().unwrap().insert(handle);
+}
+
+pub(crate) fn handle_is_map_kind(handle: u64) -> bool {
+    map_kind_set().lock().unwrap().contains(&handle)
+}
+
+pub(crate) fn handle_is_set_kind(handle: u64) -> bool {
+    set_kind_set().lock().unwrap().contains(&handle)
+}
+
 fn sealed_set() -> &'static Mutex<HashSet<u64>> {
     static S: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(HashSet::new()))

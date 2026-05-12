@@ -172,6 +172,11 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         if let Expr::SuperProp(sp) = callee.as_ref() {
             return lower_super_method_call(ctx, sp, call);
         }
+        // `Object.prototype.toString.call(value)` — gera "[object Type]"
+        // via __RTS_FN_RT_OBJECT_TO_STRING. Tag conforme tipo estatico.
+        if let Some(tv) = try_lower_object_to_string_call(ctx, callee, call)? {
+            return Ok(tv);
+        }
         // (#264 PR5) Fast path: `(var as any).method(...)` — TsAs/Paren etc
         // antes do member. Peel e despacha como var.method().
         // (#fix) NAO sequestra quando \`lhs_static_class\` resolve via TsAs
@@ -1845,5 +1850,103 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     ctx.builder.seal_block(after_block);
     let result = ctx.builder.block_params(after_block)[0];
     Ok(TypedVal::new(result, ret_ty))
+}
+
+/// Detecta `Object.prototype.toString.call(value)` e emite chamada para
+/// `__RTS_FN_RT_OBJECT_TO_STRING(value, tag)`. Tag conforme tipo estatico
+/// do arg: Number/String/Boolean/Function literais; Handle delega ao
+/// runtime (tag=0) que inspeciona Entry. Retorna Some quando match,
+/// None pra continuar com dispatch normal.
+fn try_lower_object_to_string_call(
+    ctx: &mut FnCtx,
+    callee: &Expr,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+    // Padrao: Member { obj: Member { obj: Member { obj: Ident("Object"),
+    //                                              prop: "prototype" },
+    //                                  prop: "toString" },
+    //                  prop: "call" }
+    let outer = match callee {
+        Expr::Member(m) => m,
+        _ => return Ok(None),
+    };
+    let prop_call = match &outer.prop {
+        MemberProp::Ident(id) if id.sym.as_str() == "call" => true,
+        _ => false,
+    };
+    if !prop_call { return Ok(None); }
+    let mid = match outer.obj.as_ref() {
+        Expr::Member(m) => m,
+        _ => return Ok(None),
+    };
+    let prop_tostring = match &mid.prop {
+        MemberProp::Ident(id) if id.sym.as_str() == "toString" => true,
+        _ => false,
+    };
+    if !prop_tostring { return Ok(None); }
+    let inner = match mid.obj.as_ref() {
+        Expr::Member(m) => m,
+        _ => return Ok(None),
+    };
+    let prop_proto = match &inner.prop {
+        MemberProp::Ident(id) if id.sym.as_str() == "prototype" => true,
+        _ => false,
+    };
+    if !prop_proto { return Ok(None); }
+    let is_object = matches!(inner.obj.as_ref(), Expr::Ident(id) if id.sym.as_str() == "Object");
+    if !is_object { return Ok(None); }
+
+    // Match. Resolve arg + tag.
+    if call.args.len() != 1 || call.args[0].spread.is_some() {
+        return Ok(None);
+    }
+    // Pre-detecta literais nullish e funcoes antes do lower_expr.
+    let is_null_lit = matches!(call.args[0].expr.as_ref(), Expr::Lit(swc_ecma_ast::Lit::Null(_)));
+    let is_undef_ident = matches!(
+        call.args[0].expr.as_ref(),
+        Expr::Ident(id) if id.sym.as_str() == "undefined"
+    );
+    let is_function = match call.args[0].expr.as_ref() {
+        Expr::Arrow(_) | Expr::Fn(_) => true,
+        Expr::Ident(id) => {
+            let n = id.sym.as_str();
+            // Idents que sao user fn ou hoisted arrow/fn.
+            n.starts_with("__hoisted_arrow_")
+                || n.starts_with("__hoisted_fn_")
+                || n.starts_with("__lifted_arr_method_")
+                || ctx.user_fns.contains_key(n)
+        }
+        _ => false,
+    };
+    let tag: i64 = if is_null_lit { 4 }
+        else if is_undef_ident { 5 }
+        else if is_function { 6 }
+        else { 0 };
+
+    let (value_i64, computed_tag) = if tag != 0 {
+        // Para null/undefined, valor nao importa.
+        let v = ctx.builder.ins().iconst(cl::I64, 0);
+        (v, tag)
+    } else {
+        let tv = lower_expr(ctx, &call.args[0].expr)?;
+        let t = match tv.ty {
+            ValTy::I64 | ValTy::I32 | ValTy::F64 | ValTy::U64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => 1, // Number
+            ValTy::Bool => 3,
+            ValTy::Handle => 0, // runtime decide
+        };
+        let v = ctx.coerce_to_i64(tv).val;
+        (v, t)
+    };
+    let tag_v = ctx.builder.ins().iconst(cl::I64, computed_tag);
+    let fref = ctx.get_extern(
+        "__RTS_FN_RT_OBJECT_TO_STRING",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(fref, &[value_i64, tag_v]);
+    let r = ctx.builder.inst_results(inst)[0];
+    Ok(Some(TypedVal::new(r, ValTy::Handle)))
 }
 
