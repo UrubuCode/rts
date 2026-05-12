@@ -578,6 +578,62 @@ pub extern "C" fn __RTS_FN_RT_STRICT_EQ_AMBIG(a: i64, b: i64) -> i64 {
     }
 }
 
+/// `Object.prototype.toString.call(x)` — retorna "[object Type]".
+///
+/// Tag eh fornecida pelo codegen baseado no tipo estatico:
+///   0 = ambiguo (inspect runtime entry); decide via Entry.
+///   1 = Number, 2 = String, 3 = Boolean, 4 = Null, 5 = Undefined,
+///   6 = Function
+///
+/// Para tag=0, inspeciona Entry: Vec->Array, Map->Object, Date->Date,
+/// Regex->RegExp, Function->Function, etc.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_OBJECT_TO_STRING(value: i64, tag: i64) -> u64 {
+    let kind: &str = match tag {
+        1 => "Number",
+        2 => "String",
+        3 => "Boolean",
+        4 => "Null",
+        5 => "Undefined",
+        6 => "Function",
+        _ => {
+            // tag=0: detecta via Entry
+            if value == 0 {
+                "Null"
+            } else {
+                let h = value as u64;
+                with_entry(h, |e| match e {
+                    Some(Entry::Vec(_)) => "Array",
+                    Some(Entry::Map(_)) => {
+                        if crate::namespaces::collections::map::handle_is_set_kind(h) {
+                            "Set"
+                        } else if crate::namespaces::collections::map::handle_is_map_kind(h) {
+                            "Map"
+                        } else {
+                            "Object"
+                        }
+                    }
+                    Some(Entry::DateMs(_)) => "Date",
+                    Some(Entry::Regex(_)) => "RegExp",
+                    Some(Entry::Function(_)) => "Function",
+                    Some(Entry::WeakMap(_)) => "WeakMap",
+                    Some(Entry::String(b)) => {
+                        if b.as_slice() == b"undefined" {
+                            "Undefined"
+                        } else {
+                            "String"
+                        }
+                    }
+                    Some(_) => "Object",
+                    None => "Null",
+                })
+            }
+        }
+    };
+    let s = format!("[object {}]", kind);
+    alloc_entry(Entry::String(s.into_bytes()))
+}
+
 /// Inspect/pretty-print no estilo Node/Bun para `console.log` — arrays
 /// viram `[ 1, 2, 'a' ]`, objetos `{ k: v }`, strings TOP-LEVEL sem
 /// aspas (strings DENTRO de array/object recebem aspas simples).

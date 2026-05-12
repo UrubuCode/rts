@@ -430,6 +430,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_STRICT_EQ_AMBIG", __RTS_FN_RT_STRICT_EQ_AMBIG);
     }
     {
+        use crate::namespaces::gc::string_pool::__RTS_FN_RT_OBJECT_TO_STRING;
+        add_fn!("__RTS_FN_RT_OBJECT_TO_STRING", __RTS_FN_RT_OBJECT_TO_STRING);
+    }
+    {
+        use crate::namespaces::collections::map::{
+            __RTS_FN_NS_COLLECTIONS_MARK_AS_MAP,
+            __RTS_FN_NS_COLLECTIONS_MARK_AS_SET,
+        };
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MARK_AS_MAP", __RTS_FN_NS_COLLECTIONS_MARK_AS_MAP);
+        add_fn!("__RTS_FN_NS_COLLECTIONS_MARK_AS_SET", __RTS_FN_NS_COLLECTIONS_MARK_AS_SET);
+    }
+    {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_UNIVERSAL_LENGTH;
         add_fn!("__RTS_FN_RT_UNIVERSAL_LENGTH", __RTS_FN_RT_UNIVERSAL_LENGTH);
     }
