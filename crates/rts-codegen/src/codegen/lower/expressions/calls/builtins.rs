@@ -1010,19 +1010,34 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "concat" => {
-            if call.args.len() != 1 || call.args[0].spread.is_some() {
+            if call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
-            let other_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let other = ctx.coerce_to_i64(other_tv).val;
-            let fref = ctx.get_extern(
+            // (cross-runtime #143) JS spec: copia + variadic. Cada arg
+            // que for array faz spread; escalares viram push.
+            // Copia o receiver primeiro via CONCAT(recv, 0) (other=0 -> vazio).
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let copy_fref = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT",
                 &[cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, other]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+            let inst = ctx.builder.ins().call(copy_fref, &[obj_h, zero]);
+            let mut acc = ctx.builder.inst_results(inst)[0];
+            if !call.args.is_empty() {
+                let append_fref = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                for a in &call.args {
+                    let tv = lower_expr(ctx, &a.expr)?;
+                    let arg_i64 = ctx.coerce_to_i64(tv).val;
+                    let inst = ctx.builder.ins().call(append_fref, &[acc, arg_i64]);
+                    acc = ctx.builder.inst_results(inst)[0];
+                }
+            }
+            Ok(Some(TypedVal::new(acc, ValTy::Handle)))
         }
         "fill" => {
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
