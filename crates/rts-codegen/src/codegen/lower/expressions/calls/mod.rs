@@ -1367,6 +1367,38 @@ fn lower_js_global_call(
         "Number" => lower_coerce_to_number(ctx, call),
         "String" => lower_coerce_to_string(ctx, call),
         "Boolean" => lower_coerce_to_boolean(ctx, call),
+        // Object(x) / Object() — coercion JS:
+        // - 0 args ou null/undefined: novo Map vazio
+        // - Handle (object/array): passthrough
+        // - primitivo: Map vazio (boxing real eh follow-up)
+        "Object" => {
+            let n_args = call.args.len();
+            if n_args == 0 {
+                let map_new = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+                    &[],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(map_new, &[]);
+                let h = ctx.builder.inst_results(inst)[0];
+                return Ok(Some(TypedVal::new(h, ValTy::Handle)));
+            }
+            if call.args[0].spread.is_some() {
+                return Ok(None);
+            }
+            let tv = super::lower_expr(ctx, &call.args[0].expr)?;
+            if matches!(tv.ty, ValTy::Handle) {
+                return Ok(Some(TypedVal::new(tv.val, ValTy::Handle)));
+            }
+            let map_new = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+                &[],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(map_new, &[]);
+            let h = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(h, ValTy::Handle)))
+        }
         // (#216 partial) Symbol("desc") chamado como funcao em vez de
         // global member. Encaminha para __RTS_FN_GL_SYMBOL_NEW(ptr, len).
         "Symbol" if call.args.len() <= 1 && call.args.iter().all(|a| a.spread.is_none()) => {
