@@ -782,7 +782,9 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "pop" => {
-            // JS: retorna o ultimo elemento (ou undefined). v0 retorna 0 quando vazio.
+            // JS: retorna ultimo elemento ou `undefined`. Runtime aloca
+            // handle "undefined" em vazio. Marca como ambiguo para que
+            // template literal/console formate corretamente.
             let pop_fn = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_VEC_POP",
                 &[cl::I64],
@@ -790,6 +792,7 @@ pub(super) fn lower_array_builtin(
             )?;
             let inst = ctx.builder.ins().call(pop_fn, &[obj_h]);
             let v = ctx.builder.inst_results(inst)[0];
+            ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "length" | "size" => {
@@ -939,6 +942,8 @@ pub(super) fn lower_array_builtin(
             )?;
             let inst = ctx.builder.ins().call(fref, &[obj_h]);
             let v = ctx.builder.inst_results(inst)[0];
+            // Mesma marca de POP (handle "undefined" em vazio).
+            ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "unshift" => {

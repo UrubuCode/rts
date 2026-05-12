@@ -61,10 +61,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64) {
     }
 }
 
-/// Remove e retorna o ultimo valor, ou 0 se vazio.
+/// Remove e retorna o ultimo valor. JS spec: undefined se vazio.
+/// Retorna handle de Entry::String("undefined") em vez de 0 — codegen
+/// marca o resultado como ambiguo para template literal formatar.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(handle: u64) -> i64 {
-    with_vec_mut(handle, 0, |v| v.pop().unwrap_or(0))
+    let popped: Option<i64> = with_vec_mut(handle, None, |v| v.pop());
+    match popped {
+        Some(v) => v,
+        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+    }
 }
 
 /// `arr.length = n` — JS spec: trunca se n < length, extende com
@@ -303,10 +309,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REVERSE(handle: u64) -> u64 {
     handle
 }
 
-/// `arr.shift()` — remove e retorna primeiro elemento, ou 0 se vazio.
+/// `arr.shift()` — remove e retorna primeiro elemento. JS spec:
+/// undefined se vazio. Mesmo padrao de POP (handle "undefined").
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(handle: u64) -> i64 {
-    with_vec_mut(handle, 0, |v| if v.is_empty() { 0 } else { v.remove(0) })
+    let first: Option<i64> = with_vec_mut(handle, None, |v| {
+        if v.is_empty() { None } else { Some(v.remove(0)) }
+    });
+    match first {
+        Some(v) => v,
+        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+    }
 }
 
 /// `arr.unshift(v)` — insere no começo. Retorna novo length.
@@ -832,7 +845,11 @@ mod tests {
         assert_eq!(handle_to_vec(h), vec![2, 3]);
         assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h), 2);
         assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h), 3);
-        assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h), 0); // vazio
+        // Vazio: retorna handle de string "undefined" (nao 0). JS spec.
+        let undef_h = __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h);
+        assert_ne!(undef_h, 0);
+        let s = crate::namespaces::gc::string_pool::read_string_handle(undef_h as u64);
+        assert_eq!(s.as_deref(), Some("undefined"));
     }
 
     #[test]
