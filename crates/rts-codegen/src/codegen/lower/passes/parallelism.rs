@@ -413,6 +413,14 @@ fn lift_arrows_in_expr(
         for a in &mut call.args {
             lift_arrows_in_expr(&mut a.expr, user_fn_names, new_fns, counter);
         }
+        // (#821 follow-up) Recursa no obj do callee tambem para suportar
+        // chains como `arr.map(x => x.id).join(",")`. Sem isso, o arrow
+        // inline em `.map` ficava sem lift e o `.join` em chain crashava.
+        if let Callee::Expr(callee) = &mut call.callee {
+            if let Expr::Member(m) = callee.as_mut() {
+                lift_arrows_in_expr(&mut m.obj, user_fn_names, new_fns, counter);
+            }
+        }
         return;
     }
     // (#593) Descer em Tpl/Bin/Cond/Paren/Unary para que arrows em
@@ -886,6 +894,13 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
         }
         for a in &mut call.args {
             rewrite_array_methods_in_expr(&mut a.expr, user_fn_names);
+        }
+        // (#821 follow-up) Recursa no obj do callee para chains
+        // (`arr.map(fn).join(...)`).
+        if let Callee::Expr(callee) = &mut call.callee {
+            if let Expr::Member(m) = callee.as_mut() {
+                rewrite_array_methods_in_expr(&mut m.obj, user_fn_names);
+            }
         }
     }
 }
