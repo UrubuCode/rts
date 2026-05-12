@@ -759,11 +759,7 @@ pub(super) fn lower_array_builtin(
 ) -> Result<Option<TypedVal>> {
     match method {
         "push" => {
-            if call.args.len() != 1 {
-                return Ok(None);
-            }
-            let arg = &call.args[0];
-            if arg.spread.is_some() {
+            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
             let push_fn = ctx.get_extern(
@@ -771,9 +767,13 @@ pub(super) fn lower_array_builtin(
                 &[cl::I64, cl::I64],
                 None,
             )?;
-            let tv = lower_expr(ctx, &arg.expr)?;
-            let v = ctx.coerce_to_i64(tv).val;
-            ctx.builder.ins().call(push_fn, &[obj_h, v]);
+            // (cross-runtime #150) JS: push aceita N args, todos sao
+            // pushed em ordem.
+            for arg in &call.args {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let v = ctx.coerce_to_i64(tv).val;
+                ctx.builder.ins().call(push_fn, &[obj_h, v]);
+            }
             // JS: push retorna novo length.
             let len_fn = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
