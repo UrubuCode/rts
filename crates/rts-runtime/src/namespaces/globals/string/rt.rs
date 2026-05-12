@@ -38,10 +38,22 @@ pub extern "C" fn __RTS_FN_GL_STRING_NEW_EMPTY() -> u64 {
 
 // ── Static methods ─────────────────────────────────────────────────────────────
 
-/// String.fromCharCode(code) — char from UTF-16 code unit (BMP only).
+/// String.fromCharCode(code) — JS spec: trunca o argumento para u16
+/// (mod 0x10000). Code unit isolado pode ser surrogate "orfao" — nao
+/// eh codepoint UTF-8 valido. Nesse caso retorna string vazia (compat
+/// com Bun/Node que produzem lone surrogate na string interna mas, ao
+/// converter UTF-16 -> UTF-8 para output, replacement char ou vazio).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_FROM_CHAR_CODE(code: i64) -> u64 {
-    let ch = char::from_u32(code as u32).unwrap_or(char::REPLACEMENT_CHARACTER);
+    let unit = (code as i32 as u32) & 0xFFFF;
+    // Surrogate orfao (0xD800-0xDFFF) nao eh char valido. Retorna
+    // string com o code unit como UTF-16 lossy (string vazia bate
+    // com output do Node em \`String.fromCharCode(0xF600)\` -> 1 char
+    // que nao representa codepoint valido na codificacao default).
+    if (0xD800..=0xDFFF).contains(&unit) {
+        return alloc_str("");
+    }
+    let ch = char::from_u32(unit).unwrap_or(char::REPLACEMENT_CHARACTER);
     let mut buf = [0u8; 4];
     alloc_str(ch.encode_utf8(&mut buf))
 }
