@@ -809,18 +809,18 @@
 ,
 {
   "name": "190_array_entries_keys_values",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
   "node": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2"
 }
 ,
 {
   "name": "191_object_values_entries_iteration",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
   "node": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3,4\nempty_values=\nempty_entries="
 }
 ,
 {
@@ -1041,10 +1041,10 @@
 ,
 {
   "name": "217_array_sort_stability",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
   "node": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94726674506016 w94726674506016rld\ndoubled=a94726674505952b94726674505952c94726674505952\nswapped=94726674505728"
+  "rts": "replaced=hell94202666733856 w94202666733856rld\ndoubled=a94202666733792b94202666733792c94202666733792\nswapped=94202666733568"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "258_array_flatmap",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
   "node": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94786052784128b94786052784128"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94795273383936b94795273383936"
 }
 ,
 {
@@ -2057,10 +2057,10 @@
 ,
 {
   "name": "45_array_iterators_deep",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3",
   "node": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=0,1,2\nvalues=aa,bb,cc\nentries=null:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3"
 }
 ,
 {
@@ -2449,10 +2449,10 @@
 ,
 {
   "name": "94_sparse_array_enumeration",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len=5\nkeys=0,1,2,3,4\nforIn=\nforOf=0|0|2|281474976710657|4\nentries=null:0|1:0|2:2|3:281474976710657|4:4\njson=[0,0,2,\"undefined\",4]"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":97,"rts_diverge":82,"bun_node_diverge":3,"errors":130,"rejected":0}}
+],"summary":{"total":312,"pass":100,"rts_diverge":85,"bun_node_diverge":3,"errors":124,"rejected":0}}
