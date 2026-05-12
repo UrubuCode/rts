@@ -697,10 +697,10 @@
 ,
 {
   "name": "178_array_constructor",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
   "node": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "length=5\nempty=false\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2"
 }
 ,
 {
@@ -1345,10 +1345,10 @@
 ,
 {
   "name": "251_array_constructor_spread",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
   "node": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "spread=1,2,3\nfunc=4,5\nsingle=0,0,0,0,0,0,0,0,0,0\nlength=10\nempty=0"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94058499166496 w94058499166496rld\ndoubled=a94058499166432b94058499166432c94058499166432\nswapped=94058499166208"
+  "rts": "replaced=hell94416141840672 w94416141840672rld\ndoubled=a94416141840608b94416141840608c94416141840608\nswapped=94416141840384"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94143178297344b94143178297344"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94397195407360b94397195407360"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":117,"rts_diverge":73,"bun_node_diverge":3,"errors":119,"rejected":0}}
+],"summary":{"total":312,"pass":117,"rts_diverge":74,"bun_node_diverge":4,"errors":117,"rejected":0}}
