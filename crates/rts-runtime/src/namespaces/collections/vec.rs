@@ -162,6 +162,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u
             out.extend_from_slice(b"true");
             continue;
         }
+        // (cross-runtime #142) JS spec: undefined/null em join viram "".
+        if *e == i64::MIN + 2 || *e == i64::MIN + 3 {
+            continue;
+        }
         let h = *e as u64;
         // Tenta como string handle primeiro.
         let as_str: Option<Vec<u8>> = with_entry(h, |entry| match entry {
