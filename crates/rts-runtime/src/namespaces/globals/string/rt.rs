@@ -196,17 +196,42 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_AT(recv: u64, idx: i64) -> u64 {
 }
 
 #[unsafe(no_mangle)]
+/// `str.charCodeAt(i)` — JS spec: retorna o UTF-16 code unit no
+/// indice i (0-based, em code units). NaN (representado como -1 aqui)
+/// quando fora de range.
 pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT(recv: u64, idx: i64) -> i64 {
     let Some(s) = handle_to_str(recv) else { return -1 };
     if idx < 0 { return -1; }
-    s.chars().nth(idx as usize).map(|c| c as i64).unwrap_or(-1)
+    let units: Vec<u16> = s.encode_utf16().collect();
+    units.get(idx as usize).map(|&u| u as i64).unwrap_or(-1)
 }
 
+/// `str.codePointAt(i)` — JS spec: code point que comeca no code unit
+/// `i`. Se `i` for high surrogate seguido de low, retorna o code point
+/// composto (>= 0x10000). Senao retorna o code unit em `i`. Fora de
+/// range retorna `undefined` (handle de string \"undefined\" — codegen
+/// marca callsite como ambiguo).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> i64 {
-    let Some(s) = handle_to_str(recv) else { return -1 };
-    if idx < 0 { return -1; }
-    s.chars().nth(idx as usize).map(|c| c as u32 as i64).unwrap_or(-1)
+    let undef = || crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+        b"undefined".as_ptr(), 9
+    ) as i64;
+    let Some(s) = handle_to_str(recv) else { return undef(); };
+    if idx < 0 { return undef(); }
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let i = idx as usize;
+    let Some(&first) = units.get(i) else { return undef(); };
+    // High surrogate seguido de low: combina.
+    if (0xD800..=0xDBFF).contains(&first) {
+        if let Some(&second) = units.get(i + 1) {
+            if (0xDC00..=0xDFFF).contains(&second) {
+                let high = (first as u32 - 0xD800) << 10;
+                let low = second as u32 - 0xDC00;
+                return (high + low + 0x10000) as i64;
+            }
+        }
+    }
+    first as i64
 }
 
 /// str.at(idx) — supports negative index (counts from end).
