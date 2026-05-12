@@ -445,6 +445,13 @@ fn snapshot_to_bytes(s: &EntrySnap) -> Vec<u8> {
 /// **NAO chamar dentro de um with_entry/with_two_entries lock** — esta
 /// fn re-acessa o HandleTable e causaria deadlock no mesmo shard.
 fn element_to_string(raw: i64) -> String {
+    // Sentinela bool (mesma logica de inspect_slot).
+    if raw == i64::MIN {
+        return "false".to_string();
+    }
+    if raw == i64::MIN + 1 {
+        return "true".to_string();
+    }
     let h = raw as u64;
     // Heuristica: handles RTS comecam com gen >= 1, dando valores >= 2^48.
     // Valores menores sao quase certamente integers literais (TS [1,2,3]).
@@ -520,4 +527,106 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
         }
         _ => 0,
     })
+}
+
+/// Inspect/pretty-print no estilo Node/Bun para `console.log` — arrays
+/// viram `[ 1, 2, 'a' ]`, objetos `{ k: v }`, strings TOP-LEVEL sem
+/// aspas (strings DENTRO de array/object recebem aspas simples).
+///
+/// String top-level retorna o handle original (passthrough), igual ao
+/// TPL_COERCE_AUTO, preservando `console.log("oi")` -> `oi`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_INSPECT(value: i64) -> u64 {
+    if value == 0 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
+    let h = value as u64;
+    let snap = snapshot_entry(h);
+    match snap {
+        EntrySnap::Str(_) => h,
+        EntrySnap::None => {
+            alloc_entry(Entry::String(value.to_string().into_bytes()))
+        }
+        _ => {
+            let s = inspect_handle(h, 0);
+            alloc_entry(Entry::String(s.into_bytes()))
+        }
+    }
+}
+
+const INSPECT_MAX_DEPTH: usize = 6;
+
+fn inspect_handle(h: u64, depth: usize) -> String {
+    if depth >= INSPECT_MAX_DEPTH {
+        return "[Object]".to_string();
+    }
+    enum R {
+        Str(Vec<u8>),
+        Vec(Vec<i64>),
+        Map(Vec<(Vec<u8>, i64)>),
+        Json(String),
+        Other(&'static str),
+        None,
+    }
+    let r = with_entry(h, |e| match e {
+        Some(Entry::String(s)) => R::Str(s.clone()),
+        Some(Entry::Vec(v)) => R::Vec((**v).clone()),
+        Some(Entry::Map(m)) => R::Map(
+            m.iter().map(|(k, v)| (k.as_bytes().to_vec(), *v)).collect(),
+        ),
+        Some(Entry::Json(j)) => R::Json(j.to_string()),
+        Some(other) => R::Other(entry_kind_name(other)),
+        None => R::None,
+    });
+    match r {
+        R::Str(b) => format!("'{}'", String::from_utf8_lossy(&b)),
+        R::Vec(slots) => {
+            if slots.is_empty() {
+                return "[]".to_string();
+            }
+            let parts: Vec<String> =
+                slots.iter().map(|x| inspect_slot(*x, depth + 1)).collect();
+            format!("[ {} ]", parts.join(", "))
+        }
+        R::Map(entries) => {
+            if entries.is_empty() {
+                return "{}".to_string();
+            }
+            let parts: Vec<String> = entries
+                .iter()
+                .map(|(k, v)| {
+                    format!(
+                        "{}: {}",
+                        String::from_utf8_lossy(k),
+                        inspect_slot(*v, depth + 1)
+                    )
+                })
+                .collect();
+            format!("{{ {} }}", parts.join(", "))
+        }
+        R::Json(s) => s,
+        R::Other(name) => format!("[object {}]", name),
+        R::None => String::new(),
+    }
+}
+
+/// Slot cru de Vec/Map: < 2^48 = numero JS; >= 2^48 e handle valido =
+/// inspect recursivo; senao numero.
+fn inspect_slot(raw: i64, depth: usize) -> String {
+    // Sentinela bool em slot de Vec/Map (gerado pelo codegen).
+    if raw == i64::MIN {
+        return "false".to_string();
+    }
+    if raw == i64::MIN + 1 {
+        return "true".to_string();
+    }
+    let h = raw as u64;
+    if h < (1u64 << 48) {
+        return format_js_number(raw as f64);
+    }
+    let exists = with_entry(h, |e| e.is_some());
+    if !exists {
+        return format_js_number(raw as f64);
+    }
+    inspect_handle(h, depth)
 }

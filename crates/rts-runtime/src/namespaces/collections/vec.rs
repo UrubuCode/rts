@@ -119,6 +119,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u
         if i > 0 {
             out.extend_from_slice(&sep_bytes);
         }
+        // Sentinela bool em slot (codegen de array literal/Array.of).
+        if *e == i64::MIN {
+            out.extend_from_slice(b"false");
+            continue;
+        }
+        if *e == i64::MIN + 1 {
+            out.extend_from_slice(b"true");
+            continue;
+        }
         let h = *e as u64;
         // Tenta como string handle primeiro.
         let as_str: Option<Vec<u8>> = with_entry(h, |entry| match entry {

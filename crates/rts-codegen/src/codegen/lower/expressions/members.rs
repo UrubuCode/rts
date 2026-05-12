@@ -41,8 +41,16 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     continue;
                 }
                 let tv = lower_expr(ctx, &e.expr)?;
+                // Bool em array vira sentinela (i64::MIN = false, MIN+1 =
+                // true). Permite inspect_slot imprimir `true`/`false` sem
+                // aspas, distinguindo de Entry::String("true"). Sentinelas
+                // ficam fora do range de handles validos (gen>=1) e fora
+                // do range de inteiros JS comuns.
                 let value = if matches!(tv.ty, ValTy::Bool) {
-                    ctx.coerce_to_handle(tv)?.val
+                    let b = ctx.coerce_to_i64(tv).val;
+                    // i64::MIN + b: b=0 -> MIN (false), b=1 -> MIN+1 (true)
+                    let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                    ctx.builder.ins().iadd(min, b)
                 } else {
                     ctx.coerce_to_i64(tv).val
                 };

@@ -418,6 +418,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_TPL_COERCE_AUTO", __RTS_FN_RT_TPL_COERCE_AUTO);
     }
     {
+        use crate::namespaces::gc::string_pool::__RTS_FN_RT_INSPECT;
+        add_fn!("__RTS_FN_RT_INSPECT", __RTS_FN_RT_INSPECT);
+    }
+    {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_UNIVERSAL_LENGTH;
         add_fn!("__RTS_FN_RT_UNIVERSAL_LENGTH", __RTS_FN_RT_UNIVERSAL_LENGTH);
     }
