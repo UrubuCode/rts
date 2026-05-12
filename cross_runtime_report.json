@@ -1121,10 +1121,10 @@
 ,
 {
   "name": "226_array_find_undefined",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined",
   "node": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined",
-  "rts": "not_found=0\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=0"
+  "rts": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined"
 }
 ,
 {
@@ -1388,7 +1388,7 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94776770535712 w94776770535712rld\ndoubled=a94776770535648b94776770535648c94776770535648\nswapped=94776770535424"
+  "rts": "replaced=hell94081354842400 w94081354842400rld\ndoubled=a94081354842336b94081354842336c94081354842336\nswapped=94081354842112"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94107309821952b94107309821952"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a94491045838848b94491045838848"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":102,"rts_diverge":84,"bun_node_diverge":3,"errors":123,"rejected":0}}
+],"summary":{"total":312,"pass":103,"rts_diverge":83,"bun_node_diverge":3,"errors":123,"rejected":0}}
