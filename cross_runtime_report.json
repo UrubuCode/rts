@@ -377,10 +377,10 @@
 ,
 {
   "name": "141_string_concat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
   "node": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
-  "rts": "concat=hello \nconcat_empty=hello\nconcat_multi=ab\nplus=hello world\nwith_num=value:42"
+  "rts": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42"
 }
 ,
 {
@@ -505,10 +505,10 @@
 ,
 {
   "name": "156_string_localecompare",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
   "node": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
-  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=-1\na_A=1"
+  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1"
 }
 ,
 {
@@ -585,10 +585,10 @@
 ,
 {
   "name": "165_string_match_search",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
   "node": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
-  "rts": "match=281474976710658\nnomatch=\nmatchall=o\nsearch=10\nsearch_none=-1\nsearch_start=0"
+  "rts": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0"
 }
 ,
 {
@@ -644,7 +644,7 @@
   "status": "rts_diverge",
   "bun": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
   "node": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
-  "rts": "lastIndex_init=null\nmatch1=0\nlastIndex1=null\nmatch2=0\nlastIndex2=null\nmatch3=0\nlastIndex3=null\nmatch4=1\nlastIndex4=null"
+  "rts": "lastIndex_init=null\nmatch1=null\nlastIndex1=null\nmatch2=null\nlastIndex2=null\nmatch3=null\nlastIndex3=null\nmatch4=1\nlastIndex4=null"
 }
 ,
 {
@@ -756,7 +756,7 @@
   "status": "rts_diverge",
   "bun": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
   "node": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
-  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=\niterator=symbol\ntoStringTag=symbol"
+  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=null\niterator=symbol\ntoStringTag=symbol"
 }
 ,
 {
@@ -796,7 +796,7 @@
   "status": "rts_diverge",
   "bun": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
   "node": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
-  "rts": "success=true\na=42\nvalue=42\nwritable=1\nenumerable=1\ndesc2="
+  "rts": "success=true\na=42\nvalue=42\nwritable=1\nenumerable=1\ndesc2=null"
 }
 ,
 {
@@ -841,10 +841,10 @@
 ,
 {
   "name": "194_string_normalize",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello",
   "node": "length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello",
-  "rts": "length1=5\nnfc=5\nnfd=5\ndefault=5\nsimple=hello"
+  "rts": "length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello"
 }
 ,
 {
@@ -921,10 +921,10 @@
 ,
 {
   "name": "203_string_localecompare_numeric",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
   "node": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1"
 }
 ,
 {
@@ -1177,10 +1177,10 @@
 ,
 {
   "name": "232_string_codeunits",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "simple=5\nemoji=2\nmulti=4\nmixed=4\nempty=0",
   "node": "simple=5\nemoji=2\nmulti=4\nmixed=4\nempty=0",
-  "rts": "simple=5\nemoji=4\nmulti=8\nmixed=6\nempty=0"
+  "rts": "simple=5\nemoji=2\nmulti=4\nmixed=4\nempty=0"
 }
 ,
 {
@@ -1209,10 +1209,10 @@
 ,
 {
   "name": "236_string_includes_position",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false",
   "node": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false",
-  "rts": "world=true\nworld_0=true\nworld_6=true\nworld_7=true\nhello_6=true\no=true\no_5=true\no_8=true"
+  "rts": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false"
 }
 ,
 {
@@ -1273,10 +1273,10 @@
 ,
 {
   "name": "243_string_split_regex",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
   "node": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
-  "rts": "digits=a|1|b|2|c|3\nspaces=h|e|l|l|o| | |w|o|r|l|d| | | |f|o|o\ndelims=a|,|b|;|c|,|d\nlimit=a|1"
+  "rts": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b"
 }
 ,
 {
@@ -1356,7 +1356,7 @@
   "status": "rts_diverge",
   "bun": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
   "node": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
-  "rts": "found=true\nvalue=281474976710658\nindex=0\ninput=0\nnoMatch="
+  "rts": "found=true\nvalue=world\nindex=null\ninput=null\nnoMatch=null"
 }
 ,
 {
@@ -1385,10 +1385,10 @@
 ,
 {
   "name": "256_string_replace_function",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94695081554208 w94695081554208rld\ndoubled=a94695081554144b94695081554144c94695081554144\nswapped=94695081553920"
+  "rts": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John"
 }
 ,
 {
@@ -1441,18 +1441,18 @@
 ,
 {
   "name": "262_replaceall",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a93840714031104b93840714031104"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a3b6"
 }
 ,
 {
   "name": "263_string_at",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "p1=b\nn1=c\nn2=b\noor=undefined\nempty=undefined",
   "node": "p1=b\nn1=c\nn2=b\noor=undefined\nempty=undefined",
-  "rts": "p1=b\nn1=c\nn2=b\noor=\nempty="
+  "rts": "p1=b\nn1=c\nn2=b\noor=undefined\nempty=undefined"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order="
+  "rts": "order=null"
 }
 ,
 {
@@ -2012,7 +2012,7 @@
   "status": "rts_diverge",
   "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
   "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "rts": "test=true\nmatch0=none\nmatch1=none\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,1,y,2,z,3\ng1=0\nlast1=null\ng2=0\nlast2=null"
+  "rts": "test=true\nmatch0=none\nmatch1=none\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=null\nlast1=null\ng2=null\nlast2=null"
 }
 ,
 {
@@ -2452,7 +2452,7 @@
   "status": "rts_diverge",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=5\nkeys=0,1,2,3,4\nforIn=\nforOf=0|-9223372036854775806|2|-9223372036854775806|4\nentries=null:0|1:-9223372036854775806|2:2|3:-9223372036854775806|4:4\njson=[0,null,2,null,4]"
+  "rts": "len=5\nkeys=0,1,2,3,4\nforIn=\nforOf=0|-9223372036854775806|2|-9223372036854775806|4\nentries=null:null|1:-9223372036854775806|2:2|3:-9223372036854775806|4:4\njson=[0,null,2,null,4]"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":120,"rts_diverge":78,"bun_node_diverge":3,"errors":111,"rejected":0}}
+],"summary":{"total":312,"pass":131,"rts_diverge":68,"bun_node_diverge":3,"errors":110,"rejected":0}}
