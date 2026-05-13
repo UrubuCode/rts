@@ -250,10 +250,10 @@ pub const STRING_CLASS_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "length",
         kind: MemberKind::InstanceGetter,
-        symbol: "__RTS_FN_NS_GC_STRING_LEN",
+        symbol: "__RTS_FN_GL_STRING_LENGTH_UTF16",
         args: &[AbiType::Handle],
         returns: AbiType::I64,
-        doc: "str.length — number of chars.",
+        doc: "str.length — number of UTF-16 code units (JS spec).",
         ts_signature: "length: number",
         intrinsic: None,
         pure: true,

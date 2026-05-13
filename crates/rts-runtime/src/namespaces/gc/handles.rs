@@ -27,6 +27,15 @@ use crate::abi::handles::{
 
 const SENTINEL_INVALID: u64 = 0;
 
+/// Wrapper que armazena a regex compilada + flag `global` do JS.
+/// O crate `regex` nao tem conceito de flag global; RTS precisa saber
+/// se `str.match(/pat/g)` deve retornar todos os matches.
+#[derive(Debug)]
+pub struct RtsRegex {
+    pub regex: regex::Regex,
+    pub global: bool,
+}
+
 /// Value kinds stored behind a handle. Extensible as namespaces grow.
 #[derive(Debug)]
 pub enum Entry {
@@ -52,8 +61,9 @@ pub enum Entry {
     Map(Box<indexmap::IndexMap<String, i64>>),
     /// Vec<i64> — namespace `collections` (vec_*).
     Vec(Box<Vec<i64>>),
-    /// Regex compilada — namespace `regex`.
-    Regex(Box<regex::Regex>),
+    /// Regex compilada — namespace `regex`. Armazena tambem a flag `global`
+    /// (JS `/pat/g`) porque o crate `regex` nao expoe esse conceito separado.
+    Regex(Box<RtsRegex>),
     /// CString owned — namespace `ffi` (cstring_*). Box pra estabilizar
     /// o ponteiro retornado por `cstring_ptr` enquanto o slot vive.
     CString(Box<std::ffi::CString>),

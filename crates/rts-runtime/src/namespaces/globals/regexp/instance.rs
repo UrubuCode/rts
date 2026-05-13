@@ -62,7 +62,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_REGEXP_SOURCE(handle: u64) -> u64 {
     let source: Option<String> = with_entry(handle, |entry| match entry {
-        Some(Entry::Regex(rx)) => Some(rx.as_str().to_owned()),
+        Some(Entry::Regex(rx)) => Some(rx.regex.as_str().to_owned()),
         _ => None,
     });
     match source {

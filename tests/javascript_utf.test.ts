@@ -7,8 +7,8 @@ function print(value: string): void {
 }
 
 // "ação" em UTF-8: a (1) ç (2) ã (2) o (1) = 6 bytes / 4 chars Unicode.
-// JS .length conta code units UTF-16 = 4 chars (cada char acentuado = 1).
-// RTS ainda usa byte_len = comprimento do buffer UTF-8.
+// JS .length conta code units UTF-16 = 4 (chars BMP = 1 code unit cada).
+// RTS agora implementa .length como UTF-16 code units (JS spec).
 
 const exemplo = "ação";
 
@@ -18,7 +18,7 @@ print(`bytes=${string.byte_len(exemplo)}`);
 // 2. char_count — code points Unicode
 print(`chars=${string.char_count(exemplo)}`);
 
-// 3. .length em RTS — escolha do runtime (byte_len no momento)
+// 3. .length em RTS — UTF-16 code units (JS spec); para "ação" = 4
 print(`len=${exemplo.length}`);
 
 // 4. ASCII puro: byte_len == char_count == length
@@ -42,7 +42,7 @@ describe("JS UTF — byte_len vs char_count vs length", () => {
     expect(__rtsCapturedOutput).toBe(
       "bytes=6\n" +
       "chars=4\n" +
-      "len=6\n" +
+      "len=4\n" +
       "ascii_bytes=6 ascii_chars=6 ascii_len=6\n" +
       "empty_bytes=0 empty_chars=0\n" +
       "char[0]=a\n" +

@@ -55,10 +55,20 @@ pub(super) fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result
             return Ok(None);
         }
         let tv = super::lower_expr(ctx, &arg.expr)?;
-        if matches!(tv.ty, ValTy::Handle) {
+        let is_ambig_handle = matches!(tv.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_member_call_values.contains(&tv.val);
+        if matches!(tv.ty, ValTy::Handle) || is_ambig_handle {
             // Delega para __RTS_FN_GL_NUMBER_FROM_STR(handle) -> f64
+            // Tambem aplica para I64 ambiguo (param de hoisted arrow que pode ser handle de string).
+            let coerce = if is_ambig_handle {
+                let coerce_fn = ctx.get_extern("__RTS_FN_RT_TPL_COERCE_AUTO", &[cl::I64], Some(cl::I64))?;
+                let inst = ctx.builder.ins().call(coerce_fn, &[tv.val]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                tv.val
+            };
             let from_str = ctx.get_extern("__RTS_FN_GL_NUMBER_FROM_STR", &[cl::I64], Some(cl::F64))?;
-            let inst = ctx.builder.ins().call(from_str, &[tv.val]);
+            let inst = ctx.builder.ins().call(from_str, &[coerce]);
             let v = ctx.builder.inst_results(inst)[0];
             return Ok(Some(TypedVal::new(v, ValTy::F64)));
         }

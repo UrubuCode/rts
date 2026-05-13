@@ -49,7 +49,13 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FREE(handle: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
     with_entry(handle, |entry| match entry {
-        Some(Entry::String(b)) => b.len() as i64,
+        // JS spec: String.length = number of UTF-16 code units, not bytes.
+        Some(Entry::String(b)) => {
+            match std::str::from_utf8(b) {
+                Ok(s) => s.encode_utf16().count() as i64,
+                Err(_) => b.len() as i64,
+            }
+        }
         Some(Entry::Map(m)) => m.len() as i64,
         Some(Entry::Vec(v)) => v.len() as i64,
         Some(Entry::Buffer(b)) => b.len() as i64,
@@ -404,10 +410,9 @@ pub fn format_js_number(value: f64) -> String {
 /// Handles invalidos viram string vazia (semantica JS template literal).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
-    // Coleta dados dos dois handles ANTES de qualquer processamento
-    // recursivo (que precisa re-acessar o HandleTable).
-    let snap_a = snapshot_entry(a);
-    let snap_b = snapshot_entry(b);
+    // Handle 0 = JS null — displayed as "null" in string context (JS spec: null + "" = "null").
+    let snap_a = if a == 0 { EntrySnap::Str(b"null".to_vec()) } else { snapshot_entry(a) };
+    let snap_b = if b == 0 { EntrySnap::Str(b"null".to_vec()) } else { snapshot_entry(b) };
     let mut out = snapshot_to_bytes(&snap_a);
     out.extend_from_slice(&snapshot_to_bytes(&snap_b));
     alloc_entry(Entry::String(out))

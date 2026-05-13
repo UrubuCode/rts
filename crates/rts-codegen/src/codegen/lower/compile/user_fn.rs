@@ -188,6 +188,14 @@ pub(crate) fn compile_user_fn(
                 .unwrap_or(ValTy::I64);
             fn_ctx.declare_local(&param.name, ty, block_param);
 
+            // Hoisted arrows (geradas de replace/map/forEach callbacks) recebem
+            // parametros como handles de string (u64 cast para i64). Marcar como
+            // ambiguos para que string concat use TPL_COERCE_AUTO em vez de
+            // STRING_FROM_I64 (que formataria o handle como numero decimal).
+            if ty == ValTy::I64 && fn_decl.name.starts_with("__hoisted_arrow_") {
+                fn_ctx.var_member_call_values.insert(block_param);
+            }
+
             // (#592) Param tipado `Cls[]` registra local_array_class_ty
             // pra que arr[i].field saiba o tipo do field na classe.
             if let Some(ann) = param.type_annotation.as_deref() {

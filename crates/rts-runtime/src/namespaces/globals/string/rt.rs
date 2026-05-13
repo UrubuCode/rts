@@ -10,7 +10,7 @@ unsafe extern "C" {
     fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64);
 }
 
-fn alloc_str(s: &str) -> u64 {
+pub(crate) fn alloc_str(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
@@ -160,6 +160,24 @@ pub extern "C" fn __RTS_FN_GL_STRING_INCLUDES(recv: u64, needle: u64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_INCLUDES_AT(recv: u64, needle: u64, pos: i64) -> i64 {
+    match (handle_to_str(recv), handle_to_str(needle)) {
+        (Some(s), Some(n)) => {
+            // pos em code units UTF-16; converte para byte offset UTF-8
+            let units: Vec<u16> = s.encode_utf16().collect();
+            let clamped = pos.clamp(0, units.len() as i64) as usize;
+            // converte clamped code-unit index para byte index
+            let byte_off = {
+                let prefix_units = &units[..clamped];
+                String::from_utf16_lossy(prefix_units).len()
+            };
+            s[byte_off..].contains(n) as i64
+        }
+        _ => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_STARTS_WITH(recv: u64, prefix: u64) -> i64 {
     match (handle_to_str(recv), handle_to_str(prefix)) {
         (Some(s), Some(p)) => s.starts_with(p) as i64,
@@ -247,15 +265,16 @@ pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> i64 {
 }
 
 /// str.at(idx) — supports negative index (counts from end).
+/// OOB returns the string "undefined" per JS spec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_AT(recv: u64, idx: i64) -> u64 {
-    let Some(s) = handle_to_str(recv) else { return alloc_str("") };
+    let Some(s) = handle_to_str(recv) else { return alloc_str("undefined") };
     let count = s.chars().count() as i64;
     let i = if idx < 0 { count + idx } else { idx };
-    if i < 0 || i >= count { return alloc_str(""); }
+    if i < 0 || i >= count { return alloc_str("undefined"); }
     match s.chars().nth(i as usize) {
         Some(ch) => { let mut buf = [0u8; 4]; alloc_str(ch.encode_utf8(&mut buf)) }
-        None => alloc_str(""),
+        None => alloc_str("undefined"),
     }
 }
 
@@ -439,11 +458,21 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_LIMIT(recv: u64, sep: u64, limit: i64
 pub extern "C" fn __RTS_FN_GL_STRING_LOCALE_COMPARE(recv: u64, other: u64) -> i64 {
     use std::cmp::Ordering;
     match (handle_to_str(recv), handle_to_str(other)) {
-        (Some(a), Some(b)) => match a.cmp(b) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
-        },
+        (Some(a), Some(b)) => {
+            // JS locale order: compare case-insensitively first; when equal,
+            // lowercase < uppercase (e.g. "a" < "A", opposite of ASCII).
+            let a_lo = a.to_lowercase();
+            let b_lo = b.to_lowercase();
+            match a_lo.cmp(&b_lo) {
+                Ordering::Less => -1,
+                Ordering::Greater => 1,
+                Ordering::Equal => match b.cmp(a) {
+                    Ordering::Less => -1,
+                    Ordering::Equal => 0,
+                    Ordering::Greater => 1,
+                },
+            }
+        }
         _ => 0,
     }
 }
@@ -468,4 +497,30 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(_handle: u64) -> i64 {
     1 // RTS strings are always valid UTF-8, so always well-formed
+}
+
+/// `str.normalize(form?)` — Unicode normalization forms NFC/NFD/NFKC/NFKD.
+/// Default form is NFC.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_NORMALIZE(recv: u64, form_h: u64) -> u64 {
+    use unicode_normalization::UnicodeNormalization;
+    let Some(s) = handle_to_str(recv) else { return recv; };
+    let form = handle_to_str(form_h).unwrap_or("NFC");
+    let normalized = match form {
+        "NFD" => s.nfd().collect::<String>(),
+        "NFKC" => s.nfkc().collect::<String>(),
+        "NFKD" => s.nfkd().collect::<String>(),
+        _ => s.nfc().collect::<String>(), // NFC is default
+    };
+    alloc_str(&normalized)
+}
+
+/// `str.length` — number of UTF-16 code units (JS spec).
+/// Distinct from gc.string_len which returns UTF-8 byte count.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_LENGTH_UTF16(recv: u64) -> i64 {
+    match handle_to_str(recv) {
+        Some(s) => s.encode_utf16().count() as i64,
+        None => 0,
+    }
 }

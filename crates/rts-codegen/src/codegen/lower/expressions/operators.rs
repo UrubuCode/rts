@@ -1068,6 +1068,11 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
         // se eh handle de string ou i64 puro. Sem isso `"X: " + obj.x` com
         // x: string vinda de destructuring de param emite STRING_FROM_I64
         // (formata handle bruto como numero).
+        // I64 ao lado de Handle: ou esta em var_member_call_values (ja' era
+        // ambiguo antes), ou o outro operando e' Handle e o I64 nao eh constante
+        // (iconst) — indica contexto de string concat com param/var de tipo
+        // desconhecido que pode ser handle (ex: callback de replace).
+        // Constantes (iconst 0, iconst 42) sao numeros puros; nao usar TPL_COERCE_AUTO.
         let lhs_ambig = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
             && ctx.var_member_call_values.contains(&lhs.val);
         let rhs_ambig = matches!(rhs.ty, ValTy::I64 | ValTy::U64)

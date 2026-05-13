@@ -94,6 +94,8 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH(
 /// `str.match(regex_handle)` — variante que aceita handle de
 /// Entry::Regex (de literal /pat/ ou new RegExp). Se nao for regex
 /// valido, retorna 0.
+/// - Sem flag `g`: retorna Vec [fullMatch, ...grupos] (ou 0 se nao acha).
+/// - Com flag `g`: retorna Vec flat de todos os fullMatches.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
     s_ptr: *const u8,
@@ -105,27 +107,45 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
         return 0;
     };
     let s_owned = s.to_string();
-    // (#match-spec) JS: str.match(regex) retorna array [fullMatch, ...groups].
-    // Antes retornava Entry::String com so' o fullMatch — m[0] e m.length
-    // nao funcionavam no template/index. Agora aloca Entry::Vec onde
-    // slot[0] eh handle do fullMatch e slot[i+1] handle do grupo i.
-    let groups: Option<Vec<Vec<u8>>> = with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rx)) => rx.captures(&s_owned).map(|caps| {
-            (0..caps.len())
-                .map(|i| caps.get(i).map(|m| m.as_str().as_bytes().to_vec()).unwrap_or_default())
-                .collect()
-        }),
-        _ => None,
+    enum MatchResult {
+        First(Vec<Vec<u8>>),
+        All(Vec<Vec<u8>>),
+        None,
+    }
+    let mr: MatchResult = with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rts_rx)) => {
+            if rts_rx.global {
+                // flag g: retorna todos os fullMatches
+                let all: Vec<Vec<u8>> = rts_rx.regex
+                    .find_iter(&s_owned)
+                    .map(|m| m.as_str().as_bytes().to_vec())
+                    .collect();
+                MatchResult::All(all)
+            } else {
+                // sem flag g: retorna [fullMatch, ...grupos]
+                match rts_rx.regex.captures(&s_owned) {
+                    Some(caps) => {
+                        let items: Vec<Vec<u8>> = (0..caps.len())
+                            .map(|i| caps.get(i).map(|m| m.as_str().as_bytes().to_vec()).unwrap_or_default())
+                            .collect();
+                        MatchResult::First(items)
+                    }
+                    None => MatchResult::None,
+                }
+            }
+        }
+        _ => MatchResult::None,
     });
-    match groups {
-        Some(items) => {
+    match mr {
+        MatchResult::First(items) | MatchResult::All(items) => {
+            if items.is_empty() { return 0; }
             let slots: Vec<i64> = items
                 .into_iter()
                 .map(|bytes| alloc_entry(Entry::String(bytes)) as i64)
                 .collect();
             alloc_entry(Entry::Vec(Box::new(slots)))
         }
-        None => 0,
+        MatchResult::None => 0,
     }
 }
 
@@ -143,7 +163,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_REGEX(
     };
     let s_owned = s.to_string();
     with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rx)) => rx.find(&s_owned).map(|m| m.start() as i64).unwrap_or(-1),
+        Some(Entry::Regex(rx)) => rx.regex.find(&s_owned).map(|m| m.start() as i64).unwrap_or(-1),
         _ => -1,
     })
 }
@@ -171,11 +191,11 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
 
     let out = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rx)) => {
-            // RTS regex usa `regex` crate. Detecta `g` flag via source —
-            // no `regex` crate nao ha flag global, sempre usa replace_all
-            // ou replace_n. Para fidelidade JS, sempre faz replace_all
-            // quando vem de regex literal (mais util na pratica).
-            Some(rx.replace_all(&s_owned, repl.as_str()).into_owned())
+            if rx.global {
+                Some(rx.regex.replace_all(&s_owned, repl.as_str()).into_owned())
+            } else {
+                Some(rx.regex.replace(&s_owned, repl.as_str()).into_owned())
+            }
         }
         _ => None,
     });
@@ -227,4 +247,180 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL(
         handles.push(h as i64);
     }
     alloc_entry(Entry::Vec(Box::new(handles)))
+}
+
+/// `str.matchAll(regex_handle)` — variante que aceita handle Entry::Regex.
+/// Retorna Vec de Vecs: cada elemento eh um Vec [fullMatch, ...grupos].
+/// Cada elemento do Vec externo eh um handle para um Vec interno.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
+    s_ptr: *const u8,
+    s_len: i64,
+    regex_handle: u64,
+) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+    let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let Some(s) = str_from_abi(s_ptr, s_len) else { return empty_vec(); };
+    let s_owned = s.to_string();
+    let outer: Vec<i64> = with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rts_rx)) => {
+            rts_rx.regex.captures_iter(&s_owned).map(|caps| {
+                let slots: Vec<i64> = (0..caps.len())
+                    .map(|i| caps.get(i).map(|m| alloc_entry(Entry::String(m.as_str().as_bytes().to_vec())) as i64).unwrap_or(0))
+                    .collect();
+                alloc_entry(Entry::Vec(Box::new(slots))) as i64
+            }).collect()
+        }
+        _ => Vec::new(),
+    });
+    alloc_entry(Entry::Vec(Box::new(outer)))
+}
+
+/// `str.replace(regex_handle, fn_handle)` — substitui matches chamando fn
+/// para cada match. fn recebe (match, ...grupos, offset, input) — RTS v0
+/// passa so o match como primeiro arg via invoke_n.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
+    s_ptr: *const u8,
+    s_len: i64,
+    regex_handle: u64,
+    fn_handle: u64,
+) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+    let Some(s) = str_from_abi(s_ptr, s_len) else { return 0; };
+    let s_owned = s.to_string();
+
+    // Coleta matches primeiro para nao ter borrow mutavel simultaneo.
+    let matches: Vec<(usize, usize, Vec<String>)> = with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rts_rx)) => {
+            if rts_rx.global {
+                rts_rx.regex.captures_iter(&s_owned).map(|caps| {
+                    let start = caps.get(0).unwrap().start();
+                    let end = caps.get(0).unwrap().end();
+                    let groups: Vec<String> = (0..caps.len())
+                        .map(|i| caps.get(i).map(|m| m.as_str().to_owned()).unwrap_or_default())
+                        .collect();
+                    (start, end, groups)
+                }).collect()
+            } else {
+                match rts_rx.regex.captures(&s_owned) {
+                    Some(caps) => {
+                        let start = caps.get(0).unwrap().start();
+                        let end = caps.get(0).unwrap().end();
+                        let groups: Vec<String> = (0..caps.len())
+                            .map(|i| caps.get(i).map(|m| m.as_str().to_owned()).unwrap_or_default())
+                            .collect();
+                        vec![(start, end, groups)]
+                    }
+                    None => Vec::new(),
+                }
+            }
+        }
+        _ => Vec::new(),
+    });
+
+    if matches.is_empty() {
+        return alloc_entry(Entry::String(s_owned.into_bytes()));
+    }
+
+    let mut result = String::new();
+    let mut last_end = 0usize;
+    let bytes = s_owned.as_bytes();
+
+    // Resolve raw fn_ptr: either a Function handle or a direct function pointer.
+    let raw_fn_ptr: u64 = crate::namespaces::gc::handles::with_entry(fn_handle, |e| match e {
+        Some(Entry::Function(f)) => f.fn_ptr as u64,
+        _ => fn_handle,
+    });
+
+    for (start, end, groups) in &matches {
+        // parte antes do match
+        result.push_str(std::str::from_utf8(&bytes[last_end..*start]).unwrap_or(""));
+
+        // Aloca handles para todos os grupos (match, p1, p2, ...) + offset + input.
+        let group_handles: Vec<i64> = groups.iter().map(|g| {
+            alloc_entry(Entry::String(g.as_bytes().to_vec())) as i64
+        }).collect();
+
+        // Chama callback(match, ...captureGroups, offset, inputString).
+        // JS spec: fn(match, p1, p2, ..., offset, string).
+        let offset_i64 = *start as i64;
+        let input_h = alloc_entry(Entry::String(s_owned.as_bytes().to_vec())) as i64;
+
+        let repl_h = unsafe {
+            match group_handles.len() {
+                1 => {
+                    // sem grupos: fn(match, offset, string)
+                    let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
+                    f(group_handles[0], offset_i64, input_h)
+                }
+                2 => {
+                    let f: extern "C" fn(i64, i64, i64, i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
+                    f(group_handles[0], group_handles[1], offset_i64, input_h)
+                }
+                3 => {
+                    let f: extern "C" fn(i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
+                    f(group_handles[0], group_handles[1], group_handles[2], offset_i64, input_h)
+                }
+                _ => {
+                    // fallback: just match
+                    let f: extern "C" fn(i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
+                    f(group_handles[0])
+                }
+            }
+        } as u64;
+
+        // converte o resultado da funcao para string
+        let repl_str: String = with_entry(repl_h, |e| match e {
+            Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+            _ => String::new(),
+        });
+        result.push_str(&repl_str);
+        last_end = *end;
+    }
+    // parte restante
+    result.push_str(std::str::from_utf8(&bytes[last_end..]).unwrap_or(""));
+    alloc_entry(Entry::String(result.into_bytes()))
+}
+
+/// `str.split(regex_handle)` — divide string usando regex.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX(
+    recv: u64,
+    regex_handle: u64,
+) -> u64 {
+    __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(recv, regex_handle, i64::MAX)
+}
+
+/// `str.split(regex_handle, limit)` — divide string usando regex com limite.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
+    recv: u64,
+    regex_handle: u64,
+    limit: i64,
+) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+    use crate::namespaces::globals::string::rt::alloc_str;
+    unsafe extern "C" {
+        fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> u64;
+        fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64);
+    }
+    let s_opt = with_entry(recv, |e| match e {
+        Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+        _ => None,
+    });
+    let Some(s) = s_opt else { return alloc_entry(Entry::Vec(Box::new(Vec::new()))); };
+    let lim = if limit < 0 { usize::MAX } else { limit as usize };
+    let parts: Vec<String> = with_entry(regex_handle, |e| match e {
+        Some(Entry::Regex(rts_rx)) => {
+            rts_rx.regex.split(&s).take(lim).map(|p| p.to_owned()).collect()
+        }
+        _ => vec![s.clone()],
+    });
+    let vec_h = unsafe { __RTS_FN_NS_COLLECTIONS_VEC_NEW() };
+    for part in parts {
+        let h = alloc_str(&part) as i64;
+        unsafe { __RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec_h, h) };
+    }
+    vec_h
 }

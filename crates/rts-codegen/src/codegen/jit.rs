@@ -1402,6 +1402,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_STRING_SEARCH_REGEX", search::__RTS_FN_NS_STRING_SEARCH_REGEX);
     add_fn!("__RTS_FN_NS_STRING_SEARCH", search::__RTS_FN_NS_STRING_SEARCH);
     add_fn!("__RTS_FN_NS_STRING_MATCH_ALL", search::__RTS_FN_NS_STRING_MATCH_ALL);
+    add_fn!("__RTS_FN_NS_STRING_MATCH_ALL_REGEX", search::__RTS_FN_NS_STRING_MATCH_ALL_REGEX);
+    add_fn!("__RTS_FN_NS_STRING_REPLACE_REGEX_FN", search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN);
+    add_fn!("__RTS_FN_GL_STRING_SPLIT_REGEX",       search::__RTS_FN_GL_STRING_SPLIT_REGEX);
+    add_fn!("__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT", search::__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT);
     add_fn!(
         "__RTS_FN_NS_STRING_TO_UPPER",
         transform::__RTS_FN_NS_STRING_TO_UPPER
@@ -1460,6 +1464,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_INDEX_OF_FROM",    rt::__RTS_FN_GL_STRING_INDEX_OF_FROM);
     add_fn!("__RTS_FN_GL_STRING_LAST_INDEX_OF_FROM", rt::__RTS_FN_GL_STRING_LAST_INDEX_OF_FROM);
     add_fn!("__RTS_FN_GL_STRING_INCLUDES",         rt::__RTS_FN_GL_STRING_INCLUDES);
+    add_fn!("__RTS_FN_GL_STRING_INCLUDES_AT",      rt::__RTS_FN_GL_STRING_INCLUDES_AT);
     add_fn!("__RTS_FN_GL_STRING_STARTS_WITH",      rt::__RTS_FN_GL_STRING_STARTS_WITH);
     add_fn!("__RTS_FN_GL_STRING_ENDS_WITH",        rt::__RTS_FN_GL_STRING_ENDS_WITH);
     add_fn!("__RTS_FN_GL_STRING_CHAR_AT",          rt::__RTS_FN_GL_STRING_CHAR_AT);
@@ -1487,6 +1492,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_LOCALE_COMPARE",   rt::__RTS_FN_GL_STRING_LOCALE_COMPARE);
     add_fn!("__RTS_FN_GL_STRING_TO_STRING",        rt::__RTS_FN_GL_STRING_TO_STRING);
     add_fn!("__RTS_FN_GL_STRING_IS_WELL_FORMED",   rt::__RTS_FN_GL_STRING_IS_WELL_FORMED);
+    add_fn!("__RTS_FN_GL_STRING_NORMALIZE",        rt::__RTS_FN_GL_STRING_NORMALIZE);
+    add_fn!("__RTS_FN_GL_STRING_LENGTH_UTF16",     rt::__RTS_FN_GL_STRING_LENGTH_UTF16);
 
     // ── namespaces::globals::number ───────────────────────────────────
     use crate::namespaces::globals::number::rt as num_rt;

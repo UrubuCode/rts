@@ -29,6 +29,18 @@ pub(super) fn lower_string_builtin(
         Ok(ctx.coerce_to_handle(tv)?.val)
     }
 
+    // Lower arg[idx] as a raw function pointer (i64). Handles hoisted arrows (Ident in user_fns).
+    fn arg_fn_ptr(ctx: &mut FnCtx, call: &CallExpr, idx: usize) -> Result<cranelift_codegen::ir::Value> {
+        let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing fn arg #{idx}"))?;
+        if let Expr::Ident(id) = arg.expr.as_ref() {
+            if ctx.user_fns.contains_key(id.sym.as_ref()) && ctx.var_ty(id.sym.as_ref()).is_none() {
+                return Ok(emit_user_fn_addr(ctx, id.sym.as_ref())?.val);
+            }
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        Ok(ctx.coerce_to_i64(tv).val)
+    }
+
     fn arg_i64(ctx: &mut FnCtx, call: &CallExpr, idx: usize) -> Result<cranelift_codegen::ir::Value> {
         let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing arg #{idx}"))?;
         if arg.spread.is_some() {
@@ -86,6 +98,11 @@ pub(super) fn lower_string_builtin(
         }
         "includes" | "contains" => {
             let needle = arg_handle(ctx, call, 0)?;
+            if call.args.len() >= 2 {
+                let pos = arg_i64(ctx, call, 1)?;
+                let v = call_h!("__RTS_FN_GL_STRING_INCLUDES_AT", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle, pos]);
+                return Ok(Some(TypedVal::new(v, ValTy::Bool)));
+            }
             let v = call_h!("__RTS_FN_GL_STRING_INCLUDES", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle]);
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
@@ -204,16 +221,31 @@ pub(super) fn lower_string_builtin(
         }
         "replace" => {
             use swc_ecma_ast::{Expr, Lit};
-            let is_regex = call
-                .args
-                .first()
+            let is_regex = call.args.first()
                 .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
+                .unwrap_or(false);
+            let second_is_fn = call.args.get(1)
+                .map(|a| match a.expr.as_ref() {
+                    Expr::Arrow(_) | Expr::Fn(_) => true,
+                    Expr::Ident(id) => ctx.user_fns.contains_key(id.sym.as_ref()),
+                    _ => false,
+                })
                 .unwrap_or(false);
             if is_regex {
                 let pattern = arg_handle(ctx, call, 0)?;
-                let to = arg_handle(ctx, call, 1)?;
                 let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
                 let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
+                if second_is_fn {
+                    let fn_ptr = arg_fn_ptr(ctx, call, 1)?;
+                    let v = call_h!(
+                        "__RTS_FN_NS_STRING_REPLACE_REGEX_FN",
+                        &[cl::I64, cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                        &[p1, l1, pattern, fn_ptr]
+                    );
+                    return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+                }
+                let to = arg_handle(ctx, call, 1)?;
                 let v = call_h!(
                     "__RTS_FN_NS_STRING_REPLACE_REGEX",
                     &[cl::I64, cl::I64, cl::I64, cl::I64],
@@ -229,16 +261,31 @@ pub(super) fn lower_string_builtin(
         }
         "replaceAll" => {
             use swc_ecma_ast::{Expr, Lit};
-            let is_regex = call
-                .args
-                .first()
+            let is_regex = call.args.first()
                 .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
+                .unwrap_or(false);
+            let second_is_fn = call.args.get(1)
+                .map(|a| match a.expr.as_ref() {
+                    Expr::Arrow(_) | Expr::Fn(_) => true,
+                    Expr::Ident(id) => ctx.user_fns.contains_key(id.sym.as_ref()),
+                    _ => false,
+                })
                 .unwrap_or(false);
             if is_regex {
                 let pattern = arg_handle(ctx, call, 0)?;
-                let to = arg_handle(ctx, call, 1)?;
                 let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
                 let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
+                if second_is_fn {
+                    let fn_ptr = arg_fn_ptr(ctx, call, 1)?;
+                    let v = call_h!(
+                        "__RTS_FN_NS_STRING_REPLACE_REGEX_FN",
+                        &[cl::I64, cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                        &[p1, l1, pattern, fn_ptr]
+                    );
+                    return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+                }
+                let to = arg_handle(ctx, call, 1)?;
                 let v = call_h!(
                     "__RTS_FN_NS_STRING_REPLACE_REGEX",
                     &[cl::I64, cl::I64, cl::I64, cl::I64],
@@ -253,9 +300,13 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "concat" => {
-            let other = arg_handle(ctx, call, 0)?;
-            let v = call_h!("__RTS_FN_GL_STRING_CONCAT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, other]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+            // Chain concat over all args: recv.concat(a, b, c) = concat(concat(concat(recv,a),b),c)
+            let mut acc = recv_h;
+            for i in 0..call.args.len() {
+                let other = arg_handle(ctx, call, i)?;
+                acc = call_h!("__RTS_FN_GL_STRING_CONCAT", &[cl::I64, cl::I64], Some(cl::I64), &[acc, other]);
+            }
+            Ok(Some(TypedVal::new(acc, ValTy::Handle)))
         }
         "padStart" => {
             let target = arg_i64(ctx, call, 0)?;
@@ -278,6 +329,20 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "split" => {
+            use swc_ecma_ast::{Expr, Lit};
+            let is_regex_arg = call.args.first()
+                .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
+                .unwrap_or(false);
+            if is_regex_arg {
+                let regex_h = arg_handle(ctx, call, 0)?;
+                if call.args.len() >= 2 {
+                    let limit = arg_i64(ctx, call, 1)?;
+                    let v = call_h!("__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, regex_h, limit]);
+                    return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+                }
+                let v = call_h!("__RTS_FN_GL_STRING_SPLIT_REGEX", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, regex_h]);
+                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+            }
             let sep = arg_handle(ctx, call, 0)?;
             // (#208) split(sep, limit?) — limit truncamento opcional.
             if call.args.len() >= 2 {
@@ -355,11 +420,24 @@ pub(super) fn lower_string_builtin(
             );
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        // (#208) `s.matchAll(pattern)` — Vec de string handles, um por match.
+        // (#208) `s.matchAll(pattern)` — iterador de capture arrays.
         "matchAll" => {
-            let pattern = arg_handle(ctx, call, 0)?;
+            use swc_ecma_ast::{Expr, Lit};
+            let is_regex_arg = call.args.first()
+                .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
+                .unwrap_or(false);
             let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
             let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
+            let pattern = arg_handle(ctx, call, 0)?;
+            if is_regex_arg {
+                let v = call_h!(
+                    "__RTS_FN_NS_STRING_MATCH_ALL_REGEX",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                    &[p1, l1, pattern]
+                );
+                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
+            }
             let p2 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[pattern]);
             let l2 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[pattern]);
             let v = call_h!(
@@ -375,8 +453,17 @@ pub(super) fn lower_string_builtin(
             let v = call_h!("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, other]);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        "toString" | "valueOf" | "toWellFormed" | "normalize" => {
+        "toString" | "valueOf" | "toWellFormed" => {
             let v = call_h!("__RTS_FN_GL_STRING_TO_STRING", &[cl::I64], Some(cl::I64), &[recv_h]);
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "normalize" => {
+            let form = if call.args.is_empty() {
+                ctx.emit_str_handle(b"NFC")?.val
+            } else {
+                arg_handle(ctx, call, 0)?
+            };
+            let v = call_h!("__RTS_FN_GL_STRING_NORMALIZE", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, form]);
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "isWellFormed" => {

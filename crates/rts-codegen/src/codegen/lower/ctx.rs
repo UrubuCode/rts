@@ -1116,6 +1116,14 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             ValTy::I64 | ValTy::I32
             | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
                 let as_i64 = self.coerce_to_i64(tv);
+                // Se o valor e' ambiguo (pode ser handle ou i64), usa TPL_COERCE_AUTO
+                // para decidir em runtime (evita formatar handle como numero decimal).
+                if self.var_member_call_values.contains(&as_i64.val) {
+                    let fref = self.get_extern("__RTS_FN_RT_TPL_COERCE_AUTO", &[cl::I64], Some(cl::I64))?;
+                    let inst = self.builder.ins().call(fref, &[as_i64.val]);
+                    let val = self.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(val, ValTy::Handle));
+                }
                 let fref =
                     self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64", &[cl::I64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[as_i64.val]);

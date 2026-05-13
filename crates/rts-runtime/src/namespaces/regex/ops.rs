@@ -24,7 +24,7 @@ where
     F: FnOnce(&Regex) -> R,
 {
     with_entry(handle, |entry| match entry {
-        Some(Entry::Regex(rx)) => f(rx),
+        Some(Entry::Regex(rx)) => f(&rx.regex),
         _ => default,
     })
 }
@@ -54,14 +54,13 @@ pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
             'x' => {
                 builder.ignore_whitespace(true);
             }
-            // 'g', 'u', 'y' nao alteram o builder: 'g' e tratado pelo
-            // caller (replace_all vs replace), 'u' Unicode ja e default,
-            // 'y' (sticky) nao mapeia em RE2.
+            // 'u' Unicode ja e default; 'y' (sticky) nao mapeia em RE2.
             _ => {}
         }
     }
+    let global = flags.contains('g');
     match builder.build() {
-        Ok(rx) => alloc_entry(Entry::Regex(Box::new(rx))),
+        Ok(rx) => alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex { regex: rx, global }))),
         Err(_) => 0,
     }
 }

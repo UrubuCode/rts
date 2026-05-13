@@ -98,7 +98,9 @@ pub(super) fn lower_var_member_call(
     // Tem que vir antes do map_get porque uma string handle nao e um map —
     // map_get retornaria lixo, e o call_indirect subsequente saltaria pra
     // endereco invalido. (#235: indexOf travava/SIGSEGV em string com \0)
-    if matches!(obj_tv.ty, ValTy::Handle) && !is_proto_instance {
+    // Tambem tenta I64 ambiguo (parâmetro de arrow sem tipo anotado que pode
+    // ser uma string handle, ex: callback de replace/map/forEach).
+    if (matches!(obj_tv.ty, ValTy::Handle) || matches!(obj_tv.ty, ValTy::I64)) && !is_proto_instance {
         if let Some(tv) = lower_string_builtin(ctx, prop, obj_h, call)? {
             return Ok(tv);
         }
