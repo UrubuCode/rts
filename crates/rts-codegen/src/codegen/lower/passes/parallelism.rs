@@ -254,6 +254,7 @@ fn lift_arrows_in_expr(
                     let lift_info: Option<(usize, usize, usize)> = match method {
                         // (arg_idx_to_lift, n_args, arrow_arity)
                         "map" | "forEach" => Some((0, 1, 1)),
+                        "reduce" if call.args.len() == 1 => Some((0, 1, 2)),
                         "reduce" => Some((0, 2, 2)),
                         "filter" | "find" | "findIndex" | "some" | "every" => {
                             Some((0, 1, 1))
@@ -592,7 +593,11 @@ fn try_lift_arrow_arg(
         param_names.push(synth);
     }
 
-    // Body: Expr direto OU BlockStmt com 1 return.
+    // Body: Expr direto OU BlockStmt com 1 stmt (return ou expr).
+    // (cross-runtime #242/#248) Block sem return final retorna undefined
+    // em JS (map -> array de undefined, forEach ignora). Aceitamos block
+    // com expr-statement sozinho, retornando o valor (caso map quer)
+    // ou descartando (forEach).
     let body_expr: Expr = match arrow.body.as_ref() {
         BlockStmtOrExpr::Expr(e) => (**e).clone(),
         BlockStmtOrExpr::BlockStmt(b) => {
@@ -602,8 +607,22 @@ fn try_lift_arrow_arg(
             match &b.stmts[0] {
                 Stmt::Return(r) => match r.arg.as_deref() {
                     Some(e) => e.clone(),
-                    None => return None,
+                    // `return;` sem valor — retorna 0 (sera tratado como
+                    // undefined sentinela pelo caller quando necessario).
+                    None => Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                        span: Default::default(),
+                        value: 0.0,
+                        raw: None,
+                    })),
                 },
+                // (cross-runtime #242) `(x) => { x * 2; }` — bloco com expr-stmt
+                // sem return. JS: retorna undefined. Aqui retornamos 0 como
+                // valor numerico (compativel com fn ABI i64).
+                Stmt::Expr(_) => Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                    span: Default::default(),
+                    value: 0.0,
+                    raw: None,
+                })),
                 _ => return None,
             }
         }
@@ -877,6 +896,8 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         "map" if call.args.len() == 1 && arg0_is_user_fn => Some("map"),
                         "forEach" if call.args.len() == 1 && arg0_is_user_fn => Some("for_each"),
                         "reduce" if call.args.len() == 2 && arg0_is_user_fn => Some("reduce"),
+                        // (cross-runtime #254) reduce sem initial value.
+                        "reduce" if call.args.len() == 1 && arg0_is_user_fn => Some("reduce_no_init"),
                         "filter" if call.args.len() == 1 && arg0_is_user_fn => Some("filter"),
                         "find" if call.args.len() == 1 && arg0_is_user_fn => Some("find"),
                         "findIndex" if call.args.len() == 1 && arg0_is_user_fn => {
@@ -898,6 +919,7 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: fn_arg },
                             ]
                         } else {
+                            // reduce_no_init / map / forEach / etc: (arr, fn)
                             vec![
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: Box::new(arr_expr) },
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: fn_arg },

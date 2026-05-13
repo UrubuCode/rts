@@ -63,6 +63,19 @@ pub(super) fn lower_var_member_call(
     // cai em `__RTS_FN_GL_STRING_INDEX_OF` e retorna lixo.
     let is_array_var = ctx.local_array_vars.contains(obj_name);
     if is_array_var {
+        // (cross-runtime #157/#231) arr.toString()/toLocaleString() = join(",").
+        if matches!(prop, "toString" | "toLocaleString") && call.args.is_empty() {
+            use cranelift_codegen::ir::{InstBuilder, types as cl};
+            let sep_h = ctx.emit_str_handle(b",")?.val;
+            let join_fn = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(join_fn, &[obj_h, sep_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(crate::codegen::lower::ctx::TypedVal::new(v, ValTy::Handle));
+        }
         if let Some(tv) = lower_array_builtin(ctx, prop, obj_h, call)? {
             return Ok(tv);
         }

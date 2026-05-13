@@ -7,7 +7,7 @@ on:
   schedule:
     # Semanal segunda 00:00 BRT (03:00 UTC) para detectar regressoes
     # em deps (Bun/Node) sem afetar horario comercial.
-    - cron: "0 3 * * *"
+    - cron: "0 3 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -240,194 +240,435 @@ jobs:
             execSync(`git commit -m "${msg}"`);
             execSync('git push');
 
-      # - name: Auto-create issues em schedule/dispatch (1 por fixture + dedup)
-      #   if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && steps.cross.outcome == 'failure'
-      #   uses: actions/github-script@v7
-      #   with:
-      #     script: |
-      #       const fs = require('fs');
-      #       const crypto = require('crypto');
-      #       const path = process.env.GITHUB_WORKSPACE + '/cross_runtime_report.json';
-      #       if (!fs.existsSync(path)) return;
-      #       const r = JSON.parse(fs.readFileSync(path, 'utf8'));
-      #       const divergent = r.results.filter(x => x.status === 'rts_diverge' || x.status === 'rts_error');
-      #       if (divergent.length === 0) return;
+      - name: Auto-sync cross-runtime issues (GraphQL bulk + state-aware)
+        # Roda tambem em push para main para fechar issues quando fixture
+        # passa a bater. Sem isso, fixture resolvida ficava com issue OPEN.
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && always()
+        uses: actions/github-script@v7
+        env:
+          MAX_ISSUES_PER_RUN: "5"
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const path = process.env.GITHUB_WORKSPACE + '/cross_runtime_report.json';
+            if (!fs.existsSync(path)) return;
+            const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+            // Conjuntos por fixture name:
+            // - divergent: fixtures que diferem de Bun/Node nesta run
+            // - passing: fixtures que passam (RTS = Bun = Node)
+            const divergent = r.results.filter(x => x.status === 'rts_diverge' || x.status === 'rts_error');
+            const passing = new Set(r.results.filter(x => x.status === 'pass').map(x => x.name));
 
-      #       const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 12);
-      #       // Normaliza outputs antes do hash para estabilizar sig entre
-      #       // runs. RTS vaza handles GC (ex: 281474976710657) que mudam
-      #       // a cada execucao por causa de alocacao round-robin em 32
-      #       // shards do HandleTable. Substituimos runs de >= 12 digitos
-      #       // por placeholder <handle>. Bun/Node nao tem esse problema
-      #       // mas aplicamos por simetria.
-      #       const normalizeOutput = (s) => (s || '').replace(/\b\d{12,}\b/g, '<handle>');
-      #       const sigOf = (d) => sha1([
-      #         d.name,
-      #         d.status,
-      #         normalizeOutput(d.bun),
-      #         normalizeOutput(d.node),
-      #         normalizeOutput(d.rts),
-      #       ].join('|'));
+            // Pausa entre requests para evitar secondary rate limit.
+            // GitHub bloqueia bursts de criacao mesmo abaixo do primary
+            // limit (5000/h). 2s entre operations mantem ~30 req/min,
+            // bem dentro do safe.
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            const THROTTLE_MS = 2000;
 
-      #       // ─── Categorização (apenas para label cat:<nome>) ───────
-      #       function categorize(name) {
-      #         const n = name.toLowerCase();
-      #         if (/(stream|compression|textdecoder_stream|textencoder)/.test(n)) return 'streams';
-      #         if (/(arraybuffer|dataview|typedarray|atomics|sharedarraybuffer)/.test(n)) return 'typed-buffers';
-      #         if (/(blob|file|formdata|headers|request|response)/.test(n)) return 'web-api';
-      #         if (/(abort[_]?controller|abort[_]?signal|event[_]?target|message[_]?channel|microtask|queuemicrotask)/.test(n)) return 'events-async';
-      #         if (/(weak[_]?refs?|finalization[_]?registry)/.test(n)) return 'gc-weak';
-      #         if (/(structured[_]?clone|domexception|aggregate[_]?error|modern_helpers|property_order)/.test(n)) return 'misc-platform';
-      #         if (/intl/.test(n)) return 'intl';
-      #         if (/regex/.test(n)) return 'regex';
-      #         if (/url/.test(n)) return 'url';
-      #         if (/(encodeuri|decodeuri|text_encoding|subtle_digest|encode_decode)/.test(n)) return 'encoding';
-      #         if (/(bigint)/.test(n)) return 'bigint';
-      #         if (/(json)/.test(n)) return 'json';
-      #         if (/(generator|yield|yieldstar)/.test(n)) return 'generators';
-      #         if (/(iterator_helpers|iterator_toarray)/.test(n)) return 'iteration';
-      #         if (/(promise|await|promiseall|allsettled|withresolvers)/.test(n)) return 'promises';
-      #         if (/(class|extends|super_|private_field|private_method|static_block|new_target|computed_class)/.test(n)) return 'classes';
-      #         if (/(instanceof|typeof|error)/.test(n)) return 'classes-errors';
-      #         if (/console/.test(n)) return 'console';
-      #         if (/(function_meta|function_bind|function_call_apply|function_name_length|arrow_rest_params|arguments_object|new_target|closure)/.test(n)) return 'fn-meta';
-      #         if (/(template|tagged_template|destructur|spread|labeled_break|delete_operator|void_operator|comma_operator|this_strict|hashbang|import_meta|numeric_separator|nullish_assignment|logical_assignment|optional_catch|exponentiation)/.test(n)) return 'syntax';
-      #         if (/(coercion|number_format|nan_negative_zero|bitwise|number_tostring|number_constructor|number_valueof|number_parseint|number_parsefloat|number_isfinite|number_isinteger|number_issafeinteger|parseint|parsefloat|isfinite|isnan|tofixed|toexponential|toprecision)/.test(n)) return 'numeric';
-      #         if (/math/.test(n)) return 'math';
-      #         if (/date/.test(n)) return 'date';
-      #         if (/boolean/.test(n)) return 'boolean';
-      #         if (/array|findlast|findlastindex|flatmap|toreversed|tosorted|tospliced/.test(n)) return 'array';
-      #         if (/(object|proxy|reflect)/.test(n)) return 'object-meta';
-      #         if (/symbol/.test(n)) return 'symbol';
-      #         if (/(map|set_operations|set_ops|map_set|groupby|map_iter|map_foreach)/.test(n)) return 'collections';
-      #         if (/string|replaceall|matchall|substring|substr/.test(n)) return 'string';
-      #         if (/(dynamic_import|setimmediate|setinterval)/.test(n)) return 'misc-platform';
-      #         return 'other';
-      #       }
+            const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 12);
+            // Normaliza outputs antes do hash para estabilizar sig entre
+            // runs. RTS vaza handles GC (ex: 281474976710657) que mudam
+            // a cada execucao por causa de alocacao round-robin em 32
+            // shards do HandleTable. Substituimos runs de >= 12 digitos
+            // por placeholder <handle>. Bun/Node nao tem esse problema
+            // mas aplicamos por simetria.
+            const normalizeOutput = (s) => (s || '').replace(/\b\d{12,}\b/g, '<handle>');
+            const sigOf = (d) => sha1([
+              d.name,
+              d.status,
+              normalizeOutput(d.bun),
+              normalizeOutput(d.node),
+              normalizeOutput(d.rts),
+            ].join('|'));
 
-      #       const today = new Date().toISOString().slice(0, 10);
-      #       const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-      #       // Cap: maximo de issues criadas por run para nao inundar.
-      #       // Sobras esperam proximo schedule.
-      #       const MAX_PER_RUN = parseInt(process.env.MAX_ISSUES_PER_RUN || '50', 10);
+            // ─── Categorização (apenas para label cat:<nome>) ───────
+            function categorize(name) {
+              const n = name.toLowerCase();
+              if (/(stream|compression|textdecoder_stream|textencoder)/.test(n)) return 'streams';
+              if (/(arraybuffer|dataview|typedarray|atomics|sharedarraybuffer)/.test(n)) return 'typed-buffers';
+              if (/(blob|file|formdata|headers|request|response)/.test(n)) return 'web-api';
+              if (/(abort[_]?controller|abort[_]?signal|event[_]?target|message[_]?channel|microtask|queuemicrotask)/.test(n)) return 'events-async';
+              if (/(weak[_]?refs?|finalization[_]?registry)/.test(n)) return 'gc-weak';
+              if (/(structured[_]?clone|domexception|aggregate[_]?error|modern_helpers|property_order)/.test(n)) return 'misc-platform';
+              if (/intl/.test(n)) return 'intl';
+              if (/regex/.test(n)) return 'regex';
+              if (/url/.test(n)) return 'url';
+              if (/(encodeuri|decodeuri|text_encoding|subtle_digest|encode_decode)/.test(n)) return 'encoding';
+              if (/(bigint)/.test(n)) return 'bigint';
+              if (/(json)/.test(n)) return 'json';
+              if (/(generator|yield|yieldstar)/.test(n)) return 'generators';
+              if (/(iterator_helpers|iterator_toarray)/.test(n)) return 'iteration';
+              if (/(promise|await|promiseall|allsettled|withresolvers)/.test(n)) return 'promises';
+              if (/(class|extends|super_|private_field|private_method|static_block|new_target|computed_class)/.test(n)) return 'classes';
+              if (/(instanceof|typeof|error)/.test(n)) return 'classes-errors';
+              if (/console/.test(n)) return 'console';
+              if (/(function_meta|function_bind|function_call_apply|function_name_length|arrow_rest_params|arguments_object|new_target|closure)/.test(n)) return 'fn-meta';
+              if (/(template|tagged_template|destructur|spread|labeled_break|delete_operator|void_operator|comma_operator|this_strict|hashbang|import_meta|numeric_separator|nullish_assignment|logical_assignment|optional_catch|exponentiation)/.test(n)) return 'syntax';
+              if (/(coercion|number_format|nan_negative_zero|bitwise|number_tostring|number_constructor|number_valueof|number_parseint|number_parsefloat|number_isfinite|number_isinteger|number_issafeinteger|parseint|parsefloat|isfinite|isnan|tofixed|toexponential|toprecision)/.test(n)) return 'numeric';
+              if (/math/.test(n)) return 'math';
+              if (/date/.test(n)) return 'date';
+              if (/boolean/.test(n)) return 'boolean';
+              if (/array|findlast|findlastindex|flatmap|toreversed|tosorted|tospliced/.test(n)) return 'array';
+              if (/(object|proxy|reflect)/.test(n)) return 'object-meta';
+              if (/symbol/.test(n)) return 'symbol';
+              if (/(map|set_operations|set_ops|map_set|groupby|map_iter|map_foreach)/.test(n)) return 'collections';
+              if (/string|replaceall|matchall|substring|substr/.test(n)) return 'string';
+              if (/(dynamic_import|setimmediate|setinterval)/.test(n)) return 'misc-platform';
+              return 'other';
+            }
 
-      #       // Coleta issues abertas com label cross-runtime
-      #       // (paginar — pode ter centenas).
-      #       let existing = [];
-      #       for (let page = 1; page <= 10; page++) {
-      #         const res = await github.rest.issues.listForRepo({
-      #           owner: context.repo.owner,
-      #           repo: context.repo.repo,
-      #           state: 'open',
-      #           labels: 'cross-runtime',
-      #           per_page: 100,
-      #           page
-      #         });
-      #         existing.push(...res.data);
-      #         if (res.data.length < 100) break;
-      #       }
+            const today = new Date().toISOString().slice(0, 10);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            // Cap: maximo de issues criadas por run para nao inundar.
+            // Default baixo (5) — pinga rate-limit safe; sobras esperam
+            // proximo schedule (semanal). Override via env MAX_ISSUES_PER_RUN.
+            const MAX_PER_RUN = parseInt(process.env.MAX_ISSUES_PER_RUN || '5', 10);
 
-      #       // Indexa por fixture name — marker "<!-- cross-runtime-fixture: NAME -->"
-      #       const issueByFixture = new Map();
-      #       for (const issue of existing) {
-      #         const m = (issue.body || '').match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
-      #         if (m) issueByFixture.set(m[1], issue);
-      #       }
+            // Coleta TODAS as issues cross-runtime (open + closed) via
+            // GraphQL — 1 query traz 100 issues + body em uma chamada,
+            // bem mais barato que REST paginado e dentro do safe rate.
+            // Body eh truncado para 32 KB para evitar payload gigante;
+            // os marker tags ficam no fim mas sempre <300 bytes.
+            const fetchPage = async (cursor) => {
+              const query = `query($owner: String!, $repo: String!, $cursor: String) {
+                repository(owner: $owner, name: $repo) {
+                  issues(
+                    first: 100,
+                    after: $cursor,
+                    states: [OPEN, CLOSED],
+                    labels: ["cross-runtime"],
+                    orderBy: { field: CREATED_AT, direction: DESC }
+                  ) {
+                    nodes { number, state, body, title }
+                    pageInfo { hasNextPage, endCursor }
+                  }
+                }
+              }`;
+              return await github.graphql(query, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                cursor: cursor,
+              });
+            };
 
-      #       // Indexa sigs ja' tracked (em qualquer issue) — usado para
-      #       // detectar mudanca da assinatura (output mudou) sem precisar
-      #       // criar nova issue.
-      #       const sigByFixture = new Map();
-      #       for (const issue of existing) {
-      #         const fm = (issue.body || '').match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
-      #         const sm = (issue.body || '').match(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/);
-      #         if (fm && sm) sigByFixture.set(fm[1], { issue, sig: sm[1] });
-      #       }
+            let allIssues = [];
+            let cursor = null;
+            for (let page = 0; page < 20; page++) {
+              const res = await fetchPage(cursor);
+              const issues = res.repository.issues;
+              allIssues.push(...issues.nodes);
+              if (!issues.pageInfo.hasNextPage) break;
+              cursor = issues.pageInfo.endCursor;
+            }
+            console.log(`GraphQL: ${allIssues.length} issues cross-runtime (all states)`);
 
-      #       let created = 0;
-      #       let commented = 0;
-      #       let updated = 0;
-      #       let skipped = 0;
-      #       const actionsTaken = [];
+            // Indexa por fixture name. Cada fixture pode ter multiplas
+            // issues (OPEN + varias CLOSED de runs antigos); guardamos:
+            // - openIssue: a unica OPEN existente (se houver)
+            // - closedSigs: sigs ja vistas em qualquer issue CLOSED — pra
+            //   bloquear recriacao quando a divergencia eh exatamente a
+            //   mesma de antes
+            const fixtureMap = new Map(); // name -> { openIssue?, closedSigs: Set, groupedRefs: Set }
+            for (const issue of allIssues) {
+              const body = issue.body || '';
+              const fm = body.match(/<!-- cross-runtime-fixture: ([^\s]+) -->/);
+              if (fm) {
+                // Issue moderna (1 fixture, com marker).
+                const sm = body.match(/<!-- cross-runtime-sig: ([a-f0-9]{12}) -->/);
+                const sig = sm ? sm[1] : null;
+                const name = fm[1];
+                let entry = fixtureMap.get(name);
+                if (!entry) {
+                  entry = { openIssue: null, closedSigs: new Set(), groupedRefs: new Set() };
+                  fixtureMap.set(name, entry);
+                }
+                if (issue.state === 'OPEN') {
+                  if (!entry.openIssue) entry.openIssue = { ...issue, sig };
+                } else {
+                  if (sig) entry.closedSigs.add(sig);
+                }
+                continue;
+              }
+              // Fallback: issue agrupada antiga (sem marker). Reconhece
+              // padrao \`### fixture_name —\` ou \`### \`fixture_name\` —\` no body
+              // para popular groupedRefs. Sem isso, o dedup nao via essas
+              // issues e o workflow criava duplicatas.
+              const groupedNames = [...body.matchAll(/###\s+`?(\d+_\w+)`?\s+[—-]/g)].map(m => m[1]);
+              for (const name of groupedNames) {
+                let entry = fixtureMap.get(name);
+                if (!entry) {
+                  entry = { openIssue: null, closedSigs: new Set(), groupedRefs: new Set() };
+                  fixtureMap.set(name, entry);
+                }
+                entry.groupedRefs.add(`#${issue.number}(${issue.state})`);
+              }
+            }
 
-      #       for (const d of divergent) {
-      #         const sig = sigOf(d);
-      #         const cat = categorize(d.name);
-      #         const existingIssue = issueByFixture.get(d.name);
+            // ─── PASSO 1: fechar issues OPEN cujas fixtures agora passam.
+            let closed = 0;
+            for (const [name, entry] of fixtureMap.entries()) {
+              if (!entry.openIssue) continue;
+              if (!passing.has(name)) continue;
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: entry.openIssue.number,
+                  body: `✅ Fixture passa nesta run. Fechando automaticamente.\n\nRun: ${runUrl}`
+                });
+                await sleep(THROTTLE_MS);
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: entry.openIssue.number,
+                  state: 'closed',
+                  state_reason: 'completed'
+                });
+                closed++;
+                await sleep(THROTTLE_MS);
+              } catch (e) {
+                console.log(`Falha fechar #${entry.openIssue.number}: ${e.message}`);
+                if (/secondary rate limit|abuse/i.test(e.message)) break;
+              }
+            }
 
-      #         if (existingIssue) {
-      #           const prev = sigByFixture.get(d.name);
-      #           if (prev && prev.sig === sig) {
-      #             // Mesma assinatura — só comenta persistencia
-      #             await github.rest.issues.createComment({
-      #               owner: context.repo.owner,
-      #               repo: context.repo.repo,
-      #               issue_number: existingIssue.number,
-      #               body: `🔁 Schedule run ${today} — divergência persiste. [Run](${runUrl})`
-      #             });
-      #             commented++;
-      #             continue;
-      #           }
-      #           // Assinatura mudou — atualiza body com novo sig + outputs
-      #           let newBody = (existingIssue.body || '')
-      #             .replace(/<!-- cross-runtime-sig: [a-f0-9]{12} -->/, `<!-- cross-runtime-sig: ${sig} -->`);
-      #           newBody += `\n\n### 🆕 Atualizado em ${today} (assinatura mudou)\n\n`;
-      #           newBody += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
-      #           newBody += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
-      #           newBody += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
-      #           newBody += `Run: ${runUrl}\n`;
-      #           await github.rest.issues.update({
-      #             owner: context.repo.owner,
-      #             repo: context.repo.repo,
-      #             issue_number: existingIssue.number,
-      #             body: newBody
-      #           });
-      #           updated++;
-      #           continue;
-      #         }
+            // ─── PASSO 2: processa divergencias.
+            let created = 0;
+            let updated = 0;
+            let silentOpen = 0;       // OPEN + sig igual
+            let silentClosed = 0;     // CLOSED + sig igual
+            let skippedCap = 0;
 
-      #         // Nova fixture — criar issue (respeitar cap)
-      #         if (created >= MAX_PER_RUN) {
-      #           skipped++;
-      #           continue;
-      #         }
+            for (const d of divergent) {
+              const sig = sigOf(d);
+              const cat = categorize(d.name);
+              const entry = fixtureMap.get(d.name);
 
-      #         const statusEmoji = d.status === 'rts_error' ? '💥' : '❌';
-      #         const title = `${statusEmoji} cross-runtime: ${d.name} — ${d.status}`;
+              // ─── Caso A: ha issue OPEN para essa fixture
+              if (entry && entry.openIssue) {
+                if (entry.openIssue.sig === sig) {
+                  // Mesma assinatura: silencio (issue OPEN ja eh sinal).
+                  silentOpen++;
+                  continue;
+                }
+                // Sig mudou: atualiza body. Mantem marker; appenda
+                // sub-secao com novos outputs.
+                const newBody = (entry.openIssue.body || '')
+                  .replace(/<!-- cross-runtime-sig: [a-f0-9]{12} -->/, `<!-- cross-runtime-sig: ${sig} -->`)
+                  + `\n\n### 🆕 Atualizado em ${today} (assinatura mudou)\n\n`
+                  + `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`
+                  + `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`
+                  + `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`
+                  + `Run: ${runUrl}\n`;
+                try {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: entry.openIssue.number,
+                    body: newBody
+                  });
+                  updated++;
+                  await sleep(THROTTLE_MS);
+                } catch (e) {
+                  console.log(`Falha update #${entry.openIssue.number}: ${e.message}`);
+                  if (/secondary rate limit|abuse/i.test(e.message)) break;
+                }
+                continue;
+              }
 
-      #         // Le codigo-fonte do fixture (best-effort)
-      #         let fixtureCode = '';
-      #         try {
-      #           const p = `${process.env.GITHUB_WORKSPACE}/tests/cross-runtime/${d.name}.ts`;
-      #           if (fs.existsSync(p)) {
-      #             fixtureCode = fs.readFileSync(p, 'utf8');
-      #           }
-      #         } catch (e) {
-      #           console.log(`Falha ao ler fixture ${d.name}:`, e.message);
-      #         }
+              // ─── Caso B: sem issue OPEN. Checar se a sig ja foi vista
+              // em issue CLOSED — se sim, foi resolvida e voltou identica,
+              // skipamos pra evitar spam. Se sig nova, abrimos issue.
+              if (entry && entry.closedSigs.has(sig)) {
+                silentClosed++;
+                continue;
+              }
 
-      #         let body = `## \`${d.name}\` — ${d.status}\n\n`;
-      #         body += `Categoria: \`${cat}\`. Fixture: [\`tests/cross-runtime/${d.name}.ts\`](../blob/main/tests/cross-runtime/${d.name}.ts)\n\n`;
-      #         if (fixtureCode) {
-      #           body += `### Código do teste\n\n\`\`\`ts\n${fixtureCode}\n\`\`\`\n\n`;
-      #         }
-      #         body += `### Outputs\n\n`;
-      #         body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
-      #         body += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
-      #         body += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
-      #         body += `Detectado em: ${today}\nRun: ${runUrl}\n\n`;
-      #         body += `<!-- cross-runtime-fixture: ${d.name} -->\n`;
-      #         body += `<!-- cross-runtime-sig: ${sig} -->\n`;
-      #         body += `<!-- cross-runtime-category: ${cat} -->\n`;
+              // ─── Caso C: fixture aparece em issue agrupada antiga
+              // (sem marker), provavelmente issue guarda-chuva listando
+              // varias divergencias do mesmo run inicial. Skip silencioso
+              // para nao duplicar. Quem quiser issue dedicada precisa
+              // criar manualmente; ou extrair via cleanup script.
+              if (entry && entry.groupedRefs.size > 0) {
+                silentClosed++;
+                continue;
+              }
 
-      #         await github.rest.issues.create({
-      #           owner: context.repo.owner,
-      #           repo: context.repo.repo,
-      #           title: title,
-      #           body: body,
-      #           labels: ['cross-runtime', 'bug', `cat:${cat}`, `status:${d.status}`]
-      #         });
-      #         created++;
-      #       }
+              // Nova issue (respeita cap).
+              if (created >= MAX_PER_RUN) {
+                skippedCap++;
+                continue;
+              }
+              const statusEmoji = d.status === 'rts_error' ? '💥' : '❌';
+              const title = `${statusEmoji} cross-runtime: ${d.name} — ${d.status}`;
+              let fixtureCode = '';
+              try {
+                const p = `${process.env.GITHUB_WORKSPACE}/tests/cross-runtime/${d.name}.ts`;
+                if (fs.existsSync(p)) fixtureCode = fs.readFileSync(p, 'utf8');
+              } catch (e) {
+                console.log(`Falha ler fixture ${d.name}: ${e.message}`);
+              }
+              let body = `## \`${d.name}\` — ${d.status}\n\n`;
+              body += `Categoria: \`${cat}\`. Fixture: [\`tests/cross-runtime/${d.name}.ts\`](../blob/main/tests/cross-runtime/${d.name}.ts)\n\n`;
+              if (fixtureCode) body += `### Código do teste\n\n\`\`\`ts\n${fixtureCode}\n\`\`\`\n\n`;
+              body += `### Outputs\n\n`;
+              body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
+              body += `**Node:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
+              body += `**RTS:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
+              body += `Detectado em: ${today}\nRun: ${runUrl}\n\n`;
+              body += `<!-- cross-runtime-fixture: ${d.name} -->\n`;
+              body += `<!-- cross-runtime-sig: ${sig} -->\n`;
+              body += `<!-- cross-runtime-category: ${cat} -->\n`;
+              try {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title, body,
+                  labels: ['cross-runtime', 'bug', `cat:${cat}`, `status:${d.status}`]
+                });
+                created++;
+                await sleep(THROTTLE_MS);
+              } catch (e) {
+                console.log(`Erro criar issue ${d.name}: ${e.message}`);
+                if (/secondary rate limit|abuse/i.test(e.message)) {
+                  console.log('Secondary rate limit — abortando creates.');
+                  break;
+                }
+              }
+            }
 
-      #       console.log(`Criadas: ${created}, comentadas: ${commented}, atualizadas: ${updated}, skipped (cap): ${skipped}`);
+            console.log(`closed:${closed} created:${created} updated:${updated} silentOpen:${silentOpen} silentClosed:${silentClosed} cap:${skippedCap}`);
+
+            // ────────────────────────────────────────────────────────────
+            // PASSO 3: tracking issues por categoria
+            //
+            // Mantem 1 issue por categoria (cat:array, cat:string, etc) com:
+            // - checkbox-list de todas as fixtures da categoria
+            // - barra de progresso (passing / total)
+            // - links para issues filhas (modernas com marker OU grouped)
+            // - atualizada a cada run; nunca duplica (lookup por marker
+            //   <!-- cross-runtime-tracker: <cat> -->)
+            // ────────────────────────────────────────────────────────────
+            const allResults = r.results.filter(x =>
+              x.status === 'pass' || x.status === 'rts_diverge' || x.status === 'rts_error'
+            );
+            const byCategory = new Map(); // cat -> [{name, status}, ...]
+            for (const res of allResults) {
+              const cat = categorize(res.name);
+              if (!byCategory.has(cat)) byCategory.set(cat, []);
+              byCategory.get(cat).push({ name: res.name, status: res.status });
+            }
+
+            // Indexa trackers existentes (busca marker proprio).
+            const trackerByCategory = new Map();
+            for (const issue of allIssues) {
+              const tm = (issue.body || '').match(/<!-- cross-runtime-tracker: ([^\s]+) -->/);
+              if (tm) trackerByCategory.set(tm[1], issue);
+            }
+
+            // Lookup rapido: fixture name -> issue (qualquer, OPEN ou
+            // CLOSED, moderna ou agrupada).
+            const issueRefForFixture = (name) => {
+              const entry = fixtureMap.get(name);
+              if (!entry) return null;
+              if (entry.openIssue) return `#${entry.openIssue.number}`;
+              if (entry.groupedRefs.size > 0) {
+                // Pega o primeiro grouped ref (formato \"#N(STATE)\").
+                return [...entry.groupedRefs][0].replace(/\((OPEN|CLOSED)\)/, '');
+              }
+              return null;
+            };
+
+            let trackersCreated = 0;
+            let trackersUpdated = 0;
+            let trackersSkipped = 0;
+
+            for (const [cat, fixtures] of byCategory.entries()) {
+              fixtures.sort((a, b) => a.name.localeCompare(b.name));
+              const total = fixtures.length;
+              const passing = fixtures.filter(f => f.status === 'pass').length;
+              const pct = total > 0 ? Math.round((passing / total) * 1000) / 10 : 0;
+
+              // Barra ASCII 20 segmentos.
+              const segs = 20;
+              const filled = total > 0 ? Math.round((passing / total) * segs) : 0;
+              const bar = '▰'.repeat(filled) + '▱'.repeat(segs - filled);
+
+              const title = `📊 cross-runtime [${cat}]: ${passing}/${total} (${pct}%)`;
+              // Body "estavel" (sem timestamp/runUrl) usado SO' para
+              // comparacao de diff. Se nada mudou desde o ultimo run,
+              // skipamos o update — evita poluir historico com edicao
+              // identica e nao spammar subscribers.
+              const stableBody = (() => {
+                let b = `## Tracker: categoria \`${cat}\`\n\n`;
+                b += `\`\`\`\n[${bar}] ${pct}%  ${passing}/${total} fixtures passam\n\`\`\`\n\n`;
+                b += `### Fixtures\n\n`;
+                for (const f of fixtures) {
+                  const checkbox = f.status === 'pass' ? '[x]' : '[ ]';
+                  const emoji = f.status === 'pass' ? '✅' : (f.status === 'rts_error' ? '💥' : '❌');
+                  const ref = issueRefForFixture(f.name);
+                  const refLink = ref ? ` (${ref})` : '';
+                  b += `- ${checkbox} ${emoji} \`${f.name}\`${refLink}\n`;
+                }
+                return b;
+              })();
+              // Body completo com timestamp/run, usado em creates e
+              // updates reais.
+              const body = stableBody
+                .replace(/\n### Fixtures/, `\n**Atualizado em**: ${today} — [run](${runUrl})\n\n### Fixtures`)
+                + `\n<!-- cross-runtime-tracker: ${cat} -->\n`;
+
+              const existing = trackerByCategory.get(cat);
+              try {
+                if (existing) {
+                  // Diff stable: extrai o stableBody atual da issue (tira
+                  // a linha de "Atualizado em" e o marker) e compara.
+                  const currentStable = (existing.body || '')
+                    .replace(/\*\*Atualizado em\*\*:[^\n]*\n\n/, '')
+                    .replace(/\n<!-- cross-runtime-tracker:[^>]+-->\n?/, '');
+                  const wantedState = passing === total ? 'closed' : 'open';
+                  const currentState = (existing.state || 'open').toLowerCase();
+                  const wantedTitle = title;
+                  const currentTitle = existing.title || '';
+
+                  if (
+                    currentStable.trim() === stableBody.trim() &&
+                    currentState === wantedState &&
+                    currentTitle === wantedTitle
+                  ) {
+                    // Nada mudou — skip silencioso.
+                    trackersSkipped++;
+                    continue;
+                  }
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: existing.number,
+                    title,
+                    body,
+                    state: wantedState,
+                    state_reason: wantedState === 'closed' ? 'completed' : undefined,
+                  });
+                  trackersUpdated++;
+                } else {
+                  await github.rest.issues.create({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    title, body,
+                    labels: ['cross-runtime', 'tracking', `cat:${cat}`],
+                  });
+                  trackersCreated++;
+                }
+                await sleep(THROTTLE_MS);
+              } catch (e) {
+                console.log(`Tracker [${cat}] falhou: ${e.message}`);
+                if (/secondary rate limit|abuse/i.test(e.message)) {
+                  console.log('Secondary rate limit em trackers — abortando.');
+                  break;
+                }
+              }
+            }
+
+            console.log(`trackersCreated:${trackersCreated} trackersUpdated:${trackersUpdated} trackersSkipped:${trackersSkipped}`);

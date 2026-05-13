@@ -40,6 +40,22 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     ctx.builder.ins().call(spread_fn, &[handle, src_h]);
                     continue;
                 }
+                // (cross-runtime #142) `undefined`/`null` em array literal
+                // viram sentinela. join/toString/etc espera-se que tratem
+                // como string vazia (JS spec).
+                //   MIN+2 = undefined, MIN+3 = null
+                if let Expr::Ident(id) = e.expr.as_ref() {
+                    if id.sym.as_str() == "undefined" && ctx.read_local("undefined").is_none() {
+                        let s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                        ctx.builder.ins().call(push_fn, &[handle, s]);
+                        continue;
+                    }
+                }
+                if matches!(e.expr.as_ref(), Expr::Lit(Lit::Null(_))) {
+                    let s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 3);
+                    ctx.builder.ins().call(push_fn, &[handle, s]);
+                    continue;
+                }
                 let tv = lower_expr(ctx, &e.expr)?;
                 // Bool em array vira sentinela (i64::MIN = false, MIN+1 =
                 // true). Permite inspect_slot imprimir `true`/`false` sem
@@ -57,8 +73,12 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                 ctx.builder.ins().call(push_fn, &[handle, value]);
             }
             None => {
-                let zero = ctx.builder.ins().iconst(cl::I64, 0);
-                ctx.builder.ins().call(push_fn, &[handle, zero]);
+                // (cross-runtime #52) Sparse slot (`[1,,3]`) — JS spec
+                // distingue de slot=0 ou undefined explicito. Usa mesma
+                // sentinela `i64::MIN + 2` (undefined) que join/JSON ja'
+                // tratam como vazio. Bun/Node: join hole vira "" (igual undefined).
+                let s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                ctx.builder.ins().call(push_fn, &[handle, s]);
             }
         }
     }

@@ -26,6 +26,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "reduce_no_init",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT",
+        args: &[AbiType::Handle, AbiType::U64],
+        returns: AbiType::I64,
+        doc: "(cross-runtime #254) reduce sem initial value. Sequencial.",
+        ts_signature: "reduce_no_init(vec_handle: number, fn_ptr: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "reduce",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_PARALLEL_REDUCE",

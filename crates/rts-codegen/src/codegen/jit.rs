@@ -1224,6 +1224,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_CONCAT
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_FILL",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_FILL
         );
@@ -1811,6 +1815,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!(
             "__RTS_FN_NS_PARALLEL_REDUCE",
             parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT",
+            parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT
         );
         add_fn!(
             "__RTS_FN_NS_PARALLEL_NUM_THREADS",

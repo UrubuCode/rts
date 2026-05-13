@@ -105,10 +105,10 @@
 ,
 {
   "name": "104_destructuring_edge_cases",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
   "node": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
-  "rts": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
+  "rts": "arr=1,,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
 }
 ,
 {
@@ -273,10 +273,10 @@
 ,
 {
   "name": "12_array_higher_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
   "node": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
-  "rts": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321"
+  "rts": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=\nreduceRight=321"
 }
 ,
 {
@@ -321,10 +321,10 @@
 ,
 {
   "name": "135_array_indexof_lastindexof",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12",
   "node": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12",
-  "rts": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12"
+  "rts": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12"
 }
 ,
 {
@@ -385,18 +385,18 @@
 ,
 {
   "name": "142_array_join_edge_cases",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
   "node": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
-  "rts": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,undefined,3\nnull=1,0,3\nempty_str=1,,3\nempty_arr="
+  "rts": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr="
 }
 ,
 {
   "name": "143_array_concat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
   "node": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
-  "rts": "basic=1,2,3,4\noriginal=1,2\nmulti=\nvalues=\nnested=1,2,3\nempty=1,2"
+  "rts": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2"
 }
 ,
 {
@@ -457,10 +457,10 @@
 ,
 {
   "name": "150_array_push_pop_shift_unshift",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
   "node": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6"
 }
 ,
 {
@@ -513,10 +513,10 @@
 ,
 {
   "name": "157_array_tostring_tolocalestring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
   "node": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3"
 }
 ,
 {
@@ -697,10 +697,10 @@
 ,
 {
   "name": "178_array_constructor",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
   "node": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "length=5\nempty=false\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2"
 }
 ,
 {
@@ -881,10 +881,10 @@
 ,
 {
   "name": "199_array_from_mapfn",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
   "node": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
-  "rts": "mapped=2,4,6\nupper=h,e,l,l,o\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset="
+  "rts": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6"
 }
 ,
 {
@@ -1097,10 +1097,10 @@
 ,
 {
   "name": "223_array_filter_truthy",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
   "node": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
-  "rts": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone="
+  "rts": "truthy=1,2,3,,4,,5\nevens=2,4\nodds=1,3,5\nnone="
 }
 ,
 {
@@ -1169,10 +1169,10 @@
 ,
 {
   "name": "231_array_tolocalestring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "has_commas=true\nmixed=true\nempty=",
   "node": "has_commas=true\nmixed=true\nempty=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "has_commas=true\nmixed=true\nempty="
 }
 ,
 {
@@ -1265,10 +1265,10 @@
 ,
 {
   "name": "242_array_map_return",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
   "node": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "mapped=2,4,6\nnoReturn=0,0,0\nexplicit=2,4,6\nmixed=1,4,6"
 }
 ,
 {
@@ -1313,10 +1313,10 @@
 ,
 {
   "name": "248_array_foreach_return",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
   "node": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "result=0\nresult2=0\nsum=0\nresult3=0"
 }
 ,
 {
@@ -1345,10 +1345,10 @@
 ,
 {
   "name": "251_array_constructor_spread",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
   "node": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "spread=1,2,3\nfunc=4,5\nsingle=0,0,0,0,0,0,0,0,0,0\nlength=10\nempty=0"
 }
 ,
 {
@@ -1369,10 +1369,10 @@
 ,
 {
   "name": "254_array_reduce_no_initial",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
   "node": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=281474976710675"
 }
 ,
 {
@@ -1388,15 +1388,15 @@
   "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hell94010123186464 w94010123186464rld\ndoubled=a94010123186400b94010123186400c94010123186400\nswapped=94010123186176"
+  "rts": "replaced=hell94695081554208 w94695081554208rld\ndoubled=a94695081554144b94695081554144c94695081554144\nswapped=94695081553920"
 }
 ,
 {
   "name": "257_array_flat_depth",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
   "node": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
-  "rts": "depth0=1,2,3,281474976710659\ndepth1=1,2,3,4,281474976710660\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3"
+  "rts": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3"
 }
 ,
 {
@@ -1409,10 +1409,10 @@
 ,
 {
   "name": "259_array_at",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
   "node": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
-  "rts": "p1=281474976710658\nn1=281474976710659\nn2=281474976710658\nz=281474976710657\noor=0"
+  "rts": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined"
 }
 ,
 {
@@ -1444,7 +1444,7 @@
   "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a94902989107200b94902989107200"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a93840714031104b93840714031104"
 }
 ,
 {
@@ -2100,7 +2100,7 @@
   "status": "rts_diverge",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "plain={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,\"undefined\",3]}\nreplacer_fn={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,\"undefined\",3]}\nreplacer_arr={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,\"undefined\",3]}\nparsed_count=4\nparsed_label=go"
+  "rts": "plain={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_arr={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nparsed_count=4\nparsed_label=go"
 }
 ,
 {
@@ -2108,15 +2108,15 @@
   "status": "rts_diverge",
   "bun": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
   "node": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
-  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=NaN\nnum_true=1\nstr_arr=1,0,3\neq_a=false\neq_b=false\neq_c=false\neq_d=false"
+  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=NaN\nnum_true=1\nstr_arr=1,-9223372036854776000,3\neq_a=false\neq_b=false\neq_c=false\neq_d=false"
 }
 ,
 {
   "name": "52_sparse_arrays",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
   "node": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len=5\njoin=1||3||5\nkeys=0,1,2,3,4\nmap=2,4,6,4,10\nfilter=1,,3,,5\nfrom=1,-9223372036854775806,3,-9223372036854775806,5"
 }
 ,
 {
@@ -2452,7 +2452,7 @@
   "status": "rts_diverge",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=5\nkeys=0,1,2,3,4\nforIn=\nforOf=0|0|2|281474976710657|4\nentries=null:0|1:0|2:2|3:281474976710657|4:4\njson=[0,0,2,\"undefined\",4]"
+  "rts": "len=5\nkeys=0,1,2,3,4\nforIn=\nforOf=0|-9223372036854775806|2|-9223372036854775806|4\nentries=null:0|1:-9223372036854775806|2:2|3:-9223372036854775806|4:4\njson=[0,null,2,null,4]"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":114,"rts_diverge":75,"bun_node_diverge":3,"errors":120,"rejected":0}}
+],"summary":{"total":312,"pass":120,"rts_diverge":78,"bun_node_diverge":3,"errors":111,"rejected":0}}

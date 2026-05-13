@@ -149,11 +149,22 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u
     });
 
     let mut out: Vec<u8> = Vec::new();
+    join_into(&mut out, &elems, &sep_bytes, 0);
+    alloc_entry(Entry::String(out))
+}
+
+// (cross-runtime #257) Recursa em Vec aninhado arbitrariamente fundo.
+// `top_sep` so' eh usado no nivel raiz; sub-arrays usam virgula fixa
+// (JS spec: Array.prototype.toString chama join(",") recursivo).
+fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
+    // Guard contra ciclo. JS spec usa Set de visited; cap simples basta
+    // pra nossos testes (depth normalmente <10).
+    const MAX_DEPTH: u32 = 32;
+    let inner_sep: &[u8] = if depth == 0 { sep_bytes } else { b"," };
     for (i, e) in elems.iter().enumerate() {
         if i > 0 {
-            out.extend_from_slice(&sep_bytes);
+            out.extend_from_slice(inner_sep);
         }
-        // Sentinela bool em slot (codegen de array literal/Array.of).
         if *e == i64::MIN {
             out.extend_from_slice(b"false");
             continue;
@@ -162,8 +173,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u
             out.extend_from_slice(b"true");
             continue;
         }
+        // (cross-runtime #142) undefined/null em join viram "".
+        if *e == i64::MIN + 2 || *e == i64::MIN + 3 {
+            continue;
+        }
         let h = *e as u64;
-        // Tenta como string handle primeiro.
         let as_str: Option<Vec<u8>> = with_entry(h, |entry| match entry {
             Some(Entry::String(b)) => Some(b.clone()),
             _ => None,
@@ -172,45 +186,18 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u
             out.extend_from_slice(&b);
             continue;
         }
-        // (#476 follow-up) Vec aninhado: JS \`Array.toString()\` chama
-        // \`.join(\",\")\` recursivo. Usa virgula fixa (spec) em sub-arrays.
         let as_nested: Option<Vec<i64>> = with_entry(h, |entry| match entry {
             Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
             _ => None,
         });
         if let Some(sub) = as_nested {
-            for (j, sub_e) in sub.iter().enumerate() {
-                if j > 0 { out.push(b','); }
-                let sh = *sub_e as u64;
-                let sub_str: Option<Vec<u8>> = with_entry(sh, |en| match en {
-                    Some(Entry::String(b)) => Some(b.clone()),
-                    _ => None,
-                });
-                if let Some(b) = sub_str {
-                    out.extend_from_slice(&b);
-                } else {
-                    // Vec mais profundo ou primitivo. Formata recursivo.
-                    let deeper: Option<Vec<i64>> = with_entry(sh, |en| match en {
-                        Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
-                        _ => None,
-                    });
-                    if let Some(d) = deeper {
-                        for (k, d_e) in d.iter().enumerate() {
-                            if k > 0 { out.push(b','); }
-                            out.extend_from_slice(d_e.to_string().as_bytes());
-                        }
-                    } else {
-                        out.extend_from_slice(sub_e.to_string().as_bytes());
-                    }
-                }
+            if depth < MAX_DEPTH {
+                join_into(out, &sub, sep_bytes, depth + 1);
             }
             continue;
         }
-        // Fallback: formata como i64 decimal.
         out.extend_from_slice(e.to_string().as_bytes());
     }
-
-    alloc_entry(Entry::String(out))
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -361,6 +348,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(handle: u64, other: u64) ->
     let other_elems: Vec<i64> = with_vec(other, Vec::new(), |v| v.clone());
     out.extend(other_elems);
     alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// (cross-runtime #143) Append de um arg `arr.concat(arg, ...)`. Se `arg`
+/// eh handle de Vec, faz extend; caso contrario push do escalar. JS spec:
+/// `Array.prototype.concat` so' faz spread em arrays "concat-spreadable".
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(handle: u64, arg: i64) -> u64 {
+    let arg_h = arg as u64;
+    let as_vec: Option<Vec<i64>> = with_entry(arg_h, |entry| match entry {
+        Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+        _ => None,
+    });
+    if let Some(items) = as_vec {
+        with_vec_mut(handle, (), |v| v.extend(items));
+    } else {
+        with_vec_mut(handle, (), |v| v.push(arg));
+    }
+    handle
 }
 
 /// `arr.fill(value, start, end)` — preenche range com `value` in-place.

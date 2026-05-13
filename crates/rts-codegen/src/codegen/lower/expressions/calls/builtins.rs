@@ -846,11 +846,7 @@ pub(super) fn lower_array_builtin(
 ) -> Result<Option<TypedVal>> {
     match method {
         "push" => {
-            if call.args.len() != 1 {
-                return Ok(None);
-            }
-            let arg = &call.args[0];
-            if arg.spread.is_some() {
+            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
             let push_fn = ctx.get_extern(
@@ -858,9 +854,13 @@ pub(super) fn lower_array_builtin(
                 &[cl::I64, cl::I64],
                 None,
             )?;
-            let tv = lower_expr(ctx, &arg.expr)?;
-            let v = ctx.coerce_to_i64(tv).val;
-            ctx.builder.ins().call(push_fn, &[obj_h, v]);
+            // (cross-runtime #150) JS: push aceita N args, todos sao
+            // pushed em ordem.
+            for arg in &call.args {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let v = ctx.coerce_to_i64(tv).val;
+                ctx.builder.ins().call(push_fn, &[obj_h, v]);
+            }
             // JS: push retorna novo length.
             let len_fn = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
@@ -924,7 +924,15 @@ pub(super) fn lower_array_builtin(
             )?;
             let inst = ctx.builder.ins().call(get_fn, &[obj_h, final_idx]);
             let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
+            // (cross-runtime #259) OOR (idx<0 ou idx>=len apos ajuste) retorna
+            // undefined; senao retorna o valor. Marca como Handle pra TPL_COERCE
+            // resolver string handle / decimal.
+            let below = ctx.builder.ins().icmp(IntCC::SignedLessThan, final_idx, zero);
+            let above = ctx.builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, final_idx, len);
+            let oor = ctx.builder.ins().bor(below, above);
+            let undef_h = ctx.emit_str_handle(b"undefined")?.val;
+            let result = ctx.builder.ins().select(oor, undef_h, v);
+            Ok(Some(TypedVal::new(result, ValTy::Handle)))
         }
         "join" => {
             // arr.join(sep): converte sep para string handle, chama runtime.
@@ -935,7 +943,6 @@ pub(super) fn lower_array_builtin(
                 let tv = lower_expr(ctx, &arg.expr)?;
                 ctx.coerce_to_handle(tv)?.val
             } else {
-                // Default JS: separador "," sem argumento.
                 ctx.emit_str_handle(b",")?.val
             };
             let join_fn = ctx.get_extern(
@@ -960,6 +967,17 @@ pub(super) fn lower_array_builtin(
         "indexOf" | "lastIndexOf" | "includes" => {
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
+            }
+            // (cross-runtime #135) JS spec: indexOf/lastIndexOf usam strict
+            // equality (===), e NaN !== NaN, entao sempre retornam -1.
+            // `includes` por outro lado usa SameValueZero e ACHA NaN.
+            if matches!(method, "indexOf" | "lastIndexOf") {
+                if let swc_ecma_ast::Expr::Ident(id) = call.args[0].expr.as_ref() {
+                    if id.sym.as_str() == "NaN" {
+                        let neg1 = ctx.builder.ins().iconst(cl::I64, -1);
+                        return Ok(Some(TypedVal::new(neg1, ValTy::I64)));
+                    }
+                }
             }
             let needle_tv = lower_expr(ctx, &call.args[0].expr)?;
             let needle = ctx.coerce_to_i64(needle_tv).val;
@@ -1097,19 +1115,34 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "concat" => {
-            if call.args.len() != 1 || call.args[0].spread.is_some() {
+            if call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
-            let other_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let other = ctx.coerce_to_i64(other_tv).val;
-            let fref = ctx.get_extern(
+            // (cross-runtime #143) JS spec: copia + variadic. Cada arg
+            // que for array faz spread; escalares viram push.
+            // Copia o receiver primeiro via CONCAT(recv, 0) (other=0 -> vazio).
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let copy_fref = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT",
                 &[cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, other]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+            let inst = ctx.builder.ins().call(copy_fref, &[obj_h, zero]);
+            let mut acc = ctx.builder.inst_results(inst)[0];
+            if !call.args.is_empty() {
+                let append_fref = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                for a in &call.args {
+                    let tv = lower_expr(ctx, &a.expr)?;
+                    let arg_i64 = ctx.coerce_to_i64(tv).val;
+                    let inst = ctx.builder.ins().call(append_fref, &[acc, arg_i64]);
+                    acc = ctx.builder.inst_results(inst)[0];
+                }
+            }
+            Ok(Some(TypedVal::new(acc, ValTy::Handle)))
         }
         "fill" => {
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
