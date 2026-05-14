@@ -602,7 +602,30 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             Ok(TypedVal::new(ctx.builder.ins().sshr(lv, rv), ty))
         }
         BinaryOp::ZeroFillRShift => {
-            Ok(TypedVal::new(ctx.builder.ins().ushr(lv, rv), ty))
+            // JS spec: ToUint32(lhs) >>> (rhs & 0x1F). Promove para i64,
+            // aplica masks de 32 bits no LHS, depois shift unsigned.
+            // Retorna em i64 — resultado eh 0..=u32::MAX, valor JS preservado.
+            use cranelift_codegen::ir::types as cl;
+            let lv64 = if matches!(ty, ValTy::I32 | ValTy::I64) {
+                if ctx.builder.func.dfg.value_type(lv) == cl::I64 {
+                    lv
+                } else {
+                    ctx.builder.ins().sextend(cl::I64, lv)
+                }
+            } else {
+                lv
+            };
+            let rv64 = if ctx.builder.func.dfg.value_type(rv) == cl::I64 {
+                rv
+            } else {
+                ctx.builder.ins().uextend(cl::I64, rv)
+            };
+            let mask = ctx.builder.ins().iconst(cl::I64, 0xFFFF_FFFF);
+            let lv_u32 = ctx.builder.ins().band(lv64, mask);
+            let shift_mask = ctx.builder.ins().iconst(cl::I64, 0x1F);
+            let rv_masked = ctx.builder.ins().band(rv64, shift_mask);
+            let shifted = ctx.builder.ins().ushr(lv_u32, rv_masked);
+            Ok(TypedVal::new(shifted, ValTy::I64))
         }
         BinaryOp::Exp => {
             let lf = to_f64(ctx, TypedVal::new(lv, ty));

@@ -674,6 +674,35 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return Ok(tv);
                 }
             }
+            // Number.isFinite/isNaN/isInteger/isSafeInteger — JS spec: SEM coercion.
+            // Arg nao-number (Handle de string/obj) retorna false em compile-time.
+            // Arg numerico passa pelo extern normal.
+            if matches!(
+                qualified.as_str(),
+                "Number.isFinite" | "Number.isNaN" | "Number.isInteger" | "Number.isSafeInteger"
+            ) && call.args.len() == 1 && call.args[0].spread.is_none() {
+                use crate::codegen::lower::ctx::{TypedVal, ValTy};
+                let tv = lower_expr(ctx, &call.args[0].expr)?;
+                if matches!(tv.ty, ValTy::Handle | ValTy::Bool) {
+                    let f = ctx.builder.ins().iconst(cl::I8, 0);
+                    return Ok(TypedVal::new(f, ValTy::Bool));
+                }
+                // F64/I64: chama extern. Coerce pra F64.
+                let arg_f = ctx.coerce_to_f64(tv).val;
+                let sym = match qualified.as_str() {
+                    "Number.isFinite" => "__RTS_FN_GL_NUMBER_IS_FINITE",
+                    "Number.isNaN" => "__RTS_FN_GL_NUMBER_IS_NAN",
+                    "Number.isInteger" => "__RTS_FN_GL_NUMBER_IS_INTEGER",
+                    "Number.isSafeInteger" => "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
+                    _ => unreachable!(),
+                };
+                let fref = ctx.get_extern(sym, &[cl::F64], Some(cl::I64))?;
+                let inst = ctx.builder.ins().call(fref, &[arg_f]);
+                let v = ctx.builder.inst_results(inst)[0];
+                // Truncate i64 -> i8 para ValTy::Bool.
+                let v8 = ctx.builder.ins().ireduce(cl::I8, v);
+                return Ok(TypedVal::new(v8, ValTy::Bool));
+            }
             // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
             if let Some((cls, method)) = qualified.split_once('.') {
                 if let Some(spec) = crate::abi::global_class_lookup(cls) {

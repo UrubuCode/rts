@@ -9,6 +9,31 @@ use swc_ecma_ast::CallExpr;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal};
 use crate::codegen::lower::expressions::operators::to_f64;
 
+/// Para `isNaN(x)`/`isFinite(x)` globais: se arg eh Handle de string,
+/// chama PARSE_F64 (JS spec). Caso contrario delega para `to_f64`.
+fn coerce_handle_to_number_or_to_f64(
+    ctx: &mut FnCtx,
+    tv: TypedVal,
+) -> Result<cranelift_codegen::ir::Value> {
+    use crate::codegen::lower::ctx::ValTy;
+    if matches!(tv.ty, ValTy::Handle) {
+        let ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let pi = ctx.builder.ins().call(ptr_fn, &[tv.val]);
+        let p = ctx.builder.inst_results(pi)[0];
+        let li = ctx.builder.ins().call(len_fn, &[tv.val]);
+        let l = ctx.builder.inst_results(li)[0];
+        let parse_fn = ctx.get_extern(
+            "__RTS_FN_NS_FMT_PARSE_F64",
+            &[cl::I64, cl::I64],
+            Some(cl::F64),
+        )?;
+        let inst = ctx.builder.ins().call(parse_fn, &[p, l]);
+        return Ok(ctx.builder.inst_results(inst)[0]);
+    }
+    Ok(to_f64(ctx, tv))
+}
+
 pub(super) fn lower_coerce_is_nan(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     use cranelift_codegen::ir::condcodes::FloatCC;
     use crate::codegen::lower::ctx::{TypedVal, ValTy};
@@ -17,7 +42,7 @@ pub(super) fn lower_coerce_is_nan(ctx: &mut FnCtx, call: &CallExpr) -> Result<Ty
         return Err(anyhow!("isNaN: spread arg not supported"));
     }
     let tv = super::lower_expr(ctx, &arg.expr)?;
-    let f = to_f64(ctx, tv);
+    let f = coerce_handle_to_number_or_to_f64(ctx, tv)?;
     // FloatCC::Unordered nao eh suportado em alguns backends Cranelift
     // (notavelmente aarch64 — panic \"not implemented\" em
     // lower_fp_condcode). Usa NotEqual(f, f) que eh equivalente:
@@ -41,7 +66,7 @@ pub(super) fn lower_coerce_is_finite(ctx: &mut FnCtx, call: &CallExpr) -> Result
         return Err(anyhow!("isFinite: spread arg not supported"));
     }
     let tv = super::lower_expr(ctx, &arg.expr)?;
-    let f = to_f64(ctx, tv);
+    let f = coerce_handle_to_number_or_to_f64(ctx, tv)?;
     let abs_f = ctx.builder.ins().fabs(f);
     let inf = ctx.builder.ins().f64const(f64::INFINITY);
     let result = ctx.builder.ins().fcmp(FloatCC::LessThan, abs_f, inf);
