@@ -17,7 +17,16 @@ pub(super) fn lower_coerce_is_nan(ctx: &mut FnCtx, call: &CallExpr) -> Result<Ty
         return Err(anyhow!("isNaN: spread arg not supported"));
     }
     let tv = super::lower_expr(ctx, &arg.expr)?;
-    let f = to_f64(ctx, tv);
+    // (#769) JS spec: global isNaN(x) faz Number(x) primeiro. Para Handle
+    // (string), delega para NUMBER_FROM_STR que retorna NaN se parse falhar.
+    // Number.isNaN(x) (sem coercao) usa caminho diferente — esse e' global.
+    let f = if matches!(tv.ty, ValTy::Handle) {
+        let from_str = ctx.get_extern("__RTS_FN_GL_NUMBER_FROM_STR", &[cl::I64], Some(cl::F64))?;
+        let inst = ctx.builder.ins().call(from_str, &[tv.val]);
+        ctx.builder.inst_results(inst)[0]
+    } else {
+        to_f64(ctx, tv)
+    };
     // FloatCC::Unordered nao eh suportado em alguns backends Cranelift
     // (notavelmente aarch64 — panic \"not implemented\" em
     // lower_fp_condcode). Usa NotEqual(f, f) que eh equivalente:
@@ -41,7 +50,14 @@ pub(super) fn lower_coerce_is_finite(ctx: &mut FnCtx, call: &CallExpr) -> Result
         return Err(anyhow!("isFinite: spread arg not supported"));
     }
     let tv = super::lower_expr(ctx, &arg.expr)?;
-    let f = to_f64(ctx, tv);
+    // (#769) JS spec: global isFinite(x) coerce via Number(x) primeiro.
+    let f = if matches!(tv.ty, ValTy::Handle) {
+        let from_str = ctx.get_extern("__RTS_FN_GL_NUMBER_FROM_STR", &[cl::I64], Some(cl::F64))?;
+        let inst = ctx.builder.ins().call(from_str, &[tv.val]);
+        ctx.builder.inst_results(inst)[0]
+    } else {
+        to_f64(ctx, tv)
+    };
     let abs_f = ctx.builder.ins().fabs(f);
     let inf = ctx.builder.ins().f64const(f64::INFINITY);
     let result = ctx.builder.ins().fcmp(FloatCC::LessThan, abs_f, inf);
