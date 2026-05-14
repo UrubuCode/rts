@@ -197,9 +197,20 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
                 Some(out)
             }
             Entry::Json(j) => serde_json::to_string(j.as_ref()).ok(),
+            // (#680/292) JSON.stringify(date) → ISO entre aspas (toJSON spec).
+            Entry::DateMs(ms) => Some(date_iso_quoted(*ms)),
             _ => None,
         }
     })
+}
+
+/// Helper: formata DateMs como ISO string entre aspas para JSON.
+fn date_iso_quoted(ms: i64) -> String {
+    let (y, mo, d, h, mi, s, mil) = super::super::date::ops::date_unpack(ms);
+    format!(
+        "\"{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z\"",
+        y, mo + 1, d, h, mi, s, mil
+    )
 }
 
 /// Tenta interpretar um i64 dentro de Map/Vec: se o handle apontar para
