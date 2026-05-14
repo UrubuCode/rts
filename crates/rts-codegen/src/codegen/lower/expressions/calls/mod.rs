@@ -1044,9 +1044,12 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         // Returna I64 (slot raw). Slots podem carregar handle
                         // de string/map ou int direto; sem analise de tipo no
                         // call site, deixamos o caller decidir via cast/use.
-                        // Combina com testes pre-existentes que usam
-                        // `Reflect.get(o,k).toString()` em ints.
-                        return lower_ns_call(ctx, "collections.map_get", call);
+                        // (#795) Marca como ambiguo pra TPL_COERCE_AUTO
+                        // resolver bool sentinels (i64::MIN/MIN+1) e string
+                        // handles em concat (`"" + Reflect.get(d, "writable")`).
+                        let tv = lower_ns_call(ctx, "collections.map_get", call)?;
+                        ctx.var_member_call_values.insert(tv.val);
+                        return Ok(tv);
                     }
                     "has" if call.args.len() == 2 => {
                         return lower_ns_call(ctx, "collections.map_has", call);

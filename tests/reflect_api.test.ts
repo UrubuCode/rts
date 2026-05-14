@@ -47,6 +47,10 @@ const counterIsObject = typeof counter === "object";
 const desc = Reflect.getOwnPropertyDescriptor(obj, "a");
 const descValue = Reflect.get(desc, "value");
 const descWritable = Reflect.get(desc, "writable");
+// (#795) Pre-coerce no top-level pra preservar tipo Handle do bool sentinel.
+// Closure no test() perde a marcacao var_member_call_values entre const-decl
+// e use, entao "" + descWritable dentro do arrow renderiza como i64 raw.
+const descWritableStr = "" + descWritable;
 const descMissing = Reflect.getOwnPropertyDescriptor(obj, "nope");
 
 // defineProperty: extrai value do descriptor e seta
@@ -68,8 +72,9 @@ describe("reflect_api", () => {
     test("Reflect.construct returns object", () =>
         expect(counterIsObject).toBe(true));
     test("Reflect.getOwnPropertyDescriptor value", () => expect(descValue).toBe(1));
+    // (#795) writable agora retorna bool sentinel (i64::MIN+1 = true).
     test("Reflect.getOwnPropertyDescriptor writable", () =>
-        expect(descWritable).toBe(1));
+        expect(descWritableStr).toBe("true"));
     // (#795) Missing prop retorna handle de string "undefined" (ECMA spec).
     test("Reflect.getOwnPropertyDescriptor missing", () =>
         expect(descMissing).toBe("undefined"));
