@@ -297,10 +297,10 @@
 ,
 {
   "name": "132_array_some_every",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "all_even=true\nsome_gt5=true\nsome_gt10=false\nmixed_all_even=false\nmixed_some_even=true\nempty_every=true\nempty_some=false\nevery_count=3\nsome_count=3",
   "node": "all_even=true\nsome_gt5=true\nsome_gt10=false\nmixed_all_even=false\nmixed_some_even=true\nempty_every=true\nempty_some=false\nevery_count=3\nsome_count=3",
-  "rts": "all_even=true\nsome_gt5=true\nsome_gt10=false\nmixed_all_even=false\nmixed_some_even=true\nempty_every=true\nempty_some=false\nevery_count=0\nsome_count=0"
+  "rts": "all_even=true\nsome_gt5=true\nsome_gt10=false\nmixed_all_even=false\nmixed_some_even=true\nempty_every=true\nempty_some=false\nevery_count=3\nsome_count=3"
 }
 ,
 {
@@ -665,10 +665,10 @@
 ,
 {
   "name": "174_date_parse",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true",
   "node": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true",
-  "rts": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=false"
+  "rts": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true"
 }
 ,
 {
@@ -1073,10 +1073,10 @@
 ,
 {
   "name": "220_array_map_sparse",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
   "node": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=3"
 }
 ,
 {
@@ -1185,10 +1185,10 @@
 ,
 {
   "name": "233_array_some_short_circuit",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "result=true\ncount=3\nresult2=false\ncount2=5",
   "node": "result=true\ncount=3\nresult2=false\ncount2=5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "result=true\ncount=3\nresult2=false\ncount2=5"
 }
 ,
 {
@@ -1201,10 +1201,10 @@
 ,
 {
   "name": "235_array_every_short_circuit",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "result=false\ncount=3\nresult2=true\ncount2=5",
   "node": "result=false\ncount=3\nresult2=true\ncount2=5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "result=false\ncount=3\nresult2=true\ncount2=5"
 }
 ,
 {
@@ -1316,7 +1316,7 @@
   "status": "rts_diverge",
   "bun": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
   "node": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
-  "rts": "result=0\nresult2=0\nsum=0\nresult3=0"
+  "rts": "result=0\nresult2=0\nsum=6\nresult3=0"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order=null"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":133,"rts_diverge":68,"bun_node_diverge":3,"errors":108,"rejected":0}}
+],"summary":{"total":312,"pass":137,"rts_diverge":67,"bun_node_diverge":3,"errors":105,"rejected":0}}
