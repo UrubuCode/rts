@@ -811,7 +811,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return lower_ns_call(ctx, target, call);
                 }
                 // (#264 PR5) Object.create(proto) — aloca Map com __proto__.
-                if method == "create" && call.args.len() == 1 {
+                // (#162) Object.create(proto, descriptors) — 2-arg variant.
+                // O segundo arg eh um Map de { key: { value, writable, ... } }.
+                // Iteramos cada key e fazemos MAP_SET com value.
+                if method == "create" && (call.args.len() == 1 || call.args.len() == 2) {
                     let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let proto_h = ctx.coerce_to_i64(arg_tv).val;
                     let create_fn = ctx.get_extern(
@@ -821,6 +824,17 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     )?;
                     let inst = ctx.builder.ins().call(create_fn, &[proto_h]);
                     let v = ctx.builder.inst_results(inst)[0];
+                    if call.args.len() == 2 {
+                        // Aplica descriptors via runtime helper.
+                        let descs_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let descs_h = ctx.coerce_to_i64(descs_tv).val;
+                        let apply_fn = ctx.get_extern(
+                            "__RTS_FN_GL_OBJECT_APPLY_DESCRIPTORS",
+                            &[cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(apply_fn, &[v, descs_h]);
+                    }
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
                 // (#208 / #479) Object.entries(obj).

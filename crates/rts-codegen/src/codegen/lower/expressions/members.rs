@@ -573,6 +573,27 @@ fn class_field_obj<'a>(
 }
 
 pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<TypedVal> {
+    // (#162/155) `Object.prototype` / `Array.prototype` — referencia ao
+    // prototype singleton da classe global. Sem suporte completo a prototype
+    // chain ainda; retorna handle de string sentinel "[<class>.prototype]"
+    // — suficiente para `=== Object.prototype` em fixtures de proto check.
+    if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
+        if prop.sym.as_str() == "prototype" {
+            if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                let cls = obj_id.sym.as_str();
+                let is_global_cls = matches!(
+                    cls,
+                    "Object" | "Array" | "Function" | "String" | "Number"
+                        | "Boolean" | "Date" | "RegExp" | "Error" | "Map" | "Set"
+                ) || crate::abi::global_class_lookup(cls).is_some();
+                if is_global_cls && ctx.read_local(cls).is_none() && !ctx.user_fns.contains_key(cls) {
+                    let label = format!("[{cls}.prototype]");
+                    return ctx.emit_str_handle(label.as_bytes());
+                }
+            }
+        }
+    }
+
     if let Some(qualified) = qualified_member_name(&Expr::Member(m.clone())) {
         // (#208) `Math.X` (uppercase JS-style) → `math.X` (lowercase RTS namespace).
         if let Some(prop) = qualified.strip_prefix("Math.") {

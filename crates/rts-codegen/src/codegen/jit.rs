@@ -1099,6 +1099,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_GL_OBJECT_CREATE
         );
         add_fn!(
+            "__RTS_FN_GL_OBJECT_APPLY_DESCRIPTORS",
+            map::__RTS_FN_GL_OBJECT_APPLY_DESCRIPTORS
+        );
+        add_fn!(
             "__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY",
             map::__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY
         );
