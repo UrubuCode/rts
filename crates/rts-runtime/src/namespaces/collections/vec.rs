@@ -529,15 +529,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
     alloc_entry(Entry::Vec(Box::new(removed)))
 }
 
-/// (#780) `new Array(len)` — cria Vec preenchido com 0 (undefined em V0)
-/// Limitado ao `VEC_MAX_LEN` pra evitar OOM.
+/// (#780/#786) `new Array(len)` — cria Vec preenchido com sentinel
+/// `i64::MIN + 2` (= undefined em RTS), batendo JS spec onde slots
+/// nao inicializados sao undefined, nao 0. Limitado ao `VEC_MAX_LEN`
+/// pra evitar OOM.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
     let len = len.max(0).min(VEC_MAX_LEN as i64) as usize;
-    // (cross-runtime #178) JS spec: `new Array(N)` cria array sparse com N
-    // holes. `arr[0] === undefined` deve ser true. Usa sentinela MIN+4
-    // (hole) — distinguivel de slot=0 numerico.
-    let v = vec![i64::MIN + 4; len];
+    let v = vec![i64::MIN + 2; len];
     alloc_entry(Entry::Vec(Box::new(v)))
 }
 

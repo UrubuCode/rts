@@ -437,6 +437,44 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         }
     }
 
+    // (#786) `expr === undefined` / `expr !== undefined` quando expr eh
+    // resultado i64 (ex: `new Array(5)[0]` = sentinel i64::MIN+2).
+    // Lhs/rhs antes de lower_expr porque `undefined` ident vira string
+    // handle e a comparacao normal falha.
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::EqEq | BinaryOp::NotEq) {
+        let is_undef_ident = |e: &Expr| matches!(e, Expr::Ident(id) if id.sym.as_str() == "undefined");
+        let lhs_undef = is_undef_ident(&bin.left) && ctx.read_local("undefined").is_none();
+        let rhs_undef = is_undef_ident(&bin.right) && ctx.read_local("undefined").is_none();
+        let other = if rhs_undef {
+            Some(&bin.left)
+        } else if lhs_undef {
+            Some(&bin.right)
+        } else {
+            None
+        };
+        if let Some(other_expr) = other {
+            let other_tv = lower_expr(ctx, other_expr)?;
+            // Caminho aplicavel quando `other` eh I64 (slot de Vec/Array) —
+            // compara com sentinel i64::MIN+2. Handles caem no path generico
+            // (string_eq) que ja' funciona para o caso de ident "undefined".
+            if matches!(other_tv.ty, ValTy::I64 | ValTy::U64) {
+                let sentinel = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                let eq = ctx.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    other_tv.val,
+                    sentinel,
+                );
+                let result = if matches!(bin.op, BinaryOp::NotEqEq | BinaryOp::NotEq) {
+                    let one = ctx.builder.ins().iconst(cl::I8, 1);
+                    ctx.builder.ins().bxor(eq, one)
+                } else {
+                    eq
+                };
+                return Ok(TypedVal::new(result, ValTy::Bool));
+            }
+        }
+    }
+
     let lhs = lower_expr(ctx, &bin.left)?;
     let rhs = lower_expr(ctx, &bin.right)?;
 
