@@ -55,17 +55,7 @@ fn run_source(src: &str) -> anyhow::Result<i32> {
     let exit_code = main_fn();
     if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
         let use_color = crate::diagnostics::reporter::stderr_supports_color();
-        let red = if use_color { "\x1b[1;31m" } else { "" };
-        let reset = if use_color { "\x1b[0m" } else { "" };
-        let bold = if use_color { "\x1b[1m" } else { "" };
-        let mut msg = format!("{red}error{reset}{bold}: {}{reset}\n", report.message);
-        if let Some(stack) = &report.stack {
-            if !stack.trim().is_empty() {
-                msg.push_str(stack.trim_end());
-                msg.push('\n');
-            }
-        }
-        eprint!("{msg}");
+        eprint!("{}", crate::pipeline::format_runtime_error_report(&report, use_color));
         return Ok(1);
     }
     std::mem::forget(module);

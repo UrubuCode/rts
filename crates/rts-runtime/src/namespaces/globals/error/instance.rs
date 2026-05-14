@@ -16,10 +16,6 @@ unsafe fn str_from_raw(ptr: i64, len: i64) -> String {
     std::str::from_utf8(bytes).unwrap_or("").to_owned()
 }
 
-fn alloc_error(name: &str, message: String) -> u64 {
-    alloc_error_with_cause(name, message, 0)
-}
-
 fn alloc_error_with_cause(name: &str, message: String, cause: u64) -> u64 {
     alloc_entry(Entry::ErrorObj {
         message,

@@ -276,21 +276,81 @@ pub fn dump_ir_with_imports(input: &Path, options: CompileOptions) -> Result<Vec
     Ok(warnings)
 }
 
+pub fn format_runtime_error_report(
+    report: &crate::namespaces::gc::error::RuntimeErrorReport,
+    use_color: bool,
+) -> String {
+    format_runtime_error_inner(report, use_color, false)
+}
+
 fn format_runtime_error(
     report: &crate::namespaces::gc::error::RuntimeErrorReport,
     use_color: bool,
 ) -> String {
+    format_runtime_error_inner(report, use_color, false)
+}
+
+fn format_runtime_error_inner(
+    report: &crate::namespaces::gc::error::RuntimeErrorReport,
+    use_color: bool,
+    is_cause: bool,
+) -> String {
+    use std::fmt::Write as _;
+    use rts_abi::JsErrorKind;
+
     let red = if use_color { "\x1b[1;31m" } else { "" };
+    let yellow = if use_color { "\x1b[1;33m" } else { "" };
     let reset = if use_color { "\x1b[0m" } else { "" };
     let bold = if use_color { "\x1b[1m" } else { "" };
+    let dim = if use_color { "\x1b[2m" } else { "" };
+    let cyan = if use_color { "\x1b[36m" } else { "" };
 
-    let mut out = format!("{red}error{reset}{bold}: {}{reset}\n", report.message);
-    if let Some(stack) = &report.stack {
-        if !stack.trim().is_empty() {
-            out.push_str(stack.trim_end());
-            out.push('\n');
+    // Color the error class name: TypeError/SyntaxError → red, RangeError → yellow, rest → red.
+    let kind_color = match report.kind {
+        JsErrorKind::RangeError => yellow,
+        _ => red,
+    };
+
+    let kind_str = report.kind.as_str();
+    let prefix = if is_cause { "Caused by: " } else { "" };
+
+    let mut out = String::new();
+
+    if report.message.is_empty() {
+        let _ = write!(out, "{prefix}{kind_color}{bold}{kind_str}{reset}\n");
+    } else {
+        let _ = write!(
+            out,
+            "{prefix}{kind_color}{bold}{kind_str}{reset}{bold}: {msg}{reset}\n",
+            msg = report.message,
+        );
+    }
+
+    for frame in &report.frames {
+        if frame.line > 0 {
+            let _ = write!(
+                out,
+                "    {dim}at{reset} {bold}{fn_name}{reset} {dim}({reset}{cyan}{file}{reset}{dim}:{line}:{col}){reset}\n",
+                fn_name = if frame.fn_name.is_empty() { "<anonymous>" } else { &frame.fn_name },
+                file = frame.file,
+                line = frame.line,
+                col = frame.col,
+            );
+        } else if !frame.file.is_empty() {
+            let _ = write!(
+                out,
+                "    {dim}at{reset} {bold}{fn_name}{reset} {dim}({reset}{cyan}{file}{reset}{dim}){reset}\n",
+                fn_name = if frame.fn_name.is_empty() { "<anonymous>" } else { &frame.fn_name },
+                file = frame.file,
+            );
         }
     }
+
+    if let Some(cause) = &report.cause {
+        out.push('\n');
+        out.push_str(&format_runtime_error_inner(cause, use_color, true));
+    }
+
     out
 }
 

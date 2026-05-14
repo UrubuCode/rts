@@ -49,3 +49,12 @@ pub fn format_stack() -> String {
 pub fn capture_string() -> String {
     format_stack()
 }
+
+/// Returns structured frame snapshot (most recent call last, reversed so
+/// index 0 = innermost). Callers can format/style as needed.
+pub fn capture_frames() -> Vec<Frame> {
+    FRAMES.with(|f| {
+        let frames = f.borrow();
+        frames.iter().rev().cloned().collect()
+    })
+}
