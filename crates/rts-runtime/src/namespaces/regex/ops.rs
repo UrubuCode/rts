@@ -67,7 +67,7 @@ pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
         }
     }
     match builder.build() {
-        Ok(rx) => alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex { regex: rx, global, flags: canon }))),
+        Ok(rx) => alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex { regex: rx, global, flags: canon, last_index: 0 }))),
         Err(_) => 0,
     }
 }
@@ -85,9 +85,42 @@ pub extern "C" fn __RTS_FN_NS_REGEX_TEST(handle: u64, ptr: *const u8, len: i64) 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_REGEX_FIND(handle: u64, ptr: *const u8, len: i64) -> u64 {
-    let s = unsafe { str_from(ptr, len) };
-    let bytes = with_regex(handle, None, |rx| {
-        rx.find(s).map(|m| m.as_str().as_bytes().to_vec())
+    let s_full = unsafe { str_from(ptr, len) };
+    // (#782) JS spec: regex global usa `lastIndex` como cursor; avanca em
+    // match e reseta para 0 em miss ou quando passa do fim. Regex
+    // nao-global ignora `lastIndex` e sempre comeca do 0.
+    let bytes = super::super::gc::handles::with_entry_mut(handle, |entry| {
+        match entry {
+            Some(super::super::gc::handles::Entry::Regex(rx)) => {
+                if rx.global {
+                    let start = rx.last_index;
+                    if start > s_full.len() {
+                        rx.last_index = 0;
+                        return None;
+                    }
+                    // Find a partir de byte offset; precisa que start esteja
+                    // em fronteira UTF-8 (caso contrario reset).
+                    if !s_full.is_char_boundary(start) {
+                        rx.last_index = 0;
+                        return None;
+                    }
+                    match rx.regex.find(&s_full[start..]) {
+                        Some(m) => {
+                            let abs_end = start + m.end();
+                            rx.last_index = abs_end;
+                            Some(m.as_str().as_bytes().to_vec())
+                        }
+                        None => {
+                            rx.last_index = 0;
+                            None
+                        }
+                    }
+                } else {
+                    rx.regex.find(s_full).map(|m| m.as_str().as_bytes().to_vec())
+                }
+            }
+            _ => None,
+        }
     });
     match bytes {
         Some(b) => alloc_string(b),

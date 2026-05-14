@@ -94,6 +94,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: true,
     },
     NamespaceMember {
+        name: "lastIndex",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_REGEXP_LAST_INDEX_GET",
+        args: &[AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Returns lastIndex (position for next exec/test in global regex).",
+        ts_signature: "lastIndex: number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
         name: "multiline",
         kind: MemberKind::InstanceMethod,
         symbol: "__RTS_FN_GL_REGEXP_MULTILINE",

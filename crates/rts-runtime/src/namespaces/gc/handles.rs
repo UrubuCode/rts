@@ -36,6 +36,10 @@ pub struct RtsRegex {
     pub global: bool,
     /// Flags JS canonicas em ordem (`d g i m s u y` apenas as setadas).
     pub flags: String,
+    /// (#782) `lastIndex` JS — posicao para o proximo `exec`/`test` em
+    /// regex global/sticky. Avancado pelo `exec`/`test` em regex `g`,
+    /// resetado para 0 quando o match falha apos o final.
+    pub last_index: usize,
 }
 
 /// Value kinds stored behind a handle. Extensible as namespaces grow.
