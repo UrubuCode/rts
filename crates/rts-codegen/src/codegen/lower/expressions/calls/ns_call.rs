@@ -316,10 +316,16 @@ pub(super) fn lower_ns_call_body(
         }
         Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
     } else {
-        Ok(TypedVal::new(
-            ctx.builder.ins().iconst(cl::I64, 0),
-            ValTy::I64,
-        ))
+        // (cross-runtime #248) `parallel.for_each` retorna void mas JS
+        // \`arr.forEach(...)\` retorna undefined. Emite sentinela MIN+2
+        // marcada ambigua para que template/console use TPL_COERCE_AUTO.
+        let is_foreach = member.symbol == "__RTS_FN_NS_PARALLEL_FOR_EACH";
+        let val = if is_foreach { i64::MIN + 2 } else { 0 };
+        let v = ctx.builder.ins().iconst(cl::I64, val);
+        if is_foreach {
+            ctx.var_member_call_values.insert(v);
+        }
+        Ok(TypedVal::new(v, ValTy::I64))
     }
 }
 
@@ -426,12 +432,28 @@ pub(super) fn lower_node_ns_call(ctx: &mut FnCtx, qualified: &str, call: &CallEx
     let inst = ctx.builder.ins().call(fref, &values);
     if lowered_ret.is_some() {
         let v = ctx.builder.inst_results(inst)[0];
-        Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
+        let tv = TypedVal::new(v, ValTy::from_abi(member.returns));
+        // (cross-runtime #248) parallel.for_each = arr.forEach: JS spec
+        // retorna undefined. Marca como I64 ambiguo para que template
+        // literal use TPL_COERCE_AUTO e exiba "undefined".
+        // (Nao alteramos a sentinela ainda — caller que importa.)
+        Ok(tv)
     } else {
-        Ok(TypedVal::new(
-            ctx.builder.ins().iconst(cl::I64, 0),
-            ValTy::I64,
-        ))
+        // (cross-runtime #248) Void calls -- algumas correspondem a
+        // forEach (JS spec: returns undefined). Emite sentinela
+        // MIN+2 (undefined) que TPL_COERCE_AUTO traduz quando
+        // usado em concat.
+        let is_foreach_like = matches!(
+            (member.symbol, "__RTS_FN_NS_PARALLEL_FOR_EACH"),
+            (a, b) if a == b
+        );
+        let val = if is_foreach_like { i64::MIN + 2 } else { 0 };
+        let v = ctx.builder.ins().iconst(cl::I64, val);
+        let tv = TypedVal::new(v, ValTy::I64);
+        if is_foreach_like {
+            ctx.var_member_call_values.insert(v);
+        }
+        Ok(tv)
     }
 }
 
