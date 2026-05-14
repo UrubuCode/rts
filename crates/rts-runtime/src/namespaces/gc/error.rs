@@ -91,7 +91,7 @@ pub fn take_runtime_error_report() -> Option<RuntimeErrorReport> {
         .or_else(|| {
             // Thrown value is an Error object (Entry::ErrorObj) — extract message + name.
             with_entry(message_h, |entry| match entry {
-                Some(Entry::ErrorObj { name, message }) => {
+                Some(Entry::ErrorObj { name, message, .. }) => {
                     Some(format!("{name}: {message}"))
                 }
                 _ => None,
