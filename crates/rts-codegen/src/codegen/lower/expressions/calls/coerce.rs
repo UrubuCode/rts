@@ -123,6 +123,19 @@ pub(super) fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Resul
         if arg.spread.is_some() {
             return Ok(None);
         }
+        // (#879) `Boolean(undefined)` e `Boolean(null)` sao falsy. Em RTS,
+        // `undefined` (Ident) lower vira handle de string "undefined" (len > 0)
+        // e a coerção string_len > 0 daria true incorretamente. Detecta cedo.
+        if let swc_ecma_ast::Expr::Ident(id) = arg.expr.as_ref() {
+            if id.sym.as_str() == "undefined" && ctx.read_local("undefined").is_none() {
+                let v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I8, 0);
+                return Ok(Some(TypedVal::new(v, ValTy::Bool)));
+            }
+        }
+        if let swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Null(_)) = arg.expr.as_ref() {
+            let v = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I8, 0);
+            return Ok(Some(TypedVal::new(v, ValTy::Bool)));
+        }
         let tv = super::lower_expr(ctx, &arg.expr)?;
         // (#550) String coerce: empty string e' falsy. Handle aponta para
         // Entry::String — usar gc.string_len(handle) > 0.

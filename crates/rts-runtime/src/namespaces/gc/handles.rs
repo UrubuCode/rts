@@ -177,6 +177,10 @@ pub enum Entry {
     /// real do crate `sha2` — `update()` incremental, `finalize()` nao
     /// reprocessa buffer.
     Hasher(Box<HasherState>),
+    /// `new Boolean(x)` boxed primitive (#879). Wraps a primitive bool so
+    /// `typeof new Boolean(...)` returns "object" while `valueOf()` recovers
+    /// the underlying bool. `Boolean(x)` (no `new`) keeps primitive path.
+    BooleanBox(bool),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

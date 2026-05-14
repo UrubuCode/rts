@@ -150,6 +150,8 @@ pub enum Entry {
     WeakMap(Box<std::collections::HashMap<u64, i64>>),
     /// WeakSet (#217 v0). v0 comporta como Set forte sem coleta automatica.
     WeakSet(Box<std::collections::HashSet<u64>>),
+    /// `new Boolean(x)` boxed primitive (#879).
+    BooleanBox(bool),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
