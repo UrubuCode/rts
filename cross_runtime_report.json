@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -129,10 +129,10 @@
 ,
 {
   "name": "107_url_edge_cases",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
   "node": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
-  "rts": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nhref=https://user:pass@example.com:8443/b/?q=%20#frag"
+  "rts": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order=null"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nre=ab+:gi"
+  "rts": "same=true\nset=1,1\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
 }
 ,
 {
@@ -2140,7 +2140,7 @@
   "status": "rts_diverge",
   "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
   "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "rts": "query=[object Object]\ngeta=3\nalla=3\nfinal=a=3&b=2&c=4"
+  "rts": "x=1\nquery=[object Object]\ngeta=3\nalla=3\nfinal=a=3&b=2&c=4"
 }
 ,
 {
@@ -2188,7 +2188,7 @@
   "status": "rts_diverge",
   "bun": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
   "node": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
-  "rts": ""
+  "rts": "orig_set=1,1\ncopy_set=1,1"
 }
 ,
 {
@@ -2476,7 +2476,7 @@
   "status": "rts_diverge",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "regex=ab+:gi\nerror=Error:boom\nself=false"
+  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=false"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":179,"rts_diverge":45,"bun_node_diverge":3,"errors":85,"rejected":0}}
+],"summary":{"total":312,"pass":180,"rts_diverge":45,"bun_node_diverge":3,"errors":84,"rejected":0}}
