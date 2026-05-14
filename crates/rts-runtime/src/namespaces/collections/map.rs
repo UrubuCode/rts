@@ -534,6 +534,46 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -
     target
 }
 
+/// Object.getOwnPropertyNames — inclui keys non-enumerable (diferenca para keys).
+/// Para Vec: ["0","1",...,"length"]. Para Map: todas as keys exceto __proto__.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64) -> u64 {
+    let result: Vec<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Map(m)) => {
+            let mut int_keys: Vec<(u32, String)> = Vec::new();
+            let mut str_keys: Vec<String> = Vec::new();
+            for k in m.keys() {
+                if k.as_str() == "__proto__" { continue; }
+                match parse_array_index(k) {
+                    Some(n) => int_keys.push((n, k.clone())),
+                    None => str_keys.push(k.clone()),
+                }
+            }
+            int_keys.sort_by_key(|(n, _)| *n);
+            let mut out: Vec<i64> = Vec::with_capacity(int_keys.len() + str_keys.len());
+            for (_, k) in int_keys {
+                out.push(alloc_entry(Entry::String(k.into_bytes())) as i64);
+            }
+            for k in str_keys {
+                out.push(alloc_entry(Entry::String(k.into_bytes())) as i64);
+            }
+            out
+        }
+        Some(Entry::Vec(v)) => {
+            // JS spec: arrays incluem "length" como own property name nao-enumerable.
+            let mut out: Vec<i64> = v.iter()
+                .enumerate()
+                .filter(|(_, x)| **x != i64::MIN + 4)
+                .map(|(i, _)| alloc_entry(Entry::String(i.to_string().into_bytes())) as i64)
+                .collect();
+            out.push(alloc_entry(Entry::String(b"length".to_vec())) as i64);
+            out
+        }
+        _ => Vec::new(),
+    });
+    alloc_entry(Entry::Vec(Box::new(result)))
+}
+
 /// Object.keys auto: se handle e' Map retorna keys; se Vec retorna ["0","1",...].
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
