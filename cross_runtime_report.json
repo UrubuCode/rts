@@ -913,10 +913,10 @@
 ,
 {
   "name": "202_array_reduceright",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
   "node": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sum=10\nconcat=281474976710673\nflat=null\nnum=321"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":131,"rts_diverge":68,"bun_node_diverge":3,"errors":110,"rejected":0}}
+],"summary":{"total":312,"pass":131,"rts_diverge":69,"bun_node_diverge":3,"errors":109,"rejected":0}}
