@@ -136,9 +136,10 @@ pub enum Entry {
     /// `Date` instance — milliseconds since Unix epoch (UTC).
     /// Created by `new Date()` / `new Date(ms)` in the globals::date module.
     DateMs(i64),
-    /// `Error` instance — message string + name tag.
-    /// Created by `new Error(msg)` / `new TypeError(msg)` etc.
-    ErrorObj { message: String, name: String },
+    /// `Error` instance — message string + name tag + optional cause.
+    /// Created by `new Error(msg)` / `new TypeError(msg, { cause })` etc.
+    /// `cause` armazena handle do valor passado em options.cause, 0 = sem cause.
+    ErrorObj { message: String, name: String, cause: u64 },
     /// `EventEmitter` instance — Arc<Mutex<dyn Any+Send>> so the inner lock
     /// can be held independently of the shard lock. The concrete type is
     /// `globals::events::instance::EmitterData`; downcast at access sites.

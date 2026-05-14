@@ -140,6 +140,33 @@ fn with_json<R>(handle: u64, default: R, f: impl FnOnce(&Value) -> R) -> R {
     }
 }
 
+/// (cross-runtime #743) ECMA-262 OrdinaryOwnPropertyKeys ordering: integer-indexed
+/// keys (canonical u32 strings) ascendentes primeiro, depois demais em ordem
+/// de insercao. Espelha o behavior de Bun/Node em Object.keys/JSON.stringify.
+fn sort_ecma_keys(entries: Vec<(String, i64)>) -> Vec<(String, i64)> {
+    fn parse_array_index(s: &str) -> Option<u32> {
+        if s.is_empty() { return None; }
+        if s.len() > 1 && s.starts_with('0') { return None; }
+        if !s.bytes().all(|b| b.is_ascii_digit()) { return None; }
+        let n: u32 = s.parse().ok()?;
+        if n == u32::MAX { return None; }
+        Some(n)
+    }
+    let mut int_keys: Vec<(u32, String, i64)> = Vec::new();
+    let mut str_keys: Vec<(String, i64)> = Vec::new();
+    for (k, v) in entries {
+        match parse_array_index(&k) {
+            Some(n) => int_keys.push((n, k, v)),
+            None => str_keys.push((k, v)),
+        }
+    }
+    int_keys.sort_by_key(|(n, _, _)| *n);
+    let mut out: Vec<(String, i64)> = Vec::with_capacity(int_keys.len() + str_keys.len());
+    for (_, k, v) in int_keys { out.push((k, v)); }
+    out.extend(str_keys);
+    out
+}
+
 /// Serializa um handle de qualquer tipo conhecido (Map/Vec/String/Json) ou
 /// devolve "" se nao reconhecido. Valores i64 dentro de Map/Vec sao tratados
 /// como numero por padrao — nao ha como saber em runtime se i64 e' handle
@@ -154,6 +181,7 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
         let err = alloc_entry(Entry::ErrorObj {
             message: "Converting circular structure to JSON".to_owned(),
             name: "TypeError".to_owned(),
+            cause: 0,
         });
         crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err);
         return None;
@@ -214,6 +242,10 @@ fn stringify_with_visited(
                 *circular = true;
                 return None;
             }
+            // (cross-runtime #743) ECMA-262 OrdinaryOwnPropertyKeys: integer-indexed
+            // keys ("0", "1", ..., max u32) ascendentes; depois string keys em
+            // ordem de insercao.
+            let entries = sort_ecma_keys(entries);
             out.push('{');
             let mut first = true;
             for (k, val) in entries {
