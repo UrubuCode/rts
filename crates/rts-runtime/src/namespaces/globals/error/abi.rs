@@ -184,6 +184,17 @@ pub const RANGE_ERROR_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "cause",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_CAUSE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The cause passed via options.cause when constructed, or undefined.",
+        ts_signature: "cause: any",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const RANGE_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
@@ -236,6 +247,17 @@ pub const REF_ERROR_MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Handle,
         doc: "Returns \"ReferenceError: <message>\".",
         ts_signature: "toString(): string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "cause",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_CAUSE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The cause passed via options.cause when constructed, or undefined.",
+        ts_signature: "cause: any",
         intrinsic: None,
         pure: true,
     },
@@ -294,6 +316,17 @@ pub const SYNTAX_ERROR_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "cause",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_CAUSE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The cause passed via options.cause when constructed, or undefined.",
+        ts_signature: "cause: any",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const SYNTAX_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
@@ -349,6 +382,17 @@ pub const URI_ERROR_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "cause",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_CAUSE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The cause passed via options.cause when constructed, or undefined.",
+        ts_signature: "cause: any",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const URI_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
@@ -401,6 +445,17 @@ pub const EVAL_ERROR_MEMBERS: &[NamespaceMember] = &[
         returns: AbiType::Handle,
         doc: "Returns \"EvalError: <message>\".",
         ts_signature: "toString(): string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "cause",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_CAUSE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The cause passed via options.cause when constructed, or undefined.",
+        ts_signature: "cause: any",
         intrinsic: None,
         pure: true,
     },
