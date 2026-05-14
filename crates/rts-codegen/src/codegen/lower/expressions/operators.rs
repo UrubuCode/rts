@@ -1060,7 +1060,19 @@ fn lower_logical(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         }
         BinaryOp::NullishCoalescing => {
             let rhs_block = ctx.builder.create_block();
-            let is_null = ctx.builder.ins().icmp(IntCC::Equal, lhs_i64, zero);
+            // (cross-runtime #902) Nullish em RTS: 0 (null classico),
+            // i64::MIN+2 (undefined), i64::MIN+3 (null sentinela),
+            // i64::MIN+4 (sparse hole — comporta como undefined).
+            let is_zero = ctx.builder.ins().icmp(IntCC::Equal, lhs_i64, zero);
+            let undef_s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+            let null_s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 3);
+            let hole_s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 4);
+            let is_undef = ctx.builder.ins().icmp(IntCC::Equal, lhs_i64, undef_s);
+            let is_null_s = ctx.builder.ins().icmp(IntCC::Equal, lhs_i64, null_s);
+            let is_hole = ctx.builder.ins().icmp(IntCC::Equal, lhs_i64, hole_s);
+            let a = ctx.builder.ins().bor(is_zero, is_undef);
+            let b = ctx.builder.ins().bor(is_null_s, is_hole);
+            let is_null = ctx.builder.ins().bor(a, b);
             ctx.builder
                 .ins()
                 .brif(is_null, rhs_block, &[], merge, &[lhs_i64.into()]);
