@@ -235,6 +235,29 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 if let Some(tv) = lower_math_builtin(ctx, &qualified, call)? {
                     return Ok(tv);
                 }
+                // JSON.stringify(value, replacer_array) — 2-arg, replacer e' array de keys.
+                if qualified == "JSON.stringify" && call.args.len() == 2 {
+                    if call.args.iter().any(|a| a.spread.is_some()) {
+                        return Err(anyhow!("spread not supported in JSON.stringify"));
+                    }
+                    let v_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let v_h = ctx.coerce_to_i64(v_tv).val;
+                    let r_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    if matches!(r_tv.ty, ValTy::Handle) {
+                        let r_h = r_tv.val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_JSON_STRINGIFY_KEYS",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[v_h, r_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(crate::codegen::lower::ctx::TypedVal::new(
+                            v,
+                            crate::codegen::lower::ctx::ValTy::Handle,
+                        ));
+                    }
+                }
                 // JSON.stringify(value, replacer, indent) — JS 3-arg form.
                 // Replacer ignorado (v0); indent vai pra STRINGIFY_PRETTY.
                 if qualified == "JSON.stringify" && call.args.len() >= 3 {
