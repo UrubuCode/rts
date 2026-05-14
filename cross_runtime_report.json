@@ -673,10 +673,10 @@
 ,
 {
   "name": "175_boolean_constructor",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false",
   "node": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false"
 }
 ,
 {
@@ -1297,10 +1297,10 @@
 ,
 {
   "name": "246_boolean_valueof",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
   "node": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":141,"rts_diverge":65,"bun_node_diverge":3,"errors":103,"rejected":0}}
+],"summary":{"total":312,"pass":143,"rts_diverge":65,"bun_node_diverge":3,"errors":101,"rejected":0}}
