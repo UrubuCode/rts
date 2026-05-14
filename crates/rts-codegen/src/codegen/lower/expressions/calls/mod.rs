@@ -760,6 +760,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (#798/192) Object.getOwnPropertySymbols(obj) — RTS Maps usam
+                // chaves String, sem suporte real a Symbol keys (#216). Retorna
+                // sempre Vec vazio para satisfazer a shape API.
+                if method == "getOwnPropertySymbols" && call.args.len() == 1 {
+                    let _ = lower_expr(ctx, &call.args[0].expr)?;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+                        &[],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
                 // (cross-runtime #749) Object.getOwnPropertyDescriptors(obj).
                 if method == "getOwnPropertyDescriptors" && call.args.len() == 1 {
                     let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
