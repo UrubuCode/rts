@@ -211,7 +211,7 @@ fn stringify_value_i64(v: i64) -> String {
     // JSON.stringify: undefined/null em array vira "null" (JS spec).
     if v == i64::MIN { return "false".to_string(); }
     if v == i64::MIN + 1 { return "true".to_string(); }
-    if v == i64::MIN + 2 || v == i64::MIN + 3 {
+    if v == i64::MIN + 2 || v == i64::MIN + 3 || v == i64::MIN + 4 {
         return "null".to_string();
     }
     let h = v as u64;

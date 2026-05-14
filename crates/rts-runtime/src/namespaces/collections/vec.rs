@@ -173,8 +173,8 @@ fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
             out.extend_from_slice(b"true");
             continue;
         }
-        // (cross-runtime #142) undefined/null em join viram "".
-        if *e == i64::MIN + 2 || *e == i64::MIN + 3 {
+        // (cross-runtime #142/#52) undefined/null/hole em join viram "".
+        if *e == i64::MIN + 2 || *e == i64::MIN + 3 || *e == i64::MIN + 4 {
             continue;
         }
         let h = *e as u64;

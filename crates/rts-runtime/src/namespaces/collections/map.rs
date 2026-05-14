@@ -514,8 +514,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             out
         }
         Some(Entry::Vec(v)) => {
-            (0..v.len())
-                .map(|i| {
+            // (cross-runtime #52/#94) JS spec: Object.keys em sparse array
+            // retorna so' indices presentes. Slot `i64::MIN + 2` (undefined
+            // sentinela do codegen de array literal) representa hole.
+            // (cross-runtime #52/#94) JS spec: Object.keys em sparse array
+            // pula holes (sentinela i64::MIN+4) mas inclui `undefined` literal
+            // explicito (MIN+2).
+            v.iter()
+                .enumerate()
+                .filter(|(_, x)| **x != i64::MIN + 4)
+                .map(|(i, _)| {
                     alloc_entry(Entry::String(i.to_string().into_bytes())) as i64
                 })
                 .collect()

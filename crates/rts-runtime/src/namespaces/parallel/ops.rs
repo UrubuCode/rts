@@ -35,7 +35,14 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 
     // `array_methods_pass` so reescreve quando fn esta whitelisted
     // em `purity_pass` (math/string/num/etc puras).
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let result: Vec<i64> = pool().install(|| items.par_iter().map(|&x| f(x)).collect());
+    // (cross-runtime #52) JS spec: map preserva holes (slot vazio
+    // permanece vazio no resultado, callback nao eh invocado).
+    let result: Vec<i64> = pool().install(|| {
+        items
+            .par_iter()
+            .map(|&x| if x == i64::MIN + 4 { x } else { f(x) })
+            .collect()
+    });
     alloc_entry(Entry::Vec(Box::new(result)))
 }
 
@@ -119,7 +126,12 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FILTER(vec_handle: u64, fn_ptr: u64) -> u
         return 0;
     }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let result: Vec<i64> = items.into_iter().filter(|&x| cb_truthy(f(x))).collect();
+    // (cross-runtime #52) JS spec: filter pula holes (sparse slot ==
+    // i64::MIN + 4) sem invocar callback. Resultado sem holes.
+    let result: Vec<i64> = items
+        .into_iter()
+        .filter(|&x| x != i64::MIN + 4 && cb_truthy(f(x)))
+        .collect();
     alloc_entry(Entry::Vec(Box::new(result)))
 }
 
