@@ -951,7 +951,11 @@ pub(super) fn lower_array_builtin(
             let oor = ctx.builder.ins().bor(below, above);
             let undef_h = ctx.emit_str_handle(b"undefined")?.val;
             let result = ctx.builder.ins().select(oor, undef_h, v);
-            Ok(Some(TypedVal::new(result, ValTy::Handle)))
+            // (cross-runtime #897) Valor pode ser i64 raw (numero) OU handle
+            // de string/object. Marca como var_member_call para que
+            // template literal / console.log use TPL_COERCE_AUTO em runtime.
+            ctx.var_member_call_values.insert(result);
+            Ok(Some(TypedVal::new(result, ValTy::I64)))
         }
         "join" => {
             // arr.join(sep): converte sep para string handle, chama runtime.
