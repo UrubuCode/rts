@@ -93,6 +93,23 @@ pub extern "C" fn __RTS_FN_NS_DATE_FROM_ISO(ptr: u64, len: i64) -> i64 {
     parse_iso(text).unwrap_or(i64::MIN)
 }
 
+/// `Date.parse(s)` — JS spec: retorna ms desde epoch, ou NaN em falha.
+/// Diferente de `__RTS_FN_NS_DATE_FROM_ISO` (i64 + sentinel) usado pelo
+/// constructor `new Date(string)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_PARSE_F64(ptr: u64, len: i64) -> f64 {
+    let Some(bytes) = slice_from(ptr, len) else {
+        return f64::NAN;
+    };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return f64::NAN;
+    };
+    match parse_iso(text) {
+        Some(ms) => ms as f64,
+        None => f64::NAN,
+    }
+}
+
 /// Parse ISO 8601 — aceita:
 /// - YYYY-MM-DD (assume 00:00:00.000Z)
 /// - YYYY-MM-DDTHH:MM:SS (assume .000Z)

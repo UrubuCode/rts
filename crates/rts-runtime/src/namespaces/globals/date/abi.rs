@@ -18,10 +18,10 @@ pub const MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "parse",
         kind: MemberKind::Function,
-        symbol: "__RTS_FN_NS_DATE_FROM_ISO",
+        symbol: "__RTS_FN_NS_DATE_PARSE_F64",
         args: &[AbiType::StrPtr],
-        returns: AbiType::I64,
-        doc: "Parses an ISO 8601 string to ms since epoch. Returns NaN sentinel on failure.",
+        returns: AbiType::F64,
+        doc: "Parses an ISO 8601 string to ms since epoch. Returns NaN on failure (JS spec).",
         ts_signature: "parse(dateString: string): number",
         intrinsic: None,
         pure: true,
