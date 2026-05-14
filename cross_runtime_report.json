@@ -372,7 +372,7 @@
   "status": "rts_diverge",
   "bun": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
   "node": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
-  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=-1\nemoji_charAt=😀\nemoji_code=55357\nbracket=null\nbracket_out=null"
+  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=😀\nemoji_code=55357\nbracket=h\nbracket_out=undefined"
 }
 ,
 {
@@ -644,7 +644,7 @@
   "status": "rts_diverge",
   "bun": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
   "node": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
-  "rts": "lastIndex_init=null\nmatch1=null\nlastIndex1=null\nmatch2=null\nlastIndex2=null\nmatch3=null\nlastIndex3=null\nmatch4=1\nlastIndex4=null"
+  "rts": "lastIndex_init=null\nmatch1=1\nlastIndex1=null\nmatch2=1\nlastIndex2=null\nmatch3=1\nlastIndex3=null\nmatch4=1\nlastIndex4=null"
 }
 ,
 {
@@ -2012,7 +2012,7 @@
   "status": "rts_diverge",
   "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
   "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "rts": "test=true\nmatch0=none\nmatch1=none\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=null\nlast1=null\ng2=null\nlast2=null"
+  "rts": "test=true\nmatch0=none\nmatch1=none\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=t\nlast1=null\ng2=t\nlast2=null"
 }
 ,
 {
