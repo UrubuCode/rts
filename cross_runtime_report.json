@@ -561,10 +561,10 @@
 ,
 {
   "name": "162_object_create_null",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
   "node": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1\nproto=null\ntoString=false\nproto2=true\nchild_x=10\nown=false\nwithProps=1"
 }
 ,
 {
@@ -2017,10 +2017,10 @@
 ,
 {
   "name": "40_object_deep",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
   "node": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=null:null\nfrozen=true\nspread={\"a\":1,\"b\":281474976710657,\"q\":\"tail\"}\nin_a=false\nin_z=false\nown_a=null\nown_z=null"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": ""
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":180,"rts_diverge":45,"bun_node_diverge":3,"errors":84,"rejected":0}}
+],"summary":{"total":312,"pass":180,"rts_diverge":47,"bun_node_diverge":3,"errors":82,"rejected":0}}
