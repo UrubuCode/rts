@@ -2116,7 +2116,7 @@
   "status": "rts_diverge",
   "bun": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
   "node": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
-  "rts": "len=5\njoin=1||3||5\nkeys=0,1,2,3,4\nmap=2,4,6,4,10\nfilter=1,,3,,5\nfrom=1,-9223372036854775806,3,-9223372036854775806,5"
+  "rts": "len=5\njoin=1||3||5\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,-9223372036854775804,3,-9223372036854775804,5"
 }
 ,
 {
@@ -2452,7 +2452,7 @@
   "status": "rts_diverge",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=5\nkeys=0,1,2,3,4\nforIn=\nforOf=0|-9223372036854775806|2|-9223372036854775806|4\nentries=null:null|1:-9223372036854775806|2:2|3:-9223372036854775806|4:4\njson=[0,null,2,null,4]"
+  "rts": "len=5\nkeys=0,2,3,4\nforIn=\nforOf=0|-9223372036854775804|2|-9223372036854775806|4\nentries=null:null|1:-9223372036854775804|2:2|3:-9223372036854775806|4:4\njson=[0,null,2,null,4]"
 }
 ,
 {
