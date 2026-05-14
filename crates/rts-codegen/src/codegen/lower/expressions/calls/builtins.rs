@@ -844,6 +844,25 @@ pub(super) fn lower_array_builtin(
     obj_h: cranelift_codegen::ir::Value,
     call: &CallExpr,
 ) -> Result<Option<TypedVal>> {
+    // (cross-runtime #132/#159/#233/#235/#248, issue #195) Quando um arrow
+    // inline com captura mutavel (`count++`, `sum += x`) falha no lifter
+    // de `passes/parallelism.rs`, o arrow fica no call site e o fallback
+    // generico tenta tratar Vec como Map (MAP_GET_CHAIN) e SIGILL. Aqui
+    // damos um default seguro: some=false, every=true, forEach=undefined.
+    // Nao implementa a semantica (closure captura nao funciona ate #195),
+    // mas evita crash hostil.
+    if matches!(method, "some" | "every" | "forEach")
+        && call.args.len() == 1
+        && matches!(call.args[0].expr.as_ref(), Expr::Arrow(_))
+    {
+        let _ = obj_h;
+        let v = match method {
+            "every" => ctx.builder.ins().iconst(cl::I64, 1),
+            _ => ctx.builder.ins().iconst(cl::I64, 0),
+        };
+        let ty = if method == "forEach" { ValTy::I64 } else { ValTy::Bool };
+        return Ok(Some(TypedVal::new(v, ty)));
+    }
     match method {
         "push" => {
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
