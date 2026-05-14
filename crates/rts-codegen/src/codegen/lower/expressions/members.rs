@@ -877,7 +877,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 false
             };
             let skip_function_meta = is_function_meta_prop && !obj_is_user_fn_ident;
-            if receiver_class.is_none() && !is_known_obj_lit && !skip_function_meta {
+            // (cross-runtime edge_json5) Quando obj eh resultado de uma Call
+            // (ex: JSON.parse/JSON5.parse retornando Map generico), NAO
+            // tentar GLOBAL_CLASS_SPECS getter — `obj.port`/`obj.flags`/etc
+            // colidiriam com URL.port/RegExp.flags. Map handles genericos
+            // devem cair no map_get abaixo. Inclui cadeias Member em cima
+            // de Call (ex: `JSON.parse(...).flags.debug`).
+            fn chain_has_call_root(e: &Expr, ambiguous: &std::collections::HashSet<String>) -> bool {
+                match e {
+                    Expr::Call(_) => true,
+                    Expr::Ident(id) => ambiguous.contains(id.sym.as_str()),
+                    Expr::Member(m) => chain_has_call_root(&m.obj, ambiguous),
+                    Expr::OptChain(o) => match &**(&o.base) {
+                        swc_ecma_ast::OptChainBase::Member(m) => chain_has_call_root(&m.obj, ambiguous),
+                        swc_ecma_ast::OptChainBase::Call(c) => chain_has_call_root(&c.callee, ambiguous),
+                    },
+                    _ => false,
+                }
+            }
+            let obj_is_call_result = chain_has_call_root(m.obj.as_ref(), &ctx.local_ambiguous_vars);
+            if receiver_class.is_none() && !is_known_obj_lit && !skip_function_meta && !obj_is_call_result {
                 // (#216) Tenta instance_getter primeiro (description, source, flags, etc.)
                 for spec in crate::abi::GLOBAL_CLASS_SPECS {
                     if let Some(member) = spec.instance_getter(key) {

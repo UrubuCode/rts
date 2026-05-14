@@ -464,6 +464,29 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         if init_was_ambiguous && ann_ty.is_none() {
             ctx.local_ambiguous_vars.insert(name.clone());
         }
+        // (cross-runtime edge_json5) Quando var declarada com `: any` e init
+        // eh uma Call, marca como ambiguous para que `obj.X` member access
+        // NAO colida com GLOBAL_CLASS_SPECS getters (URL.port/RegExp.flags).
+        // Restringido a `any` explicito pra nao quebrar `const x: number =
+        // f()` ou inferencia normal.
+        if let Some(init_expr) = decl.init.as_deref() {
+            let is_any_ann = if let Pat::Ident(bid) = &decl.name {
+                bid.type_ann.as_ref()
+                    .and_then(|ta| match ta.type_ann.as_ref() {
+                        swc_ecma_ast::TsType::TsKeywordType(k) => Some(matches!(
+                            k.kind,
+                            swc_ecma_ast::TsKeywordTypeKind::TsAnyKeyword
+                        )),
+                        _ => None,
+                    })
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            if is_any_ann && matches!(init_expr, swc_ecma_ast::Expr::Call(_)) {
+                ctx.local_ambiguous_vars.insert(name.clone());
+            }
+        }
 
         if ctx.module_scope && ctx.has_global(&name) {
             ctx.write_local(&name, init_coerced)?;
