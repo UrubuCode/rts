@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -185,10 +185,10 @@
 ,
 {
   "name": "118_numeric_separators",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
   "node": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -1924,7 +1924,7 @@
   "status": "rts_diverge",
   "bun": "vals=10,255\neq=true\nseq=false",
   "node": "vals=10,255\neq=true\nseq=false",
-  "rts": ""
+  "rts": "eq=true\nseq=true"
 }
 ,
 {
@@ -1937,10 +1937,10 @@
 ,
 {
   "name": "319_exponentiation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "num=-8\npow=-8\nbig=256",
   "node": "num=-8\npow=-8\nbig=256",
-  "rts": "num=-8\npow=-8"
+  "rts": "num=-8\npow=-8\nbig=256"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":177,"rts_diverge":46,"bun_node_diverge":4,"errors":85,"rejected":0}}
+],"summary":{"total":312,"pass":179,"rts_diverge":45,"bun_node_diverge":3,"errors":85,"rejected":0}}
