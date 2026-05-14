@@ -1092,8 +1092,9 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 }
                 _ => {
                     let idx = ctx.coerce_to_i64(idx_tv).val;
+                    // INDEX_GET_AUTO roteia em runtime: Vec -> slot, String -> char-at.
                     let get_fn = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+                        "__RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO",
                         &[cl::I64, cl::I64],
                         Some(cl::I64),
                     )?;
