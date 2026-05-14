@@ -317,6 +317,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_REGEXP_TEST", __RTS_FN_GL_REGEXP_TEST);
     add_fn!("__RTS_FN_GL_REGEXP_EXEC", __RTS_FN_GL_REGEXP_EXEC);
     add_fn!("__RTS_FN_GL_REGEXP_SOURCE", __RTS_FN_GL_REGEXP_SOURCE);
+    add_fn!("__RTS_FN_GL_REGEXP_FLAGS", __RTS_FN_GL_REGEXP_FLAGS);
+    add_fn!("__RTS_FN_GL_REGEXP_GLOBAL", __RTS_FN_GL_REGEXP_GLOBAL);
+    add_fn!("__RTS_FN_GL_REGEXP_IGNORE_CASE", __RTS_FN_GL_REGEXP_IGNORE_CASE);
+    add_fn!("__RTS_FN_GL_REGEXP_MULTILINE", __RTS_FN_GL_REGEXP_MULTILINE);
 
     // ── namespaces::globals::error (Error class family) ───────────────
     use crate::namespaces::globals::error::instance::*;

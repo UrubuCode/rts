@@ -27,13 +27,15 @@ use crate::abi::handles::{
 
 const SENTINEL_INVALID: u64 = 0;
 
-/// Wrapper que armazena a regex compilada + flag `global` do JS.
-/// O crate `regex` nao tem conceito de flag global; RTS precisa saber
-/// se `str.match(/pat/g)` deve retornar todos os matches.
+/// Wrapper que armazena a regex compilada + flags JS canonicas.
+/// O crate `regex` nao expoe flags pos-compile de forma uniforme; RTS
+/// guarda flags do callsite para `re.flags/global/ignoreCase/multiline`.
 #[derive(Debug)]
 pub struct RtsRegex {
     pub regex: regex::Regex,
     pub global: bool,
+    /// Flags JS canonicas em ordem (`d g i m s u y` apenas as setadas).
+    pub flags: String,
 }
 
 /// Value kinds stored behind a handle. Extensible as namespaces grow.

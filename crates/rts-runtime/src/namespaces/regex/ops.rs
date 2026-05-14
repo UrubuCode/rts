@@ -59,8 +59,15 @@ pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
         }
     }
     let global = flags.contains('g');
+    // (#781) Flags canonicas JS em ordem alfabetica: d g i m s u y.
+    let mut canon = String::new();
+    for c in ['d', 'g', 'i', 'm', 's', 'u', 'y'] {
+        if flags.contains(c) {
+            canon.push(c);
+        }
+    }
     match builder.build() {
-        Ok(rx) => alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex { regex: rx, global }))),
+        Ok(rx) => alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex { regex: rx, global, flags: canon }))),
         Err(_) => 0,
     }
 }

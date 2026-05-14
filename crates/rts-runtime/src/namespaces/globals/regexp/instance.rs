@@ -58,6 +58,46 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
     )
 }
 
+/// (#781) `re.flags` — string canonica das flags (ex: "gi").
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REGEXP_FLAGS(handle: u64) -> u64 {
+    let f: Option<String> = with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => Some(rx.flags.clone()),
+        _ => None,
+    });
+    match f {
+        Some(s) => alloc_entry(Entry::String(s.into_bytes())),
+        None => 0,
+    }
+}
+
+/// `re.global` — flag 'g' setada?
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REGEXP_GLOBAL(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => if rx.flags.contains('g') { 1 } else { 0 },
+        _ => 0,
+    })
+}
+
+/// `re.ignoreCase` — flag 'i' setada?
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REGEXP_IGNORE_CASE(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => if rx.flags.contains('i') { 1 } else { 0 },
+        _ => 0,
+    })
+}
+
+/// `re.multiline` — flag 'm' setada?
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REGEXP_MULTILINE(handle: u64) -> i64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => if rx.flags.contains('m') { 1 } else { 0 },
+        _ => 0,
+    })
+}
+
 /// `re.source` — returns pattern string as a handle.
 /// JS spec: empty pattern returns `"(?:)"` (RegExp.prototype.source default).
 #[unsafe(no_mangle)]
