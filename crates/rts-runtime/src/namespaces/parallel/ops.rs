@@ -60,7 +60,9 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: u64, fn_ptr: u64) {
     // order). Sem isso, codigo como `entries.forEach(([k,v]) => print(...))`
     // produz saida fora de ordem (test object_builtins). Mantemos sequencial
     // — a vantagem de parallelism vem em map/reduce que sao puros.
-    items.iter().for_each(|&x| f(x));
+    // (cross-runtime #52/#220) JS spec: forEach pula holes (slot vazio,
+    // sentinela MIN+4) sem invocar callback.
+    items.iter().for_each(|&x| if x != i64::MIN + 4 { f(x); });
 }
 
 /// (cross-runtime #254) `arr.reduce(fn)` sem initial value. JS spec:
