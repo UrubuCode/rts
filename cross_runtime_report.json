@@ -769,10 +769,10 @@
 ,
 {
   "name": "186_map_foreach",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
   "node": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
-  "rts": "forEach=a:1,b:2,c:3\nsame=false\nsame=false\nsame=false\nset=1,1,1"
+  "rts": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": ""
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":174,"rts_diverge":50,"bun_node_diverge":3,"errors":85,"rejected":0}}
+],"summary":{"total":312,"pass":175,"rts_diverge":49,"bun_node_diverge":3,"errors":85,"rejected":0}}
