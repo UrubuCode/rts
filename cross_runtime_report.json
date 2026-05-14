@@ -1633,10 +1633,10 @@
 ,
 {
   "name": "284_math_f16round",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
   "node": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":132,"rts_diverge":68,"bun_node_diverge":3,"errors":109,"rejected":0}}
+],"summary":{"total":312,"pass":133,"rts_diverge":68,"bun_node_diverge":3,"errors":108,"rejected":0}}
