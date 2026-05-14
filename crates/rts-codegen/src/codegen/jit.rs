@@ -1274,6 +1274,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP
         );

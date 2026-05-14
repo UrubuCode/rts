@@ -1327,7 +1327,8 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "reduceRight" => {
-            if call.args.len() != 2 || call.args.iter().any(|a| a.spread.is_some()) {
+            // (cross-runtime #202) reduceRight aceita (fn) ou (fn, init).
+            if !matches!(call.args.len(), 1 | 2) || call.args.iter().any(|a| a.spread.is_some()) {
                 return Ok(None);
             }
             let fn_ptr = match call.args[0].expr.as_ref() {
@@ -1342,15 +1343,25 @@ pub(super) fn lower_array_builtin(
                 }
                 _ => return Ok(None),
             };
-            let init_tv = lower_expr(ctx, &call.args[1].expr)?;
-            let init = ctx.coerce_to_i64(init_tv).val;
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT",
-                &[cl::I64, cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h, init, fn_ptr]);
-            let v = ctx.builder.inst_results(inst)[0];
+            let v = if call.args.len() == 2 {
+                let init_tv = lower_expr(ctx, &call.args[1].expr)?;
+                let init = ctx.coerce_to_i64(init_tv).val;
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, init, fn_ptr]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
+                ctx.builder.inst_results(inst)[0]
+            };
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         // (#208 ES2023) Immutable variants.
