@@ -79,8 +79,36 @@ pub extern "C" fn __RTS_FN_NS_REGEX_FREE(handle: u64) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_REGEX_TEST(handle: u64, ptr: *const u8, len: i64) -> i64 {
-    let s = unsafe { str_from(ptr, len) };
-    with_regex(handle, 0i64, |rx| if rx.is_match(s) { 1 } else { 0 })
+    let s_full = unsafe { str_from(ptr, len) };
+    // (#673/240) JS spec: regex global usa `lastIndex` como cursor em
+    // `test`; avanca em match e reseta para 0 em miss. Regex nao-global
+    // sempre busca do 0 e nao mexe em `lastIndex`.
+    super::super::gc::handles::with_entry_mut(handle, |entry| match entry {
+        Some(super::super::gc::handles::Entry::Regex(rx)) => {
+            if rx.global {
+                let start = rx.last_index;
+                if start > s_full.len() || !s_full.is_char_boundary(start) {
+                    rx.last_index = 0;
+                    return 0;
+                }
+                match rx.regex.find(&s_full[start..]) {
+                    Some(m) => {
+                        rx.last_index = start + m.end();
+                        1
+                    }
+                    None => {
+                        rx.last_index = 0;
+                        0
+                    }
+                }
+            } else if rx.regex.is_match(s_full) {
+                1
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    })
 }
 
 #[unsafe(no_mangle)]
