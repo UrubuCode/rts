@@ -184,6 +184,11 @@ pub extern "C" fn __RTS_FN_RT_TRUTHY(value: i64) -> i64 {
     if value == i64::MIN + 1 {
         return 1;
     }
+    // (cross-runtime #223) Sentinelas undefined/null/hole sao falsy
+    // em JS, equivalentes ao 0 do RTS para fins de truthy check.
+    if value == i64::MIN + 2 || value == i64::MIN + 3 || value == i64::MIN + 4 {
+        return 0;
+    }
     let h = value as u64;
     let snap = with_entry(h, |entry| match entry {
         Some(Entry::String(b)) => {
