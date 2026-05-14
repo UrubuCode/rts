@@ -409,10 +409,10 @@
 ,
 {
   "name": "145_number_tofixed_toprecision",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "fixed0=123\nfixed1=123.5\nfixed2=123.46\nfixed5=123.45600\nprec1=1e+2\nprec3=123\nprec5=123.46\nsmall_fixed=0.00010\nsmall_prec=0.00010\nlarge_fixed=12345.00",
   "node": "fixed0=123\nfixed1=123.5\nfixed2=123.46\nfixed5=123.45600\nprec1=1e+2\nprec3=123\nprec5=123.46\nsmall_fixed=0.00010\nsmall_prec=0.00010\nlarge_fixed=12345.00",
-  "rts": "fixed0=123\nfixed1=123.5\nfixed2=123.46\nfixed5=123.45600\nprec1=1e+2\nprec3=123\nprec5=123.46\nsmall_fixed=0.00010\nsmall_prec=1.0e-4\nlarge_fixed=12345.00"
+  "rts": "fixed0=123\nfixed1=123.5\nfixed2=123.46\nfixed5=123.45600\nprec1=1e+2\nprec3=123\nprec5=123.46\nsmall_fixed=0.00010\nsmall_prec=0.00010\nlarge_fixed=12345.00"
 }
 ,
 {
@@ -1313,10 +1313,10 @@
 ,
 {
   "name": "248_array_foreach_return",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
   "node": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
-  "rts": "result=0\nresult2=0\nsum=6\nresult3=0"
+  "rts": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined"
 }
 ,
 {
@@ -1337,10 +1337,10 @@
 ,
 {
   "name": "250_regexp_source",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)",
   "node": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)",
-  "rts": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty="
+  "rts": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)"
 }
 ,
 {
@@ -1644,14 +1644,14 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2049,10 +2049,10 @@
 ,
 {
   "name": "44_bitwise_unsigned",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1",
   "node": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1",
-  "rts": "ushr_a=4\nushr_b=-1\nushr_c=2147483644\nushr_d=1"
+  "rts": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1"
 }
 ,
 {
@@ -2113,10 +2113,10 @@
 ,
 {
   "name": "52_sparse_arrays",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
   "node": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
-  "rts": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,-9223372036854775804,3,-9223372036854775804,5"
+  "rts": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":149,"rts_diverge":58,"bun_node_diverge":4,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":154,"rts_diverge":54,"bun_node_diverge":3,"errors":101,"rejected":0}}
