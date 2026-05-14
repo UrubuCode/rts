@@ -250,6 +250,10 @@ fn stringify_with_visited(
             let mut first = true;
             for (k, val) in entries {
                 if k == "__proto__" { continue; }
+                // (#110) Slots internos getter/setter — nao sao props publicas.
+                if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
+                // (#680/50) JSON spec: omite props com valor undefined em obj.
+                if is_undefined_value(val) { continue; }
                 if !first { out.push(','); }
                 first = false;
                 out.push('"');
@@ -276,7 +280,12 @@ fn stringify_with_visited(
             out.push('[');
             for (i, val) in arr.into_iter().enumerate() {
                 if i > 0 { out.push(','); }
-                out.push_str(&stringify_value_visited(val, visited, circular));
+                // (#680/50) JSON spec: undefined em array vira "null".
+                if is_undefined_value(val) {
+                    out.push_str("null");
+                } else {
+                    out.push_str(&stringify_value_visited(val, visited, circular));
+                }
                 if *circular { return None; }
             }
             out.push(']');
@@ -307,6 +316,24 @@ fn stringify_value_visited(
     }
     if *circular { return String::new(); }
     v.to_string()
+}
+
+/// (#680/50) Detecta se valor representa `undefined` em RTS:
+/// - sentinel i64::MIN+2 (undefined explicito)
+/// - sentinel i64::MIN+4 (sparse hole, comporta como undefined)
+/// - handle de Entry::String "undefined" (literal lowered)
+fn is_undefined_value(v: i64) -> bool {
+    if v == i64::MIN + 2 || v == i64::MIN + 4 {
+        return true;
+    }
+    let h = v as u64;
+    if h <= 0xFFFF_FFFF {
+        return false;
+    }
+    with_entry(h, |e| match e {
+        Some(Entry::String(b)) => b.as_slice() == b"undefined",
+        _ => false,
+    })
 }
 
 /// Helper: formata DateMs como ISO string entre aspas para JSON.
