@@ -97,10 +97,10 @@
 ,
 {
   "name": "103_property_order_weird",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
   "node": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=0\njson={\"20\":\"twenty\",\"3\":\"three\",\"aa\":\"aa\",\"10\":\"ten\",\"b\":\"b\"}"
 }
 ,
 {
@@ -825,10 +825,10 @@
 ,
 {
   "name": "192_object_getownpropertysymbols",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "count=2\nhas_sym1=true\nhas_sym2=true\nkeys=normal\nnames=normal",
   "node": "count=2\nhas_sym1=true\nhas_sym2=true\nkeys=normal\nnames=normal",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "count=0\nhas_sym1=false\nhas_sym2=false\nkeys=normal\nnames=normal"
 }
 ,
 {
@@ -2129,10 +2129,10 @@
 ,
 {
   "name": "54_symbol_registry",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
   "node": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=0\nvalue=null"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":172,"rts_diverge":47,"bun_node_diverge":3,"errors":90,"rejected":0}}
+],"summary":{"total":312,"pass":172,"rts_diverge":50,"bun_node_diverge":3,"errors":87,"rejected":0}}
