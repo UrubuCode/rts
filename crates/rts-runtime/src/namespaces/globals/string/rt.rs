@@ -216,13 +216,23 @@ pub extern "C" fn __RTS_FN_GL_STRING_ENDS_WITH_AT(recv: u64, suffix: u64, end_po
 // ── Indexing methods ───────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
+/// `str.charAt(i)` — JS spec: indexa por UTF-16 code units (nao code points).
+/// Em surrogate pair (emoji etc.), `charAt(0)` retorna o high surrogate isolado
+/// (codifica como char invalido na saida UTF-8, igual Bun/Node).
 pub extern "C" fn __RTS_FN_GL_STRING_CHAR_AT(recv: u64, idx: i64) -> u64 {
     let Some(s) = handle_to_str(recv) else { return alloc_str("") };
     if idx < 0 { return alloc_str(""); }
-    match s.chars().nth(idx as usize) {
-        Some(ch) => { let mut buf = [0u8; 4]; alloc_str(ch.encode_utf8(&mut buf)) }
-        None => alloc_str(""),
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let Some(&unit) = units.get(idx as usize) else { return alloc_str("") };
+    // Tenta decodificar como char valido (BMP nao-surrogate); surrogate isolado
+    // vira REPLACEMENT CHARACTER (U+FFFD) — bate com `console.log` de Bun/Node
+    // que mostra "�" para surrogate orfao.
+    let mut out = String::new();
+    match char::decode_utf16(std::iter::once(unit)).next() {
+        Some(Ok(ch)) => out.push(ch),
+        _ => out.push('\u{FFFD}'),
     }
+    alloc_str(&out)
 }
 
 #[unsafe(no_mangle)]
