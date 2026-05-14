@@ -1370,6 +1370,9 @@ pub(super) fn lower_array_builtin(
                 let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
                 ctx.builder.inst_results(inst)[0]
             };
+            // (cross-runtime #808) Resultado pode ser handle de string OU
+            // i64 raw — marca como ambiguo pra TPL_COERCE_AUTO em runtime.
+            ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         // (#208 ES2023) Immutable variants.
