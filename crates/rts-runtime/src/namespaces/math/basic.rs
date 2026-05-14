@@ -107,6 +107,103 @@ pub extern "C" fn __RTS_FN_NS_MATH_FROUND(x: f64) -> f64 {
     x as f32 as f64
 }
 
+/// `Math.f16round(x)` — arredonda para IEEE 754 binary16 (half) e volta para f64.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_MATH_F16ROUND(x: f64) -> f64 {
+    f16_from_f64(x)
+}
+
+fn f16_from_f64(x: f64) -> f64 {
+    if x.is_nan() {
+        return f64::NAN;
+    }
+    if x == 0.0 {
+        return x;
+    }
+    if !x.is_finite() {
+        return x;
+    }
+    let f = x as f32;
+    let bits = f.to_bits();
+    let sign = ((bits >> 31) & 0x1) as u16;
+    let exp = ((bits >> 23) & 0xff) as i32;
+    let mant = bits & 0x7f_ffff;
+
+    let half_bits: u16 = if exp == 0xff {
+        let m16 = if mant != 0 { 0x200 | ((mant >> 13) as u16) } else { 0 };
+        (sign << 15) | (0x1f << 10) | m16
+    } else {
+        let new_exp = exp - 127 + 15;
+        if new_exp >= 0x1f {
+            (sign << 15) | (0x1f << 10)
+        } else if new_exp <= 0 {
+            if new_exp < -10 {
+                sign << 15
+            } else {
+                let m = mant | 0x80_0000;
+                let shift = (14 - new_exp) as u32;
+                let round_bit = 1u32 << (shift - 1);
+                let sticky_mask = round_bit - 1;
+                let sticky = (m & sticky_mask) != 0;
+                let mut q = m >> shift;
+                let r = (m >> (shift - 1)) & 1;
+                if r == 1 && (sticky || (q & 1) == 1) {
+                    q += 1;
+                }
+                (sign << 15) | (q as u16)
+            }
+        } else {
+            let round_bit = 1u32 << 12;
+            let sticky_mask = round_bit - 1;
+            let sticky = (mant & sticky_mask) != 0;
+            let mut q = mant >> 13;
+            let r = (mant >> 12) & 1;
+            if r == 1 && (sticky || (q & 1) == 1) {
+                q += 1;
+            }
+            let mut e = new_exp as u32;
+            if q == 0x400 {
+                q = 0;
+                e += 1;
+            }
+            if e >= 0x1f {
+                (sign << 15) | (0x1f << 10)
+            } else {
+                (sign << 15) | ((e as u16) << 10) | (q as u16)
+            }
+        }
+    };
+
+    half_to_f64(half_bits)
+}
+
+fn half_to_f64(h: u16) -> f64 {
+    let sign = ((h >> 15) & 0x1) as u32;
+    let exp = ((h >> 10) & 0x1f) as u32;
+    let mant = (h & 0x3ff) as u32;
+    let bits32: u32 = if exp == 0 {
+        if mant == 0 {
+            sign << 31
+        } else {
+            let mut m = mant;
+            let mut e: i32 = -14;
+            while (m & 0x400) == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            m &= 0x3ff;
+            let new_exp = (e + 127) as u32;
+            (sign << 31) | (new_exp << 23) | (m << 13)
+        }
+    } else if exp == 0x1f {
+        (sign << 31) | (0xff << 23) | (mant << 13)
+    } else {
+        let new_exp = exp + (127 - 15);
+        (sign << 31) | (new_exp << 23) | (mant << 13)
+    };
+    f32::from_bits(bits32) as f64
+}
+
 /// (#208) `Math.sinh/cosh/tanh` — funcoes hiperbolicas.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_MATH_SINH(x: f64) -> f64 { x.sinh() }

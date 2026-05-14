@@ -199,6 +199,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: true,
     },
     NamespaceMember {
+        name: "f16round",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_MATH_F16ROUND",
+        args: &[AbiType::F64],
+        returns: AbiType::F64,
+        doc: "Arredonda para IEEE 754 binary16 (half) e volta para f64.",
+        ts_signature: "f16round(x: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
         name: "sinh",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_MATH_SINH",
