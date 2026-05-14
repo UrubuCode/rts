@@ -1115,6 +1115,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_ASSIGN
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS",
+            map::__RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE",
+            map::__RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_FREEZE",
             map::__RTS_FN_NS_COLLECTIONS_MAP_FREEZE
         );
