@@ -70,7 +70,8 @@ describe("reflect_api", () => {
     test("Reflect.getOwnPropertyDescriptor value", () => expect(descValue).toBe(1));
     test("Reflect.getOwnPropertyDescriptor writable", () =>
         expect(descWritable).toBe(1));
+    // (#795) Missing prop retorna handle de string "undefined" (ECMA spec).
     test("Reflect.getOwnPropertyDescriptor missing", () =>
-        expect(descMissing).toBe(0));
+        expect(descMissing).toBe("undefined"));
     test("Reflect.defineProperty writes value", () => expect(zv).toBe(99));
 });
