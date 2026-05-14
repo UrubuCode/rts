@@ -171,6 +171,37 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
     with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
 }
 
+/// (cross-runtime #788) `obj.propertyIsEnumerable(key)` — true se own
+/// property + enumerable. Inherited (via __proto__) ja' retorna false
+/// porque so' checa own. Para Vec: indices = enumerable, "length" = false.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE(
+    handle: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> i64 {
+    let Some(key) = str_from_abi(key_ptr, key_len) else {
+        return 0;
+    };
+    let vec_result: Option<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => {
+            // "length" eh own mas non-enumerable em arrays.
+            if key == "length" { Some(0) }
+            else if let Some(n) = parse_array_index(key) {
+                Some(if (n as usize) < v.len() { 1 } else { 0 })
+            } else { Some(0) }
+        }
+        _ => None,
+    });
+    if let Some(r) = vec_result { return r; }
+    // Map: own + enumerable. defineProperty com enumerable:false marca via
+    // is_non_enumerable.
+    let has_own = with_map(handle, false, |m| m.contains_key(key));
+    if !has_own { return 0; }
+    if is_non_enumerable(handle, key) { return 0; }
+    1
+}
+
 /// (#264 PR4) Retorna valor de `key` seguindo cadeia `__proto__`.
 /// Se a key nao existe no map, le `__proto__` (handle de outro Map) e
 /// recursa. Retorna 0 quando atinge o fim da cadeia ou tipo invalido.

@@ -146,7 +146,8 @@ pub(super) fn lower_var_member_call(
     }
 
     // (#264 PR5) `obj.hasOwnProperty(key)` — verifica own props sem chain.
-    if prop == "hasOwnProperty" && call.args.len() == 1 {
+    // (cross-runtime #788) `obj.propertyIsEnumerable(key)` — own + enumerable.
+    if (prop == "hasOwnProperty" || prop == "propertyIsEnumerable") && call.args.len() == 1 {
         let key_tv = lower_expr(ctx, &call.args[0].expr)?;
         // Numero -> string handle (JS converte: `arr.hasOwnProperty(0)`
         // testa key "0"). `coerce_to_handle` ja' faz stringify de I64/F64.
@@ -157,11 +158,12 @@ pub(super) fn lower_var_member_call(
         let kptr = ctx.builder.inst_results(inst_p)[0];
         let inst_l = ctx.builder.ins().call(str_len_fn, &[key_h]);
         let klen = ctx.builder.inst_results(inst_l)[0];
-        let has_own = ctx.get_extern(
-            "__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY",
-            &[cl::I64, cl::I64, cl::I64],
-            Some(cl::I64),
-        )?;
+        let sym = if prop == "hasOwnProperty" {
+            "__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY"
+        } else {
+            "__RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE"
+        };
+        let has_own = ctx.get_extern(sym, &[cl::I64, cl::I64, cl::I64], Some(cl::I64))?;
         let inst = ctx.builder.ins().call(has_own, &[obj_h, kptr, klen]);
         let v = ctx.builder.inst_results(inst)[0];
         return Ok(TypedVal::new(v, ValTy::Bool));
