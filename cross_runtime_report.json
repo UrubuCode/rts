@@ -1841,10 +1841,10 @@
 ,
 {
   "name": "308_finalization_registry_shape",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "type=function\nreg=function\nunreg=function",
   "node": "type=function\nreg=function\nunreg=function",
-  "rts": "type=function\nreg=number\nunreg=number"
+  "rts": "type=function\nreg=function\nunreg=function"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": ""
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":171,"rts_diverge":48,"bun_node_diverge":3,"errors":90,"rejected":0}}
+],"summary":{"total":312,"pass":172,"rts_diverge":47,"bun_node_diverge":3,"errors":90,"rejected":0}}
