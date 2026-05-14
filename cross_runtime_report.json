@@ -641,10 +641,10 @@
 ,
 {
   "name": "171_regexp_lastindex",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
   "node": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
-  "rts": "lastIndex_init=null\nmatch1=1\nlastIndex1=null\nmatch2=1\nlastIndex2=null\nmatch3=1\nlastIndex3=null\nmatch4=1\nlastIndex4=null"
+  "rts": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0"
 }
 ,
 {
@@ -1252,7 +1252,7 @@
   "status": "rts_diverge",
   "bun": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0",
   "node": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0",
-  "rts": "test1=true\nlastIndex1=null\ntest2=true\nlastIndex2=null\ntest3=true\nlastIndex3=null\ntest4=true\nlastIndex4=null"
+  "rts": "test1=true\nlastIndex1=0\ntest2=true\nlastIndex2=0\ntest3=true\nlastIndex3=0\ntest4=true\nlastIndex4=0"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order=null"
 }
 ,
 {
@@ -2012,7 +2012,7 @@
   "status": "rts_diverge",
   "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
   "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "rts": "test=true\nmatch0=none\nmatch1=none\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=t\nlast1=null\ng2=t\nlast2=null"
+  "rts": "test=true\nmatch0=none\nmatch1=none\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=t\nlast1=7\ng2=t\nlast2=19"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":160,"rts_diverge":48,"bun_node_diverge":3,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":161,"rts_diverge":47,"bun_node_diverge":3,"errors":101,"rejected":0}}
