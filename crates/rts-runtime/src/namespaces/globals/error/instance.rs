@@ -132,6 +132,22 @@ pub extern "C" fn __RTS_FN_GL_ERROR_NAME(handle: u64) -> u64 {
     alloc_str(get_field(handle, "name"))
 }
 
+/// (#745) `e.stack` — JS spec: string. RTS nao tem stack capture real
+/// ainda; retorna "<name>: <msg>" como base mínima para `typeof e.stack
+/// === "string"` ser verdadeiro e `.includes("functionName")` poder ser
+/// avaliado (ainda retornara false sem stack real).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ERROR_STACK(handle: u64) -> u64 {
+    let name = get_field(handle, "name");
+    let msg = get_field(handle, "message");
+    let s = if msg.is_empty() {
+        name
+    } else {
+        format!("{name}: {msg}")
+    };
+    alloc_str(s)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ERROR_TO_STRING(handle: u64) -> u64 {
     let name = get_field(handle, "name");

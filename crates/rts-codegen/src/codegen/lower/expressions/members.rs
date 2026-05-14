@@ -780,6 +780,10 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     let sym = match key {
                         "message" => Some("__RTS_FN_GL_ERROR_MESSAGE"),
                         "name" => Some("__RTS_FN_GL_ERROR_NAME"),
+                        // (#745) JS spec: Error.stack eh string (mesmo
+                        // que vazia ou stub). Ate stack capture real,
+                        // retorna "<name>: <msg>".
+                        "stack" => Some("__RTS_FN_GL_ERROR_STACK"),
                         _ => None,
                     };
                     if let Some(sym) = sym {
