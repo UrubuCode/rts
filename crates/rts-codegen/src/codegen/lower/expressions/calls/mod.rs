@@ -822,10 +822,34 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 //   - mesma identidade caso contrario
                 if method == "is" && call.args.len() == 2 {
                     use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-                    let a_tv = lower_expr(ctx, &call.args[0].expr)?;
-                    let b_tv = lower_expr(ctx, &call.args[1].expr)?;
-                    // Se ambos sao F64, faz bitwise comparison (cobre NaN==NaN
-                    // e 0!=-0 corretamente).
+                    // (#758) Object.is(0, -0) deve ser false. `-0` em RTS eh
+                    // parseado como Unary(Minus, Lit(0)) e o lower de Unary
+                    // emite `ineg 0 = 0` (I64), perdendo o sinal. Detectamos
+                    // o literal em compile-time e materializamos F64 -0.0.
+                    let is_neg_zero_lit = |e: &Expr| {
+                        if let Expr::Unary(u) = e {
+                            if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) {
+                                if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = u.arg.as_ref() {
+                                    return n.value == 0.0;
+                                }
+                            }
+                        }
+                        false
+                    };
+                    let a_neg_zero = is_neg_zero_lit(&call.args[0].expr);
+                    let b_neg_zero = is_neg_zero_lit(&call.args[1].expr);
+                    let a_tv = if a_neg_zero {
+                        let v = ctx.builder.ins().f64const(-0.0);
+                        TypedVal::new(v, ValTy::F64)
+                    } else {
+                        lower_expr(ctx, &call.args[0].expr)?
+                    };
+                    let b_tv = if b_neg_zero {
+                        let v = ctx.builder.ins().f64const(-0.0);
+                        TypedVal::new(v, ValTy::F64)
+                    } else {
+                        lower_expr(ctx, &call.args[1].expr)?
+                    };
                     if matches!(a_tv.ty, ValTy::F64) || matches!(b_tv.ty, ValTy::F64) {
                         let af = if matches!(a_tv.ty, ValTy::F64) {
                             a_tv.val
