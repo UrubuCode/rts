@@ -745,10 +745,10 @@
 ,
 {
   "name": "183_object_getownpropertynames",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
   "node": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr="
 }
 ,
 {
@@ -777,10 +777,10 @@
 ,
 {
   "name": "187_error_types",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError",
   "node": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError"
 }
 ,
 {
@@ -865,10 +865,10 @@
 ,
 {
   "name": "197_string_raw",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "path=C:\\Users\\name\\file.txt\nlines=true\nsub=Hello test!\nregular=C:Users\name\file.txt",
   "node": "path=C:\\Users\\name\\file.txt\nlines=true\nsub=Hello test!\nregular=C:Users\name\file.txt",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "path=C:\\Users\\name\\file.txt\nlines=true\nsub=Hello test!\nregular=C:Users\name\file.txt"
 }
 ,
 {
@@ -916,7 +916,7 @@
   "status": "rts_diverge",
   "bun": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
   "node": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
-  "rts": "sum=10\nconcat=281474976710673\nflat=null\nnum=321"
+  "rts": "sum=10\nconcat=4,3,2,1\nflat=null\nnum=321"
 }
 ,
 {
@@ -1708,7 +1708,7 @@
   "status": "rts_diverge",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={\"__rts_class\":\"C\"}\ndate=281474976710663"
+  "rts": "cls={\"__rts_class\":\"C\"}\ndate=\"2024-05-10T12:34:56.789Z\""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":165,"rts_diverge":44,"bun_node_diverge":3,"errors":100,"rejected":0}}
+],"summary":{"total":312,"pass":167,"rts_diverge":45,"bun_node_diverge":3,"errors":97,"rejected":0}}
