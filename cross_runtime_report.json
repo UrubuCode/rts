@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -1097,10 +1097,10 @@
 ,
 {
   "name": "223_array_filter_truthy",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
   "node": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
-  "rts": "truthy=1,2,3,,4,,5\nevens=2,4\nodds=1,3,5\nnone="
+  "rts": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone="
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":168,"rts_diverge":45,"bun_node_diverge":3,"errors":96,"rejected":0}}
+],"summary":{"total":312,"pass":169,"rts_diverge":44,"bun_node_diverge":3,"errors":96,"rejected":0}}
