@@ -464,6 +464,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
             if k.as_str() == "__proto__" {
                 continue;
             }
+            // (#110) Slots internos de getter/setter — nao expor.
+            if k.starts_with("__get_") || k.starts_with("__set_") {
+                continue;
+            }
             if is_non_enumerable(handle, k.as_str()) {
                 continue;
             }
@@ -652,6 +656,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                // (#110) Slots internos `__get_*`/`__set_*` nao sao expostos.
+                if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
                 match parse_array_index(k) {
                     Some(n) => int_keys.push((n, k.clone())),
                     None => str_keys.push(k.clone()),
@@ -697,6 +703,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                // (#110) Slots internos `__get_<name>`/`__set_<name>` armazenam
+                // accessor handles. Object.keys/getOwnPropertyNames JS spec nao
+                // expoe estes — RTS os usa como mecanismo interno de getter/setter.
+                if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
                 if is_non_enumerable(handle, k.as_str()) { continue; }
                 match parse_array_index(k) {
                     Some(n) => int_keys.push((n, k.clone())),
