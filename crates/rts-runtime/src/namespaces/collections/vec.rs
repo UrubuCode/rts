@@ -109,6 +109,48 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(handle: u64, index: i64) -> i6
     with_vec(handle, 0, |v| v.get(index as usize).copied().unwrap_or(0))
 }
 
+/// `delete obj[i]` ou `delete obj[k]` — roteia em runtime para vec/map.
+/// Para Vec: marca slot como hole (i64::MIN+4) preservando length (JS spec).
+/// Para Map: remove key (idx_or_keyh interpretado como handle de string).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_keyh: i64) -> i64 {
+    use super::super::gc::handles::with_entry;
+    enum Kind { Vec, Map, Other }
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::Vec(_)) => Kind::Vec,
+        Some(Entry::Map(_)) => Kind::Map,
+        _ => Kind::Other,
+    });
+    match kind {
+        Kind::Vec => {
+            let i = idx_or_keyh;
+            if i < 0 { return 1; }
+            with_entry_mut(handle, |e| {
+                if let Some(Entry::Vec(v)) = e {
+                    if (i as usize) < v.len() {
+                        v[i as usize] = i64::MIN + 4; // hole sentinel
+                    }
+                }
+                1i64
+            })
+        }
+        Kind::Map => {
+            let key_owned: Option<String> = with_entry(idx_or_keyh as u64, |e| match e {
+                Some(Entry::String(b)) => std::str::from_utf8(b).ok().map(|s| s.to_string()),
+                _ => None,
+            });
+            let Some(key) = key_owned else { return 1 };
+            with_entry_mut(handle, |e| {
+                if let Some(Entry::Map(m)) = e {
+                    let _ = m.shift_remove(&key);
+                }
+                1i64
+            })
+        }
+        Kind::Other => 1,
+    }
+}
+
 /// `obj[i]` auto: se handle for Vec, devolve slot; se String, devolve char-at
 /// (handle de string single-char ou handle de "undefined" out-of-range — JS spec).
 #[unsafe(no_mangle)]

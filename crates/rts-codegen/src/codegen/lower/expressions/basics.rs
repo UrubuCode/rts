@@ -91,10 +91,49 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
         return lower_typeof(ctx, &u.arg);
     }
     if matches!(u.op, UnaryOp::Void) {
+        // `void X` avalia X (side effects) e retorna handle de "undefined".
+        // Em template/String(...) o handle stringifica como "undefined".
+        let _ = lower_expr(ctx, &u.arg)?;
+        return ctx.emit_str_handle(b"undefined");
+    }
+    // `delete obj.prop` / `delete obj["k"]` / `delete arr[i]`.
+    if matches!(u.op, UnaryOp::Delete) {
+        if let Expr::Member(m) = u.arg.as_ref() {
+            let obj_tv = lower_expr(ctx, &m.obj)?;
+            let obj_h = ctx.coerce_to_i64(obj_tv).val;
+            // Caso 1: Member::Ident (obj.prop) — chave estatica.
+            if let swc_ecma_ast::MemberProp::Ident(id) = &m.prop {
+                let key_h = ctx.emit_str_handle(id.sym.as_bytes())?.val;
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, key_h]);
+                let v = ctx.builder.inst_results(inst)[0];
+                let v8 = ctx.builder.ins().ireduce(cl::I8, v);
+                return Ok(TypedVal::new(v8, ValTy::Bool));
+            }
+            // Caso 2: Member::Computed (arr[i] ou obj[k]) — chave dinamica.
+            if let swc_ecma_ast::MemberProp::Computed(c) = &m.prop {
+                let idx_tv = lower_expr(ctx, &c.expr)?;
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let idx_i = ctx.coerce_to_i64(idx_tv).val;
+                let inst = ctx.builder.ins().call(f, &[obj_h, idx_i]);
+                let v = ctx.builder.inst_results(inst)[0];
+                let v8 = ctx.builder.ins().ireduce(cl::I8, v);
+                return Ok(TypedVal::new(v8, ValTy::Bool));
+            }
+        }
+        // Fallback: avalia e retorna true (sem efeito).
         let _ = lower_expr(ctx, &u.arg)?;
         return Ok(TypedVal::new(
-            ctx.builder.ins().iconst(cl::I64, 0),
-            ValTy::I64,
+            ctx.builder.ins().iconst(cl::I8, 1),
+            ValTy::Bool,
         ));
     }
 

@@ -1078,6 +1078,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_DELETE
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO",
+            vec::__RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR",
             map::__RTS_FN_NS_COLLECTIONS_MAP_CLEAR
         );
