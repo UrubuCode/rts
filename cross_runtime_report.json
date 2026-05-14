@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "named=null"
 }
 ,
 {
@@ -737,10 +737,10 @@
 ,
 {
   "name": "182_object_propertyisenumerable",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=true\nb=true\nc=false\nhidden=false\ninherited=false\narr_0=true\narr_length=false",
   "node": "a=true\nb=true\nc=false\nhidden=false\ninherited=false\narr_0=true\narr_length=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=true\nb=true\nc=false\nhidden=false\ninherited=false\narr_0=true\narr_length=false"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":167,"rts_diverge":45,"bun_node_diverge":3,"errors":97,"rejected":0}}
+],"summary":{"total":312,"pass":168,"rts_diverge":45,"bun_node_diverge":3,"errors":96,"rejected":0}}
