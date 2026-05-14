@@ -481,10 +481,10 @@
 ,
 {
   "name": "153_object_preventextensions",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false",
   "node": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false",
-  "rts": "extensible=true\nafter=true\nmodify=10\nsealed=false\nfrozen=false"
+  "rts": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":154,"rts_diverge":54,"bun_node_diverge":3,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":155,"rts_diverge":53,"bun_node_diverge":3,"errors":101,"rejected":0}}
