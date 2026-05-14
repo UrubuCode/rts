@@ -105,10 +105,10 @@
 ,
 {
   "name": "104_destructuring_edge_cases",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
   "node": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
-  "rts": "arr=1,,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
+  "rts": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":159,"rts_diverge":49,"bun_node_diverge":3,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":160,"rts_diverge":48,"bun_node_diverge":3,"errors":101,"rejected":0}}
