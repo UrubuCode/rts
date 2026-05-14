@@ -74,10 +74,10 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
             }
             None => {
                 // (cross-runtime #52) Sparse slot (`[1,,3]`) — JS spec
-                // distingue de slot=0 ou undefined explicito. Usa mesma
-                // sentinela `i64::MIN + 2` (undefined) que join/JSON ja'
-                // tratam como vazio. Bun/Node: join hole vira "" (igual undefined).
-                let s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                // distingue hole de undefined literal. Hole eh i64::MIN+4
+                // (sentinela exclusiva); Object.keys pula, join trata como
+                // empty (igual undefined).
+                let s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 4);
                 ctx.builder.ins().call(push_fn, &[handle, s]);
             }
         }
