@@ -154,6 +154,7 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
         let err = alloc_entry(Entry::ErrorObj {
             message: "Converting circular structure to JSON".to_owned(),
             name: "TypeError".to_owned(),
+            cause: 0,
         });
         crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err);
         return None;

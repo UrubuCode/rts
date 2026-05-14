@@ -17,16 +17,21 @@ unsafe fn str_from_raw(ptr: i64, len: i64) -> String {
 }
 
 fn alloc_error(name: &str, message: String) -> u64 {
+    alloc_error_with_cause(name, message, 0)
+}
+
+fn alloc_error_with_cause(name: &str, message: String, cause: u64) -> u64 {
     alloc_entry(Entry::ErrorObj {
         message,
         name: name.to_owned(),
+        cause,
     })
 }
 
 fn get_field(handle: u64, field: &str) -> String {
     // Tenta primeiro Entry::ErrorObj (caso comum: new Error("msg"))
     let direct = with_entry(handle, |entry| match entry {
-        Some(Entry::ErrorObj { message, name }) => Some(match field {
+        Some(Entry::ErrorObj { message, name, .. }) => Some(match field {
             "message" => message.clone(),
             "name" => name.clone(),
             _ => String::new(),
@@ -57,46 +62,67 @@ fn alloc_str(s: String) -> u64 {
 
 // ── Constructors ──────────────────────────────────────────────────────────────
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_NEW(ptr: i64, len: i64) -> u64 {
-    let msg = unsafe { str_from_raw(ptr, len) };
-    alloc_error("Error", msg)
+/// (cross-runtime #277) Extrai handle de `options.cause` se options for
+/// um Map com chave "cause". Retorna 0 se ausente.
+fn extract_cause(options: u64) -> u64 {
+    if options == 0 {
+        return 0;
+    }
+    with_entry(options, |e| match e {
+        Some(Entry::Map(m)) => m.get("cause").copied().unwrap_or(0) as u64,
+        _ => 0,
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TYPE_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_GL_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
-    alloc_error("TypeError", msg)
+    alloc_error_with_cause("Error", msg, extract_cause(options))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_RANGE_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_GL_TYPE_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
-    alloc_error("RangeError", msg)
+    alloc_error_with_cause("TypeError", msg, extract_cause(options))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REF_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_GL_RANGE_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
-    alloc_error("ReferenceError", msg)
+    alloc_error_with_cause("RangeError", msg, extract_cause(options))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYNTAX_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_GL_REF_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
-    alloc_error("SyntaxError", msg)
+    alloc_error_with_cause("ReferenceError", msg, extract_cause(options))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URI_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_GL_SYNTAX_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
-    alloc_error("URIError", msg)
+    alloc_error_with_cause("SyntaxError", msg, extract_cause(options))
+}
+
+/// (cross-runtime #277) `error.cause` — retorna handle armazenado ou 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ERROR_CAUSE(handle: u64) -> u64 {
+    with_entry(handle, |e| match e {
+        Some(Entry::ErrorObj { cause, .. }) => *cause,
+        _ => 0,
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_GL_URI_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
-    alloc_error("EvalError", msg)
+    alloc_error_with_cause("URIError", msg, extract_cause(options))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+    let msg = unsafe { str_from_raw(ptr, len) };
+    alloc_error_with_cause("EvalError", msg, extract_cause(options))
 }
 
 // ── Instance methods ──────────────────────────────────────────────────────────
