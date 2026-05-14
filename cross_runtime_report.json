@@ -769,10 +769,10 @@
 ,
 {
   "name": "186_map_foreach",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
   "node": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "forEach=a:1,b:2,c:3\nsame=false\nsame=false\nsame=false\nset=1,1,1"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -1689,10 +1689,10 @@
 ,
 {
   "name": "290_json_circular",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "err=TypeError",
   "node": "err=TypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "err=null"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":169,"rts_diverge":44,"bun_node_diverge":3,"errors":96,"rejected":0}}
+],"summary":{"total":312,"pass":169,"rts_diverge":45,"bun_node_diverge":4,"errors":94,"rejected":0}}
