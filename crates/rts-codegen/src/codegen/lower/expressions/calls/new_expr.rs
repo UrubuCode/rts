@@ -47,6 +47,44 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         return lower_new_function(ctx, new_expr);
     }
 
+    // (#784) `new Boolean(x)` — wrapper minimo. Aloca apenas o valor coerced
+    // como i64 (0/1) tagueado como Handle pra dispatch de instance methods
+    // (`valueOf`, `toString`). ABI de BOOLEAN_VALUE_OF/TO_STRING recebe esse
+    // i64 direto. typeof === "object" e `instanceof Boolean` ficam incorretos
+    // — follow-up se necessario.
+    if class_name == "Boolean" {
+        let args = new_expr.args.as_deref().unwrap_or(&[]);
+        let coerce_fn = ctx.get_extern("__RTS_FN_GL_BOOLEAN_COERCE", &[cl::I64], Some(cl::I64))?;
+        let val_i64 = if let Some(arg) = args.first() {
+            if arg.spread.is_some() {
+                return Err(anyhow!("spread not supported in `new Boolean`"));
+            }
+            let tv = super::super::lower_expr(ctx, &arg.expr)?;
+            // Strings (Handle) precisam de coerce: empty -> false, senao true.
+            // Reusa a logica de Boolean(x) para tratamento uniforme de Handle.
+            // Aqui aplicamos a regra completa: null literal, undefined ident,
+            // string vazia, NaN — tudo via lower_coerce_to_boolean compartilhado.
+            if let Some(b_tv) = super::coerce::lower_coerce_to_boolean(ctx, &swc_ecma_ast::CallExpr {
+                span: new_expr.span,
+                callee: swc_ecma_ast::Callee::Expr(Box::new(swc_ecma_ast::Expr::Ident(
+                    swc_ecma_ast::Ident::new_no_ctxt("Boolean".into(), new_expr.span),
+                ))),
+                args: vec![arg.clone()],
+                type_args: None,
+                ctxt: Default::default(),
+            })? {
+                ctx.coerce_to_i64(b_tv).val
+            } else {
+                let raw = ctx.coerce_to_i64(tv).val;
+                let inst = ctx.builder.ins().call(coerce_fn, &[raw]);
+                ctx.builder.inst_results(inst)[0]
+            }
+        } else {
+            ctx.builder.ins().iconst(cl::I64, 0)
+        };
+        return Ok(TypedVal::new(val_i64, ValTy::Handle));
+    }
+
     // `new Object()` / `Object(x)`: JS spec eh boxing.
     // - 0 args: novo Map vazio
     // - 1 arg null/undefined: novo Map vazio
