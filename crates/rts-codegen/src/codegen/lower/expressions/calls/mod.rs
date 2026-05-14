@@ -651,6 +651,44 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return Ok(tv);
                 }
             }
+            // (#879/130) `Number.isFinite/isNaN/isInteger/isSafeInteger`:
+            // JS spec — NAO coage o argumento. Se tipo != number, retorna false.
+            // Distinto do global `isFinite`/`isNaN` (que coagem).
+            if matches!(
+                qualified.as_str(),
+                "Number.isFinite" | "Number.isNaN" | "Number.isInteger" | "Number.isSafeInteger"
+            ) {
+                use crate::codegen::lower::ctx::ValTy;
+                if let Some(arg) = call.args.first() {
+                    if arg.spread.is_none() {
+                        let tv = lower_expr(ctx, &arg.expr)?;
+                        if !matches!(tv.ty, ValTy::F64 | ValTy::I32 | ValTy::I64) {
+                            // Nao-numero → false. (Handle/Bool/U64/Str etc.)
+                            let v = ctx.builder.ins().iconst(cl::I64, 0);
+                            return Ok(TypedVal::new(v, ValTy::Bool));
+                        }
+                        // Number type: delega pra impl normal preservando tv.
+                        let f = match tv.ty {
+                            ValTy::F64 => tv.val,
+                            _ => {
+                                let i = ctx.coerce_to_i64(tv).val;
+                                ctx.builder.ins().fcvt_from_sint(cl::F64, i)
+                            }
+                        };
+                        let sym = match qualified.as_str() {
+                            "Number.isFinite" => "__RTS_FN_GL_NUMBER_IS_FINITE",
+                            "Number.isNaN" => "__RTS_FN_GL_NUMBER_IS_NAN",
+                            "Number.isInteger" => "__RTS_FN_GL_NUMBER_IS_INTEGER",
+                            "Number.isSafeInteger" => "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
+                            _ => unreachable!(),
+                        };
+                        let fref = ctx.get_extern(sym, &[cl::F64], Some(cl::I64))?;
+                        let inst = ctx.builder.ins().call(fref, &[f]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Bool));
+                    }
+                }
+            }
             // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
             if let Some((cls, method)) = qualified.split_once('.') {
                 if let Some(spec) = crate::abi::global_class_lookup(cls) {
