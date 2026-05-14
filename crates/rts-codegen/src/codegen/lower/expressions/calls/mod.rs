@@ -1513,6 +1513,59 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
         }
+        // (cross-runtime #746) Chained call em obj.prop (obj nao Ident):
+        // `u.searchParams.get("q")` — m.obj eh Member. Lower o obj
+        // como expr (gera handle), depois tenta GLOBAL_CLASS_SPECS
+        // instance_method e mapeia args.
+        if let Expr::Member(m) = callee.as_ref() {
+            if matches!(m.obj.as_ref(), Expr::Member(_) | Expr::OptChain(_) | Expr::Call(_)) {
+                if let MemberProp::Ident(prop_id) = &m.prop {
+                    let prop_name = prop_id.sym.as_str();
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                    for spec in crate::abi::GLOBAL_CLASS_SPECS {
+                        if let Some(member) = spec.instance_method(prop_name) {
+                            let sig = crate::abi::signature::lower_member(member);
+                            let f = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
+                            let mut args: Vec<cranelift_codegen::ir::Value> = vec![obj_h];
+                            // Coerce args conforme assinatura (skip o `Handle` do receiver).
+                            for (i, abi_ty) in member.args.iter().skip(1).enumerate() {
+                                if let Some(arg) = call.args.get(i) {
+                                    let tv = lower_expr(ctx, &arg.expr)?;
+                                    match abi_ty {
+                                        crate::abi::AbiType::StrPtr => {
+                                            let h = ctx.coerce_to_handle(tv)?.val;
+                                            let pf = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                                            let lf = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                                            let ip = ctx.builder.ins().call(pf, &[h]);
+                                            let pp = ctx.builder.inst_results(ip)[0];
+                                            let il = ctx.builder.ins().call(lf, &[h]);
+                                            let ll = ctx.builder.inst_results(il)[0];
+                                            args.push(pp);
+                                            args.push(ll);
+                                        }
+                                        _ => {
+                                            let v = ctx.coerce_to_i64(tv).val;
+                                            args.push(v);
+                                        }
+                                    }
+                                }
+                            }
+                            let inst = ctx.builder.ins().call(f, &args);
+                            let v = if sig.ret.is_some() {
+                                ctx.builder.inst_results(inst)[0]
+                            } else {
+                                ctx.builder.ins().iconst(cl::I64, 0)
+                            };
+                            let ret_ty = ValTy::from_abi(member.returns);
+                            // Marca como ambiguo pra template literal funcionar.
+                            ctx.var_member_call_values.insert(v);
+                            return Ok(TypedVal::new(v, ret_ty));
+                        }
+                    }
+                }
+            }
+        }
         if let Expr::Ident(id) = callee.as_ref() {
             let name = id.sym.as_str();
             // Globais JS \`isNaN\`/\`isFinite\`/\`Number\`/\`String\`/\`Boolean\`
