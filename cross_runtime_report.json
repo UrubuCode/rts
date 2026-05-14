@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "named=null"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2065,10 +2065,10 @@
 ,
 {
   "name": "46_number_format_edges",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
   "node": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":180,"rts_diverge":48,"bun_node_diverge":3,"errors":81,"rejected":0}}
+],"summary":{"total":312,"pass":181,"rts_diverge":48,"bun_node_diverge":3,"errors":80,"rejected":0}}
