@@ -225,6 +225,102 @@ fn stringify_value_i64(v: i64) -> String {
     v.to_string()
 }
 
+/// `JSON.stringify(value, keys_array)` — replacer como array de keys filtra props.
+/// `keys_array_h` deve ser handle de Entry::Vec contendo handles de Entry::String.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_KEYS(handle: u64, keys_array_h: u64) -> u64 {
+    let keys: Vec<String> = with_entry(keys_array_h, |e| {
+        let Some(Entry::Vec(arr)) = e else { return Vec::new() };
+        arr.iter().filter_map(|&slot| {
+            let h = slot as u64;
+            with_entry(h, |inner| {
+                if let Some(Entry::String(b)) = inner {
+                    std::str::from_utf8(b).ok().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+        }).collect()
+    });
+    let s = stringify_with_keys(handle, &keys).unwrap_or_else(|| "null".to_string());
+    alloc_entry(Entry::String(s.into_bytes()))
+}
+
+fn stringify_with_keys(handle: u64, keys: &[String]) -> Option<String> {
+    use std::fmt::Write;
+    with_entry(handle, |e| {
+        let v = e?;
+        let mut out = String::new();
+        match v {
+            Entry::String(b) => {
+                out.push('"');
+                for &c in b {
+                    match c {
+                        b'"' => out.push_str("\\\""),
+                        b'\\' => out.push_str("\\\\"),
+                        b'\n' => out.push_str("\\n"),
+                        b'\r' => out.push_str("\\r"),
+                        b'\t' => out.push_str("\\t"),
+                        0x00..=0x1f => { let _ = write!(out, "\\u{:04x}", c); }
+                        _ => out.push(c as char),
+                    }
+                }
+                out.push('"');
+                Some(out)
+            }
+            Entry::Map(m) => {
+                out.push('{');
+                let mut first = true;
+                for k in keys {
+                    if k == "__proto__" { continue; }
+                    if let Some(val) = m.get(k) {
+                        if !first { out.push(','); }
+                        first = false;
+                        out.push('"');
+                        for c in k.bytes() {
+                            match c {
+                                b'"' => out.push_str("\\\""),
+                                b'\\' => out.push_str("\\\\"),
+                                _ => out.push(c as char),
+                            }
+                        }
+                        out.push_str("\":");
+                        out.push_str(&stringify_value_with_keys(*val, keys));
+                    }
+                }
+                out.push('}');
+                Some(out)
+            }
+            Entry::Vec(arr) => {
+                out.push('[');
+                for (i, val) in arr.iter().enumerate() {
+                    if i > 0 { out.push(','); }
+                    out.push_str(&stringify_value_with_keys(*val, keys));
+                }
+                out.push(']');
+                Some(out)
+            }
+            Entry::Json(j) => serde_json::to_string(j.as_ref()).ok(),
+            _ => None,
+        }
+    })
+}
+
+fn stringify_value_with_keys(v: i64, keys: &[String]) -> String {
+    if v == i64::MIN { return "false".to_string(); }
+    if v == i64::MIN + 1 { return "true".to_string(); }
+    if v == i64::MIN + 2 || v == i64::MIN + 3 || v == i64::MIN + 4 {
+        return "null".to_string();
+    }
+    let h = v as u64;
+    if h > 0xFFFF_FFFF {
+        if let Some(s) = stringify_with_keys(h, keys) {
+            return s;
+        }
+    }
+    v.to_string()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(handle: u64) -> u64 {
     if let Some(s) = stringify_any_inner(handle) {

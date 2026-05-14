@@ -273,6 +273,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_JSON_PARSE", __RTS_FN_NS_JSON_PARSE);
     add_fn!("__RTS_FN_NS_JSON_PARSE5", __RTS_FN_NS_JSON_PARSE5);
     add_fn!("__RTS_FN_NS_JSON_STRINGIFY", __RTS_FN_NS_JSON_STRINGIFY);
+    add_fn!("__RTS_FN_NS_JSON_STRINGIFY_KEYS", __RTS_FN_NS_JSON_STRINGIFY_KEYS);
     add_fn!(
         "__RTS_FN_NS_JSON_STRINGIFY_TYPED",
         __RTS_FN_NS_JSON_STRINGIFY_TYPED
@@ -484,6 +485,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_BOOLEAN_COERCE", __RTS_FN_GL_BOOLEAN_COERCE);
         add_fn!("__RTS_FN_GL_BOOLEAN_TO_STRING", __RTS_FN_GL_BOOLEAN_TO_STRING);
         add_fn!("__RTS_FN_GL_BOOLEAN_VALUE_OF", __RTS_FN_GL_BOOLEAN_VALUE_OF);
+        add_fn!("__RTS_FN_GL_BOOLEAN_NEW", __RTS_FN_GL_BOOLEAN_NEW);
+        add_fn!("__RTS_FN_GL_BOOLEAN_NEW_EMPTY", __RTS_FN_GL_BOOLEAN_NEW_EMPTY);
     }
 
     // (#208) encodeURIComponent / decodeURIComponent globais.
