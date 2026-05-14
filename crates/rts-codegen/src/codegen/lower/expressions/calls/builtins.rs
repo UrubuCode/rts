@@ -777,6 +777,92 @@ pub(super) fn lower_console_call(
     let target_symbol: &str = match method {
         "log" | "info" | "debug" => "__RTS_FN_NS_IO_PRINT",
         "error" | "warn" => "__RTS_FN_NS_IO_EPRINT",
+        // (#686/309) console.assert(cond, ...msg) — se cond eh truthy, noop.
+        // Senao imprime "Assertion failed: <msg>" em stderr. Nao throw.
+        // dir(arg) — imprime arg via INSPECT (= console.log um arg).
+        "assert" => {
+            // Sem args: noop.
+            if call.args.is_empty() {
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                return Ok(Some(TypedVal::new(zero, ValTy::I64)));
+            }
+            // Avalia cond.
+            let cond_tv = lower_expr(ctx, &call.args[0].expr)?;
+            // Truthy via __RTS_FN_RT_TRUTHY (cobre handle/string/0/sentinels).
+            let cond_i64 = ctx.coerce_to_i64(cond_tv).val;
+            let truthy_fn = ctx.get_extern(
+                "__RTS_FN_RT_TRUTHY",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst_t = ctx.builder.ins().call(truthy_fn, &[cond_i64]);
+            let truthy = ctx.builder.inst_results(inst_t)[0];
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_falsy = ctx.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                truthy,
+                zero,
+            );
+            let print_block = ctx.builder.create_block();
+            let merge = ctx.builder.create_block();
+            ctx.builder.ins().brif(is_falsy, print_block, &[], merge, &[]);
+
+            ctx.builder.switch_to_block(print_block);
+            ctx.builder.seal_block(print_block);
+            // Constroi "Assertion failed: <msg>" (msgs concat com " ").
+            let prefix = ctx.emit_str_handle(b"Assertion failed:")?.val;
+            let space = ctx.emit_str_handle(b" ")?.val;
+            let concat = ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_CONCAT",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let auto_coerce = ctx.get_extern(
+                "__RTS_FN_RT_INSPECT",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let mut msg = prefix;
+            for arg in &call.args[1..] {
+                if arg.spread.is_some() {
+                    return Err(anyhow!("spread not supported in console.assert args"));
+                }
+                let tv = lower_expr(ctx, &arg.expr)?;
+                let is_known_str = matches!(
+                    arg.expr.as_ref(),
+                    Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+                );
+                let needs_auto = matches!(tv.ty, ValTy::Handle | ValTy::U64) && !is_known_str;
+                let h = ctx.coerce_to_handle(tv)?.val;
+                let h = if needs_auto {
+                    let inst = ctx.builder.ins().call(auto_coerce, &[h]);
+                    ctx.builder.inst_results(inst)[0]
+                } else {
+                    h
+                };
+                let with_space = ctx.builder.ins().call(concat, &[msg, space]);
+                let prev = ctx.builder.inst_results(with_space)[0];
+                let combined = ctx.builder.ins().call(concat, &[prev, h]);
+                msg = ctx.builder.inst_results(combined)[0];
+            }
+            let ptr_fref =
+                ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+            let len_fref =
+                ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+            let pi = ctx.builder.ins().call(ptr_fref, &[msg]);
+            let p = ctx.builder.inst_results(pi)[0];
+            let li = ctx.builder.ins().call(len_fref, &[msg]);
+            let l = ctx.builder.inst_results(li)[0];
+            let eprint = ctx.get_extern("__RTS_FN_NS_IO_EPRINT", &[cl::I64, cl::I64], None)?;
+            ctx.builder.ins().call(eprint, &[p, l]);
+            ctx.builder.ins().jump(merge, &[]);
+
+            ctx.builder.switch_to_block(merge);
+            ctx.builder.seal_block(merge);
+            return Ok(Some(TypedVal::new(zero, ValTy::I64)));
+        }
+        // (#686) dir(obj) — alias de console.log com 1 arg + INSPECT.
+        "dir" => "__RTS_FN_NS_IO_PRINT",
         _ => return Ok(None),
     };
 
