@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -1849,10 +1849,10 @@
 ,
 {
   "name": "309_console_assert",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "threw=false\nafter=ok",
   "node": "threw=false\nafter=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "threw=false\nafter=ok"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": ""
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":169,"rts_diverge":46,"bun_node_diverge":3,"errors":94,"rejected":0}}
+],"summary":{"total":312,"pass":170,"rts_diverge":46,"bun_node_diverge":3,"errors":93,"rejected":0}}
