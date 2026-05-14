@@ -173,6 +173,12 @@ pub enum Entry {
     WeakMap(Box<std::collections::HashMap<u64, i64>>),
     /// WeakSet (#217 v0). v0 comporta como Set forte sem coleta automatica.
     WeakSet(Box<std::collections::HashSet<u64>>),
+    /// WeakRef (#685 v0). Armazena handle do target (strong ref por enquanto).
+    /// `deref()` retorna o handle armazenado.
+    WeakRef(u64),
+    /// FinalizationRegistry (#685 v0). Stub — armazena callback handle e lista
+    /// (target, heldValue) sem nunca disparar callback (sem GC weak real).
+    FinalizationRegistry { callback: u64, entries: Vec<(u64, i64)> },
     /// Proxy (#218). `target` e' o objeto subjacente, `handler` e' um Map
     /// com traps `get`, `set`, `has`, `deleteProperty` (handles de Function
     /// reificadas). Quando ausente, MAP_GET_CHAIN/MAP_SET/etc fazem fallback
