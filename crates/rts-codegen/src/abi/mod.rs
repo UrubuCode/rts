@@ -12,6 +12,8 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::error::abi::RANGE_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::error::abi::REF_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::error::abi::SYNTAX_ERROR_CLASS_SPEC,
+    &crate::namespaces::globals::error::abi::URI_ERROR_CLASS_SPEC,
+    &crate::namespaces::globals::error::abi::EVAL_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::events::abi::CLASS_SPEC,
     &crate::namespaces::globals::text_encoding::class_spec::TEXT_ENCODER_CLASS_SPEC,
     &crate::namespaces::globals::text_encoding::class_spec::TEXT_DECODER_CLASS_SPEC,

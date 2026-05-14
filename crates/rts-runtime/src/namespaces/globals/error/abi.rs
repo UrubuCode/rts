@@ -279,3 +279,113 @@ pub const SYNTAX_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
     doc: "Built-in SyntaxError class.",
     members: SYNTAX_ERROR_MEMBERS,
 };
+
+// ── URIError ───────────────────────────────────────────────────────────────────
+
+pub const URI_ERROR_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_URI_ERROR_NEW",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Creates a URIError with a message string.",
+        ts_signature: "new URIError(message?: string): URIError",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "message",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_MESSAGE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The error message string.",
+        ts_signature: "message: string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "name",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_NAME",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The error name (\"URIError\").",
+        ts_signature: "name: string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "toString",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_TO_STRING",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Returns \"URIError: <message>\".",
+        ts_signature: "toString(): string",
+        intrinsic: None,
+        pure: true,
+    },
+];
+
+pub const URI_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "URIError",
+    doc: "Built-in URIError class.",
+    members: URI_ERROR_MEMBERS,
+};
+
+// ── EvalError ──────────────────────────────────────────────────────────────────
+
+pub const EVAL_ERROR_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_EVAL_ERROR_NEW",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Creates an EvalError with a message string.",
+        ts_signature: "new EvalError(message?: string): EvalError",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "message",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_MESSAGE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The error message string.",
+        ts_signature: "message: string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "name",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_NAME",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The error name (\"EvalError\").",
+        ts_signature: "name: string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "toString",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_TO_STRING",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Returns \"EvalError: <message>\".",
+        ts_signature: "toString(): string",
+        intrinsic: None,
+        pure: true,
+    },
+];
+
+pub const EVAL_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "EvalError",
+    doc: "Built-in EvalError class.",
+    members: EVAL_ERROR_MEMBERS,
+};

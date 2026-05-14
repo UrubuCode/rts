@@ -87,6 +87,18 @@ pub extern "C" fn __RTS_FN_GL_SYNTAX_ERROR_NEW(ptr: i64, len: i64) -> u64 {
     alloc_error("SyntaxError", msg)
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URI_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+    let msg = unsafe { str_from_raw(ptr, len) };
+    alloc_error("URIError", msg)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64) -> u64 {
+    let msg = unsafe { str_from_raw(ptr, len) };
+    alloc_error("EvalError", msg)
+}
+
 // ── Instance methods ──────────────────────────────────────────────────────────
 
 /// `instanceof Error` (any subtype) — handle aponta para Entry::ErrorObj.
