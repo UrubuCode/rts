@@ -256,7 +256,8 @@ fn lift_arrows_in_expr(
                         "map" | "forEach" => Some((0, 1, 1)),
                         "reduce" if call.args.len() == 1 => Some((0, 1, 2)),
                         "reduce" => Some((0, 2, 2)),
-                        "filter" | "find" | "findIndex" | "some" | "every" => {
+                        "filter" | "find" | "findIndex" | "some" | "every"
+                        | "findLast" | "findLastIndex" => {
                             Some((0, 1, 1))
                         }
                         _ if is_array_from && call.args.len() == 2 => {
@@ -342,6 +343,7 @@ fn lift_arrows_in_expr(
                                     let is_bool_cb = matches!(
                                         method,
                                         "filter" | "find" | "findIndex" | "some" | "every"
+                                        | "findLast" | "findLastIndex"
                                     );
                                     let body_expr: Expr = if is_bool_cb {
                                         // `cb(p) ? 1 : 0` — boolean -> int explicit.
