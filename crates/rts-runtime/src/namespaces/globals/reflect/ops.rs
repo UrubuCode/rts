@@ -36,8 +36,11 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
     obj: u64,
     key_handle: u64,
 ) -> u64 {
+    // (#795) JS spec: retorna undefined quando prop nao existe. Aloca
+    // handle string "undefined" — TPL_COERCE_AUTO renderiza passthrough.
+    let alloc_undef = || alloc_entry(Entry::String(b"undefined".to_vec()));
     let Some(key_bytes_v) = key_bytes(key_handle) else {
-        return 0;
+        return alloc_undef();
     };
     let key_str = String::from_utf8_lossy(&key_bytes_v).into_owned();
 
@@ -48,7 +51,7 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
         _ => None,
     });
     let Some(v) = value else {
-        return 0;
+        return alloc_undef();
     };
 
     // Sintetiza { value, writable: true, enumerable: true, configurable: true }

@@ -49,6 +49,8 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::boolean::BOOLEAN_CLASS_SPEC,
     &crate::namespaces::globals::weakmap::WEAKMAP_CLASS_SPEC,
     &crate::namespaces::globals::weakset::WEAKSET_CLASS_SPEC,
+    &crate::namespaces::globals::weakref::WEAKREF_CLASS_SPEC,
+    &crate::namespaces::globals::finalization_registry::FINALIZATION_REGISTRY_CLASS_SPEC,
 ];
 
 /// Global registry of namespaces exposed through the new ABI.

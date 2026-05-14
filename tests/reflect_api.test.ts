@@ -70,16 +70,8 @@ describe("reflect_api", () => {
     test("Reflect.getOwnPropertyDescriptor value", () => expect(descValue).toBe(1));
     test("Reflect.getOwnPropertyDescriptor writable", () =>
         expect(descWritable).toBe(1));
-    // (cross-runtime #795) JS spec: missing → undefined. RTS retorna
-    // string handle "undefined" (vs `0` antes). Movido pro top-level
-    // pra preservar ValTy::Handle entre decl e use (closure no test()
-    // perde a marcacao).
-});
-
-// Top-level test pra descMissing — preserva tipo Handle.
-const descMissingStr = "" + descMissing;
-describe("reflect_api missing descriptor", () => {
+    // (#795) Missing prop retorna handle de string "undefined" (ECMA spec).
     test("Reflect.getOwnPropertyDescriptor missing", () =>
-        expect(descMissingStr).toBe("undefined"));
+        expect(descMissing).toBe("undefined"));
     test("Reflect.defineProperty writes value", () => expect(zv).toBe(99));
 });

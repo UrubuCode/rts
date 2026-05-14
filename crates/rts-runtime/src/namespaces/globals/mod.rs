@@ -23,4 +23,6 @@ pub mod text_encoding;
 pub mod timers;
 pub mod url;
 pub mod weakmap;
+pub mod weakref;
 pub mod weakset;
+pub mod finalization_registry;

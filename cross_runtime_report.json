@@ -769,10 +769,10 @@
 ,
 {
   "name": "186_map_foreach",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
   "node": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "forEach=a:1,b:2,c:3\nsame=false\nsame=false\nsame=false\nset=1,1,1"
 }
 ,
 {
@@ -796,7 +796,7 @@
   "status": "rts_diverge",
   "bun": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
   "node": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
-  "rts": "success=true\na=42\nvalue=42\nwritable=1\nenumerable=1\ndesc2=null"
+  "rts": "success=true\na=42\nvalue=42\nwritable=1\nenumerable=1\ndesc2=undefined"
 }
 ,
 {
@@ -1689,10 +1689,10 @@
 ,
 {
   "name": "290_json_circular",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "err=TypeError",
   "node": "err=TypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "err=null"
 }
 ,
 {
@@ -1833,26 +1833,26 @@
 ,
 {
   "name": "307_weakref_shape",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "type=function\nderef=object",
   "node": "type=function\nderef=object",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "type=function\nderef=object"
 }
 ,
 {
   "name": "308_finalization_registry_shape",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "type=function\nreg=function\nunreg=function",
   "node": "type=function\nreg=function\nunreg=function",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "type=function\nreg=function\nunreg=function"
 }
 ,
 {
   "name": "309_console_assert",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "threw=false\nafter=ok",
   "node": "threw=false\nafter=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "threw=false\nafter=ok"
 }
 ,
 {
@@ -2161,10 +2161,10 @@
 ,
 {
   "name": "58_text_encoding",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
   "node": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len=8\nhex=\ntext=café-λ"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":169,"rts_diverge":44,"bun_node_diverge":3,"errors":96,"rejected":0}}
+],"summary":{"total":312,"pass":172,"rts_diverge":47,"bun_node_diverge":3,"errors":90,"rejected":0}}

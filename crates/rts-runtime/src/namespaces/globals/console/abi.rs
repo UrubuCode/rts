@@ -64,6 +64,31 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    // (#686/309) console.assert(cond, ...msg) — codegen-only (special-cased
+    // como log/error). Symbol referenciado para satisfazer ABI lookup; o
+    // codegen nao chama esse symbol, gera branch + eprint inline.
+    NamespaceMember {
+        name: "assert",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_IO_EPRINT",
+        args: &[AbiType::StrPtr],
+        doc: "If cond is falsy, prints \"Assertion failed: <msg>\" to stderr; otherwise no-op. Does not throw.",
+        ts_signature: "assert(cond: unknown, ...msg: unknown[]): void",
+        returns: AbiType::Void,
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "dir",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_IO_PRINT",
+        args: &[AbiType::StrPtr],
+        doc: "Pretty-prints a single argument via INSPECT (alias of console.log for one arg).",
+        ts_signature: "dir(arg: unknown): void",
+        returns: AbiType::Void,
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const SPEC: NamespaceSpec = NamespaceSpec {

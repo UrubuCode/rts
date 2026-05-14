@@ -147,8 +147,11 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_NEW() -> u64 {
     alloc_entry(Entry::Env(vec![1])) // token "TextEncoder"
 }
 
+/// (cross-runtime #874) Aceita label opcional como (ptr, len). Em RTS so'
+/// UTF-8 e' suportado; o label e' aceito mas ignorado (Bun/Node aceitam
+/// `new TextDecoder("utf-8")` sem erro).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTDEC_NEW() -> u64 {
+pub extern "C" fn __RTS_FN_GL_TEXTDEC_NEW(_label_ptr: i64, _label_len: i64) -> u64 {
     alloc_entry(Entry::Env(vec![2])) // token "TextDecoder"
 }
 
