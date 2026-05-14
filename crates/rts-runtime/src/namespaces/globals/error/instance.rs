@@ -158,18 +158,26 @@ pub extern "C" fn __RTS_FN_GL_ERROR_NAME(handle: u64) -> u64 {
     alloc_str(get_field(handle, "name"))
 }
 
-/// (#745) `e.stack` — JS spec: string. RTS nao tem stack capture real
-/// ainda; retorna "<name>: <msg>" como base mínima para `typeof e.stack
-/// === "string"` ser verdadeiro e `.includes("functionName")` poder ser
-/// avaliado (ainda retornara false sem stack real).
+/// (#745) `e.stack` — JS spec: string com call stack. RTS captura stack
+/// no momento de ERROR_SET via trace::frame_stack — se houver stack
+/// pendente, prefixa header "<name>: <msg>" + frames. Caso contrario,
+/// retorna apenas o header (typeof string ainda eh true).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ERROR_STACK(handle: u64) -> u64 {
     let name = get_field(handle, "name");
     let msg = get_field(handle, "message");
-    let s = if msg.is_empty() {
+    let header = if msg.is_empty() {
         name
     } else {
         format!("{name}: {msg}")
+    };
+    // (#745) Stack salvo pelo ERROR_CLEAR (ver gc/error.rs ERR_STACKS).
+    let stack_text: String = crate::namespaces::gc::error::stack_for_handle(handle)
+        .unwrap_or_default();
+    let s = if stack_text.is_empty() {
+        header
+    } else {
+        format!("{header}\n{stack_text}")
     };
     alloc_str(s)
 }

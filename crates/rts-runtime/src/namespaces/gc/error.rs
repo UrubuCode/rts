@@ -62,11 +62,36 @@ pub extern "C" fn __RTS_FN_RT_ERROR_GET_STACK() -> u64 {
     ERROR_SLOT.with(|slot| slot.borrow().stack)
 }
 
+/// (#745) Mapa thread-local handle->stack_text. Antes de CLEAR liberar
+/// o stack handle pendente, copiamos o conteudo aqui para que
+/// `e.stack` possa ler dentro do catch body.
+thread_local! {
+    static ERR_STACKS: std::cell::RefCell<std::collections::HashMap<u64, String>>
+        = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+pub fn stack_for_handle(handle: u64) -> Option<String> {
+    ERR_STACKS.with(|m| m.borrow().get(&handle).cloned())
+}
+
 /// Clears pending runtime error and releases captured stack handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_ERROR_CLEAR() {
     ERROR_SLOT.with(|slot| {
         let mut slot = slot.borrow_mut();
+        // (#745) Salva stack para ler dentro do catch body — RTS_FN_GL_ERROR_STACK
+        // consulta ERR_STACKS por handle do thrown value.
+        let msg = slot.message;
+        let stk = slot.stack;
+        if msg != 0 && stk != 0 {
+            let text = with_entry(stk, |e| match e {
+                Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+                _ => String::new(),
+            });
+            if !text.is_empty() {
+                ERR_STACKS.with(|m| m.borrow_mut().insert(msg, text));
+            }
+        }
         free_handle_if_any(slot.stack);
         slot.message = 0;
         slot.stack = 0;
