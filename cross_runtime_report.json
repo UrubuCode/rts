@@ -2100,7 +2100,7 @@
   "status": "rts_diverge",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "plain={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":1},\"list\":[1,null,3]}\nparsed_count=4\nparsed_label=go"
+  "rts": "plain={\"keep\":1,\"nested\":{\"active\":1},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":1},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":1},\"list\":[1,null,3]}\nparsed_count=4\nparsed_label=go"
 }
 ,
 {
