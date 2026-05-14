@@ -1644,14 +1644,14 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":177,"rts_diverge":47,"bun_node_diverge":3,"errors":85,"rejected":0}}
+],"summary":{"total":312,"pass":177,"rts_diverge":46,"bun_node_diverge":4,"errors":85,"rejected":0}}
