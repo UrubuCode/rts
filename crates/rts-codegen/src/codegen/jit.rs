@@ -1167,6 +1167,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_GET
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_SET",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_SET
         );
