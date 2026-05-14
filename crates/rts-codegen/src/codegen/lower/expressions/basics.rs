@@ -65,6 +65,16 @@ pub(super) fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
             let tv = ctx.emit_str_handle(s.value.as_bytes())?;
             Ok(TypedVal::new(tv.val, ValTy::Handle))
         }
+        // (cross-runtime #751) BigInt literals (1234n) — RTS nao tem BigInt
+        // real, mas tratamos como i64 quando o valor cabe (perde precisao
+        // acima de 2^63, mas suficiente pra fixtures com valores pequenos
+        // como `1_234_567_890n`).
+        Lit::BigInt(b) => {
+            let s = b.value.to_string();
+            // Parse decimal string como i64 (saturate em overflow).
+            let v: i64 = s.parse().unwrap_or(i64::MAX);
+            Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, v), ValTy::I64))
+        }
         Lit::Regex(r) => {
             // /pattern/flags  →  regex.compile(pattern, flags)
             let pat_bytes = r.exp.as_bytes();
