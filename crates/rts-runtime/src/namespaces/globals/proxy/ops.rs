@@ -324,7 +324,9 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
         Some(Entry::Map(m)) => m.get(&key_str).copied(),
         _ => None,
     });
-    let Some(v) = value else { return 0 };
+    // (#795) JS spec: undefined quando prop nao existe. Handle string
+    // "undefined" — TPL_COERCE_AUTO renderiza como "undefined".
+    let Some(v) = value else { return alloc_entry(Entry::String(b"undefined".to_vec())) };
     let mut desc: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
     desc.insert("value".to_string(), v);
     desc.insert("writable".to_string(), 1);

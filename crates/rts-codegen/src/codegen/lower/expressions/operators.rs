@@ -769,6 +769,11 @@ pub(super) fn lower_opt_chain(
             ctx.builder.seal_block(access_block);
             let access_tv = super::members::lower_member_expr(ctx, &synthetic_member)?;
             let access_ty = access_tv.ty;
+            // (#795) Se o member access foi marcado como ambiguo
+            // (var_member_call_values), propaga para o block param `result`
+            // do merge — caso contrario o template literal renderiza
+            // o sentinel bool/undefined como i64 raw.
+            let access_was_ambig = ctx.var_member_call_values.contains(&access_tv.val);
             let access_val = match access_ty {
                 ValTy::F64 | ValTy::I32 => access_tv.val,
                 _ => ctx.coerce_to_i64(access_tv).val,
@@ -795,6 +800,12 @@ pub(super) fn lower_opt_chain(
             // (#432) Marca o result para que lower_tpl emita "undefined"
             // em vez de "0" quando este valor cair em template literal.
             ctx.optional_chain_values.insert(result);
+            // (#795) Propaga ambiguidade do access para o block param do merge
+            // se o lower_member_expr marcou — assim TPL_COERCE_AUTO eh chamado
+            // no template literal e detecta sentinelas (bool true/undefined).
+            if access_was_ambig {
+                ctx.var_member_call_values.insert(result);
+            }
             Ok(TypedVal::new(result, access_ty))
         }
         swc_ecma_ast::OptChainBase::Call(call) => {
