@@ -137,6 +137,18 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
         ));
     }
 
+    // (#872) JS `-0` precisa preservar o sinal — IEEE 754 distingue +0 e -0,
+    // mas `ineg(iconst 0) = 0` perde isso. Quando o operando eh literal
+    // `Num(0)` que viraria I32/I64, emite f64const(-0.0) direto.
+    if matches!(u.op, UnaryOp::Minus) {
+        if let Expr::Lit(Lit::Num(n)) = u.arg.as_ref() {
+            if n.value == 0.0 {
+                let v = ctx.builder.ins().f64const(-0.0_f64);
+                return Ok(TypedVal::new(v, ValTy::F64));
+            }
+        }
+    }
+
     let operand = lower_expr(ctx, &u.arg)?;
     match u.op {
         UnaryOp::Minus => match operand.ty {
