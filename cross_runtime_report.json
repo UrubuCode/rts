@@ -273,10 +273,10 @@
 ,
 {
   "name": "12_array_higher_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
   "node": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
-  "rts": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=\nreduceRight=321"
+  "rts": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":162,"rts_diverge":46,"bun_node_diverge":3,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":163,"rts_diverge":44,"bun_node_diverge":4,"errors":101,"rejected":0}}
