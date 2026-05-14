@@ -534,7 +534,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
     let len = len.max(0).min(VEC_MAX_LEN as i64) as usize;
-    let v = vec![0; len];
+    // (cross-runtime #178) JS spec: `new Array(N)` cria array sparse com N
+    // holes. `arr[0] === undefined` deve ser true. Usa sentinela MIN+4
+    // (hole) — distinguivel de slot=0 numerico.
+    let v = vec![i64::MIN + 4; len];
     alloc_entry(Entry::Vec(Box::new(v)))
 }
 
