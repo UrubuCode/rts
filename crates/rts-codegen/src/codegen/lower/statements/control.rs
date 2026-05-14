@@ -662,6 +662,18 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
                         }
                     }
                 }
+                // (#745) Sem anotacao explicita e sem throw inferido,
+                // default para "Error" — cobre `try { boom(); } catch(e)`
+                // onde boom() pode lancar Error de fora do scope estatico.
+                // Caller especifico pode anotar `: TypeError` etc se quiser.
+                if class_for_catch.is_none() {
+                    class_for_catch = Some("Error".to_string());
+                    let mut ft: std::collections::HashMap<String, ValTy> =
+                        std::collections::HashMap::new();
+                    ft.insert("message".into(), ValTy::Handle);
+                    ft.insert("name".into(), ValTy::Handle);
+                    ctx.local_obj_field_types.insert(name.to_string(), ft);
+                }
                 if let Some(cls) = class_for_catch {
                     ctx.local_class_ty.insert(name.to_string(), cls);
                 }
