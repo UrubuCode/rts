@@ -307,6 +307,22 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
         return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
     }
+    // (cross-runtime #745) Entry::ErrorObj — quando o handle e' Error e
+    // a key e' name/message/stack, retorna string handle alocado.
+    // Sem isso, `catch (e: any)` + `e.name` cai em map_get e retorna 0
+    // (renderizado como "null").
+    let err_field: Option<String> = with_entry(handle, |e| match e {
+        Some(Entry::ErrorObj { message, name, .. }) => match key {
+            "name" => Some(name.clone()),
+            "message" => Some(message.clone()),
+            // "stack" — fora de escopo (RTS nao captura stack trace string).
+            _ => None,
+        },
+        _ => None,
+    });
+    if let Some(s) = err_field {
+        return alloc_entry(Entry::String(s.into_bytes())) as i64;
+    }
     let key_owned = key.to_string();
     let mut current = handle;
     let mut depth = 0u32;
