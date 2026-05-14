@@ -525,6 +525,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_WEAKSET_DELETE", __RTS_FN_GL_WEAKSET_DELETE);
     }
 
+    // ── namespaces::globals::weakref (#685 v0) ────────────────────────
+    {
+        use crate::namespaces::globals::weakref::rt::*;
+        add_fn!("__RTS_FN_GL_WEAKREF_NEW", __RTS_FN_GL_WEAKREF_NEW);
+        add_fn!("__RTS_FN_GL_WEAKREF_DEREF", __RTS_FN_GL_WEAKREF_DEREF);
+    }
+
+    // ── namespaces::globals::finalization_registry (#685 v0) ──────────
+    {
+        use crate::namespaces::globals::finalization_registry::rt::*;
+        add_fn!("__RTS_FN_GL_FINREG_NEW", __RTS_FN_GL_FINREG_NEW);
+        add_fn!("__RTS_FN_GL_FINREG_REGISTER", __RTS_FN_GL_FINREG_REGISTER);
+        add_fn!("__RTS_FN_GL_FINREG_UNREGISTER", __RTS_FN_GL_FINREG_UNREGISTER);
+    }
+
     // ── namespaces::globals::reflect (#218) ──────────────────────────
     {
         use crate::namespaces::globals::reflect::ops::*;
