@@ -116,14 +116,15 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_PRECISION(v: f64, digits: i64) -> u64 {
         return alloc_str(&format!("{v}"));
     }
     let sig = digits.clamp(1, 100) as usize;
-    // Determine magnitude to decide fixed vs exponential (mirrors JS spec).
+    // (#766) ECMA-262 NumberToString spec: usa exponential apenas quando
+    // e < -6 OR e >= precision. Caso contrario fixed. Antes usavamos
+    // `mag >= -(sig - 1)` que cortava cedo demais (0.0001.toPrecision(2)
+    // virava "1.0e-4" em vez de "0.00010").
     let mag = if v == 0.0 { 0i32 } else { v.abs().log10().floor() as i32 };
-    if mag >= -(sig as i32 - 1) && mag < sig as i32 {
-        // Fixed notation: fractional digits = sig - (mag + 1)
+    if mag >= -6 && mag < sig as i32 {
         let frac = (sig as i32 - 1 - mag).max(0) as usize;
         alloc_str(&format!("{v:.prec$}", prec = frac))
     } else {
-        // Exponential notation with JS-style e+N / e-N
         let s = format!("{v:.prec$e}", prec = sig - 1);
         alloc_str(&js_exp_notation(&s))
     }
