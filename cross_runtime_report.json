@@ -89,10 +89,10 @@
 ,
 {
   "name": "102_bigint_ops",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255",
   "node": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "add=15\nmul=-21\ndiv=5.666666666666667\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":180,"rts_diverge":47,"bun_node_diverge":3,"errors":82,"rejected":0}}
+],"summary":{"total":312,"pass":180,"rts_diverge":48,"bun_node_diverge":3,"errors":81,"rejected":0}}
