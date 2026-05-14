@@ -1017,10 +1017,10 @@
 ,
 {
   "name": "214_array_length_setter",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
   "node": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
-  "rts": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=false\ncleared=0\nempty="
+  "rts": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty="
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":155,"rts_diverge":53,"bun_node_diverge":3,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":156,"rts_diverge":52,"bun_node_diverge":3,"errors":101,"rejected":0}}
