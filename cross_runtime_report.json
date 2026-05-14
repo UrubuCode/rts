@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "named=null"
 }
 ,
 {
@@ -796,7 +796,7 @@
   "status": "rts_diverge",
   "bun": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
   "node": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
-  "rts": "success=true\na=42\nvalue=42\nwritable=1\nenumerable=1\ndesc2=null"
+  "rts": "success=true\na=42\nvalue=42\nwritable=1\nenumerable=1\ndesc2=undefined"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":169,"rts_diverge":45,"bun_node_diverge":4,"errors":94,"rejected":0}}
+],"summary":{"total":312,"pass":169,"rts_diverge":46,"bun_node_diverge":3,"errors":94,"rejected":0}}
