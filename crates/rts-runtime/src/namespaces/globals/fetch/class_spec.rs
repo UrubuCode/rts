@@ -168,6 +168,52 @@ pub const PROMISE_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    // (cross-runtime #779/#806) Promise.all/race/any/allSettled — reusam
+    // as fns do namespace `promise` que ja sao expostas via SPECS.
+    NamespaceMember {
+        name: "all",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PROMISE_ALL",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Promise.all(promises) — aguarda todas; fail-fast em rejection.",
+        ts_signature: "static all<T>(values: Promise<T>[]): Promise<T[]>",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "race",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PROMISE_RACE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Promise.race(promises) — settle com o resultado da primeira.",
+        ts_signature: "static race<T>(values: Promise<T>[]): Promise<T>",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "any",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PROMISE_ANY",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Promise.any(promises) — primeira a fulfill; reject so' se todas falharem.",
+        ts_signature: "static any<T>(values: Promise<T>[]): Promise<T>",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "allSettled",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PROMISE_ALL_SETTLED",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Promise.allSettled(promises) — aguarda todas; sempre resolve com Vec de descriptors.",
+        ts_signature: "static allSettled<T>(values: Promise<T>[]): Promise<any[]>",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const PROMISE_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
