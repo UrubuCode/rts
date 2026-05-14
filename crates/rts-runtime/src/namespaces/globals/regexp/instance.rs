@@ -59,6 +59,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
 }
 
 /// `re.source` — returns pattern string as a handle.
+/// JS spec: empty pattern returns `"(?:)"` (RegExp.prototype.source default).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_REGEXP_SOURCE(handle: u64) -> u64 {
     let source: Option<String> = with_entry(handle, |entry| match entry {
@@ -66,6 +67,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_SOURCE(handle: u64) -> u64 {
         _ => None,
     });
     match source {
+        Some(s) if s.is_empty() => alloc_entry(Entry::String(b"(?:)".to_vec())),
         Some(s) => alloc_entry(Entry::String(s.into_bytes())),
         None => 0,
     }
