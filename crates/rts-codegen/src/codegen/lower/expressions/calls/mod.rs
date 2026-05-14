@@ -820,17 +820,31 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
-                // (#208) Object.isExtensible/preventExtensions — v0 stubs
-                // (sempre true; preventExtensions e' no-op).
+                // (#771) Object.isExtensible/preventExtensions — backed por
+                // Set thread-safe de handles em collections.
                 if method == "isExtensible" && call.args.len() == 1 {
-                    let _ = lower_expr(ctx, &call.args[0].expr)?;
-                    let t = ctx.builder.ins().iconst(cl::I64, 1);
-                    return Ok(TypedVal::new(t, ValTy::Bool));
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Bool));
                 }
                 if method == "preventExtensions" && call.args.len() == 1 {
                     let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let h = ctx.coerce_to_i64(arg_tv).val;
-                    return Ok(TypedVal::new(h, ValTy::Handle));
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
                 }
                 // (#208) Object.defineProperty(obj, key, descriptor) — v0
                 // suporta apenas { value: x }.
@@ -1027,17 +1041,30 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let v = ctx.builder.inst_results(inst)[0];
                         return Ok(TypedVal::new(v, ValTy::Bool));
                     }
-                    // (#218) Reflect.isExtensible — v0 sempre true.
+                    // (#771) Reflect.isExtensible — backed pelo mesmo Set.
                     "isExtensible" if call.args.len() == 1 => {
-                        // Avalia arg pra side-effects mas ignora.
-                        let _ = lower_expr(ctx, &call.args[0].expr)?;
-                        let t = ctx.builder.ins().iconst(cl::I64, 1);
-                        return Ok(TypedVal::new(t, ValTy::Bool));
+                        let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let h = ctx.coerce_to_i64(arg_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Bool));
                     }
-                    // (#218) Reflect.preventExtensions — v0 no-op, retorna true.
+                    // (#771) Reflect.preventExtensions — retorna true (success).
                     "preventExtensions" if call.args.len() == 1 => {
-                        let _ = lower_expr(ctx, &call.args[0].expr)?;
-                        let t = ctx.builder.ins().iconst(cl::I64, 1);
+                        let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let h = ctx.coerce_to_i64(arg_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        ctx.builder.ins().call(f, &[h]);
+                        let t = ctx.builder.ins().iconst(cl::I8, 1);
                         return Ok(TypedVal::new(t, ValTy::Bool));
                     }
                     // (#218) Reflect.apply(fn, thisArg, argsArray) — reusa

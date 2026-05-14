@@ -466,6 +466,40 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> 
     )
 }
 
+/// (#771) Set thread-safe de handles marcados como non-extensible via
+/// `Object.preventExtensions`. Permite `Object.isExtensible` retornar false
+/// para handles previamente prevenidos. Sweep do GC nao limpa entradas —
+/// no-op se o handle eh liberado (slot decode invalido ja' nao seria
+/// extensivel mesmo).
+fn prevented_set() -> &'static std::sync::Mutex<std::collections::HashSet<u64>> {
+    static PREVENTED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u64>>> =
+        std::sync::OnceLock::new();
+    PREVENTED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// `Object.preventExtensions(obj)` — marca handle como non-extensible.
+/// Retorna o proprio handle (JS spec).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS(h: u64) -> u64 {
+    if h != 0 {
+        prevented_set().lock().unwrap().insert(h);
+    }
+    h
+}
+
+/// `Object.isExtensible(obj)` — retorna 1 se nunca foi prevent-extension'd
+/// e o handle eh valido, 0 caso contrario.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE(h: u64) -> i64 {
+    if h == 0 {
+        return 0;
+    }
+    if prevented_set().lock().unwrap().contains(&h) {
+        return 0;
+    }
+    1
+}
+
 /// (#208 / #479) `Object.assign(target, source)` — copia own props de source
 /// pra target. Retorna handle do target. Versao com multiplos sources e'
 /// chamada repetidamente pelo codegen.
