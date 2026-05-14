@@ -132,6 +132,18 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
 /// - Handle invalido / nao-handle: trata o valor como i64 raw
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
+    // (cross-runtime sentinelas) Array literal sentinelas viram strings:
+    //   MIN     = false, MIN+1 = true, MIN+2 = undefined, MIN+3 = null,
+    //   MIN+4   = sparse hole (renderiza vazio em join, mas como
+    //   "undefined" quando coergido isoladamente, ex: forOf var).
+    if value == i64::MIN { return alloc_entry(Entry::String(b"false".to_vec())); }
+    if value == i64::MIN + 1 { return alloc_entry(Entry::String(b"true".to_vec())); }
+    if value == i64::MIN + 2 || value == i64::MIN + 4 {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    if value == i64::MIN + 3 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
     // (#573) value=0 com tipo Handle representa `null` em RTS (e
     // tambem o sentinel de handle invalido). Em JS, console.log(null)
     // -> "null", consistente com Array.prototype.join e String(null).

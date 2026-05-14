@@ -1324,6 +1324,13 @@ pub(super) fn lower_array_builtin(
             let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
             let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
             let v = ctx.builder.inst_results(inst)[0];
+            // (cross-runtime #260) findLast pode retornar elemento OU
+            // sentinela MIN+2 (undefined). Marca I64 ambiguo via
+            // var_member_call_values — operadores de concat usam TPL_COERCE
+            // pra resolver sentinela/handle/i64. findLastIndex sempre i64.
+            if method == "findLast" {
+                ctx.var_member_call_values.insert(v);
+            }
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "reduceRight" => {

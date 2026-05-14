@@ -552,13 +552,15 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     alloc_entry(Entry::Vec(Box::new(out)))
 }
 
-/// (#208) `arr.findLast(fn)` — ultimo elemento que satisfaz, ou 0.
+/// (#208) `arr.findLast(fn)` — ultimo elemento que satisfaz, ou undefined.
+/// (cross-runtime #260) Miss retorna sentinela MIN+2 (undefined); codegen
+/// marca como Handle pra TPL_COERCE_AUTO resolver via tabela de sentinelas.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST(handle: u64, fn_ptr: u64) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    if fn_ptr == 0 { return 0; }
+    if fn_ptr == 0 { return i64::MIN + 2; }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    items.into_iter().rev().find(|&x| f(x) != 0).unwrap_or(0)
+    items.into_iter().rev().find(|&x| f(x) != 0).unwrap_or(i64::MIN + 2)
 }
 
 /// (#208) `arr.findLastIndex(fn)` — index do ultimo match, ou -1.
