@@ -1133,6 +1133,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
             map::__RTS_FN_NS_COLLECTIONS_MAP_VALUES
         );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_SET_FOR_EACH",
+            map::__RTS_FN_NS_COLLECTIONS_SET_FOR_EACH
+        );
         // (#208 / #479) Object static methods.
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES",

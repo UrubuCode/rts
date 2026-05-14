@@ -171,6 +171,83 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
     with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
 }
 
+/// (cross-runtime #793) `map.forEach((value, key, map) => ...)`.
+/// JS spec: callback recebe (value, key, map). RTS aceita callback ate 3 args;
+/// se aridade for menor, args extras sao ignorados (transmute pra arity certa).
+/// Para Map, key e' string handle (alocado por iteracao).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64) {
+    if fn_ptr == 0 { return; }
+    // Snapshot pares (key_string, value) — evita lock entre alocacoes.
+    let pairs: Vec<(String, i64)> = with_entry(handle, |e| match e {
+        Some(Entry::Map(m)) => m
+            .iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        _ => Vec::new(),
+    });
+    // Resolve handle Function -> fn_ptr (ou usa ptr direto).
+    let resolved = with_entry(fn_ptr, |entry| {
+        if let Some(Entry::Function(fd)) = entry {
+            Some((fd.fn_ptr, fd.bound_args.clone()))
+        } else {
+            None
+        }
+    });
+    let (actual_ptr, bound): (u64, Vec<i64>) = resolved.unwrap_or((fn_ptr, Vec::new()));
+    let n_bound = bound.len();
+    for (k, v) in pairs {
+        let key_h = alloc_entry(Entry::String(k.into_bytes())) as i64;
+        // Invoca com (value, key, map_handle) prependendo bound. Limite 5 args total.
+        unsafe {
+            use std::mem::transmute;
+            match n_bound {
+                0 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(actual_ptr)(
+                    v, key_h, handle as i64,
+                ),
+                1 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(actual_ptr)(
+                    bound[0], v, key_h, handle as i64,
+                ),
+                _ => 0,
+            };
+        }
+    }
+}
+
+/// `set.forEach((value, value2, set) => ...)`. JS spec: para Set, value2 == value.
+/// Reusa Map.forEach passando o value como key tambem.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64) {
+    if fn_ptr == 0 { return; }
+    let pairs: Vec<String> = with_entry(handle, |e| match e {
+        Some(Entry::Map(m)) => m
+            .iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .map(|(k, _)| k.clone())
+            .collect(),
+        _ => Vec::new(),
+    });
+    let resolved = with_entry(fn_ptr, |entry| {
+        if let Some(Entry::Function(fd)) = entry {
+            Some(fd.fn_ptr)
+        } else {
+            None
+        }
+    });
+    let actual_ptr = resolved.unwrap_or(fn_ptr);
+    for k in pairs {
+        let h1 = alloc_entry(Entry::String(k.clone().into_bytes())) as i64;
+        let h2 = alloc_entry(Entry::String(k.into_bytes())) as i64;
+        unsafe {
+            use std::mem::transmute;
+            transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(actual_ptr)(
+                h1, h2, handle as i64,
+            );
+        }
+    }
+}
+
 /// (cross-runtime #788) `obj.propertyIsEnumerable(key)` — true se own
 /// property + enumerable. Inherited (via __proto__) ja' retorna false
 /// porque so' checa own. Para Vec: indices = enumerable, "length" = false.
