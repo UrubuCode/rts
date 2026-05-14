@@ -139,6 +139,33 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_CREATE(proto: u64) -> u64 {
     h
 }
 
+/// (#162) `Object.create(proto, descriptors)` 2-arg variant — aplica
+/// descriptors ao objeto. Cada entry de `descs` deve ser
+/// `{ key: { value, writable?, enumerable?, configurable? } }`.
+/// Para v0, extraimos so o `value` e fazemos MAP_SET — meta de
+/// writable/enumerable/configurable nao eh enforced ainda.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_APPLY_DESCRIPTORS(target: u64, descs: u64) {
+    let pairs: Vec<(String, i64)> = with_entry(descs, |e| match e {
+        Some(Entry::Map(m)) => m
+            .iter()
+            .filter(|(k, _)| !k.starts_with("__"))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        _ => Vec::new(),
+    });
+    for (key, desc_h_i) in pairs {
+        let desc_h = desc_h_i as u64;
+        let value: i64 = with_entry(desc_h, |e| match e {
+            Some(Entry::Map(d)) => d.get("value").copied().unwrap_or(0),
+            _ => desc_h_i,
+        });
+        with_map_mut(target, (), |m| {
+            m.insert(key.clone(), value);
+        });
+    }
+}
+
 /// (#264 PR5) Verifica se `key` existe nas own props de `handle`
 /// (sem seguir __proto__). Implementa \`obj.hasOwnProperty(key)\`.
 /// Retorna 1 se own, 0 caso contrario.
