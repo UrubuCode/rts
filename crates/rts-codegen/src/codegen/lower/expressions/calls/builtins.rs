@@ -943,15 +943,16 @@ pub(super) fn lower_array_builtin(
             )?;
             let inst = ctx.builder.ins().call(get_fn, &[obj_h, final_idx]);
             let v = ctx.builder.inst_results(inst)[0];
-            // (cross-runtime #259) OOR (idx<0 ou idx>=len apos ajuste) retorna
-            // undefined; senao retorna o valor. Marca como Handle pra TPL_COERCE
-            // resolver string handle / decimal.
+            // (cross-runtime #897) OOR (idx<0 ou idx>=len apos ajuste) retorna
+            // undefined sentinel; senao retorna o valor cru (i64). Marca como
+            // ambiguo via var_member_call_values pra TPL_COERCE_AUTO formatar.
             let below = ctx.builder.ins().icmp(IntCC::SignedLessThan, final_idx, zero);
             let above = ctx.builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, final_idx, len);
             let oor = ctx.builder.ins().bor(below, above);
             let undef_h = ctx.emit_str_handle(b"undefined")?.val;
             let result = ctx.builder.ins().select(oor, undef_h, v);
-            Ok(Some(TypedVal::new(result, ValTy::Handle)))
+            ctx.var_member_call_values.insert(result);
+            Ok(Some(TypedVal::new(result, ValTy::I64)))
         }
         "join" => {
             // arr.join(sep): converte sep para string handle, chama runtime.
