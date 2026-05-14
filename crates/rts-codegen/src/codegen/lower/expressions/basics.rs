@@ -282,7 +282,7 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     }
     // `typeof Math.f16round` etc — namespace function members sao
     // "function" em JS, mas o lower geral abortaria com erro.
-    if let Expr::Member(_) = operand {
+    if let Expr::Member(m) = operand {
         if let Some(qualified) = crate::codegen::lower::expressions::members::qualified_member_name(operand) {
             let target: String = if let Some(prop) = qualified.strip_prefix("Math.") {
                 format!("math.{prop}")
@@ -294,6 +294,22 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
                     crate::abi::MemberKind::Constant => ctx.emit_str_handle(b"number"),
                     _ => ctx.emit_str_handle(b"function"),
                 };
+            }
+        }
+        // (#685/308) `typeof obj.method` quando obj eh instancia de
+        // classe global (ex: WeakRef/FinalizationRegistry/RegExp/Date)
+        // e method existe como InstanceMethod -> "function".
+        if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
+            let key = prop.sym.as_str();
+            if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                let obj_name = obj_id.sym.as_str();
+                if let Some(cls) = ctx.local_class_ty.get(obj_name) {
+                    if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                        if spec.instance_method(key).is_some() {
+                            return ctx.emit_str_handle(b"function");
+                        }
+                    }
+                }
             }
         }
     }
