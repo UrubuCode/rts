@@ -3,6 +3,29 @@
 use crate::abi::{AbiType, GlobalClassSpec, MemberKind, NamespaceMember};
 
 pub const MEMBERS: &[NamespaceMember] = &[
+    // ── Constructors ─────────────────────────────────────────────────────
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_BOOLEAN_NEW",
+        args: &[AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "new Boolean(value) — boxed boolean object. typeof === 'object'.",
+        ts_signature: "new(value: any): Boolean",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_BOOLEAN_NEW_EMPTY",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "new Boolean() — boxed Boolean(false).",
+        ts_signature: "new(): Boolean",
+        intrinsic: None,
+        pure: true,
+    },
     // ── Static / coercion ────────────────────────────────────────────────────
     NamespaceMember {
         name: "coerce",
@@ -32,8 +55,8 @@ pub const MEMBERS: &[NamespaceMember] = &[
         kind: MemberKind::InstanceMethod,
         symbol: "__RTS_FN_GL_BOOLEAN_VALUE_OF",
         args: &[AbiType::I64],
-        returns: AbiType::I64,
-        doc: "Returns the underlying boolean value (0 or 1).",
+        returns: AbiType::Bool,
+        doc: "Returns the underlying boolean value.",
         ts_signature: "valueOf(): boolean",
         intrinsic: None,
         pure: true,

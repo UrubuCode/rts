@@ -47,7 +47,10 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_FOR(key_ptr: *const u8, key_len: i64) -> u6
     h
 }
 
-/// `Symbol.keyFor(sym)` — retorna key se registrado, 0 se anonimo.
+/// `Symbol.keyFor(sym)` — retorna handle de string com a key se registrado,
+/// senao retorna handle de string "undefined" (#792). JS spec: keyFor de
+/// Symbol anonimo retorna `undefined`. Codegen formata handle "undefined"
+/// como literal undefined em concat com template literal.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_SYMBOL_KEY_FOR(sym: u64) -> u64 {
     let reg = registry().lock().unwrap();
@@ -61,7 +64,9 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_KEY_FOR(sym: u64) -> u64 {
             );
         }
     }
-    0
+    drop(reg);
+    let undef = b"undefined";
+    crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(undef.as_ptr(), undef.len() as i64)
 }
 
 /// `sym.description` — retorna handle de string com a description, ou 0.
@@ -189,9 +194,14 @@ mod tests {
     }
 
     #[test]
-    fn key_for_unregistered_returns_zero() {
+    fn key_for_unregistered_returns_undefined_handle() {
         let h = __RTS_FN_GL_SYMBOL_NEW(std::ptr::null(), -1);
-        assert_eq!(__RTS_FN_GL_SYMBOL_KEY_FOR(h), 0);
+        let result = __RTS_FN_GL_SYMBOL_KEY_FOR(h);
+        let s = with_entry(result, |e| match e {
+            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+            _ => None,
+        });
+        assert_eq!(s.unwrap(), "undefined");
     }
 
     #[test]

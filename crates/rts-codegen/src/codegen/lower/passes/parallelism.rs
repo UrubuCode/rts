@@ -38,18 +38,16 @@ fn collect_top_level_mutable_vars(program: &Program) -> HashSet<String> {
     for item in &program.items {
         let Item::Statement(Statement::Raw(raw)) = item else { continue };
         let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
-        // const eh imutavel; aceita apenas se for numero/bool literal — vira
-        // global readonly e captura "imutavel" funciona. Pra simplicidade
-        // foca em `let`/`var`.
-        let is_let_var = matches!(
-            var_decl.kind,
-            swc_ecma_ast::VarDeclKind::Let | swc_ecma_ast::VarDeclKind::Var
-        );
-        if !is_let_var { continue; }
         for decl in &var_decl.decls {
             let Pat::Ident(id) = &decl.name else { continue };
-            // Init deve ser numero/bool literal pra qualificar como global
-            // numerico. Senao pula (avoid array, object, string handles).
+            // (cross-runtime #159) Tipos que `collect_module_globals` promove
+            // a global writable storage:
+            // - let/var com numero/bool literal (countador, accumulator)
+            // - const/let/var com array/object literal (handle storage)
+            //
+            // Em todos esses, o user fn liftado pode ler/escrever o mesmo
+            // handle. Pra const arrays, o handle eh imutavel mas o conteudo
+            // do array eh mutavel (push, etc).
             let qualifies = match decl.init.as_deref() {
                 Some(Expr::Lit(Lit::Num(_))) => true,
                 Some(Expr::Lit(Lit::Bool(_))) => true,
@@ -57,6 +55,8 @@ fn collect_top_level_mutable_vars(program: &Program) -> HashSet<String> {
                     u.op,
                     swc_ecma_ast::UnaryOp::Minus | swc_ecma_ast::UnaryOp::Plus
                 ) && matches!(u.arg.as_ref(), Expr::Lit(Lit::Num(_))),
+                // Array/object literal — handle promovido a global.
+                Some(Expr::Array(_)) | Some(Expr::Object(_)) => true,
                 _ => false,
             };
             if qualifies {

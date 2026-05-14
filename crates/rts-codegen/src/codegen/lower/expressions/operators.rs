@@ -384,6 +384,41 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         }
     }
 
+    // (cross-runtime #178) `<expr> === undefined` / `!== undefined` —
+    // detecta sentinelas MIN+2 (undefined) e MIN+4 (sparse hole de
+    // `new Array(N)`). Sem isso comparacao com handle de string
+    // "undefined" falharia para slots sentinela.
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq) {
+        let is_undef_ident = |e: &Expr| matches!(e, Expr::Ident(id) if id.sym.as_str() == "undefined");
+        let other = if is_undef_ident(&bin.right) {
+            Some(&bin.left)
+        } else if is_undef_ident(&bin.left) {
+            Some(&bin.right)
+        } else {
+            None
+        };
+        if let Some(other_expr) = other {
+            // Skip se ambos sao undefined ident (tratado abaixo).
+            if !is_undef_ident(other_expr) {
+                let tv = lower_expr(ctx, other_expr)?;
+                let v_i64 = ctx.coerce_to_i64(tv).val;
+                let undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                let hole = ctx.builder.ins().iconst(cl::I64, i64::MIN + 4);
+                let eq_undef = ctx.builder.ins().icmp(IntCC::Equal, v_i64, undef);
+                let eq_hole = ctx.builder.ins().icmp(IntCC::Equal, v_i64, hole);
+                let is_undef_val = ctx.builder.ins().bor(eq_undef, eq_hole);
+                let result_v = if matches!(bin.op, BinaryOp::NotEqEq) {
+                    let one = ctx.builder.ins().iconst(cl::I8, 1);
+                    ctx.builder.ins().bxor(is_undef_val, one)
+                } else {
+                    is_undef_val
+                };
+                let ext = ctx.builder.ins().uextend(cl::I64, result_v);
+                return Ok(TypedVal::new(ext, ValTy::Bool));
+            }
+        }
+    }
+
     // (#643/null-undef) `null == undefined` deve ser true em JS abstract
     // equality. Em RTS, null vira (0, Handle) e undefined vira handle
     // de string "undefined" — comparacao normal falharia. Detecta caso
@@ -399,6 +434,44 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             let val = if matches!(bin.op, BinaryOp::EqEq) { 1 } else { 0 };
             let v = ctx.builder.ins().iconst(cl::I64, val);
             return Ok(TypedVal::new(v, ValTy::Bool));
+        }
+    }
+
+    // (#786) `expr === undefined` / `expr !== undefined` quando expr eh
+    // resultado i64 (ex: `new Array(5)[0]` = sentinel i64::MIN+2).
+    // Lhs/rhs antes de lower_expr porque `undefined` ident vira string
+    // handle e a comparacao normal falha.
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::EqEq | BinaryOp::NotEq) {
+        let is_undef_ident = |e: &Expr| matches!(e, Expr::Ident(id) if id.sym.as_str() == "undefined");
+        let lhs_undef = is_undef_ident(&bin.left) && ctx.read_local("undefined").is_none();
+        let rhs_undef = is_undef_ident(&bin.right) && ctx.read_local("undefined").is_none();
+        let other = if rhs_undef {
+            Some(&bin.left)
+        } else if lhs_undef {
+            Some(&bin.right)
+        } else {
+            None
+        };
+        if let Some(other_expr) = other {
+            let other_tv = lower_expr(ctx, other_expr)?;
+            // Caminho aplicavel quando `other` eh I64 (slot de Vec/Array) —
+            // compara com sentinel i64::MIN+2. Handles caem no path generico
+            // (string_eq) que ja' funciona para o caso de ident "undefined".
+            if matches!(other_tv.ty, ValTy::I64 | ValTy::U64) {
+                let sentinel = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                let eq = ctx.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    other_tv.val,
+                    sentinel,
+                );
+                let result = if matches!(bin.op, BinaryOp::NotEqEq | BinaryOp::NotEq) {
+                    let one = ctx.builder.ins().iconst(cl::I8, 1);
+                    ctx.builder.ins().bxor(eq, one)
+                } else {
+                    eq
+                };
+                return Ok(TypedVal::new(result, ValTy::Bool));
+            }
         }
     }
 

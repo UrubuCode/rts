@@ -674,34 +674,43 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return Ok(tv);
                 }
             }
-            // Number.isFinite/isNaN/isInteger/isSafeInteger — JS spec: SEM coercion.
-            // Arg nao-number (Handle de string/obj) retorna false em compile-time.
-            // Arg numerico passa pelo extern normal.
+            // (#879/130) `Number.isFinite/isNaN/isInteger/isSafeInteger`:
+            // JS spec — NAO coage o argumento. Se tipo != number, retorna false.
+            // Distinto do global `isFinite`/`isNaN` (que coagem).
             if matches!(
                 qualified.as_str(),
                 "Number.isFinite" | "Number.isNaN" | "Number.isInteger" | "Number.isSafeInteger"
-            ) && call.args.len() == 1 && call.args[0].spread.is_none() {
-                use crate::codegen::lower::ctx::{TypedVal, ValTy};
-                let tv = lower_expr(ctx, &call.args[0].expr)?;
-                if matches!(tv.ty, ValTy::Handle | ValTy::Bool) {
-                    let f = ctx.builder.ins().iconst(cl::I8, 0);
-                    return Ok(TypedVal::new(f, ValTy::Bool));
+            ) {
+                use crate::codegen::lower::ctx::ValTy;
+                if let Some(arg) = call.args.first() {
+                    if arg.spread.is_none() {
+                        let tv = lower_expr(ctx, &arg.expr)?;
+                        if !matches!(tv.ty, ValTy::F64 | ValTy::I32 | ValTy::I64) {
+                            // Nao-numero → false. (Handle/Bool/U64/Str etc.)
+                            let v = ctx.builder.ins().iconst(cl::I64, 0);
+                            return Ok(TypedVal::new(v, ValTy::Bool));
+                        }
+                        // Number type: delega pra impl normal preservando tv.
+                        let f = match tv.ty {
+                            ValTy::F64 => tv.val,
+                            _ => {
+                                let i = ctx.coerce_to_i64(tv).val;
+                                ctx.builder.ins().fcvt_from_sint(cl::F64, i)
+                            }
+                        };
+                        let sym = match qualified.as_str() {
+                            "Number.isFinite" => "__RTS_FN_GL_NUMBER_IS_FINITE",
+                            "Number.isNaN" => "__RTS_FN_GL_NUMBER_IS_NAN",
+                            "Number.isInteger" => "__RTS_FN_GL_NUMBER_IS_INTEGER",
+                            "Number.isSafeInteger" => "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
+                            _ => unreachable!(),
+                        };
+                        let fref = ctx.get_extern(sym, &[cl::F64], Some(cl::I64))?;
+                        let inst = ctx.builder.ins().call(fref, &[f]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Bool));
+                    }
                 }
-                // F64/I64: chama extern. Coerce pra F64.
-                let arg_f = ctx.coerce_to_f64(tv).val;
-                let sym = match qualified.as_str() {
-                    "Number.isFinite" => "__RTS_FN_GL_NUMBER_IS_FINITE",
-                    "Number.isNaN" => "__RTS_FN_GL_NUMBER_IS_NAN",
-                    "Number.isInteger" => "__RTS_FN_GL_NUMBER_IS_INTEGER",
-                    "Number.isSafeInteger" => "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
-                    _ => unreachable!(),
-                };
-                let fref = ctx.get_extern(sym, &[cl::F64], Some(cl::I64))?;
-                let inst = ctx.builder.ins().call(fref, &[arg_f]);
-                let v = ctx.builder.inst_results(inst)[0];
-                // Truncate i64 -> i8 para ValTy::Bool.
-                let v8 = ctx.builder.ins().ireduce(cl::I8, v);
-                return Ok(TypedVal::new(v8, ValTy::Bool));
             }
             // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
             if let Some((cls, method)) = qualified.split_once('.') {
@@ -874,11 +883,34 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 //   - mesma identidade caso contrario
                 if method == "is" && call.args.len() == 2 {
                     use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-                    let a_tv = lower_expr(ctx, &call.args[0].expr)?;
-                    let b_tv = lower_expr(ctx, &call.args[1].expr)?;
-                    // Se ambos sao F64, faz bitwise comparison (cobre NaN==NaN
-                    // e 0!=-0 corretamente).
-                    if matches!(a_tv.ty, ValTy::F64) || matches!(b_tv.ty, ValTy::F64) {
+                    // (#872/134) Detecta `-N` literal ANTES de lower — em RTS
+                    // `-0` lowera para iconst 0 perdendo o sinal. Materializa
+                    // direto como f64const com sinal preservado quando arg
+                    // for `-<num_lit>`.
+                    let neg_num_lit_f64 = |e: &swc_ecma_ast::Expr| -> Option<f64> {
+                        if let swc_ecma_ast::Expr::Unary(u) = e {
+                            if u.op == swc_ecma_ast::UnaryOp::Minus {
+                                if let swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(n)) = &*u.arg {
+                                    return Some(-n.value);
+                                }
+                            }
+                        }
+                        None
+                    };
+                    let a_neg = neg_num_lit_f64(&call.args[0].expr);
+                    let b_neg = neg_num_lit_f64(&call.args[1].expr);
+                    let force_f64 = a_neg.is_some() || b_neg.is_some();
+                    let a_tv = if let Some(v) = a_neg {
+                        TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64)
+                    } else {
+                        lower_expr(ctx, &call.args[0].expr)?
+                    };
+                    let b_tv = if let Some(v) = b_neg {
+                        TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64)
+                    } else {
+                        lower_expr(ctx, &call.args[1].expr)?
+                    };
+                    if force_f64 || matches!(a_tv.ty, ValTy::F64) || matches!(b_tv.ty, ValTy::F64) {
                         let af = if matches!(a_tv.ty, ValTy::F64) {
                             a_tv.val
                         } else {
