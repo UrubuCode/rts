@@ -740,6 +740,23 @@ pub(super) fn lower_map_set_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
+        // (cross-runtime #793) map.forEach((value, key, map) => ...).
+        // Aceita arrow inline ou ident de user fn — passa ptr/handle pra
+        // MAP_FOR_EACH no runtime que invoca via transmute.
+        "forEach" if call.args.len() == 1 && call.args[0].spread.is_none() => {
+            let cb_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let cb_ptr = ctx.coerce_to_i64(cb_tv).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH",
+                &[cl::I64, cl::I64],
+                None,
+            )?;
+            ctx.builder.ins().call(fref, &[recv_h, cb_ptr]);
+            Ok(Some(TypedVal::new(
+                ctx.builder.ins().iconst(cl::I64, 0),
+                ValTy::I64,
+            )))
+        }
         _ => Ok(None),
     }
 }
