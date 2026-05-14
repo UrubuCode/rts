@@ -127,16 +127,30 @@ pub extern "C" fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64, options: u64) -
 
 // ── Instance methods ──────────────────────────────────────────────────────────
 
-/// `instanceof Error` (any subtype) — handle aponta para Entry::ErrorObj.
+/// `instanceof Error` (any subtype) — handle aponta para Entry::ErrorObj
+/// OU Entry::Map com slots "name"+"message" (subclass user que estende
+/// Error/TypeError/etc via super()).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_IS_ERROR(handle: u64) -> i64 {
     with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { .. }) => 1,
+        Some(Entry::Map(m)) => {
+            // Heuristica: ambos "name" e "message" como string handles
+            // indica que a instancia veio de super(msg) em user class.
+            if m.contains_key("name") && m.contains_key("message") {
+                1
+            } else {
+                0
+            }
+        }
         _ => 0,
     })
 }
 
-/// `instanceof TypeError` etc. — checa name field exato.
+/// `instanceof TypeError` etc. — checa name field exato. Aceita tambem
+/// (#663/47) Entry::Map com slot "name" string handle == want — cobre
+/// `class CustomTypeError extends TypeError` onde super(msg) faz a
+/// instancia user (Map) carregar o name "TypeError" via super constructor.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_len: i64) -> i64 {
     if name_ptr == 0 || name_len <= 0 { return 0; }
@@ -144,6 +158,19 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
     let want_s = match std::str::from_utf8(want) { Ok(s) => s, Err(_) => return 0 };
     with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { name, .. }) => if name == want_s { 1 } else { 0 },
+        Some(Entry::Map(m)) => {
+            // Procura "name" key — se valor eh handle de string == want, match.
+            if let Some(name_h) = m.get("name").copied() {
+                if name_h > 0 {
+                    let matches = with_entry(name_h as u64, |e| match e {
+                        Some(Entry::String(b)) => b.as_slice() == want_s.as_bytes(),
+                        _ => false,
+                    });
+                    return if matches { 1 } else { 0 };
+                }
+            }
+            0
+        }
         _ => 0,
     })
 }
