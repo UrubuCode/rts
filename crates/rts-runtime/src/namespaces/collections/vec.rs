@@ -110,6 +110,39 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(handle: u64, index: i64) -> i6
     with_vec(handle, 0, |v| v.get(index as usize).copied().unwrap_or(0))
 }
 
+/// `obj[i]` auto: se handle for Vec, devolve slot; se String, devolve char-at
+/// (handle de string single-char ou handle de "undefined" out-of-range — JS spec).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64) -> i64 {
+    use super::super::gc::handles::with_entry;
+    enum Kind { Vec, Str(Vec<u8>), Other }
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::Vec(_)) => Kind::Vec,
+        Some(Entry::String(b)) => Kind::Str(b.clone()),
+        _ => Kind::Other,
+    });
+    match kind {
+        Kind::Vec => __RTS_FN_NS_COLLECTIONS_VEC_GET(handle, index),
+        Kind::Str(bytes) => {
+            if index < 0 {
+                return alloc_entry(Entry::String(b"undefined".to_vec())) as i64;
+            }
+            let Ok(s) = std::str::from_utf8(&bytes) else {
+                return alloc_entry(Entry::String(b"undefined".to_vec())) as i64;
+            };
+            match s.chars().nth(index as usize) {
+                Some(c) => {
+                    let mut buf = [0u8; 4];
+                    let encoded = c.encode_utf8(&mut buf).as_bytes().to_vec();
+                    alloc_entry(Entry::String(encoded)) as i64
+                }
+                None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+            }
+        }
+        Kind::Other => 0,
+    }
+}
+
 /// (cross-runtime #52) `index in arr` — true se 0 <= index < length E
 /// slot nao eh hole (sentinela i64::MIN+4). JS spec.
 #[unsafe(no_mangle)]
