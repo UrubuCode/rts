@@ -752,6 +752,41 @@ fn lower_tagged_tpl(
 ) -> Result<TypedVal> {
     use swc_ecma_ast::{ArrayLit, CallExpr, Callee, ExprOrSpread};
 
+    // (cross-runtime #803) `String.raw\`...\`` — concatena os segmentos
+    // raw (sem escape interpretation) intercalando os exprs interpolados
+    // como template literal normal. Reescreve para um `Tpl` com as
+    // mesmas exprs mas quasis usando `raw` em vez de `cooked`.
+    if let Expr::Member(m) = tt.tag.as_ref() {
+        if let Expr::Ident(obj) = m.obj.as_ref() {
+            if obj.sym.as_str() == "String" {
+                if let MemberProp::Ident(prop) = &m.prop {
+                    if prop.sym.as_str() == "raw" {
+                        let raw_quasis: Vec<swc_ecma_ast::TplElement> = tt
+                            .tpl
+                            .quasis
+                            .iter()
+                            .map(|q| {
+                                let raw_s = q.raw.as_str().to_string();
+                                swc_ecma_ast::TplElement {
+                                    span: q.span,
+                                    tail: q.tail,
+                                    cooked: Some(raw_s.as_str().into()),
+                                    raw: q.raw.clone(),
+                                }
+                            })
+                            .collect();
+                        let new_tpl = swc_ecma_ast::Tpl {
+                            span: tt.tpl.span,
+                            exprs: tt.tpl.exprs.clone(),
+                            quasis: raw_quasis,
+                        };
+                        return basics::lower_tpl(ctx, &new_tpl);
+                    }
+                }
+            }
+        }
+    }
+
     // Constroi array literal das string parts (cooked).
     let elems: Vec<Option<ExprOrSpread>> = tt
         .tpl
