@@ -590,6 +590,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(
     items.into_iter().rev().fold(init, |a, b| f(a, b))
 }
 
+/// (cross-runtime #202) `arr.reduceRight(fn)` sem initial value. JS spec:
+/// ultimo elemento vira acc, loop comeca do penultimo indo pra esquerda.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT(
+    handle: u64,
+    fn_ptr: u64,
+) -> i64 {
+    let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    if fn_ptr == 0 || items.is_empty() { return 0; }
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let mut iter = items.into_iter().rev();
+    let mut acc = iter.next().unwrap();
+    for x in iter {
+        acc = f(acc, x);
+    }
+    acc
+}
+
 /// (#208) `arr.flatMap(fn)` — map + flat depth=1.
 /// Cada elemento de `fn(x)` deve ser handle de Vec; senao adiciona o
 /// proprio valor.
