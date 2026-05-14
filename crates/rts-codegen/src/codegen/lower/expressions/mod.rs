@@ -170,6 +170,24 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     // JS: assignment retorna o RHS.
                     return Ok(TypedVal::new(n, ValTy::I64));
                 }
+                // (#782) `re.lastIndex = N` — setter direto no Entry::Regex.
+                // Runtime ignora handles nao-Regex.
+                if prop.sym.as_str() == "lastIndex" {
+                    use cranelift_codegen::ir::types as cl;
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    if matches!(obj_tv.ty, ValTy::Handle) {
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let val_tv = lower_expr(ctx, &a.right)?;
+                        let n = ctx.coerce_to_i64(val_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_REGEXP_LAST_INDEX_SET",
+                            &[cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(f, &[obj_h, n]);
+                        return Ok(TypedVal::new(n, ValTy::I64));
+                    }
+                }
             }
         }
         // (#object-setter) Intercepta `obj.X = value` quando obj tem
