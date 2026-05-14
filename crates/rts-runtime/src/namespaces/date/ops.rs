@@ -22,6 +22,10 @@ fn slice_from(ptr: u64, len: i64) -> Option<&'static [u8]> {
 
 /// Converte ms-since-epoch em (year, month0, day, hour, min, sec, ms).
 /// month e 0-indexed (Jan=0). Retorna None pra valores absurdos.
+pub fn date_unpack(ts_ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
+    unpack(ts_ms)
+}
+
 fn unpack(ts_ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
     // Usa euclidean division pra suportar timestamps negativos (pre-1970).
     let days = ts_ms.div_euclid(MS_PER_DAY);
