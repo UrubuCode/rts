@@ -1569,10 +1569,10 @@
 ,
 {
   "name": "277_error_cause",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "e1=msg:root\ne2=TypeError:msg",
   "node": "e1=msg:root\ne2=TypeError:msg",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "e1=msg:root\ne2=TypeError:msg"
 }
 ,
 {
@@ -1585,10 +1585,10 @@
 ,
 {
   "name": "279_error_chain_cause",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "top=top\nmid=mid\nleaf=leaf",
   "node": "top=top\nmid=mid\nleaf=leaf",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "top=top\nmid=mid\nleaf=leaf"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":172,"rts_diverge":50,"bun_node_diverge":3,"errors":87,"rejected":0}}
+],"summary":{"total":312,"pass":174,"rts_diverge":50,"bun_node_diverge":3,"errors":85,"rejected":0}}
