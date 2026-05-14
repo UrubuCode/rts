@@ -229,6 +229,23 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
             }
         }
     }
+    // `typeof Math.f16round` etc — namespace function members sao
+    // "function" em JS, mas o lower geral abortaria com erro.
+    if let Expr::Member(_) = operand {
+        if let Some(qualified) = crate::codegen::lower::expressions::members::qualified_member_name(operand) {
+            let target: String = if let Some(prop) = qualified.strip_prefix("Math.") {
+                format!("math.{prop}")
+            } else {
+                qualified.clone()
+            };
+            if let Some((_, member)) = crate::abi::lookup(&target) {
+                return match member.kind {
+                    crate::abi::MemberKind::Constant => ctx.emit_str_handle(b"number"),
+                    _ => ctx.emit_str_handle(b"function"),
+                };
+            }
+        }
+    }
     let tv = lower_expr(ctx, operand)?;
     // Handle pode ser string OU symbol/function/object/etc. Em vez de
     // assumir "string" estaticamente, despacha pra runtime helper que

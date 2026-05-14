@@ -657,6 +657,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_MATH_EXPM1", basic::__RTS_FN_NS_MATH_EXPM1);
     add_fn!("__RTS_FN_NS_MATH_LOG1P", basic::__RTS_FN_NS_MATH_LOG1P);
     add_fn!("__RTS_FN_NS_MATH_FROUND", basic::__RTS_FN_NS_MATH_FROUND);
+    add_fn!("__RTS_FN_NS_MATH_F16ROUND", basic::__RTS_FN_NS_MATH_F16ROUND);
     add_fn!("__RTS_FN_NS_MATH_SINH", basic::__RTS_FN_NS_MATH_SINH);
     add_fn!("__RTS_FN_NS_MATH_COSH", basic::__RTS_FN_NS_MATH_COSH);
     add_fn!("__RTS_FN_NS_MATH_TANH", basic::__RTS_FN_NS_MATH_TANH);
