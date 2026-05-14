@@ -592,6 +592,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     use crate::namespaces::date::ops::*;
     add_fn!("__RTS_FN_NS_DATE_NOW_MS", __RTS_FN_NS_DATE_NOW_MS);
     add_fn!("__RTS_FN_NS_DATE_FROM_ISO", __RTS_FN_NS_DATE_FROM_ISO);
+    add_fn!("__RTS_FN_NS_DATE_PARSE_F64", __RTS_FN_NS_DATE_PARSE_F64);
     add_fn!("__RTS_FN_NS_DATE_FROM_PARTS", __RTS_FN_NS_DATE_FROM_PARTS);
     add_fn!("__RTS_FN_NS_DATE_YEAR", __RTS_FN_NS_DATE_YEAR);
     add_fn!("__RTS_FN_NS_DATE_MONTH", __RTS_FN_NS_DATE_MONTH);
