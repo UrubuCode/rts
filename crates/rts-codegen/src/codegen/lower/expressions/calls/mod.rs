@@ -1676,7 +1676,8 @@ fn lower_js_global_call(
             Ok(Some(TypedVal::new(v, ValTy::F64)))
         }
         // (#208) encodeURIComponent / decodeURIComponent globais.
-        "encodeURIComponent" | "decodeURIComponent"
+        // (#775) encodeURI / decodeURI globais (preservam reserved chars).
+        "encodeURIComponent" | "decodeURIComponent" | "encodeURI" | "decodeURI"
             if call.args.len() == 1 && call.args[0].spread.is_none() =>
         {
             let arg_tv = super::lower_expr(ctx, &call.args[0].expr)?;
@@ -1687,10 +1688,12 @@ fn lower_js_global_call(
             let p = ctx.builder.inst_results(ip)[0];
             let il = ctx.builder.ins().call(len_fn, &[h]);
             let l = ctx.builder.inst_results(il)[0];
-            let sym = if name == "encodeURIComponent" {
-                "__RTS_FN_GL_ENCODE_URI_COMPONENT"
-            } else {
-                "__RTS_FN_GL_DECODE_URI_COMPONENT"
+            let sym = match name {
+                "encodeURIComponent" => "__RTS_FN_GL_ENCODE_URI_COMPONENT",
+                "decodeURIComponent" => "__RTS_FN_GL_DECODE_URI_COMPONENT",
+                "encodeURI" => "__RTS_FN_GL_ENCODE_URI",
+                "decodeURI" => "__RTS_FN_GL_DECODE_URI",
+                _ => unreachable!(),
             };
             let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
             let inst = ctx.builder.ins().call(f, &[p, l]);

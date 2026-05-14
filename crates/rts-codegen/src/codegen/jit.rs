@@ -500,6 +500,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         use crate::namespaces::globals::global_this::rt::*;
         add_fn!("__RTS_FN_GL_ENCODE_URI_COMPONENT", __RTS_FN_GL_ENCODE_URI_COMPONENT);
         add_fn!("__RTS_FN_GL_DECODE_URI_COMPONENT", __RTS_FN_GL_DECODE_URI_COMPONENT);
+        add_fn!("__RTS_FN_GL_ENCODE_URI", __RTS_FN_GL_ENCODE_URI);
+        add_fn!("__RTS_FN_GL_DECODE_URI", __RTS_FN_GL_DECODE_URI);
     }
 
     // ── namespaces::globals::weakmap (#217 v0) ───────────────────────
