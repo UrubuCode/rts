@@ -651,6 +651,37 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return Ok(tv);
                 }
             }
+            // (#755) Number.isFinite/isNaN/isInteger/isSafeInteger: JS spec
+            // — retorna false para qualquer arg que nao seja number type.
+            // Antes ia para o symbol que coerce string→f64 e retornava true
+            // pra Number.isFinite("5"). Faz short-circuit em compile-time.
+            if matches!(qualified.as_str(),
+                "Number.isFinite" | "Number.isNaN" | "Number.isInteger" | "Number.isSafeInteger"
+            ) && call.args.len() == 1 && call.args[0].spread.is_none() {
+                let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                let is_number = matches!(arg_tv.ty,
+                    ValTy::I32 | ValTy::I64 | ValTy::U64 | ValTy::F64
+                );
+                if !is_number {
+                    // Tipo nao-number (Handle/Bool): false direto.
+                    let v = ctx.builder.ins().iconst(cl::I8, 0);
+                    return Ok(TypedVal::new(v, ValTy::Bool));
+                }
+                // Number: delega ao member normal usando o tv ja lowered.
+                // Reconstroi via lower_ns_call_member que vai re-lower o
+                // arg — para evitar lower duplicado, criamos uma chamada
+                // direta no IR usando o arg_tv ja' avaliado.
+                if let Some(spec) = crate::abi::global_class_lookup("Number") {
+                    if let Some(member) = spec.static_member(qualified.split_once('.').unwrap().1) {
+                        let sig = crate::abi::signature::lower_member(member);
+                        let fn_ref = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
+                        let f = ctx.coerce_to_f64(arg_tv).val;
+                        let inst = ctx.builder.ins().call(fn_ref, &[f]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Bool));
+                    }
+                }
+            }
             // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
             if let Some((cls, method)) = qualified.split_once('.') {
                 if let Some(spec) = crate::abi::global_class_lookup(cls) {
