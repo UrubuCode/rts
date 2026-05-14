@@ -145,63 +145,136 @@ fn with_json<R>(handle: u64, default: R, f: impl FnOnce(&Value) -> R) -> R {
 /// como numero por padrao — nao ha como saber em runtime se i64 e' handle
 /// string/map sem corromper interpretacao numerica.
 fn stringify_any_inner(handle: u64) -> Option<String> {
+    let mut visited = std::collections::HashSet::new();
+    let mut circular = false;
+    let r = stringify_with_visited(handle, &mut visited, &mut circular);
+    if circular {
+        // (#680/290) Sinaliza JSON circular como pending TypeError —
+        // try/catch do TS captura via __RTS_FN_RT_ERROR_GET.
+        let err = alloc_entry(Entry::ErrorObj {
+            message: "Converting circular structure to JSON".to_owned(),
+            name: "TypeError".to_owned(),
+        });
+        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err);
+        return None;
+    }
+    r
+}
+
+fn stringify_with_visited(
+    handle: u64,
+    visited: &mut std::collections::HashSet<u64>,
+    circular: &mut bool,
+) -> Option<String> {
     use std::fmt::Write;
-    with_entry(handle, |e| {
-        let v = e?;
-        let mut out = String::new();
-        match v {
-            Entry::String(b) => {
+    if *circular { return None; }
+    // Snapshot do Entry com lock minimo: copia bytes/entries para
+    // estruturas owned, depois solta o Mutex do shard. Sem isso,
+    // recursao em Map/Vec self-ref toma lock duplo no mesmo shard
+    // e deadlocka (#680/290).
+    enum Snap {
+        Str(Vec<u8>),
+        Map(Vec<(String, i64)>),
+        Vec(Vec<i64>),
+        Json(String),
+        Date(i64),
+        Other,
+        None,
+    }
+    let snap = with_entry(handle, |e| match e {
+        None => Snap::None,
+        Some(Entry::String(b)) => Snap::Str(b.clone()),
+        Some(Entry::Map(m)) => Snap::Map(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
+        Some(Entry::Vec(v)) => Snap::Vec(v.as_ref().clone()),
+        Some(Entry::Json(j)) => Snap::Json(serde_json::to_string(j.as_ref()).unwrap_or_default()),
+        Some(Entry::DateMs(ms)) => Snap::Date(*ms),
+        Some(_) => Snap::Other,
+    });
+    let mut out = String::new();
+    match snap {
+        Snap::None | Snap::Other => None,
+        Snap::Str(b) => {
+            out.push('"');
+            for c in b {
+                match c {
+                    b'"' => out.push_str("\\\""),
+                    b'\\' => out.push_str("\\\\"),
+                    b'\n' => out.push_str("\\n"),
+                    b'\r' => out.push_str("\\r"),
+                    b'\t' => out.push_str("\\t"),
+                    0x00..=0x1f => { let _ = write!(out, "\\u{:04x}", c); }
+                    _ => out.push(c as char),
+                }
+            }
+            out.push('"');
+            Some(out)
+        }
+        Snap::Map(entries) => {
+            if !visited.insert(handle) {
+                *circular = true;
+                return None;
+            }
+            out.push('{');
+            let mut first = true;
+            for (k, val) in entries {
+                if k == "__proto__" { continue; }
+                if !first { out.push(','); }
+                first = false;
                 out.push('"');
-                for &c in b {
+                for c in k.bytes() {
                     match c {
                         b'"' => out.push_str("\\\""),
                         b'\\' => out.push_str("\\\\"),
-                        b'\n' => out.push_str("\\n"),
-                        b'\r' => out.push_str("\\r"),
-                        b'\t' => out.push_str("\\t"),
-                        0x00..=0x1f => { let _ = write!(out, "\\u{:04x}", c); }
                         _ => out.push(c as char),
                     }
                 }
-                out.push('"');
-                Some(out)
+                out.push_str("\":");
+                out.push_str(&stringify_value_visited(val, visited, circular));
+                if *circular { return None; }
             }
-            Entry::Map(m) => {
-                out.push('{');
-                let mut first = true;
-                for (k, val) in m.iter() {
-                    if k == "__proto__" { continue; }
-                    if !first { out.push(','); }
-                    first = false;
-                    out.push('"');
-                    for c in k.bytes() {
-                        match c {
-                            b'"' => out.push_str("\\\""),
-                            b'\\' => out.push_str("\\\\"),
-                            _ => out.push(c as char),
-                        }
-                    }
-                    out.push_str("\":");
-                    out.push_str(&stringify_value_i64(*val));
-                }
-                out.push('}');
-                Some(out)
-            }
-            Entry::Vec(arr) => {
-                out.push('[');
-                for (i, val) in arr.iter().enumerate() {
-                    if i > 0 { out.push(','); }
-                    out.push_str(&stringify_value_i64(*val));
-                }
-                out.push(']');
-                Some(out)
-            }
-            Entry::Json(j) => serde_json::to_string(j.as_ref()).ok(),
-            // (#680/292) JSON.stringify(date) → ISO entre aspas (toJSON spec).
-            Entry::DateMs(ms) => Some(date_iso_quoted(*ms)),
-            _ => None,
+            out.push('}');
+            visited.remove(&handle);
+            Some(out)
         }
-    })
+        Snap::Vec(arr) => {
+            if !visited.insert(handle) {
+                *circular = true;
+                return None;
+            }
+            out.push('[');
+            for (i, val) in arr.into_iter().enumerate() {
+                if i > 0 { out.push(','); }
+                out.push_str(&stringify_value_visited(val, visited, circular));
+                if *circular { return None; }
+            }
+            out.push(']');
+            visited.remove(&handle);
+            Some(out)
+        }
+        Snap::Json(s) => Some(s),
+        // (#680/292) JSON.stringify(date) → ISO entre aspas (toJSON spec).
+        Snap::Date(ms) => Some(date_iso_quoted(ms)),
+    }
+}
+
+fn stringify_value_visited(
+    v: i64,
+    visited: &mut std::collections::HashSet<u64>,
+    circular: &mut bool,
+) -> String {
+    if v == i64::MIN { return "false".to_string(); }
+    if v == i64::MIN + 1 { return "true".to_string(); }
+    if v == i64::MIN + 2 || v == i64::MIN + 3 || v == i64::MIN + 4 {
+        return "null".to_string();
+    }
+    let h = v as u64;
+    if h > 0xFFFF_FFFF {
+        if let Some(s) = stringify_with_visited(h, visited, circular) {
+            return s;
+        }
+    }
+    if *circular { return String::new(); }
+    v.to_string()
 }
 
 /// Helper: formata DateMs como ISO string entre aspas para JSON.
@@ -211,29 +284,6 @@ fn date_iso_quoted(ms: i64) -> String {
         "\"{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z\"",
         y, mo + 1, d, h, mi, s, mil
     )
-}
-
-/// Tenta interpretar um i64 dentro de Map/Vec: se o handle apontar para
-/// String/Map/Vec/Json, recurse; senao, formata como numero.
-fn stringify_value_i64(v: i64) -> String {
-    // (cross-runtime #94/#142) Sentinelas de array literal:
-    //   MIN     = false, MIN+1 = true (codegen de array de bool)
-    //   MIN+2   = undefined, MIN+3 = null (codegen de undefined/null literal)
-    // JSON.stringify: undefined/null em array vira "null" (JS spec).
-    if v == i64::MIN { return "false".to_string(); }
-    if v == i64::MIN + 1 { return "true".to_string(); }
-    if v == i64::MIN + 2 || v == i64::MIN + 3 || v == i64::MIN + 4 {
-        return "null".to_string();
-    }
-    let h = v as u64;
-    // Heuristica: handles RTS tem bits altos setados (gen+slot). Inteiros
-    // pequenos (<= 2^31) tipicamente sao numeros, nao handles.
-    if h > 0xFFFF_FFFF {
-        if let Some(s) = stringify_any_inner(h) {
-            return s;
-        }
-    }
-    v.to_string()
 }
 
 /// `JSON.stringify(value, keys_array)` — replacer como array de keys filtra props.
