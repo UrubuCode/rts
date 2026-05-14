@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order=null"
 }
 ,
 {
@@ -2076,7 +2076,7 @@
   "status": "rts_diverge",
   "bun": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
   "node": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
-  "rts": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=false\nis_error=false"
+  "rts": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=false\nis_error=true"
 }
 ,
 {
