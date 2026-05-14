@@ -633,10 +633,10 @@
 ,
 {
   "name": "170_regexp_flags",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello",
   "node": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello",
-  "rts": "source=abc\nflags=null\nglobal=null\nignoreCase=null\nmultiline=null\nmultiline2=null\nglobal2=null\nflags3=null\nsource3=hello"
+  "rts": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order=null"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nre=ab+:null"
+  "rts": "same=true\nre=ab+:gi"
 }
 ,
 {
@@ -2476,7 +2476,7 @@
   "status": "rts_diverge",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "regex=ab+:null\nerror=null:boom\nself=false"
+  "rts": "regex=ab+:gi\nerror=null:boom\nself=false"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":158,"rts_diverge":50,"bun_node_diverge":3,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":159,"rts_diverge":49,"bun_node_diverge":3,"errors":101,"rejected":0}}
