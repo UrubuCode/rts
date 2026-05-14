@@ -31,6 +31,12 @@ const stringified: string = JSON5.stringify({ a: 1, b: "two" });
 // Erro silencioso retorna 0
 const bad: any = JSON5.parse(`{ not valid`);
 
+// (CLAUDE.md regra de ouro) Pre-compute member access fora dos test()
+// para evitar captura em arrow — local_ambiguous_vars nao se propaga
+// pra arrows aninhadas, entao `f.flags.debug` em arrow colide com
+// RegExp.flags getter. Resolvido por captura como var aqui.
+const debug_value = f.flags.debug;
+
 describe("JSON5 — superset (#json5)", () => {
   test("line comment", () => expect(a.x).toBe(1));
   test("block comment", () => expect(b.y).toBe(2));
@@ -40,7 +46,7 @@ describe("JSON5 — superset (#json5)", () => {
   test("trailing comma em array", () => expect(e.length).toBe(3));
   test("nested obj sobrevive parse", () => expect(f !== 0).toBe(true));
   test("nested array com strings", () => expect(f.hosts.length).toBe(2));
-  test("nested obj com bool", () => expect(f.flags.debug).toBe(1));
+  test("nested obj com bool", () => expect(debug_value).toBe(1));
   test("stringify produz JSON estrito", () => expect(stringified).toBe('{"a":1,"b":"two"}'));
   test("parse invalido retorna 0", () => expect(bad).toBe(0));
 });
