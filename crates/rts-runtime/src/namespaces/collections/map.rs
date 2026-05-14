@@ -171,6 +171,38 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
     with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
 }
 
+/// (cross-runtime #788) `obj.propertyIsEnumerable(key)` — similar a
+/// hasOwnProperty, mas `length` em arrays retorna false (non-enumerable
+/// por spec) e keys herdadas via __proto__ retornam false. v0 nao
+/// rastreia o flag `enumerable` de defineProperty.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE(
+    handle: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> i64 {
+    let Some(key) = str_from_abi(key_ptr, key_len) else {
+        return 0;
+    };
+    let vec_result: Option<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => {
+            if key == "length" {
+                Some(0)
+            } else if let Some(n) = parse_array_index(key) {
+                Some(if (n as usize) < v.len() { 1 } else { 0 })
+            } else {
+                Some(0)
+            }
+        }
+        _ => None,
+    });
+    if let Some(r) = vec_result {
+        return r;
+    }
+    // Own props apenas — nao segue __proto__.
+    with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+}
+
 /// (#264 PR4) Retorna valor de `key` seguindo cadeia `__proto__`.
 /// Se a key nao existe no map, le `__proto__` (handle de outro Map) e
 /// recursa. Retorna 0 quando atinge o fim da cadeia ou tipo invalido.

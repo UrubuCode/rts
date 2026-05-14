@@ -145,6 +145,31 @@ pub(super) fn lower_var_member_call(
         }
     }
 
+    // (cross-runtime #788) `obj.propertyIsEnumerable(key)` — v0 retorna
+    // true se key e' own prop e nao foi marcada como nao-enumerable via
+    // defineProperty. Implementacao minimal: equivalente a hasOwnProperty
+    // (defineProperty com enumerable:false ainda nao e' rastreado).
+    // Para arrays, `length` deve retornar false; numeric keys retornam
+    // true se em range. Bate Bun/Node nos casos basicos.
+    if prop == "propertyIsEnumerable" && call.args.len() == 1 {
+        let key_tv = lower_expr(ctx, &call.args[0].expr)?;
+        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+        let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let inst_p = ctx.builder.ins().call(str_ptr_fn, &[key_h]);
+        let kptr = ctx.builder.inst_results(inst_p)[0];
+        let inst_l = ctx.builder.ins().call(str_len_fn, &[key_h]);
+        let klen = ctx.builder.inst_results(inst_l)[0];
+        let f = ctx.get_extern(
+            "__RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(f, &[obj_h, kptr, klen]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(v, ValTy::Bool));
+    }
+
     // (#264 PR5) `obj.hasOwnProperty(key)` — verifica own props sem chain.
     if prop == "hasOwnProperty" && call.args.len() == 1 {
         let key_tv = lower_expr(ctx, &call.args[0].expr)?;
