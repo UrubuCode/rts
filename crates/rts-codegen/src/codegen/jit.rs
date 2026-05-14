@@ -499,6 +499,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_BOOLEAN_NEW_EMPTY", __RTS_FN_GL_BOOLEAN_NEW_EMPTY);
     }
 
+    // (cross-runtime #742) BigInt.asIntN / asUintN helpers staticos.
+    {
+        use crate::namespaces::globals::bigint::rt::*;
+        add_fn!("__RTS_FN_GL_BIGINT_AS_INT_N", __RTS_FN_GL_BIGINT_AS_INT_N);
+        add_fn!("__RTS_FN_GL_BIGINT_AS_UINT_N", __RTS_FN_GL_BIGINT_AS_UINT_N);
+    }
+
     // (#208) encodeURIComponent / decodeURIComponent globais.
     {
         use crate::namespaces::globals::global_this::rt::*;
