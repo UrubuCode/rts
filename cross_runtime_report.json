@@ -132,7 +132,7 @@
   "status": "rts_diverge",
   "bun": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
   "node": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
-  "rts": "origin=https://user:pass@example.com:8443\nuser=null:null\npath=/a/../b/\nhref=https://user:pass@example.com:8443/a/../b/?q=%20#frag"
+  "rts": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nhref=https://user:pass@example.com:8443/b/?q=%20#frag"
 }
 ,
 {
@@ -521,10 +521,10 @@
 ,
 {
   "name": "158_encodeuri_decodeuri",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26",
   "node": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":164,"rts_diverge":44,"bun_node_diverge":3,"errors":101,"rejected":0}}
+],"summary":{"total":312,"pass":165,"rts_diverge":44,"bun_node_diverge":3,"errors":100,"rejected":0}}
