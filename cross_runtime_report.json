@@ -793,10 +793,10 @@
 ,
 {
   "name": "189_reflect_defineproperty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
   "node": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
-  "rts": "success=true\na=42\nvalue=42\nwritable=1\nenumerable=1\ndesc2=undefined"
+  "rts": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":176,"rts_diverge":48,"bun_node_diverge":3,"errors":85,"rejected":0}}
+],"summary":{"total":312,"pass":177,"rts_diverge":47,"bun_node_diverge":3,"errors":85,"rejected":0}}
