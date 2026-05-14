@@ -3,11 +3,38 @@ use crate::namespaces::gc::handles::{alloc_entry, free_handle, with_entry, Entry
 struct ParsedUrl {
     href: String,
     protocol: String,
+    username: String,
+    password: String,
     hostname: String,
     port: String,
     pathname: String,
     search: String,
     hash: String,
+}
+
+fn normalize_path(p: &str) -> String {
+    // (cross-runtime #746) Resolve "." e ".." em path segments,
+    // batendo WHATWG URL spec.
+    if p.is_empty() {
+        return "/".to_string();
+    }
+    let trailing_slash = p.ends_with('/');
+    let mut out: Vec<&str> = Vec::new();
+    for seg in p.split('/') {
+        match seg {
+            "" | "." => continue,
+            ".." => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    let mut result = String::from("/");
+    result.push_str(&out.join("/"));
+    if trailing_slash && !result.ends_with('/') {
+        result.push('/');
+    }
+    result
 }
 
 impl ParsedUrl {
@@ -23,25 +50,47 @@ impl ParsedUrl {
         };
         let (scheme, rest) = raw.split_once("://")?;
         let protocol = format!("{scheme}:");
-        let (authority, pathname) = match rest.split_once('/') {
+        let (authority, pathname_raw) = match rest.split_once('/') {
             Some((auth, path)) => (auth, format!("/{path}")),
             None => (rest, "/".to_owned()),
         };
-        let (hostname, port) = match authority.rsplit_once(':') {
+        // (cross-runtime #746) Extrai userinfo (`user:pass@`) do authority.
+        let (userinfo, host_part) = match authority.rsplit_once('@') {
+            Some((ui, host)) => (Some(ui), host),
+            None => (None, authority),
+        };
+        let (username, password) = match userinfo {
+            Some(ui) => match ui.split_once(':') {
+                Some((u, p)) => (u.to_owned(), p.to_owned()),
+                None => (ui.to_owned(), String::new()),
+            },
+            None => (String::new(), String::new()),
+        };
+        let (hostname, port) = match host_part.rsplit_once(':') {
             Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
                 (h.to_owned(), p.to_owned())
             }
-            _ => (authority.to_owned(), String::new()),
+            _ => (host_part.to_owned(), String::new()),
         };
+        let pathname = normalize_path(&pathname_raw);
         let host = if port.is_empty() {
             hostname.clone()
         } else {
             format!("{hostname}:{port}")
         };
-        let href = format!("{protocol}//{host}{pathname}{search}{hash}");
+        let userinfo_str = if username.is_empty() && password.is_empty() {
+            String::new()
+        } else if password.is_empty() {
+            format!("{username}@")
+        } else {
+            format!("{username}:{password}@")
+        };
+        let href = format!("{protocol}//{userinfo_str}{host}{pathname}{search}{hash}");
         Some(ParsedUrl {
             href,
             protocol,
+            username,
+            password,
             hostname,
             port,
             pathname,
@@ -64,7 +113,7 @@ impl ParsedUrl {
 }
 
 // Store as Entry::Env with string handles for each component:
-// [href_h, protocol_h, hostname_h, port_h, pathname_h, search_h, hash_h, origin_h]
+// [href, protocol, host, hostname, port, pathname, search, hash, origin, username, password]
 
 fn intern_str(s: &str) -> u64 {
     alloc_entry(Entry::String(s.as_bytes().to_vec()))
@@ -95,6 +144,8 @@ pub extern "C" fn __RTS_FN_GL_URL_NEW(ptr: i64, len: i64) -> u64 {
             let search_h = intern_str(&u.search);
             let hash_h = intern_str(&u.hash);
             let origin_h = intern_str(&u.origin());
+            let username_h = intern_str(&u.username);
+            let password_h = intern_str(&u.password);
             alloc_entry(Entry::Env(vec![
                 href_h as i64,
                 proto_h as i64,
@@ -105,6 +156,8 @@ pub extern "C" fn __RTS_FN_GL_URL_NEW(ptr: i64, len: i64) -> u64 {
                 search_h as i64,
                 hash_h as i64,
                 origin_h as i64,
+                username_h as i64,
+                password_h as i64,
             ]))
         }
     }
@@ -135,6 +188,10 @@ pub extern "C" fn __RTS_FN_GL_URL_SEARCH(h: u64) -> u64   { url_field(h, 6) }
 pub extern "C" fn __RTS_FN_GL_URL_HASH(h: u64) -> u64     { url_field(h, 7) }
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_ORIGIN(h: u64) -> u64   { url_field(h, 8) }
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_USERNAME(h: u64) -> u64 { url_field(h, 9) }
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_PASSWORD(h: u64) -> u64 { url_field(h, 10) }
 
 /// (#373) `url.searchParams` — constroi URLSearchParams a partir do
 /// `search` da URL. Cada chamada cria novo handle (sem cache vinculado).
