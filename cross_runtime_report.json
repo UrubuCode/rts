@@ -1073,10 +1073,10 @@
 ,
 {
   "name": "220_array_map_sparse",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
   "node": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
-  "rts": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=3"
+  "rts": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2"
 }
 ,
 {
@@ -1601,10 +1601,10 @@
 ,
 {
   "name": "280_date_setutc_family",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
   "node": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789"
 }
 ,
 {
@@ -2041,10 +2041,10 @@
 ,
 {
   "name": "43_date_setters_deep",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
   "node": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":137,"rts_diverge":67,"bun_node_diverge":3,"errors":105,"rejected":0}}
+],"summary":{"total":312,"pass":140,"rts_diverge":66,"bun_node_diverge":3,"errors":103,"rejected":0}}
