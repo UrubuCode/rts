@@ -760,6 +760,34 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (cross-runtime #749) Object.getOwnPropertyDescriptors(obj).
+                if method == "getOwnPropertyDescriptors" && call.args.len() == 1 {
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
+                // Object.getOwnPropertyDescriptor(obj, key) — reusa Reflect.
+                if method == "getOwnPropertyDescriptor" && call.args.len() == 2 {
+                    let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                    let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[obj_h, key_h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
                 let target = match method {
                     "values" => "collections.map_values",
                     "hasOwn" => "collections.map_has",
