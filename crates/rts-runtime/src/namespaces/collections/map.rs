@@ -197,17 +197,23 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
     });
     let (actual_ptr, bound): (u64, Vec<i64>) = resolved.unwrap_or((fn_ptr, Vec::new()));
     let n_bound = bound.len();
+    // (cross-runtime #793) Para Set, callback recebe (value, value, set) — key
+    // duplica como value2 (JS spec). Set storage no RTS usa Map<keyStr, 1>;
+    // o "value" da iteracao e' a key (que e' o elemento adicionado).
+    let is_set = handle_is_set_kind(handle);
     for (k, v) in pairs {
         let key_h = alloc_entry(Entry::String(k.into_bytes())) as i64;
-        // Invoca com (value, key, map_handle) prependendo bound. Limite 5 args total.
+        // Map: (value, key, map). Set: (value, value, set) — value e' o
+        // key_h (elemento original), e o segundo arg e' o mesmo key_h.
+        let (a, b) = if is_set { (key_h, key_h) } else { (v, key_h) };
         unsafe {
             use std::mem::transmute;
             match n_bound {
                 0 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(actual_ptr)(
-                    v, key_h, handle as i64,
+                    a, b, handle as i64,
                 ),
                 1 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(actual_ptr)(
-                    bound[0], v, key_h, handle as i64,
+                    bound[0], a, b, handle as i64,
                 ),
                 _ => 0,
             };
