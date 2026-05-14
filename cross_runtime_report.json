@@ -1145,10 +1145,10 @@
 ,
 {
   "name": "229_json_stringify_replacer_array",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
   "node": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
-  "rts": "filtered={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnested={\"x\":{\"a\":1,\"b\":2},\"y\":3}"
+  "rts": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2100,7 +2100,7 @@
   "status": "rts_diverge",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "plain={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_arr={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nparsed_count=4\nparsed_label=go"
+  "rts": "plain={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"drop\":\"undefined\",\"nested\":{\"active\":1,\"skip\":\"undefined\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":1},\"list\":[1,null,3]}\nparsed_count=4\nparsed_label=go"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":140,"rts_diverge":66,"bun_node_diverge":3,"errors":103,"rejected":0}}
+],"summary":{"total":312,"pass":141,"rts_diverge":65,"bun_node_diverge":3,"errors":103,"rejected":0}}
