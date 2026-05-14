@@ -268,6 +268,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(handle: u64) {
     with_map_mut(handle, (), |m| m.clear());
 }
 
+/// `delete obj.prop` — recebe key como handle de string.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
+    use super::super::gc::handles::{with_entry, Entry};
+    let key_owned: Option<String> = with_entry(key_handle, |e| match e {
+        Some(Entry::String(b)) => std::str::from_utf8(b).ok().map(|s| s.to_string()),
+        _ => None,
+    });
+    let Some(key) = key_owned else { return 1 };
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, &key);
+    }
+    if is_map_sealed(handle) {
+        return 0;
+    }
+    with_map_mut(handle, 1, |m| { let _ = m.shift_remove(&key); 1 })
+}
+
 /// Shallow clone do map — aloca novo handle com mesmas (key, value) pairs.
 /// Usado pelo desugar de `const { a, ...rest } = obj` (#312): rest e'
 /// inicializado como clone, e em seguida o codegen emite map_delete para

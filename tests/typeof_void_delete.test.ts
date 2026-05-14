@@ -29,6 +29,6 @@ main();
 
 describe("fixture:typeof_void_delete", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("number\nstring\nboolean\nvoided = 0\ndelete = true\n");
+    expect(__rtsCapturedOutput).toBe("number\nstring\nboolean\nvoided = undefined\ndelete = true\n");
   });
 });
