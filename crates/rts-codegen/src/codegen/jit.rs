@@ -533,6 +533,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR
         );
         add_fn!(
+            "__RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS",
+            __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS
+        );
+        add_fn!(
             "__RTS_FN_GL_REFLECT_DEFINE_PROPERTY",
             __RTS_FN_GL_REFLECT_DEFINE_PROPERTY
         );

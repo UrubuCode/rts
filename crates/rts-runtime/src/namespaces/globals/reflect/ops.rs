@@ -60,6 +60,33 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
     alloc_entry(Entry::Map(Box::new(desc)))
 }
 
+/// (cross-runtime #749) `Object.getOwnPropertyDescriptors(obj)` — Map
+/// onde cada key e' uma own prop e o valor e' um descriptor sintetizado
+/// {value, writable, enumerable, configurable}. Mesma sintese que
+/// Reflect.getOwnPropertyDescriptor faz por key.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u64 {
+    let mut out: IndexMap<String, i64> = IndexMap::new();
+    let pairs: Vec<(String, i64)> = with_entry(obj, |e| match e {
+        Some(Entry::Map(m)) => m
+            .iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        _ => Vec::new(),
+    });
+    for (k, v) in pairs {
+        let mut desc: IndexMap<String, i64> = IndexMap::new();
+        desc.insert("value".to_string(), v);
+        desc.insert("writable".to_string(), 1);
+        desc.insert("enumerable".to_string(), 1);
+        desc.insert("configurable".to_string(), 1);
+        let desc_h = alloc_entry(Entry::Map(Box::new(desc))) as i64;
+        out.insert(k, desc_h);
+    }
+    alloc_entry(Entry::Map(Box::new(out)))
+}
+
 /// `Reflect.defineProperty(obj, key, descriptor)` — extrai
 /// `descriptor.value` e faz `obj[key] = value`. Retorna 1 (true).
 /// Ignora writable/enumerable/configurable (sempre tratado como true)
