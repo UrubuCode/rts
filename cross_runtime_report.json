@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
