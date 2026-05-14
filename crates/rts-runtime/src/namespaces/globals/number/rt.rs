@@ -106,6 +106,14 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_VALUE_OF(v: f64) -> f64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_TO_FIXED(v: f64, digits: i64) -> u64 {
+    // (cross-runtime #872/46) JS spec: NaN/Infinity em toFixed retornam
+    // "NaN"/"Infinity"/"-Infinity" (Rust formataria como "inf"/"-inf").
+    if v.is_nan() {
+        return alloc_str("NaN");
+    }
+    if v.is_infinite() {
+        return alloc_str(if v > 0.0 { "Infinity" } else { "-Infinity" });
+    }
     let d = digits.clamp(0, 100) as usize;
     alloc_str(&format!("{v:.prec$}", prec = d))
 }

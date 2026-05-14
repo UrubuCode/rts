@@ -1466,6 +1466,25 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             );
                         }
                     }
+                    // (cross-runtime #46) `NaN.toFixed(2)` / `Infinity.toFixed(2)`
+                    // — globais f64 nao sao var, mas precisam aceitar
+                    // Number.prototype methods. Lower obj como F64 e usa
+                    // number builtin path.
+                    let global_name = obj_id.sym.as_str();
+                    if matches!(global_name, "NaN" | "Infinity") {
+                        if let MemberProp::Ident(prop) = &m.prop {
+                            let obj_tv = crate::codegen::lower::expressions::lower_expr(ctx, &m.obj)?;
+                            let recv_f = crate::codegen::lower::expressions::operators::to_f64(ctx, obj_tv);
+                            if let Some(tv) = crate::codegen::lower::expressions::calls::builtins::lower_number_builtin(
+                                ctx,
+                                prop.sym.as_str(),
+                                recv_f,
+                                call,
+                            )? {
+                                return Ok(tv);
+                            }
+                        }
+                    }
                 }
             }
             return lower_ns_call(ctx, &qualified, call);
