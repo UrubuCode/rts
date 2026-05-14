@@ -110,6 +110,19 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(handle: u64, index: i64) -> i6
     with_vec(handle, 0, |v| v.get(index as usize).copied().unwrap_or(0))
 }
 
+/// (cross-runtime #52) `index in arr` — true se 0 <= index < length E
+/// slot nao eh hole (sentinela i64::MIN+4). JS spec.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX(handle: u64, index: i64) -> i64 {
+    if index < 0 { return 0; }
+    with_vec(handle, 0, |v| {
+        match v.get(index as usize).copied() {
+            Some(slot) if slot != i64::MIN + 4 => 1,
+            _ => 0,
+        }
+    })
+}
+
 /// Escreve `value` em `index`. No-op fora do range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(handle: u64, index: i64, value: i64) {
