@@ -987,11 +987,27 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     obj
 }
 
-/// (#208 / #479) `Object.fromEntries(arr)` — recebe Vec de pares
-/// [key_handle, value] e cria Map. Inverso de Object.entries.
+/// (#208 / #479) `Object.fromEntries(iter)` — aceita:
+/// - Vec de pares [key_handle, value] (Object.entries output, ou tuples literais)
+/// - Map direto (cada entry vira prop com mesma key/value)
+/// (#666/265) Map suporte adicionado para `Object.fromEntries(new Map(...))`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
     use crate::namespaces::gc::handles::{Entry, with_entry};
+    // (#666/265) Map -> Map roundtrip: copia todos os pares (k, v) direto.
+    let map_pairs: Option<Vec<(String, i64)>> = with_entry(arr, |entry| match entry {
+        Some(Entry::Map(m)) => Some(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
+        _ => None,
+    });
+    if let Some(pairs) = map_pairs {
+        let m = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+        with_map_mut(m, (), |mm| {
+            for (k, v) in pairs {
+                mm.insert(k, v);
+            }
+        });
+        return m;
+    }
     let pair_handles: Vec<i64> = with_entry(arr, |entry| match entry {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
