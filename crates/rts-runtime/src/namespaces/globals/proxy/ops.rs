@@ -278,20 +278,49 @@ fn forward_define_property(target: u64, key_handle: u64, descriptor: u64) -> i64
     }) else {
         return 0;
     };
-    let value: i64 = with_entry(descriptor, |e| match e {
-        Some(Entry::Map(m)) => m.get("value").copied().unwrap_or(0),
-        _ => 0,
+    // (cross-runtime #795) Extrai value + flags (writable/enumerable) do
+    // descriptor pra preservar via non_writable_set/non_enumerable_set.
+    // Bool sentinels: i64::MIN = false, i64::MIN+1 = true; outros valores
+    // tratados como truthy/falsy via != 0.
+    let (value, writable, enumerable) = with_entry(descriptor, |e| match e {
+        Some(Entry::Map(m)) => {
+            let v = m.get("value").copied().unwrap_or(0);
+            let w = m.get("writable").map(|x| {
+                if *x == i64::MIN { false }
+                else if *x == i64::MIN + 1 { true }
+                else { *x != 0 }
+            });
+            let en = m.get("enumerable").map(|x| {
+                if *x == i64::MIN { false }
+                else if *x == i64::MIN + 1 { true }
+                else { *x != 0 }
+            });
+            (v, w, en)
+        }
+        _ => (0, None, None),
     });
     use crate::namespaces::gc::handles::with_entry_mut;
     let key_str = String::from_utf8_lossy(&key_bytes).into_owned();
     let ok = with_entry_mut(target, |e| match e {
         Some(Entry::Map(m)) => {
-            m.insert(key_str, value);
+            m.insert(key_str.clone(), value);
             true
         }
         _ => false,
     });
-    if ok { 1 } else { 0 }
+    if !ok { return 0; }
+    // Atualiza flag tracking conforme descriptor.
+    match writable {
+        Some(false) => crate::namespaces::collections::map::mark_non_writable(target, &key_str),
+        Some(true) => crate::namespaces::collections::map::unmark_non_writable(target, &key_str),
+        None => {} // ausente — preserva estado anterior
+    }
+    match enumerable {
+        Some(false) => crate::namespaces::collections::map::mark_non_enumerable(target, &key_str),
+        Some(true) => crate::namespaces::collections::map::unmark_non_enumerable(target, &key_str),
+        None => {}
+    }
+    1
 }
 
 /// Trap `getOwnPropertyDescriptor(target, key)`. Retorna handle Map com
@@ -327,11 +356,17 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
     // (#795) JS spec: undefined quando prop nao existe. Handle string
     // "undefined" — TPL_COERCE_AUTO renderiza como "undefined".
     let Some(v) = value else { return alloc_entry(Entry::String(b"undefined".to_vec())) };
+    // (cross-runtime #795) consulta flag tracking pra preservar
+    // writable/enumerable definidos via defineProperty.
+    let writable_bool = !crate::namespaces::collections::map::is_non_writable(target, &key_str);
+    let enumerable_bool = !crate::namespaces::collections::map::is_non_enumerable(target, &key_str);
     let mut desc: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
     desc.insert("value".to_string(), v);
-    desc.insert("writable".to_string(), 1);
-    desc.insert("enumerable".to_string(), 1);
-    desc.insert("configurable".to_string(), 1);
+    // Bool sentinels (i64::MIN+1 = true, i64::MIN = false) pra TPL_COERCE_AUTO
+    // formatar como "true"/"false" em vez de inteiros raw.
+    desc.insert("writable".to_string(), if writable_bool { i64::MIN + 1 } else { i64::MIN });
+    desc.insert("enumerable".to_string(), if enumerable_bool { i64::MIN + 1 } else { i64::MIN });
+    desc.insert("configurable".to_string(), i64::MIN + 1);
     alloc_entry(Entry::Map(Box::new(desc)))
 }
 

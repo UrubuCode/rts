@@ -871,6 +871,49 @@ pub(crate) fn is_non_enumerable(handle: u64, key: &str) -> bool {
         .contains(&(handle, key.to_string()))
 }
 
+/// (cross-runtime #795) Tracking de writable=false definido via
+/// Object.defineProperty / Reflect.defineProperty. Usado pelo
+/// `Reflect.getOwnPropertyDescriptor` pra retornar writable correto.
+fn non_writable_set() -> &'static Mutex<HashSet<(u64, String)>> {
+    static S: OnceLock<Mutex<HashSet<(u64, String)>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) fn is_non_writable(handle: u64, key: &str) -> bool {
+    non_writable_set()
+        .lock()
+        .unwrap()
+        .contains(&(handle, key.to_string()))
+}
+
+pub(crate) fn mark_non_writable(handle: u64, key: &str) {
+    non_writable_set()
+        .lock()
+        .unwrap()
+        .insert((handle, key.to_string()));
+}
+
+pub(crate) fn unmark_non_writable(handle: u64, key: &str) {
+    non_writable_set()
+        .lock()
+        .unwrap()
+        .remove(&(handle, key.to_string()));
+}
+
+pub(crate) fn mark_non_enumerable(handle: u64, key: &str) {
+    non_enumerable_set()
+        .lock()
+        .unwrap()
+        .insert((handle, key.to_string()));
+}
+
+pub(crate) fn unmark_non_enumerable(handle: u64, key: &str) {
+    non_enumerable_set()
+        .lock()
+        .unwrap()
+        .remove(&(handle, key.to_string()));
+}
+
 /// (#208) `Object.defineProperty(obj, key, descriptor)`.
 /// Suporta `{ value: x }` e `{ enumerable: false }`. Demais
 /// (get/set/writable/configurable) caem em PR separada.

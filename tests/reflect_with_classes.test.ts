@@ -80,8 +80,11 @@ class Holder {
 const h = new Holder();
 const hDesc = Reflect.getOwnPropertyDescriptor(h, "v");
 const hDescValue: i64 = Reflect.get(hDesc, "value");
-const hDescConfig: i64 = Reflect.get(hDesc, "configurable");
-const hDescEnum: i64 = Reflect.get(hDesc, "enumerable");
+const hDescConfig = Reflect.get(hDesc, "configurable");
+const hDescEnum = Reflect.get(hDesc, "enumerable");
+// (#795) Pre-coerce no top-level pra preservar tipo Handle do bool sentinel.
+const hDescConfigStr = "" + hDescConfig;
+const hDescEnumStr = "" + hDescEnum;
 
 // 8. Reflect.has antes/depois de defineProperty
 const lazy: any = {};
@@ -152,8 +155,8 @@ describe("reflect_with_classes", () => {
     test("apply pow(10,0)", () => expect(pow10).toBe(1));
     // 7
     test("class field descriptor value", () => expect(hDescValue).toBe(7));
-    test("class field descriptor configurable", () => expect(hDescConfig).toBe(1));
-    test("class field descriptor enumerable", () => expect(hDescEnum).toBe(1));
+    test("class field descriptor configurable", () => expect(hDescConfigStr).toBe("true"));
+    test("class field descriptor enumerable", () => expect(hDescEnumStr).toBe("true"));
     // 8
     test("has before defineProperty", () => expect(beforeDef).toBe(false));
     test("has after defineProperty", () => expect(afterDef).toBe(true));

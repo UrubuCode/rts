@@ -103,6 +103,8 @@ const obj3 = { zero: 0 };
 const desc0 = Reflect.getOwnPropertyDescriptor(obj3, "zero");
 const desc0Value = Reflect.get(desc0, "value");
 const desc0Configurable = Reflect.get(desc0, "configurable");
+// (#795) Pre-coerce no top-level (vide tests/reflect_api.test.ts).
+const desc0ConfigurableStr = "" + desc0Configurable;
 
 // 16. Reflect.set retorno e' sempre true (v0)
 const setRetObj: any = {};
@@ -163,7 +165,7 @@ describe("reflect_edge_cases", () => {
     test("defineProperty overwrites", () => expect(dp2x).toBe(99));
     // 15. descriptor
     test("descriptor value=0 preserved", () => expect(desc0Value).toBe(0));
-    test("descriptor configurable=true", () => expect(desc0Configurable).toBe(1));
+    test("descriptor configurable=true", () => expect(desc0ConfigurableStr).toBe("true"));
     // 16. set return
     test("Reflect.set returns true", () => expect(setRet).toBe(true));
     // 17. delete return
