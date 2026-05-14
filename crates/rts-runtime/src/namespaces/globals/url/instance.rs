@@ -225,6 +225,36 @@ pub extern "C" fn __RTS_FN_GL_URL_FREE(handle: u64) {
 // (#373) URLSearchParams — backing IndexMap<String, i64> onde i64 e' handle
 // de string com value. Implementacao minimal: get/has/set/delete/toString.
 
+/// (cross-runtime #746) Percent-decode URL query component conforme
+/// WHATWG URL spec: `%XX` -> byte 0xXX; `+` -> ' '; bytes invalidos sao
+/// mantidos como-esta. Retorna lossy UTF-8.
+fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'%' && i + 2 < bytes.len() {
+            let h = bytes[i + 1];
+            let l = bytes[i + 2];
+            let hv = match h { b'0'..=b'9' => Some(h - b'0'), b'a'..=b'f' => Some(h - b'a' + 10), b'A'..=b'F' => Some(h - b'A' + 10), _ => None };
+            let lv = match l { b'0'..=b'9' => Some(l - b'0'), b'a'..=b'f' => Some(l - b'a' + 10), b'A'..=b'F' => Some(l - b'A' + 10), _ => None };
+            if let (Some(hv), Some(lv)) = (hv, lv) {
+                out.push((hv << 4) | lv);
+                i += 3;
+                continue;
+            }
+        }
+        if b == b'+' {
+            out.push(b' ');
+        } else {
+            out.push(b);
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn parse_query(s: &str) -> indexmap::IndexMap<String, String> {
     let mut map: indexmap::IndexMap<String, String> = indexmap::IndexMap::new();
     let s = s.strip_prefix('?').unwrap_or(s);
@@ -233,9 +263,9 @@ fn parse_query(s: &str) -> indexmap::IndexMap<String, String> {
     }
     for pair in s.split('&') {
         if let Some((k, v)) = pair.split_once('=') {
-            map.insert(k.to_string(), v.to_string());
+            map.insert(url_decode(k), url_decode(v));
         } else if !pair.is_empty() {
-            map.insert(pair.to_string(), String::new());
+            map.insert(url_decode(pair), String::new());
         }
     }
     map
