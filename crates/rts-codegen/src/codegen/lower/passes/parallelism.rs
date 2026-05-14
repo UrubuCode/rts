@@ -11,6 +11,7 @@
 //! - `purity_pass` — detecta `for...of` puro e reescreve para
 //!   `parallel.for_each(arr, __par_forof_N)`.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use swc_ecma_ast::{Callee, Decl, Expr, ForHead, Lit, MemberProp, Pat, Stmt};
@@ -19,6 +20,52 @@ use crate::parser::ast::{
     FunctionDecl, Item, MemberModifiers, Parameter, Program, RawStmt, Statement,
 };
 use crate::parser::span::Span;
+
+thread_local! {
+    /// (cross-runtime #132/#233/#235/#248, issue #195 pragmatico) Set
+    /// de vars top-level mutaveis numericas/bool aceitas como captura
+    /// no body de arrow lifted. Setado por
+    /// `lift_inline_arrows_in_array_methods` antes da varredura;
+    /// consumido em `try_lift_arrow_arg::has_capture`.
+    static ALLOWED_CAPTURES: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
+/// Coleta nomes de vars top-level `let`/`var` com init numerico/bool
+/// (sem destructure, sem objeto/array literal). Essas serao promovidas
+/// a global writable storage por `collect_module_globals`.
+fn collect_top_level_mutable_vars(program: &Program) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for item in &program.items {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
+        // const eh imutavel; aceita apenas se for numero/bool literal — vira
+        // global readonly e captura "imutavel" funciona. Pra simplicidade
+        // foca em `let`/`var`.
+        let is_let_var = matches!(
+            var_decl.kind,
+            swc_ecma_ast::VarDeclKind::Let | swc_ecma_ast::VarDeclKind::Var
+        );
+        if !is_let_var { continue; }
+        for decl in &var_decl.decls {
+            let Pat::Ident(id) = &decl.name else { continue };
+            // Init deve ser numero/bool literal pra qualificar como global
+            // numerico. Senao pula (avoid array, object, string handles).
+            let qualifies = match decl.init.as_deref() {
+                Some(Expr::Lit(Lit::Num(_))) => true,
+                Some(Expr::Lit(Lit::Bool(_))) => true,
+                Some(Expr::Unary(u)) => matches!(
+                    u.op,
+                    swc_ecma_ast::UnaryOp::Minus | swc_ecma_ast::UnaryOp::Plus
+                ) && matches!(u.arg.as_ref(), Expr::Lit(Lit::Num(_))),
+                _ => false,
+            };
+            if qualifies {
+                out.insert(id.id.sym.as_str().to_string());
+            }
+        }
+    }
+    out
+}
 
 /// Builds the set of (namespace, member) pairs marked `pure: true` in SPECS.
 fn build_pure_ns_set() -> HashSet<(&'static str, &'static str)> {
@@ -176,6 +223,14 @@ pub(crate) fn lift_inline_arrows_in_array_methods(program: &mut Program) {
             _ => None,
         })
         .collect();
+
+    // (cross-runtime #132/#233/#235/#248, issue #195 pragmatico) Vars
+    // top-level `let`/`var` numericas/bool: aceitas como captura porque
+    // `collect_module_globals` promove a global storage writable; o user
+    // fn liftado le/escreve via mesmo data id. Funciona pra callbacks
+    // serial (forEach/some/every/find/findIndex/findLast/findLastIndex).
+    let top_level_mut_vars: HashSet<String> = collect_top_level_mutable_vars(program);
+    ALLOWED_CAPTURES.with(|c| *c.borrow_mut() = top_level_mut_vars.clone());
 
     let mut new_fns: Vec<Item> = Vec::new();
 
@@ -595,45 +650,66 @@ fn try_lift_arrow_arg(
         param_names.push(synth);
     }
 
-    // Body: Expr direto OU BlockStmt com 1 stmt (return ou expr).
-    // (cross-runtime #242/#248) Block sem return final retorna undefined
-    // em JS (map -> array de undefined, forEach ignora). Aceitamos block
-    // com expr-statement sozinho, retornando o valor (caso map quer)
-    // ou descartando (forEach).
+    // Body: Expr direto OU BlockStmt. Aceitamos blocos com N stmts
+    // onde os primeiros sao Expr-stmts (side-effects) e o ultimo eh
+    // Return ou outro Expr-stmt.
     let body_expr: Expr = match arrow.body.as_ref() {
         BlockStmtOrExpr::Expr(e) => (**e).clone(),
         BlockStmtOrExpr::BlockStmt(b) => {
-            if b.stmts.len() != 1 {
+            if b.stmts.is_empty() {
                 return None;
             }
-            match &b.stmts[0] {
+            // Stmts intermediarios devem ser todos Expr-stmts.
+            let n = b.stmts.len();
+            let mut side_effects: Vec<Box<Expr>> = Vec::new();
+            for i in 0..n.saturating_sub(1) {
+                match &b.stmts[i] {
+                    Stmt::Expr(se) => side_effects.push(se.expr.clone()),
+                    _ => return None,
+                }
+            }
+            // Stmt final: Return(expr) | Return(None) | Expr-stmt.
+            let last_expr: Expr = match &b.stmts[n - 1] {
                 Stmt::Return(r) => match r.arg.as_deref() {
                     Some(e) => e.clone(),
-                    // `return;` sem valor — retorna 0 (sera tratado como
-                    // undefined sentinela pelo caller quando necessario).
                     None => Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
                         span: Default::default(),
                         value: 0.0,
                         raw: None,
                     })),
                 },
-                // (cross-runtime #242) `(x) => { x * 2; }` — bloco com expr-stmt
-                // sem return. JS: retorna undefined. Aqui retornamos 0 como
-                // valor numerico (compativel com fn ABI i64).
-                Stmt::Expr(_) => Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
-                    span: Default::default(),
-                    value: 0.0,
-                    raw: None,
-                })),
+                Stmt::Expr(se) => {
+                    side_effects.push(se.expr.clone());
+                    Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                        span: Default::default(),
+                        value: 0.0,
+                        raw: None,
+                    }))
+                }
                 _ => return None,
+            };
+            if side_effects.is_empty() {
+                last_expr
+            } else {
+                side_effects.push(Box::new(last_expr));
+                Expr::Seq(swc_ecma_ast::SeqExpr {
+                    span: Default::default(),
+                    exprs: side_effects,
+                })
             }
         }
     };
 
     // Captura check: idents no body devem ser params, user fns,
-    // builtins de namespaces, ou nomes de classes globais. Senao skip.
+    // builtins de namespaces, classes globais, ou vars top-level
+    // mutaveis numericas/bool (essas promovidas a global storage
+    // writable por `collect_module_globals` — #195 pragmatico).
     let mut all_bound = param_names.clone();
     all_bound.extend(destructured_names.iter().cloned());
+    ALLOWED_CAPTURES.with(|c| {
+        let set = c.borrow();
+        all_bound.extend(set.iter().cloned());
+    });
     if has_capture(&body_expr, &all_bound, user_fn_names) {
         return None;
     }
@@ -786,7 +862,27 @@ fn has_capture(expr: &Expr, params: &[String], user_fn_names: &HashSet<String>) 
         Expr::TsTypeAssertion(t) => has_capture(&t.expr, params, user_fn_names),
         Expr::TsConstAssertion(t) => has_capture(&t.expr, params, user_fn_names),
         Expr::TsNonNull(t) => has_capture(&t.expr, params, user_fn_names),
-        // Conservador: qualquer outra forma (Fn, Arrow nested, Assign, Update, etc) → trata como captura.
+        // (#195 pragmatico) Update/Assign/Seq sao OK desde que os idents
+        // tocados estejam em params (ja' coberto via recurse) ou em
+        // ALLOWED_CAPTURES (top-level mut vars promovidas a global).
+        Expr::Update(u) => has_capture(&u.arg, params, user_fn_names),
+        Expr::Assign(a) => {
+            let lhs_cap = match &a.left {
+                swc_ecma_ast::AssignTarget::Simple(s) => match s {
+                    swc_ecma_ast::SimpleAssignTarget::Ident(id) => {
+                        let n = id.id.sym.as_str();
+                        !params.iter().any(|p| p == n)
+                            && !user_fn_names.contains(n)
+                            && !is_known_global_ident(n)
+                    }
+                    _ => true,
+                },
+                _ => true,
+            };
+            lhs_cap || has_capture(&a.right, params, user_fn_names)
+        }
+        Expr::Seq(s) => s.exprs.iter().any(|e| has_capture(e, params, user_fn_names)),
+        // Conservador: qualquer outra forma (Fn, Arrow nested, etc) → captura.
         _ => true,
     }
 }
