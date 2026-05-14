@@ -124,7 +124,7 @@
   "status": "rts_diverge",
   "bun": "name=Error\nmsg=zap\nstack=string\nhasBoom=true",
   "node": "name=Error\nmsg=zap\nstack=string\nhasBoom=true",
-  "rts": "name=null\nmsg=zap\nstack=number\nhasBoom=false"
+  "rts": "name=Error\nmsg=zap\nstack=string\nhasBoom=false"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -1689,10 +1689,10 @@
 ,
 {
   "name": "290_json_circular",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "err=TypeError",
   "node": "err=TypeError",
-  "rts": "err=null"
+  "rts": "err=TypeError"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": ""
 }
 ,
 {
@@ -2476,7 +2476,7 @@
   "status": "rts_diverge",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "regex=ab+:gi\nerror=null:boom\nself=false"
+  "rts": "regex=ab+:gi\nerror=Error:boom\nself=false"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":175,"rts_diverge":49,"bun_node_diverge":3,"errors":85,"rejected":0}}
+],"summary":{"total":312,"pass":176,"rts_diverge":48,"bun_node_diverge":3,"errors":85,"rejected":0}}
