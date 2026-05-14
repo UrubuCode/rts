@@ -146,8 +146,8 @@ pub(super) fn lower_string_builtin(
         }
         "charCodeAt" => {
             let idx = arg_i64(ctx, call, 0)?;
-            let v = call_h!("__RTS_FN_GL_STRING_CHAR_CODE_AT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, idx]);
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
+            let v = call_h!("__RTS_FN_GL_STRING_CHAR_CODE_AT_F64", &[cl::I64, cl::I64], Some(cl::F64), &[recv_h, idx]);
+            Ok(Some(TypedVal::new(v, ValTy::F64)))
         }
         "codePointAt" => {
             let idx = arg_i64(ctx, call, 0)?;

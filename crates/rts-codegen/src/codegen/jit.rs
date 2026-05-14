@@ -1169,6 +1169,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_GET
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO",
+            vec::__RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX
         );
@@ -1483,6 +1487,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_ENDS_WITH",        rt::__RTS_FN_GL_STRING_ENDS_WITH);
     add_fn!("__RTS_FN_GL_STRING_CHAR_AT",          rt::__RTS_FN_GL_STRING_CHAR_AT);
     add_fn!("__RTS_FN_GL_STRING_CHAR_CODE_AT",     rt::__RTS_FN_GL_STRING_CHAR_CODE_AT);
+    add_fn!("__RTS_FN_GL_STRING_CHAR_CODE_AT_F64", rt::__RTS_FN_GL_STRING_CHAR_CODE_AT_F64);
     add_fn!("__RTS_FN_GL_STRING_CODE_POINT_AT",    rt::__RTS_FN_GL_STRING_CODE_POINT_AT);
     add_fn!("__RTS_FN_GL_STRING_AT",               rt::__RTS_FN_GL_STRING_AT);
     add_fn!("__RTS_FN_GL_STRING_SLICE",            rt::__RTS_FN_GL_STRING_SLICE);

@@ -236,6 +236,18 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT(recv: u64, idx: i64) -> i64 {
     units.get(idx as usize).map(|&u| u as i64).unwrap_or(-1)
 }
 
+/// `str.charCodeAt(idx)` — JS spec: retorna NaN (f64) fora de range.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT_F64(recv: u64, idx: i64) -> f64 {
+    let Some(s) = handle_to_str(recv) else { return f64::NAN };
+    if idx < 0 { return f64::NAN; }
+    let units: Vec<u16> = s.encode_utf16().collect();
+    match units.get(idx as usize) {
+        Some(&u) => u as f64,
+        None => f64::NAN,
+    }
+}
+
 /// `str.codePointAt(i)` — JS spec: code point que comeca no code unit
 /// `i`. Se `i` for high surrogate seguido de low, retorna o code point
 /// composto (>= 0x10000). Senao retorna o code unit em `i`. Fora de
