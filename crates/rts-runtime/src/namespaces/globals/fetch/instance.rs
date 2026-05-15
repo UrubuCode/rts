@@ -269,6 +269,12 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
 /// nesse caso o caller passa um handle `Entry::Promise` (legacy) e
 /// recebe o valor inline.
 #[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE_EMPTY() -> i64 {
+    // Promise.resolve() — equivalente a Promise.resolve(undefined).
+    __RTS_FN_GL_PROMISE_RESOLVE(0)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
     
     let kind = with_entry(value, |entry| match entry {

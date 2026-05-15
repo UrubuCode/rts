@@ -157,6 +157,19 @@ pub const PROMISE_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    // (cross-runtime #285) Promise.resolve() sem args — equivalente a
+    // Promise.resolve(undefined). Reusa o impl passando 0 (null/undefined).
+    NamespaceMember {
+        name: "resolve",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_GL_PROMISE_RESOLVE_EMPTY",
+        args: &[],
+        returns: AbiType::I64,
+        doc: "Promise.resolve() — cria Promise já resolvida com undefined.",
+        ts_signature: "static resolve(): Promise<undefined>",
+        intrinsic: None,
+        pure: false,
+    },
     NamespaceMember {
         name: "reject",
         kind: MemberKind::Function,
