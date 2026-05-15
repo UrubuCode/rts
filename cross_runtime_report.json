@@ -505,10 +505,10 @@
 ,
 {
   "name": "156_string_localecompare",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
   "node": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
-  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1"
+  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=-1\na_A=1"
 }
 ,
 {
@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=3"
+  "rts": "call=0\napply=0\ncall_null=0"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": ""
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":189,"rts_diverge":49,"bun_node_diverge":3,"errors":71,"rejected":0}}
+],"summary":{"total":312,"pass":188,"rts_diverge":50,"bun_node_diverge":3,"errors":71,"rejected":0}}
