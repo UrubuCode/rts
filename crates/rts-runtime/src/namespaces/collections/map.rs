@@ -1084,6 +1084,76 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE(self_h: u64, other_h: u
     result
 }
 
+/// (#678/302) Set.symmetricDifference(other) — elementos em um Set ou outro mas nao em ambos.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(self_h: u64, other_h: u64) -> u64 {
+    let self_keys: Vec<(String, i64)> = with_entry(self_h, |e| match e {
+        Some(Entry::Map(m)) => m.iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        _ => Vec::new(),
+    });
+    let other_keys: Vec<(String, i64)> = with_entry(other_h, |e| match e {
+        Some(Entry::Map(m)) => m.iter()
+            .filter(|(k, _)| k.as_str() != "__proto__")
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        _ => Vec::new(),
+    });
+    let self_set: std::collections::HashSet<&String> = self_keys.iter().map(|(k, _)| k).collect();
+    let other_set: std::collections::HashSet<&String> = other_keys.iter().map(|(k, _)| k).collect();
+    let result = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    set_kind_set().lock().unwrap().insert(result);
+    with_map_mut(result, (), |m| {
+        for (k, v) in &self_keys {
+            if !other_set.contains(k) { m.insert(k.clone(), *v); }
+        }
+        for (k, v) in &other_keys {
+            if !self_set.contains(k) { m.insert(k.clone(), *v); }
+        }
+    });
+    result
+}
+
+/// (#678/302) Set.isSubsetOf(other) — todos elementos de self estao em other.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(self_h: u64, other_h: u64) -> i64 {
+    let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
+        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        _ => std::collections::HashSet::new(),
+    });
+    let all_in: bool = with_entry(self_h, |e| match e {
+        Some(Entry::Map(m)) => m.keys()
+            .filter(|k| k.as_str() != "__proto__")
+            .all(|k| other_keys.contains(k.as_str())),
+        _ => true,
+    });
+    if all_in { 1 } else { 0 }
+}
+
+/// (#678/302) Set.isSupersetOf(other) — todos elementos de other estao em self.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET(self_h: u64, other_h: u64) -> i64 {
+    __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(other_h, self_h)
+}
+
+/// (#678/302) Set.isDisjointFrom(other) — nenhum elemento em comum.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT(self_h: u64, other_h: u64) -> i64 {
+    let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
+        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        _ => std::collections::HashSet::new(),
+    });
+    let any_in: bool = with_entry(self_h, |e| match e {
+        Some(Entry::Map(m)) => m.keys()
+            .filter(|k| k.as_str() != "__proto__")
+            .any(|k| other_keys.contains(k.as_str())),
+        _ => false,
+    });
+    if any_in { 0 } else { 1 }
+}
+
 /// (#208 / #479) `Object.fromEntries(iter)` — aceita:
 /// - Vec de pares [key_handle, value] (Object.entries output, ou tuples literais)
 /// - Map direto (cada entry vira prop com mesma key/value)
