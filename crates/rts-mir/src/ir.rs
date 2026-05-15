@@ -24,6 +24,10 @@ pub struct MirFunc {
     /// extern resolver). Callers should treat this MIR as incomplete and
     /// route to the AST path instead of trusting the generated code.
     pub had_placeholders: bool,
+    /// Source file path (for stack trace instrumentation). Empty when unknown.
+    pub source_file: String,
+    /// Source line of the function declaration (for stack trace instrumentation).
+    pub source_line: u32,
 }
 
 impl MirFunc {
@@ -36,6 +40,8 @@ impl MirFunc {
             blocks: Vec::new(),
             values: Vec::new(),
             had_placeholders: false,
+            source_file: String::new(),
+            source_line: 0,
         }
     }
 

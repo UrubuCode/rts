@@ -514,6 +514,9 @@ pub struct FnCtx<'m, 'fb> {
     pub current_fn_name: String,
     /// Arquivo fonte atual (para stack traces em throw).
     pub current_file: String,
+    /// True quando codegen emitiu push_frame no entry — pop_frame deve ser
+    /// emitido antes de cada `return_` nesta função.
+    pub trace_instrumented: bool,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -586,6 +589,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             opt_chain_temp_counter: 0,
             current_fn_name: String::new(),
             current_file: String::new(),
+            trace_instrumented: false,
         }
     }
 
@@ -1035,6 +1039,35 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         };
         let len = self.builder.ins().iconst(cl::I64, bytes.len() as i64);
         Ok((ptr, len))
+    }
+
+    /// Emits a call to `__RTS_FN_NS_TRACE_PUSH_FRAME` with current fn/file/line/col.
+    /// Sets `self.trace_instrumented = true` so pop is emitted before every return.
+    pub fn emit_trace_push(&mut self, line: u32, col: u32) -> Result<()> {
+        let file_bytes = self.current_file.clone().into_bytes();
+        let fn_bytes = self.current_fn_name.clone().into_bytes();
+        let (file_ptr, file_len) = self.emit_str_literal(&file_bytes)?;
+        let (fn_ptr, fn_len) = self.emit_str_literal(&fn_bytes)?;
+        let line_v = self.builder.ins().iconst(cl::I64, line as i64);
+        let col_v = self.builder.ins().iconst(cl::I64, col as i64);
+        let push = self.get_extern(
+            "__RTS_FN_NS_TRACE_PUSH_FRAME",
+            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+            None,
+        )?;
+        self.builder.ins().call(push, &[file_ptr, file_len, fn_ptr, fn_len, line_v, col_v]);
+        self.trace_instrumented = true;
+        Ok(())
+    }
+
+    /// Emits a call to `__RTS_FN_NS_TRACE_POP_FRAME`. No-op if not instrumented.
+    pub fn emit_trace_pop(&mut self) -> Result<()> {
+        if !self.trace_instrumented {
+            return Ok(());
+        }
+        let pop = self.get_extern("__RTS_FN_NS_TRACE_POP_FRAME", &[], None)?;
+        self.builder.ins().call(pop, &[]);
+        Ok(())
     }
 
     /// Promotes a static string literal to a GC handle.
