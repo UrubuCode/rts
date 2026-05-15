@@ -10,13 +10,13 @@ function print(value: string): void {
 
 // 9_000_000_000_000_000_000 + 9_000_000_000_000_000_000 saturaria.
 const a = num.saturating_add(9000000000000000000, 9000000000000000000);
-const h1 = gc.string_from_i64(a); print(h1); gc.string_free(h1);
+const h1 = gc.string_from_i64_raw(a); print(h1); gc.string_free(h1);
 
 const b = num.saturating_sub(-9000000000000000000, 9000000000000000000);
-const h2 = gc.string_from_i64(b); print(h2); gc.string_free(h2);
+const h2 = gc.string_from_i64_raw(b); print(h2); gc.string_free(h2);
 
 const c = num.saturating_mul(3, 7);
-const h3 = gc.string_from_i64(c); print(h3); gc.string_free(h3);
+const h3 = gc.string_from_i64_raw(c); print(h3); gc.string_free(h3);
 
 describe("fixture:num_saturating", () => {
   test("matches expected stdout", () => {

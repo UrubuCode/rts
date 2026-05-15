@@ -10,20 +10,20 @@ function print(value: string): void {
 
 // MAX + 1 -> MIN (modular wrap).
 const a = num.wrapping_add(9223372036854775807, 1);
-const h1 = gc.string_from_i64(a); print(h1); gc.string_free(h1);
+const h1 = gc.string_from_i64_raw(a); print(h1); gc.string_free(h1);
 
 // 0 - 1 -> -1
 const b = num.wrapping_sub(0, 1);
-const h2 = gc.string_from_i64(b); print(h2); gc.string_free(h2);
+const h2 = gc.string_from_i64_raw(b); print(h2); gc.string_free(h2);
 
 const c = num.wrapping_neg(42);
-const h3 = gc.string_from_i64(c); print(h3); gc.string_free(h3);
+const h3 = gc.string_from_i64_raw(c); print(h3); gc.string_free(h3);
 
 const d = num.wrapping_shl(1, 4);
-const h4 = gc.string_from_i64(d); print(h4); gc.string_free(h4);
+const h4 = gc.string_from_i64_raw(d); print(h4); gc.string_free(h4);
 
 const e = num.wrapping_shr(256, 4);
-const h5 = gc.string_from_i64(e); print(h5); gc.string_free(h5);
+const h5 = gc.string_from_i64_raw(e); print(h5); gc.string_free(h5);
 
 describe("fixture:num_wrapping", () => {
   test("matches expected stdout", () => {

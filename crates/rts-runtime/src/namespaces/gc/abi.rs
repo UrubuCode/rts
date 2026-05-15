@@ -18,6 +18,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "string_from_i64_raw",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_GC_STRING_FROM_I64_RAW",
+        args: &[AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "Like string_from_i64, but never substitutes JS sentinel values (i64::MIN -> 'false' etc). Use for raw int formatting (num.checked_*).",
+        ts_signature: "string_from_i64_raw(value: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "string_from_f64",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_GC_STRING_FROM_F64",

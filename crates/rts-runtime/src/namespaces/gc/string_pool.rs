@@ -130,6 +130,14 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
     alloc_entry(Entry::String(value.to_string().into_bytes()))
 }
 
+/// (#raw-int) gc.string_from_i64_raw — formata int como decimal sem
+/// interceptar sentinelas. Usado por num.checked_*/saturating_* etc.
+/// onde i64::MIN representa overflow real, nao sentinel "false".
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64_RAW(value: i64) -> u64 {
+    alloc_entry(Entry::String(value.to_string().into_bytes()))
+}
+
 /// (#proto-method) Coerce inteligente para template literal:
 /// se \`value\` (i64) eh handle valido para Entry::String, retorna o
 /// proprio handle. Senao, formata como integer (\`STRING_FROM_I64\`).
