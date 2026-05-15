@@ -114,6 +114,49 @@ $env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts output  # 
 target/release/rts.exe apis                       # listar APIs disponiveis
 ```
 
+### Debugando falhas de teste individuais
+
+**Regra:** ao investigar falhas, SEMPRE rodar o arquivo individual antes
+de rodar a suite completa — evita timeout e ruido de outros testes.
+
+```bash
+# rodar só o arquivo que falhou
+target/release/rts.exe test tests/foo.test.ts
+
+# inspecionar IR Cranelift gerado (ANTES de executar)
+target/release/rts.exe ir tests/foo.test.ts 2>&1 | head -60
+```
+
+`rts ir` mostra o IR de cada funcao compilada. Usar para diagnosticar:
+
+- **"unknown namespace member `X.Y`"** — X.Y nao tem handler no
+  codegen (`calls/mod.rs`) nem entry no ABI. Adicionar handler ou
+  registrar no ABI.
+- **"illegal instruction" / SIGILL** — IR invalido (tipo errado,
+  iconst fora de range, brif sem branch). Ver qual bloco antecede o
+  trap no IR.
+- **"access violation"** — load/store com ptr nulo. Conferir que
+  handles foram inicializados antes de usar.
+- **Resultado errado (sem crash)** — comparar IR com comportamento
+  esperado. Procurar iconst 0 onde nao deveria (placeholder do MIR),
+  ou cast errado.
+
+**Workflow tipico:**
+
+1. `target/release/rts.exe test tests/failing.test.ts` — ver o erro
+2. `target/release/rts.exe ir tests/failing.test.ts 2>&1` — ver se
+   compila e qual IR gera
+3. Se o IR nao compila (erro de codegen): fix em `calls/mod.rs` ou
+   no crate relevante
+4. Se o IR compila mas resultado errado: analisar o IR da fn com
+   problema, comparar tipos/conversoes
+5. Rebuild (`cargo build --release`) e repetir
+
+**Nota:** binario `target/release/rts.exe` pode estar desatualizado
+se commits foram mergeados sem rebuild. Sempre `cargo build --release`
+antes de depurar falhas suspeitas (especialmente "unknown namespace
+member" que pode ser feature ja' implementada em commits recentes).
+
 **Padrão obrigatório:** sempre definir `RUST_BACKTRACE=full` antes de executar
 o `rts.exe`. Sem isso, crashes mostram stack trace raso sem contexto útil.
 O crash handler (`src/crash.rs`) usa essa variável para exibir frames completos.
