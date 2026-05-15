@@ -165,21 +165,13 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         }
         let fn_ref = ctx.get_extern_abi(ctor.symbol, &sig.params, sig.ret)?;
         let inst = ctx.builder.ins().call(fn_ref, &arg_vals);
-        let handle = ctx.builder.inst_results(inst)[0];
-        // Track local variable type for instance method dispatch
-        // Caller (lower_var_decl) will store the binding name; we store the class name
-        // via the return value annotation. Here we return a Handle tagged with class name.
-        // The caller in lower_let_decl sets local_class_ty[bind] = class_name when it sees
-        // a NewExpr whose callee is a known class. We need to ensure class_name is in
-        // local_class_ty — do so by inserting via the returned TypedVal metadata.
-        // Since we can't do it here directly (no bind name), the lower_let path handles it.
-        // But we need to mark it as a global class so lhs_static_class can find it.
-        // Store class_name in global_class_ty isn't mutable. Use local_class_ty trick:
-        // The VarDecl lowering already calls `ctx.local_class_ty.insert(bind, class_name)`
-        // when it detects a NewExpr with a known user class. We must ensure the same
-        // happens for global classes. See lower/func.rs compile_user_fn var_decl handling.
-        // For now return Handle — the VarDecl lowering will handle local_class_ty.
-        return Ok(TypedVal::new(handle, ValTy::Handle));
+        let result_val = ctx.builder.inst_results(inst)[0];
+        // (cross-runtime panic fix) Usar from_abi pra preservar tipo Cranelift
+        // do retorno do constructor. Antes assumia Handle (i64), mas Number/
+        // Boolean retornam F64/I64 inteiros — declarar como Handle causa
+        // Cranelift type mismatch panic.
+        let result_ty = ValTy::from_abi(ctor.returns);
+        return Ok(TypedVal::new(result_val, result_ty));
     }
 
     // (#218) `new Proxy(target, handler)` — aloca Entry::Proxy.
