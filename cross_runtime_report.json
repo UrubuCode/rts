@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=0"
+  "rts": "call=0\napply=0\ncall_null=3"
 }
 ,
 {
@@ -1785,10 +1785,10 @@
 ,
 {
   "name": "301_groupby_dedicated",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b",
   "node": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:b|2:aa,cc"
 }
 ,
 {
@@ -2409,10 +2409,10 @@
 ,
 {
   "name": "89_groupby",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2",
   "node": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=0:2|1:1,3"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":188,"rts_diverge":47,"bun_node_diverge":3,"errors":74,"rejected":0}}
+],"summary":{"total":312,"pass":188,"rts_diverge":49,"bun_node_diverge":3,"errors":72,"rejected":0}}
