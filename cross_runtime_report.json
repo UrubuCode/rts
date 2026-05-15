@@ -497,10 +497,10 @@
 ,
 {
   "name": "155_object_getprototypeof",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
   "node": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "is_object_proto=false\nis_array_proto=false\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
 }
 ,
 {
@@ -1468,7 +1468,7 @@
   "status": "rts_diverge",
   "bun": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
   "node": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
-  "rts": "map={}\narr={}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}"
+  "rts": "map={\"a\":1,\"b\":2}\narr={}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":181,"rts_diverge":48,"bun_node_diverge":3,"errors":80,"rejected":0}}
+],"summary":{"total":312,"pass":181,"rts_diverge":48,"bun_node_diverge":4,"errors":79,"rejected":0}}
