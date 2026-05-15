@@ -129,6 +129,37 @@ fn str_from_parts(ptr: i64, len: i64) -> &'static str {
     }
 }
 
+/// (cross-runtime #746) URL.canParse(href) — true se o URL parsa.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_CAN_PARSE(ptr: i64, len: i64) -> i64 {
+    let raw = str_from_parts(ptr, len);
+    if ParsedUrl::parse(raw).is_some() { 1 } else { 0 }
+}
+
+/// URL.canParse(href, base) — true se href resolve relativo a base.
+/// Implementacao minima: tenta parse(href); se falhar, tenta concatenar
+/// com base + "/" + href; retorna true se algum parsa.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_CAN_PARSE_BASE(
+    href_ptr: i64, href_len: i64,
+    base_ptr: i64, base_len: i64,
+) -> i64 {
+    let href = str_from_parts(href_ptr, href_len);
+    let base = str_from_parts(base_ptr, base_len);
+    // Tenta parse direto primeiro (href ja absoluto).
+    if ParsedUrl::parse(href).is_some() { return 1; }
+    // base precisa parsar.
+    let Some(base_url) = ParsedUrl::parse(base) else { return 0 };
+    // Resolve href relativo a base. Para "/x" + "https://example.com",
+    // retorna "https://example.com/x". Para path complexo, usa join naive.
+    let combined = if href.starts_with('/') {
+        format!("{}://{}{}", base_url.protocol.trim_end_matches(':'), base_url.host(), href)
+    } else {
+        format!("{}://{}/{}", base_url.protocol.trim_end_matches(':'), base_url.host(), href)
+    };
+    if ParsedUrl::parse(&combined).is_some() { 1 } else { 0 }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_NEW(ptr: i64, len: i64) -> u64 {
     let raw = str_from_parts(ptr, len);

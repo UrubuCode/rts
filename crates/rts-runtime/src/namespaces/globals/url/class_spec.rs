@@ -156,6 +156,29 @@ pub const URL_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    // (cross-runtime #746) URL.canParse(href, base?) — true se o URL parsa.
+    NamespaceMember {
+        name: "canParse",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_GL_URL_CAN_PARSE",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Bool,
+        doc: "URL.canParse(href) — true se o URL parsa, false caso contrario.",
+        ts_signature: "static canParse(href: string): boolean",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "canParse",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_GL_URL_CAN_PARSE_BASE",
+        args: &[AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Bool,
+        doc: "URL.canParse(href, base) — true se href resolve em relacao a base.",
+        ts_signature: "static canParse(href: string, base: string): boolean",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const URL_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
