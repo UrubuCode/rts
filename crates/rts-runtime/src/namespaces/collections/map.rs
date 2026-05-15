@@ -1154,6 +1154,64 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT(self_h: u64, other_h: 
     if any_in { 0 } else { 1 }
 }
 
+/// (#678/89) Object.groupBy(arr, fn) — ES2024. Itera arr, chama fn(elem, idx)
+/// para obter key. Cria obj { key: [items...] } com todos elements agrupados.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_GROUP_BY(arr: u64, fn_ptr: u64) -> u64 {
+    group_by_impl(arr, fn_ptr, false)
+}
+
+/// (#678/89) Map.groupBy(arr, fn) — igual ao Object.groupBy mas marca resultado
+/// como Map (Array.from(map.entries()) retorna pairs).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GROUP_BY(arr: u64, fn_ptr: u64) -> u64 {
+    group_by_impl(arr, fn_ptr, true)
+}
+
+fn group_by_impl(arr: u64, fn_ptr: u64, mark_as_map: bool) -> u64 {
+    let items: Vec<i64> = with_entry(arr, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let result = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    if mark_as_map {
+        map_kind_set().lock().unwrap().insert(result);
+    }
+    if fn_ptr == 0 || items.is_empty() {
+        return result;
+    }
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    for (i, &item) in items.iter().enumerate() {
+        let key_h = f(item, i as i64);
+        // Resolve key: pode ser handle de string OU int direto.
+        let key_str: String = if key_h > 0xFFFF_FFFF {
+            with_entry(key_h as u64, |e| match e {
+                Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+                _ => key_h.to_string(),
+            })
+        } else {
+            key_h.to_string()
+        };
+        // Pega ou cria Vec naquele key.
+        let existing_vec_h: i64 = with_map(result, 0, |m| m.get(&key_str).copied().unwrap_or(0));
+        let vec_h = if existing_vec_h == 0 {
+            let h = alloc_entry(Entry::Vec(Box::new(Vec::new()))) as i64;
+            with_map_mut(result, (), |m| {
+                m.insert(key_str, h);
+            });
+            h
+        } else {
+            existing_vec_h
+        };
+        with_entry_mut(vec_h as u64, |e| {
+            if let Some(Entry::Vec(v)) = e {
+                v.push(item);
+            }
+        });
+    }
+    result
+}
+
 /// (#208 / #479) `Object.fromEntries(iter)` — aceita:
 /// - Vec de pares [key_handle, value] (Object.entries output, ou tuples literais)
 /// - Map direto (cada entry vira prop com mesma key/value)
