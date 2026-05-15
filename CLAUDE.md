@@ -602,6 +602,25 @@ $env:RUST_BACKTRACE = "full"
 export RUST_BACKTRACE=full
 ```
 
+### Iteracao rapida: `cargo run -- run` vs `build --release`
+
+Para iterar em mudancas de Rust, escolha o modo pelo objetivo:
+
+| Comando | Quando usar | Tempo full rebuild | Binario |
+|---|---|---|---|
+| `cargo run -- run file.ts` | Iterar fix de codegen/runtime, ver se compila + roda | ~30s (debug) | lento (~10x release) |
+| `cargo run --release -- run file.ts` | Mesmo que abaixo, em um comando so | ~100s | rapido |
+| `cargo build --release` + `target/release/rts.exe run file.ts` | Benchmarks, suite TS completa, validar performance | ~100s | rapido |
+| `target/release/rts.exe run file.ts` (direto) | Re-rodar `.ts` sem mudar Rust | 0s (skip cargo) | rapido |
+
+Pontos importantes:
+
+- **`cargo run` SEMPRE checa staleness e recompila se algo mudou.** Nao existe "rodar sem compilar" — a frase eh incorreta. Mudancas em Rust **entram** porque o cargo recompila antes de executar.
+- **Debug (`cargo run -- run`) eh ~3x mais rapido pra compilar** que release, mas o binario gerado eh ~10x mais lento. Bom pra "compila? executa? bate o caminho que eu mudei?". Ruim pra qualquer medicao de tempo.
+- **Para benchmarks, suite TS, ou qualquer validacao de performance**, use sempre `--release`. Numero de debug mente.
+- **Se voce so' mudou `.ts` (nao Rust)**, chame `target/release/rts.exe` direto — pula o overhead de ~100s do cargo checar o workspace.
+- `cargo run` envolve o exit code do programa (exit 1 do programa vira "process didn't exit successfully" no cargo). Isso eh esperado, nao eh bug.
+
 Testes de codegen vivem em `tests/*.test.ts` (formato `rts:test`). Para
 adicionar novo teste, criar `tests/<name>.test.ts` com:
 
