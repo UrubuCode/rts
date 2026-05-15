@@ -891,6 +891,23 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (cross-runtime #772) Object.setPrototypeOf(obj, proto) —
+                // reusa o impl de Reflect.setPrototypeOf.
+                if method == "setPrototypeOf" && call.args.len() == 2 {
+                    let target_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let target = ctx.coerce_to_i64(target_tv).val;
+                    let proto_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let proto = ctx.coerce_to_i64(proto_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[target, proto]);
+                    let _ = ctx.builder.inst_results(inst)[0];
+                    // JS spec: Object.setPrototypeOf retorna o proprio target.
+                    return Ok(TypedVal::new(target, ValTy::Handle));
+                }
                 // (#771) Object.isExtensible/preventExtensions — backed por
                 // Set thread-safe de handles em collections.
                 if method == "isExtensible" && call.args.len() == 1 {
