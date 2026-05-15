@@ -5,36 +5,96 @@
 
 use swc_ecma_ast::{Callee, Expr, Stmt};
 
-use crate::parser::ast::{ClassMember, Item, Program, Statement};
+use crate::parser::ast::{ClassMember, Item, Parameter, Program, Statement};
+
+/// (#640) Substitui referencias a Ident(param_name) por exprs ja resolvidas
+/// do callsite. Isso permite defaults que referenciam outros params funcionarem
+/// quando o callsite preenche o slot indireto (ex: `rect(5)` com
+/// `fn rect(w, h = w)` -> `rect(5, 5)` em vez de `rect(5, w)`).
+fn substitute_param_refs(
+    expr: &mut Expr,
+    bindings: &std::collections::HashMap<String, Expr>,
+) {
+    match expr {
+        Expr::Ident(id) => {
+            if let Some(replacement) = bindings.get(id.sym.as_str()) {
+                *expr = replacement.clone();
+            }
+        }
+        Expr::Call(call) => {
+            for a in call.args.iter_mut() {
+                substitute_param_refs(&mut a.expr, bindings);
+            }
+            if let Callee::Expr(ce) = &mut call.callee {
+                substitute_param_refs(ce, bindings);
+            }
+        }
+        Expr::Bin(b) => {
+            substitute_param_refs(&mut b.left, bindings);
+            substitute_param_refs(&mut b.right, bindings);
+        }
+        Expr::Unary(u) => substitute_param_refs(&mut u.arg, bindings),
+        Expr::Update(u) => substitute_param_refs(&mut u.arg, bindings),
+        Expr::Cond(c) => {
+            substitute_param_refs(&mut c.test, bindings);
+            substitute_param_refs(&mut c.cons, bindings);
+            substitute_param_refs(&mut c.alt, bindings);
+        }
+        Expr::Member(m) => substitute_param_refs(&mut m.obj, bindings),
+        Expr::Paren(p) => substitute_param_refs(&mut p.expr, bindings),
+        Expr::Tpl(t) => {
+            for e in &mut t.exprs {
+                substitute_param_refs(e, bindings);
+            }
+        }
+        Expr::Array(a) => {
+            for el in a.elems.iter_mut().flatten() {
+                substitute_param_refs(&mut el.expr, bindings);
+            }
+        }
+        Expr::Assign(a) => substitute_param_refs(&mut a.right, bindings),
+        _ => {}
+    }
+}
 
 pub(crate) fn expand_default_args(program: &mut Program) {
     use std::collections::HashMap;
 
-    // Mapa: nome → params (defaults inclusos). Para métodos: mesmo nome
-    // pode aparecer em múltiplas classes — guardamos em outro mapa
-    // indexado por (class, method).
-    let mut fn_defaults: HashMap<String, Vec<Option<Box<Expr>>>> = HashMap::new();
-    let mut method_defaults: HashMap<(String, String), Vec<Option<Box<Expr>>>> = HashMap::new();
+    // Mapa: nome → (param_names, defaults). param_names eh usado para
+    // resolver refs cruzadas (#640): default que referencia outro param
+    // (`fn rect(w, h = w)`) substitui a ref pelo expr ja resolvido no
+    // callsite.
+    let mut fn_defaults: HashMap<String, (Vec<String>, Vec<Option<Box<Expr>>>)> = HashMap::new();
+    let mut method_defaults: HashMap<(String, String), (Vec<String>, Vec<Option<Box<Expr>>>)> = HashMap::new();
+
+    fn extract_names(params: &[Parameter]) -> Vec<String> {
+        params.iter().map(|p| p.name.clone()).collect()
+    }
 
     for item in &program.items {
         match item {
             Item::Function(f) => {
                 if f.parameters.iter().any(|p| p.default.is_some()) {
+                    let names = extract_names(&f.parameters);
                     let defaults: Vec<Option<Box<Expr>>> =
                         f.parameters.iter().map(|p| p.default.clone()).collect();
-                    fn_defaults.insert(f.name.clone(), defaults);
+                    fn_defaults.insert(f.name.clone(), (names, defaults));
                 }
             }
             Item::Class(c) => {
                 for m in &c.members {
                     if let ClassMember::Method(method) = m {
                         if method.parameters.iter().any(|p| p.default.is_some()) {
+                            let names = extract_names(&method.parameters);
                             let defaults: Vec<Option<Box<Expr>>> = method
                                 .parameters
                                 .iter()
                                 .map(|p| p.default.clone())
                                 .collect();
-                            method_defaults.insert((c.name.clone(), method.name.clone()), defaults);
+                            method_defaults.insert(
+                                (c.name.clone(), method.name.clone()),
+                                (names, defaults),
+                            );
                         }
                     }
                 }
@@ -93,8 +153,8 @@ pub(crate) fn expand_default_args(program: &mut Program) {
 
 fn expand_in_stmt(
     stmt: &mut Stmt,
-    fn_defaults: &std::collections::HashMap<String, Vec<Option<Box<Expr>>>>,
-    method_defaults: &std::collections::HashMap<(String, String), Vec<Option<Box<Expr>>>>,
+    fn_defaults: &std::collections::HashMap<String, (Vec<String>, Vec<Option<Box<Expr>>>)>,
+    method_defaults: &std::collections::HashMap<(String, String), (Vec<String>, Vec<Option<Box<Expr>>>)>,
 ) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
@@ -174,8 +234,8 @@ fn expand_in_stmt(
 
 fn expand_in_expr(
     expr: &mut Expr,
-    fn_defaults: &std::collections::HashMap<String, Vec<Option<Box<Expr>>>>,
-    method_defaults: &std::collections::HashMap<(String, String), Vec<Option<Box<Expr>>>>,
+    fn_defaults: &std::collections::HashMap<String, (Vec<String>, Vec<Option<Box<Expr>>>)>,
+    method_defaults: &std::collections::HashMap<(String, String), (Vec<String>, Vec<Option<Box<Expr>>>)>,
 ) {
     // Recurse primeiro para que callsites internos também sejam expandidos.
     match expr {
@@ -208,14 +268,31 @@ fn expand_in_expr(
                 None
             };
             if let Some(name) = fn_name {
-                if let Some(defaults) = fn_defaults.get(&name) {
+                if let Some((param_names, defaults)) = fn_defaults.get(&name) {
                     let provided = call.args.len();
                     let total = defaults.len();
                     if provided < total {
+                        // (#640) Build bindings: param_name -> expr ja
+                        // resolvido no callsite. Permite que defaults
+                        // que referenciam outros params (`h = w`)
+                        // substituam para o expr correto.
+                        let mut bindings: std::collections::HashMap<String, Expr> =
+                            std::collections::HashMap::new();
+                        for (idx, arg) in call.args.iter().enumerate() {
+                            if let Some(pn) = param_names.get(idx) {
+                                bindings.insert(pn.clone(), (*arg.expr).clone());
+                            }
+                        }
                         for i in provided..total {
                             if let Some(def) = &defaults[i] {
                                 let mut def_clone = (**def).clone();
+                                substitute_param_refs(&mut def_clone, &bindings);
                                 expand_in_expr(&mut def_clone, fn_defaults, method_defaults);
+                                // Default recem-resolvido tambem entra
+                                // como binding pro proximo param.
+                                if let Some(pn) = param_names.get(i) {
+                                    bindings.insert(pn.clone(), def_clone.clone());
+                                }
                                 call.args.push(swc_ecma_ast::ExprOrSpread {
                                     spread: None,
                                     expr: Box::new(def_clone),
