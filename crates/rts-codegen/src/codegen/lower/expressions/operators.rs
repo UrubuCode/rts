@@ -1487,8 +1487,11 @@ fn lower_global_instanceof(
     lhs_expr: &Expr,
 ) -> Result<TypedVal> {
     let lhs = lower_expr(ctx, lhs_expr)?;
-    // Primitives (F64/I64/I32/Bool) nunca passam instanceof <class>.
-    if !matches!(lhs.ty, ValTy::Handle) {
+    // F64/I32/Bool sao primitives puros — nunca passam instanceof <class>.
+    // I64/U64 podem carregar handles (ex: callback param sem tipo onde
+    // o array element eh handle). Caem no runtime check via IS_* que
+    // retorna 0 para handles invalidos — sem regressao em primitivos.
+    if matches!(lhs.ty, ValTy::F64 | ValTy::I32 | ValTy::Bool) {
         let zero = ctx.builder.ins().iconst(cl::I64, 0);
         return Ok(TypedVal::new(zero, ValTy::Bool));
     }
