@@ -90,8 +90,13 @@ pub(super) fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result
             }
         }
         let tv = super::lower_expr(ctx, &arg.expr)?;
+        // (cross-runtime #256/#262) I64 ambiguo (param de hoisted arrow,
+        // var_member_call) pode ser handle de string — checa is_ambig_handle
+        // ANTES do branch I64 puro para nao perder o caminho NUMBER_FROM_STR.
+        let is_ambig_for_num = matches!(tv.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_member_call_values.contains(&tv.val);
         // Sentinela undefined (i64::MIN+2) → NaN; sentinela null (i64::MIN+3) → 0.
-        if matches!(tv.ty, ValTy::I64) {
+        if matches!(tv.ty, ValTy::I64) && !is_ambig_for_num {
             let sentinel_undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
             let sentinel_null  = ctx.builder.ins().iconst(cl::I64, i64::MIN + 3);
             let is_undef = ctx.builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tv.val, sentinel_undef);
