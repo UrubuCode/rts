@@ -121,6 +121,25 @@ pub extern "C" fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64, options: u64) -
     alloc_error_with_cause("EvalError", msg, extract_cause(options))
 }
 
+/// (cross-runtime #748) `new AggregateError(errors, message?)` — errors
+/// e' handle de Vec<i64> contendo os erros aggregados. Armazenamos o
+/// handle de errors no slot `cause` da ErrorObj (single i64 disponivel
+/// sem refactor de Entry); `.errors` lê esse slot.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_AGGREGATE_ERROR_NEW(errors: u64, ptr: i64, len: i64) -> u64 {
+    let msg = unsafe { str_from_raw(ptr, len) };
+    alloc_error_with_cause("AggregateError", msg, errors)
+}
+
+/// `agg.errors` — retorna o handle do Vec passado no construtor.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_AGGREGATE_ERROR_ERRORS(handle: u64) -> u64 {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::ErrorObj { cause, .. }) => *cause,
+        _ => 0,
+    })
+}
+
 // ── Instance methods ──────────────────────────────────────────────────────────
 
 /// `instanceof Error` (any subtype) — handle aponta para Entry::ErrorObj

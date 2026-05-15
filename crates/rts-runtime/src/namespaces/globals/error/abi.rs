@@ -466,3 +466,69 @@ pub const EVAL_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
     doc: "Built-in EvalError class.",
     members: EVAL_ERROR_MEMBERS,
 };
+
+// ── AggregateError ────────────────────────────────────────────────────────────
+
+pub const AGGREGATE_ERROR_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_AGGREGATE_ERROR_NEW",
+        args: &[AbiType::Handle, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "Creates an AggregateError com array de errors e message opcional.",
+        ts_signature: "new AggregateError(errors: any[], message?: string): AggregateError",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "message",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_MESSAGE",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The error message string.",
+        ts_signature: "message: string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "name",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_NAME",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "The error name (\"AggregateError\").",
+        ts_signature: "name: string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "toString",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ERROR_TO_STRING",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Returns \"AggregateError: <message>\".",
+        ts_signature: "toString(): string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "errors",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_AGGREGATE_ERROR_ERRORS",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Vec<i64> handle dos errors passados no construtor.",
+        ts_signature: "errors: any[]",
+        intrinsic: None,
+        pure: true,
+    },
+];
+
+pub const AGGREGATE_ERROR_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "AggregateError",
+    doc: "Built-in AggregateError class (ES2021).",
+    members: AGGREGATE_ERROR_MEMBERS,
+};
