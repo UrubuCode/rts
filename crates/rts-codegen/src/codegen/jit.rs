@@ -1205,6 +1205,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT",
             map::__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT
         );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_OBJECT_GROUP_BY",
+            map::__RTS_FN_NS_COLLECTIONS_OBJECT_GROUP_BY
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GROUP_BY",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GROUP_BY
+        );
         // (#208 / #479) Object static methods.
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES",

@@ -1086,6 +1086,39 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                     return Ok(TypedVal::new(acc, ValTy::Handle));
                 }
+                // (#678/89) Object.groupBy(arr, fn) - ES2024. Agrupa elementos
+                // por key retornado de fn(elem, idx). Retorna obj { key: [items] }.
+                if method == "groupBy" && call.args.len() == 2 {
+                    let arr_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let arr_h = ctx.coerce_to_i64(arr_tv).val;
+                    let fn_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let fn_h = ctx.coerce_to_i64(fn_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_OBJECT_GROUP_BY",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[arr_h, fn_h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
+            }
+            // (#678/89) Map.groupBy(arr, fn) - ES2024. Igual Object.groupBy mas retorna Map.
+            if let Some(method) = qualified.strip_prefix("Map.") {
+                if method == "groupBy" && call.args.len() == 2 {
+                    let arr_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let arr_h = ctx.coerce_to_i64(arr_tv).val;
+                    let fn_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let fn_h = ctx.coerce_to_i64(fn_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_GROUP_BY",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[arr_h, fn_h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
             }
             // (#218) Reflect API v0: get/set/has/deleteProperty/ownKeys.
             // Reusa as fns MAP_* (semantica identica a Object.*).
