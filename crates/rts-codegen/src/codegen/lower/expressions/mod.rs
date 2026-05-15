@@ -131,12 +131,11 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
             return Ok(TypedVal::new(v, ValTy::F64));
         }
         "undefined" => {
-            // Usado em \`x === undefined\`, \`x ?? def\`, \`${undefined}\`.
-            // Sentinel 0 cobre as 3 — strict check distingue tipo via
-            // operador, e template literal converte i64 0 para "0".
-            // Pra alinhar com JS \`${undefined}\` -> "undefined", emitimos
-            // string handle "undefined" direto.
-            return ctx.emit_str_handle(b"undefined");
+            // Sentinel i64::MIN+2 para undefined. TPL_COERCE_AUTO e
+            // STRING_FROM_I64 convertem para "undefined" em string contexts;
+            // NullishCoalescing e is_undefined checks reconhecem este sentinel.
+            let sentinel = ctx.builder.ins().iconst(cranelift_codegen::ir::types::I64, i64::MIN + 2);
+            return Ok(TypedVal::new(sentinel, ValTy::I64));
         }
         _ => {}
     }

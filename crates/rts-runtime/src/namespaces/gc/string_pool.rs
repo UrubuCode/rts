@@ -56,7 +56,14 @@ pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
                 Err(_) => b.len() as i64,
             }
         }
-        Some(Entry::Map(m)) => m.len() as i64,
+        Some(Entry::Map(m)) => {
+            // Array-like maps (e.g. regex match results) store "length" key.
+            if let Some(&v) = m.get("length") {
+                v
+            } else {
+                m.len() as i64
+            }
+        }
         Some(Entry::Vec(v)) => v.len() as i64,
         Some(Entry::Buffer(b)) => b.len() as i64,
         Some(Entry::Env(s)) => s.len() as i64,
@@ -113,6 +120,13 @@ pub extern "C" fn __RTS_FN_NS_GC_IS_PROMISE(handle: u64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
+    // Sentinelas JS: nunca formatar como inteiro decimal.
+    if value == i64::MIN     { return alloc_entry(Entry::String(b"false".to_vec())); }
+    if value == i64::MIN + 1 { return alloc_entry(Entry::String(b"true".to_vec())); }
+    if value == i64::MIN + 2 || value == i64::MIN + 4 {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    if value == i64::MIN + 3 { return alloc_entry(Entry::String(b"null".to_vec())); }
     alloc_entry(Entry::String(value.to_string().into_bytes()))
 }
 

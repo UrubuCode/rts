@@ -112,32 +112,50 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
         All(Vec<Vec<u8>>),
         None,
     }
-    let mr: MatchResult = with_entry(regex_handle, |e| match e {
+    enum MatchResultExt {
+        First { items: Vec<Vec<u8>>, index: usize },
+        All(Vec<Vec<u8>>),
+        None,
+    }
+    let mr: MatchResultExt = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rts_rx)) => {
             if rts_rx.global {
-                // flag g: retorna todos os fullMatches
                 let all: Vec<Vec<u8>> = rts_rx.regex
                     .find_iter(&s_owned)
                     .map(|m| m.as_str().as_bytes().to_vec())
                     .collect();
-                MatchResult::All(all)
+                MatchResultExt::All(all)
             } else {
-                // sem flag g: retorna [fullMatch, ...grupos]
                 match rts_rx.regex.captures(&s_owned) {
                     Some(caps) => {
+                        let index = caps.get(0).map(|m| m.start()).unwrap_or(0);
                         let items: Vec<Vec<u8>> = (0..caps.len())
                             .map(|i| caps.get(i).map(|m| m.as_str().as_bytes().to_vec()).unwrap_or_default())
                             .collect();
-                        MatchResult::First(items)
+                        MatchResultExt::First { items, index }
                     }
-                    None => MatchResult::None,
+                    None => MatchResultExt::None,
                 }
             }
         }
-        _ => MatchResult::None,
+        _ => MatchResultExt::None,
     });
     match mr {
-        MatchResult::First(items) | MatchResult::All(items) => {
+        MatchResultExt::First { items, index } => {
+            if items.is_empty() { return 0; }
+            // Retorna Map com chaves "0","1",... + "index" + "input" + "length".
+            let mut map: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+            for (i, bytes) in items.iter().enumerate() {
+                let h = alloc_entry(Entry::String(bytes.clone())) as i64;
+                map.insert(i.to_string(), h);
+            }
+            map.insert("length".to_string(), items.len() as i64);
+            map.insert("index".to_string(), index as i64);
+            let input_h = alloc_entry(Entry::String(s_owned.into_bytes())) as i64;
+            map.insert("input".to_string(), input_h);
+            alloc_entry(Entry::Map(Box::new(map)))
+        }
+        MatchResultExt::All(items) => {
             if items.is_empty() { return 0; }
             let slots: Vec<i64> = items
                 .into_iter()
@@ -145,7 +163,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
                 .collect();
             alloc_entry(Entry::Vec(Box::new(slots)))
         }
-        MatchResult::None => 0,
+        MatchResultExt::None => 0,
     }
 }
 

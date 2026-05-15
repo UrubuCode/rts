@@ -617,10 +617,10 @@ pub const STRING_CLASS_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "toWellFormed",
         kind: MemberKind::InstanceMethod,
-        symbol: "__RTS_FN_GL_STRING_TO_STRING",
+        symbol: "__RTS_FN_GL_STRING_TO_WELL_FORMED",
         args: &[AbiType::Handle],
         returns: AbiType::Handle,
-        doc: "str.toWellFormed() — noop (RTS strings always well-formed).",
+        doc: "str.toWellFormed() — substitui lone surrogates por U+FFFD.",
         ts_signature: "toWellFormed(): string",
         intrinsic: None,
         pure: true,

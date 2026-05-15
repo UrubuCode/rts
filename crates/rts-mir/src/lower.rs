@@ -147,10 +147,9 @@ pub fn lower_func_full_with_intrinsics(
         let trap = if matches!(func.ret, HirType::Void) {
             Terminator::Return(vec![])
         } else {
-            // Returning the zero value of the declared type keeps the IR
-            // well-formed even when the source forgot to return.
-            let zero = emit_zero_const(&func.ret, &mut mir, &mut ctx);
-            Terminator::Return(vec![zero])
+            // JS spec: implicit return = undefined.
+            let undef = emit_undefined_const(&func.ret, &mut mir, &mut ctx);
+            Terminator::Return(vec![undef])
         };
         set_term(&mut mir, ctx.cursor, trap);
     }
@@ -1989,6 +1988,32 @@ fn emit_zero_const(ty: &HirType, mir: &mut MirFunc, ctx: &mut LowerCtx) -> Value
             dst,
             ty: t.clone(),
             val: 0,
+        },
+    };
+    ctx.push_inst(mir, inst);
+    dst
+}
+
+fn emit_undefined_const(ty: &HirType, mir: &mut MirFunc, ctx: &mut LowerCtx) -> ValueId {
+    let normalized = match ty {
+        HirType::Unknown | HirType::Any => HirType::I64,
+        other => other.clone(),
+    };
+    let dst = mir.new_value(normalized.clone());
+    let inst = match normalized {
+        HirType::F32 => Inst::F32Const { dst, val: 0.0 },
+        HirType::F64 | HirType::Number => Inst::F64Const { dst, val: f64::NAN },
+        // Bool/narrow integers return 0 (false/0).
+        HirType::Bool | HirType::I8 | HirType::I16 | HirType::I32 | HirType::U8 | HirType::U16 | HirType::U32 => Inst::IConst {
+            dst,
+            ty: normalized,
+            val: 0,
+        },
+        // I64/Handle: undefined sentinel.
+        ref t => Inst::IConst {
+            dst,
+            ty: t.clone(),
+            val: i64::MIN + 2,
         },
     };
     ctx.push_inst(mir, inst);

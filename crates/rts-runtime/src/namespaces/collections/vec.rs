@@ -180,7 +180,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64
                 None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
             }
         }
-        Kind::Other => 0,
+        Kind::Other => {
+            // Map handle: numeric index → string key lookup (e.g. match result arrays).
+            use super::map::__RTS_FN_NS_COLLECTIONS_MAP_GET;
+            let key = index.to_string();
+            let key_bytes = key.as_bytes();
+            __RTS_FN_NS_COLLECTIONS_MAP_GET(handle, key_bytes.as_ptr(), key_bytes.len() as i64)
+        }
     }
 }
 
@@ -617,6 +623,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     // Map<key,1>), itera keys parseando como i64. Para Map normal,
     // itera values.
     let is_set = crate::namespaces::collections::map::handle_is_set_kind(src);
+    let is_map = crate::namespaces::collections::map::handle_is_map_kind(src);
     let src_items: Vec<i64> = with_entry(src, |e| match e {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
         Some(Entry::Map(m)) => {
@@ -624,6 +631,13 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
                 m.keys()
                     .filter_map(|k| k.parse::<i64>().ok())
                     .collect()
+            } else if is_map {
+                // JS Map: Array.from(map) retorna pares [key, value].
+                m.iter().map(|(k, &v)| {
+                    let key_h = alloc_entry(Entry::String(k.as_bytes().to_vec())) as i64;
+                    let pair = alloc_entry(Entry::Vec(Box::new(vec![key_h, v]))) as i64;
+                    pair
+                }).collect()
             } else {
                 m.values().copied().collect()
             }

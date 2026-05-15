@@ -188,11 +188,15 @@ pub(crate) fn compile_user_fn(
                 .unwrap_or(ValTy::I64);
             fn_ctx.declare_local(&param.name, ty, block_param);
 
-            // Hoisted arrows (geradas de replace/map/forEach callbacks) recebem
-            // parametros como handles de string (u64 cast para i64). Marcar como
-            // ambiguos para que string concat use TPL_COERCE_AUTO em vez de
-            // STRING_FROM_I64 (que formataria o handle como numero decimal).
-            if ty == ValTy::I64 && fn_decl.name.starts_with("__hoisted_arrow_") {
+            // Hoisted/lifted arrows (geradas de replace/map/forEach/reduce callbacks)
+            // recebem parametros como handles de string ou Vec (u64 cast para i64).
+            // Marcar como ambiguos para que string concat use TPL_COERCE_AUTO em vez
+            // de STRING_FROM_I64 (que formataria o handle como numero decimal).
+            if ty == ValTy::I64 && (
+                fn_decl.name.starts_with("__hoisted_arrow_")
+                || fn_decl.name.starts_with("__lifted_arr_method_")
+                || fn_decl.name.starts_with("__lifted_arrow_")
+            ) {
                 fn_ctx.var_member_call_values.insert(block_param);
             }
 
@@ -332,7 +336,8 @@ pub(crate) fn compile_user_fn(
                 let zero = match rt {
                     ValTy::F64 => fn_ctx.builder.ins().f64const(0.0),
                     ValTy::I32 => fn_ctx.builder.ins().iconst(cl::I32, 0),
-                    _ => fn_ctx.builder.ins().iconst(cl::I64, 0),
+                    // JS spec: implicit return = undefined (i64::MIN+2 sentinel).
+                    _ => fn_ctx.builder.ins().iconst(cl::I64, i64::MIN + 2),
                 };
                 fn_ctx.builder.ins().return_(&[zero]);
             } else {
