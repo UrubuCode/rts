@@ -99,13 +99,19 @@ pub(super) fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result
             // is_undef → NaN; is_null → 0.0; else → fallthrough
             let is_special = ctx.builder.ins().bor(is_undef, is_null);
             // Emite runtime check via inline branch.
+            // (cross-runtime #256/#262) brif eh terminator do bloco corrente;
+            // o caminho "default" (nao-special) precisa de um bloco proprio,
+            // nao pode emitir instructions inline no mesmo bloco apos brif.
             let special_block = ctx.builder.create_block();
+            let default_block = ctx.builder.create_block();
             let undef_block   = ctx.builder.create_block();
             let null_block    = ctx.builder.create_block();
             let merge_block   = ctx.builder.create_block();
             ctx.builder.append_block_param(merge_block, cl::F64);
-            ctx.builder.ins().brif(is_special, special_block, &[], merge_block, &[]);
-            // Merge direct: to_f64(tv) as default.
+            ctx.builder.ins().brif(is_special, special_block, &[], default_block, &[]);
+            // Default path: to_f64(tv) e jump para merge.
+            ctx.builder.switch_to_block(default_block);
+            ctx.builder.seal_block(default_block);
             {
                 let fval = to_f64(ctx, tv);
                 ctx.builder.ins().jump(merge_block, &[fval.into()]);
