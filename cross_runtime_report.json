@@ -1369,10 +1369,10 @@
 ,
 {
   "name": "254_array_reduce_no_initial",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
   "node": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
-  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=hello 281474976710670"
+  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=hello world"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":190,"rts_diverge":46,"bun_node_diverge":4,"errors":72,"rejected":0}}
+],"summary":{"total":312,"pass":191,"rts_diverge":45,"bun_node_diverge":4,"errors":72,"rejected":0}}
