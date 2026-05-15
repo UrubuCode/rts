@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=1\napply=1\ncall_null=1"
+  "rts": "call=0\napply=0\ncall_null=0"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=1\noriginal=1\npartial=1\nrebind=1"
+  "rts": "bound=0\noriginal=2\npartial=0\nrebind=0"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": ""
 }
 ,
 {
