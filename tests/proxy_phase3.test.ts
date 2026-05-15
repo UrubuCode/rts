@@ -59,7 +59,8 @@ const p7: any = new Proxy(t7, {
 });
 const desc7 = Reflect.getOwnPropertyDescriptor(p7, "x");
 const desc7Value: i64 = Reflect.get(desc7, "value");
-const desc7Writable: i64 = Reflect.get(desc7, "writable");
+// (#680/50) Bool em obj literal vira sentinel — comparacao via String().
+const desc7Writable = String(Reflect.get(desc7, "writable"));
 
 // 8. getOwnPropertyDescriptor forward — sintetiza do target
 const t8: any = { z: 50 };
@@ -123,7 +124,7 @@ describe("proxy_phase3", () => {
     test("getOwnDesc trap returns custom value", () =>
         expect(desc7Value).toBe(42));
     test("getOwnDesc trap returns custom writable", () =>
-        expect(desc7Writable).toBe(true));
+        expect(desc7Writable).toBe("true"));
     test("getOwnDesc forward synthesizes from target", () =>
         expect(desc8Value).toBe(50));
     test("getOwnDesc forward missing has no value", () =>

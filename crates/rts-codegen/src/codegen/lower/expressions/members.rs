@@ -292,7 +292,16 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
         };
 
         let value_tv = lower_expr(ctx, &value_expr)?;
-        let value_i64 = ctx.coerce_to_i64(value_tv).val;
+        // (#680/50) Bool em obj literal vira sentinel (i64::MIN = false,
+        // i64::MIN+1 = true). Permite JSON.stringify/console.log
+        // distinguir bool de int 0/1, e iterar com tipo correto.
+        let value_i64 = if matches!(value_tv.ty, ValTy::Bool) {
+            let b = ctx.coerce_to_i64(value_tv).val;
+            let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+            ctx.builder.ins().iadd(min, b)
+        } else {
+            ctx.coerce_to_i64(value_tv).val
+        };
         match key_src {
             KeySrc::Static(s) => {
                 let (kptr, klen) = ctx.emit_str_literal(s.as_bytes())?;
