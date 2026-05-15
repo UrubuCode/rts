@@ -1006,6 +1006,77 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     obj
 }
 
+/// (#678/90) Set.prototype.union(other) — ES2025. Retorna novo Set com
+/// todos os elementos de `self` mais os de `other`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_UNION(self_h: u64, other_h: u64) -> u64 {
+    let result = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    set_kind_set().lock().unwrap().insert(result);
+    for h in [self_h, other_h] {
+        let pairs: Vec<(String, i64)> = with_entry(h, |e| match e {
+            Some(Entry::Map(m)) => m.iter()
+                .filter(|(k, _)| k.as_str() != "__proto__")
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+            _ => Vec::new(),
+        });
+        with_map_mut(result, (), |m| {
+            for (k, v) in pairs {
+                m.insert(k, v);
+            }
+        });
+    }
+    result
+}
+
+/// (#678/90) Set.prototype.intersection(other) — apenas elementos em ambos.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_INTERSECTION(self_h: u64, other_h: u64) -> u64 {
+    let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
+        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        _ => std::collections::HashSet::new(),
+    });
+    let pairs: Vec<(String, i64)> = with_entry(self_h, |e| match e {
+        Some(Entry::Map(m)) => m.iter()
+            .filter(|(k, _)| k.as_str() != "__proto__" && other_keys.contains(k.as_str()))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        _ => Vec::new(),
+    });
+    let result = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    set_kind_set().lock().unwrap().insert(result);
+    with_map_mut(result, (), |m| {
+        for (k, v) in pairs {
+            m.insert(k, v);
+        }
+    });
+    result
+}
+
+/// (#678/90) Set.prototype.difference(other) — elementos em self que nao estao em other.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE(self_h: u64, other_h: u64) -> u64 {
+    let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
+        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        _ => std::collections::HashSet::new(),
+    });
+    let pairs: Vec<(String, i64)> = with_entry(self_h, |e| match e {
+        Some(Entry::Map(m)) => m.iter()
+            .filter(|(k, _)| k.as_str() != "__proto__" && !other_keys.contains(k.as_str()))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        _ => Vec::new(),
+    });
+    let result = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    set_kind_set().lock().unwrap().insert(result);
+    with_map_mut(result, (), |m| {
+        for (k, v) in pairs {
+            m.insert(k, v);
+        }
+    });
+    result
+}
+
 /// (#208 / #479) `Object.fromEntries(iter)` — aceita:
 /// - Vec de pares [key_handle, value] (Object.entries output, ou tuples literais)
 /// - Map direto (cada entry vira prop com mesma key/value)

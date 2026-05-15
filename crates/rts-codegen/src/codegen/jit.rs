@@ -1169,6 +1169,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_COLLECTIONS_SET_FOR_EACH",
             map::__RTS_FN_NS_COLLECTIONS_SET_FOR_EACH
         );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_SET_UNION",
+            map::__RTS_FN_NS_COLLECTIONS_SET_UNION
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION",
+            map::__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE",
+            map::__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE
+        );
         // (#208 / #479) Object static methods.
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES",

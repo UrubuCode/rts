@@ -740,6 +740,22 @@ pub(super) fn lower_map_set_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
+        // (#678/90) Set ops ES2025: union, intersection, difference.
+        // Recebem outro Set/Map handle e retornam novo Set.
+        "union" | "intersection" | "difference" if call.args.len() == 1 => {
+            let other_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let other_h = ctx.coerce_to_i64(other_tv).val;
+            let sym = match method {
+                "union" => "__RTS_FN_NS_COLLECTIONS_SET_UNION",
+                "intersection" => "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION",
+                "difference" => "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE",
+                _ => unreachable!(),
+            };
+            let fref = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(fref, &[recv_h, other_h]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
         // (cross-runtime #793) map.forEach((value, key, map) => ...).
         // Aceita arrow inline ou ident de user fn — passa ptr/handle pra
         // MAP_FOR_EACH no runtime que invoca via transmute.

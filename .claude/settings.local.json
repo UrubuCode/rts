@@ -173,7 +173,8 @@
       "PowerShell(cargo test *)",
       "PowerShell(git commit -m $msg)",
       "Bash(grep -v \"//\")",
-      "Bash(grep -n \"display_path\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\.*UNC\\\\|strip_prefix.*UNC\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\?\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"\" crates/rts-diagnostics/src/reporter.rs)"
+      "Bash(grep -n \"display_path\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\.*UNC\\\\|strip_prefix.*UNC\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\?\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"\" crates/rts-diagnostics/src/reporter.rs)",
+      "Bash(grep -rn \"fn.*set_union\\\\|SET_UNION\\\\|\\\\\\\\.union\\\\\\\\b\" crates/rts-runtime/src)"
     ]
   }
 }
