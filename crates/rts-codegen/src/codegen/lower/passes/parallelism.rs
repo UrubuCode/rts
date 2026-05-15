@@ -672,19 +672,21 @@ fn try_lift_arrow_arg(
             let last_expr: Expr = match &b.stmts[n - 1] {
                 Stmt::Return(r) => match r.arg.as_deref() {
                     Some(e) => e.clone(),
-                    None => Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
-                        span: Default::default(),
-                        value: 0.0,
-                        raw: None,
-                    })),
+                    None => Expr::Ident(swc_ecma_ast::Ident::new(
+                        "undefined".into(),
+                        Default::default(),
+                        Default::default(),
+                    )),
                 },
                 Stmt::Expr(se) => {
+                    // Block body sem return -> undefined. Usamos `undefined` como ident
+                    // para que o codegen emita o sentinel i64::MIN+2.
                     side_effects.push(se.expr.clone());
-                    Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
-                        span: Default::default(),
-                        value: 0.0,
-                        raw: None,
-                    }))
+                    Expr::Ident(swc_ecma_ast::Ident::new(
+                        "undefined".into(),
+                        Default::default(),
+                        Default::default(),
+                    ))
                 }
                 _ => return None,
             };

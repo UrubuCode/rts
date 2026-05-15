@@ -78,7 +78,54 @@ pub(super) fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result
         if arg.spread.is_some() {
             return Ok(None);
         }
+        // JS spec: Number(null) → 0, Number(undefined) → NaN.
+        if let swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Null(_)) = arg.expr.as_ref() {
+            let v = ctx.builder.ins().f64const(0.0);
+            return Ok(Some(TypedVal::new(v, ValTy::F64)));
+        }
+        if let swc_ecma_ast::Expr::Ident(id) = arg.expr.as_ref() {
+            if id.sym.as_str() == "undefined" {
+                let v = ctx.builder.ins().f64const(f64::NAN);
+                return Ok(Some(TypedVal::new(v, ValTy::F64)));
+            }
+        }
         let tv = super::lower_expr(ctx, &arg.expr)?;
+        // Sentinela undefined (i64::MIN+2) → NaN; sentinela null (i64::MIN+3) → 0.
+        if matches!(tv.ty, ValTy::I64) {
+            let sentinel_undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+            let sentinel_null  = ctx.builder.ins().iconst(cl::I64, i64::MIN + 3);
+            let is_undef = ctx.builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tv.val, sentinel_undef);
+            let is_null  = ctx.builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tv.val, sentinel_null);
+            // is_undef → NaN; is_null → 0.0; else → fallthrough
+            let is_special = ctx.builder.ins().bor(is_undef, is_null);
+            // Emite runtime check via inline branch.
+            let special_block = ctx.builder.create_block();
+            let undef_block   = ctx.builder.create_block();
+            let null_block    = ctx.builder.create_block();
+            let merge_block   = ctx.builder.create_block();
+            ctx.builder.append_block_param(merge_block, cl::F64);
+            ctx.builder.ins().brif(is_special, special_block, &[], merge_block, &[]);
+            // Merge direct: to_f64(tv) as default.
+            {
+                let fval = to_f64(ctx, tv);
+                ctx.builder.ins().jump(merge_block, &[fval.into()]);
+            }
+            ctx.builder.switch_to_block(special_block);
+            ctx.builder.seal_block(special_block);
+            ctx.builder.ins().brif(is_undef, undef_block, &[], null_block, &[]);
+            ctx.builder.switch_to_block(undef_block);
+            ctx.builder.seal_block(undef_block);
+            let nan = ctx.builder.ins().f64const(f64::NAN);
+            ctx.builder.ins().jump(merge_block, &[nan.into()]);
+            ctx.builder.switch_to_block(null_block);
+            ctx.builder.seal_block(null_block);
+            let zero = ctx.builder.ins().f64const(0.0);
+            ctx.builder.ins().jump(merge_block, &[zero.into()]);
+            ctx.builder.switch_to_block(merge_block);
+            ctx.builder.seal_block(merge_block);
+            let result = ctx.builder.block_params(merge_block)[0];
+            return Ok(Some(TypedVal::new(result, ValTy::F64)));
+        }
         let is_ambig_handle = matches!(tv.ty, ValTy::I64 | ValTy::U64)
             && ctx.var_member_call_values.contains(&tv.val);
         if matches!(tv.ty, ValTy::Handle) || is_ambig_handle {

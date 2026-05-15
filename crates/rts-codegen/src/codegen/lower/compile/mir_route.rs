@@ -126,6 +126,16 @@ pub(crate) fn try_compile_via_mir(
         Some(&intrinsic_resolver),
     );
 
+    // Attach source location for stack trace instrumentation.
+    mir_fn.source_line = fn_decl.span.start.line as u32;
+    mir_fn.source_file = fn_decl.span.file
+        .and_then(rts_diagnostics::source_store::path_of)
+        .map(|p| {
+            let s = p.display().to_string();
+            s.strip_prefix(r"\\?\").unwrap_or(&s).to_owned()
+        })
+        .unwrap_or_default();
+
     // 3a. Bail if any block trapped (unsupported shape) — AST handles it.
     let has_trap = mir_fn.blocks.iter().any(|b| {
         matches!(b.term, Terminator::Trap { code: TrapHint::User(_) })

@@ -174,7 +174,14 @@
       "PowerShell(git commit -m $msg)",
       "Bash(grep -v \"//\")",
       "Bash(grep -n \"display_path\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\.*UNC\\\\|strip_prefix.*UNC\\\\|\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\?\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"\" crates/rts-diagnostics/src/reporter.rs)",
-      "Bash(grep -rn \"fn.*set_union\\\\|SET_UNION\\\\|\\\\\\\\.union\\\\\\\\b\" crates/rts-runtime/src)"
+      "Bash(RTS_USE_MIR=0 RUST_BACKTRACE=full target/release/rts.exe test *)",
+      "Bash(grep -E \"\\\\.ts$|crashed\")",
+      "Bash(RTS_USE_MIR=0 RUST_BACKTRACE=1 target/release/rts.exe test)",
+      "Bash(grep -E \"tests/|tests\\\\\\\\\\\\\\\\|✗|Files|Tests\")",
+      "Bash(RTS_USE_MIR=0 target/release/rts.exe test tests/object_set_prototype_of.test.ts)",
+      "Bash(awk 'NR>=733 && NR<=1068 { *)",
+      "Bash(python3 -c ' *)",
+      "Bash(grep \"--- print\\\\|--- __RTS_MAIN\")"
     ]
   }
 }

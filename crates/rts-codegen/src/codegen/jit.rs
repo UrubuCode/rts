@@ -333,6 +333,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_SYNTAX_ERROR_NEW", __RTS_FN_GL_SYNTAX_ERROR_NEW);
     add_fn!("__RTS_FN_GL_URI_ERROR_NEW", __RTS_FN_GL_URI_ERROR_NEW);
     add_fn!("__RTS_FN_GL_EVAL_ERROR_NEW", __RTS_FN_GL_EVAL_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_AGGREGATE_ERROR_NEW", __RTS_FN_GL_AGGREGATE_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_AGGREGATE_ERROR_ERRORS", __RTS_FN_GL_AGGREGATE_ERROR_ERRORS);
     add_fn!("__RTS_FN_GL_ERROR_MESSAGE", __RTS_FN_GL_ERROR_MESSAGE);
     add_fn!("__RTS_FN_GL_ERROR_NAME", __RTS_FN_GL_ERROR_NAME);
     add_fn!("__RTS_FN_GL_ERROR_TO_STRING", __RTS_FN_GL_ERROR_TO_STRING);
@@ -606,6 +608,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::globals::url ──────────────────────────────────────
     use crate::namespaces::globals::url::instance::*;
     add_fn!("__RTS_FN_GL_URL_NEW", __RTS_FN_GL_URL_NEW);
+    add_fn!("__RTS_FN_GL_URL_CAN_PARSE", __RTS_FN_GL_URL_CAN_PARSE);
+    add_fn!("__RTS_FN_GL_URL_CAN_PARSE_BASE", __RTS_FN_GL_URL_CAN_PARSE_BASE);
     add_fn!("__RTS_FN_GL_URL_HREF", __RTS_FN_GL_URL_HREF);
     add_fn!("__RTS_FN_GL_URL_PROTOCOL", __RTS_FN_GL_URL_PROTOCOL);
     add_fn!("__RTS_FN_GL_URL_HOST", __RTS_FN_GL_URL_HOST);

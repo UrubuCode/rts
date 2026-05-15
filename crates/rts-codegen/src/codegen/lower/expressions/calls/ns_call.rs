@@ -308,10 +308,17 @@ pub(super) fn lower_ns_call_body(
     let inst = ctx.builder.ins().call(fref, &values);
     if lowered.ret.is_some() {
         let v = ctx.builder.inst_results(inst)[0];
-        // `parallel.find` retorna I64 mas o slot pode ser handle de
-        // "undefined" quando nao acha. Marca como ambiguo para que
-        // template literal/console use TPL_COERCE_AUTO/INSPECT.
-        if member.symbol == "__RTS_FN_NS_PARALLEL_FIND" {
+        // `parallel.find/reduce*` retornam I64 mas o slot pode ser handle de
+        // string/objeto. Marca como ambiguo para que template literal/console
+        // use TPL_COERCE_AUTO. Necessario para reduce de strings (#254).
+        if matches!(
+            member.symbol,
+            "__RTS_FN_NS_PARALLEL_FIND"
+            | "__RTS_FN_NS_PARALLEL_REDUCE"
+            | "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT"
+            | "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT"
+            | "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT"
+        ) {
             ctx.var_member_call_values.insert(v);
         }
         Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))

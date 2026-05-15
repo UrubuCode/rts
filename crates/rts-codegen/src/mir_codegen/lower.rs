@@ -82,6 +82,55 @@ pub fn lower_mir_func_with_decls(
     let mut strlit_cache: HashMap<usize, (cranelift_codegen::ir::GlobalValue, usize)> =
         HashMap::new();
     let mut strlit_inst_idx: usize = 0;
+
+    // Pre-declare trace push/pop externs and data segments when source info is available.
+    let trace_enabled = !mir.source_file.is_empty();
+    let mut trace_file_gv: Option<(cranelift_codegen::ir::GlobalValue, usize)> = None;
+    let mut trace_name_gv: Option<(cranelift_codegen::ir::GlobalValue, usize)> = None;
+    if trace_enabled {
+        let default_cc = module.isa().default_call_conv();
+
+        // PUSH_FRAME: (i64, i64, i64, i64, i64, i64) -> void
+        let mut push_sig = Signature::new(default_cc);
+        for _ in 0..6 { push_sig.params.push(AbiParam::new(cl::I64)); }
+        let push_id = module
+            .declare_function("__RTS_FN_NS_TRACE_PUSH_FRAME", Linkage::Import, &push_sig)
+            .map_err(|e| anyhow!("declare trace push: {e}"))?;
+        let push_ref = module.declare_func_in_func(push_id, &mut ctx.func);
+        func_ref_cache.insert("__trace_push__".to_owned(), push_ref);
+
+        // POP_FRAME: () -> void
+        let pop_sig = Signature::new(default_cc);
+        let pop_id = module
+            .declare_function("__RTS_FN_NS_TRACE_POP_FRAME", Linkage::Import, &pop_sig)
+            .map_err(|e| anyhow!("declare trace pop: {e}"))?;
+        let pop_ref = module.declare_func_in_func(pop_id, &mut ctx.func);
+        func_ref_cache.insert("__trace_pop__".to_owned(), pop_ref);
+
+        // Data segments for file path and fn name strings.
+        let file_bytes = mir.source_file.as_bytes();
+        let file_seg = format!("__rts_trace_file_{}", mir.name);
+        let file_id = module
+            .declare_data(&file_seg, Linkage::Local, false, false)
+            .map_err(|e| anyhow!("declare trace file seg: {e}"))?;
+        let mut file_data = cranelift_module::DataDescription::new();
+        file_data.define(file_bytes.to_vec().into_boxed_slice());
+        module.define_data(file_id, &file_data).map_err(|e| anyhow!("define trace file: {e}"))?;
+        let file_gv = module.declare_data_in_func(file_id, &mut ctx.func);
+        trace_file_gv = Some((file_gv, file_bytes.len()));
+
+        let name_bytes = mir.name.as_bytes();
+        let name_seg = format!("__rts_trace_name_{}", mir.name);
+        let name_id = module
+            .declare_data(&name_seg, Linkage::Local, false, false)
+            .map_err(|e| anyhow!("declare trace name seg: {e}"))?;
+        let mut name_data = cranelift_module::DataDescription::new();
+        name_data.define(name_bytes.to_vec().into_boxed_slice());
+        module.define_data(name_id, &name_data).map_err(|e| anyhow!("define trace name: {e}"))?;
+        let name_gv = module.declare_data_in_func(name_id, &mut ctx.func);
+        trace_name_gv = Some((name_gv, name_bytes.len()));
+    }
+
     for block in &mir.blocks {
         for inst in &block.insts {
             match inst {
@@ -144,6 +193,7 @@ pub fn lower_mir_func_with_decls(
         }
     }
 
+    let ptr_type = module.isa().pointer_type();
     let mut fb_ctx = FunctionBuilderContext::new();
     let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
 
@@ -178,6 +228,32 @@ pub fn lower_mir_func_with_decls(
         }
     }
 
+    // Emit trace push_frame at entry block (must switch_to_block first).
+    if trace_enabled && !cl_blocks.is_empty() {
+        builder.switch_to_block(cl_blocks[0]);
+    }
+    if trace_enabled {
+        if let (Some((file_gv, file_len)), Some((name_gv, name_len)), Some(&push_ref)) = (
+            trace_file_gv,
+            trace_name_gv,
+            func_ref_cache.get("__trace_push__"),
+        ) {
+            let file_ptr = {
+                let gv = builder.ins().global_value(ptr_type, file_gv);
+                if ptr_type != cl::I64 { builder.ins().uextend(cl::I64, gv) } else { gv }
+            };
+            let file_len_v = builder.ins().iconst(cl::I64, file_len as i64);
+            let name_ptr = {
+                let gv = builder.ins().global_value(ptr_type, name_gv);
+                if ptr_type != cl::I64 { builder.ins().uextend(cl::I64, gv) } else { gv }
+            };
+            let name_len_v = builder.ins().iconst(cl::I64, name_len as i64);
+            let line_v = builder.ins().iconst(cl::I64, mir.source_line as i64);
+            let col_v = builder.ins().iconst(cl::I64, 0i64);
+            builder.ins().call(push_ref, &[file_ptr, file_len_v, name_ptr, name_len_v, line_v, col_v]);
+        }
+    }
+
     // Lower each block.
     for (i, bb) in mir.blocks.iter().enumerate() {
         let cl_blk = cl_blocks[i];
@@ -201,6 +277,12 @@ pub fn lower_mir_func_with_decls(
                 &strlit_cache,
                 &mut strlit_walk_idx,
             )?;
+        }
+        // Emit pop_frame before any Return terminator.
+        if trace_enabled && matches!(bb.term, Terminator::Return(_)) {
+            if let Some(&pop_ref) = func_ref_cache.get("__trace_pop__") {
+                builder.ins().call(pop_ref, &[]);
+            }
         }
         lower_term(&mut builder, &bb.term, &vmap, &cl_blocks, &func_ref_cache)?;
     }

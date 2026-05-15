@@ -196,7 +196,7 @@
   "status": "rts_diverge",
   "bun": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false",
   "node": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false",
-  "rts": "a=10\nb=281474976710656\nc=5\nx=100\ny=5\np=false\nq=false"
+  "rts": "a=10\nb=-9223372036854776000\nc=5\nx=100\ny=5\np=false\nq=false"
 }
 ,
 {
@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=1\napply=1\ncall_null=1"
+  "rts": "call=0\napply=0\ncall_null=0"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=1\noriginal=1\npartial=1\nrebind=1"
+  "rts": "bound=0\noriginal=2\npartial=1\nrebind=0"
 }
 ,
 {
@@ -1265,10 +1265,10 @@
 ,
 {
   "name": "242_array_map_return",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
   "node": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
-  "rts": "mapped=2,4,6\nnoReturn=0,0,0\nexplicit=2,4,6\nmixed=1,4,6"
+  "rts": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6"
 }
 ,
 {
@@ -1353,26 +1353,26 @@
 ,
 {
   "name": "252_string_match_groups",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
   "node": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
-  "rts": "found=true\nvalue=world\nindex=null\ninput=null\nnoMatch=null"
+  "rts": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null"
 }
 ,
 {
   "name": "253_object_keys_empty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "empty=\narr=0,1,2\nstr=0,1\nnum=",
   "node": "empty=\narr=0,1,2\nstr=0,1\nnum=",
-  "rts": "empty=\narr=0,1,2\nstr=\nnum="
+  "rts": "empty=\narr=0,1,2\nstr=0,1\nnum="
 }
 ,
 {
   "name": "254_array_reduce_no_initial",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
   "node": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
-  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=281474976710675"
+  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=hello world"
 }
 ,
 {
@@ -1385,10 +1385,10 @@
 ,
 {
   "name": "256_string_replace_function",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1441,10 +1441,10 @@
 ,
 {
   "name": "262_replaceall",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "str=a/b/c\nre=x1x2\nfn=a3b6"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1465,10 +1465,10 @@
 ,
 {
   "name": "265_object_fromentries",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
   "node": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
-  "rts": "map={\"a\":1,\"b\":2}\narr={}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}"
+  "rts": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}"
 }
 ,
 {
@@ -1577,10 +1577,10 @@
 ,
 {
   "name": "278_aggregate_error",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
   "node": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "name=AggregateError\nmsg=many\nlen=2\nitems=[object Object]|b"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2108,7 +2108,7 @@
   "status": "rts_diverge",
   "bun": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
   "node": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
-  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=NaN\nnum_true=1\nstr_arr=1,-9223372036854776000,3\neq_a=false\neq_b=false\neq_c=false\neq_d=false"
+  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,-9223372036854776000,3\neq_a=false\neq_b=false\neq_c=false\neq_d=false"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": ""
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2177,10 +2177,10 @@
 ,
 {
   "name": "60_aggregate_error",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
   "node": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=[object Object],b"
 }
 ,
 {
@@ -2428,7 +2428,7 @@
   "status": "rts_diverge",
   "bun": "wf=false\nfix=�",
   "node": "wf=false\nfix=�",
-  "rts": "wf=true\nfix=�"
+  "rts": "wf=false\nfix=�"
 }
 ,
 {
@@ -2452,7 +2452,7 @@
   "status": "rts_diverge",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=5\nkeys=0,2,3,4\nforIn=\nforOf=0|-9223372036854775804|2|-9223372036854775806|4\nentries=null:null|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
+  "rts": "len=5\nkeys=0,2,3,4\nforIn=\nforOf=0|undefined|2|undefined|4\nentries=null:null|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
 }
 ,
 {
@@ -2460,7 +2460,7 @@
   "status": "rts_diverge",
   "bun": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
   "node": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
-  "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=281474976710671\nmap_zero=281474976710673\nset_size=1"
+  "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=1"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":182,"rts_diverge":49,"bun_node_diverge":3,"errors":78,"rejected":0}}
+],"summary":{"total":312,"pass":185,"rts_diverge":46,"bun_node_diverge":3,"errors":78,"rejected":0}}

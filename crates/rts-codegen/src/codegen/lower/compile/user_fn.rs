@@ -188,11 +188,15 @@ pub(crate) fn compile_user_fn(
                 .unwrap_or(ValTy::I64);
             fn_ctx.declare_local(&param.name, ty, block_param);
 
-            // Hoisted arrows (geradas de replace/map/forEach callbacks) recebem
-            // parametros como handles de string (u64 cast para i64). Marcar como
-            // ambiguos para que string concat use TPL_COERCE_AUTO em vez de
-            // STRING_FROM_I64 (que formataria o handle como numero decimal).
-            if ty == ValTy::I64 && fn_decl.name.starts_with("__hoisted_arrow_") {
+            // Hoisted/lifted arrows (geradas de replace/map/forEach/reduce callbacks)
+            // recebem parametros como handles de string ou Vec (u64 cast para i64).
+            // Marcar como ambiguos para que string concat use TPL_COERCE_AUTO em vez
+            // de STRING_FROM_I64 (que formataria o handle como numero decimal).
+            if ty == ValTy::I64 && (
+                fn_decl.name.starts_with("__hoisted_arrow_")
+                || fn_decl.name.starts_with("__lifted_arr_method_")
+                || fn_decl.name.starts_with("__lifted_arrow_")
+            ) {
                 fn_ctx.var_member_call_values.insert(block_param);
             }
 
@@ -250,6 +254,21 @@ pub(crate) fn compile_user_fn(
                 }
             }
             fn_ctx.declare_local("arguments", ValTy::Handle, args_h);
+        }
+
+        // Auto-instrumentação de stack trace: emite push_frame no entry.
+        // Pop é emitido antes de cada `return_` (via emit_trace_pop em
+        // lower_return_stmt) e antes do implicit return abaixo. Funções
+        // sintéticas (hoisted arrows, async inner) são excluídas do trace
+        // para reduzir ruído — só fns com nome user-visible são rastreadas.
+        let fn_line = fn_decl.span.start.line as u32;
+        let fn_col = fn_decl.span.start.column as u32;
+        let is_synthetic = fn_decl.name.starts_with("__hoisted_arrow_")
+            || fn_decl.name.starts_with("__lifted_arrow_")
+            || fn_decl.name.starts_with("__async_inner_")
+            || fn_decl.name.starts_with("__rts_");
+        if !is_synthetic && !fn_ctx.current_file.is_empty() {
+            fn_ctx.emit_trace_push(fn_line, fn_col)?;
         }
 
         // (#301) Var hoisting: coletar todos os nomes `var x` no body
@@ -312,11 +331,13 @@ pub(crate) fn compile_user_fn(
         // If we did not hit a return, emit one. Body vazio: o entry
         // block precisa ter terminator obrigatorio para Cranelift.
         if !terminated && !fn_ctx.builder.is_unreachable() {
+            fn_ctx.emit_trace_pop()?;
             if let Some(rt) = info.ret {
                 let zero = match rt {
                     ValTy::F64 => fn_ctx.builder.ins().f64const(0.0),
                     ValTy::I32 => fn_ctx.builder.ins().iconst(cl::I32, 0),
-                    _ => fn_ctx.builder.ins().iconst(cl::I64, 0),
+                    // JS spec: implicit return = undefined (i64::MIN+2 sentinel).
+                    _ => fn_ctx.builder.ins().iconst(cl::I64, i64::MIN + 2),
                 };
                 fn_ctx.builder.ins().return_(&[zero]);
             } else {

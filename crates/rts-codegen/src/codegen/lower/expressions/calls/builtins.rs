@@ -658,6 +658,10 @@ pub(super) fn lower_map_set_builtin(
             )?;
             let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl]);
             let v = ctx.builder.inst_results(inst)[0];
+            // (cross-runtime #872/95) Map.get pode retornar handle de
+            // string OU i64 raw — marca como ambiguo pra template literal
+            // usar TPL_COERCE_AUTO em runtime.
+            ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "has" => {

@@ -9,6 +9,8 @@ function print(v: string): void { __out += v + "\n"; }
 
 describe("fixture:try_catch_trace", () => {
   test("trace stack survives try/catch", () => {
+    // Measure delta: auto-instrumentation may have frames on stack already
+    const baseline = trace.depth();
     trace.push_frame("app.ts", "riskyOp", 5, 3);
 
     let caught: string = "";
@@ -18,12 +20,12 @@ describe("fixture:try_catch_trace", () => {
       caught = e;
     }
 
-    // After catch, frame is still on the stack (no auto-pop on throw)
-    const d = trace.depth();
+    // After catch, manually pushed frame is still on the stack
+    const delta = trace.depth() - baseline;
     trace.pop_frame();
 
     expect(caught).toBe("something went wrong");
-    expect(d).toBe(1);
+    expect(delta).toBe(1);
     print("ok");
   });
 

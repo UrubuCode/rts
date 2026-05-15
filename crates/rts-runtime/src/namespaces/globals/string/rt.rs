@@ -517,8 +517,52 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(_handle: u64) -> i64 {
-    1 // RTS strings are always valid UTF-8, so always well-formed
+pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(handle: u64) -> i64 {
+    use crate::namespaces::gc::handles::{with_entry, Entry};
+    with_entry(handle, |e| {
+        let Some(Entry::String(b)) = e else { return 1_i64 };
+        // Lone surrogates em WTF-8: 0xED seguido de 0xA0-0xBF indica surrogate.
+        // Surrogate pairs validos nao aparecem como WTF-8 na representacao interna.
+        let bytes = b.as_slice();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            if i + 2 < bytes.len() && bytes[i] == 0xED
+                && bytes[i + 1] >= 0xA0 && bytes[i + 1] <= 0xBF
+            {
+                return 0_i64;
+            }
+            i += 1;
+        }
+        1_i64
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_TO_WELL_FORMED(handle: u64) -> u64 {
+    use crate::namespaces::gc::handles::{with_entry, Entry, alloc_entry};
+    let replacement = [0xEFu8, 0xBF, 0xBD]; // U+FFFD
+    let result = with_entry(handle, |e| {
+        let Some(Entry::String(b)) = e else { return None };
+        let bytes = b.as_slice();
+        let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+        let mut i = 0usize;
+        while i < bytes.len() {
+            if i + 2 < bytes.len() && bytes[i] == 0xED
+                && bytes[i + 1] >= 0xA0 && bytes[i + 1] <= 0xBF
+            {
+                out.extend_from_slice(&replacement);
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        Some(out)
+    });
+    match result {
+        Some(bytes) => alloc_entry(Entry::String(bytes)),
+        None => handle,
+    }
 }
 
 /// `str.normalize(form?)` — Unicode normalization forms NFC/NFD/NFKC/NFKD.

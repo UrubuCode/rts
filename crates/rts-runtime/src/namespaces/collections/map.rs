@@ -786,6 +786,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
                 })
                 .collect()
         }
+        Some(Entry::String(b)) => {
+            // Object.keys(new String("hi")) → ["0", "1"] — UTF-16 indices.
+            let char_count = String::from_utf8_lossy(b).encode_utf16().count();
+            (0..char_count)
+                .map(|i| alloc_entry(Entry::String(i.to_string().into_bytes())) as i64)
+                .collect()
+        }
         _ => Vec::new(),
     });
     alloc_entry(Entry::Vec(Box::new(result)))
