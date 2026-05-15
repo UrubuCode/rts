@@ -1513,7 +1513,13 @@ fn lower_global_instanceof(
 ) -> Result<TypedVal> {
     let lhs = lower_expr(ctx, lhs_expr)?;
     // Primitives (F64/I64/I32/Bool) nunca passam instanceof <class>.
-    if !matches!(lhs.ty, ValTy::Handle) {
+    // EXCECAO (#278): I64 ambiguo (var_member_call_values) pode conter
+    // handle valido — `arr[i]` retorna I64 ambiguo mas pode ser handle
+    // Error/Map/Vec. Permite proceder; o runtime fn (IS_ERROR/etc.)
+    // valida o handle via with_entry.
+    let is_ambig_i64 = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
+        && ctx.var_member_call_values.contains(&lhs.val);
+    if !matches!(lhs.ty, ValTy::Handle) && !is_ambig_i64 {
         let zero = ctx.builder.ins().iconst(cl::I64, 0);
         return Ok(TypedVal::new(zero, ValTy::Bool));
     }
