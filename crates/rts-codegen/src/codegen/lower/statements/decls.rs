@@ -445,8 +445,23 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             (zero_for_ty(ctx, ty), ty)
         };
 
+        // (cross-runtime #752) Quando init eh literal `undefined` ou `null`,
+        // mantemos como I64 mesmo se a anotacao tipa como F64 (`number |
+        // undefined`). Coerce F64 do sentinela MIN+2 perde precisao e
+        // quebra `??=` que detecta sentinelas por bit-exact comparison.
+        let init_is_undef_or_null_literal = matches!(
+            decl.init.as_deref(),
+            Some(swc_ecma_ast::Expr::Ident(id)) if id.sym.as_str() == "undefined"
+        ) || matches!(
+            decl.init.as_deref(),
+            Some(swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Null(_)))
+        );
         let ty = if ctx.module_scope && ctx.has_global(&name) {
             ctx.var_ty(&name).unwrap_or(ann_ty.unwrap_or(inferred_ty))
+        } else if init_is_undef_or_null_literal {
+            // Mantem I64 para preservar sentinela; coerce_to_f64 do MIN+2
+            // arredondaria para -9.2e18 e ??= falharia.
+            ValTy::I64
         } else {
             ann_ty.unwrap_or(inferred_ty)
         };
