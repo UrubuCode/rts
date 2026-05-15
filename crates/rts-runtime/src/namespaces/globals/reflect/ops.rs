@@ -67,12 +67,12 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
 }
 
 /// (cross-runtime #749) `Object.getOwnPropertyDescriptors(obj)` — Map
-/// onde cada key e' uma own prop e o valor e' um descriptor sintetizado
-/// {value, writable, enumerable, configurable}. Mesma sintese que
-/// Reflect.getOwnPropertyDescriptor faz por key.
+/// onde cada key e' uma own prop e o valor e' um descriptor sintetizado.
+/// Data props -> {value, writable, enumerable, configurable}.
+/// Accessor props (#110 slots `__get_<name>`/`__set_<name>`) ->
+/// {get, set, enumerable, configurable} — JS spec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u64 {
-    let mut out: IndexMap<String, i64> = IndexMap::new();
     let pairs: Vec<(String, i64)> = with_entry(obj, |e| match e {
         Some(Entry::Map(m)) => m
             .iter()
@@ -82,7 +82,22 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
         _ => Vec::new(),
     });
     let bool_true: i64 = i64::MIN + 1;
+    // Particiona: data props vs accessor slots. Accessors juntam
+    // get/set pelo nome base e produzem um unico descriptor.
+    let mut data_pairs: Vec<(String, i64)> = Vec::new();
+    let mut getters: IndexMap<String, i64> = IndexMap::new();
+    let mut setters: IndexMap<String, i64> = IndexMap::new();
     for (k, v) in pairs {
+        if let Some(name) = k.strip_prefix("__get_") {
+            getters.insert(name.to_string(), v);
+        } else if let Some(name) = k.strip_prefix("__set_") {
+            setters.insert(name.to_string(), v);
+        } else {
+            data_pairs.push((k, v));
+        }
+    }
+    let mut out: IndexMap<String, i64> = IndexMap::new();
+    for (k, v) in data_pairs {
         let mut desc: IndexMap<String, i64> = IndexMap::new();
         desc.insert("value".to_string(), v);
         desc.insert("writable".to_string(), bool_true);
@@ -90,6 +105,29 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
         desc.insert("configurable".to_string(), bool_true);
         let desc_h = alloc_entry(Entry::Map(Box::new(desc))) as i64;
         out.insert(k, desc_h);
+    }
+    // Une chaves de getters e setters (qualquer um pode existir sozinho).
+    let mut accessor_keys: Vec<String> = getters.keys().cloned().collect();
+    for k in setters.keys() {
+        if !accessor_keys.contains(k) {
+            accessor_keys.push(k.clone());
+        }
+    }
+    for name in accessor_keys {
+        let mut desc: IndexMap<String, i64> = IndexMap::new();
+        // getter/setter ausente -> undefined sentinel handle (string).
+        let get_v = getters.get(&name).copied().unwrap_or_else(|| {
+            alloc_entry(Entry::String(b"undefined".to_vec())) as i64
+        });
+        let set_v = setters.get(&name).copied().unwrap_or_else(|| {
+            alloc_entry(Entry::String(b"undefined".to_vec())) as i64
+        });
+        desc.insert("get".to_string(), get_v);
+        desc.insert("set".to_string(), set_v);
+        desc.insert("enumerable".to_string(), bool_true);
+        desc.insert("configurable".to_string(), bool_true);
+        let desc_h = alloc_entry(Entry::Map(Box::new(desc))) as i64;
+        out.insert(name, desc_h);
     }
     alloc_entry(Entry::Map(Box::new(out)))
 }
