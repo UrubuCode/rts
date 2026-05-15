@@ -127,15 +127,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT(
 
 /// (#264 PR5) Cria novo Map vazio com `__proto__` = proto_handle.
 /// Implementa `Object.create(proto)`. Quando `proto == 0`, equivale a
-/// `Object.create(null)` — Map sem chain.
+/// `Object.create(null)` — slot __proto__ setado explicit como 0 para
+/// que MAP_GET_PROTO retorne null em vez do default Object.prototype.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_OBJECT_CREATE(proto: u64) -> u64 {
     let h = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
-    if proto != 0 {
-        with_map_mut(h, (), |m| {
-            m.insert("__proto__".to_string(), proto as i64);
-        });
-    }
+    with_map_mut(h, (), |m| {
+        m.insert("__proto__".to_string(), proto as i64);
+    });
     h
 }
 
@@ -872,15 +871,35 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
     if is_map_sealed(handle) { 1 } else { 0 }
 }
 
-/// (#208) `Object.getPrototypeOf(obj)` — retorna handle de `__proto__` ou 0.
+/// (#208) `Object.getPrototypeOf(obj)` — retorna handle de `__proto__` se setado
+/// explicitamente. Senao, retorna sentinel `[Object.prototype]` ou
+/// `[Array.prototype]` para Map/Vec respectivamente — bate com codegen
+/// que materializa `Object.prototype` como handle de string.
+/// Para Map criado via `Object.create(null)` o slot existe e retorna 0 (null).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (#218 phase2) Proxy: trap `getPrototypeOf` ou forward.
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
         return crate::namespaces::globals::proxy::ops::dispatch_get_proto(target, handler);
     }
-    let proto: i64 = with_map(handle, 0, |m| m.get("__proto__").copied().unwrap_or(0));
-    proto as u64
+    // Vec → Array.prototype sentinel.
+    let is_vec = with_entry(handle, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        return alloc_entry(Entry::String(b"[Array.prototype]".to_vec()));
+    }
+    // Map: se __proto__ slot setado explicit (por Object.create), retorna ele.
+    // Se slot ausente, default Object.prototype sentinel.
+    let proto_slot: Option<i64> = with_map(handle, None, |m| {
+        if m.contains_key("__proto__") {
+            Some(m.get("__proto__").copied().unwrap_or(0))
+        } else {
+            None
+        }
+    });
+    match proto_slot {
+        Some(v) => v as u64,
+        None => alloc_entry(Entry::String(b"[Object.prototype]".to_vec())),
+    }
 }
 
 /// Set global de (handle, key) marcados como nao-enumeravel via
