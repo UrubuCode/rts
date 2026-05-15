@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=0"
+  "rts": "call=0\napply=0\ncall_null=3"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=0\npartial=0\nrebind=3"
 }
 ,
 {
@@ -1385,10 +1385,10 @@
 ,
 {
   "name": "256_string_replace_function",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "replaced=hellO wOrld\ndoubled=a562949953421340b562949953421346c562949953421352\nswapped=Doe John"
 }
 ,
 {
@@ -1441,10 +1441,10 @@
 ,
 {
   "name": "262_replaceall",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a844424930132016b844424930132025"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":196,"rts_diverge":41,"bun_node_diverge":3,"errors":72,"rejected":0}}
+],"summary":{"total":312,"pass":196,"rts_diverge":43,"bun_node_diverge":3,"errors":70,"rejected":0}}
