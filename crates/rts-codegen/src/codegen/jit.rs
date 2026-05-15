@@ -1122,6 +1122,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE
         );
         add_fn!(
+            "__RTS_FN_GL_OBJECT_IS_PROTOTYPE_OF",
+            map::__RTS_FN_GL_OBJECT_IS_PROTOTYPE_OF
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_SET",
             map::__RTS_FN_NS_COLLECTIONS_MAP_SET
         );
