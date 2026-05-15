@@ -497,10 +497,10 @@
 ,
 {
   "name": "155_object_getprototypeof",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
   "node": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
-  "rts": "is_object_proto=false\nis_array_proto=false\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
+  "rts": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
 }
 ,
 {
@@ -1361,10 +1361,10 @@
 ,
 {
   "name": "253_object_keys_empty",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "empty=\narr=0,1,2\nstr=0,1\nnum=",
   "node": "empty=\narr=0,1,2\nstr=0,1\nnum=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "empty=\narr=0,1,2\nstr=\nnum="
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":181,"rts_diverge":48,"bun_node_diverge":4,"errors":79,"rejected":0}}
+],"summary":{"total":312,"pass":182,"rts_diverge":49,"bun_node_diverge":3,"errors":78,"rejected":0}}
