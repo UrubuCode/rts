@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=3"
+  "rts": "call=0\napply=0\ncall_null=0"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=2\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=2\npartial=0\nrebind=3"
 }
 ,
 {
@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -1708,7 +1708,7 @@
   "status": "rts_diverge",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={\"__rts_class\":\"C\"}\ndate=\"2024-05-10T12:34:56.789Z\""
+  "rts": "cls={}\ndate=\"2024-05-10T12:34:56.789Z\""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":190,"rts_diverge":47,"bun_node_diverge":3,"errors":72,"rejected":0}}
+],"summary":{"total":312,"pass":190,"rts_diverge":46,"bun_node_diverge":4,"errors":72,"rejected":0}}
