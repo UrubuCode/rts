@@ -31,8 +31,8 @@ Compatibilidade JS spec validada contra **Bun** e **Node** em 312 fixtures TS st
 |---|---|
 | **Paridade** | **59.9%** (185/309) |
 | ✅ RTS = Bun = Node | 185 |
-| ❌ RTS diverge | 44 |
-| 💥 RTS runtime error | 80 |
+| ❌ RTS diverge | 46 |
+| 💥 RTS runtime error | 78 |
 | 🛠️  **Falta corrigir** | **124** |
 | ⚠️ Bun ≠ Node (skip) | 3 |
 | 🚫 Rejeitados (RTS-only) | 0 |

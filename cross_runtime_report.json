@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=0"
+  "rts": "call=0\napply=0\ncall_null=3"
 }
 ,
 {
@@ -1577,10 +1577,10 @@
 ,
 {
   "name": "278_aggregate_error",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
   "node": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "name=AggregateError\nmsg=many\nlen=2\nitems=[object Object]|b"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order=null"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": ""
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2177,10 +2177,10 @@
 ,
 {
   "name": "60_aggregate_error",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
   "node": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=[object Object],b"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":185,"rts_diverge":44,"bun_node_diverge":3,"errors":80,"rejected":0}}
+],"summary":{"total":312,"pass":185,"rts_diverge":46,"bun_node_diverge":3,"errors":78,"rejected":0}}
