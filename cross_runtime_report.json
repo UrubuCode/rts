@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -529,10 +529,10 @@
 ,
 {
   "name": "159_array_every_callback_args",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2",
   "node": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2"
 }
 ,
 {
@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=3"
+  "rts": "call=0\napply=0\ncall_null=0"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=2\npartial=0\nrebind=0"
 }
 ,
 {
@@ -1369,10 +1369,10 @@
 ,
 {
   "name": "254_array_reduce_no_initial",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
   "node": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
-  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=hello world"
+  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=hello 281474976710670"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":188,"rts_diverge":48,"bun_node_diverge":3,"errors":73,"rejected":0}}
+],"summary":{"total":312,"pass":188,"rts_diverge":49,"bun_node_diverge":3,"errors":72,"rejected":0}}
