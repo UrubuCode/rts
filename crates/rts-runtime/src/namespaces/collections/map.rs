@@ -280,6 +280,26 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64)
     }
 }
 
+/// (cross-runtime #772) `obj.isPrototypeOf(other)` — walk `other.__proto__`
+/// chain procurando `obj`. Retorna 1 se obj aparece na cadeia, 0 caso
+/// contrario. Guard contra ciclos: profundidade maxima 64.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_IS_PROTOTYPE_OF(obj: u64, other: u64) -> i64 {
+    if obj == 0 || other == 0 { return 0; }
+    let mut current = with_map(other, 0u64, |m| {
+        m.get("__proto__").copied().unwrap_or(0) as u64
+    });
+    let mut depth = 0u32;
+    while current != 0 && depth < 64 {
+        if current == obj { return 1; }
+        current = with_map(current, 0u64, |m| {
+            m.get("__proto__").copied().unwrap_or(0) as u64
+        });
+        depth += 1;
+    }
+    0
+}
+
 /// (cross-runtime #788) `obj.propertyIsEnumerable(key)` — true se own
 /// property + enumerable. Inherited (via __proto__) ja' retorna false
 /// porque so' checa own. Para Vec: indices = enumerable, "length" = false.

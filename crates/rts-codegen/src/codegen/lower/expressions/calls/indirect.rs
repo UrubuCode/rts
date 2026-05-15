@@ -145,6 +145,21 @@ pub(super) fn lower_var_member_call(
         }
     }
 
+    // (cross-runtime #772) `obj.isPrototypeOf(other)` — walk __proto__
+    // de `other` procurando `obj`. Retorna true se obj aparece na cadeia.
+    if prop == "isPrototypeOf" && call.args.len() == 1 {
+        let other_tv = lower_expr(ctx, &call.args[0].expr)?;
+        let other_h = ctx.coerce_to_i64(other_tv).val;
+        let f = ctx.get_extern(
+            "__RTS_FN_GL_OBJECT_IS_PROTOTYPE_OF",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(f, &[obj_h, other_h]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(v, ValTy::Bool));
+    }
+
     // (#264 PR5) `obj.hasOwnProperty(key)` — verifica own props sem chain.
     // (cross-runtime #788) `obj.propertyIsEnumerable(key)` — own + enumerable.
     if (prop == "hasOwnProperty" || prop == "propertyIsEnumerable") && call.args.len() == 1 {
