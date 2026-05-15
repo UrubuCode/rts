@@ -194,6 +194,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         __RTS_FN_NS_GC_STRING_FROM_I64
     );
     add_fn!(
+        "__RTS_FN_NS_GC_STRING_FROM_I64_TPL",
+        __RTS_FN_NS_GC_STRING_FROM_I64_TPL
+    );
+    add_fn!(
         "__RTS_FN_NS_GC_STRING_FROM_F64",
         __RTS_FN_NS_GC_STRING_FROM_F64
     );

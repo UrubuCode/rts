@@ -1157,8 +1157,12 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                     let val = self.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(val, ValTy::Handle));
                 }
+                // (cross-runtime) STRING_FROM_I64_TPL filtra sentinelas JS
+                // (MIN..MIN+4) para gerar "false"/"true"/"undefined"/"null"
+                // em template literal contexts. gc.string_from_i64 puro
+                // (API direta) nao filtra.
                 let fref =
-                    self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64", &[cl::I64], Some(cl::I64))?;
+                    self.get_extern("__RTS_FN_NS_GC_STRING_FROM_I64_TPL", &[cl::I64], Some(cl::I64))?;
                 let inst = self.builder.ins().call(fref, &[as_i64.val]);
                 let val = self.builder.inst_results(inst)[0];
                 self.declare_gc_handle(val);
