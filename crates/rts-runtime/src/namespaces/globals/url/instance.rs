@@ -66,11 +66,48 @@ impl ParsedUrl {
             },
             None => (String::new(), String::new()),
         };
-        let (hostname, port) = match host_part.rsplit_once(':') {
-            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
-                (h.to_owned(), p.to_owned())
+        // (cross-runtime #287) IPv6 literals: `[addr]` ou `[addr]:port`.
+        // Hostname mantem os brackets. Rejeita IPv6 invalido (>2 `::` ou
+        // chars nao-hex/colon dentro dos brackets).
+        let (hostname, port) = if let Some(rest_after_lb) = host_part.strip_prefix('[') {
+            let (ipv6, after_rb) = match rest_after_lb.split_once(']') {
+                Some(parts) => parts,
+                None => return None, // bracket nao fechado
+            };
+            // Valida conteudo IPv6: apenas hex digits e ':' permitidos;
+            // no maximo 1 ocorrencia de `::` (zero-compression).
+            if ipv6.is_empty() {
+                return None;
             }
-            _ => (host_part.to_owned(), String::new()),
+            if !ipv6.chars().all(|c| c.is_ascii_hexdigit() || c == ':') {
+                return None;
+            }
+            if ipv6.matches("::").count() > 1 {
+                return None;
+            }
+            // Adicionalmente rejeita 3+ colons consecutivos (eg `:::1`).
+            if ipv6.contains(":::") {
+                return None;
+            }
+            let host_with_brackets = format!("[{ipv6}]");
+            let port = if let Some(p) = after_rb.strip_prefix(':') {
+                if !p.chars().all(|c| c.is_ascii_digit()) {
+                    return None;
+                }
+                p.to_owned()
+            } else if after_rb.is_empty() {
+                String::new()
+            } else {
+                return None;
+            };
+            (host_with_brackets, port)
+        } else {
+            match host_part.rsplit_once(':') {
+                Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
+                    (h.to_owned(), p.to_owned())
+                }
+                _ => (host_part.to_owned(), String::new()),
+            }
         };
         let pathname = normalize_path(&pathname_raw);
         let host = if port.is_empty() {
