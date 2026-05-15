@@ -120,7 +120,19 @@ pub extern "C" fn __RTS_FN_NS_GC_IS_PROMISE(handle: u64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
-    // Sentinelas JS: nunca formatar como inteiro decimal.
+    // Raw i64 → decimal string. Esta fn eh primitiva exposta via
+    // `gc.string_from_i64` (ex: num.checked_* retornando i64::MIN
+    // de overflow precisa virar "-9223372036854775808"). Sentinelas
+    // JS (MIN..MIN+4) sao tratadas em coerce_to_handle/template via
+    // TPL_COERCE_AUTO (e via STRING_FROM_I64_TPL abaixo).
+    alloc_entry(Entry::String(value.to_string().into_bytes()))
+}
+
+/// (cross-runtime) Variante de STRING_FROM_I64 usada em template
+/// literal/coerce_to_handle: filtra sentinelas JS antes de formatar
+/// para que `${undefined}` -> "undefined" em vez de raw i64.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64_TPL(value: i64) -> u64 {
     if value == i64::MIN     { return alloc_entry(Entry::String(b"false".to_vec())); }
     if value == i64::MIN + 1 { return alloc_entry(Entry::String(b"true".to_vec())); }
     if value == i64::MIN + 2 || value == i64::MIN + 4 {

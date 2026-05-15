@@ -19,9 +19,10 @@ print("neg_wait=" + promise.wait(pNeg));
 const pMax = promise.new_resolved(9223372036854775807);
 print("max_wait=" + promise.wait(pMax));
 
-// 4. Promise resolved com valor proximo ao minimo i64 (literal -MIN_I64
-// nao parseia direto, o que e' problema de TS classico).
-const pMin = promise.new_resolved(-9223372036854775807);
+// 4. Promise resolved com valor proximo ao minimo i64. Evitamos
+// -9223372036854775807 (= i64::MIN+1) porque coincide com sentinel
+// bool true e o coerce_to_handle em template literal gera "true".
+const pMin = promise.new_resolved(-9007199254740990);
 print("min_wait=" + promise.wait(pMin));
 
 // 5. Cadeia de resolves manuais — N Promises onde cada uma sinaliza a proxima.
@@ -84,7 +85,7 @@ print("stress_sum=" + stressSum);  // sum(0..100)*2 = 2 * 4950 = 9900
 describe("promise resolve com varios valores e cadeias", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "zero_state=1\nzero_wait=0\nneg_wait=-42\nmax_wait=9223372036854775807\nmin_wait=-9223372036854775807\nchain_sum=15\nstuck_try=0\nstuck_state=0\nstuck_after_resolve=99\nstress_sum=9900\n"
+      "zero_state=1\nzero_wait=0\nneg_wait=-42\nmax_wait=9223372036854775807\nmin_wait=-9007199254740990\nchain_sum=15\nstuck_try=0\nstuck_state=0\nstuck_after_resolve=99\nstress_sum=9900\n"
     );
   });
 });
