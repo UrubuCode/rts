@@ -899,6 +899,13 @@ pub(super) fn lower_console_call(
         }
         // (#686) dir(obj) — alias de console.log com 1 arg + INSPECT.
         "dir" => "__RTS_FN_NS_IO_PRINT",
+        // (cross-runtime #311/#310) Console methods nao implementados —
+        // tratados como noop ou alias de log/error pra evitar
+        // 'unknown namespace member'. table/group/groupEnd/groupCollapsed/
+        // count/countReset/trace/time*/clear/profile/profileEnd/timeStamp.
+        "table" | "group" | "groupCollapsed" | "groupEnd" |
+        "count" | "countReset" | "trace" | "time" | "timeEnd" | "timeLog" |
+        "clear" | "profile" | "profileEnd" | "timeStamp" => "__RTS_FN_NS_IO_PRINT",
         _ => return Ok(None),
     };
 
