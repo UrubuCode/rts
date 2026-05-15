@@ -505,10 +505,10 @@
 ,
 {
   "name": "156_string_localecompare",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
   "node": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
-  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=-1\na_A=1"
+  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":189,"rts_diverge":48,"bun_node_diverge":3,"errors":72,"rejected":0}}
+],"summary":{"total":312,"pass":190,"rts_diverge":47,"bun_node_diverge":3,"errors":72,"rejected":0}}
