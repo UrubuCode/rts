@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "named=null"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=2\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
 }
 ,
 {
@@ -1577,10 +1577,10 @@
 ,
 {
   "name": "278_aggregate_error",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
   "node": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
-  "rts": "name=AggregateError\nmsg=many\nlen=2\nitems=[object Object]|b"
+  "rts": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b"
 }
 ,
 {
@@ -2177,10 +2177,10 @@
 ,
 {
   "name": "60_aggregate_error",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
   "node": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
-  "rts": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=[object Object],b"
+  "rts": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":194,"rts_diverge":42,"bun_node_diverge":3,"errors":73,"rejected":0}}
+],"summary":{"total":312,"pass":196,"rts_diverge":41,"bun_node_diverge":3,"errors":72,"rejected":0}}
