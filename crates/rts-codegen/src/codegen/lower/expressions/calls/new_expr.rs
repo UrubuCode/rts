@@ -267,10 +267,17 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             if let Some(arg) = init_arg {
                 if let Expr::Array(arr) = arg.expr.as_ref() {
                     if class_name == "Set" {
-                        // add(elem) para cada item.
+                        // add(elem) para cada item. Para F64 (number), usa
+                        // STRING_FROM_F64 que preserva NaN/Infinity/-0
+                        // como keys distintas (#669/95).
                         let from_i64 = ctx.get_extern(
                             "__RTS_FN_NS_GC_STRING_FROM_I64",
                             &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let from_f64 = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_FROM_F64",
+                            &[cl::F64],
                             Some(cl::I64),
                         )?;
                         let str_ptr = ctx.get_extern(
@@ -292,10 +299,14 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                         for elem in arr.elems.iter().flatten() {
                             if elem.spread.is_some() { continue; }
                             let tv = lower_expr(ctx, &elem.expr)?;
-                            let i = ctx.coerce_to_i64(tv).val;
-                            // Converte i64 para string-key.
-                            let inst_s = ctx.builder.ins().call(from_i64, &[i]);
-                            let key_h = ctx.builder.inst_results(inst_s)[0];
+                            let key_h = if matches!(tv.ty, ValTy::F64) {
+                                let inst_s = ctx.builder.ins().call(from_f64, &[tv.val]);
+                                ctx.builder.inst_results(inst_s)[0]
+                            } else {
+                                let i = ctx.coerce_to_i64(tv).val;
+                                let inst_s = ctx.builder.ins().call(from_i64, &[i]);
+                                ctx.builder.inst_results(inst_s)[0]
+                            };
                             let inst_p = ctx.builder.ins().call(str_ptr, &[key_h]);
                             let kp = ctx.builder.inst_results(inst_p)[0];
                             let inst_l = ctx.builder.ins().call(str_len, &[key_h]);
