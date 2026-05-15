@@ -333,6 +333,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_SYNTAX_ERROR_NEW", __RTS_FN_GL_SYNTAX_ERROR_NEW);
     add_fn!("__RTS_FN_GL_URI_ERROR_NEW", __RTS_FN_GL_URI_ERROR_NEW);
     add_fn!("__RTS_FN_GL_EVAL_ERROR_NEW", __RTS_FN_GL_EVAL_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_AGGREGATE_ERROR_NEW", __RTS_FN_GL_AGGREGATE_ERROR_NEW);
+    add_fn!("__RTS_FN_GL_AGGREGATE_ERROR_ERRORS", __RTS_FN_GL_AGGREGATE_ERROR_ERRORS);
     add_fn!("__RTS_FN_GL_ERROR_MESSAGE", __RTS_FN_GL_ERROR_MESSAGE);
     add_fn!("__RTS_FN_GL_ERROR_NAME", __RTS_FN_GL_ERROR_NAME);
     add_fn!("__RTS_FN_GL_ERROR_TO_STRING", __RTS_FN_GL_ERROR_TO_STRING);
