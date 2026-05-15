@@ -587,6 +587,7 @@ fn lift_arrows_in_expr(
                                     counter,
                                     method == "forEach",
                                     recv_is_object_entries || mapper_slot0_is_string,
+                                    method == "reduce",
                                 ) {
                                     // Substitui arg por Ident.
                                     call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -653,6 +654,7 @@ fn try_lift_arrow_arg(
     counter: &std::sync::atomic::AtomicU32,
     is_void_callback: bool,
     slot0_is_handle: bool,
+    is_reduce: bool,
 ) -> Option<String> {
     use swc_ecma_ast::BlockStmtOrExpr;
     let arrow = match arg {
@@ -842,7 +844,16 @@ fn try_lift_arrow_arg(
     }
 
     let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let fn_name = format!("__lifted_arr_method_{}", n);
+    // (cross-runtime #254) reduce callback `(acc, val) => ...` — slot 1
+    // (val) tambem pode ser handle string. Marca via prefix `_reduce_`
+    // para que user_fn.rs trate ambos os slots como ambiguos. Outros
+    // metodos (forEach/map/filter/etc) tem slot 1 = idx (int puro), nao
+    // ambiguo (idx=0 nao deve virar "null").
+    let fn_name = if is_reduce {
+        format!("__lifted_arr_method_reduce_{}", n)
+    } else {
+        format!("__lifted_arr_method_{}", n)
+    };
 
     let parameters: Vec<Parameter> = param_names
         .iter()
