@@ -426,7 +426,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         // se m.obj e' Expr::Array OU Expr::Call cuja propria
                         // chamada retorna Handle (ex: outro .reverse()),
                         // tratamos como array. Para garantir, tenta array primeiro.
-                        if matches!(m.obj.as_ref(), Expr::Array(_) | Expr::Call(_)) {
+                        // (cross-runtime #106) Excecao: Call para coerce builtin
+                        // `String(...)` retorna string handle — array_builtin
+                        // matchando "includes"/"indexOf" antes de string_builtin
+                        // chamaria VEC_INCLUDES e retornaria false. Detecta
+                        // callee Ident "String"/"Number"/"Boolean" para skip.
+                        let call_returns_string_coerce = if let Expr::Call(c) = m.obj.as_ref() {
+                            matches!(&c.callee, swc_ecma_ast::Callee::Expr(ce)
+                                if matches!(ce.as_ref(), Expr::Ident(id)
+                                    if matches!(id.sym.as_str(), "String")))
+                        } else {
+                            false
+                        };
+                        if matches!(m.obj.as_ref(), Expr::Array(_) | Expr::Call(_))
+                            && !call_returns_string_coerce
+                        {
                             if let Some(tv) = lower_array_builtin(ctx, &method_name, recv_h, call)? {
                                 return Ok(tv);
                             }
