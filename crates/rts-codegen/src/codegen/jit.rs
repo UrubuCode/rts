@@ -1099,6 +1099,26 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_HAS
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_OBJ_HAS",
+            map::__RTS_FN_NS_COLLECTIONS_OBJ_HAS
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_SET_KH",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_SET_KH
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET_KH",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GET_KH
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_OBJ_SET",
+            map::__RTS_FN_NS_COLLECTIONS_OBJ_SET
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_OBJ_GET",
+            map::__RTS_FN_NS_COLLECTIONS_OBJ_GET
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_GET",
             map::__RTS_FN_NS_COLLECTIONS_MAP_GET
         );

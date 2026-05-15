@@ -606,18 +606,36 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     let (kp, kl) = ctx.emit_str_literal(s.value.as_bytes())?;
                     ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
                 } else {
-                    let idx_tv = lower_expr(ctx, &c.expr)?;
-                    let idx = ctx.coerce_to_i64(idx_tv).val;
-                    let vec_set = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_VEC_SET",
-                        &[
-                            cranelift_codegen::ir::types::I64,
-                            cranelift_codegen::ir::types::I64,
-                            cranelift_codegen::ir::types::I64,
-                        ],
-                        None,
-                    )?;
-                    ctx.builder.ins().call(vec_set, &[obj_h, idx, rhs_i64]);
+                    let key_tv = lower_expr(ctx, &c.expr)?;
+                    // Hot path: key claramente numerica -> VEC_SET direto
+                    // (sem alocar handle string por iteracao).
+                    if matches!(key_tv.ty, ValTy::I32 | ValTy::I64 | ValTy::U64) {
+                        let idx = ctx.coerce_to_i64(key_tv).val;
+                        let vec_set = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+                            &[
+                                cranelift_codegen::ir::types::I64,
+                                cranelift_codegen::ir::types::I64,
+                                cranelift_codegen::ir::types::I64,
+                            ],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(vec_set, &[obj_h, idx, rhs_i64]);
+                    } else {
+                        // (#753) Symbol/handle key -> OBJ_SET dispatcher
+                        // (Vec/Map em runtime + repr canonica de Symbol).
+                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                        let obj_set = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_OBJ_SET",
+                            &[
+                                cranelift_codegen::ir::types::I64,
+                                cranelift_codegen::ir::types::I64,
+                                cranelift_codegen::ir::types::I64,
+                            ],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(obj_set, &[obj_h, key_h, rhs_i64]);
+                    }
                 }
             }
             MemberProp::PrivateName(pn) => {

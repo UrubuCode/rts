@@ -364,21 +364,23 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return lower_instanceof(ctx, bin);
     }
 
-    // (cross-runtime #52) `key in arr` para Vec. JS spec: index `i` esta
-    // "in" array se 0 <= i < length E slot != hole. Usa runtime helper
-    // VEC_HAS_INDEX que retorna 0/1.
+    // (cross-runtime #52/#753) `key in obj` — dispatcher universal que
+    // aceita Vec ou Map, com key como handle (String, Symbol, etc).
+    // Chama OBJ_HAS que despacha por Entry type do obj.
     if matches!(bin.op, BinaryOp::In) {
         let key_tv = lower_expr(ctx, &bin.left)?;
         let obj_tv = lower_expr(ctx, &bin.right)?;
         if matches!(obj_tv.ty, ValTy::Handle) {
-            let idx = ctx.coerce_to_i64(key_tv).val;
+            // Coerce key para handle: string literals/handles passam direto,
+            // numbers viram string handle via gc.string_from_i64/f64.
+            let key_h = ctx.coerce_to_handle(key_tv)?.val;
             let obj_h = obj_tv.val;
             let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX",
+                "__RTS_FN_NS_COLLECTIONS_OBJ_HAS",
                 &[cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, idx]);
+            let inst = ctx.builder.ins().call(fref, &[obj_h, key_h]);
             let v = ctx.builder.inst_results(inst)[0];
             return Ok(TypedVal::new(v, ValTy::Bool));
         }
