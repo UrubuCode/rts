@@ -781,17 +781,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
-                // (#798/192) Object.getOwnPropertySymbols(obj) — RTS Maps usam
-                // chaves String, sem suporte real a Symbol keys (#216). Retorna
-                // sempre Vec vazio para satisfazer a shape API.
+                // (#798) Object.getOwnPropertySymbols(obj) — apos #753, Symbol
+                // keys sao gravadas como `@@sym:<handle>` no Map. Decodifica
+                // essas keys de volta para Vec de Symbol handles.
                 if method == "getOwnPropertySymbols" && call.args.len() == 1 {
-                    let _ = lower_expr(ctx, &call.args[0].expr)?;
+                    let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let h = ctx.coerce_to_i64(arg_tv).val;
                     let f = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
-                        &[],
+                        "__RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_SYMBOLS",
+                        &[cl::I64],
                         Some(cl::I64),
                     )?;
-                    let inst = ctx.builder.ins().call(f, &[]);
+                    let inst = ctx.builder.ins().call(f, &[h]);
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
