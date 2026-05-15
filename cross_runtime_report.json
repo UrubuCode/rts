@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=0"
+  "rts": "call=0\napply=0\ncall_null=3"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=2\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
 }
 ,
 {
@@ -1641,10 +1641,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2145,10 +2145,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":188,"rts_diverge":50,"bun_node_diverge":3,"errors":71,"rejected":0}}
+],"summary":{"total":312,"pass":188,"rts_diverge":48,"bun_node_diverge":3,"errors":73,"rejected":0}}
