@@ -715,6 +715,27 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // Date static methods (#220): Date.now() / Date.parse() via GlobalClassSpec.
             if let Some((cls, method)) = qualified.split_once('.') {
                 if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                    // (cross-runtime #746) Multiplos static members com mesmo
+                    // nome (overloads por arity TS): prefere o que combina.
+                    // Cada AbiType::StrPtr conta como 1 arg TS (expandida em
+                    // 2 slots na ABI Cranelift).
+                    let n_args = call.args.len();
+                    fn ts_arity(args: &[crate::abi::types::AbiType]) -> usize {
+                        args.len()
+                    }
+                    let arity_match = spec.members.iter().find(|m| {
+                        if m.name != method { return false; }
+                        if !matches!(m.kind,
+                            crate::abi::member::MemberKind::Function
+                            | crate::abi::member::MemberKind::Constant
+                            | crate::abi::member::MemberKind::StaticMethod) {
+                            return false;
+                        }
+                        ts_arity(m.args) == n_args
+                    });
+                    if let Some(member) = arity_match {
+                        return lower_ns_call_member(ctx, member, call);
+                    }
                     if let Some(member) = spec.static_member(method) {
                         return lower_ns_call_member(ctx, member, call);
                     }
