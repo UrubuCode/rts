@@ -364,6 +364,33 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return lower_instanceof(ctx, bin);
     }
 
+    // (cross-runtime #102) BigInt literal arithmetic: quando AMBOS lados
+    // sao BigInt literals (`17n / 3n`), `/` deve fazer trunc i64 (BigInt
+    // spec) em vez de fdiv f64. RTS nao tem BigInt real, mas casos comuns
+    // com 2 literais sao detectaveis sintaticamente.
+    if matches!(bin.op, BinaryOp::Div) {
+        let lhs_is_bigint = matches!(bin.left.as_ref(), Expr::Lit(Lit::BigInt(_)));
+        let rhs_is_bigint = matches!(bin.right.as_ref(), Expr::Lit(Lit::BigInt(_)));
+        if lhs_is_bigint && rhs_is_bigint {
+            let lhs_tv = lower_expr(ctx, &bin.left)?;
+            let rhs_tv = lower_expr(ctx, &bin.right)?;
+            let lv = ctx.coerce_to_i64(lhs_tv).val;
+            let rv = ctx.coerce_to_i64(rhs_tv).val;
+            // Guard divisor 0: emite trunc com sdiv safe — em rv=0 retorna 0.
+            let val = lower_imod_safe(ctx, lv, rv, ValTy::I64);
+            // lower_imod_safe faz modulo — precisamos de sdiv aqui.
+            // Reusar mesma estrategia: bor com is_zero flag.
+            let _ = val;
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_zero = ctx.builder.ins().icmp(IntCC::Equal, rv, zero);
+            let is_zero_i64 = ctx.builder.ins().uextend(cl::I64, is_zero);
+            let safe_rv = ctx.builder.ins().bor(rv, is_zero_i64);
+            let q = ctx.builder.ins().sdiv(lv, safe_rv);
+            let result = ctx.builder.ins().select(is_zero, zero, q);
+            return Ok(TypedVal::new(result, ValTy::I64));
+        }
+    }
+
     // (cross-runtime #52) `key in arr` para Vec. JS spec: index `i` esta
     // "in" array se 0 <= i < length E slot != hole. Usa runtime helper
     // VEC_HAS_INDEX que retorna 0/1.
