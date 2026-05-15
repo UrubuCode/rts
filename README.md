@@ -38,7 +38,7 @@ Compatibilidade JS spec validada contra **Bun** e **Node** em 312 fixtures TS st
 | 🚫 Rejeitados (RTS-only) | 0 |
 | 📦 Total fixtures | 312 |
 
-_Atualizado: 2026-05-14 — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_
+_Atualizado: 2026-05-15 — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
