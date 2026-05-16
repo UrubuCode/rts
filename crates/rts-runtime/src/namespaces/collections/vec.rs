@@ -156,13 +156,22 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64) -> i64 {
     use super::super::gc::handles::with_entry;
-    enum Kind { Vec, Str(Vec<u8>), Other }
+    enum Kind { Vec, Str(Vec<u8>), Buf(u8), Other }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Vec(_)) => Kind::Vec,
         Some(Entry::String(b)) => Kind::Str(b.clone()),
+        Some(Entry::Buffer(b)) => {
+            if index < 0 || (index as usize) >= b.len() {
+                Kind::Other
+            } else {
+                Kind::Buf(b[index as usize])
+            }
+        }
         _ => Kind::Other,
     });
     match kind {
+        // (#58) Buffer indexing: bytes[i] retorna byte como i64.
+        Kind::Buf(byte) => byte as i64,
         Kind::Vec => __RTS_FN_NS_COLLECTIONS_VEC_GET(handle, index),
         Kind::Str(bytes) => {
             if index < 0 {
