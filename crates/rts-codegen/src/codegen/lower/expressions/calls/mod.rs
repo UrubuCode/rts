@@ -384,8 +384,19 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
                         if let Some(member) = spec.instance_method(&method_name) {
                             let recv_tv = lower_expr(ctx, &m.obj)?;
-                            let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
-                            return lower_global_instance_call(ctx, member, recv_i64, call);
+                            // (#245) Quando member.args[0] eh F64 (Number/etc.
+                            // primitives wrapped), passa recv como F64 raw.
+                            // Senao coerce para i64 (Handle/string/etc.).
+                            let first_arg_is_f64 = member.args
+                                .first()
+                                .map(|a| matches!(a, crate::abi::types::AbiType::F64))
+                                .unwrap_or(false);
+                            let recv_raw = if first_arg_is_f64 {
+                                to_f64(ctx, recv_tv)
+                            } else {
+                                ctx.coerce_to_i64(recv_tv).val
+                            };
+                            return lower_global_instance_call(ctx, member, recv_raw, call);
                         }
                     }
                 }
