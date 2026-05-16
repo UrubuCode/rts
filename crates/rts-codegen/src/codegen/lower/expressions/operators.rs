@@ -397,7 +397,14 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     if matches!(bin.op, BinaryOp::In) {
         let key_tv = lower_expr(ctx, &bin.left)?;
         let obj_tv = lower_expr(ctx, &bin.right)?;
-        if matches!(obj_tv.ty, ValTy::Handle) {
+        // (#83) Aceita tambem I64/U64 — em callbacks de array methods o
+        // param vem como I64 raw carregando handle. Sem isso `"key" in y`
+        // em arrow fail com "unsupported binary op: in". Primitives reais
+        // (F64/Bool/I32) caem no path original que retorna Err.
+        if matches!(
+            obj_tv.ty,
+            ValTy::Handle | ValTy::I64 | ValTy::U64
+        ) {
             // Coerce key para handle: string literals/handles passam direto,
             // numbers viram string handle via gc.string_from_i64/f64.
             let key_h = ctx.coerce_to_handle(key_tv)?.val;
