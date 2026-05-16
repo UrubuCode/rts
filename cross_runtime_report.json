@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "named=null"
 }
 ,
 {
@@ -113,10 +113,10 @@
 ,
 {
   "name": "105_template_tagged_raw",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
   "node": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "raw=line1\\n42\\tend"
 }
 ,
 {
@@ -1889,10 +1889,10 @@
 ,
 {
   "name": "313_tagged_template_raw",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "raw=a\\n1b\\t\ntag=x\\n|y\\t|::2,z",
   "node": "raw=a\\n1b\\t\ntag=x\\n|y\\t|::2,z",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "raw=a\\n1b\\t"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nset=\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
+  "rts": "same=true\nmap=\nset=\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
 }
 ,
 {
@@ -2100,7 +2100,7 @@
   "status": "rts_diverge",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=4\nparsed_label=go"
+  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=4\nparsed_items=1,2,3\nparsed_label=go"
 }
 ,
 {
@@ -2188,7 +2188,7 @@
   "status": "rts_diverge",
   "bun": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
   "node": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
-  "rts": "orig_set=\ncopy_set="
+  "rts": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=\ncopy_map=\norig_set=\ncopy_set="
 }
 ,
 {
@@ -2473,10 +2473,10 @@
 ,
 {
   "name": "97_structured_clone_edge",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=false"
+  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":211,"rts_diverge":33,"bun_node_diverge":3,"errors":65,"rejected":0}}
+],"summary":{"total":312,"pass":212,"rts_diverge":34,"bun_node_diverge":3,"errors":63,"rejected":0}}
