@@ -481,17 +481,21 @@ pub extern "C" fn __RTS_FN_GL_STRING_LOCALE_COMPARE(recv: u64, other: u64) -> i6
     use std::cmp::Ordering;
     match (handle_to_str(recv), handle_to_str(other)) {
         (Some(a), Some(b)) => {
-            // JS locale order (ICU-like): compare case-insensitively first;
-            // quando case-insensitive iguais, uppercase < lowercase
-            // (ex: "A".localeCompare("a") = -1, oposto do ASCII).
-            // Em ASCII 'A' (0x41) < 'a' (0x61), entao a.cmp(b) preserva
-            // esse ordering — bate com Bun/Node.
+            // (cross-runtime #156) JS locale order (ICU/CLDR): compare
+            // case-insensitively primeiro; quando case-insensitive
+            // iguais, lowercase vem ANTES de uppercase (oposto do
+            // ASCII puro):
+            //   "A".localeCompare("a") =  1   ("a" vem antes)
+            //   "a".localeCompare("A") = -1
+            // Em ASCII 'A' (0x41) < 'a' (0x61), entao precisamos
+            // inverter o secondary tie-break (b.cmp(a) em vez de
+            // a.cmp(b)) para bater com Bun/Node.
             let a_lo = a.to_lowercase();
             let b_lo = b.to_lowercase();
             match a_lo.cmp(&b_lo) {
                 Ordering::Less => -1,
                 Ordering::Greater => 1,
-                Ordering::Equal => match a.cmp(b) {
+                Ordering::Equal => match b.cmp(a) {
                     Ordering::Less => -1,
                     Ordering::Equal => 0,
                     Ordering::Greater => 1,

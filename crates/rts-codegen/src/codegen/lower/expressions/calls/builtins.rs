@@ -713,10 +713,13 @@ pub(super) fn lower_map_set_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        // (#222) Map iteration methods. Reusam fns de Object.keys/values/entries.
+        // (#222 / cross-runtime #301) Map iteration methods. Para `m.entries()`
+        // em Map JS, usa MAP_ENTRIES_INSERTION que preserva ordem de insercao
+        // (IndexMap order). `Object.entries(obj)` (static) usa MAP_ENTRIES que
+        // ordena por chave conforme spec.
         "entries" if call.args.is_empty() => {
             let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES",
+                "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION",
                 &[cl::I64],
                 Some(cl::I64),
             )?;

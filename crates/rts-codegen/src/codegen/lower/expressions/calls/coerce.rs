@@ -90,8 +90,13 @@ pub(super) fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result
             }
         }
         let tv = super::lower_expr(ctx, &arg.expr)?;
+        // (cross-runtime #256/#262) I64 ambiguo (param de hoisted arrow,
+        // var_member_call) pode ser handle de string — checa is_ambig_handle
+        // ANTES do branch I64 puro para nao perder o caminho NUMBER_FROM_STR.
+        let is_ambig_for_num = matches!(tv.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_member_call_values.contains(&tv.val);
         // Sentinela undefined (i64::MIN+2) → NaN; sentinela null (i64::MIN+3) → 0.
-        if matches!(tv.ty, ValTy::I64) {
+        if matches!(tv.ty, ValTy::I64) && !is_ambig_for_num {
             let sentinel_undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
             let sentinel_null  = ctx.builder.ins().iconst(cl::I64, i64::MIN + 3);
             let is_undef = ctx.builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tv.val, sentinel_undef);
@@ -99,13 +104,19 @@ pub(super) fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result
             // is_undef → NaN; is_null → 0.0; else → fallthrough
             let is_special = ctx.builder.ins().bor(is_undef, is_null);
             // Emite runtime check via inline branch.
+            // (cross-runtime #256/#262) brif eh terminator do bloco corrente;
+            // o caminho "default" (nao-special) precisa de um bloco proprio,
+            // nao pode emitir instructions inline no mesmo bloco apos brif.
             let special_block = ctx.builder.create_block();
+            let default_block = ctx.builder.create_block();
             let undef_block   = ctx.builder.create_block();
             let null_block    = ctx.builder.create_block();
             let merge_block   = ctx.builder.create_block();
             ctx.builder.append_block_param(merge_block, cl::F64);
-            ctx.builder.ins().brif(is_special, special_block, &[], merge_block, &[]);
-            // Merge direct: to_f64(tv) as default.
+            ctx.builder.ins().brif(is_special, special_block, &[], default_block, &[]);
+            // Default path: to_f64(tv) e jump para merge.
+            ctx.builder.switch_to_block(default_block);
+            ctx.builder.seal_block(default_block);
             {
                 let fval = to_f64(ctx, tv);
                 ctx.builder.ins().jump(merge_block, &[fval.into()]);

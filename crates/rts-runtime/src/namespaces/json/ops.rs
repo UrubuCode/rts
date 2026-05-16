@@ -252,6 +252,12 @@ fn stringify_with_visited(
                 if k == "__proto__" { continue; }
                 // (#110) Slots internos getter/setter — nao sao props publicas.
                 if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
+                // (cross-runtime #292) `__rts_class` eh o discriminator de
+                // class instance (tag interno RTS). NAO deve aparecer em
+                // JSON.stringify output — sem toJSON() dispatch real, ao menos
+                // omitir o lixo. Tambem `__rts_desc_*` (Reflect property
+                // descriptors) sao metadata interna.
+                if k == "__rts_class" || k.starts_with("__rts_desc_") { continue; }
                 // (#680/50) JSON spec: omite props com valor undefined em obj.
                 if is_undefined_value(val) { continue; }
                 if !first { out.push(','); }

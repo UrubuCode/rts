@@ -28,19 +28,20 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 
     if fn_ptr == 0 {
         return 0;
     }
-    // SAFETY: fn_ptr is `extern "C" fn(i64) -> i64` — contract com
-    // codegen. Paralelo via rayon: callers que reescrevem `arr.map(fn)`
-    // pra parallel.map (silent_parallelism) sao responsaveis por
-    // garantir que `fn` eh pura (sem side effects). Hoje o pass
-    // `array_methods_pass` so reescreve quando fn esta whitelisted
-    // em `purity_pass` (math/string/num/etc puras).
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // SAFETY: fn_ptr is `extern "C" fn(i64, i64, i64) -> i64` — contract com
+    // codegen. Callbacks de array methods (#776) recebem (val, idx, array_handle).
+    // Lifted callbacks com menos params ignoram args extras (regs RDX/R8 em
+    // x86_64 Win64, RSI/RDX em SysV). Paralelo via rayon — silent rewrite so
+    // dispara quando fn esta whitelisted em `purity_pass`.
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let arr = vec_handle as i64;
     // (cross-runtime #52) JS spec: map preserva holes (slot vazio
     // permanece vazio no resultado, callback nao eh invocado).
     let result: Vec<i64> = pool().install(|| {
         items
             .par_iter()
-            .map(|&x| if x == i64::MIN + 4 { x } else { f(x) })
+            .enumerate()
+            .map(|(i, &x)| if x == i64::MIN + 4 { x } else { f(x, i as i64, arr) })
             .collect()
     });
     alloc_entry(Entry::Vec(Box::new(result)))
@@ -54,15 +55,22 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: u64, fn_ptr: u64) {
     if fn_ptr == 0 {
         return;
     }
-    // SAFETY: fn_ptr is `extern "C" fn(i64)`.
-    let f: extern "C" fn(i64) = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // SAFETY: fn_ptr is `extern "C" fn(i64, i64, i64) -> i64`. Callbacks
+    // de array methods (#776) recebem (val, idx, array_handle); lifted
+    // callbacks com menos params ignoram args extras (calling convention).
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let arr = vec_handle as i64;
     // JS Array.prototype.forEach garante ordem de iteracao (insertion
     // order). Sem isso, codigo como `entries.forEach(([k,v]) => print(...))`
     // produz saida fora de ordem (test object_builtins). Mantemos sequencial
     // — a vantagem de parallelism vem em map/reduce que sao puros.
     // (cross-runtime #52/#220) JS spec: forEach pula holes (slot vazio,
     // sentinela MIN+4) sem invocar callback.
-    items.iter().for_each(|&x| if x != i64::MIN + 4 { f(x); });
+    items.iter().enumerate().for_each(|(i, &x)| {
+        if x != i64::MIN + 4 {
+            f(x, i as i64, arr);
+        }
+    });
 }
 
 /// (cross-runtime #254) `arr.reduce(fn)` sem initial value. JS spec:
@@ -127,12 +135,17 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FILTER(vec_handle: u64, fn_ptr: u64) -> u
     if fn_ptr == 0 {
         return 0;
     }
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // (#776) callback recebe (val, idx, array_handle); 1-param lifted ignora
+    // args extras via calling convention.
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let arr = vec_handle as i64;
     // (cross-runtime #52) JS spec: filter pula holes (sparse slot ==
     // i64::MIN + 4) sem invocar callback. Resultado sem holes.
     let result: Vec<i64> = items
         .into_iter()
-        .filter(|&x| x != i64::MIN + 4 && cb_truthy(f(x)))
+        .enumerate()
+        .filter(|&(i, x)| x != i64::MIN + 4 && cb_truthy(f(x, i as i64, arr)))
+        .map(|(_, x)| x)
         .collect();
     alloc_entry(Entry::Vec(Box::new(result)))
 }
@@ -146,9 +159,10 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND(vec_handle: u64, fn_ptr: u64) -> i64
     if fn_ptr == 0 {
         return 0;
     }
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    match items.into_iter().find(|&x| cb_truthy(f(x))) {
-        Some(v) => v,
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let arr = vec_handle as i64;
+    match items.into_iter().enumerate().find(|&(i, x)| cb_truthy(f(x, i as i64, arr))) {
+        Some((_, v)) => v,
         None => {
             // JS spec: find sem match retorna `undefined`. Aloca handle
             // de string "undefined" — codegen marca .find(...) como
@@ -168,10 +182,12 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_INDEX(vec_handle: u64, fn_ptr: u64) 
     if fn_ptr == 0 {
         return -1;
     }
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let arr = vec_handle as i64;
     items
         .into_iter()
-        .position(|x| cb_truthy(f(x)))
+        .enumerate()
+        .position(|(i, x)| cb_truthy(f(x, i as i64, arr)))
         .map(|i| i as i64)
         .unwrap_or(-1)
 }
@@ -185,8 +201,9 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_SOME(vec_handle: u64, fn_ptr: u64) -> i64
     if fn_ptr == 0 {
         return 0;
     }
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    if items.into_iter().any(|x| cb_truthy(f(x))) { 1 } else { 0 }
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let arr = vec_handle as i64;
+    if items.into_iter().enumerate().any(|(i, x)| cb_truthy(f(x, i as i64, arr))) { 1 } else { 0 }
 }
 
 /// Retorna 1 se todos os elementos satisfazem predicate, 0 caso contrario.
@@ -199,6 +216,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_EVERY(vec_handle: u64, fn_ptr: u64) -> i6
     if fn_ptr == 0 {
         return 1;
     }
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    if items.into_iter().all(|x| cb_truthy(f(x))) { 1 } else { 0 }
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let arr = vec_handle as i64;
+    if items.into_iter().enumerate().all(|(i, x)| cb_truthy(f(x, i as i64, arr))) { 1 } else { 0 }
 }
