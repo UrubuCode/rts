@@ -731,6 +731,13 @@ pub(super) fn lower_function_handle_method(
                 .call(target_fn, &[fn_handle, this_arg, args_vec_h]);
             let r = ctx.builder.inst_results(inst)[0];
             let ty = if method == "bind" { ValTy::Handle } else { ValTy::I64 };
+            // (#180/#294) call/apply retornam i64 raw que pode ser handle de
+            // string (fn retornou string) ou number bits. Marca como
+            // var_member_call_values para que TPL_COERCE_AUTO renderize
+            // correto em template literal / concat.
+            if method == "call" || method == "apply" {
+                ctx.var_member_call_values.insert(r);
+            }
             Ok(Some(TypedVal::new(r, ty)))
         }
         _ => Ok(None),
@@ -914,6 +921,13 @@ pub(super) fn lower_function_method_call(
                 .call(target_fn, &[fn_handle, this_arg, args_vec_h]);
             let r = ctx.builder.inst_results(inst)[0];
             let ty = if method == "bind" { ValTy::Handle } else { ValTy::I64 };
+            // (#180/#294) call/apply retornam i64 raw que pode ser handle de
+            // string (fn retornou string) ou number bits. Marca como
+            // var_member_call_values para que TPL_COERCE_AUTO renderize
+            // correto em template literal / concat.
+            if method == "call" || method == "apply" {
+                ctx.var_member_call_values.insert(r);
+            }
             Ok(Some(TypedVal::new(r, ty)))
         }
         _ => Ok(None),
