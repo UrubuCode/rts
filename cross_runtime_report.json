@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2361,10 +2361,10 @@
 ,
 {
   "name": "83_promise_combinators",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "settled=0:0|0:0\nany=281474976710669"
 }
 ,
 {
