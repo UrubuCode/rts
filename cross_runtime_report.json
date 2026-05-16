@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -164,7 +164,7 @@
   "status": "rts_diverge",
   "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
   "node": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
-  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=number\nc.value=3\nc.writable=true\nc.enumerable=true"
+  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=number\nc.value=3\nc.writable=false\nc.enumerable=false"
 }
 ,
 {
@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=3"
+  "rts": "call=0\napply=0\ncall_null=0"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=0\npartial=0\nrebind=3"
 }
 ,
 {
