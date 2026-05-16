@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=4823355200913801440\napply=4823355200913801632\ncall_null=4823355200913801824"
+  "rts": "call=World \napply=There \ncall_null=You "
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=null\npartial=0\nrebind=0"
 }
 ,
 {
