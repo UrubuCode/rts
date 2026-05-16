@@ -1649,9 +1649,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2001,10 +2001,10 @@
 ,
 {
   "name": "38_classes_deep",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
   "node": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true"
 }
 ,
 {
@@ -2452,7 +2452,7 @@
   "status": "rts_diverge",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=5\nkeys=0,2,3,4\nforIn=\nforOf=0|undefined|2|undefined|4\nentries=null:null|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
+  "rts": "len=5\nkeys=0,2,3,4\nforIn=0:null|2:null|3:null|4:null\nforOf=0|undefined|2|undefined|4\nentries=null:null|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":209,"rts_diverge":32,"bun_node_diverge":4,"errors":67,"rejected":0}}
+],"summary":{"total":312,"pass":210,"rts_diverge":33,"bun_node_diverge":3,"errors":66,"rejected":0}}
