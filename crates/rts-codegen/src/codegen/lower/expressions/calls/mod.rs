@@ -384,8 +384,17 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
                         if let Some(member) = spec.instance_method(&method_name) {
                             let recv_tv = lower_expr(ctx, &m.obj)?;
-                            let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
-                            return lower_global_instance_call(ctx, member, recv_i64, call);
+                            // (#245) Receiver type must match member.args[0].
+                            // Number's instance_methods receive F64 directly,
+                            // not Handle — coerce_to_i64 would fcvt and break
+                            // verifier downstream.
+                            let recv_val = match member.args.first() {
+                                Some(crate::abi::AbiType::F64) => {
+                                    ctx.coerce_to_f64(recv_tv).val
+                                }
+                                _ => ctx.coerce_to_i64(recv_tv).val,
+                            };
+                            return lower_global_instance_call(ctx, member, recv_val, call);
                         }
                     }
                 }
