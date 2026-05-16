@@ -79,12 +79,18 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             // (#798) `const x = Object.keys/values/getOwnPropertyNames/getOwnPropertySymbols(...)`
             // retorna Vec — marca pra que `x.includes(sym)` use VEC_INCLUDES e nao
             // o string builtin (que ignora needle e retorna 0).
+            // (cross-runtime #808) Tambem array methods que retornam array:
+            // `.map/.filter/.slice/.concat/.flat/.flatMap/.reduceRight (com acc Vec)/...`.
             if let swc_ecma_ast::Expr::Call(call) = init_peeled {
                 if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
                     if let swc_ecma_ast::Expr::Member(m) = callee.as_ref() {
                         let is_object_recv = matches!(
                             m.obj.as_ref(),
                             swc_ecma_ast::Expr::Ident(id) if id.sym.as_str() == "Object"
+                        );
+                        let is_array_static = matches!(
+                            m.obj.as_ref(),
+                            swc_ecma_ast::Expr::Ident(id) if id.sym.as_str() == "Array"
                         );
                         let prop_name: Option<&str> = match &m.prop {
                             swc_ecma_ast::MemberProp::Ident(id) => Some(id.sym.as_str()),
@@ -98,6 +104,47 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                     | "getOwnPropertyNames" | "getOwnPropertySymbols"
                                 ) {
                                     ctx.local_array_vars.insert(name.clone());
+                                }
+                            }
+                        }
+                        if is_array_static {
+                            if let Some(p) = prop_name {
+                                if matches!(p, "from" | "of") {
+                                    ctx.local_array_vars.insert(name.clone());
+                                }
+                            }
+                        }
+                        // (cross-runtime #808) Array instance methods que retornam
+                        // Vec — propaga local_array_vars para o var receptor.
+                        // Verifica que receiver eh array (literal direto OU ident
+                        // ja' marcado como local_array_var).
+                        let recv_is_array = match m.obj.as_ref() {
+                            swc_ecma_ast::Expr::Array(_) => true,
+                            swc_ecma_ast::Expr::Ident(id) => {
+                                ctx.local_array_vars.contains(id.sym.as_str())
+                            }
+                            _ => false,
+                        };
+                        if recv_is_array {
+                            if let Some(p) = prop_name {
+                                if matches!(
+                                    p,
+                                    "map" | "filter" | "slice" | "concat" | "flat" | "flatMap"
+                                    | "splice" | "toReversed" | "toSorted" | "toSpliced" | "with"
+                                ) {
+                                    ctx.local_array_vars.insert(name.clone());
+                                }
+                                if matches!(p, "reduce" | "reduceRight")
+                                    && call.args.len() == 2
+                                {
+                                    // init eh 2o arg; se for Array literal, retorno
+                                    // eh array.
+                                    if matches!(
+                                        call.args[1].expr.as_ref(),
+                                        swc_ecma_ast::Expr::Array(_)
+                                    ) {
+                                        ctx.local_array_vars.insert(name.clone());
+                                    }
                                 }
                             }
                         }
