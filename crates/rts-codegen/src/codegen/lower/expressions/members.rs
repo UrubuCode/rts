@@ -918,7 +918,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 }
             }
             let obj_is_call_result = chain_has_call_root(m.obj.as_ref(), &ctx.local_ambiguous_vars);
-            if receiver_class.is_none() && !is_known_obj_lit && !skip_function_meta && !obj_is_call_result {
+            // (#777) Methods universais que toda classe global define
+            // (toString/valueOf/hasOwnProperty/etc) NAO devem dispatch via
+            // GLOBAL_CLASS_SPECS fallback — o primeiro spec que define o
+            // metodo (ex: String) vence e retorna lixo quando o receiver
+            // nao eh dessa classe. Bug raiz: `Object.create(null).toString`
+            // retornava o proprio handle porque String.toString eh passthrough.
+            //
+            // Para esses, cai no map_get_chain abaixo que retorna 0 quando
+            // a key nao esta no Map (semantica correta: undefined).
+            let is_universal_method = matches!(
+                key,
+                "toString" | "valueOf" | "hasOwnProperty" | "toLocaleString"
+                | "isPrototypeOf" | "propertyIsEnumerable" | "constructor"
+            );
+            if receiver_class.is_none()
+                && !is_known_obj_lit
+                && !skip_function_meta
+                && !obj_is_call_result
+                && !is_universal_method
+            {
                 // (#216) Tenta instance_getter primeiro (description, source, flags, etc.)
                 for spec in crate::abi::GLOBAL_CLASS_SPECS {
                     if let Some(member) = spec.instance_getter(key) {

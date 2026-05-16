@@ -429,13 +429,26 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         if let Some(other_expr) = other {
             // Skip se ambos sao undefined ident (tratado abaixo).
             if !is_undef_ident(other_expr) {
+                // (#777) Member access em obj sem prop existente retorna 0
+                // (MAP_GET_CHAIN miss). JS spec: `obj.missing === undefined`
+                // deve ser true. Detecta se LHS eh Member e considera 0
+                // tambem como undefined-equivalente.
+                let lhs_is_member = matches!(
+                    other_expr.as_ref(),
+                    Expr::Member(_) | Expr::OptChain(_)
+                );
                 let tv = lower_expr(ctx, other_expr)?;
                 let v_i64 = ctx.coerce_to_i64(tv).val;
                 let undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
                 let hole = ctx.builder.ins().iconst(cl::I64, i64::MIN + 4);
                 let eq_undef = ctx.builder.ins().icmp(IntCC::Equal, v_i64, undef);
                 let eq_hole = ctx.builder.ins().icmp(IntCC::Equal, v_i64, hole);
-                let is_undef_val = ctx.builder.ins().bor(eq_undef, eq_hole);
+                let mut is_undef_val = ctx.builder.ins().bor(eq_undef, eq_hole);
+                if lhs_is_member {
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    let eq_zero = ctx.builder.ins().icmp(IntCC::Equal, v_i64, zero);
+                    is_undef_val = ctx.builder.ins().bor(is_undef_val, eq_zero);
+                }
                 let result_v = if matches!(bin.op, BinaryOp::NotEqEq) {
                     let one = ctx.builder.ins().iconst(cl::I8, 1);
                     ctx.builder.ins().bxor(is_undef_val, one)
@@ -1514,14 +1527,12 @@ fn lower_global_instanceof(
     lhs_expr: &Expr,
 ) -> Result<TypedVal> {
     let lhs = lower_expr(ctx, lhs_expr)?;
-    // Primitives (F64/I64/I32/Bool) nunca passam instanceof <class>.
-    // EXCECAO (#278): I64 ambiguo (var_member_call_values) pode conter
-    // handle valido — `arr[i]` retorna I64 ambiguo mas pode ser handle
-    // Error/Map/Vec. Permite proceder; o runtime fn (IS_ERROR/etc.)
-    // valida o handle via with_entry.
-    let is_ambig_i64 = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
-        && ctx.var_member_call_values.contains(&lhs.val);
-    if !matches!(lhs.ty, ValTy::Handle) && !is_ambig_i64 {
+    // F64/I32/Bool sao primitives puros — nunca passam instanceof <class>.
+    // I64/U64 podem carregar handles (ex: callback param sem tipo onde
+    // o array element eh handle, OU var_member_call ambiguo). Caem no
+    // runtime check via IS_* que retorna 0 para handles invalidos — sem
+    // regressao em primitivos. (cross-runtime #278)
+    if matches!(lhs.ty, ValTy::F64 | ValTy::I32 | ValTy::Bool) {
         let zero = ctx.builder.ins().iconst(cl::I64, 0);
         return Ok(TypedVal::new(zero, ValTy::Bool));
     }

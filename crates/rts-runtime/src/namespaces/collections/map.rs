@@ -917,6 +917,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
             out.push(alloc_entry(Entry::String(b"length".to_vec())) as i64);
             out
         }
+        Some(Entry::String(b)) => {
+            // (#789) `new String("hi")` -> getOwnPropertyNames retorna
+            // ["0","1",...,"length"] usando UTF-16 code units (mesmo
+            // criterio de String.length em JS).
+            let char_count = String::from_utf8_lossy(b).encode_utf16().count();
+            let mut out: Vec<i64> = (0..char_count)
+                .map(|i| alloc_entry(Entry::String(i.to_string().into_bytes())) as i64)
+                .collect();
+            out.push(alloc_entry(Entry::String(b"length".to_vec())) as i64);
+            out
+        }
         _ => Vec::new(),
     });
     alloc_entry(Entry::Vec(Box::new(result)))

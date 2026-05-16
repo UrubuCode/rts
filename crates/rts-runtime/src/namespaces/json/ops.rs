@@ -252,6 +252,9 @@ fn stringify_with_visited(
                 if k == "__proto__" { continue; }
                 // (#110) Slots internos getter/setter — nao sao props publicas.
                 if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
+                // (#103) Symbol keys (encoded como `@@sym:<handle>` pelo
+                // codegen) NAO sao serializadas em JSON.stringify — JS spec.
+                if k.starts_with("@@sym:") { continue; }
                 // (cross-runtime #292) `__rts_class` eh o discriminator de
                 // class instance (tag interno RTS). NAO deve aparecer em
                 // JSON.stringify output — sem toJSON() dispatch real, ao menos
@@ -399,6 +402,7 @@ fn stringify_with_keys(handle: u64, keys: &[String]) -> Option<String> {
                 let mut first = true;
                 for k in keys {
                     if k == "__proto__" { continue; }
+                    if k.starts_with("@@sym:") { continue; }
                     if let Some(val) = m.get(k) {
                         if !first { out.push(','); }
                         first = false;
@@ -503,7 +507,13 @@ fn stringify_pretty_inner_str(handle: u64, indent: &str, depth: usize) -> Option
             Entry::String(_) => stringify_any_inner(handle),
             Entry::Map(m) => {
                 let entries: Vec<(&String, &i64)> = m.iter()
-                    .filter(|(k, _)| k.as_str() != "__proto__")
+                    .filter(|(k, _)| {
+                        let s = k.as_str();
+                        s != "__proto__"
+                            && !s.starts_with("@@sym:")
+                            && !s.starts_with("__get_")
+                            && !s.starts_with("__set_")
+                    })
                     .collect();
                 if entries.is_empty() {
                     out.push_str("{}");
