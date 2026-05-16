@@ -221,6 +221,69 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
         }
+        // (#40) `Object.prototype.<method>.call(obj, ...args)` -> reescreve
+        // como `obj.<method>(...args)` quando method eh universal
+        // (hasOwnProperty, propertyIsEnumerable). isPrototypeOf ja' tratado
+        // acima via inferencia de instanceof. Sem isso o callee
+        // `Object.prototype.hasOwnProperty` vira sentinel string e o
+        // `.call(...)` falha em "unsupported call expression form".
+        if let Expr::Member(outer) = callee.as_ref() {
+            if let MemberProp::Ident(call_id) = &outer.prop {
+                if call_id.sym.as_str() == "call" && !call.args.is_empty() {
+                    if let Expr::Member(mid) = outer.obj.as_ref() {
+                        if let MemberProp::Ident(method_id) = &mid.prop {
+                            let method = method_id.sym.as_str();
+                            let is_universal = matches!(
+                                method,
+                                "hasOwnProperty" | "propertyIsEnumerable"
+                            );
+                            if is_universal {
+                                if let Expr::Member(inner) = mid.obj.as_ref() {
+                                    let proto_match = matches!(
+                                        &inner.prop,
+                                        MemberProp::Ident(id) if id.sym.as_str() == "prototype"
+                                    );
+                                    let obj_is_object = matches!(
+                                        inner.obj.as_ref(),
+                                        Expr::Ident(id) if id.sym.as_str() == "Object"
+                                    );
+                                    if proto_match && obj_is_object {
+                                        // Sintetiza `<arg0>.<method>(...rest)`.
+                                        let recv_expr = call.args[0].expr.clone();
+                                        let rest_args: Vec<_> = call
+                                            .args
+                                            .iter()
+                                            .skip(1)
+                                            .cloned()
+                                            .collect();
+                                        let synth_callee = Expr::Member(
+                                            swc_ecma_ast::MemberExpr {
+                                                span: method_id.span,
+                                                obj: recv_expr,
+                                                prop: MemberProp::Ident(
+                                                    swc_ecma_ast::IdentName {
+                                                        span: method_id.span,
+                                                        sym: method.into(),
+                                                    },
+                                                ),
+                                            },
+                                        );
+                                        let synth_call = swc_ecma_ast::CallExpr {
+                                            span: call.span,
+                                            ctxt: call.ctxt,
+                                            callee: Callee::Expr(Box::new(synth_callee)),
+                                            args: rest_args,
+                                            type_args: None,
+                                        };
+                                        return super::lower_call(ctx, &synth_call);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // (#264 PR5) Fast path: `(var as any).method(...)` — TsAs/Paren etc
         // antes do member. Peel e despacha como var.method().
         // (#fix) NAO sequestra quando \`lhs_static_class\` resolve via TsAs
