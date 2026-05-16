@@ -14,8 +14,8 @@ use self::new_expr::{lower_function_handle_method, lower_function_method_call};
 pub(super) use self::new_expr::lower_new;
 
 use self::builtins::{
-    lower_array_builtin, lower_console_call, lower_math_builtin, lower_number_builtin,
-    lower_string_builtin,
+    lower_array_builtin, lower_console_call, lower_map_set_builtin, lower_math_builtin,
+    lower_number_builtin, lower_string_builtin,
 };
 use self::ns_call::{
     lower_global_instance_call, lower_node_ns_call,
@@ -563,11 +563,31 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                 return Ok(tv);
                             }
                         }
+                        // (cross-runtime #302) `new Set([...]).isSubsetOf(...)`:
+                        // m.obj eh NewExpression Map/Set. Tenta map_set_builtin
+                        // ANTES de string_builtin (que tem methods conflitantes
+                        // tipo "includes"/"indexOf").
+                        let obj_is_new_map_set = matches!(
+                            m.obj.as_ref(),
+                            Expr::New(n) if matches!(
+                                n.callee.as_ref(),
+                                Expr::Ident(id) if matches!(id.sym.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet")
+                            )
+                        );
+                        if obj_is_new_map_set {
+                            if let Some(tv) = lower_map_set_builtin(ctx, &method_name, recv_h, call)? {
+                                return Ok(tv);
+                            }
+                        }
                         if let Some(tv) = lower_string_builtin(ctx, &method_name, recv_h, call)? {
                             return Ok(tv);
                         }
                         // Fallback array para chains (call que pode ser map/filter/etc).
                         if let Some(tv) = lower_array_builtin(ctx, &method_name, recv_h, call)? {
+                            return Ok(tv);
+                        }
+                        // Fallback final: tenta map_set_builtin para isSubsetOf/etc.
+                        if let Some(tv) = lower_map_set_builtin(ctx, &method_name, recv_h, call)? {
                             return Ok(tv);
                         }
                     }
