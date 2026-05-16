@@ -564,16 +564,17 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
         Some("void") => None,
         Some(r) => Some(ValTy::from_annotation(r)),
         None => {
-            // (#mul) Sem anotacao explicita: inferir F64 se o body tem
-            // `return <expr>`. Sem isso, codegen emite fn `(...) tail`
-            // sem retorno e descarta o valor (ex: `function mul(a, b)
-            // { return a*b; }` retornava 0). Default F64 cobre `number`
-            // (caso mais comum); refator futuro pode inferir Handle/Bool
-            // analisando o body. Annotated `void` continua sem retorno.
-            if has_return_value(&fn_decl.body) {
-                Some(ValTy::F64)
-            } else {
-                None
+            // (#mul/#294) Sem anotacao explicita: inferir baseado no que
+            // o body retorna. Heuristica simples:
+            // - se algum return contem string-yielding expr (template,
+            //   str lit, concat com str, .toString(), .join()) -> Handle.
+            // - se algum return existe -> F64 (number, caso default).
+            // - sem return -> None (void).
+            let inferred = inspect_return_kind(&fn_decl.body);
+            match inferred {
+                ReturnKind::String => Some(ValTy::Handle),
+                ReturnKind::Number => Some(ValTy::F64),
+                ReturnKind::Void => None,
             }
         }
     };
@@ -581,9 +582,118 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
     (params, ret)
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+enum ReturnKind {
+    Void,
+    Number,
+    String,
+}
+
+/// Heuristica de inferencia de return type baseada no shape do return expr.
+/// Conservador: retorna String quando QUALQUER ramo retorna expressao
+/// string-yielding; Number quando ha return mas nenhum visivelmente string;
+/// Void quando nao ha return value.
+fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
+    use crate::parser::ast::Statement;
+    use swc_ecma_ast::Expr;
+    fn expr_yields_string(e: &Expr) -> bool {
+        match e {
+            Expr::Tpl(_) => true,
+            Expr::Lit(swc_ecma_ast::Lit::Str(_)) => true,
+            Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Add) => {
+                expr_yields_string(&b.left) || expr_yields_string(&b.right)
+            }
+            Expr::Call(c) => {
+                // .toString(), .join(), .slice() (em string), .concat() em string,
+                // .replace(), etc. Heuristica: prop name comum de string-returning.
+                if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                    if let Expr::Member(m) = callee.as_ref() {
+                        if let swc_ecma_ast::MemberProp::Ident(id) = &m.prop {
+                            return matches!(
+                                id.sym.as_str(),
+                                "toString" | "join" | "concat" | "replace"
+                                | "replaceAll" | "trim" | "trimStart" | "trimEnd"
+                                | "toUpperCase" | "toLowerCase" | "padStart"
+                                | "padEnd" | "repeat" | "substring" | "substr"
+                                | "slice" | "charAt" | "normalize"
+                            );
+                        }
+                    }
+                    // String(x) coerce
+                    if let Expr::Ident(id) = callee.as_ref() {
+                        if id.sym.as_str() == "String" {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            Expr::Paren(p) => expr_yields_string(&p.expr),
+            Expr::Cond(c) => expr_yields_string(&c.cons) || expr_yields_string(&c.alt),
+            _ => false,
+        }
+    }
+    fn check_stmt(stmt: &swc_ecma_ast::Stmt, found: &mut ReturnKind) {
+        use swc_ecma_ast::Stmt;
+        match stmt {
+            Stmt::Return(r) => {
+                if let Some(arg) = r.arg.as_deref() {
+                    let new_kind = if expr_yields_string(arg) {
+                        ReturnKind::String
+                    } else {
+                        ReturnKind::Number
+                    };
+                    // String trumps Number (qualquer ramo string -> Handle).
+                    if new_kind == ReturnKind::String {
+                        *found = ReturnKind::String;
+                    } else if *found == ReturnKind::Void {
+                        *found = ReturnKind::Number;
+                    }
+                }
+            }
+            Stmt::Block(b) => {
+                for s in &b.stmts {
+                    check_stmt(s, found);
+                }
+            }
+            Stmt::If(i) => {
+                check_stmt(&i.cons, found);
+                if let Some(alt) = i.alt.as_deref() {
+                    check_stmt(alt, found);
+                }
+            }
+            Stmt::Try(t) => {
+                for s in &t.block.stmts {
+                    check_stmt(s, found);
+                }
+                if let Some(h) = &t.handler {
+                    for s in &h.body.stmts {
+                        check_stmt(s, found);
+                    }
+                }
+                if let Some(f) = &t.finalizer {
+                    for s in &f.stmts {
+                        check_stmt(s, found);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut kind = ReturnKind::Void;
+    for s in body {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = raw.stmt.as_ref() {
+            check_stmt(stmt, &mut kind);
+        }
+    }
+    kind
+}
+
 /// Inspeciona body para detectar `return <expr>` (qualquer valor) em
 /// qualquer ramo top-level. Conservador: nao recursa em sub-blocks de
 /// if/while/etc — heuristica para o caso comum de fn aritmetica simples.
+#[allow(dead_code)]
 fn has_return_value(body: &[Statement]) -> bool {
     use crate::parser::ast::Statement;
     fn check_stmt(stmt: &swc_ecma_ast::Stmt) -> bool {
