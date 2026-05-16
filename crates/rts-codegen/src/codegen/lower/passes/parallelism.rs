@@ -28,11 +28,84 @@ thread_local! {
     /// `lift_inline_arrows_in_array_methods` antes da varredura;
     /// consumido em `try_lift_arrow_arg::has_capture`.
     static ALLOWED_CAPTURES: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+
+    /// (#776) Set de idents top-level cujo init eh array literal ou
+    /// resultado claro de call que retorna array (`.map`, `.filter`,
+    /// `Array.from`, `.slice`, `.concat`). Usado para gate de lift de
+    /// callbacks com 2-3 params (val, idx, array): so' lifta quando
+    /// receiver eh claramente Array, para nao confundir com Map.forEach
+    /// que tem (value, key, map).
+    static ARRAY_RECEIVER_IDENTS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
 /// Coleta nomes de vars top-level `let`/`var` com init numerico/bool
 /// (sem destructure, sem objeto/array literal). Essas serao promovidas
 /// a global writable storage por `collect_module_globals`.
+/// (#776) Coleta idents top-level cujo init eh array literal ou call que
+/// claramente retorna Array. Heuristica conservadora: array literal, call
+/// para `Array.from`/`Array.of`, ou metodo de array conhecido em chain
+/// (`.map`/`.filter`/`.slice`/`.concat`/`.flat`/`.flatMap`). Type-annotation
+/// `T[]` ou `Array<T>` tambem qualifica.
+fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
+    let mut out = HashSet::new();
+    fn init_looks_array(e: &Expr) -> bool {
+        match e {
+            Expr::Array(_) => true,
+            Expr::Call(c) => match &c.callee {
+                swc_ecma_ast::Callee::Expr(ce) => match ce.as_ref() {
+                    Expr::Member(m) => {
+                        let prop_is_array_returning = matches!(
+                            &m.prop,
+                            MemberProp::Ident(p) if matches!(
+                                p.sym.as_str(),
+                                "map" | "filter" | "slice" | "concat" | "flat"
+                                | "flatMap" | "toReversed" | "toSorted" | "toSpliced"
+                                | "with" | "splice"
+                            )
+                        );
+                        let obj_is_array_static = matches!(
+                            m.obj.as_ref(),
+                            Expr::Ident(id) if id.sym.as_str() == "Array"
+                        ) && matches!(
+                            &m.prop,
+                            MemberProp::Ident(p) if matches!(p.sym.as_str(), "from" | "of")
+                        );
+                        prop_is_array_returning || obj_is_array_static
+                    }
+                    _ => false,
+                },
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    for item in &program.items {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
+        for decl in &var_decl.decls {
+            let Pat::Ident(id) = &decl.name else { continue };
+            let name = id.id.sym.as_str().to_string();
+            // Type annotation `T[]` ou `Array<T>` qualifica.
+            let ann_is_array = id.type_ann.as_ref().map(|ann| {
+                let ty = &*ann.type_ann;
+                matches!(ty, swc_ecma_ast::TsType::TsArrayType(_))
+                    || matches!(
+                        ty,
+                        swc_ecma_ast::TsType::TsTypeRef(tr) if matches!(
+                            &tr.type_name,
+                            swc_ecma_ast::TsEntityName::Ident(i) if i.sym.as_str() == "Array"
+                        )
+                    )
+            }).unwrap_or(false);
+            let init_is_array = decl.init.as_deref().map(init_looks_array).unwrap_or(false);
+            if ann_is_array || init_is_array {
+                out.insert(name);
+            }
+        }
+    }
+    out
+}
+
 fn collect_top_level_mutable_vars(program: &Program) -> HashSet<String> {
     let mut out = HashSet::new();
     for item in &program.items {
@@ -231,6 +304,8 @@ pub(crate) fn lift_inline_arrows_in_array_methods(program: &mut Program) {
     // serial (forEach/some/every/find/findIndex/findLast/findLastIndex).
     let top_level_mut_vars: HashSet<String> = collect_top_level_mutable_vars(program);
     ALLOWED_CAPTURES.with(|c| *c.borrow_mut() = top_level_mut_vars.clone());
+    let array_idents: HashSet<String> = collect_array_receiver_idents(program);
+    ARRAY_RECEIVER_IDENTS.with(|c| *c.borrow_mut() = array_idents);
 
     let mut new_fns: Vec<Item> = Vec::new();
 
@@ -306,6 +381,11 @@ fn lift_arrows_in_expr(
                         m.obj.as_ref(),
                         Expr::Ident(id) if id.sym.as_str() == "Array"
                     ) && method == "from";
+                    // (#776) callbacks de array methods (forEach/map/filter/find/etc)
+                    // recebem (val, idx, array) — runtime passa 3 args. O lift aqui usa
+                    // arrow_arity = arrow.params.len() (1..=3) capturado em try_lift_arrow_arg,
+                    // mas tabela de gate ainda usa 1 como expected_arity maximo padrao.
+                    // Aceitamos arrows com 1, 2 ou 3 params para esses metodos via flag.
                     let lift_info: Option<(usize, usize, usize)> = match method {
                         // (arg_idx_to_lift, n_args, arrow_arity)
                         "map" | "forEach" => Some((0, 1, 1)),
@@ -321,6 +401,38 @@ fn lift_arrows_in_expr(
                         }
                         _ => None,
                     };
+                    // (#776) Para map/forEach/filter/find/findIndex/some/every, aceita
+                    // arrows com ate 3 params (val, idx, array) APENAS quando o receiver
+                    // eh claramente Array (array literal `[1,2,3].forEach(...)` ou ident
+                    // pre-registrado em ARRAY_RECEIVER_IDENTS). Sem esse gate, Map/Set
+                    // forEach com `(value, key) => ...` cairia no pass e seria reescrito
+                    // erroneamente para `parallel.for_each`.
+                    let lift_info = lift_info.map(|(idx, n_args, default_arity)| {
+                        let allow_3 = matches!(
+                            method,
+                            "map" | "forEach" | "filter" | "find" | "findIndex"
+                            | "some" | "every" | "findLast" | "findLastIndex"
+                        );
+                        if !allow_3 || idx >= call.args.len() {
+                            return (idx, n_args, default_arity);
+                        }
+                        let recv_is_array = match m.obj.as_ref() {
+                            Expr::Array(_) => true,
+                            Expr::Ident(id) => ARRAY_RECEIVER_IDENTS
+                                .with(|s| s.borrow().contains(id.sym.as_str())),
+                            _ => false,
+                        };
+                        if !recv_is_array {
+                            return (idx, n_args, default_arity);
+                        }
+                        if let Expr::Arrow(a) = call.args[idx].expr.as_ref() {
+                            let p = a.params.len();
+                            if (1..=3).contains(&p) {
+                                return (idx, n_args, p);
+                            }
+                        }
+                        (idx, n_args, default_arity)
+                    });
                     if let Some((arg_idx, n_args, arrow_arity)) = lift_info {
                         if call.args.len() == n_args && arg_idx < call.args.len() {
                             // (#479 follow-up) Se o receiver e' Object.entries(...),
@@ -357,8 +469,19 @@ fn lift_arrows_in_expr(
                             if let Expr::Ident(ident) = call.args[arg_idx].expr.as_ref() {
                                 if user_fn_names.contains(ident.sym.as_str()) {
                                     let ident_clone = ident.clone();
+                                    // (#776) Cria wrap arrow com `arrow_arity` params para
+                                    // casar com a ABI runtime nova. Determina quantos args
+                                    // passar para a user fn:
+                                    //  - reduce/reduce_no_init: 2 args (acc, val) — signature
+                                    //    da user fn que reduce espera;
+                                    //  - map/forEach/filter/find/etc: 1 arg (val) — preserva
+                                    //    compat com user fns 1-arg que era o caso anterior.
+                                    let pass_n_args = match method {
+                                        "reduce" => 2,
+                                        _ => 1,
+                                    };
                                     let mut params: Vec<swc_ecma_ast::Pat> = Vec::with_capacity(arrow_arity);
-                                    let mut call_args: Vec<swc_ecma_ast::ExprOrSpread> = Vec::with_capacity(arrow_arity);
+                                    let mut call_args: Vec<swc_ecma_ast::ExprOrSpread> = Vec::with_capacity(pass_n_args);
                                     for i in 0..arrow_arity {
                                         let pname = format!("__wrap_p_{}_{}", counter.load(std::sync::atomic::Ordering::Relaxed), i);
                                         params.push(swc_ecma_ast::Pat::Ident(swc_ecma_ast::BindingIdent {
@@ -370,15 +493,17 @@ fn lift_arrows_in_expr(
                                             },
                                             type_ann: None,
                                         }));
-                                        call_args.push(swc_ecma_ast::ExprOrSpread {
-                                            spread: None,
-                                            expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
-                                                span: Default::default(),
-                                                ctxt: Default::default(),
-                                                sym: pname.into(),
-                                                optional: false,
-                                            })),
-                                        });
+                                        if i < pass_n_args {
+                                            call_args.push(swc_ecma_ast::ExprOrSpread {
+                                                spread: None,
+                                                expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                                                    span: Default::default(),
+                                                    ctxt: Default::default(),
+                                                    sym: pname.into(),
+                                                    optional: false,
+                                                })),
+                                            });
+                                        }
                                     }
                                     let inner_call = Expr::Call(swc_ecma_ast::CallExpr {
                                         span: Default::default(),
@@ -462,6 +587,7 @@ fn lift_arrows_in_expr(
                                     counter,
                                     method == "forEach",
                                     recv_is_object_entries || mapper_slot0_is_string,
+                                    method == "reduce",
                                 ) {
                                     // Substitui arg por Ident.
                                     call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -528,6 +654,7 @@ fn try_lift_arrow_arg(
     counter: &std::sync::atomic::AtomicU32,
     is_void_callback: bool,
     slot0_is_handle: bool,
+    is_reduce: bool,
 ) -> Option<String> {
     use swc_ecma_ast::BlockStmtOrExpr;
     let arrow = match arg {
@@ -717,7 +844,16 @@ fn try_lift_arrow_arg(
     }
 
     let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let fn_name = format!("__lifted_arr_method_{}", n);
+    // (cross-runtime #254) reduce callback `(acc, val) => ...` — slot 1
+    // (val) tambem pode ser handle string. Marca via prefix `_reduce_`
+    // para que user_fn.rs trate ambos os slots como ambiguos. Outros
+    // metodos (forEach/map/filter/etc) tem slot 1 = idx (int puro), nao
+    // ambiguo (idx=0 nao deve virar "null").
+    let fn_name = if is_reduce {
+        format!("__lifted_arr_method_reduce_{}", n)
+    } else {
+        format!("__lifted_arr_method_{}", n)
+    };
 
     let parameters: Vec<Parameter> = param_names
         .iter()
@@ -727,6 +863,11 @@ fn try_lift_arrow_arg(
             // slot 0 marcado como string quando recv eh string ou
             // Object.entries (param eh [string, V] destructured); demais
             // como i64 default.
+            // (#776) Para callbacks de array methods com arity=3 ABI,
+            // slot 2 (array handle) precisa ser tratado como vec handle
+            // ambiguo para que `.length` funcione (UNIVERSAL_LENGTH despacha
+            // por tipo de Entry). Marcamos como "i64" mas o user_fn.rs ja
+            // marca block_param[0] como ambiguo; estendemos pra slot 2 abaixo.
             type_annotation: Some(if i == 0 && slot0_is_handle {
                 "string".to_string()
             } else {

@@ -255,6 +255,12 @@ fn stringify_with_visited(
                 // (#103) Symbol keys (encoded como `@@sym:<handle>` pelo
                 // codegen) NAO sao serializadas em JSON.stringify — JS spec.
                 if k.starts_with("@@sym:") { continue; }
+                // (cross-runtime #292) `__rts_class` eh o discriminator de
+                // class instance (tag interno RTS). NAO deve aparecer em
+                // JSON.stringify output — sem toJSON() dispatch real, ao menos
+                // omitir o lixo. Tambem `__rts_desc_*` (Reflect property
+                // descriptors) sao metadata interna.
+                if k == "__rts_class" || k.starts_with("__rts_desc_") { continue; }
                 // (#680/50) JSON spec: omite props com valor undefined em obj.
                 if is_undefined_value(val) { continue; }
                 if !first { out.push(','); }

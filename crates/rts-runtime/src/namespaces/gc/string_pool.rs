@@ -517,6 +517,13 @@ fn element_to_string(raw: i64) -> String {
     if raw == i64::MIN + 1 {
         return "true".to_string();
     }
+    // (cross-runtime #51) undefined/null/sparse hole em
+    // Array.prototype.toString viram "" (JS spec). Sem isso, o raw
+    // i64::MIN+2/+3/+4 caia em format_js_number e gerava lixo
+    // tipo "-9223372036854776000".
+    if raw == i64::MIN + 2 || raw == i64::MIN + 3 || raw == i64::MIN + 4 {
+        return String::new();
+    }
     let h = raw as u64;
     // Heuristica: handles RTS comecam com gen >= 1, dando valores >= 2^48.
     // Valores menores sao quase certamente integers literais (TS [1,2,3]).

@@ -811,6 +811,10 @@ impl LiftAcc {
                         // registers). User fns may declare `number` (f64)
                         // params — codegen coerces automatically via
                         // `lower_user_call`. Trampolim bridges the gap.
+                        // (#776) parallel.map/for_each etc agora recebem
+                        // callback (val, idx, array). Trampolim que adapta
+                        // user fn nomeada passa apenas `val` (primeiro arg)
+                        // — preserva compat com user fns 1-arg.
                         if is_parallel_op {
                             fn par_ident(sym: &str) -> Expr {
                                 Expr::Ident(swc_ecma_ast::Ident {
@@ -830,7 +834,15 @@ impl LiftAcc {
                                 if is_parallel_reduce {
                                     vec![par_arg("__par_acc"), par_arg("__par_x")]
                                 } else {
-                                    vec![par_arg("__par_x")]
+                                    // (#776) Passa N args ao target conforme
+                                    // a aridade declarada (1..=3): val, idx,
+                                    // array. User fns 1-arg recebem so' val
+                                    // (compat com codigo existente); fns
+                                    // liftadas internamente (3 params) recebem
+                                    // os 3.
+                                    let target_arity = arity.max(1).min(3);
+                                    let all = ["__par_x", "__par_idx", "__par_arr"];
+                                    (0..target_arity as usize).map(|i| par_arg(all[i])).collect()
                                 };
                             let call_expr = Expr::Call(swc_ecma_ast::CallExpr {
                                 span: Default::default(),
@@ -949,9 +961,11 @@ impl LiftAcc {
                     } else if is_parallel_reduce {
                         (vec![mk_i64_param("__par_acc"), mk_i64_param("__par_x")], "i64")
                     } else if is_parallel_map {
-                        (vec![mk_i64_param("__par_x")], "i64")
+                        // (#776) trampolim com 3 params (val, idx, array) para casar
+                        // com ABI runtime nova; passa apenas val ao user fn target.
+                        (vec![mk_i64_param("__par_x"), mk_i64_param("__par_idx"), mk_i64_param("__par_arr")], "i64")
                     } else if is_parallel_for_each {
-                        (vec![mk_i64_param("__par_x")], "void")
+                        (vec![mk_i64_param("__par_x"), mk_i64_param("__par_idx"), mk_i64_param("__par_arr")], "void")
                     } else if is_thread_spawn
                         && matches!(peel_ts(arg.expr.as_ref()), Expr::Ident(id) if {
                             let real = self.alias_to_real.get(id.sym.as_str()).cloned()

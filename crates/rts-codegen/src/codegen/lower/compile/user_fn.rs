@@ -192,10 +192,28 @@ pub(crate) fn compile_user_fn(
             // recebem parametros como handles de string ou Vec (u64 cast para i64).
             // Marcar como ambiguos para que string concat use TPL_COERCE_AUTO em vez
             // de STRING_FROM_I64 (que formataria o handle como numero decimal).
+            // (#776) Para __lifted_arr_method_*, marca apenas o primeiro param
+            // (val) como ambiguo. Params 2/3 (idx, array_handle) tem tipos bem
+            // definidos: idx eh i64 puro, array eh handle Vec — coerce auto so'
+            // faz sentido pra val. Sem essa restricao, `idx=0` no template literal
+            // viraria "null" via TPL_COERCE (que trata 0 como sentinel null).
+            // (#776) Para fns liftadas de array methods, marcamos slots
+            // de handle como ambiguos para TPL_COERCE_AUTO:
+            // - `__lifted_arr_method_<N>` (forEach/map/filter/find/etc):
+            //   slot 0 (val) e slot 2 (array handle) ambiguos. Slot 1
+            //   (idx) eh i64 puro — NAO marcado (idx=0 nao deve virar
+            //   "null").
+            // - `__lifted_arr_method_reduce_<N>` (#254): callback
+            //   `(acc, val)` — ambos slots ambiguos (string reduce
+            //   funcionar).
+            let is_reduce_lifted = fn_decl.name.starts_with("__lifted_arr_method_reduce_");
+            let is_arr_method_lifted = fn_decl.name.starts_with("__lifted_arr_method_")
+                && !is_reduce_lifted;
             if ty == ValTy::I64 && (
                 fn_decl.name.starts_with("__hoisted_arrow_")
-                || fn_decl.name.starts_with("__lifted_arr_method_")
                 || fn_decl.name.starts_with("__lifted_arrow_")
+                || (is_arr_method_lifted && (i == 0 || i == 2))
+                || (is_reduce_lifted && (i == 0 || i == 1))
             ) {
                 fn_ctx.var_member_call_values.insert(block_param);
             }
