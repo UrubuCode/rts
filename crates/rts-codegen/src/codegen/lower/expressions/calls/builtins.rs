@@ -363,10 +363,24 @@ pub(super) fn lower_string_builtin(
         // STRING_MATCH_REGEX que aceita Entry::Regex handle direto.
         "match" => {
             use swc_ecma_ast::{Expr, Lit};
+            // (#39) Detecta tambem ident de var tipada RegExp: `const r =
+            // /pat/; text.match(r)`. Sem isso, vai pelo path string-only.
             let is_regex_literal = call
                 .args
                 .first()
-                .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
+                .map(|a| match a.expr.as_ref() {
+                    Expr::Lit(Lit::Regex(_)) => true,
+                    Expr::Ident(id) => ctx
+                        .local_class_ty
+                        .get(id.sym.as_str())
+                        .map(|c| c == "RegExp")
+                        .unwrap_or(false),
+                    Expr::New(n) => matches!(
+                        n.callee.as_ref(),
+                        Expr::Ident(id) if id.sym.as_str() == "RegExp"
+                    ),
+                    _ => false,
+                })
                 .unwrap_or(false);
             let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
             let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);

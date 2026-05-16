@@ -381,6 +381,12 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
 
         if !ctx.local_class_ty.contains_key(&name) {
             if let Some(init) = decl.init.as_ref() {
+                // (#39) `const r = /pat/` -> marca como RegExp para que
+                // `s.match(r)` use STRING_MATCH_REGEX (aceita handle Regex)
+                // em vez do path string-only que falha.
+                if matches!(init.as_ref(), swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Regex(_))) {
+                    ctx.local_class_ty.insert(name.clone(), "RegExp".to_string());
+                }
                 if let swc_ecma_ast::Expr::New(ne) = init.as_ref() {
                     if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
                         let cn = cid.sym.as_str().to_string();
