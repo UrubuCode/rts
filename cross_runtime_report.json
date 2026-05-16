@@ -2012,7 +2012,7 @@
   "status": "rts_diverge",
   "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
   "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "rts": "test=true\nmatch0=none\nmatch1=none\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=t\nlast1=7\ng2=t\nlast2=19"
+  "rts": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=t\nlast1=7\ng2=t\nlast2=19"
 }
 ,
 {
