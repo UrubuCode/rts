@@ -31,6 +31,19 @@ fn parse_array_index(s: &str) -> Option<u32> {
     Some(n)
 }
 
+/// (#798) Keys com prefixo `@@sym:` sao a repr canonica de Symbol entries
+/// (escrita pelo codegen via OBJ_SET/MAP_SET_KH). NAO sao expostas em
+/// Object.keys/getOwnPropertyNames/values/entries — JS spec separa
+/// string-keyed (Object.keys) de symbol-keyed (getOwnPropertySymbols).
+fn is_symbol_key(k: &str) -> bool {
+    k.starts_with("@@sym:")
+}
+
+/// (#798) Decodifica `@@sym:<handle>` -> handle do Entry::Symbol.
+fn decode_symbol_key(k: &str) -> Option<u64> {
+    k.strip_prefix("@@sym:").and_then(|s| s.parse::<u64>().ok())
+}
+
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
         return None;
@@ -195,6 +208,19 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
         return r;
     }
     with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+}
+
+/// (cross-runtime #798) `Object.getOwnPropertySymbols(obj)` — retorna
+/// Vec<i64> com handles de Symbol entries (keys `@@sym:<handle>`).
+/// Ordem: insercao no IndexMap.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_SYMBOLS(handle: u64) -> u64 {
+    let syms: Vec<i64> = with_map(handle, Vec::new(), |m| {
+        m.keys()
+            .filter_map(|k| decode_symbol_key(k).map(|h| h as i64))
+            .collect()
+    });
+    alloc_entry(Entry::Vec(Box::new(syms)))
 }
 
 /// (cross-runtime #753) Resolve um handle de "chave qualquer" para a
@@ -664,6 +690,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
             if k.starts_with("__get_") || k.starts_with("__set_") {
                 continue;
             }
+            // (#798) Symbol keys: separadas via getOwnPropertySymbols.
+            if is_symbol_key(k.as_str()) {
+                continue;
+            }
             if is_non_enumerable(handle, k.as_str()) {
                 continue;
             }
@@ -700,6 +730,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
         let mut str_entries: Vec<i64> = Vec::new();
         for (k, v) in m.iter() {
             if k.as_str() == "__proto__" { continue; }
+            // (#798) Symbol keys nao aparecem em Object.keys/values/entries/
+            // getOwnPropertyNames — JS spec.
+            if is_symbol_key(k.as_str()) { continue; }
             if is_non_enumerable(handle, k.as_str()) { continue; }
             match parse_array_index(k) {
                 Some(n) => int_entries.push((n, *v)),
@@ -732,6 +765,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
         let mut str_entries: Vec<(String, i64)> = Vec::new();
         for (k, v) in m.iter() {
             if k.as_str() == "__proto__" { continue; }
+            // (#798) Symbol keys nao aparecem em Object.keys/values/entries/
+            // getOwnPropertyNames — JS spec.
+            if is_symbol_key(k.as_str()) { continue; }
             if is_non_enumerable(handle, k.as_str()) { continue; }
             match parse_array_index(k) {
                 Some(n) => int_entries.push((n, k.clone(), *v)),
@@ -852,6 +888,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                // (#798) Symbol keys: separadas via getOwnPropertySymbols.
+                if is_symbol_key(k.as_str()) { continue; }
                 // (#110) Slots internos `__get_*`/`__set_*` nao sao expostos.
                 if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
                 match parse_array_index(k) {
@@ -899,6 +937,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                // (#798) Symbol keys: separadas via getOwnPropertySymbols.
+                if is_symbol_key(k.as_str()) { continue; }
                 // (#110) Slots internos `__get_<name>`/`__set_<name>` armazenam
                 // accessor handles. Object.keys/getOwnPropertyNames JS spec nao
                 // expoe estes — RTS os usa como mecanismo interno de getter/setter.

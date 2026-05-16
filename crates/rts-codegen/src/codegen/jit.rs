@@ -1143,6 +1143,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY
         );
         add_fn!(
+            "__RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_SYMBOLS",
+            map::__RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_SYMBOLS
+        );
+        add_fn!(
             "__RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE",
             map::__RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE
         );

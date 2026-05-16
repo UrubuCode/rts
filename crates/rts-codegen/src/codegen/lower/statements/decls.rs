@@ -76,6 +76,34 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             if matches!(init_peeled, swc_ecma_ast::Expr::Array(_)) {
                 ctx.local_array_vars.insert(name.clone());
             }
+            // (#798) `const x = Object.keys/values/getOwnPropertyNames/getOwnPropertySymbols(...)`
+            // retorna Vec — marca pra que `x.includes(sym)` use VEC_INCLUDES e nao
+            // o string builtin (que ignora needle e retorna 0).
+            if let swc_ecma_ast::Expr::Call(call) = init_peeled {
+                if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
+                    if let swc_ecma_ast::Expr::Member(m) = callee.as_ref() {
+                        let is_object_recv = matches!(
+                            m.obj.as_ref(),
+                            swc_ecma_ast::Expr::Ident(id) if id.sym.as_str() == "Object"
+                        );
+                        let prop_name: Option<&str> = match &m.prop {
+                            swc_ecma_ast::MemberProp::Ident(id) => Some(id.sym.as_str()),
+                            _ => None,
+                        };
+                        if is_object_recv {
+                            if let Some(p) = prop_name {
+                                if matches!(
+                                    p,
+                                    "keys" | "values" | "entries"
+                                    | "getOwnPropertyNames" | "getOwnPropertySymbols"
+                                ) {
+                                    ctx.local_array_vars.insert(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // (#592) Array de object literals — extrai field types do
             // primeiro elemento (heuristica: arrays homogeneos).
             if let swc_ecma_ast::Expr::Array(arr) = init_peeled {
