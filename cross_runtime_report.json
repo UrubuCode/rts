@@ -97,10 +97,10 @@
 ,
 {
   "name": "103_property_order_weird",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
   "node": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
-  "rts": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\",\"@@sym:281474976710657\":\"sym\"}"
+  "rts": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}"
 }
 ,
 {
@@ -161,10 +161,10 @@
 ,
 {
   "name": "110_object_getownpropertydescriptors",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
   "node": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=number\nc.value=3\nc.writable=true\nc.enumerable=true"
 }
 ,
 {
@@ -561,10 +561,10 @@
 ,
 {
   "name": "162_object_create_null",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
   "node": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
-  "rts": "a=1\nproto=null\ntoString=false\nproto2=true\nchild_x=10\nown=false\nwithProps=1"
+  "rts": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1"
 }
 ,
 {
@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=0\napply=0\ncall_null=0"
+  "rts": "call=0\napply=0\ncall_null=3"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=2\npartial=0\nrebind=3"
+  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
 }
 ,
 {
@@ -745,10 +745,10 @@
 ,
 {
   "name": "183_object_getownpropertynames",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
   "node": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
-  "rts": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr="
+  "rts": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":202,"rts_diverge":37,"bun_node_diverge":3,"errors":70,"rejected":0}}
+],"summary":{"total":312,"pass":205,"rts_diverge":35,"bun_node_diverge":3,"errors":69,"rejected":0}}
