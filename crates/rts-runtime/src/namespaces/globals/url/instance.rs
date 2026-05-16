@@ -270,8 +270,8 @@ pub extern "C" fn __RTS_FN_GL_URL_SEARCH_PARAMS(handle: u64) -> u64 {
         Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
         _ => String::new(),
     });
-    // O search inclui o '?' inicial; parse_query strip-prefix
-    alloc_search_params(parse_query(&search))
+    // O search inclui o '?' inicial; parse_query_pairs strip-prefix
+    alloc_search_params_vec(parse_query_pairs(&search))
 }
 
 #[unsafe(no_mangle)]
@@ -290,8 +290,9 @@ pub extern "C" fn __RTS_FN_GL_URL_FREE(handle: u64) {
     free_handle(handle);
 }
 
-// (#373) URLSearchParams — backing IndexMap<String, i64> onde i64 e' handle
-// de string com value. Implementacao minimal: get/has/set/delete/toString.
+// (#373/#80) URLSearchParams — backing Entry::Vec<i64> onde pares
+// consecutivos (slot 2i, slot 2i+1) sao (key_handle, value_handle).
+// Multimap real para suportar append + sort + getAll com duplicatas.
 
 /// (cross-runtime #746) Percent-decode URL query component conforme
 /// WHATWG URL spec: `%XX` -> byte 0xXX; `+` -> ' '; bytes invalidos sao
@@ -323,49 +324,81 @@ fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn parse_query(s: &str) -> indexmap::IndexMap<String, String> {
-    let mut map: indexmap::IndexMap<String, String> = indexmap::IndexMap::new();
+/// Parses raw query como Vec<(key, value)> preservando ordem + duplicatas.
+fn parse_query_pairs(s: &str) -> Vec<(String, String)> {
     let s = s.strip_prefix('?').unwrap_or(s);
     if s.is_empty() {
-        return map;
+        return Vec::new();
     }
+    let mut out: Vec<(String, String)> = Vec::new();
     for pair in s.split('&') {
         if let Some((k, v)) = pair.split_once('=') {
-            map.insert(url_decode(k), url_decode(v));
+            out.push((url_decode(k), url_decode(v)));
         } else if !pair.is_empty() {
-            map.insert(url_decode(pair), String::new());
+            out.push((url_decode(pair), String::new()));
         }
     }
-    map
+    out
 }
 
-fn alloc_search_params(map: indexmap::IndexMap<String, String>) -> u64 {
-    let mut store: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
-    for (k, v) in map {
-        let h = alloc_entry(Entry::String(v.into_bytes()));
-        store.insert(k, h as i64);
+/// Aloca handle Entry::Vec contendo pares (key_h, value_h) intercalados.
+fn alloc_search_params_vec(pairs: Vec<(String, String)>) -> u64 {
+    let mut slots: Vec<i64> = Vec::with_capacity(pairs.len() * 2);
+    for (k, v) in pairs {
+        let kh = alloc_entry(Entry::String(k.into_bytes())) as i64;
+        let vh = alloc_entry(Entry::String(v.into_bytes())) as i64;
+        slots.push(kh);
+        slots.push(vh);
     }
-    alloc_entry(Entry::Map(Box::new(store)))
+    alloc_entry(Entry::Vec(Box::new(slots)))
 }
 
-fn with_search_map<F, R>(handle: u64, default: R, f: F) -> R
+fn with_usp_pairs<F, R>(handle: u64, default: R, f: F) -> R
 where
-    F: FnOnce(&indexmap::IndexMap<String, i64>) -> R,
+    F: FnOnce(&Vec<i64>) -> R,
 {
     with_entry(handle, |entry| match entry {
-        Some(Entry::Map(m)) => f(m.as_ref()),
+        Some(Entry::Vec(v)) => f(v.as_ref()),
         _ => default,
     })
 }
 
-fn with_search_map_mut<F, R>(handle: u64, default: R, f: F) -> R
+fn with_usp_pairs_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
-    F: FnOnce(&mut indexmap::IndexMap<String, i64>) -> R,
+    F: FnOnce(&mut Vec<i64>) -> R,
 {
     crate::namespaces::gc::handles::with_entry_mut(handle, |entry| match entry {
-        Some(Entry::Map(m)) => f(m.as_mut()),
+        Some(Entry::Vec(v)) => f(v.as_mut()),
         _ => default,
     })
+}
+
+/// Resolve key handle para string (lookup no HandleTable). Util para
+/// comparar/match contra chave de usuario passada em ABI.
+fn key_str_of_handle(h: i64) -> Option<String> {
+    if h <= 0 {
+        return None;
+    }
+    with_entry(h as u64, |e| match e {
+        Some(Entry::String(b)) => std::str::from_utf8(b).ok().map(|s| s.to_string()),
+        _ => None,
+    })
+}
+
+/// (cross-runtime #80) URL-encode form-data: ' '→'+', alfanumeric e
+/// `-._~*` literais, demais bytes virram `%XX`. Aplicado em values
+/// (toString JS spec usa application/x-www-form-urlencoded).
+fn url_encode_form(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b' ' => out.push('+'),
+            b if b.is_ascii_alphanumeric() => out.push(b as char),
+            b'-' | b'.' | b'_' | b'*' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 #[unsafe(no_mangle)]
@@ -378,7 +411,7 @@ pub extern "C" fn __RTS_FN_GL_USP_NEW(init_ptr: i64, init_len: i64) -> u64 {
             std::str::from_utf8(slice).unwrap_or("")
         }
     };
-    alloc_search_params(parse_query(s))
+    alloc_search_params_vec(parse_query_pairs(s))
 }
 
 #[unsafe(no_mangle)]
@@ -394,8 +427,19 @@ pub extern "C" fn __RTS_FN_GL_USP_GET(
         let s = std::slice::from_raw_parts(key_ptr, key_len as usize);
         std::str::from_utf8(s).unwrap_or("")
     };
-    let h: i64 = with_search_map(self_h, 0, |m| m.get(key).copied().unwrap_or(0));
-    h as u64
+    // Primeira ocorrencia (JS spec).
+    with_usp_pairs(self_h, 0u64, |slots| {
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            if let Some(k) = key_str_of_handle(slots[i]) {
+                if k == key {
+                    return slots[i + 1] as u64;
+                }
+            }
+            i += 2;
+        }
+        0
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -411,9 +455,21 @@ pub extern "C" fn __RTS_FN_GL_USP_HAS(
         let s = std::slice::from_raw_parts(key_ptr, key_len as usize);
         std::str::from_utf8(s).unwrap_or("")
     };
-    with_search_map(self_h, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+    with_usp_pairs(self_h, 0, |slots| {
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            if let Some(k) = key_str_of_handle(slots[i]) {
+                if k == key { return 1; }
+            }
+            i += 2;
+        }
+        0
+    })
 }
 
+/// (#373) `usp.set(key, value)` — JS spec: substitui TODAS as ocorrencias
+/// existentes da key pelo primeiro slot com value novo; demais removidas.
+/// Se key nao existe, appenda no fim.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_USP_SET(
     self_h: u64,
@@ -436,13 +492,40 @@ pub extern "C" fn __RTS_FN_GL_USP_SET(
             std::slice::from_raw_parts(value_ptr as *const u8, value_len as usize).to_vec()
         }
     };
-    let val_h = alloc_entry(Entry::String(val_bytes));
-    with_search_map_mut(self_h, (), |m| {
-        m.insert(key, val_h as i64);
+    let val_h = alloc_entry(Entry::String(val_bytes)) as i64;
+    with_usp_pairs_mut(self_h, (), |slots| {
+        // Encontra primeira ocorrencia, substitui value; remove demais.
+        let mut replaced = false;
+        let mut i = 0;
+        let mut new_slots: Vec<i64> = Vec::with_capacity(slots.len());
+        while i + 1 < slots.len() {
+            let k_match = key_str_of_handle(slots[i])
+                .map(|s| s == key)
+                .unwrap_or(false);
+            if k_match {
+                if !replaced {
+                    new_slots.push(slots[i]);
+                    new_slots.push(val_h);
+                    replaced = true;
+                }
+                // else: skip (remove duplicata)
+            } else {
+                new_slots.push(slots[i]);
+                new_slots.push(slots[i + 1]);
+            }
+            i += 2;
+        }
+        if !replaced {
+            let kh = alloc_entry(Entry::String(key.into_bytes())) as i64;
+            new_slots.push(kh);
+            new_slots.push(val_h);
+        }
+        *slots = new_slots;
     });
     self_h
 }
 
+/// (#373) `usp.delete(key)` — remove TODAS as ocorrencias da key.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_USP_DELETE(
     self_h: u64,
@@ -454,17 +537,28 @@ pub extern "C" fn __RTS_FN_GL_USP_DELETE(
     }
     let key = unsafe {
         let s = std::slice::from_raw_parts(key_ptr, key_len as usize);
-        std::str::from_utf8(s).unwrap_or("")
+        std::str::from_utf8(s).unwrap_or("").to_string()
     };
-    with_search_map_mut(self_h, (), |m| {
-        m.shift_remove(key);
+    with_usp_pairs_mut(self_h, (), |slots| {
+        let mut new_slots: Vec<i64> = Vec::with_capacity(slots.len());
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            let k_match = key_str_of_handle(slots[i])
+                .map(|s| s == key)
+                .unwrap_or(false);
+            if !k_match {
+                new_slots.push(slots[i]);
+                new_slots.push(slots[i + 1]);
+            }
+            i += 2;
+        }
+        *slots = new_slots;
     });
     self_h
 }
 
-/// (#373) `usp.append(key, value)` — v0 limitacao: backing IndexMap
-/// nao permite multiple values por key, entao append faz overwrite
-/// (mesma semantica de set). JS spec real apendaria nova entry.
+/// (#373/#80) `usp.append(key, value)` — appenda nova entry sempre
+/// preservando duplicatas.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_USP_APPEND(
     self_h: u64,
@@ -473,61 +567,135 @@ pub extern "C" fn __RTS_FN_GL_USP_APPEND(
     value_ptr: i64,
     value_len: i64,
 ) -> u64 {
-    __RTS_FN_GL_USP_SET(self_h, key_ptr, key_len, value_ptr, value_len)
+    if key_ptr.is_null() || key_len < 0 {
+        return self_h;
+    }
+    let key_bytes: Vec<u8> = unsafe {
+        std::slice::from_raw_parts(key_ptr, key_len as usize).to_vec()
+    };
+    let val_bytes: Vec<u8> = if value_ptr == 0 || value_len <= 0 {
+        Vec::new()
+    } else {
+        unsafe {
+            std::slice::from_raw_parts(value_ptr as *const u8, value_len as usize).to_vec()
+        }
+    };
+    let kh = alloc_entry(Entry::String(key_bytes)) as i64;
+    let vh = alloc_entry(Entry::String(val_bytes)) as i64;
+    with_usp_pairs_mut(self_h, (), |slots| {
+        slots.push(kh);
+        slots.push(vh);
+    });
+    self_h
 }
 
-/// (#373) `usp.getAll(key)` — v0 retorna Vec com 0 ou 1 elemento.
+/// (#373/#80) `usp.getAll(key)` — retorna todos os values da key, na
+/// ordem em que foram appended.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_USP_GET_ALL(
     self_h: u64,
     key_ptr: *const u8,
     key_len: i64,
 ) -> u64 {
-    let v_h = __RTS_FN_GL_USP_GET(self_h, key_ptr, key_len);
-    let mut out: Vec<i64> = Vec::new();
-    if v_h != 0 {
-        out.push(v_h as i64);
+    if key_ptr.is_null() || key_len < 0 {
+        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
     }
-    alloc_entry(Entry::Vec(Box::new(out)))
-}
-
-/// (#373) `usp.keys()` — Vec de string handles com keys.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
-    let keys: Vec<String> = with_search_map(self_h, Vec::new(), |m| {
-        m.keys().cloned().collect()
-    });
-    let mut out: Vec<i64> = Vec::with_capacity(keys.len());
-    for k in keys {
-        let h = alloc_entry(Entry::String(k.into_bytes()));
-        out.push(h as i64);
-    }
-    alloc_entry(Entry::Vec(Box::new(out)))
-}
-
-/// (#373) `usp.values()` — Vec de string handles com values.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
-    let vals: Vec<i64> = with_search_map(self_h, Vec::new(), |m| {
-        m.values().copied().collect()
+    let key = unsafe {
+        let s = std::slice::from_raw_parts(key_ptr, key_len as usize);
+        std::str::from_utf8(s).unwrap_or("").to_string()
+    };
+    let vals: Vec<i64> = with_usp_pairs(self_h, Vec::new(), |slots| {
+        let mut out: Vec<i64> = Vec::new();
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            if let Some(k) = key_str_of_handle(slots[i]) {
+                if k == key {
+                    out.push(slots[i + 1]);
+                }
+            }
+            i += 2;
+        }
+        out
     });
     alloc_entry(Entry::Vec(Box::new(vals)))
 }
 
+/// (#373) `usp.keys()` — Vec de string handles com keys (preservando
+/// ordem + duplicatas).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
+    let out: Vec<i64> = with_usp_pairs(self_h, Vec::new(), |slots| {
+        let mut out: Vec<i64> = Vec::with_capacity(slots.len() / 2);
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            out.push(slots[i]);
+            i += 2;
+        }
+        out
+    });
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// (#373) `usp.values()` — Vec de string handles com values (preservando
+/// ordem + duplicatas).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
+    let out: Vec<i64> = with_usp_pairs(self_h, Vec::new(), |slots| {
+        let mut out: Vec<i64> = Vec::with_capacity(slots.len() / 2);
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            out.push(slots[i + 1]);
+            i += 2;
+        }
+        out
+    });
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// (cross-runtime #80) `usp.sort()` — sort estavel por nome de key
+/// (JS spec: ordenacao por UTF-16 code units; aproximamos por bytes UTF-8).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_SORT(self_h: u64) -> u64 {
+    with_usp_pairs_mut(self_h, (), |slots| {
+        // Coleta pares (key_str, key_h, val_h) e sort por key_str.
+        let mut pairs: Vec<(String, i64, i64)> = Vec::with_capacity(slots.len() / 2);
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            let k = key_str_of_handle(slots[i]).unwrap_or_default();
+            pairs.push((k, slots[i], slots[i + 1]));
+            i += 2;
+        }
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut new_slots: Vec<i64> = Vec::with_capacity(slots.len());
+        for (_, kh, vh) in pairs {
+            new_slots.push(kh);
+            new_slots.push(vh);
+        }
+        *slots = new_slots;
+    });
+    self_h
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_USP_TO_STRING(self_h: u64) -> u64 {
-    let pairs: Vec<(String, String)> = with_search_map(self_h, Vec::new(), |m| {
-        m.iter()
-            .map(|(k, v_h)| {
-                let val: String = with_entry(*v_h as u64, |e| match e {
-                    Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
-                    _ => String::new(),
-                });
-                (k.clone(), val)
-            })
-            .collect()
+    let pairs: Vec<(String, String)> = with_usp_pairs(self_h, Vec::new(), |slots| {
+        let mut out: Vec<(String, String)> = Vec::with_capacity(slots.len() / 2);
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            let k = key_str_of_handle(slots[i]).unwrap_or_default();
+            let v = with_entry(slots[i + 1] as u64, |e| match e {
+                Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+                _ => String::new(),
+            });
+            out.push((k, v));
+            i += 2;
+        }
+        out
     });
-    let parts: Vec<String> = pairs.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let parts: Vec<String> = pairs
+        .into_iter()
+        .map(|(k, v)| format!("{}={}", url_encode_form(&k), url_encode_form(&v)))
+        .collect();
     let s = parts.join("&");
     alloc_entry(Entry::String(s.into_bytes()))
 }

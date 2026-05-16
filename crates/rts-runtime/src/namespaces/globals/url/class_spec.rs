@@ -299,6 +299,17 @@ pub const URLSP_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "sort",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_USP_SORT",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Sort entries by key name (estavel, JS spec).",
+        ts_signature: "sort(): void",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const URLSP_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
