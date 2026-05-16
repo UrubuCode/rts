@@ -54,14 +54,24 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
         return alloc_undef();
     };
 
-    // (#795) Sintetiza { value, writable: true, enumerable: true, configurable: true }
-    // Bools como sentinel JS (i64::MIN+1 = true) — TPL_COERCE_AUTO/JSON
-    // renderiza como "true". Slot int 1 viraria string "1".
+    // (#795/#749) Sintetiza { value, writable, enumerable, configurable }.
+    // Consulta flags reais setadas via Object.defineProperty; default true.
     let bool_true: i64 = i64::MIN + 1;
+    let bool_false: i64 = i64::MIN;
+    let writable = if crate::namespaces::collections::map::is_non_writable(obj, &key_str) {
+        bool_false
+    } else {
+        bool_true
+    };
+    let enumerable = if crate::namespaces::collections::map::is_non_enumerable(obj, &key_str) {
+        bool_false
+    } else {
+        bool_true
+    };
     let mut desc: IndexMap<String, i64> = IndexMap::new();
     desc.insert("value".to_string(), v);
-    desc.insert("writable".to_string(), bool_true);
-    desc.insert("enumerable".to_string(), bool_true);
+    desc.insert("writable".to_string(), writable);
+    desc.insert("enumerable".to_string(), enumerable);
     desc.insert("configurable".to_string(), bool_true);
     alloc_entry(Entry::Map(Box::new(desc)))
 }
@@ -82,6 +92,7 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
         _ => Vec::new(),
     });
     let bool_true: i64 = i64::MIN + 1;
+    let bool_false: i64 = i64::MIN;
     // Particiona: data props vs accessor slots. Accessors juntam
     // get/set pelo nome base e produzem um unico descriptor.
     let mut data_pairs: Vec<(String, i64)> = Vec::new();
@@ -98,10 +109,21 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
     }
     let mut out: IndexMap<String, i64> = IndexMap::new();
     for (k, v) in data_pairs {
+        // (#749) Consulta flags reais setadas via Object.defineProperty.
+        let writable = if crate::namespaces::collections::map::is_non_writable(obj, &k) {
+            bool_false
+        } else {
+            bool_true
+        };
+        let enumerable = if crate::namespaces::collections::map::is_non_enumerable(obj, &k) {
+            bool_false
+        } else {
+            bool_true
+        };
         let mut desc: IndexMap<String, i64> = IndexMap::new();
         desc.insert("value".to_string(), v);
-        desc.insert("writable".to_string(), bool_true);
-        desc.insert("enumerable".to_string(), bool_true);
+        desc.insert("writable".to_string(), writable);
+        desc.insert("enumerable".to_string(), enumerable);
         desc.insert("configurable".to_string(), bool_true);
         let desc_h = alloc_entry(Entry::Map(Box::new(desc))) as i64;
         out.insert(k, desc_h);

@@ -1184,12 +1184,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     // Bool eh empacotado em object literal via sentinela i64::MIN (false)
     // / i64::MIN+1 (true) pelo codegen. Strict check para evitar false
     // positive de handle nao-zero.
+    let bool_from = |v: &i64| -> bool {
+        if *v == i64::MIN { false }
+        else if *v == i64::MIN + 1 { true }
+        else { *v != 0 }
+    };
     let is_enumerable: Option<bool> = with_map(descriptor, None, |m| {
-        m.get("enumerable").map(|v| {
-            if *v == i64::MIN { false }
-            else if *v == i64::MIN + 1 { true }
-            else { *v != 0 }
-        })
+        m.get("enumerable").map(&bool_from)
+    });
+    // (#749) writable flag — Object.defineProperty(obj, k, { writable: false }).
+    let is_writable: Option<bool> = with_map(descriptor, None, |m| {
+        m.get("writable").map(&bool_from)
     });
     let key_str = match str_from_abi(key_ptr, key_len) {
         Some(s) => s.to_string(),
@@ -1207,6 +1212,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
             .lock()
             .unwrap()
             .remove(&(obj, key_str.clone()));
+    }
+    if matches!(is_writable, Some(false)) {
+        mark_non_writable(obj, &key_str);
+    } else if matches!(is_writable, Some(true)) {
+        unmark_non_writable(obj, &key_str);
     }
     __RTS_FN_NS_COLLECTIONS_MAP_SET(obj, key_ptr, key_len, value);
     obj
