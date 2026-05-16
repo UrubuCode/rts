@@ -161,10 +161,10 @@
 ,
 {
   "name": "110_object_getownpropertydescriptors",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
   "node": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
-  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=number\nc.value=3\nc.writable=false\nc.enumerable=false"
+  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":208,"rts_diverge":34,"bun_node_diverge":3,"errors":67,"rejected":0}}
+],"summary":{"total":312,"pass":209,"rts_diverge":33,"bun_node_diverge":3,"errors":67,"rejected":0}}
