@@ -327,7 +327,12 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     // Handle pode ser string OU symbol/function/object/etc. Em vez de
     // assumir "string" estaticamente, despacha pra runtime helper que
     // inspeciona Entry e retorna o tipo JS correto.
-    if matches!(tv.ty, ValTy::Handle) {
+    // (cross-runtime #110) I64/U64 ambiguo (var_member_call_values —
+    // arr[i], map.get(k), descs.b.get, etc.) tambem despacha runtime
+    // pois pode conter handle Function/Symbol/etc.
+    let is_ambig_handle = matches!(tv.ty, ValTy::I64 | ValTy::U64)
+        && ctx.var_member_call_values.contains(&tv.val);
+    if matches!(tv.ty, ValTy::Handle) || is_ambig_handle {
         use cranelift_codegen::ir::InstBuilder;
         let typeof_fn = ctx.get_extern(
             "__RTS_FN_RT_TYPEOF_HANDLE",

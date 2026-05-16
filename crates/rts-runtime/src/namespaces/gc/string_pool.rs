@@ -354,6 +354,22 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_F64(value: f64) -> u64 {
 /// - Handle invalido -> "string" (preserva semantica historica)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
+    // (cross-runtime #110) Sentinelas JS:
+    //   MIN     = false  -> "boolean"
+    //   MIN+1   = true   -> "boolean"
+    //   MIN+2   = undef  -> "undefined"
+    //   MIN+3   = null   -> "object"
+    //   MIN+4   = hole   -> "undefined"
+    let val_i64 = handle as i64;
+    if val_i64 == i64::MIN || val_i64 == i64::MIN + 1 {
+        return alloc_entry(Entry::String(b"boolean".to_vec()));
+    }
+    if val_i64 == i64::MIN + 2 || val_i64 == i64::MIN + 4 {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    if val_i64 == i64::MIN + 3 {
+        return alloc_entry(Entry::String(b"object".to_vec()));
+    }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Symbol { .. }) => "symbol",
         Some(Entry::Function(_)) => "function",
@@ -363,7 +379,16 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
         | Some(Entry::Json(_)) | Some(Entry::DateMs(_))
         | Some(Entry::PromiseAsync(_)) | Some(Entry::Promise(_)) => "object",
         Some(_) => "object",
-        None => "string",
+        None => {
+            // (cross-runtime #110) Handle invalido <2^48 eh numero raw
+            // (slot de arr/map int storage); retorna "number". Acima de
+            // 2^48 eh provavelmente handle stale — historic "string" mantido.
+            if handle < (1u64 << 48) {
+                "number"
+            } else {
+                "string"
+            }
+        }
     });
     alloc_entry(Entry::String(kind.as_bytes().to_vec()))
 }

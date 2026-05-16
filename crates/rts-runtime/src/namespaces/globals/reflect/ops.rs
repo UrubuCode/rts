@@ -23,6 +23,25 @@ fn key_bytes(handle: u64) -> Option<Vec<u8>> {
     })
 }
 
+/// (cross-runtime #110) Reify accessor fn_ptr para handle Function.
+/// Sem isto, `typeof descs.X.get` em getOwnPropertyDescriptors retorna
+/// "number" (fn_ptr i64 raw). Com REIFY, vira Entry::Function — typeof
+/// dispatcha "function".
+fn reify_accessor_fn(fn_ptr: u64, name: &str) -> u64 {
+    if fn_ptr == 0 {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    let name_bytes = name.as_bytes();
+    super::super::function::ops::__RTS_FN_GL_FUNCTION_REIFY(
+        fn_ptr,
+        0,
+        name_bytes.as_ptr() as i64,
+        name_bytes.len() as i64,
+        0,
+        0,
+    )
+}
+
 #[cfg(test)]
 fn alloc_str(s: &str) -> u64 {
     alloc_entry(Entry::String(s.as_bytes().to_vec()))
@@ -137,13 +156,20 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
     }
     for name in accessor_keys {
         let mut desc: IndexMap<String, i64> = IndexMap::new();
-        // getter/setter ausente -> undefined sentinel handle (string).
-        let get_v = getters.get(&name).copied().unwrap_or_else(|| {
+        // (cross-runtime #110) getter/setter slots armazenam fn_ptr raw
+        // (i64); JS spec: `typeof descs.X.get === "function"`. Reify para
+        // handle Function (Entry::Function) — `typeof` em handle detecta
+        // Function kind e retorna "function".
+        let get_v = if let Some(&fn_ptr_i64) = getters.get(&name) {
+            reify_accessor_fn(fn_ptr_i64 as u64, &name) as i64
+        } else {
             alloc_entry(Entry::String(b"undefined".to_vec())) as i64
-        });
-        let set_v = setters.get(&name).copied().unwrap_or_else(|| {
+        };
+        let set_v = if let Some(&fn_ptr_i64) = setters.get(&name) {
+            reify_accessor_fn(fn_ptr_i64 as u64, &name) as i64
+        } else {
             alloc_entry(Entry::String(b"undefined".to_vec())) as i64
-        });
+        };
         desc.insert("get".to_string(), get_v);
         desc.insert("set".to_string(), set_v);
         desc.insert("enumerable".to_string(), bool_true);
