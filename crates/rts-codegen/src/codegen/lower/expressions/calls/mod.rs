@@ -1780,6 +1780,25 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let prop_name = prop_id.sym.as_str();
                     let obj_tv = lower_expr(ctx, &m.obj)?;
                     let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                    // (#97) Antes de tentar GLOBAL_CLASS_SPECS, tenta
+                    // array/string/map builtins — cobre o caso comum
+                    // `copy.list.push(4)` onde `copy.list` retorna handle
+                    // mas push nao esta em nenhum spec global.
+                    if let Some(tv) = self::builtins::lower_array_builtin(
+                        ctx, prop_name, obj_h, call,
+                    )? {
+                        return Ok(tv);
+                    }
+                    if let Some(tv) = self::builtins::lower_string_builtin(
+                        ctx, prop_name, obj_h, call,
+                    )? {
+                        return Ok(tv);
+                    }
+                    if let Some(tv) = self::builtins::lower_map_set_builtin(
+                        ctx, prop_name, obj_h, call,
+                    )? {
+                        return Ok(tv);
+                    }
                     for spec in crate::abi::GLOBAL_CLASS_SPECS {
                         if let Some(member) = spec.instance_method(prop_name) {
                             let sig = crate::abi::signature::lower_member(member);
