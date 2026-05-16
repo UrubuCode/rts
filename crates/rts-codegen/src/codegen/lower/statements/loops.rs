@@ -374,13 +374,26 @@ pub(super) fn lower_for_in(ctx: &mut FnCtx, for_in: &swc_ecma_ast::ForInStmt) ->
     };
 
     let iter_tv = lower_expr(ctx, &for_in.right)?;
-    let handle = ctx.coerce_to_i64(iter_tv).val;
-    let len_fref = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_LEN", &[cl::I64], Some(cl::I64))?;
+    let raw_handle = ctx.coerce_to_i64(iter_tv).val;
+
+    // (#94) for-in funciona em Map E Array. MAP_LEN/MAP_KEY_AT so'
+    // funciona em Map (retorna -1 em Vec). Materializa keys via
+    // OBJECT_KEYS_AUTO (Vec<i64> de handles de string das keys),
+    // depois itera por indice usando VEC_LEN/VEC_GET.
+    let keys_fref = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+    let keys_inst = ctx.builder.ins().call(keys_fref, &[raw_handle]);
+    let handle = ctx.builder.inst_results(keys_inst)[0];
+
+    let len_fref = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_LEN", &[cl::I64], Some(cl::I64))?;
     let inst = ctx.builder.ins().call(len_fref, &[handle]);
     let len = ctx.builder.inst_results(inst)[0];
 
     let key_at_fref = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT",
+        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
         &[cl::I64, cl::I64],
         Some(cl::I64),
     )?;
