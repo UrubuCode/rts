@@ -181,7 +181,24 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     match snap {
         EntrySnap::Str(_) => h, // passthrough do handle original
         EntrySnap::None => {
-            // Nao eh handle valido — interpreta como i64 raw (legacy).
+            // Nao eh handle valido — interpreta como i64 raw OU bits f64.
+            // (cross-runtime #49) `add.bind(null, 5)` chamado retorna i64
+            // que sao bits de f64 (INVOKE_AUTO faz f64_to_i64). Se o valor
+            // esta no range tipico de bits f64 (mas seria abaixo de MIN_SAFE_INTEGER
+            // ou acima de MAX_SAFE_INTEGER como inteiro), interpreta como f64 bits.
+            // Range: bits de f64 com magnitude razoavel (1e-300 a 1e300) tem
+            // expoente IEEE-754 entre cerca de 0x000 e 0x7FE; portanto bit 63
+            // (sign) + bits 62..52 (exponent) tem valores variados.
+            // Heuristica conservadora: se |value| > 2^53 (MAX_SAFE_INTEGER) e
+            // f64::from_bits(u64) produz numero finito nao-NaN razoavel, usa f64.
+            const MAX_SAFE: i64 = (1i64 << 53) - 1; // 2^53 - 1
+            if value > MAX_SAFE || value < -MAX_SAFE {
+                let f = f64::from_bits(value as u64);
+                if f.is_finite() && !f.is_nan() && f.abs() < 1e16 && f != 0.0 {
+                    // Provavelmente bits f64 de result de bind/invoke.
+                    return alloc_entry(Entry::String(format_js_number(f).into_bytes()));
+                }
+            }
             alloc_entry(Entry::String(value.to_string().into_bytes()))
         }
         other => {
