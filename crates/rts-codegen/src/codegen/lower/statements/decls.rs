@@ -441,10 +441,26 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         }
                         // Function global (#359): `.bind(...)` retorna Function.
                         // Propaga local_class_ty pro var receptor.
+                        // (cross-runtime #38) `Class.staticMethod(...)`:
+                        // propaga class ret type para var receptor; getters em
+                        // a.field funcionam.
                         if let swc_ecma_ast::Expr::Member(m) = cb.as_ref() {
                             if let swc_ecma_ast::MemberProp::Ident(mid) = &m.prop {
                                 if mid.sym.as_str() == "bind" {
                                     ctx.local_class_ty.insert(name.clone(), "Function".to_string());
+                                }
+                                // Class.staticMethod(...) → propaga ret_class.
+                                if let swc_ecma_ast::Expr::Ident(obj_id) = m.obj.as_ref() {
+                                    let cls_name = obj_id.sym.as_str();
+                                    if let Some(meta) = ctx.classes.get(cls_name) {
+                                        let mn = mid.sym.as_str();
+                                        if meta.static_methods.iter().any(|s| s == mn) {
+                                            let fname = crate::codegen::lower::compile::class::class_static_method_name(cls_name, mn);
+                                            if let Some(cn) = ctx.fn_class_returns.get(&fname).cloned() {
+                                                ctx.local_class_ty.insert(name.clone(), cn);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

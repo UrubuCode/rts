@@ -1644,6 +1644,25 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
                             return abi.ret_class.clone();
                         }
                     }
+                    // (cross-runtime #38) `Class.staticMethod(...)` retorna
+                    // ret_class declarado. Sem isso, `const a = C.seed()`
+                    // perde info de classe e getters caem em map_get raw.
+                    Expr::Member(m) => {
+                        if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                            let cls = obj_id.sym.as_str();
+                            if let Some(meta) = ctx.classes.get(cls) {
+                                if let MemberProp::Ident(method_id) = &m.prop {
+                                    let mn = method_id.sym.as_str();
+                                    if meta.static_methods.iter().any(|s| s == mn) {
+                                        let fn_name = crate::codegen::lower::compile::class::class_static_method_name(cls, mn);
+                                        if let Some(abi) = ctx.user_fns.get(&fn_name) {
+                                            return abi.ret_class.clone();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
