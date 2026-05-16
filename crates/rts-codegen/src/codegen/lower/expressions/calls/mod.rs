@@ -177,6 +177,50 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         if let Some(tv) = try_lower_object_to_string_call(ctx, callee, call)? {
             return Ok(tv);
         }
+        // (#247) `<Class>.prototype.isPrototypeOf(obj)` -> equivalente a
+        // `obj instanceof <Class>` para classes globais conhecidas.
+        // Sem isso, Object.prototype eh um string sentinel handle e o
+        // .isPrototypeOf falha em "unsupported call expression form".
+        if let Expr::Member(outer) = callee.as_ref() {
+            if let MemberProp::Ident(prop_id) = &outer.prop {
+                if prop_id.sym.as_str() == "isPrototypeOf" && call.args.len() == 1 {
+                    if let Expr::Member(inner) = outer.obj.as_ref() {
+                        let inner_is_proto = matches!(
+                            &inner.prop,
+                            MemberProp::Ident(id) if id.sym.as_str() == "prototype"
+                        );
+                        if inner_is_proto {
+                            if let Expr::Ident(cls_id) = inner.obj.as_ref() {
+                                let cls = cls_id.sym.as_str();
+                                let known = matches!(
+                                    cls,
+                                    "Object" | "Array" | "Function" | "String"
+                                    | "Number" | "Boolean" | "Date" | "RegExp"
+                                    | "Error" | "Map" | "Set"
+                                ) || crate::abi::global_class_lookup(cls).is_some();
+                                if known {
+                                    // Sintetiza `arg instanceof <cls>`.
+                                    let arg_expr = call.args[0].expr.clone();
+                                    let cls_ident = swc_ecma_ast::Ident {
+                                        span: cls_id.span,
+                                        ctxt: Default::default(),
+                                        sym: cls.into(),
+                                        optional: false,
+                                    };
+                                    let synth = swc_ecma_ast::BinExpr {
+                                        span: cls_id.span,
+                                        op: swc_ecma_ast::BinaryOp::InstanceOf,
+                                        left: arg_expr,
+                                        right: Box::new(Expr::Ident(cls_ident)),
+                                    };
+                                    return super::lower_bin(ctx, &synth);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // (#264 PR5) Fast path: `(var as any).method(...)` — TsAs/Paren etc
         // antes do member. Peel e despacha como var.method().
         // (#fix) NAO sequestra quando \`lhs_static_class\` resolve via TsAs
