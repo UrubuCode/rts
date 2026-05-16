@@ -31,6 +31,19 @@ fn parse_array_index(s: &str) -> Option<u32> {
     Some(n)
 }
 
+/// (#798) Keys com prefixo `@@sym:` sao a repr canonica de Symbol entries
+/// (escrita pelo codegen via OBJ_SET/MAP_SET_KH). NAO sao expostas em
+/// Object.keys/getOwnPropertyNames/values/entries — JS spec separa
+/// string-keyed (Object.keys) de symbol-keyed (getOwnPropertySymbols).
+fn is_symbol_key(k: &str) -> bool {
+    k.starts_with("@@sym:")
+}
+
+/// (#798) Decodifica `@@sym:<handle>` -> handle do Entry::Symbol.
+fn decode_symbol_key(k: &str) -> Option<u64> {
+    k.strip_prefix("@@sym:").and_then(|s| s.parse::<u64>().ok())
+}
+
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
         return None;
@@ -195,6 +208,147 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
         return r;
     }
     with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+}
+
+/// (cross-runtime #798) `Object.getOwnPropertySymbols(obj)` — retorna
+/// Vec<i64> com handles de Symbol entries (keys `@@sym:<handle>`).
+/// Ordem: insercao no IndexMap.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_SYMBOLS(handle: u64) -> u64 {
+    let syms: Vec<i64> = with_map(handle, Vec::new(), |m| {
+        m.keys()
+            .filter_map(|k| decode_symbol_key(k).map(|h| h as i64))
+            .collect()
+    });
+    alloc_entry(Entry::Vec(Box::new(syms)))
+}
+
+/// (cross-runtime #753) Resolve um handle de "chave qualquer" para a
+/// representacao canonica em string usada no IndexMap.
+///
+/// - `Entry::String(bytes)` -> string UTF-8 direta.
+/// - `Entry::Symbol`        -> "@@sym:<handle>" (unico por symbol, sticky).
+/// - outros types           -> None (caller decide).
+fn key_handle_to_string(key_h: u64) -> Option<String> {
+    with_entry(key_h, |e| match e {
+        Some(Entry::String(bytes)) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        Some(Entry::Symbol { .. }) => Some(format!("@@sym:{key_h}")),
+        _ => None,
+    })
+}
+
+/// (cross-runtime #753) `key in obj` generico — dispatch baseado em
+/// Entry type do obj. Aceita key como handle (String, Symbol, etc).
+/// Retorna 1/0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: u64, key_h: u64) -> i64 {
+    let key = match key_handle_to_string(key_h) {
+        Some(s) => s,
+        None => return 0,
+    };
+    // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
+    let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
+        Some(Entry::Vec(v)) => {
+            if let Some(n) = parse_array_index(&key) {
+                let slot = v.get(n as usize).copied();
+                Some(match slot {
+                    Some(s) if s != i64::MIN + 4 => 1,
+                    _ => 0,
+                })
+            } else if key == "length" {
+                Some(1)
+            } else {
+                Some(0)
+            }
+        }
+        _ => None,
+    });
+    if let Some(r) = vec_result {
+        return r;
+    }
+    with_map(obj_h, 0, |m| if m.contains_key(&key) { 1 } else { 0 })
+}
+
+/// (cross-runtime #753) `MAP_SET` aceitando key como handle (resolve
+/// Symbol via repr canonica `@@sym:<handle>`). Para String key normal,
+/// equivalente a MAP_SET.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: u64, key_h: u64, value: i64) {
+    let Some(key) = key_handle_to_string(key_h) else {
+        return;
+    };
+    with_map_mut(obj_h, (), |m| {
+        m.insert(key, value);
+    });
+}
+
+/// (cross-runtime #753) `MAP_GET` aceitando key como handle. Retorna
+/// 0 se ausente (use OBJ_HAS pra distinguir).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: u64, key_h: u64) -> i64 {
+    let Some(key) = key_handle_to_string(key_h) else {
+        return 0;
+    };
+    with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
+}
+
+/// (cross-runtime #753) Dispatcher universal pra `obj[key] = value`:
+/// Vec   -> parse key como uint32 e VEC_SET (extending com holes se preciso).
+/// Map   -> MAP_SET_KH (resolve Symbol via repr canonica).
+/// outros-> noop.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: u64, key_h: u64, value: i64) {
+    // Vec path: tenta parse de array index a partir da key.
+    let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        if let Some(key) = key_handle_to_string(key_h) {
+            if let Some(n) = parse_array_index(&key) {
+                with_entry_mut(obj_h, |e| {
+                    if let Some(Entry::Vec(v)) = e {
+                        let idx = n as usize;
+                        if idx >= v.len() {
+                            v.resize(idx + 1, i64::MIN + 4);
+                        }
+                        v[idx] = value;
+                    }
+                });
+            }
+        }
+        return;
+    }
+    // Map path (ou other -> noop).
+    if let Some(key) = key_handle_to_string(key_h) {
+        with_map_mut(obj_h, (), |m| {
+            m.insert(key, value);
+        });
+    }
+}
+
+/// (cross-runtime #753) Dispatcher universal pra `obj[key]`:
+/// Vec   -> parse key como uint32 e VEC_GET. "length" retorna len.
+/// Map   -> MAP_GET_KH.
+/// outros-> 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_GET(obj_h: u64, key_h: u64) -> i64 {
+    let Some(key) = key_handle_to_string(key_h) else {
+        return 0;
+    };
+    let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
+        Some(Entry::Vec(v)) => {
+            if key == "length" {
+                Some(v.len() as i64)
+            } else if let Some(n) = parse_array_index(&key) {
+                Some(v.get(n as usize).copied().unwrap_or(i64::MIN + 2))
+            } else {
+                Some(0)
+            }
+        }
+        _ => None,
+    });
+    if let Some(r) = vec_result {
+        return r;
+    }
+    with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
 }
 
 /// (cross-runtime #793) `map.forEach((value, key, map) => ...)`.
@@ -536,6 +690,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
             if k.starts_with("__get_") || k.starts_with("__set_") {
                 continue;
             }
+            // (#798) Symbol keys: separadas via getOwnPropertySymbols.
+            if is_symbol_key(k.as_str()) {
+                continue;
+            }
             if is_non_enumerable(handle, k.as_str()) {
                 continue;
             }
@@ -572,6 +730,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
         let mut str_entries: Vec<i64> = Vec::new();
         for (k, v) in m.iter() {
             if k.as_str() == "__proto__" { continue; }
+            // (#798) Symbol keys nao aparecem em Object.keys/values/entries/
+            // getOwnPropertyNames — JS spec.
+            if is_symbol_key(k.as_str()) { continue; }
             if is_non_enumerable(handle, k.as_str()) { continue; }
             match parse_array_index(k) {
                 Some(n) => int_entries.push((n, *v)),
@@ -604,6 +765,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
         let mut str_entries: Vec<(String, i64)> = Vec::new();
         for (k, v) in m.iter() {
             if k.as_str() == "__proto__" { continue; }
+            // (#798) Symbol keys nao aparecem em Object.keys/values/entries/
+            // getOwnPropertyNames — JS spec.
+            if is_symbol_key(k.as_str()) { continue; }
             if is_non_enumerable(handle, k.as_str()) { continue; }
             match parse_array_index(k) {
                 Some(n) => int_entries.push((n, k.clone(), *v)),
@@ -724,6 +888,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                // (#798) Symbol keys: separadas via getOwnPropertySymbols.
+                if is_symbol_key(k.as_str()) { continue; }
                 // (#110) Slots internos `__get_*`/`__set_*` nao sao expostos.
                 if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
                 match parse_array_index(k) {
@@ -771,6 +937,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                // (#798) Symbol keys: separadas via getOwnPropertySymbols.
+                if is_symbol_key(k.as_str()) { continue; }
                 // (#110) Slots internos `__get_<name>`/`__set_<name>` armazenam
                 // accessor handles. Object.keys/getOwnPropertyNames JS spec nao
                 // expoe estes — RTS os usa como mecanismo interno de getter/setter.

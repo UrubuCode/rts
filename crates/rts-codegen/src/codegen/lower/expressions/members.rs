@@ -310,27 +310,19 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
                     .call(set_fn, &[handle, kptr, klen, value_i64]);
             }
             KeySrc::Computed(expr) => {
-                // Avalia expr -> handle (string). Coerce + chama
-                // gc.string_ptr/len pra extrair ptr+len.
+                // (#753) Avalia expr -> handle e usa MAP_SET_KH que
+                // aceita key como handle (resolve String OU Symbol via
+                // repr canonica `@@sym:<handle>`).
                 let key_tv = lower_expr(ctx, &expr)?;
                 let key_h = ctx.coerce_to_handle(key_tv)?.val;
-                let ptr_fn = ctx.get_extern(
-                    "__RTS_FN_NS_GC_STRING_PTR",
-                    &[cl::I64],
-                    Some(cl::I64),
+                let set_kh_fn = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_SET_KH",
+                    &[cl::I64, cl::I64, cl::I64],
+                    None,
                 )?;
-                let len_fn = ctx.get_extern(
-                    "__RTS_FN_NS_GC_STRING_LEN",
-                    &[cl::I64],
-                    Some(cl::I64),
-                )?;
-                let p_inst = ctx.builder.ins().call(ptr_fn, &[key_h]);
-                let kptr = ctx.builder.inst_results(p_inst)[0];
-                let l_inst = ctx.builder.ins().call(len_fn, &[key_h]);
-                let klen = ctx.builder.inst_results(l_inst)[0];
                 ctx.builder
                     .ins()
-                    .call(set_fn, &[handle, kptr, klen, value_i64]);
+                    .call(set_kh_fn, &[handle, key_h, value_i64]);
             }
         }
     }
@@ -1113,20 +1105,16 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             let idx_tv = lower_expr(ctx, &c.expr)?;
             match idx_tv.ty {
                 ValTy::Handle => {
-                    let ptr_fref =
-                        ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
-                    let len_fref =
-                        ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
-                    let pi = ctx.builder.ins().call(ptr_fref, &[idx_tv.val]);
-                    let kptr = ctx.builder.inst_results(pi)[0];
-                    let li = ctx.builder.ins().call(len_fref, &[idx_tv.val]);
-                    let klen = ctx.builder.inst_results(li)[0];
+                    // (#753) MAP_GET_KH aceita key como handle (String OU
+                    // Symbol via repr canonica `@@sym:<handle>`). Antes,
+                    // STRING_PTR/LEN em Symbol retornava null -> MAP_GET
+                    // sempre 0.
                     let get_fn = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
-                        &[cl::I64, cl::I64, cl::I64],
+                        "__RTS_FN_NS_COLLECTIONS_MAP_GET_KH",
+                        &[cl::I64, cl::I64],
                         Some(cl::I64),
                     )?;
-                    let inst = ctx.builder.ins().call(get_fn, &[obj_handle, kptr, klen]);
+                    let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx_tv.val]);
                     let raw = ctx.builder.inst_results(inst)[0];
                     // (#261) Pos-MAP_GET com chave dinamica: aplica
                     // TPL_COERCE_AUTO no slot pra que se for handle de

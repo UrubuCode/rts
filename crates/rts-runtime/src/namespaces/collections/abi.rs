@@ -92,6 +92,68 @@ pub const MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    // (cross-runtime #753) Dispatcher universal pra `key in obj` —
+    // aceita key como handle (String/Symbol/etc) e obj como Vec ou Map.
+    NamespaceMember {
+        name: "obj_has",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_OBJ_HAS",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::Bool,
+        doc: "True when `key_h` is an own property of `obj_h` (Vec or Map). Accepts Symbol keys.",
+        ts_signature: "obj_has(obj_h: number, key_h: number): boolean",
+        intrinsic: None,
+        pure: false,
+    },
+    // (cross-runtime #753) MAP_SET aceitando key como handle (Symbol
+    // canonical encoded como `@@sym:<handle>`).
+    NamespaceMember {
+        name: "map_set_kh",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_MAP_SET_KH",
+        args: &[AbiType::U64, AbiType::U64, AbiType::I64],
+        returns: AbiType::Void,
+        doc: "Inserts/overwrites value for key handle (String or Symbol).",
+        ts_signature: "map_set_kh(obj_h: number, key_h: number, value: number): void",
+        intrinsic: None,
+        pure: false,
+    },
+    // (cross-runtime #753) Dispatcher universal pra `obj[key] = value`.
+    NamespaceMember {
+        name: "obj_set",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_OBJ_SET",
+        args: &[AbiType::U64, AbiType::U64, AbiType::I64],
+        returns: AbiType::Void,
+        doc: "Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.",
+        ts_signature: "obj_set(obj_h: number, key_h: number, value: number): void",
+        intrinsic: None,
+        pure: false,
+    },
+    // (cross-runtime #753) Dispatcher universal pra `obj[key]`.
+    NamespaceMember {
+        name: "obj_get",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_OBJ_GET",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::I64,
+        doc: "Reads obj[key], dispatching on Vec vs Map. Accepts Symbol keys.",
+        ts_signature: "obj_get(obj_h: number, key_h: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    // (cross-runtime #753) MAP_GET aceitando key como handle.
+    NamespaceMember {
+        name: "map_get_kh",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_COLLECTIONS_MAP_GET_KH",
+        args: &[AbiType::U64, AbiType::U64],
+        returns: AbiType::I64,
+        doc: "Returns value for key handle, or 0 if absent.",
+        ts_signature: "map_get_kh(obj_h: number, key_h: number): number",
+        intrinsic: None,
+        pure: false,
+    },
     NamespaceMember {
         name: "map_clone",
         kind: MemberKind::Function,
