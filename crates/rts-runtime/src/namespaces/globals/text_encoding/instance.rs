@@ -113,21 +113,80 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_ATOB(ptr: i64, len: i64) -> u64 {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE(handle: u64) -> u64 {
-    let result = with_entry(handle, |entry| match entry {
+/// (#316) Helper recursivo: clona handle preservando set_kind/map_kind
+/// flags. Slots que parecem handles validos sao clonados recursivamente.
+/// `visited` mapeia handle_original -> handle_clone para suportar
+/// self-references (JS spec do structuredClone preserva ciclos).
+fn clone_handle_deep(
+    handle: u64,
+    visited: &mut std::collections::HashMap<u64, u64>,
+) -> u64 {
+    if let Some(&existing) = visited.get(&handle) {
+        return existing;
+    }
+    let entry_clone = with_entry(handle, |entry| match entry {
         Some(Entry::String(v)) => Some(Entry::String(v.clone())),
         Some(Entry::Buffer(v)) => Some(Entry::Buffer(v.clone())),
-        Some(Entry::Vec(v)) => Some(Entry::Vec(Box::new(v.as_ref().clone()))),
-        Some(Entry::Map(m)) => Some(Entry::Map(Box::new(m.as_ref().clone()))),
-        Some(Entry::Json(j)) => Some(Entry::Json(Box::new(j.as_ref().clone()))),
-        // Primitivos (número, bool): caller já tem o valor direto, não handle
+        Some(Entry::Vec(v)) => Some(Entry::Vec(v.clone())),
+        Some(Entry::Map(m)) => Some(Entry::Map(m.clone())),
+        Some(Entry::Json(j)) => Some(Entry::Json(j.clone())),
+        Some(Entry::DateMs(ms)) => Some(Entry::DateMs(*ms)),
+        // Regex nao tem Clone — passa handle original (shared, imutavel).
         _ => None,
     });
-    match result {
-        Some(entry) => alloc_entry(entry),
-        None => handle,
+    let Some(entry) = entry_clone else { return handle; };
+    let new_h = alloc_entry(entry);
+    visited.insert(handle, new_h);
+    // Preserva kind flags
+    if crate::namespaces::collections::map::handle_is_set_kind(handle) {
+        crate::namespaces::collections::map::mark_set_kind(new_h);
     }
+    // Deep clone de slots que sao handles a estruturas clonaveis.
+    use crate::namespaces::gc::handles::with_entry_mut;
+    let _ = with_entry_mut(new_h, |entry| match entry {
+        Some(Entry::Map(m)) => {
+            let pairs: Vec<(String, i64)> = m.iter().map(|(k, v)| (k.clone(), *v)).collect();
+            for (k, v) in pairs {
+                let v_u = v as u64;
+                if v_u > 0xFFFF_FFFF {
+                    let v_kind = with_entry(v_u, |e| matches!(
+                        e,
+                        Some(Entry::Map(_)) | Some(Entry::Vec(_)) | Some(Entry::String(_))
+                        | Some(Entry::Buffer(_)) | Some(Entry::Json(_))
+                        | Some(Entry::DateMs(_)) | Some(Entry::Regex(_))
+                    ));
+                    if v_kind {
+                        let cloned = clone_handle_deep(v_u, visited);
+                        m.insert(k, cloned as i64);
+                    }
+                }
+            }
+        }
+        Some(Entry::Vec(v)) => {
+            for slot in v.iter_mut() {
+                let s_u = *slot as u64;
+                if s_u > 0xFFFF_FFFF {
+                    let v_kind = with_entry(s_u, |e| matches!(
+                        e,
+                        Some(Entry::Map(_)) | Some(Entry::Vec(_)) | Some(Entry::String(_))
+                        | Some(Entry::Buffer(_)) | Some(Entry::Json(_))
+                        | Some(Entry::DateMs(_)) | Some(Entry::Regex(_))
+                    ));
+                    if v_kind {
+                        *slot = clone_handle_deep(s_u, visited) as i64;
+                    }
+                }
+            }
+        }
+        _ => {}
+    });
+    new_h
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE(handle: u64) -> u64 {
+    let mut visited = std::collections::HashMap::new();
+    clone_handle_deep(handle, &mut visited)
 }
 
 type CallbackFn = unsafe extern "C" fn(i64) -> i64;

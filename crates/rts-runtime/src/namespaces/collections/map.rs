@@ -1064,6 +1064,12 @@ pub(crate) fn handle_is_set_kind(handle: u64) -> bool {
     set_kind_set().lock().unwrap().contains(&handle)
 }
 
+/// (#316) Helper interno para estruturas que clonam (structuredClone)
+/// preservarem kind=Set do source no novo handle.
+pub(crate) fn mark_set_kind(handle: u64) {
+    set_kind_set().lock().unwrap().insert(handle);
+}
+
 fn sealed_set() -> &'static Mutex<HashSet<u64>> {
     static S: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(HashSet::new()))
