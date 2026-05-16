@@ -596,18 +596,33 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
     }
 
     if let Some(qualified) = qualified_member_name(&Expr::Member(m.clone())) {
+        // (cross-runtime 55) Verifica que o root NAO eh var local antes de
+        // tentar resolver como namespace member. Sem isso, `url.host` (onde
+        // url eh var de URL) colide com namespace global "url" e gera
+        // warning "is a function, not a constant".
+        let root_is_local_var = if let Expr::Member(mm) = &Expr::Member(m.clone()) {
+            if let Expr::Ident(id) = mm.obj.as_ref() {
+                ctx.read_local(id.sym.as_str()).is_some()
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         // (#208) `Math.X` (uppercase JS-style) → `math.X` (lowercase RTS namespace).
-        if let Some(prop) = qualified.strip_prefix("Math.") {
-            let target = format!("math.{prop}");
-            if lookup(&target).is_some() {
-                if let Some(tv) = emit_namespace_constant(ctx, &target)? {
-                    return Ok(tv);
+        if !root_is_local_var {
+            if let Some(prop) = qualified.strip_prefix("Math.") {
+                let target = format!("math.{prop}");
+                if lookup(&target).is_some() {
+                    if let Some(tv) = emit_namespace_constant(ctx, &target)? {
+                        return Ok(tv);
+                    }
                 }
             }
-        }
-        if lookup(&qualified).is_some() {
-            if let Some(tv) = emit_namespace_constant(ctx, &qualified)? {
-                return Ok(tv);
+            if lookup(&qualified).is_some() {
+                if let Some(tv) = emit_namespace_constant(ctx, &qualified)? {
+                    return Ok(tv);
+                }
             }
         }
         // `export * as ns from "./mod"` — `ns.const` resolve para o
