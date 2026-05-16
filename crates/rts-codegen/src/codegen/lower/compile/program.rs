@@ -560,13 +560,62 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
         })
         .collect();
 
-    let ret = fn_decl.return_type.as_deref().and_then(|r| {
-        if r == "void" {
-            None
-        } else {
-            Some(ValTy::from_annotation(r))
+    let ret = match fn_decl.return_type.as_deref() {
+        Some("void") => None,
+        Some(r) => Some(ValTy::from_annotation(r)),
+        None => {
+            // (#mul) Sem anotacao explicita: inferir F64 se o body tem
+            // `return <expr>`. Sem isso, codegen emite fn `(...) tail`
+            // sem retorno e descarta o valor (ex: `function mul(a, b)
+            // { return a*b; }` retornava 0). Default F64 cobre `number`
+            // (caso mais comum); refator futuro pode inferir Handle/Bool
+            // analisando o body. Annotated `void` continua sem retorno.
+            if has_return_value(&fn_decl.body) {
+                Some(ValTy::F64)
+            } else {
+                None
+            }
         }
-    });
+    };
 
     (params, ret)
+}
+
+/// Inspeciona body para detectar `return <expr>` (qualquer valor) em
+/// qualquer ramo top-level. Conservador: nao recursa em sub-blocks de
+/// if/while/etc — heuristica para o caso comum de fn aritmetica simples.
+fn has_return_value(body: &[Statement]) -> bool {
+    use crate::parser::ast::Statement;
+    fn check_stmt(stmt: &swc_ecma_ast::Stmt) -> bool {
+        use swc_ecma_ast::Stmt;
+        match stmt {
+            Stmt::Return(r) => r.arg.is_some(),
+            Stmt::Block(b) => b.stmts.iter().any(check_stmt),
+            Stmt::If(i) => {
+                check_stmt(&i.cons)
+                    || i.alt.as_deref().map(check_stmt).unwrap_or(false)
+            }
+            Stmt::Try(t) => {
+                t.block.stmts.iter().any(check_stmt)
+                    || t.handler
+                        .as_ref()
+                        .map(|h| h.body.stmts.iter().any(check_stmt))
+                        .unwrap_or(false)
+                    || t.finalizer
+                        .as_ref()
+                        .map(|f| f.stmts.iter().any(check_stmt))
+                        .unwrap_or(false)
+            }
+            _ => false,
+        }
+    }
+    for s in body {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = raw.stmt.as_ref() {
+            if check_stmt(stmt) {
+                return true;
+            }
+        }
+    }
+    false
 }
