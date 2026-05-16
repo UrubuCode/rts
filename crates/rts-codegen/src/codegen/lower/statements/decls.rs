@@ -418,6 +418,35 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             };
             if let swc_ecma_ast::Expr::Member(m) = init.as_ref() {
                 propagate_member(m.obj.as_ref(), &m.prop, ctx);
+                // (cross-runtime 107) `const sp = u.searchParams` — propaga
+                // local_class_ty = URLSearchParams para que .get/.set/etc
+                // roteiem corretamente. Detecta via instance_method spec.
+                if let swc_ecma_ast::MemberProp::Ident(prop_id) = &m.prop {
+                    let prop_name = prop_id.sym.as_str();
+                    // Tipo do receiver eh URL? Tem que olhar var_ty.
+                    if let swc_ecma_ast::Expr::Ident(obj_id) = m.obj.as_ref() {
+                        let obj_name = obj_id.sym.as_str();
+                        if let Some(cls) = ctx.local_class_ty.get(obj_name).cloned() {
+                            if let Some(spec) = crate::abi::global_class_lookup(&cls) {
+                                if let Some(member) = spec.instance_method(prop_name) {
+                                    // Extrai class name do ts_signature
+                                    // (e.g. "readonly searchParams: URLSearchParams").
+                                    let sig = member.ts_signature;
+                                    if let Some(colon_pos) = sig.rfind(':') {
+                                        let ret_ty = sig[colon_pos + 1..].trim();
+                                        // Remove modifiers tipo "readonly " ou "?".
+                                        let ret_ty = ret_ty.trim_end_matches(';').trim();
+                                        if crate::abi::global_class_lookup(ret_ty).is_some()
+                                            || ctx.classes.contains_key(ret_ty)
+                                        {
+                                            ctx.local_class_ty.insert(name.clone(), ret_ty.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if let swc_ecma_ast::Expr::OptChain(opt) = init.as_ref() {
                 if let swc_ecma_ast::OptChainBase::Member(m) = opt.base.as_ref() {

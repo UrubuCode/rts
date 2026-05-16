@@ -1629,6 +1629,22 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
             if resolve_method_owner_local(ctx, &owner, prop).is_some() {
                 return Some("Function".to_string());
             }
+            // (cross-runtime 107) Global class instance method whose
+            // ts_signature declares a class return type — propaga.
+            // Ex: `u.searchParams: URLSearchParams` em URL.
+            if let Some(spec) = crate::abi::global_class_lookup(&owner) {
+                if let Some(member) = spec.instance_method(prop) {
+                    let sig = member.ts_signature;
+                    if let Some(colon_pos) = sig.rfind(':') {
+                        let ret_ty = sig[colon_pos + 1..].trim().trim_end_matches(';').trim();
+                        if crate::abi::global_class_lookup(ret_ty).is_some()
+                            || ctx.classes.contains_key(ret_ty)
+                        {
+                            return Some(ret_ty.to_string());
+                        }
+                    }
+                }
+            }
             None
         }
         Expr::Call(call) => {
