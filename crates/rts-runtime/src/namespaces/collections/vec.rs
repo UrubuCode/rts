@@ -626,6 +626,9 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     let is_map = crate::namespaces::collections::map::handle_is_map_kind(src);
     let src_items: Vec<i64> = with_entry(src, |e| match e {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
+        // (cross-runtime #58) Array.from(Uint8Array)/Buffer: cada byte
+        // vira slot i64.
+        Some(Entry::Buffer(b)) => b.iter().map(|&x| x as i64).collect(),
         Some(Entry::Map(m)) => {
             if is_set {
                 m.keys()
