@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
+  "rts": "bound=0\noriginal=0\npartial=0\nrebind=3"
 }
 ,
 {
