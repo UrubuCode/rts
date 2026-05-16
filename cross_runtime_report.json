@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "named=null"
 }
 ,
 {
@@ -732,7 +732,7 @@
   "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=0\npartial=0\nrebind=3"
+  "rts": "bound=0\noriginal=0\npartial=0\nrebind=0"
 }
 ,
 {
@@ -1161,10 +1161,10 @@
 ,
 {
   "name": "230_object_valueof",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
   "node": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000"
 }
 ,
 {
@@ -1289,10 +1289,10 @@
 ,
 {
   "name": "245_number_valueof",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "valueOf=42\nsame_type=true\nobj_type=true\nprimitive=123\nsame=true\nzero=0",
   "node": "valueOf=42\nsame_type=true\nobj_type=true\nprimitive=123\nsame=true\nzero=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "valueOf=42\nsame_type=true\nobj_type=false\nprimitive=123\nsame=true\nzero=0"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":205,"rts_diverge":35,"bun_node_diverge":3,"errors":69,"rejected":0}}
+],"summary":{"total":312,"pass":206,"rts_diverge":36,"bun_node_diverge":3,"errors":67,"rejected":0}}
