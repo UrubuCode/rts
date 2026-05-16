@@ -723,8 +723,31 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
 /// (#266) Object.values(obj) — retorna Vec<i64> com valores em ordem
 /// JS: integer-indexed keys ascendentes, depois string keys em ordem
 /// de insercao (mesmo criterio de Object.keys).
+///
+/// (#316) Para Set (storage interno Map<key_str, 1>), os "values"
+/// sao na verdade as keys (elementos do Set). Detecta via
+/// handle_is_set_kind e retorna parse_array_index(key) ou string handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
+    if handle_is_set_kind(handle) {
+        // Set.values() retorna os elementos (= keys do storage Map).
+        // Cada key foi armazenada como string — se parseia como int,
+        // converte de volta, senao retorna handle string.
+        let elems: Vec<i64> = with_map(handle, Vec::new(), |m| {
+            m.keys()
+                .filter(|k| k.as_str() != "__proto__")
+                .map(|k| match k.parse::<i64>() {
+                    Ok(n) => n,
+                    Err(_) => crate::namespaces::gc::handles::alloc_entry(
+                        crate::namespaces::gc::handles::Entry::String(k.clone().into_bytes()),
+                    ) as i64,
+                })
+                .collect()
+        });
+        return crate::namespaces::gc::handles::alloc_entry(
+            crate::namespaces::gc::handles::Entry::Vec(Box::new(elems)),
+        );
+    }
     let vals: Vec<i64> = with_map(handle, Vec::new(), |m| {
         let mut int_entries: Vec<(u32, i64)> = Vec::new();
         let mut str_entries: Vec<i64> = Vec::new();
