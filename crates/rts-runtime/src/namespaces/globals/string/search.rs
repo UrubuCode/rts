@@ -107,11 +107,6 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
         return 0;
     };
     let s_owned = s.to_string();
-    enum MatchResult {
-        First(Vec<Vec<u8>>),
-        All(Vec<Vec<u8>>),
-        None,
-    }
     enum MatchResultExt {
         First { items: Vec<Vec<u8>>, index: usize },
         All(Vec<Vec<u8>>),
