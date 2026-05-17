@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2364,7 +2364,7 @@
   "status": "rts_diverge",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=0:1|0:281474976710658\nany=281474976710671"
+  "rts": "settled=0:1|0:281474976710658\nany=281474976710676"
 }
 ,
 {
