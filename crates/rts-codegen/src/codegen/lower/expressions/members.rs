@@ -1692,9 +1692,63 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
                                     }
                                 }
                             }
+                            // (cross-runtime #750) Global class static method
+                            // (e.g. `Promise.resolve(42)` → "Promise"). Extrai
+                            // ret class do ts_signature, suportando `Promise<T>`.
+                            if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                                if let MemberProp::Ident(method_id) = &m.prop {
+                                    let mn = method_id.sym.as_str();
+                                    if let Some(member) = spec.static_member(mn) {
+                                        let sig = member.ts_signature;
+                                        if let Some(colon_pos) = sig.rfind(':') {
+                                            let raw = sig[colon_pos + 1..]
+                                                .trim()
+                                                .trim_end_matches(';')
+                                                .trim();
+                                            let base = match raw.find('<') {
+                                                Some(p) => raw[..p].trim(),
+                                                None => raw,
+                                            };
+                                            if crate::abi::global_class_lookup(base).is_some()
+                                                || ctx.classes.contains_key(base)
+                                            {
+                                                return Some(base.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     _ => {}
+                }
+                // (cross-runtime #750) chained instance method of a global
+                // class whose ts_signature declares a class return type.
+                // Ex: `Promise.resolve(42).then(...)` → `Promise`.
+                if let Expr::Member(mem) = callee.as_ref() {
+                    if let MemberProp::Ident(method_id) = &mem.prop {
+                        let recv_cls = lhs_static_class(ctx, &mem.obj)?;
+                        if let Some(spec) = crate::abi::global_class_lookup(&recv_cls) {
+                            if let Some(member) = spec.instance_method(method_id.sym.as_str()) {
+                                let sig = member.ts_signature;
+                                if let Some(colon_pos) = sig.rfind(':') {
+                                    let raw = sig[colon_pos + 1..]
+                                        .trim()
+                                        .trim_end_matches(';')
+                                        .trim();
+                                    let base = match raw.find('<') {
+                                        Some(p) => raw[..p].trim(),
+                                        None => raw,
+                                    };
+                                    if crate::abi::global_class_lookup(base).is_some()
+                                        || ctx.classes.contains_key(base)
+                                    {
+                                        return Some(base.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             None
