@@ -116,7 +116,7 @@
   "status": "rts_diverge",
   "bun": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
   "node": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
-  "rts": "raw=line1\\n42\\tend"
+  "rts": "raw=line1\\n42\\tend\ntag=null::42,x"
 }
 ,
 {
@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=micro|timeout|immediate"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1892,7 +1892,7 @@
   "status": "rts_diverge",
   "bun": "raw=a\\n1b\\t\ntag=x\\n|y\\t|::2,z",
   "node": "raw=a\\n1b\\t\ntag=x\\n|y\\t|::2,z",
-  "rts": "raw=a\\n1b\\t"
+  "rts": "raw=a\\n1b\\t\ntag=null::2,z"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":216,"rts_diverge":36,"bun_node_diverge":4,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":216,"rts_diverge":37,"bun_node_diverge":3,"errors":56,"rejected":0}}
