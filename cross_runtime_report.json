@@ -724,15 +724,15 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=World \napply=There \ncall_null=You \nmax=9"
+  "rts": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9"
 }
 ,
 {
   "name": "181_function_bind",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=0\noriginal=null\npartial=0\nrebind=0"
+  "rts": "bound=24\noriginal=12\npartial=10\nrebind=24"
 }
 ,
 {
@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -2092,7 +2092,7 @@
   "status": "rts_diverge",
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=4886413292278382592"
+  "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=7"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":216,"rts_diverge":37,"bun_node_diverge":3,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":217,"rts_diverge":36,"bun_node_diverge":3,"errors":56,"rejected":0}}
