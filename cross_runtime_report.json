@@ -169,10 +169,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -601,10 +601,10 @@
 ,
 {
   "name": "167_promise_race_any",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "race=1\nany=1\nrace2=4\nany2=4",
   "node": "race=1\nany=1\nrace2=4\nany2=4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -897,10 +897,10 @@
 ,
 {
   "name": "200_promise_allsettled",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
   "node": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -1641,10 +1641,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -2145,10 +2145,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":213,"rts_diverge":34,"bun_node_diverge":3,"errors":62,"rejected":0}}
+],"summary":{"total":312,"pass":213,"rts_diverge":39,"bun_node_diverge":3,"errors":57,"rejected":0}}
