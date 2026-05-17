@@ -174,6 +174,35 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
+            // (cross-runtime #779) Fast-path: se ja' settled, executa
+            // sync — preserva ordem FIFO de microtask do JS pra cadeias
+            // sobre Promise.resolve/reject (que sao settled em construcao).
+            let cur_state = promise_slot::current_state(&arc);
+            if cur_state != promise_slot::STATE_PENDING {
+                let value = promise_slot::current_value(&arc);
+                let result = promise_slot::new_pending();
+                let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+                if cur_state == promise_slot::STATE_FULFILLED {
+                    if on_ful == 0 {
+                        promise_slot::resolve(&result, value);
+                    } else {
+                        let r = unsafe {
+                            (std::mem::transmute::<u64, CallbackFn>(on_ful))(value)
+                        };
+                        promise_slot::resolve(&result, r);
+                    }
+                } else {
+                    if on_rej == 0 {
+                        promise_slot::reject(&result, value);
+                    } else {
+                        let r = unsafe {
+                            (std::mem::transmute::<u64, CallbackFn>(on_rej))(value)
+                        };
+                        promise_slot::resolve(&result, r);
+                    }
+                }
+                return result_handle;
+            }
             let result = promise_slot::new_pending();
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));

@@ -330,6 +330,26 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_RACE(vec_handle: u64) -> u64 {
     let result = promise_slot::new_pending();
     let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
 
+    // (cross-runtime #779) Fast-path: se algum slot ja' esta settled em
+    // ordem de iteracao, resolve sync — preserva FIFO microtask order do
+    // JS. Sem isto, spawn_blocking pode reordenar resolves de promises
+    // ja' settled (Promise.resolve sync) e quebrar a ordem esperada do
+    // event loop.
+    for slot in slots.iter() {
+        if let Some(s) = slot {
+            let state = promise_slot::current_state(s);
+            if state != promise_slot::STATE_PENDING {
+                let value = promise_slot::current_value(s);
+                if state == promise_slot::STATE_FULFILLED {
+                    promise_slot::resolve(&result, value);
+                } else {
+                    promise_slot::reject(&result, value);
+                }
+                return result_handle;
+            }
+        }
+    }
+
     let rt = crate::runtime::async_rt::handle();
     // Cada slot e' aguardado numa task separada — primeira a settle
     // resolve a result. Demais resolves sao no-op (idempotencia).
@@ -357,8 +377,38 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ANY(vec_handle: u64) -> u64 {
     let handles = collect_promise_handles(vec_handle);
     let slots = collect_slots(&handles);
     let result = promise_slot::new_pending();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+
+    // (cross-runtime #779) Fast-path: primeira fulfilled em ordem.
+    // Mesma motivacao de PROMISE_RACE — preserva FIFO microtask order
+    // pra promises ja' settled.
+    let mut all_already_rejected = true;
+    let mut any_pending = false;
+    for slot in slots.iter() {
+        if let Some(s) = slot {
+            let state = promise_slot::current_state(s);
+            if state == promise_slot::STATE_PENDING {
+                any_pending = true;
+                all_already_rejected = false;
+            } else if state == promise_slot::STATE_FULFILLED {
+                let value = promise_slot::current_value(s);
+                promise_slot::resolve(&result, value);
+                return result_handle;
+            }
+            // rejected — continua
+        } else {
+            any_pending = true;
+            all_already_rejected = false;
+        }
+    }
+    if !any_pending && all_already_rejected {
+        let msg = b"All promises were rejected".to_vec();
+        let err_handle = alloc_entry(Entry::String(msg));
+        promise_slot::reject(&result, err_handle as i64);
+        return result_handle;
+    }
     let result_clone = result.clone();
-    let result_handle = alloc_entry(Entry::PromiseAsync(result));
+    let _ = result;
 
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
