@@ -601,10 +601,10 @@
 ,
 {
   "name": "167_promise_race_any",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "race=1\nany=1\nrace2=4\nany2=4",
   "node": "race=1\nany=1\nrace2=4\nany2=4",
-  "rts": ""
+  "rts": "race=1\nany=1\nrace2=4\nany2=4"
 }
 ,
 {
@@ -724,7 +724,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=World \napply=There \ncall_null=You "
+  "rts": "call=World \napply=There \ncall_null=You \nmax=9"
 }
 ,
 {
@@ -833,10 +833,10 @@
 ,
 {
   "name": "193_reflect_construct",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "x=10\ny=20\napply=8\nmax=9",
   "node": "x=10\ny=20\napply=8\nmax=9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "x=10\ny=20\napply=8\nmax=9"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": ""
+  "rts": "order=null"
 }
 ,
 {
@@ -2092,7 +2092,7 @@
   "status": "rts_diverge",
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=4619567317775286272"
+  "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=4886413292278382592"
 }
 ,
 {
@@ -2236,7 +2236,7 @@
   "status": "rts_diverge",
   "bun": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
   "node": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
-  "rts": "built=https://example.com/"
+  "rts": "href=[object Function]\npathname=[object Function]\nsearch=[object Function]\nbuilt=https://example.com/"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":213,"rts_diverge":39,"bun_node_diverge":3,"errors":57,"rejected":0}}
+],"summary":{"total":312,"pass":215,"rts_diverge":38,"bun_node_diverge":3,"errors":56,"rejected":0}}
