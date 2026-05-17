@@ -601,10 +601,10 @@
 ,
 {
   "name": "167_promise_race_any",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "race=1\nany=1\nrace2=4\nany2=4",
   "node": "race=1\nany=1\nrace2=4\nany2=4",
-  "rts": "race=1\nany=1\nrace2=4\nany2=4"
+  "rts": "race=1"
 }
 ,
 {
@@ -1644,7 +1644,7 @@
   "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=null"
+  "rts": ""
 }
 ,
 {
@@ -2364,7 +2364,7 @@
   "status": "rts_diverge",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=0:0|0:0\nany=281474976710671"
+  "rts": "settled=0:1|0:281474976710658\nany=281474976710671"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":215,"rts_diverge":38,"bun_node_diverge":3,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":214,"rts_diverge":39,"bun_node_diverge":3,"errors":56,"rejected":0}}
