@@ -92,6 +92,24 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_IMMEDIATE(fp: u64) -> u64 {
     __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp, 0)
 }
 
+/// Drain — bloqueia ate todos timers (setTimeout) ainda nao disparados
+/// terminarem. Usado pelo pipeline pos-main para que callbacks de
+/// setTimeout possam executar antes do processo sair. Intervals nao
+/// sao aguardados (rodariam pra sempre); apenas timers de uma unica
+/// execucao (`setTimeout`/`setImmediate`). Por simplicidade aguarda
+/// timers ate um deadline maximo de ~5s.
+pub fn drain_pending_timers() {
+    use std::time::Instant;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let pending = timers().lock().unwrap().len();
+        if pending == 0 || Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE(handle: u64) {
     cancel_timer(handle);

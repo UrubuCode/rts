@@ -174,6 +174,10 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     mark("invoking __RTS_MAIN");
     let exit_code = main_fn();
     mark("post-main cleanup");
+    // (#376) Drain event loop: aguarda timers pendentes (setTimeout)
+    // disparar antes de sair. Deadline interno de 5s evita hang em
+    // setInterval / timers de longa duracao.
+    crate::namespaces::globals::timers::instance::drain_pending_timers();
     if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
         let use_color = crate::diagnostics::reporter::stderr_supports_color();
         eprint!("{}", format_runtime_error(&report, use_color));
