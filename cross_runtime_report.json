@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|macro:timeout"
+  "rts": ""
 }
 ,
 {
@@ -2364,7 +2364,7 @@
   "status": "rts_diverge",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=0:0|0:0\nany=281474976710669"
+  "rts": "settled=0:0|0:0\nany=281474976710671"
 }
 ,
 {
