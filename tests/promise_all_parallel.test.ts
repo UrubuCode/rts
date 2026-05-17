@@ -54,16 +54,20 @@ collections.vec_push(v4, promise.new_resolved(3));
 collections.vec_push(v4, promise.new_rejected(4));
 const r4 = await promise.all_settled(v4);
 print("settled_len=" + collections.vec_len(r4));
-// Encoding: state*1000 + value
-print("s[0]=" + collections.vec_get(r4, 0));  // 1001
-print("s[1]=" + collections.vec_get(r4, 1));  // 2002
-print("s[2]=" + collections.vec_get(r4, 2));  // 1003
-print("s[3]=" + collections.vec_get(r4, 3));  // 2004
+// Cada elemento eh Map { status, value | reason } (JS spec).
+const m0 = collections.vec_get(r4, 0);
+const m1 = collections.vec_get(r4, 1);
+const m2 = collections.vec_get(r4, 2);
+const m3 = collections.vec_get(r4, 3);
+print("s[0].value=" + collections.map_get(m0, "value"));
+print("s[1].reason=" + collections.map_get(m1, "reason"));
+print("s[2].value=" + collections.map_get(m2, "value"));
+print("s[3].reason=" + collections.map_get(m3, "reason"));
 
 describe("promise combinators paralelismo + mix de tipos", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "was_parallel=1\nsum=6\nwinner=200\nmixed[0]=50\nmixed[1]=99\nsettled_len=4\ns[0]=1001\ns[1]=2002\ns[2]=1003\ns[3]=2004\n"
+      "was_parallel=1\nsum=6\nwinner=200\nmixed[0]=50\nmixed[1]=99\nsettled_len=4\ns[0].value=1\ns[1].reason=2\ns[2].value=3\ns[3].reason=4\n"
     );
   });
 });

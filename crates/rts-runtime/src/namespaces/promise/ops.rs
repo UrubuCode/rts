@@ -398,24 +398,36 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL_SETTLED(vec_handle: u64) -> u64 {
 
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
-        // Encoding: state * 1000 + value (clamp value pra evitar
-        // overflow quando value >= 1000). Caller decodifica:
-        //   encoded / 1000 = state (1=fulfilled, 2=rejected)
-        //   encoded % 1000 = value (limitado)
-        // Pra valores arbitrarios, F4-fase-2 vai usar Map ou Tuple.
-        let mut encoded: Vec<i64> = Vec::with_capacity(slots.len());
+        // JS spec: array de { status: "fulfilled", value } | { status: "rejected", reason }.
+        // Cada elemento e' um Map (objeto JS) com chaves "status" + "value"/"reason"
+        // armazenando handles de string ("fulfilled"/"rejected") e o valor/reason raw.
+        use indexmap::IndexMap;
+        let mk_str = |s: &[u8]| -> i64 {
+            alloc_entry(Entry::String(s.to_vec())) as i64
+        };
+        let mut result_vec: Vec<i64> = Vec::with_capacity(slots.len());
         for slot in slots.iter() {
+            let mut obj: IndexMap<String, i64> = IndexMap::new();
             let Some(s) = slot else {
-                encoded.push(2 * 1000); // rejected com 0
+                obj.insert("status".to_string(), mk_str(b"rejected"));
+                obj.insert("reason".to_string(), 0);
+                let h = alloc_entry(Entry::Map(Box::new(obj)));
+                result_vec.push(h as i64);
                 continue;
             };
             let (state, value) = promise_slot::wait_blocking(s);
-            let v = value.clamp(0, 999);
-            let st = state as i64;
-            encoded.push(st * 1000 + v);
+            if state == promise_slot::STATE_FULFILLED {
+                obj.insert("status".to_string(), mk_str(b"fulfilled"));
+                obj.insert("value".to_string(), value);
+            } else {
+                obj.insert("status".to_string(), mk_str(b"rejected"));
+                obj.insert("reason".to_string(), value);
+            }
+            let h = alloc_entry(Entry::Map(Box::new(obj)));
+            result_vec.push(h as i64);
         }
-        let result_vec = alloc_entry(Entry::Vec(Box::new(encoded)));
-        promise_slot::resolve(&result_clone, result_vec as i64);
+        let result_vec_h = alloc_entry(Entry::Vec(Box::new(result_vec)));
+        promise_slot::resolve(&result_clone, result_vec_h as i64);
     });
 
     result_handle
