@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2073,10 +2073,10 @@
 ,
 {
   "name": "47_error_instanceof_deep",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
   "node": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
-  "rts": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=false\nis_error=true"
+  "rts": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":219,"rts_diverge":34,"bun_node_diverge":3,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":220,"rts_diverge":33,"bun_node_diverge":3,"errors":56,"rejected":0}}
