@@ -294,8 +294,32 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(vec_handle: u64) -> u64 {
     let handles = collect_promise_handles(vec_handle);
     let slots = collect_slots(&handles);
     let result = promise_slot::new_pending();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+
+    // (cross-runtime #806) Fast-path: todos settled -> processa sync.
+    let all_settled_sync = slots.iter().all(|s| {
+        s.as_ref()
+            .map(|arc| promise_slot::current_state(arc) != promise_slot::STATE_PENDING)
+            .unwrap_or(false)
+    });
+    if all_settled_sync && !slots.is_empty() {
+        let mut values: Vec<i64> = Vec::with_capacity(slots.len());
+        for slot in slots.iter() {
+            let s = slot.as_ref().unwrap();
+            let state = promise_slot::current_state(s);
+            let value = promise_slot::current_value(s);
+            if state == promise_slot::STATE_REJECTED {
+                promise_slot::reject(&result, value);
+                return result_handle;
+            }
+            values.push(value);
+        }
+        let result_vec = alloc_entry(Entry::Vec(Box::new(values)));
+        promise_slot::resolve(&result, result_vec as i64);
+        return result_handle;
+    }
     let result_clone = result.clone();
-    let result_handle = alloc_entry(Entry::PromiseAsync(result));
+    let _ = result;
 
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
@@ -443,8 +467,51 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL_SETTLED(vec_handle: u64) -> u64 {
     let handles = collect_promise_handles(vec_handle);
     let slots = collect_slots(&handles);
     let result = promise_slot::new_pending();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+
+    // (cross-runtime #806) Fast-path: se todos os slots ja' estao settled
+    // (Promise.resolve/reject), monta result sync sem spawn. Preserva
+    // ordem FIFO de microtasks e garante que .then() em chain rode antes
+    // do setTimeout terminar.
+    let all_settled_sync = slots.iter().all(|s| {
+        s.as_ref()
+            .map(|arc| promise_slot::current_state(arc) != promise_slot::STATE_PENDING)
+            .unwrap_or(true) // None tambem conta como "settled" (rejected default)
+    });
+    if all_settled_sync {
+        use indexmap::IndexMap;
+        let mk_str = |s: &[u8]| -> i64 {
+            alloc_entry(Entry::String(s.to_vec())) as i64
+        };
+        let mut result_vec: Vec<i64> = Vec::with_capacity(slots.len());
+        for slot in slots.iter() {
+            let mut obj: IndexMap<String, i64> = IndexMap::new();
+            let Some(s) = slot else {
+                obj.insert("status".to_string(), mk_str(b"rejected"));
+                obj.insert("reason".to_string(), 0);
+                let h = alloc_entry(Entry::Map(Box::new(obj)));
+                result_vec.push(h as i64);
+                continue;
+            };
+            let state = promise_slot::current_state(s);
+            let value = promise_slot::current_value(s);
+            if state == promise_slot::STATE_FULFILLED {
+                obj.insert("status".to_string(), mk_str(b"fulfilled"));
+                obj.insert("value".to_string(), value);
+            } else {
+                obj.insert("status".to_string(), mk_str(b"rejected"));
+                obj.insert("reason".to_string(), value);
+            }
+            let h = alloc_entry(Entry::Map(Box::new(obj)));
+            result_vec.push(h as i64);
+        }
+        let result_vec_h = alloc_entry(Entry::Vec(Box::new(result_vec)));
+        promise_slot::resolve(&result, result_vec_h as i64);
+        return result_handle;
+    }
+
     let result_clone = result.clone();
-    let result_handle = alloc_entry(Entry::PromiseAsync(result));
+    let _ = result;
 
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
