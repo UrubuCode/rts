@@ -843,13 +843,49 @@ fn lower_tagged_tpl(
         });
     }
 
-    let synthetic_call = CallExpr {
+    let mut synthetic_call = CallExpr {
         span: tt.span,
         ctxt: tt.ctxt,
         callee: Callee::Expr(tt.tag.clone()),
         args,
         type_args: tt.type_params.clone(),
     };
+
+    // (cross-runtime #744) Empacota rest params se o tag eh fn user com
+    // `...rest`. O pass `expand_rest_args` so processa Expr::Call no AST
+    // original; tagged templates passam por aqui depois.
+    if let Callee::Expr(callee_expr) = &synthetic_call.callee {
+        if let Expr::Ident(id) = callee_expr.as_ref() {
+            if let Some(abi) = ctx.user_fns.get(id.sym.as_str()) {
+                let n_params = abi.params.len();
+                // Heuristica: se temos mais args que params e o ultimo param
+                // eh Handle (signature tipica de rest array), empacotamos
+                // args extras em array literal no slot do rest.
+                let last_is_handle = abi
+                    .params
+                    .last()
+                    .map(|t| matches!(t, crate::codegen::lower::ctx::ValTy::Handle | crate::codegen::lower::ctx::ValTy::I64))
+                    .unwrap_or(false);
+                if n_params >= 1 && synthetic_call.args.len() > n_params && last_is_handle {
+                    let rest_idx = n_params - 1;
+                    let extra: Vec<Option<ExprOrSpread>> = synthetic_call
+                        .args
+                        .drain(rest_idx..)
+                        .map(Some)
+                        .collect();
+                    let arr = Expr::Array(ArrayLit {
+                        span: Default::default(),
+                        elems: extra,
+                    });
+                    synthetic_call.args.push(ExprOrSpread {
+                        spread: None,
+                        expr: Box::new(arr),
+                    });
+                }
+            }
+        }
+    }
+
     lower_call(ctx, &synthetic_call)
 }
 

@@ -220,6 +220,11 @@ fn rest_in_expr(
                 rest_in_expr(&mut el.expr, fn_rest, method_rest);
             }
         }
+        Expr::TaggedTpl(tt) => {
+            for e in tt.tpl.exprs.iter_mut() {
+                rest_in_expr(e, fn_rest, method_rest);
+            }
+        }
         _ => {}
     }
 }
