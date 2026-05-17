@@ -171,16 +171,12 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
     if name_ptr == 0 || name_len <= 0 { return 0; }
     let want = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
     let want_s = match std::str::from_utf8(want) { Ok(s) => s, Err(_) => return 0 };
-    // (cross-runtime #47) Decompoe em 2 fases para evitar deadlock quando
-    // handle e name_h estao no mesmo shard. Outer with_entry segura lock
-    // do shard; inner with_entry no mesmo shard reentra e deadlocka
-    // (sync::Mutex nao eh reentrant).
-    // (cross-runtime #47) Para Entry::Map, snapshot a string do name_h
-    // dentro do MESMO outer with_entry — `with_two_entries` evita
-    // re-lookup (que pode race com GC se err virou unreachable entre).
-    // Tambem cobre deadlock potencial quando handle e name_h estao no
-    // mesmo shard (sync::Mutex nao eh reentrant).
-    enum Kind { ErrorMatch(bool), MapName(u64), NotError }
+    // (cross-runtime #47) Snapshot da string do name DENTRO do mesmo
+    // outer with_entry — evita race com GC entre lookups (se err virou
+    // unreachable, o name handle pode ser reciclado antes do segundo
+    // lookup). Tambem cobre deadlock potencial quando handle e name_h
+    // estao no mesmo shard.
+    enum Kind { ErrorMatch(bool), MapName(u64), MapNameStr(Vec<u8>), NotError }
     let kind = with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { name, .. }) => Kind::ErrorMatch(name == want_s),
         Some(Entry::Map(m)) => {
@@ -189,16 +185,26 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
         }
         _ => Kind::NotError,
     });
+    let kind = match kind {
+        Kind::MapName(name_h) if name_h != 0 => {
+            // Snapshot a string fora do shard do `handle` — usa shard
+            // diferente se aplicavel. Se name handle morreu (GC race),
+            // tenta tambem cadeia __proto__ ou __rts_class.
+            let snap = with_entry(name_h, |e| match e {
+                Some(Entry::String(b)) => Some(b.clone()),
+                _ => None,
+            });
+            match snap {
+                Some(b) => Kind::MapNameStr(b),
+                None => Kind::MapName(name_h),
+            }
+        }
+        other => other,
+    };
     match kind {
         Kind::ErrorMatch(b) => if b { 1 } else { 0 },
-        Kind::MapName(name_h) => {
-            if name_h == 0 { return 0; }
-            with_entry(name_h, |e| match e {
-                Some(Entry::String(b)) => if b.as_slice() == want_s.as_bytes() { 1 } else { 0 },
-                _ => 0,
-            })
-        }
-        Kind::NotError => 0,
+        Kind::MapNameStr(b) => if b.as_slice() == want_s.as_bytes() { 1 } else { 0 },
+        Kind::MapName(_) | Kind::NotError => 0,
     }
 }
 
