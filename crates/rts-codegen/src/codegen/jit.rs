@@ -1334,6 +1334,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_CONCAT_AUTO
         );
         add_fn!(
+            "__RTS_FN_NS_GC_CLASS_REGISTER_PARENT",
+            crate::namespaces::gc::class_registry::__RTS_FN_NS_GC_CLASS_REGISTER_PARENT
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX
         );

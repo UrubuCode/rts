@@ -69,6 +69,24 @@ pub(crate) fn compile_main(
             true,
         );
 
+        // (cross-runtime #47) Registra class hierarchy no runtime registry
+        // pra suporte de `instanceof` cross-classes (ex: CustomTypeError
+        // extends TypeError → err instanceof TypeError = true).
+        {
+            for (child_name, meta) in classes.iter() {
+                if let Some(parent_name) = &meta.super_class {
+                    let (cp, cl_) = fn_ctx.emit_str_literal(child_name.as_bytes())?;
+                    let (pp, pl) = fn_ctx.emit_str_literal(parent_name.as_bytes())?;
+                    let reg_fn = fn_ctx.get_extern(
+                        "__RTS_FN_NS_GC_CLASS_REGISTER_PARENT",
+                        &[cl::I64, cl::I64, cl::I64, cl::I64],
+                        None,
+                    )?;
+                    fn_ctx.builder.ins().call(reg_fn, &[cp, cl_, pp, pl]);
+                }
+            }
+        }
+
         // (#301) Var hoisting top-level: declarar vars `var x` antes de
         // executar body, com valor 0 (proxy undefined). Globals existentes
         // ja' tem registro em `globals` map — pulamos.

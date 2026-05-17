@@ -203,8 +203,56 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
     };
     match kind {
         Kind::ErrorMatch(b) => if b { 1 } else { 0 },
-        Kind::MapNameStr(b) => if b.as_slice() == want_s.as_bytes() { 1 } else { 0 },
-        Kind::MapName(_) | Kind::NotError => 0,
+        Kind::MapNameStr(b) => {
+            if b.as_slice() == want_s.as_bytes() { return 1; }
+            // (cross-runtime #47) Walk class hierarchy via registry:
+            // CustomTypeError extends TypeError → instanceof TypeError = true.
+            let cur = match std::str::from_utf8(&b) { Ok(s) => s, Err(_) => return 0 };
+            if crate::namespaces::gc::class_registry::is_descendant_of(cur, want_s) {
+                return 1;
+            }
+            // Tambem checa __rts_class do Map (class name original) — pode
+            // ser diferente de name (que vem do super constructor).
+            let class_name = with_entry(handle, |entry| match entry {
+                Some(Entry::Map(m)) => {
+                    let class_h = m.get("__rts_class").copied().unwrap_or(0) as u64;
+                    if class_h == 0 { None } else { Some(class_h) }
+                }
+                _ => None,
+            });
+            if let Some(class_h) = class_name {
+                let class_str = with_entry(class_h, |e| match e {
+                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                    _ => None,
+                });
+                if let Some(c) = class_str {
+                    if crate::namespaces::gc::class_registry::is_descendant_of(&c, want_s) {
+                        return 1;
+                    }
+                }
+            }
+            0
+        }
+        Kind::MapName(_) | Kind::NotError => {
+            // (cross-runtime #47) name field invalido (GC race ou nao
+            // setado). Fallback: checa __rts_class do Map via registry.
+            let class_h: u64 = with_entry(handle, |entry| match entry {
+                Some(Entry::Map(m)) => m.get("__rts_class").copied().unwrap_or(0) as u64,
+                _ => 0,
+            });
+            if class_h != 0 {
+                let class_str = with_entry(class_h, |e| match e {
+                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                    _ => None,
+                });
+                if let Some(c) = class_str {
+                    if crate::namespaces::gc::class_registry::is_descendant_of(&c, want_s) {
+                        return 1;
+                    }
+                }
+            }
+            0
+        }
     }
 }
 
