@@ -369,7 +369,9 @@ pub(super) fn emit_function_handle_indirect_call(
     let inst_c = ctx.builder.ins().call(call_fn, &[handle_val, this_zero, args_handle]);
     let v_i64 = ctx.builder.inst_results(inst_c)[0];
     // FUNCTION_CALL retorna i64. Para return_kind=0 (default) é plain i64;
-    // para return_kind=1 (F64) seria bits f64 — mas esse caso é raro e
-    // resolvido pelo coerce_value_to_ty do caller quando necessário.
+    // para return_kind=1 (F64) seria bits f64 — TPL_COERCE_AUTO em concat
+    // detecta magnitude/sentinela. Marca como var_member_call_value
+    // (cross-runtime #787).
+    ctx.var_member_call_values.insert(v_i64);
     Ok(TypedVal::new(v_i64, ValTy::I64))
 }

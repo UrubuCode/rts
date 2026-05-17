@@ -714,9 +714,13 @@ pub(super) fn lower_function_handle_method(
                 }
                 vec_h
             };
+            // (cross-runtime #787) call/apply usam APPLY_TYPED que converte
+            // args int->f64 bits baseado em param_kinds. Sem isso,
+            // multiply.call({factor:1}, 3, 4) passa 3,4 como i64 puros que
+            // invoke_typed interpretava como bits denormal f64.
             let symbol = match method {
-                "call" => "__RTS_FN_GL_FUNCTION_CALL",
-                "apply" => "__RTS_FN_GL_FUNCTION_APPLY",
+                "call" => "__RTS_FN_GL_FUNCTION_APPLY_TYPED",
+                "apply" => "__RTS_FN_GL_FUNCTION_APPLY_TYPED",
                 "bind" => "__RTS_FN_GL_FUNCTION_BIND",
                 _ => unreachable!(),
             };
@@ -777,10 +781,21 @@ pub(super) fn lower_function_method_call(
 
     let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
     let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
-    let has_this_v = ctx.builder.ins().iconst(
-        cl::I32,
-        i64::from(fn_name_has_this_param(fn_name)),
-    );
+    // (cross-runtime #787) `has_this_param=true` quando user fn declarada
+    // como `function f(this: any, ...)` — primeiro param Cranelift eh o
+    // thisArg explicito. Sem isto, multiply.bind(obj) ignora obj porque
+    // CALL empilha effective_this no slot e Cranelift recebe args=[a, b]
+    // em vez de [this, a, b].
+    let has_this_param_flag = fn_name_has_this_param(fn_name)
+        || ctx
+            .user_fns
+            .get(fn_name)
+            .map(|f| f.has_this_param)
+            .unwrap_or(false);
+    let has_this_v = ctx
+        .builder
+        .ins()
+        .iconst(cl::I32, i64::from(has_this_param_flag));
 
     // Deriva param_kinds + return_kind da user fn pra que
     // FUNCTION_CALL/APPLY/BIND reinterpretem bits f64 corretamente em
@@ -903,9 +918,13 @@ pub(super) fn lower_function_method_call(
                 vec_h
             };
 
+            // (cross-runtime #787) call/apply usam APPLY_TYPED que converte
+            // args int->f64 bits baseado em param_kinds. Sem isso,
+            // multiply.call({factor:1}, 3, 4) passa 3,4 como i64 puros que
+            // invoke_typed interpretava como bits denormal f64.
             let symbol = match method {
-                "call" => "__RTS_FN_GL_FUNCTION_CALL",
-                "apply" => "__RTS_FN_GL_FUNCTION_APPLY",
+                "call" => "__RTS_FN_GL_FUNCTION_APPLY_TYPED",
+                "apply" => "__RTS_FN_GL_FUNCTION_APPLY_TYPED",
                 "bind" => "__RTS_FN_GL_FUNCTION_BIND",
                 _ => unreachable!(),
             };

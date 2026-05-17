@@ -380,33 +380,10 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
         false
     };
 
-    // (cross-runtime #799) Args via Reflect.apply/Function.call/.apply vem
-    // de Vec<i64> onde numbers sao i64 puros (ex: `[10, 20]`). Quando o
-    // callee declara params f64, invoke_typed faz `i64_to_f64(bits)` que
-    // interpreta `10` como bits denormal. Convertemos aqui int->f64.to_bits
-    // baseado em param_kinds. Class methods que chamam direto (sem CALL)
-    // passam bits f64 corretos, entao essa conversao afeta so' os call
-    // sites que ja' usam Vec<i64> como envelope.
-    let typed_args = if param_kinds.is_empty() {
-        all_args.clone()
-    } else {
-        let offset = if !is_arrow && has_this_param { 1 } else { 0 };
-        // Para varargs (ex: Math.max(a, b, ...) chamado com 5 args), args
-        // alem do param_kinds.len() reusam o ultimo kind declarado.
-        let last_kind = param_kinds.last().copied().unwrap_or(0);
-        all_args
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| {
-                let pk = param_kinds.get(i).copied().unwrap_or(last_kind);
-                if pk == 1 && i >= offset {
-                    f64_to_i64(v as f64)
-                } else {
-                    v
-                }
-            })
-            .collect()
-    };
+    // Args ja' vem encoded corretamente do codegen (numbers como f64 bits
+    // via bitcast). Reflect.apply faz conversao int->f64 antes de chamar
+    // FUNCTION_CALL.
+    let typed_args = all_args.clone();
     // (cross-runtime #799) Variadic fold: callee binario f64 (ex:
     // `Math.max(a,b)`) chamado via `Reflect.apply(Math.max, null, [...n])`
     // com N > 2 args — RTS nao tem variadic na ABI, mas Math.max/min sao
@@ -444,6 +421,60 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY(
     args_handle: u64,
 ) -> i64 {
     __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, args_handle)
+}
+
+/// (cross-runtime #799) Reflect.apply/construct usam essa variante que
+/// converte args int->f64 bits antes de chamar CALL, baseado em
+/// param_kinds do callee. Vec<i64> de fixture (`[10, 20]`) tem numbers
+/// como i64 puros — sem essa conversao, invoke_typed os interpretaria
+/// como bits denormal f64.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
+    handle: u64,
+    this_arg: i64,
+    args_handle: u64,
+) -> i64 {
+    let (param_kinds, has_this_param, is_arrow) = with_entry(handle, |e| {
+        if let Some(Entry::Function(d)) = e {
+            (d.param_kinds.clone(), d.has_this_param, d.is_arrow)
+        } else {
+            (Vec::new(), false, false)
+        }
+    });
+    if param_kinds.is_empty() {
+        return __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, args_handle);
+    }
+    let raw_args = read_args_vec(args_handle);
+    let offset = if !is_arrow && has_this_param { 1 } else { 0 };
+    let last_kind = param_kinds.last().copied().unwrap_or(0);
+    let converted: Vec<i64> = raw_args
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let pk = param_kinds.get(i + offset).copied().unwrap_or(last_kind);
+            if pk == 1 {
+                f64_to_i64(v as f64)
+            } else {
+                v
+            }
+        })
+        .collect();
+    // (cross-runtime #799) Variadic fold: callee binario f64 (Math.max/min)
+    // chamado com N > 2 args — JS spec exige varargs; RTS ABI binaria nao
+    // tem como expressar diretamente. Foldamos via chamadas sucessivas.
+    if param_kinds.len() == 2
+        && param_kinds == vec![1u8, 1u8]
+        && converted.len() > 2
+    {
+        let mut acc = converted[0];
+        for &x in &converted[1..] {
+            let single = alloc_entry(Entry::Vec(Box::new(vec![acc, x])));
+            acc = __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, single);
+        }
+        return acc;
+    }
+    let new_handle = alloc_entry(Entry::Vec(Box::new(converted)));
+    __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, new_handle)
 }
 
 /// `fn.bind(thisArg, ...args)` — retorna nova Function com partial.

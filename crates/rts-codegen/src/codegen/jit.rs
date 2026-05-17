@@ -429,6 +429,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FUNCTION_NEW", __RTS_FN_GL_FUNCTION_NEW);
     add_fn!("__RTS_FN_GL_FUNCTION_CALL", __RTS_FN_GL_FUNCTION_CALL);
     add_fn!("__RTS_FN_GL_FUNCTION_APPLY", __RTS_FN_GL_FUNCTION_APPLY);
+    add_fn!("__RTS_FN_GL_FUNCTION_APPLY_TYPED", __RTS_FN_GL_FUNCTION_APPLY_TYPED);
     add_fn!("__RTS_FN_GL_FUNCTION_BIND", __RTS_FN_GL_FUNCTION_BIND);
     add_fn!("__RTS_FN_GL_FUNCTION_NAME", __RTS_FN_GL_FUNCTION_NAME);
     add_fn!("__RTS_FN_GL_FUNCTION_LENGTH", __RTS_FN_GL_FUNCTION_LENGTH);

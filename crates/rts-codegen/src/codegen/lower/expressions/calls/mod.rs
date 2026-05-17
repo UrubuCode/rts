@@ -1374,7 +1374,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let args_tv = lower_expr(ctx, &call.args[2].expr)?;
                         let args_h = ctx.coerce_to_i64(args_tv).val;
                         let f = ctx.get_extern(
-                            "__RTS_FN_GL_FUNCTION_APPLY",
+                            "__RTS_FN_GL_FUNCTION_APPLY_TYPED",
                             &[cl::I64, cl::I64, cl::I64],
                             Some(cl::I64),
                         )?;
