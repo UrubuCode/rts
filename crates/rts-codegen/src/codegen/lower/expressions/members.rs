@@ -1017,7 +1017,13 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     _ => false,
                 }
             }
-            let obj_is_call_result = chain_has_call_root(m.obj.as_ref(), &ctx.local_ambiguous_vars);
+            let obj_is_call_result = chain_has_call_root(m.obj.as_ref(), &ctx.local_ambiguous_vars)
+                // (#806 follow-up) Quando o obj veio de map_get/vec_get/etc e foi
+                // marcado como ambiguo (var_member_call_values), tambem skip
+                // fallback de GLOBAL_CLASS_SPECS — senao `r[0].status` em Map
+                // generico (allSettled) dispatch para Response.status e retorna 0.
+                || (matches!(obj_tv.ty, ValTy::I64 | ValTy::U64)
+                    && ctx.var_member_call_values.contains(&obj_handle));
             // (#777) Methods universais que toda classe global define
             // (toString/valueOf/hasOwnProperty/etc) NAO devem dispatch via
             // GLOBAL_CLASS_SPECS fallback — o primeiro spec que define o
