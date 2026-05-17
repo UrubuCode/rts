@@ -573,6 +573,80 @@ fn class_field_obj<'a>(
     }
 }
 
+/// (cross-runtime #799) Reifica fn de namespace (ex: `Math.max`,
+/// `math.max`) como Function handle. Emite extern decl + func_addr +
+/// REIFY_BOUND_TYPED com param_kinds derivados do `member.args`.
+fn reify_ns_fn_as_handle(
+    ctx: &mut FnCtx,
+    member: &crate::abi::NamespaceMember,
+) -> Result<TypedVal> {
+    let sig = crate::abi::signature::lower_member(member);
+    let fref = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
+    let ptr_ty = ctx.module.isa().pointer_type();
+    let fn_addr = ctx.builder.ins().func_addr(ptr_ty, fref);
+    let arity = member.args.len() as i64;
+    let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+    let name_tv = ctx.emit_str_handle(member.name.as_bytes())?;
+    let name_h = ctx.coerce_to_i64(name_tv).val;
+    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+    let n_ptr = ctx.builder.inst_results(inst_p)[0];
+    let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+    let n_len = ctx.builder.inst_results(inst_l)[0];
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+    // Param kinds: 0=i64, 1=f64. Deriva de AbiType de cada arg.
+    let pks_bytes: Vec<u8> = member
+        .args
+        .iter()
+        .map(|a| match a {
+            crate::abi::AbiType::F64 => 1u8,
+            _ => 0u8,
+        })
+        .collect();
+    let rk_byte: u8 = match member.returns {
+        crate::abi::AbiType::F64 => 1,
+        crate::abi::AbiType::Void => 4,
+        _ => 0,
+    };
+    let (kinds_ptr, kinds_len) = if pks_bytes.is_empty() {
+        (
+            ctx.builder.ins().iconst(cl::I64, 0),
+            ctx.builder.ins().iconst(cl::I64, 0),
+        )
+    } else {
+        let tv = ctx.emit_str_handle(&pks_bytes)?;
+        let h = ctx.coerce_to_i64(tv).val;
+        let p = ctx.builder.ins().call(str_ptr_fn, &[h]);
+        let l = ctx.builder.ins().call(str_len_fn, &[h]);
+        (
+            ctx.builder.inst_results(p)[0],
+            ctx.builder.inst_results(l)[0],
+        )
+    };
+    let bound_this_v = ctx.builder.ins().iconst(cl::I64, 0);
+    let has_bound_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let return_kind_v = ctx.builder.ins().iconst(cl::I32, rk_byte as i64);
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED",
+        &[
+            cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32,
+            cl::I64, cl::I32, cl::I64, cl::I64, cl::I32,
+        ],
+        Some(cl::I64),
+    )?;
+    let inst_r = ctx.builder.ins().call(
+        reify_fn,
+        &[
+            fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v,
+            bound_this_v, has_bound_this_v, kinds_ptr, kinds_len, return_kind_v,
+        ],
+    );
+    let h = ctx.builder.inst_results(inst_r)[0];
+    Ok(TypedVal::new(h, ValTy::Handle))
+}
+
 pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<TypedVal> {
     // (#162/155) `Object.prototype` / `Array.prototype` — referencia ao
     // prototype singleton da classe global. Sem suporte completo a prototype
@@ -613,15 +687,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
         if !root_is_local_var {
             if let Some(prop) = qualified.strip_prefix("Math.") {
                 let target = format!("math.{prop}");
-                if lookup(&target).is_some() {
-                    if let Some(tv) = emit_namespace_constant(ctx, &target)? {
-                        return Ok(tv);
+                if let Some((_, member)) = lookup(&target) {
+                    if matches!(member.kind, crate::abi::MemberKind::Constant) {
+                        if let Some(tv) = emit_namespace_constant(ctx, &target)? {
+                            return Ok(tv);
+                        }
+                    } else {
+                        // (cross-runtime #799) `Math.max` em posicao de valor
+                        // (sem call) — reifica fn extern como Function handle
+                        // pra suportar `const m = Math.max; Reflect.apply(m, ...)`.
+                        return reify_ns_fn_as_handle(ctx, member);
                     }
                 }
             }
-            if lookup(&qualified).is_some() {
-                if let Some(tv) = emit_namespace_constant(ctx, &qualified)? {
-                    return Ok(tv);
+            if let Some((_, member)) = lookup(&qualified) {
+                if matches!(member.kind, crate::abi::MemberKind::Constant) {
+                    if let Some(tv) = emit_namespace_constant(ctx, &qualified)? {
+                        return Ok(tv);
+                    }
+                } else {
+                    return reify_ns_fn_as_handle(ctx, member);
                 }
             }
         }

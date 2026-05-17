@@ -1368,8 +1368,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     // (#218) Reflect.apply(fn, thisArg, argsArray) — reusa
                     // __RTS_FN_GL_FUNCTION_APPLY (mesma assinatura).
                     "apply" if call.args.len() == 3 => {
-                        let fn_tv = lower_expr(ctx, &call.args[0].expr)?;
-                        let fn_h = ctx.coerce_to_i64(fn_tv).val;
+                        let fn_h = lower_callable_target_h(ctx, &call.args[0].expr)?;
                         let this_tv = lower_expr(ctx, &call.args[1].expr)?;
                         let this_v = ctx.coerce_to_i64(this_tv).val;
                         let args_tv = lower_expr(ctx, &call.args[2].expr)?;
@@ -1381,6 +1380,11 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         )?;
                         let inst = ctx.builder.ins().call(f, &[fn_h, this_v, args_h]);
                         let v = ctx.builder.inst_results(inst)[0];
+                        // (cross-runtime #799) FUNCTION_APPLY retorna i64 que
+                        // pode ser bits f64 (callee f64-typed) ou int direto.
+                        // Marca como var_member_call_value pra que
+                        // TPL_COERCE_AUTO formate certo em concat.
+                        ctx.var_member_call_values.insert(v);
                         return Ok(TypedVal::new(v, ValTy::I64));
                     }
                     // (#218) Reflect.construct(Target, args) — semantica de
@@ -1389,8 +1393,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     // implicito via FUNCTION_APPLY com `this = inst`. Deixa
                     // newTarget como follow-up (afeta prototype chain).
                     "construct" if matches!(call.args.len(), 2 | 3) => {
-                        let target_tv = lower_expr(ctx, &call.args[0].expr)?;
-                        let target_h = ctx.coerce_to_i64(target_tv).val;
+                        let target_h = lower_callable_target_h(ctx, &call.args[0].expr)?;
                         let args_tv = lower_expr(ctx, &call.args[1].expr)?;
                         let args_h = ctx.coerce_to_i64(args_tv).val;
                         // (#218 phase2) Wrapper detecta Proxy e dispara trap;
@@ -2219,6 +2222,109 @@ fn lower_js_global_call(
     }
 }
 
+
+/// (cross-runtime #799) Reflect.apply/construct e similares precisam de
+/// Function handle (Entry::Function) — read_function_data falha em
+/// fn_ptr nu. Quando target eh ident de user fn, reifica em handle com
+/// param_kinds/return_kind corretos pra invoke_typed reinterpretar bits
+/// f64 vs i64; senao usa coerce normal (handle ja eh i64).
+fn lower_callable_target_h(
+    ctx: &mut FnCtx,
+    expr: &swc_ecma_ast::Expr,
+) -> Result<cranelift_codegen::ir::Value> {
+    use cranelift_codegen::ir::types as cl;
+    if let swc_ecma_ast::Expr::Ident(id) = expr {
+        let name = id.sym.as_str();
+        if ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none() {
+            let fn_addr = emit_user_fn_addr(ctx, name)?.val;
+            let arity = ctx
+                .user_fns
+                .get(name)
+                .map(|f| f.params.len() as i64)
+                .unwrap_or(0);
+            let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+            let name_tv = ctx.emit_str_handle(name.as_bytes())?;
+            let name_h = ctx.coerce_to_i64(name_tv).val;
+            let str_ptr_fn =
+                ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+            let str_len_fn =
+                ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+            let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+            let n_ptr = ctx.builder.inst_results(inst_p)[0];
+            let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+            let n_len = ctx.builder.inst_results(inst_l)[0];
+            let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+            // (cross-runtime #799) `has_this_param=true` quando user fn declarada
+            // como `function f(this: any, ...)` — primeiro param Cranelift eh
+            // o thisArg explicito. Caller (FUNCTION_CALL) precisa prepender
+            // o thisArg como arg em vez de empilhar no slot.
+            let has_this_param_flag = fn_name_has_this_param(name)
+                || ctx
+                    .user_fns
+                    .get(name)
+                    .map(|f| f.has_this_param)
+                    .unwrap_or(false);
+            let has_this_v = ctx
+                .builder
+                .ins()
+                .iconst(cl::I32, i64::from(has_this_param_flag));
+            // Deriva param_kinds + return_kind (mesmo padrao de
+            // lower_function_method_call em new_expr.rs).
+            let (pks_bytes, rk_byte): (Vec<u8>, u8) = {
+                let info = ctx.user_fns.get(name);
+                let pks: Vec<u8> = info
+                    .map(|f| {
+                        f.params
+                            .iter()
+                            .map(|p| super::members::val_ty_to_kind(*p))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let rk: u8 = info
+                    .and_then(|f| f.ret)
+                    .map(super::members::val_ty_to_kind)
+                    .unwrap_or(4);
+                (pks, rk)
+            };
+            let (kinds_ptr, kinds_len) = if pks_bytes.is_empty() {
+                (
+                    ctx.builder.ins().iconst(cl::I64, 0),
+                    ctx.builder.ins().iconst(cl::I64, 0),
+                )
+            } else {
+                let tv = ctx.emit_str_handle(&pks_bytes)?;
+                let h = ctx.coerce_to_i64(tv).val;
+                let p = ctx.builder.ins().call(str_ptr_fn, &[h]);
+                let l = ctx.builder.ins().call(str_len_fn, &[h]);
+                (
+                    ctx.builder.inst_results(p)[0],
+                    ctx.builder.inst_results(l)[0],
+                )
+            };
+            let bound_this_v = ctx.builder.ins().iconst(cl::I64, 0);
+            let has_bound_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+            let return_kind_v = ctx.builder.ins().iconst(cl::I32, rk_byte as i64);
+            let reify_fn = ctx.get_extern(
+                "__RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED",
+                &[
+                    cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32,
+                    cl::I64, cl::I32, cl::I64, cl::I64, cl::I32,
+                ],
+                Some(cl::I64),
+            )?;
+            let inst_r = ctx.builder.ins().call(
+                reify_fn,
+                &[
+                    fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v,
+                    bound_this_v, has_bound_this_v, kinds_ptr, kinds_len, return_kind_v,
+                ],
+            );
+            return Ok(ctx.builder.inst_results(inst_r)[0]);
+        }
+    }
+    let tv = lower_expr(ctx, expr)?;
+    Ok(ctx.coerce_to_i64(tv).val)
+}
 
 pub(crate) fn emit_user_fn_addr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     // User fns cujo endereço é tomado são declaradas com C callconv

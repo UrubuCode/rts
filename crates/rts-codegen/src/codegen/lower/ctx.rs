@@ -183,6 +183,12 @@ pub struct UserFnAbi {
     /// Class name when the function's declared return type is a known class.
     /// Populated by `compile_program` after class declarations are collected.
     pub ret_class: Option<String>,
+    /// (cross-runtime #799) `true` quando o primeiro parametro declarado eh
+    /// `this` (ex: `function Point(this: any, x, y)`). Indica que invocacoes
+    /// via Reflect.construct / fn.call devem prepender o thisArg como
+    /// primeiro argumento Cranelift (em vez de empilhar no slot
+    /// thread-local de THIS_PUSH).
+    pub has_this_param: bool,
 }
 
 /// Decide se o codegen deve usar layout nativo (flat) para uma classe.

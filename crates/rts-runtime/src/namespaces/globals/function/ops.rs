@@ -40,6 +40,13 @@ unsafe fn invoke_typed(
     return_kind: u8,
 ) -> i64 {
     use std::mem::transmute;
+    // (cross-runtime #799) return_kind=4 (void) cai pro caminho i64 —
+    // o retorno e' descartado pelo caller e a Win64 fastcall ABI nao
+    // tem prologue diferente entre `() -> i64` e `()` para essa
+    // aridade. Sem esta normalizacao, fns void (constructors) caem
+    // no fallback invoke_all_i64 que ignora param_kinds (f64 args
+    // chegam como i64 bits → NaN no body).
+    let return_kind = if return_kind == 4 { 0 } else { return_kind };
     // Quando param_kinds é vazio, todos os args são i64 (caminho rápido).
     if param_kinds.is_empty() && return_kind == 0 {
         return unsafe { invoke_all_i64(fn_ptr, args) };
@@ -373,7 +380,54 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
         false
     };
 
-    let result = unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, return_kind) };
+    // (cross-runtime #799) Args via Reflect.apply/Function.call/.apply vem
+    // de Vec<i64> onde numbers sao i64 puros (ex: `[10, 20]`). Quando o
+    // callee declara params f64, invoke_typed faz `i64_to_f64(bits)` que
+    // interpreta `10` como bits denormal. Convertemos aqui int->f64.to_bits
+    // baseado em param_kinds. Class methods que chamam direto (sem CALL)
+    // passam bits f64 corretos, entao essa conversao afeta so' os call
+    // sites que ja' usam Vec<i64> como envelope.
+    let typed_args = if param_kinds.is_empty() {
+        all_args.clone()
+    } else {
+        let offset = if !is_arrow && has_this_param { 1 } else { 0 };
+        // Para varargs (ex: Math.max(a, b, ...) chamado com 5 args), args
+        // alem do param_kinds.len() reusam o ultimo kind declarado.
+        let last_kind = param_kinds.last().copied().unwrap_or(0);
+        all_args
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                let pk = param_kinds.get(i).copied().unwrap_or(last_kind);
+                if pk == 1 && i >= offset {
+                    f64_to_i64(v as f64)
+                } else {
+                    v
+                }
+            })
+            .collect()
+    };
+    // (cross-runtime #799) Variadic fold: callee binario f64 (ex:
+    // `Math.max(a,b)`) chamado via `Reflect.apply(Math.max, null, [...n])`
+    // com N > 2 args — RTS nao tem variadic na ABI, mas Math.max/min sao
+    // semanticamente reduce f64. Quando param_kinds=[1,1] e return=1 e
+    // args.len() > 2, foldamos via chamadas sucessivas.
+    let result = if param_kinds.len() == 2
+        && param_kinds == vec![1u8, 1u8]
+        && return_kind == 1
+        && typed_args.len() > 2
+    {
+        // typed_args ja' tem todos os elementos convertidos pra f64 bits
+        // (acima); o fold preserva isso porque invoke_typed retorna f64
+        // bits e ja' acc/x sao bits.
+        let mut acc = typed_args[0];
+        for &x in &typed_args[1..] {
+            acc = unsafe { invoke_typed(fn_ptr, &[acc, x], &[1u8, 1u8], 1) };
+        }
+        acc
+    } else {
+        unsafe { invoke_typed(fn_ptr, &typed_args, &param_kinds, return_kind) }
+    };
 
     if pushed_this_slot {
         crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();

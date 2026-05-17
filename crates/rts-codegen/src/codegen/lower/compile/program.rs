@@ -269,6 +269,20 @@ pub fn compile_program(
         user_fns.insert(fn_decl.name.clone(), info);
     }
 
+    // (cross-runtime #799) Pre-coleta has_this_param do AST: fn declarada
+    // como `function f(this: any, ...)` precisa receber thisArg como
+    // primeiro arg em invocacoes via Reflect/Function.call.
+    let has_this_map: HashMap<String, bool> = fn_decls
+        .iter()
+        .map(|fd| {
+            let has_this = fd
+                .parameters
+                .first()
+                .map(|p| p.name == "this")
+                .unwrap_or(false);
+            (fd.name.clone(), has_this)
+        })
+        .collect();
     // Built after fn_class_returns is populated below; placeholder here.
     let mut user_fn_abis: HashMap<String, UserFnAbi> = user_fns
         .iter()
@@ -279,6 +293,7 @@ pub fn compile_program(
                     params: info.params.clone(),
                     ret: info.ret,
                     ret_class: None,
+                    has_this_param: has_this_map.get(name).copied().unwrap_or(false),
                 },
             )
         })
