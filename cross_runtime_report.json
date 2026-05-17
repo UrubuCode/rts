@@ -172,7 +172,7 @@
   "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,finally1,then2:84,catch:error,finally2"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -601,10 +601,10 @@
 ,
 {
   "name": "167_promise_race_any",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "race=1\nany=1\nrace2=4\nany2=4",
   "node": "race=1\nany=1\nrace2=4\nany2=4",
-  "rts": "race=2\nrace2=4\nany=1\nany2=4"
+  "rts": "race=1\nany=1\nrace2=4\nany2=4"
 }
 ,
 {
@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -2148,7 +2148,7 @@
   "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|micro:qm|sync:end|micro:promise|macro:timeout"
+  "rts": "sync:start|micro:qm|micro:promise|sync:end|macro:timeout"
 }
 ,
 {
