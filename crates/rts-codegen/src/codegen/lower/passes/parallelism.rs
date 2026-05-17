@@ -1001,6 +1001,41 @@ fn has_capture(expr: &Expr, params: &[String], user_fn_names: &HashSet<String>) 
             }
             false
         }
+        // (cross-runtime #761) Object literals — `{...acc, k: v, [k]: v}`
+        // sao comuns em reduce que constroi objeto. Spread eh permitido
+        // desde que o expr spread nao capture; computed/value tambem
+        // recursam. Sem isso, lift falha e arrow vira __hoisted_arrow_*
+        // (que array_methods_pass nao re-escreve, deixando `obj.reduce`
+        // como MAP_GET de "reduce" — trapz dispara, SIGILL).
+        Expr::Object(o) => {
+            use swc_ecma_ast::{Prop, PropName, PropOrSpread};
+            for p in &o.props {
+                match p {
+                    PropOrSpread::Spread(s) => {
+                        if has_capture(&s.expr, params, user_fn_names) { return true; }
+                    }
+                    PropOrSpread::Prop(prop) => match prop.as_ref() {
+                        Prop::KeyValue(kv) => {
+                            if let PropName::Computed(c) = &kv.key {
+                                if has_capture(&c.expr, params, user_fn_names) { return true; }
+                            }
+                            if has_capture(&kv.value, params, user_fn_names) { return true; }
+                        }
+                        Prop::Shorthand(id) => {
+                            let n = id.sym.as_str();
+                            if !params.iter().any(|p| p == n)
+                                && !user_fn_names.contains(n)
+                                && !is_known_global_ident(n)
+                            {
+                                return true;
+                            }
+                        }
+                        _ => return true,
+                    },
+                }
+            }
+            false
+        }
         Expr::TsAs(t) => has_capture(&t.expr, params, user_fn_names),
         Expr::TsTypeAssertion(t) => has_capture(&t.expr, params, user_fn_names),
         Expr::TsConstAssertion(t) => has_capture(&t.expr, params, user_fn_names),

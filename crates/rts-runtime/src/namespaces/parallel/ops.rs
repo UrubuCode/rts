@@ -105,16 +105,19 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE(
     if fn_ptr == 0 {
         return identity;
     }
-    // SAFETY: fn_ptr is `extern "C" fn(i64, i64) -> i64` (assumida
-    // associativa/comutativa pelo silent reduce_pass — so ops + e *
-    // qualificam). Paralelo via rayon.
+    // (cross-runtime #761) Sequencial — `array_methods_pass` redireciona
+    // qualquer `arr.reduce(arrow, init)` pra ca, inclusive callbacks
+    // nao-associativas (ex: construir objeto via spread). Rayon's reduce
+    // chama op com (identity, x) e depois combina, o que produz handles
+    // intermediarios mortos / resultado errado pra fns nao-comutativas.
+    // Reduce puro de inteiros via `reduce_pass` ainda funciona; perde so
+    // o ganho de paralelismo em soma/produto.
     let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    pool().install(|| {
-        items
-            .par_iter()
-            .copied()
-            .reduce(|| identity, |a, b| f(a, b))
-    })
+    let mut acc = identity;
+    for &x in &items {
+        acc = f(acc, x);
+    }
+    acc
 }
 
 #[unsafe(no_mangle)]
