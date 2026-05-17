@@ -173,10 +173,10 @@ pub const PROMISE_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "reject",
         kind: MemberKind::Function,
-        symbol: "__RTS_FN_GL_PROMISE_RESOLVE",
+        symbol: "__RTS_FN_GL_PROMISE_REJECT",
         args: &[AbiType::Handle],
         returns: AbiType::Handle,
-        doc: "Promise.reject(v) — em RTS é alias de resolve (síncrono).",
+        doc: "Promise.reject(reason) — cria PromiseAsync rejected. Distingue de resolve para .catch/.any/.allSettled.",
         ts_signature: "static reject<T>(reason?: any): Promise<T>",
         intrinsic: None,
         pure: false,

@@ -293,6 +293,15 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
     }
 }
 
+/// `Promise.reject(reason)` — cria PromiseAsync ja rejected.
+/// Antes era alias de RESOLVE, o que quebrava `.catch`, `Promise.any`
+/// e `Promise.allSettled` que precisam distinguir state.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
+    let slot = crate::namespaces::gc::promise_slot::new_rejected(reason as i64);
+    alloc_entry(Entry::PromiseAsync(slot)) as i64
+}
+
 // ── Response instance methods ─────────────────────────────────────────────────
 
 fn with_response<T>(h: u64, f: impl FnOnce(&HttpResponseData) -> T) -> Option<T> {
