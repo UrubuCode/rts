@@ -830,11 +830,64 @@ fn lower_tagged_tpl(
         elems,
     });
 
-    // Args: [strings_array, ...interpolated_exprs]
+    // (cross-runtime #744) Constroi array das raw strings. Registra
+    // cooked_handle -> raw_handle em side-table apos lower (via codegen
+    // explicito no final).
+    let raw_elems: Vec<Option<ExprOrSpread>> = tt
+        .tpl
+        .quasis
+        .iter()
+        .map(|q| {
+            let raw_s = q.raw.as_str().to_string();
+            Some(ExprOrSpread {
+                spread: None,
+                expr: Box::new(Expr::Lit(Lit::Str(swc_ecma_ast::Str {
+                    span: Default::default(),
+                    value: raw_s.as_str().into(),
+                    raw: None,
+                }))),
+            })
+        })
+        .collect();
+    let raw_array_expr = Expr::Array(ArrayLit {
+        span: Default::default(),
+        elems: raw_elems,
+    });
+
+    // (cross-runtime #744) Pre-lower o cooked array, registra raw no
+    // side-table thread-local (gc::tagged_raw), e armazena o cooked
+    // handle em uma var sintetica que o synthetic_call referencia via
+    // Ident. Isso permite que `strings.raw` em runtime resolva o handle
+    // raw via TAGGED_RAW_GET (member.raw eh interceptado abaixo no
+    // codegen via fallback de Handle universal — fix futuro).
+    use cranelift_codegen::ir::InstBuilder;
+    use cranelift_codegen::ir::types as cl;
+    use crate::codegen::lower::ctx::ValTy;
+    let cooked_tv = lower_expr(ctx, &strings_array)?;
+    let cooked_h = ctx.coerce_to_i64(cooked_tv).val;
+    let raw_tv = lower_expr(ctx, &raw_array_expr)?;
+    let raw_h = ctx.coerce_to_i64(raw_tv).val;
+    let reg_fn = ctx.get_extern(
+        "__RTS_FN_NS_GC_TAGGED_RAW_REGISTER",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
+    ctx.builder.ins().call(reg_fn, &[cooked_h, raw_h]);
+    let tmp_name = format!("__rts_tpl_cooked_{}", tt.span.lo.0);
+    ctx.declare_local(&tmp_name, ValTy::Handle, cooked_h);
+
+    let cooked_ident = Expr::Ident(swc_ecma_ast::Ident {
+        span: Default::default(),
+        ctxt: Default::default(),
+        sym: tmp_name.as_str().into(),
+        optional: false,
+    });
+
+    // Args: [cooked_ident (var sintetica), ...interpolated_exprs]
     let mut args: Vec<ExprOrSpread> = Vec::with_capacity(1 + tt.tpl.exprs.len());
     args.push(ExprOrSpread {
         spread: None,
-        expr: Box::new(strings_array),
+        expr: Box::new(cooked_ident),
     });
     for e in &tt.tpl.exprs {
         args.push(ExprOrSpread {

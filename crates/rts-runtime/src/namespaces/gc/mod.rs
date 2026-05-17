@@ -17,5 +17,6 @@ pub mod promise_slot;
 pub mod stack;
 pub mod stack_map_registry;
 pub mod string_pool;
+pub mod tagged_raw;
 pub mod this_slot;
 pub mod thread_registry;

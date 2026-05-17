@@ -1038,6 +1038,51 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 "toString" | "valueOf" | "hasOwnProperty" | "toLocaleString"
                 | "isPrototypeOf" | "propertyIsEnumerable" | "constructor"
             );
+            // (cross-runtime #744) `<handle>.raw` — TemplateStringsArray.raw.
+            // Verifica side-table tagged_raw: se houver entry para o handle,
+            // retorna; senao retorna 0 (TPL_COERCE_AUTO renderiza "null").
+            // Trata antes do loop GLOBAL_CLASS_SPECS pois "raw" colide com
+            // metodos de outras specs.
+            if key == "raw" && receiver_class.is_none() && !is_known_obj_lit {
+                let raw_get = ctx.get_extern(
+                    "__RTS_FN_NS_GC_TAGGED_RAW_GET",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(raw_get, &[obj_handle]);
+                let raw_h = ctx.builder.inst_results(inst)[0];
+                // Se raw_h == 0, fallback para map_get_chain (semantica
+                // do JS: undefined). Caso contrario retorna handle do Vec raw.
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                use cranelift_codegen::ir::condcodes::IntCC;
+                let has_raw = ctx.builder.ins().icmp(IntCC::NotEqual, raw_h, zero);
+                let raw_block = ctx.builder.create_block();
+                let fallback_block = ctx.builder.create_block();
+                let merge = ctx.builder.create_block();
+                let result = ctx.builder.append_block_param(merge, cl::I64);
+                ctx.builder.ins().brif(has_raw, raw_block, &[], fallback_block, &[]);
+
+                ctx.builder.switch_to_block(raw_block);
+                ctx.builder.seal_block(raw_block);
+                ctx.builder.ins().jump(merge, &[raw_h.into()]);
+
+                ctx.builder.switch_to_block(fallback_block);
+                ctx.builder.seal_block(fallback_block);
+                let (kp, kl) = ctx.emit_str_literal(b"raw")?;
+                let map_get = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst2 = ctx.builder.ins().call(map_get, &[obj_handle, kp, kl]);
+                let v2 = ctx.builder.inst_results(inst2)[0];
+                ctx.builder.ins().jump(merge, &[v2.into()]);
+
+                ctx.builder.switch_to_block(merge);
+                ctx.builder.seal_block(merge);
+                ctx.var_member_call_values.insert(result);
+                return Ok(TypedVal::new(result, ValTy::Handle));
+            }
             if receiver_class.is_none()
                 && !is_known_obj_lit
                 && !skip_function_meta
