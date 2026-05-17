@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -353,10 +353,10 @@
 ,
 {
   "name": "139_array_reduce_edge_cases",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}",
   "node": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":212,"rts_diverge":34,"bun_node_diverge":3,"errors":63,"rejected":0}}
+],"summary":{"total":312,"pass":213,"rts_diverge":34,"bun_node_diverge":3,"errors":62,"rejected":0}}
