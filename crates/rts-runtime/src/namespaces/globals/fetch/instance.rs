@@ -263,6 +263,24 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
+            // (cross-runtime #750) Fast-path: ja' settled — executa fp
+            // sync e retorna Promise resolvida com mesmo state/value.
+            // Preserva FIFO microtask order pra chains.
+            let cur_state = promise_slot::current_state(&arc);
+            if cur_state != promise_slot::STATE_PENDING {
+                let value = promise_slot::current_value(&arc);
+                if fp != 0 {
+                    unsafe { (std::mem::transmute::<u64, CallbackFn0>(fp))() };
+                }
+                let result = promise_slot::new_pending();
+                let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+                if cur_state == promise_slot::STATE_FULFILLED {
+                    promise_slot::resolve(&result, value);
+                } else {
+                    promise_slot::reject(&result, value);
+                }
+                return result_handle;
+            }
             let result = promise_slot::new_pending();
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));
