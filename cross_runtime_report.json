@@ -113,10 +113,10 @@
 ,
 {
   "name": "105_template_tagged_raw",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
   "node": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
-  "rts": "raw=line1\\n42\\tend\ntag=null::42,x"
+  "rts": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x"
 }
 ,
 {
@@ -1889,10 +1889,10 @@
 ,
 {
   "name": "313_tagged_template_raw",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "raw=a\\n1b\\t\ntag=x\\n|y\\t|::2,z",
   "node": "raw=a\\n1b\\t\ntag=x\\n|y\\t|::2,z",
-  "rts": "raw=a\\n1b\\t\ntag=null::2,z"
+  "rts": "raw=a\\n1b\\t\ntag=x\\n|y\\t|::2,z"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":217,"rts_diverge":36,"bun_node_diverge":3,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":219,"rts_diverge":34,"bun_node_diverge":3,"errors":56,"rejected":0}}
