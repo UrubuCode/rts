@@ -113,6 +113,28 @@ pub(super) fn lower_var_member_call(
     // endereco invalido. (#235: indexOf travava/SIGSEGV em string com \0)
     // Tambem tenta I64 ambiguo (parâmetro de arrow sem tipo anotado que pode
     // ser uma string handle, ex: callback de replace/map/forEach).
+    // (cross-runtime #808) `recv.concat(other)` em receiver I64 ambiguo
+    // (param de arrow lifted) — despacha em runtime via CONCAT_AUTO porque
+    // recv pode ser Vec ou String. Sem esta branch, lower_string_builtin
+    // sempre rotearia pra STRING_CONCAT e arrays viravam string concat.
+    if matches!(obj_tv.ty, ValTy::I64)
+        && !is_proto_instance
+        && prop == "concat"
+        && call.args.len() == 1
+        && call.args[0].spread.is_none()
+    {
+        use cranelift_codegen::ir::{InstBuilder, types as cl};
+        let other_tv = lower_expr(ctx, &call.args[0].expr)?;
+        let other_h = ctx.coerce_to_i64(other_tv).val;
+        let f = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_CONCAT_AUTO",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(f, &[obj_h, other_h]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(crate::codegen::lower::ctx::TypedVal::new(v, ValTy::Handle));
+    }
     if (matches!(obj_tv.ty, ValTy::Handle) || matches!(obj_tv.ty, ValTy::I64)) && !is_proto_instance {
         if let Some(tv) = lower_string_builtin(ctx, prop, obj_h, call)? {
             return Ok(tv);

@@ -391,6 +391,9 @@ fn lift_arrows_in_expr(
                         "map" | "forEach" => Some((0, 1, 1)),
                         "reduce" if call.args.len() == 1 => Some((0, 1, 2)),
                         "reduce" => Some((0, 2, 2)),
+                        // (cross-runtime #808) reduceRight mesma semantica de reduce.
+                        "reduceRight" if call.args.len() == 1 => Some((0, 1, 2)),
+                        "reduceRight" => Some((0, 2, 2)),
                         "filter" | "find" | "findIndex" | "some" | "every"
                         | "findLast" | "findLastIndex" => {
                             Some((0, 1, 1))
@@ -477,7 +480,7 @@ fn lift_arrows_in_expr(
                                     //  - map/forEach/filter/find/etc: 1 arg (val) — preserva
                                     //    compat com user fns 1-arg que era o caso anterior.
                                     let pass_n_args = match method {
-                                        "reduce" => 2,
+                                        "reduce" | "reduceRight" => 2,
                                         _ => 1,
                                     };
                                     let mut params: Vec<swc_ecma_ast::Pat> = Vec::with_capacity(arrow_arity);
@@ -587,7 +590,7 @@ fn lift_arrows_in_expr(
                                     counter,
                                     method == "forEach",
                                     recv_is_object_entries || mapper_slot0_is_string,
-                                    method == "reduce",
+                                    method == "reduce" || method == "reduceRight",
                                 ) {
                                     // Substitui arg por Ident.
                                     call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {

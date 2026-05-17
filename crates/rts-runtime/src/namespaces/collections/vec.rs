@@ -199,6 +199,23 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64
     }
 }
 
+/// (cross-runtime #808) `recv.concat(other)` despachado em runtime:
+/// se recv eh Vec, faz vec concat (copy + append/spread); se string,
+/// faz string concat. Usado quando recv eh I64 ambiguo (param de
+/// arrow lifted em reduceRight/reduce).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> i64 {
+    use super::super::gc::handles::with_entry;
+    let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        let copy = __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(recv, 0);
+        __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(copy, other) as i64
+    } else {
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64)
+            as i64
+    }
+}
+
 /// (cross-runtime #52) `index in arr` — true se 0 <= index < length E
 /// slot nao eh hole (sentinela i64::MIN+4). JS spec.
 #[unsafe(no_mangle)]
