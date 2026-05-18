@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nmap=\nset=\ndate=2024-05-10T00:00:00.000Z\nre=null:null"
+  "rts": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=null:null"
 }
 ,
 {
@@ -2185,10 +2185,10 @@
 ,
 {
   "name": "61_structured_clone",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
   "node": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
-  "rts": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=\ncopy_map=\norig_set=\ncopy_set="
+  "rts": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":225,"rts_diverge":29,"bun_node_diverge":3,"errors":55,"rejected":0}}
+],"summary":{"total":312,"pass":226,"rts_diverge":28,"bun_node_diverge":3,"errors":55,"rejected":0}}
