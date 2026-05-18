@@ -48,6 +48,14 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FREE(handle: u64) -> i64 {
 /// Generic length dispatcher — backs `.size`/`.length` in codegen.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
+    // (#1023) StringBox unwrap antes do dispatch — recurse uma vez.
+    let unwrap: Option<u64> = with_entry(handle, |entry| match entry {
+        Some(Entry::StringBox(h)) => Some(*h),
+        _ => None,
+    });
+    if let Some(inner) = unwrap {
+        return __RTS_FN_NS_GC_HANDLE_LEN(inner);
+    }
     with_entry(handle, |entry| match entry {
         // JS spec: String.length = number of UTF-16 code units, not bytes.
         Some(Entry::String(b)) => {

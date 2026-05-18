@@ -15,8 +15,13 @@ pub(crate) fn alloc_str(s: &str) -> u64 {
 }
 
 fn handle_to_str<'a>(h: u64) -> Option<&'a str> {
-    let ptr = unsafe { __RTS_FN_NS_GC_STRING_PTR(h) };
-    let len = unsafe { __RTS_FN_NS_GC_STRING_LEN(h) };
+    // (#1023) Unwrap StringBox antes de tentar STRING_PTR/LEN.
+    let unwrapped: u64 = crate::namespaces::gc::handles::with_entry(h, |e| match e {
+        Some(crate::namespaces::gc::handles::Entry::StringBox(inner)) => *inner,
+        _ => h,
+    });
+    let ptr = unsafe { __RTS_FN_NS_GC_STRING_PTR(unwrapped) };
+    let len = unsafe { __RTS_FN_NS_GC_STRING_LEN(unwrapped) };
     if ptr.is_null() || len < 0 {
         return None;
     }
@@ -534,14 +539,21 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
     // Para handles que ja sao String, passthrough.
     // Para Symbol/Function, delega para TO_STRING_HANDLE que formata
     // \"Symbol(desc)\" / \"function name() { [native code] }\".
+    // Para StringBox (#1023), unwrap para o String handle interno.
     // Para Map/Vec/etc, mantem passthrough (handle vai pra coercao
     // em concat/template via TPL_COERCE_AUTO).
     use crate::namespaces::gc::handles::{with_entry, Entry};
-    let needs_format = with_entry(handle, |e| matches!(e, Some(Entry::Symbol { .. }) | Some(Entry::Function(_))));
-    if needs_format {
-        return crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE(handle);
+    enum Kind { NeedsFormat, Unwrap(u64), Passthrough }
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::Symbol { .. }) | Some(Entry::Function(_)) => Kind::NeedsFormat,
+        Some(Entry::StringBox(h)) => Kind::Unwrap(*h),
+        _ => Kind::Passthrough,
+    });
+    match kind {
+        Kind::NeedsFormat => crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE(handle),
+        Kind::Unwrap(inner) => inner,
+        Kind::Passthrough => handle,
     }
-    handle
 }
 
 #[unsafe(no_mangle)]
