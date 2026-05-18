@@ -1665,10 +1665,10 @@
 ,
 {
   "name": "288_abortsignal_timeout_any",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=true:a\nc=true:a",
   "node": "a=true:a\nc=true:a",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=true:a\nc=true:a"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":233,"rts_diverge":30,"bun_node_diverge":3,"errors":46,"rejected":0}}
+],"summary":{"total":312,"pass":234,"rts_diverge":30,"bun_node_diverge":3,"errors":45,"rejected":0}}
