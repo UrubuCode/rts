@@ -689,10 +689,10 @@
 ,
 {
   "name": "177_string_constructor",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
   "node": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
-  "rts": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3"
+  "rts": "valueOf=hello\ntoString=[object Object]\nlength=0\ncharAt=\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3"
 }
 ,
 {
@@ -1281,10 +1281,10 @@
 ,
 {
   "name": "244_string_valueof",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true",
   "node": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true",
-  "rts": "valueOf=hello\nsame_type=true\nobj_type=false\nprimitive=world\nsame=true"
+  "rts": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true"
 }
 ,
 {
@@ -1361,10 +1361,10 @@
 ,
 {
   "name": "253_object_keys_empty",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "empty=\narr=0,1,2\nstr=0,1\nnum=",
   "node": "empty=\narr=0,1,2\nstr=0,1\nnum=",
-  "rts": "empty=\narr=0,1,2\nstr=0,1\nnum="
+  "rts": "empty=\narr=0,1,2\nstr=\nnum="
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":220,"rts_diverge":33,"bun_node_diverge":3,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":219,"rts_diverge":34,"bun_node_diverge":3,"errors":56,"rejected":0}}
