@@ -4,6 +4,7 @@
 
 pub mod abort;
 pub mod bigint;
+pub mod event_target;
 pub mod boolean;
 pub mod console;
 pub mod date;

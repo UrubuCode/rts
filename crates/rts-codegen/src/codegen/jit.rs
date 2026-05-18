@@ -404,6 +404,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_TIMERS_SET_IMMEDIATE", __RTS_FN_GL_TIMERS_SET_IMMEDIATE);
     add_fn!("__RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE", __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE);
 
+    // ── namespaces::globals::event_target (#63) ───────────────────────
+    {
+        use crate::namespaces::globals::event_target::instance::*;
+        add_fn!("__RTS_FN_GL_EVENT_TARGET_NEW", __RTS_FN_GL_EVENT_TARGET_NEW);
+        add_fn!("__RTS_FN_GL_EVENT_TARGET_ADD_LISTENER", __RTS_FN_GL_EVENT_TARGET_ADD_LISTENER);
+        add_fn!("__RTS_FN_GL_EVENT_TARGET_REMOVE_LISTENER", __RTS_FN_GL_EVENT_TARGET_REMOVE_LISTENER);
+        add_fn!("__RTS_FN_GL_EVENT_TARGET_DISPATCH", __RTS_FN_GL_EVENT_TARGET_DISPATCH);
+        add_fn!("__RTS_FN_GL_EVENT_NEW", __RTS_FN_GL_EVENT_NEW);
+        add_fn!("__RTS_FN_GL_EVENT_TYPE", __RTS_FN_GL_EVENT_TYPE);
+    }
+
     // ── namespaces::globals::abort (#62) ──────────────────────────────
     {
         use crate::namespaces::globals::abort::instance::*;

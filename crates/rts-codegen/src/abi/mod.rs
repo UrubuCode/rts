@@ -33,6 +33,8 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::headers::abi::HEADERS_CLASS_SPEC,
     &crate::namespaces::globals::abort::abi::ABORT_CONTROLLER_CLASS_SPEC,
     &crate::namespaces::globals::abort::abi::ABORT_SIGNAL_CLASS_SPEC,
+    &crate::namespaces::globals::event_target::abi::EVENT_TARGET_CLASS_SPEC,
+    &crate::namespaces::globals::event_target::abi::EVENT_CLASS_SPEC,
 ];
 
 pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
