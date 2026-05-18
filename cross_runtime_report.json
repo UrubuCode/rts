@@ -1569,10 +1569,10 @@
 ,
 {
   "name": "277_error_cause",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "e1=msg:root\ne2=TypeError:msg",
   "node": "e1=msg:root\ne2=TypeError:msg",
-  "rts": "e1=msg:null\ne2=TypeError:null"
+  "rts": "e1=msg:root\ne2=TypeError:msg"
 }
 ,
 {
@@ -1585,10 +1585,10 @@
 ,
 {
   "name": "279_error_chain_cause",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "top=top\nmid=mid\nleaf=leaf",
   "node": "top=top\nmid=mid\nleaf=leaf",
-  "rts": "top=top\nmid=null\nleaf=null"
+  "rts": "top=top\nmid=mid\nleaf=leaf"
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":237,"rts_diverge":28,"bun_node_diverge":3,"errors":44,"rejected":0}}
+],"summary":{"total":312,"pass":239,"rts_diverge":25,"bun_node_diverge":3,"errors":45,"rejected":0}}
