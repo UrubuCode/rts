@@ -172,6 +172,23 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         if let Expr::SuperProp(sp) = callee.as_ref() {
             return lower_super_method_call(ctx, sp, call);
         }
+        // (cross-runtime #81/#99) `/regex/.test(s)`/`/regex/.exec(s)` em
+        // literal — codegen avalia regex literal pra handle, depois usa
+        // builtin. Sem isso, lower_indirect_call falha procurando var.
+        if let Expr::Member(m) = callee.as_ref() {
+            if let (Expr::Lit(swc_ecma_ast::Lit::Regex(_)), MemberProp::Ident(prop)) =
+                (m.obj.as_ref(), &m.prop)
+            {
+                let pn = prop.sym.as_str();
+                if matches!(pn, "test" | "exec") {
+                    let recv_tv = lower_expr(ctx, &m.obj)?;
+                    let recv_h = ctx.coerce_to_i64(recv_tv).val;
+                    if let Some(tv) = builtins::lower_regexp_builtin(ctx, pn, recv_h, call)? {
+                        return Ok(tv);
+                    }
+                }
+            }
+        }
         // `Object.prototype.toString.call(value)` — gera "[object Type]"
         // via __RTS_FN_RT_OBJECT_TO_STRING. Tag conforme tipo estatico.
         if let Some(tv) = try_lower_object_to_string_call(ctx, callee, call)? {
