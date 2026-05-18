@@ -506,7 +506,21 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
         return 0;
     };
 
-    bound_args.extend(read_args_vec(args_handle));
+    // (cross-runtime #49) Converte args int->f64.to_bits baseado em
+    // param_kinds antes de armazenar — bound_args fica em formato
+    // consistente com APPLY_TYPED, que invoke_typed depois interpreta
+    // como bits f64 quando pk[i]==1. Sem isso, `add.bind(null, 5)`
+    // armazenava `5` como i64 puro e invoke_typed via como denormal.
+    let new_args = read_args_vec(args_handle);
+    let prev_n = bound_args.len();
+    let offset = if !is_arrow && has_this_param { 1 } else { 0 };
+    let last_kind = param_kinds.last().copied().unwrap_or(0);
+    for (i, &v) in new_args.iter().enumerate() {
+        let pk_idx = i + offset + prev_n;
+        let pk = param_kinds.get(pk_idx).copied().unwrap_or(last_kind);
+        let converted = if pk == 1 { f64_to_i64(v as f64) } else { v };
+        bound_args.push(converted);
+    }
 
     // Bind preserva primeiro bind feito (Node spec: re-bind nao troca thisArg).
     let (final_this, final_has) = if had_bound_this {
