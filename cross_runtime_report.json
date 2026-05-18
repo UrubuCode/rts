@@ -2433,10 +2433,10 @@
 ,
 {
   "name": "92_promise_with_resolvers",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "value=ok",
   "node": "value=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "value=281474976710661"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":222,"rts_diverge":31,"bun_node_diverge":3,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":222,"rts_diverge":32,"bun_node_diverge":3,"errors":55,"rejected":0}}
