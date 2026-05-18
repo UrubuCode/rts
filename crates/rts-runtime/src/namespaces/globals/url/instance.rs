@@ -37,17 +37,45 @@ fn normalize_path(p: &str) -> String {
     result
 }
 
+/// (#67) Percent-encode chars unsafe em URL search/hash component.
+/// Preserva chars ASCII safe (alfanum + - _ . ~ ! $ & ' ( ) * + , ; = : @ / ?
+/// e # no inicio se ja' for prefixo). Encoda espaco, < > " { } | \ ^ ` etc.
+fn percent_encode_search(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        let safe = matches!(b,
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
+            | b'-' | b'_' | b'.' | b'~'
+            | b'!' | b'$' | b'&' | b'\'' | b'(' | b')'
+            | b'*' | b'+' | b',' | b';' | b'='
+            | b':' | b'@' | b'/' | b'?' | b'#'
+            | b'%'
+        );
+        if safe {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{:02X}", b));
+        }
+    }
+    out
+}
+
 impl ParsedUrl {
     fn parse(raw: &str) -> Option<Self> {
         // Minimal URL parser without external deps.
-        let (raw, hash) = match raw.split_once('#') {
+        let (raw, hash_raw) = match raw.split_once('#') {
             Some((before, after)) => (before, format!("#{after}")),
             None => (raw, String::new()),
         };
-        let (raw, search) = match raw.split_once('?') {
+        let (raw, search_raw) = match raw.split_once('?') {
             Some((before, after)) => (before, format!("?{after}")),
             None => (raw, String::new()),
         };
+        // (#67) Percent-encode chars unsafe em search/hash. JS spec
+        // codifica espaco como %20 (nao + em URL.search; URLSearchParams
+        // usa + mas URL.search nao).
+        let search = percent_encode_search(&search_raw);
+        let hash = percent_encode_search(&hash_raw);
         let (scheme, rest) = raw.split_once("://")?;
         let protocol = format!("{scheme}:");
         let (authority, pathname_raw) = match rest.split_once('/') {
