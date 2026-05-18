@@ -404,6 +404,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_TIMERS_SET_IMMEDIATE", __RTS_FN_GL_TIMERS_SET_IMMEDIATE);
     add_fn!("__RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE", __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE);
 
+    // ── namespaces::globals::form_data (#72) ──────────────────────────
+    {
+        use crate::namespaces::globals::form_data::instance::*;
+        add_fn!("__RTS_FN_GL_FORM_DATA_NEW", __RTS_FN_GL_FORM_DATA_NEW);
+        add_fn!("__RTS_FN_GL_FORM_DATA_APPEND", __RTS_FN_GL_FORM_DATA_APPEND);
+        add_fn!("__RTS_FN_GL_FORM_DATA_SET", __RTS_FN_GL_FORM_DATA_SET);
+        add_fn!("__RTS_FN_GL_FORM_DATA_DELETE", __RTS_FN_GL_FORM_DATA_DELETE);
+        add_fn!("__RTS_FN_GL_FORM_DATA_GET", __RTS_FN_GL_FORM_DATA_GET);
+        add_fn!("__RTS_FN_GL_FORM_DATA_GET_ALL", __RTS_FN_GL_FORM_DATA_GET_ALL);
+        add_fn!("__RTS_FN_GL_FORM_DATA_HAS", __RTS_FN_GL_FORM_DATA_HAS);
+        add_fn!("__RTS_FN_GL_FORM_DATA_ENTRIES", __RTS_FN_GL_FORM_DATA_ENTRIES);
+        add_fn!("__RTS_FN_GL_FORM_DATA_KEYS", __RTS_FN_GL_FORM_DATA_KEYS);
+        add_fn!("__RTS_FN_GL_FORM_DATA_VALUES", __RTS_FN_GL_FORM_DATA_VALUES);
+    }
+
     // ── namespaces::globals::dom_exception (#77) ──────────────────────
     {
         use crate::namespaces::globals::dom_exception::instance::*;

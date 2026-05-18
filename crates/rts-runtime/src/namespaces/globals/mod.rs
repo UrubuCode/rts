@@ -6,6 +6,7 @@ pub mod abort;
 pub mod bigint;
 pub mod dom_exception;
 pub mod event_target;
+pub mod form_data;
 pub mod boolean;
 pub mod console;
 pub mod date;
