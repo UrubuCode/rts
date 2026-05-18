@@ -4,6 +4,7 @@
 
 pub mod abort;
 pub mod bigint;
+pub mod dom_exception;
 pub mod event_target;
 pub mod boolean;
 pub mod console;

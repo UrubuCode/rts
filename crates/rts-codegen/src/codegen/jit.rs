@@ -404,6 +404,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_TIMERS_SET_IMMEDIATE", __RTS_FN_GL_TIMERS_SET_IMMEDIATE);
     add_fn!("__RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE", __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE);
 
+    // ── namespaces::globals::dom_exception (#77) ──────────────────────
+    {
+        use crate::namespaces::globals::dom_exception::instance::*;
+        add_fn!("__RTS_FN_GL_DOM_EXCEPTION_NEW", __RTS_FN_GL_DOM_EXCEPTION_NEW);
+        add_fn!("__RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY", __RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY);
+        add_fn!("__RTS_FN_GL_DOM_EXCEPTION_NEW_MSG", __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG);
+        add_fn!("__RTS_FN_GL_DOM_EXCEPTION_NAME", __RTS_FN_GL_DOM_EXCEPTION_NAME);
+        add_fn!("__RTS_FN_GL_DOM_EXCEPTION_MESSAGE", __RTS_FN_GL_DOM_EXCEPTION_MESSAGE);
+        add_fn!("__RTS_FN_GL_DOM_EXCEPTION_CODE", __RTS_FN_GL_DOM_EXCEPTION_CODE);
+    }
+
     // ── namespaces::globals::event_target (#63) ───────────────────────
     {
         use crate::namespaces::globals::event_target::instance::*;
