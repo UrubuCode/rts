@@ -342,6 +342,30 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 if let Some(tv) = lower_math_builtin(ctx, &qualified, call)? {
                     return Ok(tv);
                 }
+                // (cross-runtime #228) JSON.parse(text, reviver) — JS 2-arg form.
+                if qualified == "JSON.parse" && call.args.len() >= 2 {
+                    if call.args.iter().any(|a| a.spread.is_some()) {
+                        return Err(anyhow!("spread not supported in JSON.parse"));
+                    }
+                    use crate::codegen::lower::ctx::{TypedVal, ValTy};
+                    let s_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let s_h = ctx.coerce_to_i64(s_tv).val;
+                    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                    let p_inst = ctx.builder.ins().call(str_ptr_fn, &[s_h]);
+                    let s_ptr = ctx.builder.inst_results(p_inst)[0];
+                    let l_inst = ctx.builder.ins().call(str_len_fn, &[s_h]);
+                    let s_len = ctx.builder.inst_results(l_inst)[0];
+                    let r_h = lower_callable_target_h(ctx, &call.args[1].expr)?;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_NS_JSON_PARSE_REVIVER",
+                        &[cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[s_ptr, s_len, r_h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::U64));
+                }
                 // JSON.stringify(value, replacer_array) — 2-arg, replacer e' array de keys.
                 if qualified == "JSON.stringify" && call.args.len() == 2 {
                     if call.args.iter().any(|a| a.spread.is_some()) {

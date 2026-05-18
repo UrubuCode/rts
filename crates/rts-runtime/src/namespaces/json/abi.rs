@@ -15,6 +15,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "parse_reviver",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_JSON_PARSE_REVIVER",
+        args: &[AbiType::StrPtr, AbiType::U64],
+        returns: AbiType::U64,
+        doc: "JSON.parse com reviver(key, value) — transforma cada par durante o walk bottom-up.",
+        ts_signature: "parse_reviver(text: string, reviver: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "stringify",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_JSON_STRINGIFY",

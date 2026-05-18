@@ -34,6 +34,77 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE(ptr: u64, len: i64) -> u64 {
     }
 }
 
+/// (cross-runtime #228) JSON.parse(text, reviver) — invoca reviver(key, value)
+/// bottom-up para cada propriedade. Se reviver retorna undefined, omite.
+/// Outros valores substituem o original.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_PARSE_REVIVER(ptr: u64, len: i64, reviver_h: u64) -> u64 {
+    let Some(bytes) = slice_from(ptr, len) else {
+        return 0;
+    };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return 0;
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(text) else {
+        return 0;
+    };
+    let root_handle = json_value_to_handle(&parsed);
+    if reviver_h == 0 {
+        return root_handle;
+    }
+    // JS spec: cria objeto raiz `{ "": root }` e chama reviver com key="".
+    apply_reviver(reviver_h, "", root_handle)
+}
+
+/// Walk bottom-up: para cada slot, recursa primeiro, depois invoca reviver.
+fn apply_reviver(reviver_h: u64, key: &str, value: u64) -> u64 {
+    use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    use crate::namespaces::collections::vec as v_ns;
+    // Recursa em children primeiro.
+    let kind = with_entry(value, |e| match e {
+        Some(Entry::Map(m)) => Some(("map", m.iter().map(|(k,v)| (k.clone(), *v)).collect::<Vec<_>>())),
+        Some(Entry::Vec(arr)) => Some(("vec", arr.iter().enumerate().map(|(i,v)| (i.to_string(), *v)).collect::<Vec<_>>())),
+        _ => None,
+    });
+    if let Some((k_type, entries)) = kind {
+        for (k, v) in entries {
+            let new_v = apply_reviver(reviver_h, &k, v as u64);
+            // Atualiza slot.
+            use crate::namespaces::gc::handles::with_entry_mut;
+            with_entry_mut(value, |e| {
+                match e {
+                    Some(Entry::Map(m)) if k_type == "map" => {
+                        if is_undefined_handle(new_v) {
+                            m.shift_remove(&k);
+                        } else {
+                            m.insert(k.clone(), new_v as i64);
+                        }
+                    }
+                    Some(Entry::Vec(arr)) if k_type == "vec" => {
+                        if let Ok(idx) = k.parse::<usize>() {
+                            if idx < arr.len() {
+                                arr[idx] = if is_undefined_handle(new_v) { i64::MIN + 2 } else { new_v as i64 };
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            });
+        }
+    }
+    // Invoca reviver(key, value).
+    let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
+    let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
+    let result = unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(reviver_h, 0, args) };
+    let _ = v_ns::__RTS_FN_NS_COLLECTIONS_VEC_GET; // keep import
+    result as u64
+}
+
+fn is_undefined_handle(h: u64) -> bool {
+    let v = h as i64;
+    v == i64::MIN + 2 || v == i64::MIN + 4
+}
+
 /// JSON5.parse — extensao do JSON com comentarios, trailing commas,
 /// keys nao-quoteadas, strings com aspas simples, hex literals, NaN/
 /// Infinity, etc. Usa o crate `json5` que serializa para
