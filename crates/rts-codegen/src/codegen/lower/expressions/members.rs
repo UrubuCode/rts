@@ -1796,6 +1796,19 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
                     }
                 }
             }
+            // (#277) Error.cause / TypeError.cause / etc. — quando owner eh
+            // alguma das Error globals e prop=="cause", propaga "Error"
+            // (semantica: cause pode ser qualquer Error subclass; tratar
+            // como Error generico permite .message/.name/.stack funcionar).
+            if prop == "cause"
+                && matches!(
+                    owner.as_str(),
+                    "Error" | "TypeError" | "RangeError" | "ReferenceError"
+                        | "SyntaxError" | "URIError" | "EvalError" | "AggregateError"
+                )
+            {
+                return Some("Error".to_string());
+            }
             None
         }
         Expr::Call(call) => {
