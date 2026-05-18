@@ -120,6 +120,20 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     default: None,
                     span: Span::default(),
                 });
+            } else if let Pat::Rest(rest) = &p.pat {
+                // (cross-runtime #294) Rest param em arrow/fn: marca variadic
+                // pra que expand_rest_args reescreva acessos como `rest[i]`
+                // via arguments slicing.
+                if let Some(n) = pat_to_param_name(&rest.arg) {
+                    parameters.push(Parameter {
+                        name: n,
+                        type_annotation: None,
+                        modifiers: MemberModifiers::default(),
+                        variadic: true,
+                        default: None,
+                        span: Span::default(),
+                    });
+                }
             } else if let Some(n) = pat_to_param_name(&p.pat) {
                 parameters.push(Parameter {
                     name: n,
