@@ -48,14 +48,94 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_TEST(handle: u64, ptr: i64, len: i64) -> i6
     )
 }
 
-/// `re.exec(str)` — returns string handle of first match, or 0 if none.
+/// `re.exec(str)` — JS spec: retorna Array com matched + captures, e
+/// `groups` quando ha named captures. Para reproduzir Array com props
+/// adicionais, alocamos Map com slots "0", "1", ..., "length", "index",
+/// "input", "groups". Codegen Vec acessa `arr[0]` via INDEX_GET_AUTO
+/// que ja' faz fallback para Map keys quando handle nao eh Vec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u64 {
-    crate::namespaces::regex::ops::__RTS_FN_NS_REGEX_FIND(
-        handle,
-        ptr as *const u8,
-        len,
-    )
+    use indexmap::IndexMap;
+    if ptr == 0 || len < 0 { return 0; }
+    let s_full = unsafe {
+        let slice = std::slice::from_raw_parts(ptr as *const u8, len as usize);
+        match std::str::from_utf8(slice) {
+            Ok(s) => s.to_string(),
+            Err(_) => return 0,
+        }
+    };
+    // Acessa Regex sob mut (para atualizar last_index em global) e captura
+    // groups.
+    let result = with_entry_mut(handle, |entry| {
+        if let Some(Entry::Regex(rx)) = entry {
+            let start = if rx.global { rx.last_index } else { 0 };
+            if start > s_full.len() {
+                rx.last_index = 0;
+                return None;
+            }
+            if !s_full.is_char_boundary(start) {
+                rx.last_index = 0;
+                return None;
+            }
+            let caps_opt = rx.regex.captures(&s_full[start..]);
+            let Some(caps) = caps_opt else {
+                if rx.global { rx.last_index = 0; }
+                return None;
+            };
+            let m0 = caps.get(0).unwrap();
+            let abs_start = start + m0.start();
+            let abs_end = start + m0.end();
+            if rx.global {
+                rx.last_index = abs_end;
+            }
+            // Coleta captures (0..N).
+            let mut groups_vec: Vec<Option<String>> = Vec::with_capacity(caps.len());
+            for i in 0..caps.len() {
+                groups_vec.push(caps.get(i).map(|m| m.as_str().to_string()));
+            }
+            // Coleta named groups.
+            let mut named_groups: Vec<(String, Option<String>)> = Vec::new();
+            for name in rx.regex.capture_names().flatten() {
+                let m = caps.name(name).map(|m| m.as_str().to_string());
+                named_groups.push((name.to_string(), m));
+            }
+            Some((groups_vec, named_groups, abs_start, s_full.clone()))
+        } else {
+            None
+        }
+    });
+    let Some((groups_vec, named_groups, idx, input)) = result else {
+        return 0;
+    };
+    // Monta Map com slots "0".."N", "length", "index", "input", "groups".
+    let mut map: IndexMap<String, i64> = IndexMap::new();
+    for (i, opt) in groups_vec.iter().enumerate() {
+        let v = match opt {
+            Some(s) => alloc_entry(Entry::String(s.clone().into_bytes())) as i64,
+            None => i64::MIN + 2, // undefined sentinel
+        };
+        map.insert(i.to_string(), v);
+    }
+    map.insert("length".to_string(), groups_vec.len() as i64);
+    map.insert("index".to_string(), idx as i64);
+    let input_h = alloc_entry(Entry::String(input.into_bytes())) as i64;
+    map.insert("input".to_string(), input_h);
+    // groups: Map<name, string|undefined> ou undefined se sem named.
+    let groups_v = if named_groups.is_empty() {
+        i64::MIN + 2
+    } else {
+        let mut gmap: IndexMap<String, i64> = IndexMap::new();
+        for (name, opt) in named_groups {
+            let v = match opt {
+                Some(s) => alloc_entry(Entry::String(s.into_bytes())) as i64,
+                None => i64::MIN + 2,
+            };
+            gmap.insert(name, v);
+        }
+        alloc_entry(Entry::Map(Box::new(gmap))) as i64
+    };
+    map.insert("groups".to_string(), groups_v);
+    alloc_entry(Entry::Map(Box::new(map)))
 }
 
 /// (#781) `re.flags` — string canonica das flags (ex: "gi").

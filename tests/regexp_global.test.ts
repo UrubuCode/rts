@@ -13,8 +13,9 @@ const reI = new RegExp("HELLO", "i");
 const flagsOk = reI.test("say hello");
 print(flagsOk ? "flags_ok" : "flags_fail");
 
-// exec() — comparação inline como no fixture original
-print(re.exec("say hello world") === "hello" ? "exec_ok" : "exec_fail");
+// exec() — JS spec: retorna Array com captures, primeiro elem eh o match.
+const m1: any = re.exec("say hello world");
+print(m1 && m1[0] === "hello" ? "exec_ok" : "exec_fail");
 
 const m2 = re.exec("goodbye");
 const execNullOk = !m2;
