@@ -31,6 +31,27 @@ pub extern "C" fn __RTS_FN_GL_STRING_NEW_FROM(handle: u64) -> u64 {
     handle
 }
 
+/// (cross-runtime #244) `new String(x)` — cria StringBox wrapper para
+/// que typeof retorne "object". valueOf/toString recuperam o handle
+/// string original.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_NEW_BOXED(handle: u64) -> u64 {
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::StringBox(handle),
+    )
+}
+
+/// (cross-runtime #244) StringBox.valueOf() / toString() — recupera o
+/// handle primitive embrulhado. Se nao for StringBox, retorna 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_BOX_VALUE_OF(boxed: u64) -> u64 {
+    crate::namespaces::gc::handles::with_entry(boxed, |e| match e {
+        Some(crate::namespaces::gc::handles::Entry::StringBox(h)) => *h,
+        Some(crate::namespaces::gc::handles::Entry::String(_)) => boxed,
+        _ => 0,
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_NEW_EMPTY() -> u64 {
     alloc_str("")

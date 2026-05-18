@@ -1639,6 +1639,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
     // ── globals::string instance + static methods ─────────────────────
     add_fn!("__RTS_FN_GL_STRING_NEW_FROM",         rt::__RTS_FN_GL_STRING_NEW_FROM);
+    add_fn!("__RTS_FN_GL_STRING_NEW_BOXED",        rt::__RTS_FN_GL_STRING_NEW_BOXED);
+    add_fn!("__RTS_FN_GL_STRING_BOX_VALUE_OF",     rt::__RTS_FN_GL_STRING_BOX_VALUE_OF);
     add_fn!("__RTS_FN_GL_STRING_NEW_EMPTY",        rt::__RTS_FN_GL_STRING_NEW_EMPTY);
     add_fn!("__RTS_FN_GL_STRING_FROM_CHAR_CODE",   rt::__RTS_FN_GL_STRING_FROM_CHAR_CODE);
     add_fn!("__RTS_FN_GL_STRING_FROM_CODE_POINT",  rt::__RTS_FN_GL_STRING_FROM_CODE_POINT);

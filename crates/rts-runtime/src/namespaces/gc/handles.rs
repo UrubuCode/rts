@@ -194,6 +194,11 @@ pub enum Entry {
     /// `typeof new Boolean(...)` returns "object" while `valueOf()` recovers
     /// the underlying bool. `Boolean(x)` (no `new`) keeps primitive path.
     BooleanBox(bool),
+    /// (cross-runtime #244) `new String(x)` boxed primitive — wraps string
+    /// handle so `typeof new String(...)` returns "object" enquanto
+    /// `valueOf()` recupera o handle string original. `String(x)` (sem
+    /// `new`) mantem caminho primitive.
+    StringBox(u64),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

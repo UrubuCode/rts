@@ -905,6 +905,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -
 /// Para Vec: ["0","1",...,"length"]. Para Map: todas as keys exceto __proto__.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64) -> u64 {
+    // (cross-runtime #244) Unwrap StringBox antes da despachada principal.
+    let unwrap_h = with_entry(handle, |e| match e {
+        Some(Entry::StringBox(h)) => *h,
+        _ => handle,
+    });
+    let handle = unwrap_h;
     let result: Vec<i64> = with_entry(handle, |e| match e {
         Some(Entry::Map(m)) => {
             let mut int_keys: Vec<(u32, String)> = Vec::new();
