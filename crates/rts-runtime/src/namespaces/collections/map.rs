@@ -533,6 +533,34 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     if let Some(s) = err_field {
         return alloc_entry(Entry::String(s.into_bytes())) as i64;
     }
+    // (cross-runtime #97) Regex instance getters via MAP_GET_CHAIN: quando
+    // `obj.re.source` chega aqui com handle de Entry::Regex, dispatch para
+    // o getter builtin em vez de retornar 0.
+    let regex_field: Option<String> = with_entry(handle, |e| match e {
+        Some(Entry::Regex(rx)) => match key {
+            "source" => Some(rx.regex.as_str().to_string()),
+            "flags" => Some(rx.flags.clone()),
+            _ => None,
+        },
+        _ => None,
+    });
+    if let Some(s) = regex_field {
+        return alloc_entry(Entry::String(s.into_bytes())) as i64;
+    }
+    // (cross-runtime #97) Regex bool getters retornam i64 sentinela
+    // (MIN ou MIN+1) que TPL_COERCE_AUTO formata como "true"/"false".
+    let regex_bool: Option<bool> = with_entry(handle, |e| match e {
+        Some(Entry::Regex(rx)) => match key {
+            "global" => Some(rx.global),
+            "ignoreCase" => Some(rx.flags.contains('i')),
+            "multiline" => Some(rx.flags.contains('m')),
+            _ => None,
+        },
+        _ => None,
+    });
+    if let Some(b) = regex_bool {
+        return if b { i64::MIN + 1 } else { i64::MIN };
+    }
     let key_owned = key.to_string();
     let mut current = handle;
     let mut depth = 0u32;
