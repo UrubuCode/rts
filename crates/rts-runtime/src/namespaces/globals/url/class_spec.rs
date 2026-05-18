@@ -12,6 +12,18 @@ pub const URL_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    // (#67) new URL(relative, base) — resolve URL relativa contra base.
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_URL_NEW_WITH_BASE",
+        args: &[AbiType::StrPtr, AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "new URL(relative, base) — resolve relativa contra base URL.",
+        ts_signature: "new URL(url: string, base: string): URL",
+        intrinsic: None,
+        pure: true,
+    },
     NamespaceMember {
         name: "href",
         kind: MemberKind::InstanceMethod,

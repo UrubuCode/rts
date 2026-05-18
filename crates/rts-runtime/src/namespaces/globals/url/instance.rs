@@ -197,6 +197,52 @@ pub extern "C" fn __RTS_FN_GL_URL_CAN_PARSE_BASE(
     if ParsedUrl::parse(&combined).is_some() { 1 } else { 0 }
 }
 
+/// (#67) `new URL(relative, base)` — resolve URL relativa contra base.
+/// Implementacao minima: detecta protocol absoluto na relativa; senao
+/// merge basico path resolution.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_NEW_WITH_BASE(
+    rel_ptr: i64,
+    rel_len: i64,
+    base_ptr: i64,
+    base_len: i64,
+) -> u64 {
+    let rel = str_from_parts(rel_ptr, rel_len);
+    let base = str_from_parts(base_ptr, base_len);
+    // Se relative tem scheme proprio (http://, etc), usa direto.
+    if rel.contains("://") {
+        return __RTS_FN_GL_URL_NEW(rel_ptr, rel_len);
+    }
+    // Parse base.
+    let base_parsed = match ParsedUrl::parse(base) {
+        Some(p) => p,
+        None => return 0,
+    };
+    // Resolve path relativo contra base.pathname.
+    let resolved_path = if rel.starts_with('/') {
+        // Absoluto na host.
+        rel.to_string()
+    } else {
+        // Relativo: merge com base path (strip ultimo segmento da base).
+        let base_dir = match base_parsed.pathname.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/"),
+            None => "/".to_string(),
+        };
+        format!("{base_dir}{rel}")
+    };
+    // Normaliza segmentos (resolve ../ e ./).
+    let combined = format!(
+        "{}//{}{}",
+        base_parsed.protocol,
+        base_parsed.host(),
+        resolved_path
+    );
+    // Reusa parse pra normalizar path + extract search/hash.
+    let new_raw = combined;
+    let bytes = new_raw.as_bytes();
+    __RTS_FN_GL_URL_NEW(bytes.as_ptr() as i64, bytes.len() as i64)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_NEW(ptr: i64, len: i64) -> u64 {
     let raw = str_from_parts(ptr, len);

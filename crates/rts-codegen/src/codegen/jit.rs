@@ -690,6 +690,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::globals::url ──────────────────────────────────────
     use crate::namespaces::globals::url::instance::*;
     add_fn!("__RTS_FN_GL_URL_NEW", __RTS_FN_GL_URL_NEW);
+    add_fn!("__RTS_FN_GL_URL_NEW_WITH_BASE", __RTS_FN_GL_URL_NEW_WITH_BASE);
     add_fn!("__RTS_FN_GL_URL_CAN_PARSE", __RTS_FN_GL_URL_CAN_PARSE);
     add_fn!("__RTS_FN_GL_URL_CAN_PARSE_BASE", __RTS_FN_GL_URL_CAN_PARSE_BASE);
     add_fn!("__RTS_FN_GL_URL_HREF", __RTS_FN_GL_URL_HREF);
