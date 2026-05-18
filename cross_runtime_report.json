@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -2193,10 +2193,10 @@
 ,
 {
   "name": "62_abort_controller",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "before=false\nafter=true\nreason=stop\nseen=event:true",
   "node": "before=false\nafter=true\nreason=stop\nseen=event:true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "before=false\nafter=true\nreason=stop\nseen=event:true"
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2369,10 +2369,10 @@
 ,
 {
   "name": "84_abortsignal_advanced",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "ab=true:x\nto=true:TimeoutError",
   "node": "ab=true:x\nto=true:TimeoutError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "ab=true:x\nto=false:null"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":232,"rts_diverge":27,"bun_node_diverge":3,"errors":50,"rejected":0}}
+],"summary":{"total":312,"pass":232,"rts_diverge":28,"bun_node_diverge":3,"errors":49,"rejected":0}}
