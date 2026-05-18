@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": ""
+  "rts": "named=null"
 }
 ,
 {
@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -2425,7 +2425,7 @@
 ,
 {
   "name": "91_string_wellformed",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "wf=false\nfix=�",
   "node": "wf=false\nfix=�",
   "rts": "wf=false\nfix=�"
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":222,"rts_diverge":32,"bun_node_diverge":3,"errors":55,"rejected":0}}
+],"summary":{"total":312,"pass":223,"rts_diverge":31,"bun_node_diverge":3,"errors":55,"rejected":0}}
