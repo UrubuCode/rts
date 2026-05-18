@@ -51,7 +51,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
     },
     NamespaceMember {
         name: "source",
-        kind: MemberKind::InstanceMethod,
+        kind: MemberKind::InstanceGetter,
         symbol: "__RTS_FN_GL_REGEXP_SOURCE",
         args: &[AbiType::Handle],
         returns: AbiType::Handle,
@@ -62,7 +62,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
     },
     NamespaceMember {
         name: "flags",
-        kind: MemberKind::InstanceMethod,
+        kind: MemberKind::InstanceGetter,
         symbol: "__RTS_FN_GL_REGEXP_FLAGS",
         args: &[AbiType::Handle],
         returns: AbiType::Handle,
@@ -73,7 +73,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
     },
     NamespaceMember {
         name: "global",
-        kind: MemberKind::InstanceMethod,
+        kind: MemberKind::InstanceGetter,
         symbol: "__RTS_FN_GL_REGEXP_GLOBAL",
         args: &[AbiType::Handle],
         returns: AbiType::Bool,
@@ -84,7 +84,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
     },
     NamespaceMember {
         name: "ignoreCase",
-        kind: MemberKind::InstanceMethod,
+        kind: MemberKind::InstanceGetter,
         symbol: "__RTS_FN_GL_REGEXP_IGNORE_CASE",
         args: &[AbiType::Handle],
         returns: AbiType::Bool,
@@ -95,7 +95,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
     },
     NamespaceMember {
         name: "lastIndex",
-        kind: MemberKind::InstanceMethod,
+        kind: MemberKind::InstanceGetter,
         symbol: "__RTS_FN_GL_REGEXP_LAST_INDEX_GET",
         args: &[AbiType::Handle],
         returns: AbiType::I64,
@@ -106,7 +106,7 @@ pub const MEMBERS: &[NamespaceMember] = &[
     },
     NamespaceMember {
         name: "multiline",
-        kind: MemberKind::InstanceMethod,
+        kind: MemberKind::InstanceGetter,
         symbol: "__RTS_FN_GL_REGEXP_MULTILINE",
         args: &[AbiType::Handle],
         returns: AbiType::Bool,
