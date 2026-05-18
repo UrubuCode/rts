@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -2236,7 +2236,7 @@
   "status": "rts_diverge",
   "bun": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
   "node": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
-  "rts": "href=[object Function]\npathname=[object Function]\nsearch=[object Function]\nbuilt=https://example.com/"
+  "rts": "href=https://example.com/a/b/d/e?x=1 2\npathname=/a/b/d/e\nsearch=?x=1 2\nbuilt=https://example.com/"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":238,"rts_diverge":26,"bun_node_diverge":3,"errors":45,"rejected":0}}
+],"summary":{"total":312,"pass":237,"rts_diverge":28,"bun_node_diverge":3,"errors":44,"rejected":0}}
