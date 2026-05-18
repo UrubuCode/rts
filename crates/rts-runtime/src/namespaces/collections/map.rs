@@ -969,6 +969,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
         return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
     }
+    // (#253) StringBox unwrap antes do dispatch.
+    let unwrap: Option<u64> = with_entry(handle, |e| match e {
+        Some(Entry::StringBox(h)) => Some(*h),
+        _ => None,
+    });
+    let handle = unwrap.unwrap_or(handle);
     let result: Vec<i64> = with_entry(handle, |e| match e {
         Some(Entry::Map(m)) => {
             // Ordem JS (ECMA-262 OrdinaryOwnPropertyKeys): integer-indexed
