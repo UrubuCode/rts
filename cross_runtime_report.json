@@ -1569,10 +1569,10 @@
 ,
 {
   "name": "277_error_cause",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "e1=msg:root\ne2=TypeError:msg",
   "node": "e1=msg:root\ne2=TypeError:msg",
-  "rts": "e1=msg:root\ne2=TypeError:msg"
+  "rts": "e1=msg:null\ne2=TypeError:null"
 }
 ,
 {
@@ -1585,10 +1585,10 @@
 ,
 {
   "name": "279_error_chain_cause",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "top=top\nmid=mid\nleaf=leaf",
   "node": "top=top\nmid=mid\nleaf=leaf",
-  "rts": "top=top\nmid=mid\nleaf=leaf"
+  "rts": "top=top\nmid=null\nleaf=null"
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -2313,10 +2313,10 @@
 ,
 {
   "name": "77_domexception",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "name=AbortError\nmsg=nope\ncode=20",
   "node": "name=AbortError\nmsg=nope\ncode=20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "name=AbortError\nmsg=nope\ncode=20"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":234,"rts_diverge":27,"bun_node_diverge":3,"errors":48,"rejected":0}}
+],"summary":{"total":312,"pass":233,"rts_diverge":30,"bun_node_diverge":3,"errors":46,"rejected":0}}
