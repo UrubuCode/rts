@@ -199,6 +199,10 @@ pub enum Entry {
     /// `valueOf()` recupera o handle string original. `String(x)` (sem
     /// `new`) mantem caminho primitive.
     StringBox(u64),
+    /// (#289) `Headers` instance — multimap case-insensitive key -> list
+    /// of values. Headers.get junta com ", "; getSetCookie retorna a lista
+    /// raw de "set-cookie" sem juntar.
+    Headers(Box<indexmap::IndexMap<String, Vec<String>>>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,

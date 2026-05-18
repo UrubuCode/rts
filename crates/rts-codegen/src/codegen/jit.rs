@@ -404,6 +404,22 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_TIMERS_SET_IMMEDIATE", __RTS_FN_GL_TIMERS_SET_IMMEDIATE);
     add_fn!("__RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE", __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE);
 
+    // ── namespaces::globals::headers (#289) ───────────────────────────
+    {
+        use crate::namespaces::globals::headers::instance::*;
+        add_fn!("__RTS_FN_GL_HEADERS_NEW", __RTS_FN_GL_HEADERS_NEW);
+        add_fn!("__RTS_FN_GL_HEADERS_NEW_FROM", __RTS_FN_GL_HEADERS_NEW_FROM);
+        add_fn!("__RTS_FN_GL_HEADERS_APPEND", __RTS_FN_GL_HEADERS_APPEND);
+        add_fn!("__RTS_FN_GL_HEADERS_SET", __RTS_FN_GL_HEADERS_SET);
+        add_fn!("__RTS_FN_GL_HEADERS_GET", __RTS_FN_GL_HEADERS_GET);
+        add_fn!("__RTS_FN_GL_HEADERS_HAS", __RTS_FN_GL_HEADERS_HAS);
+        add_fn!("__RTS_FN_GL_HEADERS_DELETE", __RTS_FN_GL_HEADERS_DELETE);
+        add_fn!("__RTS_FN_GL_HEADERS_GET_SET_COOKIE", __RTS_FN_GL_HEADERS_GET_SET_COOKIE);
+        add_fn!("__RTS_FN_GL_HEADERS_ENTRIES", __RTS_FN_GL_HEADERS_ENTRIES);
+        add_fn!("__RTS_FN_GL_HEADERS_KEYS", __RTS_FN_GL_HEADERS_KEYS);
+        add_fn!("__RTS_FN_GL_HEADERS_VALUES", __RTS_FN_GL_HEADERS_VALUES);
+    }
+
     // ── namespaces::globals::fetch ────────────────────────────────────
     use crate::namespaces::globals::fetch::instance::*;
     add_fn!("__RTS_FN_GL_FETCH", __RTS_FN_GL_FETCH);

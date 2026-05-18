@@ -12,6 +12,7 @@ pub mod events;
 pub mod fetch;
 pub mod function;
 pub mod global_this;
+pub mod headers;
 pub mod json;
 pub mod json5;
 pub mod performance;
