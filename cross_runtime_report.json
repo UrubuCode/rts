@@ -2236,7 +2236,7 @@
   "status": "rts_diverge",
   "bun": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
   "node": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
-  "rts": "href=https://example.com/a/b/d/e?x=1 2\npathname=/a/b/d/e\nsearch=?x=1 2\nbuilt=https://example.com/"
+  "rts": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/"
 }
 ,
 {
