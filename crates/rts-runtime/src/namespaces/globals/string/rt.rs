@@ -566,7 +566,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(handle: u64) -> i64 {
         let bytes = b.as_slice();
         let mut i = 0usize;
         while i < bytes.len() {
-            if i + 2 < bytes.len() && bytes[i] == 0xED
+            if i + 3 <= bytes.len() && bytes[i] == 0xED
                 && bytes[i + 1] >= 0xA0 && bytes[i + 1] <= 0xBF
             {
                 return 0_i64;
@@ -587,7 +587,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_WELL_FORMED(handle: u64) -> u64 {
         let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
         let mut i = 0usize;
         while i < bytes.len() {
-            if i + 2 < bytes.len() && bytes[i] == 0xED
+            if i + 3 <= bytes.len() && bytes[i] == 0xED
                 && bytes[i + 1] >= 0xA0 && bytes[i + 1] <= 0xBF
             {
                 out.extend_from_slice(&replacement);
