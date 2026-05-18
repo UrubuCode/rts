@@ -263,7 +263,13 @@ fn try_lower_fn_expr_decl(cm: &Lrc<SourceMap>, var_decl: &VarDecl, out: &mut Vec
                 // body `(a,b) => a+b` virava fn void e o codegen descartava
                 // o valor de retorno.
                 if decl.return_type.is_none() && body_has_return_value(&decl.body) {
-                    decl.return_type = Some("i64".to_string());
+                    // (cross-runtime #294) Detecta string concat em return.
+                    // Se body retorna `a + ":" + b`, inferir handle (string).
+                    if body_returns_string_concat(arrow) {
+                        decl.return_type = Some("string".to_string());
+                    } else {
+                        decl.return_type = Some("i64".to_string());
+                    }
                 }
                 pending.push(decl);
             }
@@ -303,6 +309,36 @@ fn extract_fn_return_type_ann(ts_type: &swc_ecma_ast::TsType) -> Option<Box<swc_
 /// needs to know how to handle block-bodied functions.
 /// (#450) Checa se algum stmt do body lower'ed contem return com valor.
 /// Usado pra inferir return_type quando arrow nao tem anotacao explicita.
+/// (cross-runtime #294) Heuristica simples: body do arrow contem
+/// retorno cuja expr eh BinExpr Add com algum operando String/Tpl.
+fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
+    use swc_ecma_ast::{BinaryOp, Expr};
+    fn expr_yields_string(e: &Expr) -> bool {
+        match e {
+            Expr::Lit(swc_ecma_ast::Lit::Str(_)) => true,
+            Expr::Tpl(_) => true,
+            Expr::Bin(b) if b.op == BinaryOp::Add => {
+                expr_yields_string(&b.left) || expr_yields_string(&b.right)
+            }
+            Expr::Paren(p) => expr_yields_string(&p.expr),
+            _ => false,
+        }
+    }
+    match arrow.body.as_ref() {
+        swc_ecma_ast::BlockStmtOrExpr::Expr(e) => expr_yields_string(e),
+        swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+            b.stmts.iter().any(|s| {
+                if let Stmt::Return(r) = s {
+                    if let Some(e) = r.arg.as_deref() {
+                        return expr_yields_string(e);
+                    }
+                }
+                false
+            })
+        }
+    }
+}
+
 fn body_has_return_value(body: &[rts_ast::ast::Statement]) -> bool {
     use rts_ast::ast::Statement;
     for stmt in body {
