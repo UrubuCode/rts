@@ -1137,10 +1137,10 @@
 ,
 {
   "name": "228_json_parse_reviver",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a=2\nb=4\nc=6\narr=11,12,13",
   "node": "a=2\nb=4\nc=6\narr=11,12,13",
-  "rts": "a=1\nb=2\nc=3\narr=1,2,3"
+  "rts": "a=2\nb=4\nc=6\narr=11,12,13"
 }
 ,
 {
@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=timeout|micro|immediate"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -1716,7 +1716,7 @@
   "status": "rts_diverge",
   "bun": "obj={\"a\":2,\"b\":4}\nseen=2",
   "node": "obj={\"a\":2,\"b\":4}\nseen=2",
-  "rts": "obj={\"a\":1,\"b\":2}\nseen="
+  "rts": "obj=562949953421322\nseen="
 }
 ,
 {
@@ -2100,7 +2100,7 @@
   "status": "rts_diverge",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=4\nparsed_items=1,2,3\nparsed_label=go"
+  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":224,"rts_diverge":29,"bun_node_diverge":4,"errors":55,"rejected":0}}
+],"summary":{"total":312,"pass":225,"rts_diverge":29,"bun_node_diverge":3,"errors":55,"rejected":0}}
