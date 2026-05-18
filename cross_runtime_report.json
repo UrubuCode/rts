@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2364,7 +2364,7 @@
   "status": "rts_diverge",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=fulfilled:1|rejected:281474976710658\nany=281474976710676"
+  "rts": "settled=fulfilled:1|rejected:281474976710658\nany=b"
 }
 ,
 {
@@ -2433,10 +2433,10 @@
 ,
 {
   "name": "92_promise_with_resolvers",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "value=ok",
   "node": "value=ok",
-  "rts": "value=281474976710661"
+  "rts": "value=ok"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":223,"rts_diverge":31,"bun_node_diverge":3,"errors":55,"rejected":0}}
+],"summary":{"total":312,"pass":224,"rts_diverge":29,"bun_node_diverge":4,"errors":55,"rejected":0}}
