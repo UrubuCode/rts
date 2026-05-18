@@ -2201,18 +2201,18 @@
 ,
 {
   "name": "63_event_target",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "ok=true\nlog=a:ping,b",
   "node": "ok=true\nlog=a:ping,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "ok=true\nlog=a:ping,b"
 }
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":232,"rts_diverge":28,"bun_node_diverge":3,"errors":49,"rejected":0}}
+],"summary":{"total":312,"pass":233,"rts_diverge":29,"bun_node_diverge":3,"errors":47,"rejected":0}}
