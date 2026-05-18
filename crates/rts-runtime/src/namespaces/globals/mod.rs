@@ -2,6 +2,7 @@
 //! + JSON, Date, console, globalThis, RegExp, Error family, timers, fetch,
 //! TextEncoder/Decoder, atob/btoa, structuredClone, URL, performance.
 
+pub mod abort;
 pub mod bigint;
 pub mod boolean;
 pub mod console;

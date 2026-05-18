@@ -404,6 +404,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_TIMERS_SET_IMMEDIATE", __RTS_FN_GL_TIMERS_SET_IMMEDIATE);
     add_fn!("__RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE", __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE);
 
+    // ── namespaces::globals::abort (#62) ──────────────────────────────
+    {
+        use crate::namespaces::globals::abort::instance::*;
+        add_fn!("__RTS_FN_GL_ABORT_CONTROLLER_NEW", __RTS_FN_GL_ABORT_CONTROLLER_NEW);
+        add_fn!("__RTS_FN_GL_ABORT_CONTROLLER_SIGNAL", __RTS_FN_GL_ABORT_CONTROLLER_SIGNAL);
+        add_fn!("__RTS_FN_GL_ABORT_CONTROLLER_ABORT", __RTS_FN_GL_ABORT_CONTROLLER_ABORT);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_ABORTED", __RTS_FN_GL_ABORT_SIGNAL_ABORTED);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_REASON", __RTS_FN_GL_ABORT_SIGNAL_REASON);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_ADD_LISTENER", __RTS_FN_GL_ABORT_SIGNAL_ADD_LISTENER);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_REMOVE_LISTENER", __RTS_FN_GL_ABORT_SIGNAL_REMOVE_LISTENER);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_THROW_IF_ABORTED", __RTS_FN_GL_ABORT_SIGNAL_THROW_IF_ABORTED);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_STATIC_ABORT", __RTS_FN_GL_ABORT_SIGNAL_STATIC_ABORT);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_TIMEOUT", __RTS_FN_GL_ABORT_SIGNAL_TIMEOUT);
+    }
+
     // ── namespaces::globals::headers (#289) ───────────────────────────
     {
         use crate::namespaces::globals::headers::instance::*;
