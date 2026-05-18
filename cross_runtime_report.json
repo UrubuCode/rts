@@ -689,10 +689,10 @@
 ,
 {
   "name": "177_string_constructor",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
   "node": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
-  "rts": "valueOf=hello\ntoString=[object Object]\nlength=0\ncharAt=\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3"
+  "rts": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3"
 }
 ,
 {
@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":312,"pass":219,"rts_diverge":34,"bun_node_diverge":3,"errors":56,"rejected":0}}
+],"summary":{"total":312,"pass":220,"rts_diverge":33,"bun_node_diverge":3,"errors":56,"rejected":0}}
