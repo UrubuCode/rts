@@ -38,6 +38,35 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         }
     }
 
+    /// (cross-runtime #294) Detecta se body retorna expr concat com algum
+    /// operando String literal ou Tpl. Heuristica simples — cobre arrows
+    /// como `(x) => x.status + ":" + x.value`.
+    fn body_returns_string_concat(stmts: &[Stmt]) -> bool {
+        use swc_ecma_ast::BinaryOp;
+        fn expr_yields_string(e: &Expr) -> bool {
+            match e {
+                Expr::Lit(swc_ecma_ast::Lit::Str(_)) => true,
+                Expr::Tpl(_) => true,
+                Expr::Bin(b) if b.op == BinaryOp::Add => {
+                    expr_yields_string(&b.left) || expr_yields_string(&b.right)
+                }
+                Expr::Paren(p) => expr_yields_string(&p.expr),
+                _ => false,
+            }
+        }
+        fn check_stmt(s: &Stmt) -> bool {
+            match s {
+                Stmt::Return(r) => r.arg.as_deref().is_some_and(expr_yields_string),
+                Stmt::Block(b) => b.stmts.iter().any(check_stmt),
+                Stmt::If(i) => {
+                    check_stmt(&i.cons) || i.alt.as_deref().is_some_and(check_stmt)
+                }
+                _ => false,
+            }
+        }
+        stmts.iter().any(check_stmt)
+    }
+
     fn body_has_return_value(stmts: &[Stmt]) -> bool {
         for s in stmts {
             if has_return_value_stmt(s) {
@@ -148,8 +177,15 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         // Heuristica: se body tem \`return <expr>\`, declaramos retorno
         // i64. Sem isso, declare_user_fn vira void e o codegen descarta
         // o valor retornado, quebrando \`apply(fn, x)\` e IIFE com retorno.
+        // (cross-runtime #294) Se body retorna string concat
+        // (\`a + ":" + b\`), inferir handle (string) — sem isso, arrow
+        // como `.map(x => x.k + ":" + x.v)` retorna handle bruto.
         let return_type = if body_has_return_value(&body_stmts) {
-            Some("i64".to_string())
+            if body_returns_string_concat(&body_stmts) {
+                Some("string".to_string())
+            } else {
+                Some("i64".to_string())
+            }
         } else {
             None
         };

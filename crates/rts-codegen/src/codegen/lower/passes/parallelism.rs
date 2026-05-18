@@ -924,10 +924,35 @@ fn try_lift_arrow_arg(
         ));
     }
 
+    // (cross-runtime #83/#294) Se body retorna concat com string literal,
+    // infere "string" pra que TPL_COERCE formate handle corretamente.
+    // Detecta via inspecao do body_stmts (cuidado: body_expr ja' foi
+    // consumido em body_stmts acima).
+    fn yields_string(e: &Expr) -> bool {
+        use swc_ecma_ast::BinaryOp;
+        match e {
+            Expr::Lit(swc_ecma_ast::Lit::Str(_)) => true,
+            Expr::Tpl(_) => true,
+            Expr::Bin(b) if b.op == BinaryOp::Add => {
+                yields_string(&b.left) || yields_string(&b.right)
+            }
+            Expr::Paren(p) => yields_string(&p.expr),
+            _ => false,
+        }
+    }
+    let ret_string = body_stmts.iter().any(|st| {
+        if let Statement::Raw(raw) = st {
+            if let Some(Stmt::Return(r)) = raw.stmt.as_ref() {
+                return r.arg.as_deref().is_some_and(yields_string);
+            }
+        }
+        false
+    });
+    let return_type = if ret_string { "string" } else { "i64" }.to_string();
     new_fns.push(Item::Function(FunctionDecl {
         name: fn_name.clone(),
         parameters,
-        return_type: Some("i64".to_string()),
+        return_type: Some(return_type),
         body: body_stmts,
         span: Span::default(),
         is_async: false,
