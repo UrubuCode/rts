@@ -1,0 +1,290 @@
+{
+  "date": "2026-05-18",
+  "summary": {
+    "total": 312,
+    "pass": 240,
+    "rts_diverge": 25,
+    "bun_node_diverge": 3,
+    "errors": 44,
+    "rejected": 0
+  },
+  "pct": 77.7,
+  "divergent": [
+    {
+      "name": "100_dynamic_import",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "101_textdecoder_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "108_generator_functions",
+      "status": "rts_error"
+    },
+    {
+      "name": "109_async_generator",
+      "status": "rts_error"
+    },
+    {
+      "name": "116_promise_finally",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "204_typedarray_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "205_arraybuffer_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "206_dataview_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "245_number_valueof",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "261_string_matchall",
+      "status": "rts_error"
+    },
+    {
+      "name": "267_private_fields",
+      "status": "rts_error"
+    },
+    {
+      "name": "268_private_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "269_static_blocks",
+      "status": "rts_error"
+    },
+    {
+      "name": "270_new_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "271_computed_class_members",
+      "status": "rts_error"
+    },
+    {
+      "name": "272_symbol_iterator_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "273_symbol_asynciterator",
+      "status": "rts_error"
+    },
+    {
+      "name": "274_symbol_toprimitive",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "275_generator_yieldstar",
+      "status": "rts_error"
+    },
+    {
+      "name": "276_generator_return_throw",
+      "status": "rts_error"
+    },
+    {
+      "name": "285_queuemicrotask_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "286_setimmediate",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "291_json_bigint",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "292_json_tojson",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "293_json_reviver_this",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "299_arguments_object",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "300_this_strict_top_level",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "303_array_fromasync",
+      "status": "rts_error"
+    },
+    {
+      "name": "304_promise_try",
+      "status": "rts_error"
+    },
+    {
+      "name": "305_iterator_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "306_iterator_toarray",
+      "status": "rts_error"
+    },
+    {
+      "name": "310_console_group",
+      "status": "rts_error"
+    },
+    {
+      "name": "311_console_table",
+      "status": "rts_error"
+    },
+    {
+      "name": "312_console_dir",
+      "status": "rts_error"
+    },
+    {
+      "name": "314_import_meta",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "317_bigint_literals",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "40_object_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "41_closures_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "42_promise_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "45_array_iterators_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "50_json_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "51_coercion_weird",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "53_proxy_reflect",
+      "status": "rts_error"
+    },
+    {
+      "name": "55_url_searchparams",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "56_microtask_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "57_dataview_endianness",
+      "status": "rts_error"
+    },
+    {
+      "name": "58_text_encoding",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "59_intl_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "64_readable_stream",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "65_bigint_typed_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "67_url_patternish",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "68_arraybuffer_transfer_clone",
+      "status": "rts_error"
+    },
+    {
+      "name": "69_atomics_sharedarraybuffer",
+      "status": "rts_error"
+    },
+    {
+      "name": "70_regex_indices",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "71_intl_segmenter",
+      "status": "rts_error"
+    },
+    {
+      "name": "74_blob_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "75_file_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "76_message_channel",
+      "status": "rts_error"
+    },
+    {
+      "name": "78_intl_more",
+      "status": "rts_error"
+    },
+    {
+      "name": "79_subtle_digest",
+      "status": "rts_error"
+    },
+    {
+      "name": "82_dataview_floats",
+      "status": "rts_error"
+    },
+    {
+      "name": "84_abortsignal_advanced",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "85_request_response",
+      "status": "rts_error"
+    },
+    {
+      "name": "86_blob_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "88_compression_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "93_typedarray_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "94_sparse_array_enumeration",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "96_streams_transform",
+      "status": "rts_error"
+    },
+    {
+      "name": "98_proxy_invariants",
+      "status": "rts_error"
+    }
+  ]
+}
