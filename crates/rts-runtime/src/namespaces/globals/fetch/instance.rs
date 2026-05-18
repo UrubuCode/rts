@@ -349,6 +349,78 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
     alloc_entry(Entry::PromiseAsync(slot)) as i64
 }
 
+/// (cross-runtime #92) `Promise.withResolvers()` — ES2024.
+/// Retorna Map { promise, resolve, reject }. `resolve(v)` e `reject(e)`
+/// sao Function handles que settle a promise quando chamados.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
+    use indexmap::IndexMap;
+    let slot = crate::namespaces::gc::promise_slot::new_pending();
+    let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
+    // Resolve/reject sao Function handles que armazenam `promise_h` em
+    // bound_args[0] — quando invocados, resolvem o slot embutido.
+    let resolve_h = make_resolver_fn(promise_h, true);
+    let reject_h = make_resolver_fn(promise_h, false);
+    let mut obj: IndexMap<String, i64> = IndexMap::new();
+    obj.insert("promise".to_string(), promise_h as i64);
+    obj.insert("resolve".to_string(), resolve_h as i64);
+    obj.insert("reject".to_string(), reject_h as i64);
+    alloc_entry(Entry::Map(Box::new(obj)))
+}
+
+/// Helper: cria Function handle que ao ser invocado chama resolve/reject
+/// no slot armazenado em bound_args[0].
+fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry};
+    let fn_ptr = if is_resolve {
+        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE as usize as u64
+    } else {
+        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT as usize as u64
+    };
+    alloc_entry(Entry::Function(Box::new(FunctionData {
+        fn_ptr,
+        arity: 1,
+        name: (if is_resolve { "resolve" } else { "reject" }).to_string().into_boxed_str(),
+        bound_this: 0,
+        has_bound_this: false,
+        bound_args: vec![promise_h as i64],
+        is_arrow: false,
+        has_this_param: false,
+        param_kinds: vec![0u8, 0u8], // promise_h, value (ambos i64)
+        return_kind: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+    })))
+}
+
+/// Trampolim resolve — invocado via FUNCTION_CALL com [promise_h, value].
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE(promise_h: i64, value: i64) -> i64 {
+    use crate::namespaces::gc::{handles::Entry, handles::with_entry, promise_slot};
+    let slot = with_entry(promise_h as u64, |e| match e {
+        Some(Entry::PromiseAsync(s)) => Some(s.clone()),
+        _ => None,
+    });
+    if let Some(s) = slot {
+        promise_slot::resolve(&s, value);
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT(promise_h: i64, value: i64) -> i64 {
+    use crate::namespaces::gc::{handles::Entry, handles::with_entry, promise_slot};
+    let slot = with_entry(promise_h as u64, |e| match e {
+        Some(Entry::PromiseAsync(s)) => Some(s.clone()),
+        _ => None,
+    });
+    if let Some(s) = slot {
+        promise_slot::reject(&s, value);
+    }
+    0
+}
+
 // ── Response instance methods ─────────────────────────────────────────────────
 
 fn with_response<T>(h: u64, f: impl FnOnce(&HttpResponseData) -> T) -> Option<T> {

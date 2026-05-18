@@ -227,6 +227,17 @@ pub const PROMISE_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    NamespaceMember {
+        name: "withResolvers",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_GL_PROMISE_WITH_RESOLVERS",
+        args: &[],
+        returns: AbiType::Handle,
+        doc: "Promise.withResolvers() — ES2024: cria { promise, resolve, reject }. Util pra fora-do-construtor settle.",
+        ts_signature: "static withResolvers<T>(): { promise: Promise<T>, resolve: (v: T) => void, reject: (e: any) => void }",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const PROMISE_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
