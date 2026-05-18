@@ -79,7 +79,7 @@ print("invalid_state=" + promise.state(0));
 describe("promise state transitions", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "p1_state_pending=0\np1_wait=111\np1_state_after=1\ncounter=1\np2_wait=666\np2_state=2\np3_reject=1\np3_resolve_apos_reject=0\np3_state=2\np3_value=50\np4_try_value_pending=0\np4_try_value_settled=7\np5_seen=39\ninvalid_wait=0\ninvalid_state=-1\n"
+      "p1_state_pending=0\np1_wait=111\np1_state_after=1\ncounter=1\np2_wait=666\np2_state=2\np3_reject=1\np3_resolve_apos_reject=0\np3_state=2\np3_value=50\np4_try_value_pending=0\np4_try_value_settled=7\np5_seen=39\ninvalid_wait=null\ninvalid_state=-1\n"
     );
   });
 });

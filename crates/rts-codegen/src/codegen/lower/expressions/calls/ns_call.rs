@@ -318,6 +318,9 @@ pub(super) fn lower_ns_call_body(
             | "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT"
             | "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT"
             | "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT"
+            // (#92) promise.wait retorna i64 ambiguo: handle de string OU
+            // valor inteiro. Marca pra TPL_COERCE_AUTO resolver em runtime.
+            | "__RTS_FN_NS_PROMISE_WAIT"
         ) {
             ctx.var_member_call_values.insert(v);
         }

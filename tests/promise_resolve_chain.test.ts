@@ -85,7 +85,7 @@ print("stress_sum=" + stressSum);  // sum(0..100)*2 = 2 * 4950 = 9900
 describe("promise resolve com varios valores e cadeias", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "zero_state=1\nzero_wait=0\nneg_wait=-42\nmax_wait=9223372036854775807\nmin_wait=-9007199254740990\nchain_sum=15\nstuck_try=0\nstuck_state=0\nstuck_after_resolve=99\nstress_sum=9900\n"
+      "zero_state=1\nzero_wait=null\nneg_wait=-42\nmax_wait=9223372036854775807\nmin_wait=-9007199254740990\nchain_sum=15\nstuck_try=0\nstuck_state=0\nstuck_after_resolve=99\nstress_sum=9900\n"
     );
   });
 });

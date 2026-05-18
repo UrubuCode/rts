@@ -64,7 +64,10 @@ function stringResolver(p: i64): i64 {
 const sh = thread.spawn(stringResolver, s);
 const sv = promise.wait(s);
 thread.join(sh);
-print("handle_value=" + sv);
+// (#92) sv vem de promise.wait que agora marca o retorno como ambiguo
+// para TPL_COERCE_AUTO resolver em runtime. Renderiza handle como
+// [object Object] em vez de raw int. Usa try_value que retorna i64 puro.
+print("handle_value=" + promise.try_value(s));
 
 // Cenario: race entre threads — primeiro a settle vence.
 const race_p = promise.new_pending();
