@@ -1681,6 +1681,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_LOCALE_COMPARE",   rt::__RTS_FN_GL_STRING_LOCALE_COMPARE);
     add_fn!("__RTS_FN_GL_STRING_TO_STRING",        rt::__RTS_FN_GL_STRING_TO_STRING);
     add_fn!("__RTS_FN_GL_STRING_IS_WELL_FORMED",   rt::__RTS_FN_GL_STRING_IS_WELL_FORMED);
+    add_fn!("__RTS_FN_GL_STRING_TO_WELL_FORMED",   rt::__RTS_FN_GL_STRING_TO_WELL_FORMED);
     add_fn!("__RTS_FN_GL_STRING_NORMALIZE",        rt::__RTS_FN_GL_STRING_NORMALIZE);
     add_fn!("__RTS_FN_GL_STRING_LENGTH_UTF16",     rt::__RTS_FN_GL_STRING_LENGTH_UTF16);
 

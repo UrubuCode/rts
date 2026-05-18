@@ -467,8 +467,14 @@ pub(super) fn lower_string_builtin(
             let v = call_h!("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, other]);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        "toString" | "valueOf" | "toWellFormed" => {
+        "toString" | "valueOf" => {
             let v = call_h!("__RTS_FN_GL_STRING_TO_STRING", &[cl::I64], Some(cl::I64), &[recv_h]);
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        "toWellFormed" => {
+            // (#91) Routing correto: substitui lone surrogates por U+FFFD.
+            // Antes ia para STRING_TO_STRING (identity) — bug de routing.
+            let v = call_h!("__RTS_FN_GL_STRING_TO_WELL_FORMED", &[cl::I64], Some(cl::I64), &[recv_h]);
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "normalize" => {
