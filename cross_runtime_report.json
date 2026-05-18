@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -2009,10 +2009,10 @@
 ,
 {
   "name": "39_regex_deep",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
   "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "rts": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=t\nlast1=7\ng2=t\nlast2=19\nflag_m=true\nflag_s=true"
+  "rts": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true"
 }
 ,
 {
@@ -2345,10 +2345,10 @@
 ,
 {
   "name": "81_regex_named_groups",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "word=abbb",
   "node": "word=abbb",
-  "rts": "word=null"
+  "rts": "word=abbb"
 }
 ,
 {
@@ -2489,10 +2489,10 @@
 ,
 {
   "name": "99_regexp_unicode",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "words=café|λ\nchars=A|😀|B\nnamed=λ",
   "node": "words=café|λ\nchars=A|😀|B\nnamed=λ",
-  "rts": "words=café|λ\nchars=A|😀|B\nnamed=null"
+  "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":228,"rts_diverge":31,"bun_node_diverge":3,"errors":50,"rejected":0}}
+],"summary":{"total":312,"pass":232,"rts_diverge":27,"bun_node_diverge":3,"errors":50,"rejected":0}}
