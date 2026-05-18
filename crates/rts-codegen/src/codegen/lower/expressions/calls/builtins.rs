@@ -435,15 +435,17 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         // (#208) `s.matchAll(pattern)` — iterador de capture arrays.
+        // (#261) Detecta literal regex em compile-time; em runtime tambem
+        // detecta handle Regex via IS_REGEX (cobre `s.matchAll(re)` com re var).
         "matchAll" => {
             use swc_ecma_ast::{Expr, Lit};
-            let is_regex_arg = call.args.first()
+            let is_regex_lit = call.args.first()
                 .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
                 .unwrap_or(false);
             let p1 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[recv_h]);
             let l1 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[recv_h]);
             let pattern = arg_handle(ctx, call, 0)?;
-            if is_regex_arg {
+            if is_regex_lit {
                 let v = call_h!(
                     "__RTS_FN_NS_STRING_MATCH_ALL_REGEX",
                     &[cl::I64, cl::I64, cl::I64],
@@ -452,15 +454,49 @@ pub(super) fn lower_string_builtin(
                 );
                 return Ok(Some(TypedVal::new(v, ValTy::Handle)));
             }
+            // Runtime dispatch: pattern pode ser handle Regex OU string.
+            // Usa IS_REGEX para escolher path correto sem segfault em
+            // STRING_PTR(regex_handle).
+            let is_regex = call_h!(
+                "__RTS_FN_NS_GC_IS_REGEX",
+                &[cl::I64],
+                Some(cl::I64),
+                &[pattern]
+            );
+            use cranelift_codegen::ir::condcodes::IntCC;
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let cond = ctx.builder.ins().icmp(IntCC::NotEqual, is_regex, zero);
+            let rx_block = ctx.builder.create_block();
+            let str_block = ctx.builder.create_block();
+            let merge = ctx.builder.create_block();
+            let result = ctx.builder.append_block_param(merge, cl::I64);
+            ctx.builder.ins().brif(cond, rx_block, &[], str_block, &[]);
+
+            ctx.builder.switch_to_block(rx_block);
+            ctx.builder.seal_block(rx_block);
+            let v_rx = call_h!(
+                "__RTS_FN_NS_STRING_MATCH_ALL_REGEX",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+                &[p1, l1, pattern]
+            );
+            ctx.builder.ins().jump(merge, &[v_rx.into()]);
+
+            ctx.builder.switch_to_block(str_block);
+            ctx.builder.seal_block(str_block);
             let p2 = call_h!("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64), &[pattern]);
             let l2 = call_h!("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64), &[pattern]);
-            let v = call_h!(
+            let v_s = call_h!(
                 "__RTS_FN_NS_STRING_MATCH_ALL",
                 &[cl::I64, cl::I64, cl::I64, cl::I64],
                 Some(cl::I64),
                 &[p1, l1, p2, l2]
             );
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+            ctx.builder.ins().jump(merge, &[v_s.into()]);
+
+            ctx.builder.switch_to_block(merge);
+            ctx.builder.seal_block(merge);
+            Ok(Some(TypedVal::new(result, ValTy::Handle)))
         }
         "localeCompare" => {
             let other = arg_handle(ctx, call, 0)?;
