@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1721,10 +1721,10 @@
 ,
 {
   "name": "294_arrow_rest_params",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a=1:0:\nb=1:3:2,3,4",
   "node": "a=1:0:\nb=1:3:2,3,4",
-  "rts": "a=281474976710667\nb=281474976710681"
+  "rts": "a=1:0:\nb=1:3:2,3,4"
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":233,"rts_diverge":29,"bun_node_diverge":3,"errors":47,"rejected":0}}
+],"summary":{"total":312,"pass":234,"rts_diverge":27,"bun_node_diverge":3,"errors":48,"rejected":0}}
