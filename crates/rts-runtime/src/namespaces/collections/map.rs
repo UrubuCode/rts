@@ -284,11 +284,21 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: u64, key_h: u64, val
 
 /// (cross-runtime #753) `MAP_GET` aceitando key como handle. Retorna
 /// 0 se ausente (use OBJ_HAS pra distinguir).
+/// (#94) Receiver Vec: tenta parse de key como int e usa VEC_GET. Sem
+/// isso, `arr[k as any]` (k = "0", "1", ...) sempre retornava 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: u64, key_h: u64) -> i64 {
     let Some(key) = key_handle_to_string(key_h) else {
         return 0;
     };
+    // Vec path: parse key como array index.
+    let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        if let Some(n) = parse_array_index(&key) {
+            return super::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(obj_h, n as i64);
+        }
+        return 0;
+    }
     with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
 }
 
