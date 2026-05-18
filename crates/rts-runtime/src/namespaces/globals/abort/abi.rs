@@ -125,6 +125,17 @@ pub const ABORT_SIGNAL_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    NamespaceMember {
+        name: "any",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_GL_ABORT_SIGNAL_ANY",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "AbortSignal.any(signals) — aborta quando qualquer signal abortar.",
+        ts_signature: "static any(signals: AbortSignal[]): AbortSignal",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const ABORT_SIGNAL_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {

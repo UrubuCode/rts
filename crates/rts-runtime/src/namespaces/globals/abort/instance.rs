@@ -195,6 +195,72 @@ pub extern "C" fn __RTS_FN_GL_ABORT_SIGNAL_STATIC_ABORT(reason: u64) -> u64 {
     sig
 }
 
+/// AbortSignal.any(signals) — cria signal que aborta quando qualquer
+/// signal da lista abortar. Se algum ja' esta aborted, o resultado nasce
+/// aborted com a mesma reason. Caso contrario, adiciona listener em cada
+/// signal pra abortar o composto.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ABORT_SIGNAL_ANY(signals_arr_h: u64) -> u64 {
+    let signals: Vec<u64> = with_entry(signals_arr_h, |e| match e {
+        Some(Entry::Vec(v)) => v.iter().map(|&x| x as u64).collect(),
+        _ => Vec::new(),
+    });
+    let result = new_signal();
+    // Checa se algum ja' esta aborted.
+    for &sig_h in &signals {
+        let (is_ab, reason): (i64, u64) = with_entry(sig_h, |e| match e {
+            Some(Entry::Map(m)) => (
+                m.get("aborted").copied().unwrap_or(0),
+                m.get("reason").copied().unwrap_or(0) as u64,
+            ),
+            _ => (0, 0),
+        });
+        if is_ab != 0 {
+            with_entry_mut(result, |e| {
+                if let Some(Entry::Map(m)) = e {
+                    m.insert("aborted".to_string(), 1);
+                    m.insert("reason".to_string(), reason as i64);
+                }
+            });
+            return result;
+        }
+    }
+    // Senao, adiciona um "listener bridge" em cada signal: spawn thread
+    // que polla o aborted (simples mas funciona pra fixtures sync).
+    // V2 ideal: forwardar via callback no addEventListener.
+    let result_clone = result;
+    let signals_clone = signals.clone();
+    std::thread::spawn(move || {
+        // Polling rapido — 500us, ate 5s.
+        for _ in 0..10_000 {
+            for &sig_h in &signals_clone {
+                let (is_ab, reason): (i64, u64) = with_entry(sig_h, |e| match e {
+                    Some(Entry::Map(m)) => (
+                        m.get("aborted").copied().unwrap_or(0),
+                        m.get("reason").copied().unwrap_or(0) as u64,
+                    ),
+                    _ => (0, 0),
+                });
+                if is_ab != 0 {
+                    let listeners_h: u64 = with_entry_mut(result_clone, |e| {
+                        if let Some(Entry::Map(m)) = e {
+                            m.insert("aborted".to_string(), 1);
+                            m.insert("reason".to_string(), reason as i64);
+                            m.get("listeners").copied().unwrap_or(0) as u64
+                        } else {
+                            0
+                        }
+                    });
+                    invoke_listeners(listeners_h);
+                    return;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_micros(500));
+        }
+    });
+    result
+}
+
 /// AbortSignal.timeout(ms) — cria signal que aborta apos ms.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ABORT_SIGNAL_TIMEOUT(ms: i64) -> u64 {

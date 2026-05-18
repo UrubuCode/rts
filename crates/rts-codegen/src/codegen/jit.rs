@@ -439,6 +439,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_ABORT_SIGNAL_THROW_IF_ABORTED", __RTS_FN_GL_ABORT_SIGNAL_THROW_IF_ABORTED);
         add_fn!("__RTS_FN_GL_ABORT_SIGNAL_STATIC_ABORT", __RTS_FN_GL_ABORT_SIGNAL_STATIC_ABORT);
         add_fn!("__RTS_FN_GL_ABORT_SIGNAL_TIMEOUT", __RTS_FN_GL_ABORT_SIGNAL_TIMEOUT);
+        add_fn!("__RTS_FN_GL_ABORT_SIGNAL_ANY", __RTS_FN_GL_ABORT_SIGNAL_ANY);
     }
 
     // ── namespaces::globals::headers (#289) ───────────────────────────
