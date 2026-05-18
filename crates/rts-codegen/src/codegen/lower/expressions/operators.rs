@@ -1050,17 +1050,26 @@ pub(super) fn lower_cond(ctx: &mut FnCtx, cond: &swc_ecma_ast::CondExpr) -> Resu
     ctx.builder.switch_to_block(then_block);
     ctx.builder.seal_block(then_block);
     let cons = lower_expr(ctx, &cond.cons)?;
+    let cons_ambig = ctx.var_member_call_values.contains(&cons.val);
     let cons_val = coerce_result(ctx, cons, result_ty)?;
     ctx.builder.ins().jump(merge_block, &[cons_val.into()]);
 
     ctx.builder.switch_to_block(else_block);
     ctx.builder.seal_block(else_block);
     let alt = lower_expr(ctx, &cond.alt)?;
+    let alt_ambig = ctx.var_member_call_values.contains(&alt.val);
     let alt_val = coerce_result(ctx, alt, result_ty)?;
     ctx.builder.ins().jump(merge_block, &[alt_val.into()]);
 
     ctx.builder.switch_to_block(merge_block);
     ctx.builder.seal_block(merge_block);
+    // (#83) Propaga ambiguity para o block param do merge — se algum
+    // branch retornou I64 ambiguo (handle de string ou numero), o
+    // resultado tambem eh ambiguo. Sem isso, `cond ? a : b` em concat
+    // formatava handle como numero raw.
+    if cons_ambig || alt_ambig {
+        ctx.var_member_call_values.insert(result_param);
+    }
     Ok(TypedVal::new(result_param, result_ty))
 }
 
