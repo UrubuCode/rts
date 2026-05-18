@@ -851,18 +851,65 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> 
 /// Em JS spec retorna Array Iterator; v0 RTS retorna Vec direto
 /// (compativel com `for-of` e `.join()`). Iterator real exige
 /// Symbol.iterator (PR separada).
+/// (#61) Tambem suporta Map/Set handle: retorna values do Map. Set em
+/// RTS eh Map onde key==value (semantica de `new Set([x,y])`).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
-    let copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    alloc_entry(Entry::Vec(Box::new(copy)))
+    use super::super::gc::handles::with_entry;
+    // (#61) Set armazena value=1 marker no Map<String,i64>; values reais
+    // sao as keys. Detecta via handle_is_set_kind antes do match Map.
+    let is_set = crate::namespaces::collections::map::handle_is_set_kind(handle);
+    enum Kind { Vec(Vec<i64>), MapVals(Vec<i64>), SetKeys(Vec<String>), Other }
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => Kind::Vec((**v).clone()),
+        Some(Entry::Map(m)) => {
+            if is_set {
+                Kind::SetKeys(m.keys().cloned().collect())
+            } else {
+                Kind::MapVals(m.values().copied().collect())
+            }
+        }
+        _ => Kind::Other,
+    });
+    let out: Vec<i64> = match kind {
+        Kind::Vec(v) | Kind::MapVals(v) => v,
+        Kind::SetKeys(keys) => keys
+            .into_iter()
+            .map(|k| {
+                // Tenta interpretar key como inteiro (Set de numeros) — JS Set
+                // mantem o tipo original. Fallback: aloca como string.
+                if let Ok(n) = k.parse::<i64>() {
+                    n
+                } else {
+                    alloc_entry(Entry::String(k.into_bytes())) as i64
+                }
+            })
+            .collect(),
+        Kind::Other => Vec::new(),
+    };
+    alloc_entry(Entry::Vec(Box::new(out)))
 }
 
 /// (#208) `arr.keys()` — Vec [0, 1, ..., len-1].
+/// (#61) Tambem suporta Map: retorna chaves como string handles.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
-    let len = with_vec(handle, 0, |v| v.len());
-    let keys: Vec<i64> = (0..len as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(keys)))
+    use super::super::gc::handles::with_entry;
+    enum Kind { Vec(usize), Map(Vec<String>), Other }
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => Kind::Vec(v.len()),
+        Some(Entry::Map(m)) => Kind::Map(m.keys().cloned().collect()),
+        _ => Kind::Other,
+    });
+    let out: Vec<i64> = match kind {
+        Kind::Vec(len) => (0..len as i64).collect(),
+        Kind::Map(keys) => keys
+            .into_iter()
+            .map(|k| alloc_entry(Entry::String(k.into_bytes())) as i64)
+            .collect(),
+        Kind::Other => Vec::new(),
+    };
+    alloc_entry(Entry::Vec(Box::new(out)))
 }
 
 /// (#208 ES2023) `arr.toSorted()` — sort imutavel: clona, ordena, retorna novo handle.
@@ -964,13 +1011,36 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value:
 
 /// (#208) `arr.entries()` — Vec de Vec[[idx, value], ...].
 /// Cada entry e' um Vec<i64> com 2 elementos.
+/// (#61) Tambem suporta Map handle: entries de [key_str_handle, value].
+/// Quando codegen nao sabe se o receiver eh Map ou Vec (member access em
+/// var ambigua), este path generico funciona pra ambos.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_ENTRIES(handle: u64) -> u64 {
-    let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    let mut out: Vec<i64> = Vec::with_capacity(items.len());
-    for (i, val) in items.into_iter().enumerate() {
-        let pair = alloc_entry(Entry::Vec(Box::new(vec![i as i64, val])));
-        out.push(pair as i64);
+    use super::super::gc::handles::with_entry;
+    enum Kind { Vec(Vec<i64>), Map(Vec<(String, i64)>), Other }
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => Kind::Vec((**v).clone()),
+        Some(Entry::Map(m)) => Kind::Map(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
+        _ => Kind::Other,
+    });
+    let mut out: Vec<i64> = Vec::new();
+    match kind {
+        Kind::Vec(items) => {
+            out.reserve(items.len());
+            for (i, val) in items.into_iter().enumerate() {
+                let pair = alloc_entry(Entry::Vec(Box::new(vec![i as i64, val])));
+                out.push(pair as i64);
+            }
+        }
+        Kind::Map(items) => {
+            out.reserve(items.len());
+            for (k, v) in items {
+                let key_h = alloc_entry(Entry::String(k.into_bytes())) as i64;
+                let pair = alloc_entry(Entry::Vec(Box::new(vec![key_h, v])));
+                out.push(pair as i64);
+            }
+        }
+        Kind::Other => {}
     }
     alloc_entry(Entry::Vec(Box::new(out)))
 }
