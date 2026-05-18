@@ -76,7 +76,7 @@
   "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": ""
 }
 ,
 {
@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|micro|timeout"
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
