@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -1673,10 +1673,10 @@
 ,
 {
   "name": "289_headers_getsetcookie",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "type=function\nvals=a=1|b=2",
   "node": "type=function\nvals=a=1|b=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "type=function\nvals=a=1|b=2"
 }
 ,
 {
@@ -2281,10 +2281,10 @@
 ,
 {
   "name": "73_headers",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "get=1, 3\nentries=x-a=1, 3|x-b=2",
   "node": "get=1, 3\nentries=x-a=1, 3|x-b=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "get=1, 3\nentries=x-a=1, 3|x-b=2"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=null"
 }
 
-],"summary":{"total":312,"pass":226,"rts_diverge":31,"bun_node_diverge":3,"errors":52,"rejected":0}}
+],"summary":{"total":312,"pass":228,"rts_diverge":31,"bun_node_diverge":3,"errors":50,"rejected":0}}
