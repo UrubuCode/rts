@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -1913,10 +1913,10 @@
 ,
 {
   "name": "316_structuredclone_mixed",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=null:null"
+  "rts": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2473,10 +2473,10 @@
 ,
 {
   "name": "97_structured_clone_edge",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "date=2024-05-10T00:00:00.000Z\nregex=null:null\nerror=Error:boom\nself=true"
+  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":235,"rts_diverge":30,"bun_node_diverge":3,"errors":44,"rejected":0}}
+],"summary":{"total":312,"pass":238,"rts_diverge":26,"bun_node_diverge":3,"errors":45,"rejected":0}}
