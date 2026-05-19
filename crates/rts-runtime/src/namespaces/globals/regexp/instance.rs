@@ -90,8 +90,14 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
             }
             // Coleta captures (0..N).
             let mut groups_vec: Vec<Option<String>> = Vec::with_capacity(caps.len());
+            // (#regex-d) Coleta indices [start, end] absolutos por capture
+            // quando flag 'd' (hasIndices) esta setada.
+            let has_indices = rx.flags.contains('d');
+            let mut indices_vec: Vec<Option<(usize, usize)>> = Vec::with_capacity(caps.len());
             for i in 0..caps.len() {
-                groups_vec.push(caps.get(i).map(|m| m.as_str().to_string()));
+                let m = caps.get(i);
+                groups_vec.push(m.map(|mm| mm.as_str().to_string()));
+                indices_vec.push(m.map(|mm| (start + mm.start(), start + mm.end())));
             }
             // Coleta named groups.
             let mut named_groups: Vec<(String, Option<String>)> = Vec::new();
@@ -99,12 +105,13 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
                 let m = caps.name(name).map(|m| m.as_str().to_string());
                 named_groups.push((name.to_string(), m));
             }
-            Some((groups_vec, named_groups, abs_start, s_full.clone()))
+            let indices = if has_indices { Some(indices_vec) } else { None };
+            Some((groups_vec, named_groups, abs_start, s_full.clone(), indices))
         } else {
             None
         }
     });
-    let Some((groups_vec, named_groups, idx, input)) = result else {
+    let Some((groups_vec, named_groups, idx, input, indices)) = result else {
         return 0;
     };
     // Monta Map com slots "0".."N", "length", "index", "input", "groups".
@@ -135,6 +142,27 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
         alloc_entry(Entry::Map(Box::new(gmap))) as i64
     };
     map.insert("groups".to_string(), groups_v);
+    // (#regex-d) indices: Vec<[start, end]> quando flag 'd' setada;
+    // undefined caso contrario. JSON.stringify renderiza como
+    // `[[s,e],[s,e],...]`.
+    let indices_v = match indices {
+        Some(vec) => {
+            let mut outer: Vec<i64> = Vec::with_capacity(vec.len());
+            for opt in vec {
+                let pair_h: i64 = match opt {
+                    Some((s, e)) => {
+                        let pair = vec![s as i64, e as i64];
+                        alloc_entry(Entry::Vec(Box::new(pair))) as i64
+                    }
+                    None => i64::MIN + 2,
+                };
+                outer.push(pair_h);
+            }
+            alloc_entry(Entry::Vec(Box::new(outer))) as i64
+        }
+        None => i64::MIN + 2,
+    };
+    map.insert("indices".to_string(), indices_v);
     alloc_entry(Entry::Map(Box::new(map)))
 }
 
