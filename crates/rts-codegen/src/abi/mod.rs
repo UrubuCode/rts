@@ -89,6 +89,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::globals::text_encoding::abi::SPEC,
     &crate::namespaces::globals::performance::abi::SPEC,
     &crate::namespaces::globals::url::abi::SPEC,
+    &crate::namespaces::globals::global_this::abi::SPEC,
     &crate::namespaces::events::abi::SPEC,
 ];
 
