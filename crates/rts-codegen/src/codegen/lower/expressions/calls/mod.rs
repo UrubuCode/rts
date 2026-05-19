@@ -420,13 +420,37 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::U64));
                 }
-                // JSON.stringify(value, replacer_array) — 2-arg, replacer e' array de keys.
+                // JSON.stringify(value, replacer) — 2-arg. Replacer pode ser
+                // array de keys (filtra props) ou fn (transforma valores).
+                // Detecta tipo do arg em AST: array literal/Ident array -> KEYS,
+                // arrow/fn -> REPLACER_FN, senao tenta dispatch generico (array).
                 if qualified == "JSON.stringify" && call.args.len() == 2 {
                     if call.args.iter().any(|a| a.spread.is_some()) {
                         return Err(anyhow!("spread not supported in JSON.stringify"));
                     }
                     let v_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let v_h = ctx.coerce_to_i64(v_tv).val;
+                    let arg1 = call.args[1].expr.as_ref();
+                    // Detecta fn replacer: Arrow/Fn literal, OR Ident que
+                    // resolve para user fn (incl. hoisted arrows).
+                    let is_fn_replacer = matches!(arg1, Expr::Arrow(_) | Expr::Fn(_))
+                        || matches!(arg1, Expr::Ident(id)
+                            if ctx.user_fns.contains_key(id.sym.as_str())
+                            && ctx.var_ty(id.sym.as_str()).is_none());
+                    if is_fn_replacer {
+                        let r_h = lower_callable_target_h(ctx, &call.args[1].expr)?;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[v_h, r_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(crate::codegen::lower::ctx::TypedVal::new(
+                            v,
+                            crate::codegen::lower::ctx::ValTy::Handle,
+                        ));
+                    }
                     let r_tv = lower_expr(ctx, &call.args[1].expr)?;
                     if matches!(r_tv.ty, ValTy::Handle) {
                         let r_h = r_tv.val;

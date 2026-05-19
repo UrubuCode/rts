@@ -425,6 +425,61 @@ fn date_iso_quoted(ms: i64) -> String {
     )
 }
 
+/// (cross-runtime #50) `JSON.stringify(value, replacer_fn)` — aplica
+/// replacer recursivamente walk-top-down (key, value), depois stringify.
+/// Cada chamada cria handle valor copia (snapshot) e substitui por
+/// retorno do replacer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN(handle: u64, replacer_h: u64) -> u64 {
+    let transformed = apply_stringify_replacer(replacer_h, "", handle);
+    if is_undefined_handle(transformed) {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    __RTS_FN_NS_JSON_STRINGIFY(transformed)
+}
+
+/// Walk top-down: invoca replacer(key, value), depois recursa em children
+/// do retorno (se Map/Vec). Cria Map/Vec NOVO em vez de mutar o original
+/// (sem isso, segunda chamada JSON.stringify ve estado mutado).
+fn apply_stringify_replacer(replacer_h: u64, key: &str, value: u64) -> u64 {
+    use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
+    let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
+    let result = unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(replacer_h, 0, args) };
+    let new_value = result as u64;
+    if is_undefined_handle(new_value) {
+        return new_value;
+    }
+    // Snapshot entries do new_value (para nao precisar holding lock).
+    let kind = with_entry(new_value, |e| match e {
+        Some(Entry::Map(m)) => Some(("map", m.iter().map(|(k, v)| (k.clone(), *v)).collect::<Vec<_>>())),
+        Some(Entry::Vec(arr)) => Some(("vec", arr.iter().enumerate().map(|(i, v)| (i.to_string(), *v)).collect::<Vec<_>>())),
+        _ => None,
+    });
+    if let Some((k_type, entries)) = kind {
+        // Cria NOVO container — preserva o original sem mutar.
+        if k_type == "map" {
+            let mut new_map = indexmap::IndexMap::<String, i64>::new();
+            for (k, v) in entries {
+                let recursed = apply_stringify_replacer(replacer_h, &k, v as u64);
+                if !is_undefined_handle(recursed) {
+                    new_map.insert(k, recursed as i64);
+                }
+            }
+            alloc_entry(Entry::Map(Box::new(new_map)))
+        } else {
+            let mut new_arr: Vec<i64> = Vec::new();
+            for (k, v) in entries {
+                let recursed = apply_stringify_replacer(replacer_h, &k, v as u64);
+                new_arr.push(if is_undefined_handle(recursed) { i64::MIN + 2 } else { recursed as i64 });
+            }
+            alloc_entry(Entry::Vec(Box::new(new_arr)))
+        }
+    } else {
+        new_value
+    }
+}
+
 /// `JSON.stringify(value, keys_array)` — replacer como array de keys filtra props.
 /// `keys_array_h` deve ser handle de Entry::Vec contendo handles de Entry::String.
 #[unsafe(no_mangle)]
