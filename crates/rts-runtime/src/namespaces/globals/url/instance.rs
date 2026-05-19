@@ -336,16 +336,37 @@ pub extern "C" fn __RTS_FN_GL_URL_USERNAME(h: u64) -> u64 { url_field(h, 9) }
 pub extern "C" fn __RTS_FN_GL_URL_PASSWORD(h: u64) -> u64 { url_field(h, 10) }
 
 /// (#373) `url.searchParams` — constroi URLSearchParams a partir do
-/// `search` da URL. Cada chamada cria novo handle (sem cache vinculado).
+/// `search` da URL. (cross-runtime #55) Cacheado por URL handle para que
+/// `url.searchParams.set(...)` em uma chamada seja visivel na proxima.
+static URL_SP_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, u64>>> =
+    std::sync::OnceLock::new();
+
+fn url_sp_cache() -> &'static std::sync::Mutex<std::collections::HashMap<u64, u64>> {
+    URL_SP_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_SEARCH_PARAMS(handle: u64) -> u64 {
+    if let Ok(cache) = url_sp_cache().lock() {
+        if let Some(&cached) = cache.get(&handle) {
+            // Valida que o handle cacheado ainda eh Vec valido.
+            let still_valid = with_entry(cached, |e| matches!(e, Some(Entry::Vec(_))));
+            if still_valid {
+                return cached;
+            }
+        }
+    }
     let search_h = url_field(handle, 6);
     let search: String = with_entry(search_h, |e| match e {
         Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
         _ => String::new(),
     });
     // O search inclui o '?' inicial; parse_query_pairs strip-prefix
-    alloc_search_params_vec(parse_query_pairs(&search))
+    let sp = alloc_search_params_vec(parse_query_pairs(&search));
+    if let Ok(mut cache) = url_sp_cache().lock() {
+        cache.insert(handle, sp);
+    }
+    sp
 }
 
 #[unsafe(no_mangle)]
