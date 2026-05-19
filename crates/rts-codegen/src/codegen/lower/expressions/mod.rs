@@ -72,6 +72,34 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
             }
             last.ok_or_else(|| anyhow!("empty sequence expression"))
         }
+        Expr::MetaProp(mp) => {
+            // `import.meta` retorna Map vazio (objeto). Suficiente para
+            // `typeof import.meta === "object"`. `import.meta.url` cai no
+            // path Member -> lower esse Map -> map_get("url") retorna
+            // sentinela undefined; codegen de Member sobre import.meta
+            // pode emitir url via path especial (handled em members.rs).
+            // `new.target` retorna undefined (i64::MIN+2) — sem suporte real.
+            use swc_ecma_ast::MetaPropKind;
+            match mp.kind {
+                MetaPropKind::ImportMeta => {
+                    let new_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+                        &[],
+                        Some(cranelift_codegen::ir::types::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(new_fn, &[]);
+                    let h = ctx.builder.inst_results(inst)[0];
+                    Ok(TypedVal::new(h, ValTy::Handle))
+                }
+                MetaPropKind::NewTarget => {
+                    let v = ctx.builder.ins().iconst(
+                        cranelift_codegen::ir::types::I64,
+                        i64::MIN + 2,
+                    );
+                    Ok(TypedVal::new(v, ValTy::I64))
+                }
+            }
+        }
         other => Err(anyhow!("unsupported expression: {}", expr_kind_name(other))),
     }
 }
