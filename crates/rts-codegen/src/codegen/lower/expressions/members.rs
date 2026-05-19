@@ -16,6 +16,11 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
     let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
     let inst = ctx.builder.ins().call(new_fn, &[]);
     let handle = ctx.builder.inst_results(inst)[0];
+    // (cross-runtime #40) Marca handle do array literal como GC root. Sem
+    // isso, allocs feitas durante push de elementos (`pair[0] + "=" + pair[1]`
+    // chama gc.string_*) podem disparar coleta que libera o proprio Vec
+    // ainda em construcao.
+    ctx.declare_gc_handle(handle);
 
     let push_fn = ctx.get_extern(
         "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
