@@ -332,7 +332,11 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     // pois pode conter handle Function/Symbol/etc.
     let is_ambig_handle = matches!(tv.ty, ValTy::I64 | ValTy::U64)
         && ctx.var_member_call_values.contains(&tv.val);
-    if matches!(tv.ty, ValTy::Handle) || is_ambig_handle {
+    // (cross-runtime #293) ValTy::U64 vem de fns que retornam handle opaco
+    // (JSON.parse, etc.) — sempre dispatch runtime pra detectar tipo do
+    // Entry (Map → "object", String → "string", Vec → "object", etc.).
+    let is_u64_handle = matches!(tv.ty, ValTy::U64);
+    if matches!(tv.ty, ValTy::Handle) || is_ambig_handle || is_u64_handle {
         use cranelift_codegen::ir::InstBuilder;
         let typeof_fn = ctx.get_extern(
             "__RTS_FN_RT_TYPEOF_HANDLE",
