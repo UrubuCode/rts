@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -1513,10 +1513,10 @@
 ,
 {
   "name": "270_new_target",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
   "node": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "f1=new\nwrap=281474976710671\ncls=null:null"
 }
 ,
 {
@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1900,7 +1900,7 @@
   "status": "rts_diverge",
   "bun": "url=true\nmain=true",
   "node": "url=true\nmain=true",
-  "rts": ""
+  "rts": "url=false\nmain=true"
 }
 ,
 {
@@ -2036,7 +2036,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=5"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":243,"rts_diverge":22,"bun_node_diverge":3,"errors":44,"rejected":0}}
+],"summary":{"total":312,"pass":243,"rts_diverge":24,"bun_node_diverge":3,"errors":42,"rejected":0}}
