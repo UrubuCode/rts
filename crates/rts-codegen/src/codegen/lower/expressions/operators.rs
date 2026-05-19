@@ -1270,11 +1270,23 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
         // (iconst) — indica contexto de string concat com param/var de tipo
         // desconhecido que pode ser handle (ex: callback de replace).
         // Constantes (iconst 0, iconst 42) sao numeros puros; nao usar TPL_COERCE_AUTO.
+        let lhs_vec_slot = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_vec_slot_values.contains(&lhs.val);
+        let rhs_vec_slot = matches!(rhs.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_vec_slot_values.contains(&rhs.val);
         let lhs_ambig = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
             && ctx.var_member_call_values.contains(&lhs.val);
         let rhs_ambig = matches!(rhs.ty, ValTy::I64 | ValTy::U64)
             && ctx.var_member_call_values.contains(&rhs.val);
-        let lhs_h = if lhs_ambig {
+        let lhs_h = if lhs_vec_slot {
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_VEC_SLOT",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[lhs.val]);
+            ctx.builder.inst_results(inst)[0]
+        } else if lhs_ambig {
             let coerce_fn = ctx.get_extern(
                 "__RTS_FN_RT_TPL_COERCE_AUTO",
                 &[cl::I64],
@@ -1285,7 +1297,15 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
         } else {
             ctx.coerce_to_handle(lhs)?.val
         };
-        let rhs_h = if rhs_ambig {
+        let rhs_h = if rhs_vec_slot {
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_VEC_SLOT",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[rhs.val]);
+            ctx.builder.inst_results(inst)[0]
+        } else if rhs_ambig {
             let coerce_fn = ctx.get_extern(
                 "__RTS_FN_RT_TPL_COERCE_AUTO",
                 &[cl::I64],

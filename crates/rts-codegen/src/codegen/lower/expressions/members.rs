@@ -1312,8 +1312,11 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx]);
                     let v = ctx.builder.inst_results(inst)[0];
                     // Slot pode ser i64 puro (number) ou handle (string/obj).
-                    // Marca como ambiguo pra que `+` em concat use TPL_COERCE_AUTO.
+                    // Marca como ambiguo p/ `===` e operadores em geral
+                    // (var_member_call_values), e como vec-slot p/ template
+                    // (var_vec_slot_values) — value=0 vira "0" nao "null".
                     ctx.var_member_call_values.insert(v);
+                    ctx.var_vec_slot_values.insert(v);
                     Ok(TypedVal::new(v, ValTy::I64))
                 }
             }

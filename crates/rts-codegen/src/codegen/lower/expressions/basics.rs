@@ -388,6 +388,16 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
             let is_null = ctx.builder.ins().icmp(IntCC::Equal, val_i64, zero);
             ctx.builder.ins().select(is_null, undef_h, normal_h)
+        } else if ctx.var_vec_slot_values.contains(&val.val) {
+            // (#45/#94) Slot Vec: value=0 eh literal `0`, nao null.
+            let val_i64 = ctx.coerce_to_i64(val).val;
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_VEC_SLOT",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[val_i64]);
+            ctx.builder.inst_results(inst)[0]
         } else if is_var_member_call || matches!(val_ty, ValTy::Handle | ValTy::U64) {
             // (#573) Handle ambiguo (string/numero embutido, ou U64 que pode
             // ser handle valido OU i64 raw como JSON.parse('42')) usa

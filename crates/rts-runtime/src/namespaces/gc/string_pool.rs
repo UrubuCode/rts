@@ -216,6 +216,43 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     }
 }
 
+/// Variante de `__RTS_FN_RT_TPL_COERCE_AUTO` para slots de Vec onde
+/// `0` eh um numero literal (nao handle inválido / null). Identico a
+/// AUTO exceto que value=0 retorna "0" (nao "null").
+///
+/// Usado pelo codegen no fallback de `arr[i]` quando obj_handle e' Vec.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TPL_COERCE_VEC_SLOT(value: i64) -> u64 {
+    if value == i64::MIN { return alloc_entry(Entry::String(b"false".to_vec())); }
+    if value == i64::MIN + 1 { return alloc_entry(Entry::String(b"true".to_vec())); }
+    if value == i64::MIN + 2 || value == i64::MIN + 4 {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    if value == i64::MIN + 3 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
+    // Slot Vec: value=0 eh literal `0`, nao null.
+    let h = value as u64;
+    let snap = snapshot_entry(h);
+    match snap {
+        EntrySnap::Str(_) => h,
+        EntrySnap::None => {
+            const MAX_SAFE: i64 = (1i64 << 53) - 1;
+            if value > MAX_SAFE || value < -MAX_SAFE {
+                let f = f64::from_bits(value as u64);
+                if f.is_finite() && !f.is_nan() && f.abs() < 1e16 && f != 0.0 {
+                    return alloc_entry(Entry::String(format_js_number(f).into_bytes()));
+                }
+            }
+            alloc_entry(Entry::String(value.to_string().into_bytes()))
+        }
+        other => {
+            let bytes = snapshot_to_bytes(&other);
+            alloc_entry(Entry::String(bytes))
+        }
+    }
+}
+
 /// JS-spec truthiness para Handle ambiguo:
 /// - 0/null/undefined -> falsy (0)
 /// - Entry::String com bytes vazios -> falsy (0)

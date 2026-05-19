@@ -474,6 +474,11 @@ pub struct FnCtx<'m, 'fb> {
     /// (consulta entry table via runtime fn).
     pub var_member_call_values: std::collections::HashSet<cranelift_codegen::ir::Value>,
 
+    /// (cross-runtime #45/#94) SSA Values vindos de `arr[i]` em Vec/Array.
+    /// Em template literal, value=0 representa numero literal `0`, nao null.
+    /// Roteia para TPL_COERCE_VEC_SLOT em vez de TPL_COERCE_AUTO.
+    pub var_vec_slot_values: std::collections::HashSet<cranelift_codegen::ir::Value>,
+
     /// (#627) Var names cujo init veio de obj.x ambiguo (member access
     /// sem tipo declarado). Cada read_local da var marca o Value carregado
     /// como var_member_call_values, propagando a flag de ambiguidade
@@ -586,6 +591,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             fresh_handle_set: std::collections::HashSet::new(),
             optional_chain_values: std::collections::HashSet::new(),
             var_member_call_values: std::collections::HashSet::new(),
+            var_vec_slot_values: std::collections::HashSet::new(),
             local_ambiguous_vars: std::collections::HashSet::new(),
             str_data_cache: HashMap::new(),
             str_handle_cache: HashMap::new(),
@@ -1157,6 +1163,12 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 let as_i64 = self.coerce_to_i64(tv);
                 // Se o valor e' ambiguo (pode ser handle ou i64), usa TPL_COERCE_AUTO
                 // para decidir em runtime (evita formatar handle como numero decimal).
+                if self.var_vec_slot_values.contains(&as_i64.val) {
+                    let fref = self.get_extern("__RTS_FN_RT_TPL_COERCE_VEC_SLOT", &[cl::I64], Some(cl::I64))?;
+                    let inst = self.builder.ins().call(fref, &[as_i64.val]);
+                    let val = self.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(val, ValTy::Handle));
+                }
                 if self.var_member_call_values.contains(&as_i64.val) {
                     let fref = self.get_extern("__RTS_FN_RT_TPL_COERCE_AUTO", &[cl::I64], Some(cl::I64))?;
                     let inst = self.builder.ins().call(fref, &[as_i64.val]);
