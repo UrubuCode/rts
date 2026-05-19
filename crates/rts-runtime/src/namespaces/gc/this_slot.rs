@@ -28,8 +28,10 @@ pub extern "C" fn __RTS_FN_RT_THIS_POP() {
     });
 }
 
-/// Le topo da pilha. `0` quando nao ha `this` corrente (fn chamada direto).
+/// Le topo da pilha. `i64::MIN + 2` (undefined sentinel) quando nao ha
+/// `this` corrente. JS spec strict mode: fn nao-method tem `this === undefined`.
+/// (cross-runtime #300)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_THIS_GET() -> i64 {
-    THIS_STACK.with(|s| s.borrow().last().copied().unwrap_or(0))
+    THIS_STACK.with(|s| s.borrow().last().copied().unwrap_or(i64::MIN + 2))
 }
