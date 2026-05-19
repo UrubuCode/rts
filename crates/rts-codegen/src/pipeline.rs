@@ -178,6 +178,10 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     // disparar antes de sair. Deadline interno de 5s evita hang em
     // setInterval / timers de longa duracao.
     crate::namespaces::globals::timers::instance::drain_pending_timers();
+    // (#376) Aguarda async fns fire-and-forget (chamadas sem `await` no
+    // top-level) settarem antes de exit. Sem isso `main()` async sem
+    // await desaparece e nenhum console.log do body acontece.
+    crate::namespaces::promise::ops::drain_pending_promises();
     if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
         let use_color = crate::diagnostics::reporter::stderr_supports_color();
         eprint!("{}", format_runtime_error(&report, use_color));

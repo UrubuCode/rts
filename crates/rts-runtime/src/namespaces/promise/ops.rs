@@ -7,6 +7,25 @@
 use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
 use crate::namespaces::gc::promise_slot;
 
+/// (#376) Contador global de tasks tokio pendentes spawnadas por promise.create.
+/// Drain do pipeline aguarda chegar a 0 para que async fns fire-and-forget
+/// (sem await no top-level) terminem antes do processo sair.
+use std::sync::atomic::{AtomicUsize, Ordering};
+pub(crate) static PENDING_PROMISE_TASKS: AtomicUsize = AtomicUsize::new(0);
+
+/// Bloqueia ate todas as tasks de promise.create completarem, com deadline
+/// de 5s para evitar hang em tasks que nunca settle.
+pub fn drain_pending_promises() {
+    use std::time::{Duration, Instant};
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while PENDING_PROMISE_TASKS.load(Ordering::Acquire) > 0 {
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn with_slot<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>) -> R,
@@ -576,6 +595,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: u64, args_vec_handle: u6
 
     let extra_args = read_promise_vec(args_vec_handle);
 
+    PENDING_PROMISE_TASKS.fetch_add(1, Ordering::AcqRel);
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
         // Combina bound (de bind) + extra_args do caller.
@@ -592,6 +612,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: u64, args_vec_handle: u6
         } else {
             promise_slot::resolve(&result_clone, r);
         }
+        PENDING_PROMISE_TASKS.fetch_sub(1, Ordering::AcqRel);
     });
     handle
 }
