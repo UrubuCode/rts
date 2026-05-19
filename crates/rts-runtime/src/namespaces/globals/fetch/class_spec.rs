@@ -227,6 +227,19 @@ pub const PROMISE_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: false,
     },
+    // (cross-runtime #304) Promise.try(fn) — ES2025: invoca fn() sync,
+    // retorna Promise.resolve(retval) ou Promise.reject(err) se lancar.
+    NamespaceMember {
+        name: "try",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_GL_PROMISE_TRY",
+        args: &[AbiType::U64],
+        returns: AbiType::I64,
+        doc: "Promise.try(fn) — invoca fn() sincronamente; retorna Promise.resolve(retval) ou Promise.reject(err) se fn lancar.",
+        ts_signature: "static try<T>(fn: () => T | Promise<T>): Promise<T>",
+        intrinsic: None,
+        pure: false,
+    },
     NamespaceMember {
         name: "withResolvers",
         kind: MemberKind::Function,

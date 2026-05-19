@@ -167,6 +167,13 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         }
         _ => {}
     }
+    // (cross-runtime #304) Global JS classes (Promise, Date, Error, etc.)
+    // referenciadas como valor — retorna handle sentinel de string com o
+    // nome da classe. Suficiente para `Promise.try.call(Promise, fn)`
+    // (thisArg ignorado em RTS user fns) e `typeof Promise === "function"`.
+    if crate::abi::global_class_lookup(name).is_some() {
+        return ctx.emit_str_handle(name.as_bytes());
+    }
     Err(anyhow!("undefined variable `{name}`"))
 }
 

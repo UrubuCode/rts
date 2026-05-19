@@ -825,6 +825,24 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
         }
     }
 
+    // (cross-runtime #304) `<GlobalClass>.<staticMethod>` em posicao de
+    // valor (sem call) — reifica como handle Function. Sem isso, codegen
+    // tenta lower o ident `Promise` como variavel local e falha.
+    // Ex: `Promise.try ? a : b` precisa avaliar Promise.try como truthy.
+    if let MemberProp::Ident(id) = &m.prop {
+        if let Expr::Ident(obj_id) = m.obj.as_ref() {
+            let cls = obj_id.sym.as_str();
+            let prop_name = id.sym.as_str();
+            if ctx.read_local(cls).is_none() && !ctx.user_fns.contains_key(cls) {
+                if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                    if let Some(member) = spec.static_member(prop_name) {
+                        return reify_ns_fn_as_handle(ctx, member);
+                    }
+                }
+            }
+        }
+    }
+
     let obj_tv = lower_expr(ctx, &m.obj)?;
     let obj_handle = ctx.coerce_to_i64(obj_tv).val;
 

@@ -349,6 +349,49 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
     alloc_entry(Entry::PromiseAsync(slot)) as i64
 }
 
+/// (cross-runtime #304) `Promise.try(fn)` — invoca fn() sincronamente e
+/// retorna Promise.resolve(retval) (ou Promise.reject(err) se fn lancar).
+/// Spec ES2025: equivalente a `Promise.resolve().then(fn)` mas com fn
+/// executada sync em vez de microtask.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
+    use crate::namespaces::gc::error;
+    if fp == 0 {
+        let slot = crate::namespaces::gc::promise_slot::new_fulfilled(0);
+        return alloc_entry(Entry::PromiseAsync(slot)) as i64;
+    }
+    // Limpa qualquer erro pendente antes de invocar (semantica: try
+    // captura apenas erros lancados pela propria fn).
+    let _ = error::__RTS_FN_RT_ERROR_GET();
+    error::__RTS_FN_RT_ERROR_CLEAR();
+    // Resolve fp: pode ser handle de Entry::Function (arrow/reify) ou
+    // ponteiro extern "C" direto.
+    let (fn_ptr, bound) = with_entry(fp, |entry| {
+        if let Some(Entry::Function(fd)) = entry {
+            Some((fd.fn_ptr, fd.bound_args.clone()))
+        } else {
+            None
+        }
+    }).unwrap_or((fp, Vec::new()));
+    let retval = unsafe {
+        use std::mem::transmute;
+        match bound.len() {
+            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
+            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(bound[0]),
+            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(bound[0], bound[1]),
+            _ => 0,
+        }
+    };
+    let err_h = error::__RTS_FN_RT_ERROR_GET();
+    if err_h != 0 {
+        error::__RTS_FN_RT_ERROR_CLEAR();
+        let slot = crate::namespaces::gc::promise_slot::new_rejected(err_h as i64);
+        return alloc_entry(Entry::PromiseAsync(slot)) as i64;
+    }
+    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(retval);
+    alloc_entry(Entry::PromiseAsync(slot)) as i64
+}
+
 /// (cross-runtime #92) `Promise.withResolvers()` — ES2024.
 /// Retorna Map { promise, resolve, reject }. `resolve(v)` e `reject(e)`
 /// sao Function handles que settle a promise quando chamados.

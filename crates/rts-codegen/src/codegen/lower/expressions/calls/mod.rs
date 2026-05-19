@@ -172,6 +172,43 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         if let Expr::SuperProp(sp) = callee.as_ref() {
             return lower_super_method_call(ctx, sp, call);
         }
+        // (cross-runtime #304) `<GlobalClass>.<staticMethod>.call(thisArg, ...args)`
+        // — reescreve para `<GlobalClass>.<staticMethod>(...args)`. RTS user
+        // fns nao usam thisArg (sem slot reservado em namespace fns), entao
+        // call/apply sao equivalentes a chamada direta para static methods.
+        if let Expr::Member(outer) = callee.as_ref() {
+            if let MemberProp::Ident(call_id) = &outer.prop {
+                let call_method = call_id.sym.as_str();
+                if call_method == "call" {
+                    if let Expr::Member(mid) = outer.obj.as_ref() {
+                        if let (Expr::Ident(cls_id), MemberProp::Ident(static_id)) =
+                            (mid.obj.as_ref(), &mid.prop)
+                        {
+                            let cls = cls_id.sym.as_str();
+                            if ctx.read_local(cls).is_none()
+                                && !ctx.user_fns.contains_key(cls)
+                            {
+                                if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                                    if spec.static_member(static_id.sym.as_str()).is_some() {
+                                        let rest: Vec<_> = call.args.iter().skip(1).cloned().collect();
+                                        let synth_call = swc_ecma_ast::CallExpr {
+                                            span: call.span,
+                                            ctxt: call.ctxt,
+                                            callee: Callee::Expr(Box::new(Expr::Member(
+                                                (*mid).clone(),
+                                            ))),
+                                            args: rest,
+                                            type_args: None,
+                                        };
+                                        return lower_call(ctx, &synth_call);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // (cross-runtime #81/#99) `/regex/.test(s)`/`/regex/.exec(s)` em
         // literal — codegen avalia regex literal pra handle, depois usa
         // builtin. Sem isso, lower_indirect_call falha procurando var.
