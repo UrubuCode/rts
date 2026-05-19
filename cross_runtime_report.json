@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2036,7 +2036,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": ""
+  "rts": "one=3"
 }
 ,
 {
@@ -2257,10 +2257,10 @@
 ,
 {
   "name": "70_regex_indices",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "indices=[[1,4],[2,3],[3,4]]",
   "node": "indices=[[1,4],[2,3],[3,4]]",
-  "rts": "indices=null"
+  "rts": "indices=[[1,4],[2,3],[3,4]]"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":240,"rts_diverge":26,"bun_node_diverge":3,"errors":43,"rejected":0}}
+],"summary":{"total":312,"pass":241,"rts_diverge":25,"bun_node_diverge":3,"errors":43,"rejected":0}}
