@@ -96,6 +96,10 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
                         cranelift_codegen::ir::types::I64,
                         i64::MIN + 2,
                     );
+                    // Marca como ambiguo para que TRUTHY detecte sentinela
+                    // undefined em ternary/`||` (sem isso `new.target ? a : b`
+                    // sempre cai em `a` porque i64::MIN+2 != 0).
+                    ctx.var_member_call_values.insert(v);
                     Ok(TypedVal::new(v, ValTy::I64))
                 }
             }
