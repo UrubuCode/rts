@@ -1286,14 +1286,13 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     )?;
                     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx_tv.val]);
                     let raw = ctx.builder.inst_results(inst)[0];
-                    // (#261) Pos-MAP_GET com chave dinamica: aplica
-                    // TPL_COERCE_AUTO no slot pra que se for handle de
-                    // string, retorne o handle correto; se for i64 raw
-                    // (number/bool/null), retorne handle de string com
-                    // representacao JS-spec. Sem isto, \`o[k]\` em template
-                    // literal mostraria handle bruto stringificado.
+                    // (#261/#94) Pos-MAP_GET_KH com chave dinamica (string):
+                    // value=0 eh quase sempre um numero literal (`arr[k]`
+                    // em Vec, `m.get(k)` com valor 0). Usa VEC_SLOT que
+                    // formata 0 como "0" (nao "null"). Trade-off com
+                    // `map.set(k, null)` que tambem retorna 0 — caso raro.
                     let coerce_fn = ctx.get_extern(
-                        "__RTS_FN_RT_TPL_COERCE_AUTO",
+                        "__RTS_FN_RT_TPL_COERCE_VEC_SLOT",
                         &[cl::I64],
                         Some(cl::I64),
                     )?;
