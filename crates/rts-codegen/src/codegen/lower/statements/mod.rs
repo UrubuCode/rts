@@ -32,6 +32,13 @@ pub fn lower_stmt(ctx: &mut FnCtx, stmt: &Stmt) -> Result<bool> {
         Stmt::Labeled(lbl) => control::lower_labeled_stmt(ctx, lbl),
         Stmt::Throw(throw_stmt) => control::lower_throw_stmt(ctx, throw_stmt),
         Stmt::Try(try_stmt) => control::lower_try_stmt(ctx, try_stmt),
+        // TS-only declaracoes (type alias, interface) sao no-op em runtime —
+        // tipos sao apagados. Decl::Fn nested ja foi hoisted pelo pass
+        // hoist_fn_expressions, entao chega aqui apenas no caso degenerado
+        // de fn que nao precisa de hoisting (top-level — tratado em outro
+        // path). Decl::TsEnum top-level vira const objeto pelo parser.
+        Stmt::Decl(Decl::TsTypeAlias(_))
+        | Stmt::Decl(Decl::TsInterface(_)) => Ok(false),
         other => Err(anyhow!("unsupported statement: {}", stmt_kind_name(other))),
     }
 }
