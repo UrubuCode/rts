@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1897,10 +1897,10 @@
 ,
 {
   "name": "314_import_meta",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "url=true\nmain=true",
   "node": "url=true\nmain=true",
-  "rts": "url=false\nmain=true"
+  "rts": "url=true\nmain=true"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":246,"rts_diverge":24,"bun_node_diverge":3,"errors":39,"rejected":0}}
+],"summary":{"total":312,"pass":247,"rts_diverge":23,"bun_node_diverge":3,"errors":39,"rejected":0}}
