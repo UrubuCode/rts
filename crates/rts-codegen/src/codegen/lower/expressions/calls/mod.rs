@@ -1923,6 +1923,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
         }
+        // (cross-runtime #300) Call em result de outra Call ou Expr generica
+        // (ex: `Function("body")()` ou `obj.getFn()()`) — avalia callee como
+        // expressao, despacha via Function handle indirect.
+        if matches!(callee.as_ref(), Expr::Call(_)) {
+            let callee_tv = super::lower_expr(ctx, callee)?;
+            use crate::codegen::lower::ctx::ValTy as VT;
+            if matches!(callee_tv.ty, VT::Handle | VT::I64 | VT::U64) {
+                return self::indirect::emit_function_handle_indirect_call(
+                    ctx,
+                    callee_tv.val,
+                    call,
+                );
+            }
+        }
         if let Expr::Ident(id) = callee.as_ref() {
             let name = id.sym.as_str();
             // Globais JS \`isNaN\`/\`isFinite\`/\`Number\`/\`String\`/\`Boolean\`
