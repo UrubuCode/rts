@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -1780,7 +1780,7 @@
   "status": "rts_diverge",
   "bun": "strict=true\nsloppy=true",
   "node": "strict=true\nsloppy=true",
-  "rts": "strict=0"
+  "rts": "strict=1"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":247,"rts_diverge":23,"bun_node_diverge":3,"errors":39,"rejected":0}}
+],"summary":{"total":312,"pass":248,"rts_diverge":22,"bun_node_diverge":3,"errors":39,"rejected":0}}
