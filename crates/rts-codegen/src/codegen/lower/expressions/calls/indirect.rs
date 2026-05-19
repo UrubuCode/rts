@@ -163,6 +163,25 @@ pub(super) fn lower_var_member_call(
     }
     if matches!(obj_tv.ty, ValTy::I64 | ValTy::Handle)
         && !is_proto_instance
+        && matches!(prop, "indexOf" | "lastIndexOf")
+        && call.args.len() == 1
+        && call.args[0].spread.is_none()
+    {
+        use cranelift_codegen::ir::{InstBuilder, types as cl};
+        let needle_tv = lower_expr(ctx, &call.args[0].expr)?;
+        let needle = ctx.coerce_to_i64(needle_tv).val;
+        let sym = if prop == "indexOf" {
+            "__RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO"
+        } else {
+            "__RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO"
+        };
+        let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(f, &[obj_h, needle]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(crate::codegen::lower::ctx::TypedVal::new(v, ValTy::I64));
+    }
+    if matches!(obj_tv.ty, ValTy::I64 | ValTy::Handle)
+        && !is_proto_instance
         && prop == "concat"
         && call.args.len() == 1
         && call.args[0].spread.is_none()

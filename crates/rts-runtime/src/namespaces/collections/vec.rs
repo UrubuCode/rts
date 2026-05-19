@@ -246,6 +246,30 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) 
     }
 }
 
+/// (cross-runtime #285) Runtime dispatch para `recv.indexOf(needle)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
+    use super::super::gc::handles::with_entry;
+    let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(recv, needle)
+    } else {
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_INDEX_OF(recv, needle as u64)
+    }
+}
+
+/// (cross-runtime #285) Runtime dispatch para `recv.lastIndexOf(needle)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
+    use super::super::gc::handles::with_entry;
+    let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(recv, needle)
+    } else {
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(recv, needle as u64)
+    }
+}
+
 /// (cross-runtime #52) `index in arr` — true se 0 <= index < length E
 /// slot nao eh hole (sentinela i64::MIN+4). JS spec.
 #[unsafe(no_mangle)]
@@ -355,12 +379,33 @@ fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
 // Implementacao espelha semantica JS basica.
 // ─────────────────────────────────────────────────────────────────────────
 
+/// (cross-runtime #285) Compara dois slots i64 considerando string content
+/// quando ambos sao handles String. Sem isso, `["a","b"].indexOf("a")` falha
+/// se "a" foi alocado em handles diferentes em compile time.
+fn slot_eq(a: i64, b: i64) -> bool {
+    if a == b { return true; }
+    use super::super::gc::handles::with_entry;
+    let a_str: Option<Vec<u8>> = with_entry(a as u64, |e| match e {
+        Some(Entry::String(s)) => Some(s.clone()),
+        _ => None,
+    });
+    if let Some(ab) = a_str {
+        let b_eq = with_entry(b as u64, |e| match e {
+            Some(Entry::String(bb)) => bb.as_slice() == ab.as_slice(),
+            _ => false,
+        });
+        if b_eq { return true; }
+    }
+    false
+}
+
 /// `arr.indexOf(needle)` — primeiro index com `v == needle`, ou -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(handle: u64, needle: i64) -> i64 {
-    with_vec(handle, -1, |v| {
-        v.iter().position(|x| *x == needle).map(|i| i as i64).unwrap_or(-1)
-    })
+    // (cross-runtime #285) Snapshot do vec fora do lock para evitar deadlock
+    // quando slot_eq -> with_entry(slot) cai no mesmo shard do vec.
+    let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    snapshot.iter().position(|x| slot_eq(*x, needle)).map(|i| i as i64).unwrap_or(-1)
 }
 
 /// (#208) `arr.indexOf(needle, fromIndex)` — busca a partir de `from`.
@@ -371,26 +416,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM(
     needle: i64,
     from: i64,
 ) -> i64 {
-    with_vec(handle, -1, |v| {
-        let len = v.len() as i64;
-        let start = if from < 0 { (len + from).max(0) } else { from } as usize;
-        if start >= v.len() {
-            return -1;
-        }
-        v[start..]
-            .iter()
-            .position(|x| *x == needle)
-            .map(|i| (i + start) as i64)
-            .unwrap_or(-1)
-    })
+    let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let len = snapshot.len() as i64;
+    let start = if from < 0 { (len + from).max(0) } else { from } as usize;
+    if start >= snapshot.len() {
+        return -1;
+    }
+    snapshot[start..]
+        .iter()
+        .position(|x| slot_eq(*x, needle))
+        .map(|i| (i + start) as i64)
+        .unwrap_or(-1)
 }
 
 /// `arr.lastIndexOf(needle)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(handle: u64, needle: i64) -> i64 {
-    with_vec(handle, -1, |v| {
-        v.iter().rposition(|x| *x == needle).map(|i| i as i64).unwrap_or(-1)
-    })
+    let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    snapshot.iter().rposition(|x| slot_eq(*x, needle)).map(|i| i as i64).unwrap_or(-1)
 }
 
 /// (#208) `arr.lastIndexOf(needle, fromIndex)` — busca de tras pra frente,
@@ -401,44 +444,27 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
     needle: i64,
     from: i64,
 ) -> i64 {
-    with_vec(handle, -1, |v| {
-        let len = v.len() as i64;
-        let end = if from < 0 { (len + from).max(-1) + 1 } else { (from + 1).min(len) } as usize;
-        if end == 0 {
-            return -1;
-        }
-        v[..end]
-            .iter()
-            .rposition(|x| *x == needle)
-            .map(|i| i as i64)
-            .unwrap_or(-1)
-    })
+    let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let len = snapshot.len() as i64;
+    let end = if from < 0 { (len + from).max(-1) + 1 } else { (from + 1).min(len) } as usize;
+    if end == 0 {
+        return -1;
+    }
+    snapshot[..end]
+        .iter()
+        .rposition(|x| slot_eq(*x, needle))
+        .map(|i| i as i64)
+        .unwrap_or(-1)
 }
 
 /// `arr.includes(needle)` → 1 ou 0.
-/// (cross-runtime #285) Quando needle eh handle de string, compara
-/// conteudo em vez de handle bruto — o mesmo literal "b" pode estar
-/// alocado em handles diferentes (array literal vs argument).
+/// (cross-runtime #285) `slot_eq` compara conteudo de strings quando ambos
+/// sao String handles — sem isso falha em closures que reusam literais.
+/// Snapshot antes do iter pra evitar deadlock com with_entry nested.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64) -> i64 {
-    use super::super::gc::handles::with_entry;
-    let needle_str: Option<Vec<u8>> = with_entry(needle as u64, |e| match e {
-        Some(Entry::String(b)) => Some(b.clone()),
-        _ => None,
-    });
-    with_vec(handle, 0, |v| {
-        if let Some(ref nb) = needle_str {
-            for &slot in v.iter() {
-                let matched = with_entry(slot as u64, |e| match e {
-                    Some(Entry::String(b)) => b.as_slice() == nb.as_slice(),
-                    _ => false,
-                });
-                if matched { return 1; }
-            }
-            // Fallback: handle bruto match (numbers, bool sentinels)
-            if v.contains(&needle) { 1 } else { 0 }
-        } else if v.contains(&needle) { 1 } else { 0 }
-    })
+    let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    if snapshot.iter().any(|x| slot_eq(*x, needle)) { 1 } else { 0 }
 }
 
 /// (#208) `arr.includes(needle, fromIndex)` — busca a partir de `from`.
@@ -448,14 +474,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM(
     needle: i64,
     from: i64,
 ) -> i64 {
-    with_vec(handle, 0, |v| {
-        let len = v.len() as i64;
-        let start = if from < 0 { (len + from).max(0) } else { from } as usize;
-        if start >= v.len() {
-            return 0;
-        }
-        if v[start..].contains(&needle) { 1 } else { 0 }
-    })
+    let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
+    let len = snapshot.len() as i64;
+    let start = if from < 0 { (len + from).max(0) } else { from } as usize;
+    if start >= snapshot.len() {
+        return 0;
+    }
+    if snapshot[start..].iter().any(|x| slot_eq(*x, needle)) { 1 } else { 0 }
 }
 
 /// `arr.reverse()` in-place. Retorna o proprio handle.

@@ -1421,6 +1421,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO",
+            vec::__RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO",
+            vec::__RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO
+        );
+        add_fn!(
             "__RTS_FN_NS_GC_CLASS_REGISTER_PARENT",
             crate::namespaces::gc::class_registry::__RTS_FN_NS_GC_CLASS_REGISTER_PARENT
         );
