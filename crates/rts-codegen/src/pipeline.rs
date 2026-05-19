@@ -180,6 +180,9 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     // (#56) JS spec: microtasks executam ao fim do task corrente, ANTES
     // do proximo macrotask (setTimeout). Drena imediatamente apos __RTS_MAIN.
     crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+    // (#286) setImmediate roda na "check phase" — antes de timers
+    // setTimeout(0). Drena fila propria primeiro.
+    crate::namespaces::globals::timers::instance::drain_immediates();
     crate::namespaces::globals::timers::instance::drain_pending_timers();
     // (#376) Aguarda async fns fire-and-forget (chamadas sem `await` no
     // top-level) settarem antes de exit. Sem isso `main()` async sem
