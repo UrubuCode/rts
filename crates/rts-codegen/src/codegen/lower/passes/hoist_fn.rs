@@ -67,6 +67,35 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         stmts.iter().any(check_stmt)
     }
 
+    /// (cross-runtime #300) Detecta se body retorna expr bool: literal,
+    /// comparison, logical, or unary not.
+    fn body_returns_bool(stmts: &[Stmt]) -> bool {
+        use swc_ecma_ast::BinaryOp;
+        fn expr_yields_bool(e: &Expr) -> bool {
+            match e {
+                Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => true,
+                Expr::Bin(b) => matches!(
+                    b.op,
+                    BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq
+                    | BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+                    | BinaryOp::In | BinaryOp::InstanceOf
+                ),
+                Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Bang) => true,
+                Expr::Paren(p) => expr_yields_bool(&p.expr),
+                _ => false,
+            }
+        }
+        fn check_stmt(s: &Stmt) -> bool {
+            match s {
+                Stmt::Return(r) => r.arg.as_deref().is_some_and(expr_yields_bool),
+                Stmt::Block(b) => b.stmts.iter().any(check_stmt),
+                Stmt::If(i) => check_stmt(&i.cons) || i.alt.as_deref().is_some_and(check_stmt),
+                _ => false,
+            }
+        }
+        stmts.iter().any(check_stmt)
+    }
+
     fn body_has_return_value(stmts: &[Stmt]) -> bool {
         for s in stmts {
             if has_return_value_stmt(s) {
@@ -192,6 +221,8 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         let return_type = if body_has_return_value(&body_stmts) {
             if body_returns_string_concat(&body_stmts) {
                 Some("string".to_string())
+            } else if body_returns_bool(&body_stmts) {
+                Some("boolean".to_string())
             } else {
                 Some("i64".to_string())
             }

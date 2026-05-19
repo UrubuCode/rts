@@ -583,11 +583,14 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
             // o body retorna. Heuristica simples:
             // - se algum return contem string-yielding expr (template,
             //   str lit, concat com str, .toString(), .join()) -> Handle.
+            // - se algum return eh bool (literal true/false, comparison,
+            //   logical) -> Bool. (cross-runtime #300)
             // - se algum return existe -> F64 (number, caso default).
             // - sem return -> None (void).
             let inferred = inspect_return_kind(&fn_decl.body);
             match inferred {
                 ReturnKind::String => Some(ValTy::Handle),
+                ReturnKind::Bool => Some(ValTy::Bool),
                 ReturnKind::Number => Some(ValTy::F64),
                 ReturnKind::Void => None,
             }
@@ -602,6 +605,7 @@ enum ReturnKind {
     Void,
     Number,
     String,
+    Bool,
 }
 
 /// Heuristica de inferencia de return type baseada no shape do return expr.
@@ -648,6 +652,24 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
             _ => false,
         }
     }
+    // (cross-runtime #300) Detecta returns que produzem bool: literal
+    // true/false, comparisons (==/===/!=/!==/</>/...), logical (&&/||/!)
+    // unless contains string concat.
+    fn expr_yields_bool(e: &Expr) -> bool {
+        use swc_ecma_ast::BinaryOp;
+        match e {
+            Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => true,
+            Expr::Bin(b) => matches!(
+                b.op,
+                BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq
+                | BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+                | BinaryOp::In | BinaryOp::InstanceOf
+            ),
+            Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Bang) => true,
+            Expr::Paren(p) => expr_yields_bool(&p.expr),
+            _ => false,
+        }
+    }
     fn check_stmt(stmt: &swc_ecma_ast::Stmt, found: &mut ReturnKind) {
         use swc_ecma_ast::Stmt;
         match stmt {
@@ -655,12 +677,16 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
                 if let Some(arg) = r.arg.as_deref() {
                     let new_kind = if expr_yields_string(arg) {
                         ReturnKind::String
+                    } else if expr_yields_bool(arg) {
+                        ReturnKind::Bool
                     } else {
                         ReturnKind::Number
                     };
-                    // String trumps Number (qualquer ramo string -> Handle).
+                    // String trumps tudo; Bool trumps Number; Number eh fallback.
                     if new_kind == ReturnKind::String {
                         *found = ReturnKind::String;
+                    } else if new_kind == ReturnKind::Bool && *found != ReturnKind::String {
+                        *found = ReturnKind::Bool;
                     } else if *found == ReturnKind::Void {
                         *found = ReturnKind::Number;
                     }
