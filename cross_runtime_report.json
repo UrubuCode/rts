@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -1809,10 +1809,10 @@
 ,
 {
   "name": "304_promise_try",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "ok=5\nerr=boom",
   "node": "ok=5\nerr=boom",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "ok=5\nerr=boom"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":243,"rts_diverge":24,"bun_node_diverge":3,"errors":42,"rejected":0}}
+],"summary":{"total":312,"pass":244,"rts_diverge":24,"bun_node_diverge":3,"errors":41,"rejected":0}}
