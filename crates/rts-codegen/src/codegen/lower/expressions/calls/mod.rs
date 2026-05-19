@@ -2026,6 +2026,24 @@ fn lower_js_global_call(
         "Number" => lower_coerce_to_number(ctx, call),
         "String" => lower_coerce_to_string(ctx, call),
         "Boolean" => lower_coerce_to_boolean(ctx, call),
+        // (cross-runtime #300) Function(args, body) — equivalente a
+        // `new Function(args, body)` em JS spec. Reusa lower_new_function.
+        "Function" => {
+            let synth_new = swc_ecma_ast::NewExpr {
+                span: call.span,
+                ctxt: call.ctxt,
+                callee: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                    span: call.span,
+                    ctxt: Default::default(),
+                    sym: "Function".into(),
+                    optional: false,
+                })),
+                args: Some(call.args.clone()),
+                type_args: None,
+            };
+            let r = self::new_expr::lower_new_function(ctx, &synth_new)?;
+            return Ok(Some(r));
+        }
         // Object(x) / Object() — coercion JS:
         // - 0 args ou null/undefined: novo Map vazio
         // - Handle (object/array): passthrough
