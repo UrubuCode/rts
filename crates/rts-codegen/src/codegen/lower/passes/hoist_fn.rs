@@ -106,6 +106,15 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         params: &[swc_ecma_ast::Param],
         body_stmts: Vec<Stmt>,
     ) -> FunctionDecl {
+        build_fn_decl_async(name, params, body_stmts, false)
+    }
+
+    fn build_fn_decl_async(
+        name: &str,
+        params: &[swc_ecma_ast::Param],
+        body_stmts: Vec<Stmt>,
+        is_async: bool,
+    ) -> FunctionDecl {
         // (#object_builtins) Suporte a destructuring em params de arrow/fn
         // hoisted: \`forEach(([k,v]) => ...)\`. Geramos param sintetico por
         // posicao e prepend \`const [k,v] = __destruct_param_N;\` ao body.
@@ -205,7 +214,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
             return_type,
             body,
             span: Span::default(),
-            is_async: false,
+            is_async,
         }
     }
 
@@ -403,6 +412,30 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     if let Some(init) = d.init.as_mut() {
                         visit_expr(init.as_mut(), counter, new_fns);
                     }
+                }
+            }
+            Stmt::Decl(Decl::Fn(_)) => {
+                // Nested function declaration: hoist para Item::Function
+                // top-level mantendo o nome original (assume unicidade no
+                // programa) e substitui o stmt por Empty. Sub-stmts no body
+                // sao re-processados quando o pass roda em fixed-point sobre
+                // new_fns.
+                let owned = std::mem::replace(
+                    stmt,
+                    Stmt::Empty(swc_ecma_ast::EmptyStmt {
+                        span: Default::default(),
+                    }),
+                );
+                if let Stmt::Decl(Decl::Fn(fn_decl)) = owned {
+                    let name = fn_decl.ident.sym.to_string();
+                    let func = &fn_decl.function;
+                    let body = func
+                        .body
+                        .as_ref()
+                        .map(|b| b.stmts.clone())
+                        .unwrap_or_default();
+                    let decl = build_fn_decl_async(&name, &func.params, body, func.is_async);
+                    new_fns.push(Item::Function(decl));
                 }
             }
             Stmt::Block(b) => {
