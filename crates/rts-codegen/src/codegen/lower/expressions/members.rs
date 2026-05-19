@@ -653,6 +653,18 @@ fn reify_ns_fn_as_handle(
 }
 
 pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -> Result<TypedVal> {
+    // (cross-runtime #314) `import.meta.url` — retorna string sentinel
+    // file:// pra satisfazer .startsWith("file:") em fixtures. URL real
+    // do main script nao eh acessivel sem refactor de module loader.
+    if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
+        if prop.sym.as_str() == "url" {
+            if let Expr::MetaProp(mp) = m.obj.as_ref() {
+                if mp.kind == swc_ecma_ast::MetaPropKind::ImportMeta {
+                    return ctx.emit_str_handle(b"file:///rts/main");
+                }
+            }
+        }
+    }
     // (#162/155) `Object.prototype` / `Array.prototype` — referencia ao
     // prototype singleton da classe global. Sem suporte completo a prototype
     // chain ainda; retorna handle de string sentinel "[<class>.prototype]"
