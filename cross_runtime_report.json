@@ -73,10 +73,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
   "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "named=null"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2033,10 +2033,10 @@
 ,
 {
   "name": "42_promise_deep",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": ""
+  "rts": "one=3\ntwo=5\nall=a,b\nasync=9"
 }
 ,
 {
@@ -2209,10 +2209,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":245,"rts_diverge":27,"bun_node_diverge":3,"errors":37,"rejected":0}}
+],"summary":{"total":312,"pass":246,"rts_diverge":24,"bun_node_diverge":3,"errors":39,"rejected":0}}
