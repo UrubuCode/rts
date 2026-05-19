@@ -117,9 +117,50 @@ pub(super) fn lower_var_member_call(
     // (param de arrow lifted) — despacha em runtime via CONCAT_AUTO porque
     // recv pode ser Vec ou String. Sem esta branch, lower_string_builtin
     // sempre rotearia pra STRING_CONCAT e arrays viravam string concat.
-    // (cross-runtime #285) Tambem ValTy::Handle — captures de Vec em
-    // arrow body chegam como Handle (string-like ABI) mas conteudo eh
-    // Vec. CONCAT_AUTO detecta em runtime.
+    // (cross-runtime #285) Captures de Vec em arrow body chegam como
+    // Handle/I64 — runtime dispatch para distinguir Vec vs String.
+    if matches!(obj_tv.ty, ValTy::I64 | ValTy::Handle)
+        && !is_proto_instance
+        && prop == "slice"
+        && (call.args.len() == 1 || call.args.len() == 2)
+        && call.args.iter().all(|a| a.spread.is_none())
+    {
+        use cranelift_codegen::ir::{InstBuilder, types as cl};
+        let start_tv = lower_expr(ctx, &call.args[0].expr)?;
+        let start = ctx.coerce_to_i64(start_tv).val;
+        let end = if let Some(a) = call.args.get(1) {
+            let tv = lower_expr(ctx, &a.expr)?;
+            ctx.coerce_to_i64(tv).val
+        } else {
+            ctx.builder.ins().iconst(cl::I64, i64::MIN)
+        };
+        let f = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_SLICE_AUTO",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(f, &[obj_h, start, end]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(crate::codegen::lower::ctx::TypedVal::new(v, ValTy::Handle));
+    }
+    if matches!(obj_tv.ty, ValTy::I64 | ValTy::Handle)
+        && !is_proto_instance
+        && prop == "includes"
+        && call.args.len() == 1
+        && call.args[0].spread.is_none()
+    {
+        use cranelift_codegen::ir::{InstBuilder, types as cl};
+        let needle_tv = lower_expr(ctx, &call.args[0].expr)?;
+        let needle = ctx.coerce_to_i64(needle_tv).val;
+        let f = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(f, &[obj_h, needle]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(crate::codegen::lower::ctx::TypedVal::new(v, ValTy::Bool));
+    }
     if matches!(obj_tv.ty, ValTy::I64 | ValTy::Handle)
         && !is_proto_instance
         && prop == "concat"

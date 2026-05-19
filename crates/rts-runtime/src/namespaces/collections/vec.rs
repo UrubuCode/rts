@@ -216,6 +216,36 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> 
     }
 }
 
+/// (cross-runtime #285) Runtime dispatch para `recv.slice(start, end)` quando
+/// recv pode ser Vec ou String em compile time (capture em arrow body).
+/// end == i64::MIN significa "ate o final" (codegen sentinel quando user
+/// chama .slice(n) sem end).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end: i64) -> u64 {
+    use super::super::gc::handles::with_entry;
+    let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        __RTS_FN_NS_COLLECTIONS_VEC_SLICE(recv, start, end)
+    } else {
+        // STRING_SLICE nao tem sentinel pra "end of string" — passa i64::MAX
+        // que o clamp(0, count) trata corretamente.
+        let effective_end = if end == i64::MIN { i64::MAX } else { end };
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_SLICE(recv, start, effective_end)
+    }
+}
+
+/// (cross-runtime #285) Runtime dispatch para `recv.includes(needle)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) -> i64 {
+    use super::super::gc::handles::with_entry;
+    let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(recv, needle)
+    } else {
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64) as i64
+    }
+}
+
 /// (cross-runtime #52) `index in arr` — true se 0 <= index < length E
 /// slot nao eh hole (sentinela i64::MIN+4). JS spec.
 #[unsafe(no_mangle)]
@@ -386,9 +416,29 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
 }
 
 /// `arr.includes(needle)` → 1 ou 0.
+/// (cross-runtime #285) Quando needle eh handle de string, compara
+/// conteudo em vez de handle bruto — o mesmo literal "b" pode estar
+/// alocado em handles diferentes (array literal vs argument).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64) -> i64 {
-    with_vec(handle, 0, |v| if v.contains(&needle) { 1 } else { 0 })
+    use super::super::gc::handles::with_entry;
+    let needle_str: Option<Vec<u8>> = with_entry(needle as u64, |e| match e {
+        Some(Entry::String(b)) => Some(b.clone()),
+        _ => None,
+    });
+    with_vec(handle, 0, |v| {
+        if let Some(ref nb) = needle_str {
+            for &slot in v.iter() {
+                let matched = with_entry(slot as u64, |e| match e {
+                    Some(Entry::String(b)) => b.as_slice() == nb.as_slice(),
+                    _ => false,
+                });
+                if matched { return 1; }
+            }
+            // Fallback: handle bruto match (numbers, bool sentinels)
+            if v.contains(&needle) { 1 } else { 0 }
+        } else if v.contains(&needle) { 1 } else { 0 }
+    })
 }
 
 /// (#208) `arr.includes(needle, fromIndex)` — busca a partir de `from`.
