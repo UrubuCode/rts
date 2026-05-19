@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|micro|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1865,26 +1865,26 @@
 ,
 {
   "name": "310_console_group",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "events=g:x|end",
   "node": "events=g:x|end",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "x\n\nevents="
 }
 ,
 {
   "name": "311_console_table",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "calls=2",
   "node": "calls=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "[ { a: 1 }, { a: 2 } ]\ncalls="
 }
 ,
 {
   "name": "312_console_dir",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "calls=object:1",
   "node": "calls=object:1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{ a: { b: 1 } } { depth: 1 }\ncalls="
 }
 ,
 {
@@ -2036,7 +2036,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": ""
+  "rts": "one=3\ntwo=5\nall=a,b"
 }
 ,
 {
@@ -2241,10 +2241,10 @@
 ,
 {
   "name": "68_arraybuffer_transfer_clone",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
   "node": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "orig_len=null\nmoved_len=null"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":244,"rts_diverge":24,"bun_node_diverge":3,"errors":41,"rejected":0}}
+],"summary":{"total":312,"pass":244,"rts_diverge":28,"bun_node_diverge":3,"errors":37,"rejected":0}}
