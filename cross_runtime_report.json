@@ -2033,10 +2033,10 @@
 ,
 {
   "name": "42_promise_deep",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":240,"rts_diverge":25,"bun_node_diverge":3,"errors":44,"rejected":0}}
+],"summary":{"total":312,"pass":240,"rts_diverge":26,"bun_node_diverge":3,"errors":43,"rejected":0}}
