@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=timeout|immediate|micro"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":246,"rts_diverge":23,"bun_node_diverge":4,"errors":39,"rejected":0}}
+],"summary":{"total":312,"pass":246,"rts_diverge":24,"bun_node_diverge":3,"errors":39,"rejected":0}}
