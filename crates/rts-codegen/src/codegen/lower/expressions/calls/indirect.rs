@@ -117,7 +117,10 @@ pub(super) fn lower_var_member_call(
     // (param de arrow lifted) — despacha em runtime via CONCAT_AUTO porque
     // recv pode ser Vec ou String. Sem esta branch, lower_string_builtin
     // sempre rotearia pra STRING_CONCAT e arrays viravam string concat.
-    if matches!(obj_tv.ty, ValTy::I64)
+    // (cross-runtime #285) Tambem ValTy::Handle — captures de Vec em
+    // arrow body chegam como Handle (string-like ABI) mas conteudo eh
+    // Vec. CONCAT_AUTO detecta em runtime.
+    if matches!(obj_tv.ty, ValTy::I64 | ValTy::Handle)
         && !is_proto_instance
         && prop == "concat"
         && call.args.len() == 1
