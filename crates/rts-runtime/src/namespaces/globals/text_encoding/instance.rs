@@ -191,10 +191,38 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE(handle: u64) -> u64 {
 
 type CallbackFn = unsafe extern "C" fn(i64) -> i64;
 
+/// (cross-runtime #56) Microtask queue thread-local. queueMicrotask
+/// enfileira o callback; ele eh drenado no fim do task corrente (top-level
+/// __RTS_MAIN ou apos um await).
+use std::cell::RefCell;
+thread_local! {
+    static MICROTASK_QUEUE: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK(fp: u64) {
+    // (cross-runtime #285) JS spec quer enfileiramento, mas como Promise.then
+    // de promises ja' settled executa sync inline em RTS (PROMISE_THEN2 fast-path),
+    // queueMicrotask tambem precisa executar inline pra preservar a ordem FIFO
+    // entre eles. Refator completo precisa de event loop real (#376/#207).
     if fp != 0 {
-        unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0) };
+        unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0); }
+    }
+}
+
+/// Drena microtasks pendentes. Chamada pelo pipeline pos-main e tambem
+/// pode ser chamada pelo codegen no fim de cada task (futuro).
+pub fn drain_microtasks() {
+    loop {
+        let queue: Vec<u64> = MICROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
+        if queue.is_empty() {
+            break;
+        }
+        for fp in queue {
+            if fp != 0 {
+                unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0); }
+            }
+        }
     }
 }
 

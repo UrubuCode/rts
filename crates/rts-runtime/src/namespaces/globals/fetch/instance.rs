@@ -174,9 +174,11 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
-            // (cross-runtime #779) Fast-path: se ja' settled, executa
-            // sync — preserva ordem FIFO de microtask do JS pra cadeias
-            // sobre Promise.resolve/reject (que sao settled em construcao).
+            // (cross-runtime #56) Fast-path: ja' settled — executa sync.
+            // JS spec quer microtask queue, mas implementar isso quebra
+            // codigo que espera `await x.then(...)` resolver sincrono. Por
+            // ora mantemos sync para nao regredir suite; #56_microtask_order
+            // continua diverging.
             let cur_state = promise_slot::current_state(&arc);
             if cur_state != promise_slot::STATE_PENDING {
                 let value = promise_slot::current_value(&arc);
