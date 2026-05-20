@@ -1757,11 +1757,16 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                 .map(|s| s == "__proto_instance")
                                 .unwrap_or(false);
                             if let Some(var_ty) = ctx.var_ty(obj_name) {
+                                // (cross-runtime #58) I64 tambem eh primitivo
+                                // numerico aqui — sem isso, `b.toString(16)`
+                                // em param ambíguo de map() cai em
+                                // lower_function_handle_method e crasha.
                                 let is_primitive = matches!(
                                     var_ty,
                                     crate::codegen::lower::ctx::ValTy::Bool
                                         | crate::codegen::lower::ctx::ValTy::F64
                                         | crate::codegen::lower::ctx::ValTy::I32
+                                        | crate::codegen::lower::ctx::ValTy::I64
                                 );
                                 if !is_primitive && !is_proto_instance {
                                     if let Some(tv) = lower_function_handle_method(ctx, &m.obj, prop_name, call)? {
