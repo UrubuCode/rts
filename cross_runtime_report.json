@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|timeout|immediate"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -2161,10 +2161,10 @@
 ,
 {
   "name": "58_text_encoding",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
   "node": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
-  "rts": "len=8\nhex=,,,,,,,\ntext=café-λ"
+  "rts": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":249,"rts_diverge":23,"bun_node_diverge":3,"errors":37,"rejected":0}}
+],"summary":{"total":312,"pass":251,"rts_diverge":21,"bun_node_diverge":3,"errors":37,"rejected":0}}
