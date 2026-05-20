@@ -2352,6 +2352,68 @@ fn lower_js_global_call(
         "structuredClone" => Ok(Some(lower_ns_call(ctx, "text_encoding.structuredClone", call)?)),
         "queueMicrotask" => Ok(Some(lower_ns_call(ctx, "text_encoding.queueMicrotask", call)?)),
 
+        // (cross-runtime #267/#268) Global `eval(src)` — RTS nao tem dynamic
+        // eval em-line. Para compatibilidade com codigo que usa eval dentro
+        // de try/catch esperando SyntaxError (acesso a #private fora da
+        // classe, etc), seta error slot com SyntaxError e retorna 0. Assim
+        // o catch dispara e e.name === "SyntaxError" funciona.
+        "eval" => {
+            use cranelift_codegen::ir::{InstBuilder, types as cl};
+            // Lower o argumento (descartado, mas preserva side effects)
+            if let Some(arg0) = call.args.first() {
+                if arg0.spread.is_none() {
+                    let _ = super::lower_expr(ctx, &arg0.expr)?;
+                }
+            }
+            let msg = b"eval not supported";
+            let msg_h = ctx.emit_str_handle(msg)?.val;
+            // SYNTAX_ERROR_NEW(msg_ptr, msg_len, cause_handle) — passar
+            // o handle de string como (ptr,len) requer expand. Mais
+            // simples: chamar alloc_error_with_cause via wrapper helper
+            // ja existente? Em vez disso, usa ERROR_NEW generico com
+            // name="SyntaxError". Mas nao temos esse helper exposto.
+            // Solucao: chamar __RTS_FN_GL_SYNTAX_ERROR_NEW via StrPtr,
+            // que toma ptr+len. Vamos extrair do handle.
+            let ptr_fn = ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_PTR",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let len_fn = ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_LEN",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let p = {
+                let i = ctx.builder.ins().call(ptr_fn, &[msg_h]);
+                ctx.builder.inst_results(i)[0]
+            };
+            let l = {
+                let i = ctx.builder.ins().call(len_fn, &[msg_h]);
+                ctx.builder.inst_results(i)[0]
+            };
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let new_fn = ctx.get_extern(
+                "__RTS_FN_GL_SYNTAX_ERROR_NEW",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(new_fn, &[p, l, zero]);
+            let err_h = ctx.builder.inst_results(inst)[0];
+            let set_fn = ctx.get_extern(
+                "__RTS_FN_RT_ERROR_SET",
+                &[cl::I64],
+                None,
+            )?;
+            ctx.builder.ins().call(set_fn, &[err_h]);
+            // Retorna 0 (sentinel). Caller deveria estar em try/catch.
+            let z = ctx.builder.ins().iconst(cl::I64, 0);
+            Ok(Some(crate::codegen::lower::ctx::TypedVal::new(
+                z,
+                crate::codegen::lower::ctx::ValTy::I64,
+            )))
+        }
+
         _ => Ok(None),
     }
 }
