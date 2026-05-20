@@ -1481,18 +1481,18 @@
 ,
 {
   "name": "267_private_fields",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "inner=7:20\nouter=SyntaxError",
   "node": "inner=7:20\nouter=SyntaxError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "inner=20:20\nouter=SyntaxError"
 }
 ,
 {
   "name": "268_private_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "both=6:15\nerr=SyntaxError",
   "node": "both=6:15\nerr=SyntaxError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "both=15:15\nerr=SyntaxError"
 }
 ,
 {
@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=timeout|micro|immediate"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":249,"rts_diverge":20,"bun_node_diverge":4,"errors":39,"rejected":0}}
+],"summary":{"total":312,"pass":249,"rts_diverge":23,"bun_node_diverge":3,"errors":37,"rejected":0}}
