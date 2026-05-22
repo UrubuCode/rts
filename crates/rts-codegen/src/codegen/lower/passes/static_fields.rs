@@ -37,7 +37,15 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
         class.members.retain(|m| {
             if let ClassMember::Property(p) = m {
                 if p.modifiers.is_static {
-                    let global_name = format!("__class_static_{}_{}", class_name, p.name);
+                    // (cross-runtime #269) Privates (`#v`) viram `__priv_v`
+                    // no nome global — o `#` no ident name confunde o
+                    // lookup de var no codegen.
+                    let safe_field = if let Some(rest) = p.name.strip_prefix('#') {
+                        format!("__priv_{}", rest)
+                    } else {
+                        p.name.clone()
+                    };
+                    let global_name = format!("__class_static_{}_{}", class_name, safe_field);
                     static_map.insert((class_name.clone(), p.name.clone()), global_name);
                     fields.push(StaticField {
                         class: class_name.clone(),
@@ -82,11 +90,20 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
     // promove `let` top-level a global automaticamente.
     let mut decls: Vec<Item> = Vec::new();
     for sf in &fields {
-        let global_name = format!("__class_static_{}_{}", sf.class, sf.field);
-        let init_expr = match &sf.init {
+        let safe_field = if let Some(rest) = sf.field.strip_prefix('#') {
+            format!("__priv_{}", rest)
+        } else {
+            sf.field.clone()
+        };
+        let global_name = format!("__class_static_{}_{}", sf.class, safe_field);
+        let mut init_expr = match &sf.init {
             Some(e) => (**e).clone(),
             None => default_expr_for_ann(sf.type_ann.as_deref()),
         };
+        // (cross-runtime #269) init eh clone do AST original — precisa
+        // passar pelo rewrite para que `C.field` interno (e.g. static x =
+        // C.order.push(...)) seja substituido pelo ident global.
+        rewrite_static_in_expr(&mut init_expr, &static_keys);
         let mut binding = swc_ecma_ast::BindingIdent {
             id: swc_ecma_ast::Ident {
                 span: Default::default(),
@@ -338,16 +355,27 @@ fn rewrite_static_in_expr(e: &mut Expr, map: &HashMap<String, HashMap<String, St
     // Caso 1: Member { obj: Ident(C), prop: Ident(F) } onde (C,F) sao
     // static field — substitui o Member inteiro por Ident(global).
     if let Expr::Member(m) = e {
-        if let (Expr::Ident(obj), MemberProp::Ident(prop)) = (m.obj.as_ref(), &m.prop) {
-            if let Some(fields) = map.get(obj.sym.as_ref()) {
-                if let Some(global) = fields.get(prop.sym.as_ref()) {
-                    *e = Expr::Ident(swc_ecma_ast::Ident {
-                        span: m.span,
-                        ctxt: Default::default(),
-                        sym: global.clone().into(),
-                        optional: false,
-                    });
-                    return;
+        if let Expr::Ident(obj) = m.obj.as_ref() {
+            // (cross-runtime #269) Aceita tanto Ident quanto PrivateName.
+            // `C.field` e `C.#field` precisam ambos reescrever — o pass
+            // armazena o nome do field como esta no source (com `#` para
+            // privates) em static_map.
+            let prop_name: Option<String> = match &m.prop {
+                MemberProp::Ident(prop) => Some(prop.sym.to_string()),
+                MemberProp::PrivateName(pn) => Some(format!("#{}", pn.name.as_ref())),
+                _ => None,
+            };
+            if let Some(name) = prop_name {
+                if let Some(fields) = map.get(obj.sym.as_ref()) {
+                    if let Some(global) = fields.get(&name) {
+                        *e = Expr::Ident(swc_ecma_ast::Ident {
+                            span: m.span,
+                            ctxt: Default::default(),
+                            sym: global.clone().into(),
+                            optional: false,
+                        });
+                        return;
+                    }
                 }
             }
         }
@@ -368,11 +396,19 @@ fn rewrite_static_in_expr(e: &mut Expr, map: &HashMap<String, HashMap<String, St
                 swc_ecma_ast::SimpleAssignTarget::Member(m),
             ) = &mut a.left
             {
-                if let (Expr::Ident(obj), MemberProp::Ident(prop)) =
-                    (m.obj.as_ref(), &m.prop)
-                {
+                // (cross-runtime #269) Aceita Ident e PrivateName no LHS.
+                let prop_name: Option<String> = if let Expr::Ident(_) = m.obj.as_ref() {
+                    match &m.prop {
+                        MemberProp::Ident(prop) => Some(prop.sym.to_string()),
+                        MemberProp::PrivateName(pn) => Some(format!("#{}", pn.name.as_ref())),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                if let (Expr::Ident(obj), Some(name)) = (m.obj.as_ref(), prop_name) {
                     if let Some(fields) = map.get(obj.sym.as_ref()) {
-                        if let Some(global) = fields.get(prop.sym.as_ref()) {
+                        if let Some(global) = fields.get(&name) {
                             a.left = swc_ecma_ast::AssignTarget::Simple(
                                 swc_ecma_ast::SimpleAssignTarget::Ident(
                                     swc_ecma_ast::BindingIdent {
