@@ -2413,7 +2413,23 @@ fn lower_js_global_call(
         // ── Text encoding / global utils ──────────────────────────────────────
         "atob" => Ok(Some(lower_ns_call(ctx, "text_encoding.atob", call)?)),
         "btoa" => Ok(Some(lower_ns_call(ctx, "text_encoding.btoa", call)?)),
-        "structuredClone" => Ok(Some(lower_ns_call(ctx, "text_encoding.structuredClone", call)?)),
+        "structuredClone" => {
+            // (#1042) Primitivos (bool/num/str) sao retornados direto sem
+            // passar pelo dispatch de handle — STRUCTURED_CLONE em runtime
+            // so' clona Map/Vec/String/Buffer e retorna handle original
+            // para outros, mas o codegen passa Bool/F64 coerced para i64
+            // (perdendo a marca de tipo) e o resultado eh impresso como
+            // numero (`1`/`null`) em vez de "true"/"false".
+            if let Some(arg) = call.args.first() {
+                if arg.spread.is_none() {
+                    let tv = lower_expr(ctx, &arg.expr)?;
+                    if matches!(tv.ty, ValTy::Bool | ValTy::F64 | ValTy::I64 | ValTy::I32) {
+                        return Ok(Some(tv));
+                    }
+                }
+            }
+            Ok(Some(lower_ns_call(ctx, "text_encoding.structuredClone", call)?))
+        }
         "queueMicrotask" => Ok(Some(lower_ns_call(ctx, "text_encoding.queueMicrotask", call)?)),
 
         // (cross-runtime #267/#268) Global `eval(src)` — RTS nao tem dynamic
