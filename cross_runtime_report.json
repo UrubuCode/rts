@@ -1516,7 +1516,7 @@
   "status": "rts_diverge",
   "bun": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
   "node": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
-  "rts": "f1=call\nwrap=281474976710674\ncls=null:null"
+  "rts": "f1=call\nwrap=281474976710675\ncls=null:null"
 }
 ,
 {
@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=micro|immediate|timeout"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":251,"rts_diverge":20,"bun_node_diverge":4,"errors":37,"rejected":0}}
+],"summary":{"total":312,"pass":251,"rts_diverge":21,"bun_node_diverge":3,"errors":37,"rejected":0}}
