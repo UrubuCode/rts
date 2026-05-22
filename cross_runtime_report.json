@@ -1,210 +1,10 @@
 {"results":[
 {
-  "name": "01_logical_truthy",
-  "status": "pass",
-  "bun": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y",
-  "node": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y",
-  "rts": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y"
-}
-,
-{
-  "name": "02_string_coerce",
-  "status": "pass",
-  "bun": "String(42)=42\nString(true)=true\nString(false)=false\nString(null)=null\nString(undefined)=undefined\nString([])=\nString([1,2,3])=1,2,3\nString('hi')=hi\nString({})=[object Object]",
-  "node": "String(42)=42\nString(true)=true\nString(false)=false\nString(null)=null\nString(undefined)=undefined\nString([])=\nString([1,2,3])=1,2,3\nString('hi')=hi\nString({})=[object Object]",
-  "rts": "String(42)=42\nString(true)=true\nString(false)=false\nString(null)=null\nString(undefined)=undefined\nString([])=\nString([1,2,3])=1,2,3\nString('hi')=hi\nString({})=[object Object]"
-}
-,
-{
-  "name": "03_equality",
-  "status": "pass",
-  "bun": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false",
-  "node": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false",
-  "rts": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false"
-}
-,
-{
-  "name": "04_switch_strings",
-  "status": "pass",
-  "bun": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
-  "node": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
-  "rts": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal"
-}
-,
-{
   "name": "05_array_methods",
   "status": "pass",
   "bun": "len=5\nindexOf(3)=2\nindexOf(99)=-1\nincludes(3)=true\nincludes(99)=false\nslice(1,3)=2,3\njoin=1-2-3-4-5\nreverse=1,2,3\nisArray(a)=true\nisArray('x')=false\nArray.of=10,20,30\nfilter=2,4\nmap=2,4,6,8,10\nreduce=15",
   "node": "len=5\nindexOf(3)=2\nindexOf(99)=-1\nincludes(3)=true\nincludes(99)=false\nslice(1,3)=2,3\njoin=1-2-3-4-5\nreverse=1,2,3\nisArray(a)=true\nisArray('x')=false\nArray.of=10,20,30\nfilter=2,4\nmap=2,4,6,8,10\nreduce=15",
   "rts": "len=5\nindexOf(3)=2\nindexOf(99)=-1\nincludes(3)=true\nincludes(99)=false\nslice(1,3)=2,3\njoin=1-2-3-4-5\nreverse=1,2,3\nisArray(a)=true\nisArray('x')=false\nArray.of=10,20,30\nfilter=2,4\nmap=2,4,6,8,10\nreduce=15"
-}
-,
-{
-  "name": "06_string_methods",
-  "status": "pass",
-  "bun": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72",
-  "node": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72",
-  "rts": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72"
-}
-,
-{
-  "name": "07_number_methods",
-  "status": "pass",
-  "bun": "MAX_SAFE=9007199254740991\nMIN_SAFE=-9007199254740991\nisNaN(NaN)=true\nisNaN(0)=false\nisFinite(0)=true\nisFinite(Inf)=false\nisInteger(0.5)=false\nisInteger(42)=true\nisSafeInteger(42)=true\nparseInt(42)=42\nparseInt(42abc)=42\nparseInt(0xff)=255\nparseInt(10,2)=2\n(3.14).toFixed(1)=3.1\n(0.1+0.2).toFixed(1)=0.3\n1/0=Infinity\n-1/0=-Infinity\n0/0=NaN",
-  "node": "MAX_SAFE=9007199254740991\nMIN_SAFE=-9007199254740991\nisNaN(NaN)=true\nisNaN(0)=false\nisFinite(0)=true\nisFinite(Inf)=false\nisInteger(0.5)=false\nisInteger(42)=true\nisSafeInteger(42)=true\nparseInt(42)=42\nparseInt(42abc)=42\nparseInt(0xff)=255\nparseInt(10,2)=2\n(3.14).toFixed(1)=3.1\n(0.1+0.2).toFixed(1)=0.3\n1/0=Infinity\n-1/0=-Infinity\n0/0=NaN",
-  "rts": "MAX_SAFE=9007199254740991\nMIN_SAFE=-9007199254740991\nisNaN(NaN)=true\nisNaN(0)=false\nisFinite(0)=true\nisFinite(Inf)=false\nisInteger(0.5)=false\nisInteger(42)=true\nisSafeInteger(42)=true\nparseInt(42)=42\nparseInt(42abc)=42\nparseInt(0xff)=255\nparseInt(10,2)=2\n(3.14).toFixed(1)=3.1\n(0.1+0.2).toFixed(1)=0.3\n1/0=Infinity\n-1/0=-Infinity\n0/0=NaN"
-}
-,
-{
-  "name": "08_json_basics",
-  "status": "pass",
-  "bun": "st_obj={\"a\":1,\"b\":\"hi\"}\nst_arr=[1,2,3]\nst_bool={\"x\":true,\"y\":false}\nst_null={\"z\":null}\nst_nested={\"a\":{\"b\":{\"c\":1}}}\nst_empty_obj={}\nst_empty_arr=[]\nst_str=\"hi\"\nst_num=42\nst_true=true\nparse_arr_len=3\nparse_arr_0=10\nparse_obj_name=alice\nparse_obj_age=30",
-  "node": "st_obj={\"a\":1,\"b\":\"hi\"}\nst_arr=[1,2,3]\nst_bool={\"x\":true,\"y\":false}\nst_null={\"z\":null}\nst_nested={\"a\":{\"b\":{\"c\":1}}}\nst_empty_obj={}\nst_empty_arr=[]\nst_str=\"hi\"\nst_num=42\nst_true=true\nparse_arr_len=3\nparse_arr_0=10\nparse_obj_name=alice\nparse_obj_age=30",
-  "rts": "st_obj={\"a\":1,\"b\":\"hi\"}\nst_arr=[1,2,3]\nst_bool={\"x\":true,\"y\":false}\nst_null={\"z\":null}\nst_nested={\"a\":{\"b\":{\"c\":1}}}\nst_empty_obj={}\nst_empty_arr=[]\nst_str=\"hi\"\nst_num=42\nst_true=true\nparse_arr_len=3\nparse_arr_0=10\nparse_obj_name=alice\nparse_obj_age=30"
-}
-,
-{
-  "name": "09_nullish_optional",
-  "status": "pass",
-  "bun": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast",
-  "node": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast",
-  "rts": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast"
-}
-,
-{
-  "name": "100_dynamic_import",
-  "status": "rts_error",
-  "bun": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "node": "named=17\ndefault=x:17\nsame=true\ncount=1",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "101_textdecoder_stream",
-  "status": "rts_error",
-  "bun": "out=caf|é",
-  "node": "out=caf|é",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "102_bigint_ops",
-  "status": "pass",
-  "bun": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255",
-  "node": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255",
-  "rts": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255"
-}
-,
-{
-  "name": "103_property_order_weird",
-  "status": "pass",
-  "bun": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
-  "node": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
-  "rts": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}"
-}
-,
-{
-  "name": "104_destructuring_edge_cases",
-  "status": "pass",
-  "bun": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
-  "node": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
-  "rts": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
-}
-,
-{
-  "name": "105_template_tagged_raw",
-  "status": "pass",
-  "bun": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
-  "node": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
-  "rts": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x"
-}
-,
-{
-  "name": "106_error_stack_presence",
-  "status": "pass",
-  "bun": "name=Error\nmsg=zap\nstack=string\nhasBoom=true",
-  "node": "name=Error\nmsg=zap\nstack=string\nhasBoom=true",
-  "rts": "name=Error\nmsg=zap\nstack=string\nhasBoom=true"
-}
-,
-{
-  "name": "107_url_edge_cases",
-  "status": "pass",
-  "bun": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
-  "node": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
-  "rts": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag"
-}
-,
-{
-  "name": "108_generator_functions",
-  "status": "rts_error",
-  "bun": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
-  "node": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "109_async_generator",
-  "status": "rts_error",
-  "bun": "async=1,2,3",
-  "node": "async=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "10_destructure_spread",
-  "status": "pass",
-  "bun": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40",
-  "node": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40",
-  "rts": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40"
-}
-,
-{
-  "name": "110_object_getownpropertydescriptors",
-  "status": "pass",
-  "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
-  "node": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
-  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false"
-}
-,
-{
-  "name": "116_promise_finally",
-  "status": "rts_diverge",
-  "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
-}
-,
-{
-  "name": "117_optional_catch_binding",
-  "status": "pass",
-  "bun": "result=caught\nresult2=with:msg",
-  "node": "result=caught\nresult2=with:msg",
-  "rts": "result=caught\nresult2=with:msg"
-}
-,
-{
-  "name": "118_numeric_separators",
-  "status": "pass",
-  "bun": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
-  "node": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
-  "rts": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890"
-}
-,
-{
-  "name": "119_nullish_assignment",
-  "status": "pass",
-  "bun": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false",
-  "node": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false",
-  "rts": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false"
-}
-,
-{
-  "name": "11_objects_templates",
-  "status": "pass",
-  "bun": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana",
-  "node": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana",
-  "rts": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana"
 }
 ,
 {
@@ -224,27 +24,11 @@
 }
 ,
 {
-  "name": "124_string_trim_variants",
-  "status": "pass",
-  "bun": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello",
-  "node": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello",
-  "rts": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello"
-}
-,
-{
   "name": "125_array_includes",
   "status": "pass",
   "bun": "has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true",
   "node": "has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true",
   "rts": "has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true"
-}
-,
-{
-  "name": "126_object_assign",
-  "status": "pass",
-  "bun": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
-  "node": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
-  "rts": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true"
 }
 ,
 {
@@ -264,35 +48,11 @@
 }
 ,
 {
-  "name": "129_string_startswith_endswith",
-  "status": "pass",
-  "bun": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true",
-  "node": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true",
-  "rts": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true"
-}
-,
-{
   "name": "12_array_higher_order",
   "status": "pass",
   "bun": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
   "node": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321",
   "rts": "find=12\nfindIndex=3\nsome=false\nevery=true\nflat=1,2,3,4\nat_neg=130\nreduceRight=321"
-}
-,
-{
-  "name": "130_number_isfinite_isnan",
-  "status": "pass",
-  "bun": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true",
-  "node": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true",
-  "rts": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true"
-}
-,
-{
-  "name": "131_number_isinteger_issafeinteger",
-  "status": "pass",
-  "bun": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
-  "node": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
-  "rts": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false"
 }
 ,
 {
@@ -304,27 +64,1187 @@
 }
 ,
 {
-  "name": "133_string_repeat",
-  "status": "pass",
-  "bun": "repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text",
-  "node": "repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text",
-  "rts": "repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text"
-}
-,
-{
-  "name": "134_object_is",
-  "status": "pass",
-  "bun": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true",
-  "node": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true",
-  "rts": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true"
-}
-,
-{
   "name": "135_array_indexof_lastindexof",
   "status": "pass",
   "bun": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12",
   "node": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12",
   "rts": "indexOf_2=1\nlastIndexOf_2=3\nindexOf_5=-1\nlastIndexOf_5=-1\nindexOf_from=3\nlastIndexOf_from=1\nindexOf_NaN=-1\nstr_indexOf=0\nstr_lastIndexOf=12\nstr_indexOf_from=12"
+}
+,
+{
+  "name": "139_array_reduce_edge_cases",
+  "status": "pass",
+  "bun": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}",
+  "node": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}",
+  "rts": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}"
+}
+,
+{
+  "name": "142_array_join_edge_cases",
+  "status": "pass",
+  "bun": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
+  "node": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
+  "rts": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr="
+}
+,
+{
+  "name": "143_array_concat",
+  "status": "pass",
+  "bun": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
+  "node": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
+  "rts": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2"
+}
+,
+{
+  "name": "149_array_reverse_sort_mutate",
+  "status": "pass",
+  "bun": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry",
+  "node": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry",
+  "rts": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry"
+}
+,
+{
+  "name": "150_array_push_pop_shift_unshift",
+  "status": "pass",
+  "bun": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
+  "node": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
+  "rts": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6"
+}
+,
+{
+  "name": "151_array_slice_splice",
+  "status": "pass",
+  "bun": "slice_2=3,4,5\nslice_1_3=2,3\nslice_neg=4,5\noriginal=1,2,3,4,5\nsplice_removed=3,4\nsplice_arr=1,2,5\nsplice_insert=1,2,3,4,5\nsplice_replace=1,8,9,4,5",
+  "node": "slice_2=3,4,5\nslice_1_3=2,3\nslice_neg=4,5\noriginal=1,2,3,4,5\nsplice_removed=3,4\nsplice_arr=1,2,5\nsplice_insert=1,2,3,4,5\nsplice_replace=1,8,9,4,5",
+  "rts": "slice_2=3,4,5\nslice_1_3=2,3\nslice_neg=4,5\noriginal=1,2,3,4,5\nsplice_removed=3,4\nsplice_arr=1,2,5\nsplice_insert=1,2,3,4,5\nsplice_replace=1,8,9,4,5"
+}
+,
+{
+  "name": "157_array_tostring_tolocalestring",
+  "status": "pass",
+  "bun": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
+  "node": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
+  "rts": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3"
+}
+,
+{
+  "name": "159_array_every_callback_args",
+  "status": "pass",
+  "bun": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2",
+  "node": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2",
+  "rts": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2"
+}
+,
+{
+  "name": "161_array_isarray",
+  "status": "pass",
+  "bun": "array=true\nempty=true\nobject=false\nstring=false\nnumber=false\nnull=false\nundefined=false\narraylike=false",
+  "node": "array=true\nempty=true\nobject=false\nstring=false\nnumber=false\nnull=false\nundefined=false\narraylike=false",
+  "rts": "array=true\nempty=true\nobject=false\nstring=false\nnumber=false\nnull=false\nundefined=false\narraylike=false"
+}
+,
+{
+  "name": "169_array_of",
+  "status": "pass",
+  "bun": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2",
+  "node": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2",
+  "rts": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2"
+}
+,
+{
+  "name": "178_array_constructor",
+  "status": "pass",
+  "bun": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
+  "node": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
+  "rts": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2"
+}
+,
+{
+  "name": "190_array_entries_keys_values",
+  "status": "pass",
+  "bun": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
+  "node": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
+  "rts": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2"
+}
+,
+{
+  "name": "199_array_from_mapfn",
+  "status": "pass",
+  "bun": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
+  "node": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
+  "rts": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6"
+}
+,
+{
+  "name": "202_array_reduceright",
+  "status": "pass",
+  "bun": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
+  "node": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
+  "rts": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321"
+}
+,
+{
+  "name": "209_array_unshift_return",
+  "status": "pass",
+  "bun": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1",
+  "node": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1",
+  "rts": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1"
+}
+,
+{
+  "name": "211_array_shift_empty",
+  "status": "pass",
+  "bun": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined",
+  "node": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined",
+  "rts": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined"
+}
+,
+{
+  "name": "214_array_length_setter",
+  "status": "pass",
+  "bun": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
+  "node": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
+  "rts": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty="
+}
+,
+{
+  "name": "217_array_sort_stability",
+  "status": "pass",
+  "bun": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
+  "node": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
+  "rts": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9"
+}
+,
+{
+  "name": "220_array_map_sparse",
+  "status": "pass",
+  "bun": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
+  "node": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
+  "rts": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2"
+}
+,
+{
+  "name": "223_array_filter_truthy",
+  "status": "pass",
+  "bun": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
+  "node": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
+  "rts": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone="
+}
+,
+{
+  "name": "226_array_find_undefined",
+  "status": "pass",
+  "bun": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined",
+  "node": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined",
+  "rts": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined"
+}
+,
+{
+  "name": "231_array_tolocalestring",
+  "status": "pass",
+  "bun": "has_commas=true\nmixed=true\nempty=",
+  "node": "has_commas=true\nmixed=true\nempty=",
+  "rts": "has_commas=true\nmixed=true\nempty="
+}
+,
+{
+  "name": "233_array_some_short_circuit",
+  "status": "pass",
+  "bun": "result=true\ncount=3\nresult2=false\ncount2=5",
+  "node": "result=true\ncount=3\nresult2=false\ncount2=5",
+  "rts": "result=true\ncount=3\nresult2=false\ncount2=5"
+}
+,
+{
+  "name": "234_array_indexof_fromindex",
+  "status": "pass",
+  "bun": "2=1\n2_from_2=3\n2_from_3=3\n1=0\n1_from_1=4\n2_from_-2=3\n1_from_-1=4",
+  "node": "2=1\n2_from_2=3\n2_from_3=3\n1=0\n1_from_1=4\n2_from_-2=3\n1_from_-1=4",
+  "rts": "2=1\n2_from_2=3\n2_from_3=3\n1=0\n1_from_1=4\n2_from_-2=3\n1_from_-1=4"
+}
+,
+{
+  "name": "235_array_every_short_circuit",
+  "status": "pass",
+  "bun": "result=false\ncount=3\nresult2=true\ncount2=5",
+  "node": "result=false\ncount=3\nresult2=true\ncount2=5",
+  "rts": "result=false\ncount=3\nresult2=true\ncount2=5"
+}
+,
+{
+  "name": "237_array_lastindexof_fromindex",
+  "status": "pass",
+  "bun": "2=3\n2_from_2=1\n2_from_1=1\n1=4\n1_from_3=0\n2_from_-2=3\n1_from_-1=4",
+  "node": "2=3\n2_from_2=1\n2_from_1=1\n1=4\n1_from_3=0\n2_from_-2=3\n1_from_-1=4",
+  "rts": "2=3\n2_from_2=1\n2_from_1=1\n1=4\n1_from_3=0\n2_from_-2=3\n1_from_-1=4"
+}
+,
+{
+  "name": "242_array_map_return",
+  "status": "pass",
+  "bun": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
+  "node": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
+  "rts": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6"
+}
+,
+{
+  "name": "248_array_foreach_return",
+  "status": "pass",
+  "bun": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
+  "node": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
+  "rts": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined"
+}
+,
+{
+  "name": "24_array_creation_iter",
+  "status": "pass",
+  "bun": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true",
+  "node": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true",
+  "rts": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true"
+}
+,
+{
+  "name": "254_array_reduce_no_initial",
+  "status": "pass",
+  "bun": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
+  "node": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
+  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=hello world"
+}
+,
+{
+  "name": "257_array_flat_depth",
+  "status": "pass",
+  "bun": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
+  "node": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
+  "rts": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3"
+}
+,
+{
+  "name": "258_array_flatmap",
+  "status": "pass",
+  "bun": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
+  "node": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
+  "rts": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]"
+}
+,
+{
+  "name": "259_array_at",
+  "status": "pass",
+  "bun": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
+  "node": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
+  "rts": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined"
+}
+,
+{
+  "name": "260_findlast",
+  "status": "pass",
+  "bun": "last=2\nidx=4\nnone=undefined\nnoneIdx=-1",
+  "node": "last=2\nidx=4\nnone=undefined\nnoneIdx=-1",
+  "rts": "last=2\nidx=4\nnone=undefined\nnoneIdx=-1"
+}
+,
+{
+  "name": "303_array_fromasync",
+  "status": "rts_error",
+  "bun": "gen=3,6\nprom=a,b",
+  "node": "gen=3,6\nprom=a,b",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "31_array_search_negative",
+  "status": "pass",
+  "bun": "indexOf=3\nlastIndexOf=3\nincludes=true",
+  "node": "indexOf=3\nlastIndexOf=3\nincludes=true",
+  "rts": "indexOf=3\nlastIndexOf=3\nincludes=true"
+}
+,
+{
+  "name": "321_array_at",
+  "status": "pass",
+  "bun": "10\n30\n50\n40\nundefined\nundefined\nundefined\nundefined",
+  "node": "10\n30\n50\n40\nundefined\nundefined\nundefined\nundefined",
+  "rts": "10\n30\n50\n40\nundefined\nundefined\nundefined\nundefined"
+}
+,
+{
+  "name": "324_array_toreversed_tosorted",
+  "status": "pass",
+  "bun": "5,1,4,1,3\n3,1,4,1,5\n1,1,3,4,5\n3,1,4,1,5\n3,99,1,5\n3,1,4,1,5\n3,1,99,1,5\n3,1,4,1,5",
+  "node": "5,1,4,1,3\n3,1,4,1,5\n1,1,3,4,5\n3,1,4,1,5\n3,99,1,5\n3,1,4,1,5\n3,1,99,1,5\n3,1,4,1,5",
+  "rts": "5,1,4,1,3\n3,1,4,1,5\n1,1,3,4,5\n3,1,4,1,5\n3,99,1,5\n3,1,4,1,5\n3,1,99,1,5\n3,1,4,1,5"
+}
+,
+{
+  "name": "34_array_from_length_mapper",
+  "status": "pass",
+  "bun": "mapped=0,3,6,9",
+  "node": "mapped=0,3,6,9",
+  "rts": "mapped=0,3,6,9"
+}
+,
+{
+  "name": "351_obf_string_array",
+  "status": "rts_diverge",
+  "bun": "hello\nworld\nworld\nhello\nhello\nworld\nfoo\nbar\n3\n1,2,3",
+  "node": "hello\nworld\nworld\nhello\nhello\nworld\nfoo\nbar\n3\n1,2,3",
+  "rts": "281474976710657\n281474976710658\n281474976710658\n281474976710657\nhello\nworld\nfoo\nbar\n0"
+}
+,
+{
+  "name": "357_obf_self_ref_array",
+  "status": "pass",
+  "bun": "gamma\nalpha\nbeta\ngamma alpha\ndelta\nzeta\neta\ntheta\n60\n10\n50",
+  "node": "gamma\nalpha\nbeta\ngamma alpha\ndelta\nzeta\neta\ntheta\n60\n10\n50",
+  "rts": "gamma\nalpha\nbeta\ngamma alpha\ndelta\nzeta\neta\ntheta\n60\n10\n50"
+}
+,
+{
+  "name": "45_array_iterators_deep",
+  "status": "pass",
+  "bun": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3",
+  "node": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3",
+  "rts": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3"
+}
+,
+{
+  "name": "52_sparse_arrays",
+  "status": "pass",
+  "bun": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
+  "node": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
+  "rts": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5"
+}
+,
+{
+  "name": "94_sparse_array_enumeration",
+  "status": "pass",
+  "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
+  "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
+  "rts": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
+}
+,
+{
+  "name": "102_bigint_ops",
+  "status": "pass",
+  "bun": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255",
+  "node": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255",
+  "rts": "add=15\nmul=-21\ndiv=5\nmod=2\npow=256\ncmp=true\nasInt=-1\nasUint=255"
+}
+,
+{
+  "name": "291_json_bigint",
+  "status": "rts_diverge",
+  "bun": "err=TypeError",
+  "node": "err=TypeError",
+  "rts": "err="
+}
+,
+{
+  "name": "317_bigint_literals",
+  "status": "rts_diverge",
+  "bun": "vals=10,255\neq=true\nseq=false",
+  "node": "vals=10,255\neq=true\nseq=false",
+  "rts": "eq=true\nseq=true"
+}
+,
+{
+  "name": "65_bigint_typed_arrays",
+  "status": "rts_error",
+  "bun": "arr=1,-2,9007199254740991\ndv=-123",
+  "node": "arr=1,-2,9007199254740991\ndv=-123",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "175_boolean_constructor",
+  "status": "pass",
+  "bun": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false",
+  "node": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false",
+  "rts": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false"
+}
+,
+{
+  "name": "246_boolean_valueof",
+  "status": "pass",
+  "bun": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
+  "node": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
+  "rts": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true"
+}
+,
+{
+  "name": "106_error_stack_presence",
+  "status": "pass",
+  "bun": "name=Error\nmsg=zap\nstack=string\nhasBoom=true",
+  "node": "name=Error\nmsg=zap\nstack=string\nhasBoom=true",
+  "rts": "name=Error\nmsg=zap\nstack=string\nhasBoom=true"
+}
+,
+{
+  "name": "155_object_getprototypeof",
+  "status": "pass",
+  "bun": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
+  "node": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
+  "rts": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
+}
+,
+{
+  "name": "17_try_catch_error",
+  "status": "pass",
+  "bun": "err_a=Error:boom\nfin_a=done\nerr_b=plain\ninner=TypeError\nouter=RangeError:bad:range\nis_error=true\nis_type=false\nis_range=true",
+  "node": "err_a=Error:boom\nfin_a=done\nerr_b=plain\ninner=TypeError\nouter=RangeError:bad:range\nis_error=true\nis_type=false\nis_range=true",
+  "rts": "err_a=Error:boom\nfin_a=done\nerr_b=plain\ninner=TypeError\nouter=RangeError:bad:range\nis_error=true\nis_type=false\nis_range=true"
+}
+,
+{
+  "name": "187_error_types",
+  "status": "pass",
+  "bun": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError",
+  "node": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError",
+  "rts": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError"
+}
+,
+{
+  "name": "22_typeof_instanceof",
+  "status": "pass",
+  "bun": "t_num=number\nt_str=string\nt_bool=boolean\nt_undef=undefined\nt_fn=function\nt_obj=object\nt_arr=object\nt_null=object\ni_sub=true\ni_base=true\ni_obj=true",
+  "node": "t_num=number\nt_str=string\nt_bool=boolean\nt_undef=undefined\nt_fn=function\nt_obj=object\nt_arr=object\nt_null=object\ni_sub=true\ni_base=true\ni_obj=true",
+  "rts": "t_num=number\nt_str=string\nt_bool=boolean\nt_undef=undefined\nt_fn=function\nt_obj=object\nt_arr=object\nt_null=object\ni_sub=true\ni_base=true\ni_obj=true"
+}
+,
+{
+  "name": "247_object_isprototypeof",
+  "status": "pass",
+  "bun": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true",
+  "node": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true",
+  "rts": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true"
+}
+,
+{
+  "name": "277_error_cause",
+  "status": "pass",
+  "bun": "e1=msg:root\ne2=TypeError:msg",
+  "node": "e1=msg:root\ne2=TypeError:msg",
+  "rts": "e1=msg:root\ne2=TypeError:msg"
+}
+,
+{
+  "name": "279_error_chain_cause",
+  "status": "pass",
+  "bun": "top=top\nmid=mid\nleaf=leaf",
+  "node": "top=top\nmid=mid\nleaf=leaf",
+  "rts": "top=top\nmid=mid\nleaf=leaf"
+}
+,
+{
+  "name": "328_error_types",
+  "status": "pass",
+  "bun": "base\nError\nTypeError\nRangeError\nReferenceError\nSyntaxError\nURIError\ntrue\ntrue\ntrue\nfalse\nouter\ninner",
+  "node": "base\nError\nTypeError\nRangeError\nReferenceError\nSyntaxError\nURIError\ntrue\ntrue\ntrue\nfalse\nouter\ninner",
+  "rts": "base\nError\nTypeError\nRangeError\nReferenceError\nSyntaxError\nURIError\ntrue\ntrue\ntrue\nfalse\nouter\ninner"
+}
+,
+{
+  "name": "35_error_no_args",
+  "status": "pass",
+  "bun": "err=Error:[]\ntype=TypeError:[]",
+  "node": "err=Error:[]\ntype=TypeError:[]",
+  "rts": "err=Error:[]\ntype=TypeError:[]"
+}
+,
+{
+  "name": "369_error_handling",
+  "status": "bun_node_diverge",
+  "bun": "NetworkError\nNot Found\n404\n404\ntrue\ntrue\ntrue\nok\ntry,after throw,finally\ncaught\ntry,catch:fail,finally\nAppError:invalid json: {bad\nTypeError:not a number\n42\nmultiple errors\ne1,e2",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "47_error_instanceof_deep",
+  "status": "pass",
+  "bun": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
+  "node": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
+  "rts": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true"
+}
+,
+{
+  "name": "16_classes_basic",
+  "status": "pass",
+  "bun": "a_label=box:toy\na_size=3\na_next=box:drone\nb_label=box:book:gift\nis_box=true\nis_gift=true",
+  "node": "a_label=box:toy\na_size=3\na_next=box:drone\nb_label=box:book:gift\nis_box=true\nis_gift=true",
+  "rts": "a_label=box:toy\na_size=3\na_next=box:drone\nb_label=box:book:gift\nis_box=true\nis_gift=true"
+}
+,
+{
+  "name": "267_private_fields",
+  "status": "pass",
+  "bun": "inner=7:20\nouter=SyntaxError",
+  "node": "inner=7:20\nouter=SyntaxError",
+  "rts": "inner=7:20\nouter=SyntaxError"
+}
+,
+{
+  "name": "268_private_methods",
+  "status": "pass",
+  "bun": "both=6:15\nerr=SyntaxError",
+  "node": "both=6:15\nerr=SyntaxError",
+  "rts": "both=6:15\nerr=SyntaxError"
+}
+,
+{
+  "name": "269_static_blocks",
+  "status": "pass",
+  "bun": "order=field|block1:3|block2:5",
+  "node": "order=field|block1:3|block2:5",
+  "rts": "order=field|block1:3|block2:5"
+}
+,
+{
+  "name": "270_new_target",
+  "status": "rts_diverge",
+  "bun": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
+  "node": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
+  "rts": "f1=call\nwrap=281474976710675\ncls=null:null"
+}
+,
+{
+  "name": "271_computed_class_members",
+  "status": "rts_error",
+  "bun": "sum=5\niter=1,2\nsym=ok",
+  "node": "sum=5\niter=1,2\nsym=ok",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "370_advanced_classes",
+  "status": "bun_node_diverge",
+  "bun": "true\n{\"name\":\"Alice\",\"age\":30}\nfalse\n15 USD\nnegative amount\ncurrency mismatch",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "371_private_fields_basic",
+  "status": "rts_diverge",
+  "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
+  "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
+  "rts": "6\n4\n0\nnull\nfalse\n1 2 3\n1\n10\n20"
+}
+,
+{
+  "name": "372_private_methods",
+  "status": "rts_error",
+  "bun": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
+  "node": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "373_private_in_check",
+  "status": "rts_error",
+  "bun": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
+  "node": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "374_private_static_methods",
+  "status": "rts_error",
+  "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
+  "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "375_private_inheritance",
+  "status": "rts_error",
+  "bun": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
+  "node": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "376_private_pattern_advanced",
+  "status": "rts_error",
+  "bun": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
+  "node": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "381_dynamic_extends",
+  "status": "bun_node_diverge",
+  "bun": "Alice\nstring\ntrue\nBob\nadmin\ntrue\ncircle\n3.14\nsquare\n16\nbar\ntrue\nfalse",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "383_computed_class_members",
+  "status": "bun_node_diverge",
+  "bun": "100\n200\n350\nmethod named '2'\n7\n7\n12\n{\"x\":1}\n1",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "38_classes_deep",
+  "status": "pass",
+  "bun": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
+  "node": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
+  "rts": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true"
+}
+,
+{
+  "name": "166_weakmap_weakset",
+  "status": "pass",
+  "bun": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false",
+  "node": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false",
+  "rts": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false"
+}
+,
+{
+  "name": "185_map_set_size",
+  "status": "pass",
+  "bun": "map_empty=0\nmap_2=2\nmap_still_2=2\nmap_1=1\nmap_cleared=0\nset_empty=0\nset_2=2\nset_1=1",
+  "node": "map_empty=0\nmap_2=2\nmap_still_2=2\nmap_1=1\nmap_cleared=0\nset_empty=0\nset_2=2\nset_1=1",
+  "rts": "map_empty=0\nmap_2=2\nmap_still_2=2\nmap_1=1\nmap_cleared=0\nset_empty=0\nset_2=2\nset_1=1"
+}
+,
+{
+  "name": "186_map_foreach",
+  "status": "pass",
+  "bun": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
+  "node": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
+  "rts": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3"
+}
+,
+{
+  "name": "26_map_set_instances",
+  "status": "pass",
+  "bun": "m_size=2\nm_get=1\nm_has=true\nm_after=1\ns_size=2\ns_has=true\ns_after=1",
+  "node": "m_size=2\nm_get=1\nm_has=true\nm_after=1\ns_size=2\ns_has=true\ns_after=1",
+  "rts": "m_size=2\nm_get=1\nm_has=true\nm_after=1\ns_size=2\ns_has=true\ns_after=1"
+}
+,
+{
+  "name": "301_groupby_dedicated",
+  "status": "pass",
+  "bun": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b",
+  "node": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b",
+  "rts": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b"
+}
+,
+{
+  "name": "302_set_ops_dedicated",
+  "status": "pass",
+  "bun": "union=1,2,3,4\nsym=1,2,4\nsubset=true\nsup=true\ndis=true",
+  "node": "union=1,2,3,4\nsym=1,2,4\nsubset=true\nsup=true\ndis=true",
+  "rts": "union=1,2,3,4\nsym=1,2,4\nsubset=true\nsup=true\ndis=true"
+}
+,
+{
+  "name": "326_map_basics",
+  "status": "rts_diverge",
+  "bun": "3\n1\nundefined\ntrue\nfalse\n2\nfalse\na,c\n1,3\n0",
+  "node": "3\n1\nundefined\ntrue\nfalse\n2\nfalse\na,c\n1,3\n0",
+  "rts": "3\n1\nnull\ntrue\nfalse\n2\nfalse\na,c\n1,3\n0"
+}
+,
+{
+  "name": "327_set_basics",
+  "status": "rts_diverge",
+  "bun": "3\ntrue\nfalse\n4\n3\nfalse\n2,3,4\n0",
+  "node": "3\ntrue\nfalse\n4\n3\nfalse\n2,3,4\n0",
+  "rts": "3\ntrue\nfalse\n4\n3\nfalse\n\n0"
+}
+,
+{
+  "name": "32_map_iteration",
+  "status": "pass",
+  "bun": "map=a:1,c:3,",
+  "node": "map=a:1,c:3,",
+  "rts": "map=a:1,c:3,"
+}
+,
+{
+  "name": "347_weak_collections",
+  "status": "rts_diverge",
+  "bun": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse",
+  "node": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse",
+  "rts": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm null, age null\nfalse\ntrue\nfalse\nfalse"
+}
+,
+{
+  "name": "89_groupby",
+  "status": "pass",
+  "bun": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2",
+  "node": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2",
+  "rts": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2"
+}
+,
+{
+  "name": "90_set_operations",
+  "status": "pass",
+  "bun": "union=1,2,3,4\ninter=3\ndiff=1,2",
+  "node": "union=1,2,3,4\ninter=3\ndiff=1,2",
+  "rts": "union=1,2,3,4\ninter=3\ndiff=1,2"
+}
+,
+{
+  "name": "309_console_assert",
+  "status": "pass",
+  "bun": "threw=false\nafter=ok",
+  "node": "threw=false\nafter=ok",
+  "rts": "threw=false\nafter=ok"
+}
+,
+{
+  "name": "310_console_group",
+  "status": "rts_diverge",
+  "bun": "events=g:x|end",
+  "node": "events=g:x|end",
+  "rts": "x\n\nevents="
+}
+,
+{
+  "name": "311_console_table",
+  "status": "rts_diverge",
+  "bun": "calls=2",
+  "node": "calls=2",
+  "rts": "[ { a: 1 }, { a: 2 } ]\ncalls="
+}
+,
+{
+  "name": "312_console_dir",
+  "status": "rts_diverge",
+  "bun": "calls=object:1",
+  "node": "calls=object:1",
+  "rts": "{ a: { b: 1 } } { depth: 1 }\ncalls="
+}
+,
+{
+  "name": "172_date_now_valueof",
+  "status": "pass",
+  "bun": "equal=true\nvalueOf=1704067200000\ngreater=true\ngetTime=1704067200000\nsame=true\nepoch=0",
+  "node": "equal=true\nvalueOf=1704067200000\ngreater=true\ngetTime=1704067200000\nsame=true\nepoch=0",
+  "rts": "equal=true\nvalueOf=1704067200000\ngreater=true\ngetTime=1704067200000\nsame=true\nepoch=0"
+}
+,
+{
+  "name": "173_date_toisostring",
+  "status": "pass",
+  "bun": "iso=2024-01-01T12:30:45.123Z\niso2=2000-12-31T23:59:59.999Z\nepoch=1970-01-01T00:00:00.000Z\njson=2024-01-01T12:30:45.123Z",
+  "node": "iso=2024-01-01T12:30:45.123Z\niso2=2000-12-31T23:59:59.999Z\nepoch=1970-01-01T00:00:00.000Z\njson=2024-01-01T12:30:45.123Z",
+  "rts": "iso=2024-01-01T12:30:45.123Z\niso2=2000-12-31T23:59:59.999Z\nepoch=1970-01-01T00:00:00.000Z\njson=2024-01-01T12:30:45.123Z"
+}
+,
+{
+  "name": "174_date_parse",
+  "status": "pass",
+  "bun": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true",
+  "node": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true",
+  "rts": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true"
+}
+,
+{
+  "name": "249_date_getters",
+  "status": "pass",
+  "bun": "utc_year=2024\nutc_month=0\nutc_date=15\nutc_hours=10\nutc_minutes=30\nutc_seconds=45\nutc_ms=123\nutc_day=1",
+  "node": "utc_year=2024\nutc_month=0\nutc_date=15\nutc_hours=10\nutc_minutes=30\nutc_seconds=45\nutc_ms=123\nutc_day=1",
+  "rts": "utc_year=2024\nutc_month=0\nutc_date=15\nutc_hours=10\nutc_minutes=30\nutc_seconds=45\nutc_ms=123\nutc_day=1"
+}
+,
+{
+  "name": "27_date_deterministic",
+  "status": "pass",
+  "bun": "stamp=1715344496789\nyear=2024\nmonth=4\ndate=10\nhours=12\niso=2024-05-10T12:34:56.789Z",
+  "node": "stamp=1715344496789\nyear=2024\nmonth=4\ndate=10\nhours=12\niso=2024-05-10T12:34:56.789Z",
+  "rts": "stamp=1715344496789\nyear=2024\nmonth=4\ndate=10\nhours=12\niso=2024-05-10T12:34:56.789Z"
+}
+,
+{
+  "name": "280_date_setutc_family",
+  "status": "pass",
+  "bun": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
+  "node": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
+  "rts": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789"
+}
+,
+{
+  "name": "33_date_value_methods",
+  "status": "pass",
+  "bun": "time=1717200000000\njson=2024-06-01T00:00:00.000Z\nvalue=1717200000000",
+  "node": "time=1717200000000\njson=2024-06-01T00:00:00.000Z\nvalue=1717200000000",
+  "rts": "time=1717200000000\njson=2024-06-01T00:00:00.000Z\nvalue=1717200000000"
+}
+,
+{
+  "name": "43_date_setters_deep",
+  "status": "pass",
+  "bun": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
+  "node": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
+  "rts": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8"
+}
+,
+{
+  "name": "158_encodeuri_decodeuri",
+  "status": "pass",
+  "bun": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26",
+  "node": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26",
+  "rts": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26"
+}
+,
+{
+  "name": "58_text_encoding",
+  "status": "pass",
+  "bun": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
+  "node": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
+  "rts": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ"
+}
+,
+{
+  "name": "79_subtle_digest",
+  "status": "rts_error",
+  "bun": "sha256_8=ba7816bf8f01cfea",
+  "node": "sha256_8=ba7816bf8f01cfea",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "285_queuemicrotask_order",
+  "status": "rts_diverge",
+  "bun": "order=sync|qm|then|timeout",
+  "node": "order=sync|qm|then|timeout",
+  "rts": "order=sync|timeout"
+}
+,
+{
+  "name": "288_abortsignal_timeout_any",
+  "status": "pass",
+  "bun": "a=true:a\nc=true:a",
+  "node": "a=true:a\nc=true:a",
+  "rts": "a=true:a\nc=true:a"
+}
+,
+{
+  "name": "393_promise_microtask",
+  "status": "rts_error",
+  "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
+  "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "56_microtask_order",
+  "status": "pass",
+  "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
+  "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
+  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+}
+,
+{
+  "name": "62_abort_controller",
+  "status": "pass",
+  "bun": "before=false\nafter=true\nreason=stop\nseen=event:true",
+  "node": "before=false\nafter=true\nreason=stop\nseen=event:true",
+  "rts": "before=false\nafter=true\nreason=stop\nseen=event:true"
+}
+,
+{
+  "name": "63_event_target",
+  "status": "pass",
+  "bun": "ok=true\nlog=a:ping,b",
+  "node": "ok=true\nlog=a:ping,b",
+  "rts": "ok=true\nlog=a:ping,b"
+}
+,
+{
+  "name": "76_message_channel",
+  "status": "rts_error",
+  "bun": "recv=pong",
+  "node": "recv=pong",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "84_abortsignal_advanced",
+  "status": "pass",
+  "bun": "ab=true:x\nto=true:TimeoutError",
+  "node": "ab=true:x\nto=true:TimeoutError",
+  "rts": "ab=true:x\nto=true:TimeoutError"
+}
+,
+{
+  "name": "179_function_name_length",
+  "status": "pass",
+  "bun": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
+  "node": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
+  "rts": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0"
+}
+,
+{
+  "name": "180_function_call_apply",
+  "status": "bun_node_diverge",
+  "bun": "__RUNTIME_ERROR__",
+  "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
+  "rts": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9"
+}
+,
+{
+  "name": "181_function_bind",
+  "status": "pass",
+  "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
+  "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
+  "rts": "bound=24\noriginal=12\npartial=10\nrebind=24"
+}
+,
+{
+  "name": "25_closures",
+  "status": "pass",
+  "bun": "add=9\niife=12",
+  "node": "add=9\niife=12",
+  "rts": "add=9\niife=12"
+}
+,
+{
+  "name": "294_arrow_rest_params",
+  "status": "pass",
+  "bun": "a=1:0:\nb=1:3:2,3,4",
+  "node": "a=1:0:\nb=1:3:2,3,4",
+  "rts": "a=1:0:\nb=1:3:2,3,4"
+}
+,
+{
+  "name": "299_arguments_object",
+  "status": "rts_diverge",
+  "bun": "args=3|1|1,2,3|function",
+  "node": "args=3|1|1,2,3|function",
+  "rts": ""
+}
+,
+{
+  "name": "348_closure_optimization",
+  "status": "rts_error",
+  "bun": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24",
+  "node": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "391_arguments_object",
+  "status": "bun_node_diverge",
+  "bun": "15\nfalse\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
+  "node": "15\nfalse\nobject\n3\n10,20,30\n99,99,2,2\n42\n1,3,4\n5",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "41_closures_deep",
+  "status": "rts_diverge",
+  "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
+  "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
+  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nthis_arrow=null"
+}
+,
+{
+  "name": "49_function_meta",
+  "status": "pass",
+  "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
+  "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
+  "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=12"
+}
+,
+{
+  "name": "307_weakref_shape",
+  "status": "pass",
+  "bun": "type=function\nderef=object",
+  "node": "type=function\nderef=object",
+  "rts": "type=function\nderef=object"
+}
+,
+{
+  "name": "308_finalization_registry_shape",
+  "status": "pass",
+  "bun": "type=function\nreg=function\nunreg=function",
+  "node": "type=function\nreg=function\nunreg=function",
+  "rts": "type=function\nreg=function\nunreg=function"
+}
+,
+{
+  "name": "66_weak_refs",
+  "status": "pass",
+  "bun": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false",
+  "node": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false",
+  "rts": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false"
+}
+,
+{
+  "name": "108_generator_functions",
+  "status": "rts_error",
+  "bun": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
+  "node": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "109_async_generator",
+  "status": "rts_error",
+  "bun": "async=1,2,3",
+  "node": "async=1,2,3",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "275_generator_yieldstar",
+  "status": "rts_error",
+  "bun": "steps=1:false|2:false|10:false|11:true",
+  "node": "steps=1:false|2:false|10:false|11:true",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "276_generator_return_throw",
+  "status": "rts_error",
+  "bun": "return=1,false,99,false\nthrow=",
+  "node": "return=1,false,99,false\nthrow=",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "329_generator_basics",
+  "status": "rts_error",
+  "bun": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue",
+  "node": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "379_yield_star",
+  "status": "rts_error",
+  "bun": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
+  "node": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "59_intl_basics",
+  "status": "rts_error",
+  "bun": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
+  "node": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "71_intl_segmenter",
+  "status": "rts_error",
+  "bun": "segments=hi:true| :false|there:true",
+  "node": "segments=hi:true| :false|there:true",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "78_intl_more",
+  "status": "rts_error",
+  "bun": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
+  "node": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "305_iterator_helpers",
+  "status": "rts_error",
+  "bun": "arr=6,8\nred=5",
+  "node": "arr=6,8\nred=5",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "306_iterator_toarray",
+  "status": "rts_error",
+  "bun": "a=1,2,3\nb=",
+  "node": "a=1,2,3\nb=",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "392_async_iterator_advanced",
+  "status": "rts_error",
+  "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
+  "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "08_json_basics",
+  "status": "pass",
+  "bun": "st_obj={\"a\":1,\"b\":\"hi\"}\nst_arr=[1,2,3]\nst_bool={\"x\":true,\"y\":false}\nst_null={\"z\":null}\nst_nested={\"a\":{\"b\":{\"c\":1}}}\nst_empty_obj={}\nst_empty_arr=[]\nst_str=\"hi\"\nst_num=42\nst_true=true\nparse_arr_len=3\nparse_arr_0=10\nparse_obj_name=alice\nparse_obj_age=30",
+  "node": "st_obj={\"a\":1,\"b\":\"hi\"}\nst_arr=[1,2,3]\nst_bool={\"x\":true,\"y\":false}\nst_null={\"z\":null}\nst_nested={\"a\":{\"b\":{\"c\":1}}}\nst_empty_obj={}\nst_empty_arr=[]\nst_str=\"hi\"\nst_num=42\nst_true=true\nparse_arr_len=3\nparse_arr_0=10\nparse_obj_name=alice\nparse_obj_age=30",
+  "rts": "st_obj={\"a\":1,\"b\":\"hi\"}\nst_arr=[1,2,3]\nst_bool={\"x\":true,\"y\":false}\nst_null={\"z\":null}\nst_nested={\"a\":{\"b\":{\"c\":1}}}\nst_empty_obj={}\nst_empty_arr=[]\nst_str=\"hi\"\nst_num=42\nst_true=true\nparse_arr_len=3\nparse_arr_0=10\nparse_obj_name=alice\nparse_obj_age=30"
+}
+,
+{
+  "name": "13_json_replacer_reviver",
+  "status": "pass",
+  "bun": "plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1",
+  "node": "plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1",
+  "rts": "plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1"
+}
+,
+{
+  "name": "207_json_stringify_space",
+  "status": "pass",
+  "bun": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
+  "node": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
+  "rts": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5"
+}
+,
+{
+  "name": "228_json_parse_reviver",
+  "status": "pass",
+  "bun": "a=2\nb=4\nc=6\narr=11,12,13",
+  "node": "a=2\nb=4\nc=6\narr=11,12,13",
+  "rts": "a=2\nb=4\nc=6\narr=11,12,13"
+}
+,
+{
+  "name": "229_json_stringify_replacer_array",
+  "status": "pass",
+  "bun": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
+  "node": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
+  "rts": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}"
+}
+,
+{
+  "name": "290_json_circular",
+  "status": "pass",
+  "bun": "err=TypeError",
+  "node": "err=TypeError",
+  "rts": "err=TypeError"
+}
+,
+{
+  "name": "292_json_tojson",
+  "status": "pass",
+  "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
+  "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
+  "rts": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\""
+}
+,
+{
+  "name": "293_json_reviver_this",
+  "status": "rts_diverge",
+  "bun": "obj={\"a\":2,\"b\":4}\nseen=2",
+  "node": "obj={\"a\":2,\"b\":4}\nseen=2",
+  "rts": "obj=562949953421322\nseen="
+}
+,
+{
+  "name": "50_json_deep",
+  "status": "pass",
+  "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
+  "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
+  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"
 }
 ,
 {
@@ -352,51 +1272,283 @@
 }
 ,
 {
-  "name": "139_array_reduce_edge_cases",
+  "name": "15_math_methods",
   "status": "pass",
-  "bun": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}",
-  "node": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}",
-  "rts": "sum=10\nproduct=24\nmax=4\nsingle=5\nwithInit=15\nobj={\"a\":1,\"b\":2,\"c\":3}"
+  "bun": "floor=3\nceil=4\nround=4\ntrunc=-3\nabs=12\nsqrt=9\npow=32\nlog=0\nexp=2.718\nmin=-2\nmax=9\nsign_n=-1\nsign_z=0\nhypot=13\nnan_add=NaN\ninf_mul=Infinity\nzero_div_zero=NaN",
+  "node": "floor=3\nceil=4\nround=4\ntrunc=-3\nabs=12\nsqrt=9\npow=32\nlog=0\nexp=2.718\nmin=-2\nmax=9\nsign_n=-1\nsign_z=0\nhypot=13\nnan_add=NaN\ninf_mul=Infinity\nzero_div_zero=NaN",
+  "rts": "floor=3\nceil=4\nround=4\ntrunc=-3\nabs=12\nsqrt=9\npow=32\nlog=0\nexp=2.718\nmin=-2\nmax=9\nsign_n=-1\nsign_z=0\nhypot=13\nnan_add=NaN\ninf_mul=Infinity\nzero_div_zero=NaN"
 }
 ,
 {
-  "name": "13_json_replacer_reviver",
+  "name": "163_math_clz32_imul",
   "status": "pass",
-  "bun": "plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1",
-  "node": "plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1",
-  "rts": "plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1"
+  "bun": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10",
+  "node": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10",
+  "rts": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10"
 }
 ,
 {
-  "name": "140_string_charat_charcodeat",
+  "name": "164_math_fround",
   "status": "pass",
-  "bun": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
-  "node": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
-  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined"
+  "bun": "fround_1.5=1.5\nfround_1.337=1.3370000123977661\nfround_0=0\nfround_NaN=NaN\nfround_Inf=Infinity\nprecise=false",
+  "node": "fround_1.5=1.5\nfround_1.337=1.3370000123977661\nfround_0=0\nfround_NaN=NaN\nfround_Inf=Infinity\nprecise=false",
+  "rts": "fround_1.5=1.5\nfround_1.337=1.3370000123977661\nfround_0=0\nfround_NaN=NaN\nfround_Inf=Infinity\nprecise=false"
 }
 ,
 {
-  "name": "141_string_concat",
+  "name": "201_math_random_deterministic",
   "status": "pass",
-  "bun": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
-  "node": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
-  "rts": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42"
+  "bun": "range=true\ndifferent=true\ntype=number\nall_in_range=true",
+  "node": "range=true\ndifferent=true\ntype=number\nall_in_range=true",
+  "rts": "range=true\ndifferent=true\ntype=number\nall_in_range=true"
 }
 ,
 {
-  "name": "142_array_join_edge_cases",
+  "name": "213_math_min_max_empty",
   "status": "pass",
-  "bun": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
-  "node": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
-  "rts": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr="
+  "bun": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1",
+  "node": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1",
+  "rts": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1"
 }
 ,
 {
-  "name": "143_array_concat",
+  "name": "224_math_abs_sign",
   "status": "pass",
-  "bun": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
-  "node": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
-  "rts": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2"
+  "bun": "abs_5=5\nabs_-5=5\nabs_0=0\nabs_-0=0\nabs_inf=Infinity\nabs_3.14=3.14\nabs_str=10\nsign_abs=1",
+  "node": "abs_5=5\nabs_-5=5\nabs_0=0\nabs_-0=0\nabs_inf=Infinity\nabs_3.14=3.14\nabs_str=10\nsign_abs=1",
+  "rts": "abs_5=5\nabs_-5=5\nabs_0=0\nabs_-0=0\nabs_inf=Infinity\nabs_3.14=3.14\nabs_str=10\nsign_abs=1"
+}
+,
+{
+  "name": "239_math_pow",
+  "status": "pass",
+  "bun": "2_3=8\n10_2=100\n5_0=1\n2_-1=0.5\n4_0.5=2\nneg_2=4\nneg_3=-8\noperator=8\nsame=true",
+  "node": "2_3=8\n10_2=100\n5_0=1\n2_-1=0.5\n4_0.5=2\nneg_2=4\nneg_3=-8\noperator=8\nsame=true",
+  "rts": "2_3=8\n10_2=100\n5_0=1\n2_-1=0.5\n4_0.5=2\nneg_2=4\nneg_3=-8\noperator=8\nsame=true"
+}
+,
+{
+  "name": "241_math_sqrt_cbrt",
+  "status": "pass",
+  "bun": "sqrt_4=2\nsqrt_9=3\nsqrt_16=4\nsqrt_2=1.4142135623730951\nsqrt_0=0\nsqrt_neg=NaN\ncbrt_8=2\ncbrt_27=3",
+  "node": "sqrt_4=2\nsqrt_9=3\nsqrt_16=4\nsqrt_2=1.4142135623730951\nsqrt_0=0\nsqrt_neg=NaN\ncbrt_8=2\ncbrt_27=3",
+  "rts": "sqrt_4=2\nsqrt_9=3\nsqrt_16=4\nsqrt_2=1.4142135623730951\nsqrt_0=0\nsqrt_neg=NaN\ncbrt_8=2\ncbrt_27=3"
+}
+,
+{
+  "name": "255_math_round_floor_ceil",
+  "status": "pass",
+  "bun": "round_2.4=2\nround_2.5=3\nround_2.6=3\nround_-2.5=-2\nfloor_2.9=2\nfloor_-2.1=-3\nceil_2.1=3\nceil_-2.9=-2\nround_0=0\nfloor_0=0\nceil_0=0",
+  "node": "round_2.4=2\nround_2.5=3\nround_2.6=3\nround_-2.5=-2\nfloor_2.9=2\nfloor_-2.1=-3\nceil_2.1=3\nceil_-2.9=-2\nround_0=0\nfloor_0=0\nceil_0=0",
+  "rts": "round_2.4=2\nround_2.5=3\nround_2.6=3\nround_-2.5=-2\nfloor_2.9=2\nfloor_-2.1=-3\nceil_2.1=3\nceil_-2.9=-2\nround_0=0\nfloor_0=0\nceil_0=0"
+}
+,
+{
+  "name": "282_math_imul",
+  "status": "pass",
+  "bun": "a=8\nb=-8\nc=-5\nd=-2",
+  "node": "a=8\nb=-8\nc=-5\nd=-2",
+  "rts": "a=8\nb=-8\nc=-5\nd=-2"
+}
+,
+{
+  "name": "283_math_fround",
+  "status": "pass",
+  "bun": "a=1.3370000123977661\nb=NaN\nc=Infinity\nd=0.3333333432674408",
+  "node": "a=1.3370000123977661\nb=NaN\nc=Infinity\nd=0.3333333432674408",
+  "rts": "a=1.3370000123977661\nb=NaN\nc=Infinity\nd=0.3333333432674408"
+}
+,
+{
+  "name": "284_math_f16round",
+  "status": "pass",
+  "bun": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
+  "node": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
+  "rts": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity"
+}
+,
+{
+  "name": "36_math_edges",
+  "status": "pass",
+  "bun": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8",
+  "node": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8",
+  "rts": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8"
+}
+,
+{
+  "name": "100_dynamic_import",
+  "status": "rts_error",
+  "bun": "__RUNTIME_ERROR__",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "103_property_order_weird",
+  "status": "pass",
+  "bun": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
+  "node": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}",
+  "rts": "keys=3,10,20,aa,b\nnames=3,10,20,aa,b\nsymbols=1\njson={\"3\":\"three\",\"10\":\"ten\",\"20\":\"twenty\",\"aa\":\"aa\",\"b\":\"b\"}"
+}
+,
+{
+  "name": "278_aggregate_error",
+  "status": "pass",
+  "bun": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
+  "node": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
+  "rts": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b"
+}
+,
+{
+  "name": "286_setimmediate",
+  "status": "rts_diverge",
+  "bun": "order=micro|immediate|timeout",
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=timeout|micro|immediate"
+}
+,
+{
+  "name": "316_structuredclone_mixed",
+  "status": "pass",
+  "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
+  "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
+  "rts": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
+}
+,
+{
+  "name": "325_structuredclone_primitives",
+  "status": "rts_diverge",
+  "bun": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
+  "node": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
+  "rts": "42\nhello\n1\nnull\n2\n99\n2\n99"
+}
+,
+{
+  "name": "337_bundler_dead_code",
+  "status": "rts_diverge",
+  "bun": "prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42",
+  "node": "prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42",
+  "rts": "prod\nfeature-x disabled\nfalse\nno warning above\n1 2 3\n42"
+}
+,
+{
+  "name": "338_bundler_module_patterns",
+  "status": "rts_diverge",
+  "bun": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
+  "node": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
+  "rts": "5\n20\n3\n1\n1\nnull\nnull\ntrue\nworld"
+}
+,
+{
+  "name": "344_bundler_helpers",
+  "status": "rts_error",
+  "bun": "99 2\n2 3\n1,2,3,4\nhello from derived\ntrue\nawaiter result: 7",
+  "node": "99 2\n2 3\n1,2,3,4\nhello from derived\ntrue\nawaiter result: 7",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "353_obf_xor_decode",
+  "status": "rts_error",
+  "bun": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs",
+  "node": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "355_obf_number_encoding",
+  "status": "rts_error",
+  "bun": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
+  "node": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "356_obf_dispatcher",
+  "status": "rts_error",
+  "bun": "14\n1024\n42\n7\n99\nolleh\nWORLD\na-b-c",
+  "node": "14\n1024\n42\n7\n99\nolleh\nWORLD\na-b-c",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "358_obf_dead_inject",
+  "status": "pass",
+  "bun": "11\n1\n-5\ntrue\ntrue\ntrue\n0\n42",
+  "node": "11\n1\n-5\ntrue\ntrue\ntrue\n0\n42",
+  "rts": "11\n1\n-5\ntrue\ntrue\ntrue\n0\n42"
+}
+,
+{
+  "name": "394_structuredclone_complex",
+  "status": "rts_error",
+  "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
+  "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "60_aggregate_error",
+  "status": "pass",
+  "bun": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
+  "node": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
+  "rts": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b"
+}
+,
+{
+  "name": "61_structured_clone",
+  "status": "pass",
+  "bun": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
+  "node": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
+  "rts": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z"
+}
+,
+{
+  "name": "77_domexception",
+  "status": "pass",
+  "bun": "name=AbortError\nmsg=nope\ncode=20",
+  "node": "name=AbortError\nmsg=nope\ncode=20",
+  "rts": "name=AbortError\nmsg=nope\ncode=20"
+}
+,
+{
+  "name": "87_modern_helpers",
+  "status": "pass",
+  "bun": "has=true\ncan=true",
+  "node": "has=true\ncan=true",
+  "rts": "has=true\ncan=true"
+}
+,
+{
+  "name": "97_structured_clone_edge",
+  "status": "pass",
+  "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
+  "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
+  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true"
+}
+,
+{
+  "name": "07_number_methods",
+  "status": "pass",
+  "bun": "MAX_SAFE=9007199254740991\nMIN_SAFE=-9007199254740991\nisNaN(NaN)=true\nisNaN(0)=false\nisFinite(0)=true\nisFinite(Inf)=false\nisInteger(0.5)=false\nisInteger(42)=true\nisSafeInteger(42)=true\nparseInt(42)=42\nparseInt(42abc)=42\nparseInt(0xff)=255\nparseInt(10,2)=2\n(3.14).toFixed(1)=3.1\n(0.1+0.2).toFixed(1)=0.3\n1/0=Infinity\n-1/0=-Infinity\n0/0=NaN",
+  "node": "MAX_SAFE=9007199254740991\nMIN_SAFE=-9007199254740991\nisNaN(NaN)=true\nisNaN(0)=false\nisFinite(0)=true\nisFinite(Inf)=false\nisInteger(0.5)=false\nisInteger(42)=true\nisSafeInteger(42)=true\nparseInt(42)=42\nparseInt(42abc)=42\nparseInt(0xff)=255\nparseInt(10,2)=2\n(3.14).toFixed(1)=3.1\n(0.1+0.2).toFixed(1)=0.3\n1/0=Infinity\n-1/0=-Infinity\n0/0=NaN",
+  "rts": "MAX_SAFE=9007199254740991\nMIN_SAFE=-9007199254740991\nisNaN(NaN)=true\nisNaN(0)=false\nisFinite(0)=true\nisFinite(Inf)=false\nisInteger(0.5)=false\nisInteger(42)=true\nisSafeInteger(42)=true\nparseInt(42)=42\nparseInt(42abc)=42\nparseInt(0xff)=255\nparseInt(10,2)=2\n(3.14).toFixed(1)=3.1\n(0.1+0.2).toFixed(1)=0.3\n1/0=Infinity\n-1/0=-Infinity\n0/0=NaN"
+}
+,
+{
+  "name": "130_number_isfinite_isnan",
+  "status": "pass",
+  "bun": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true",
+  "node": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true",
+  "rts": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true"
+}
+,
+{
+  "name": "131_number_isinteger_issafeinteger",
+  "status": "pass",
+  "bun": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
+  "node": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
+  "rts": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false"
 }
 ,
 {
@@ -440,35 +1592,123 @@
 }
 ,
 {
-  "name": "149_array_reverse_sort_mutate",
+  "name": "176_number_constructor",
   "status": "pass",
-  "bun": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry",
-  "node": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry",
-  "rts": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry"
+  "bun": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true",
+  "node": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true",
+  "rts": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true"
 }
 ,
 {
-  "name": "14_control_flow_functions",
+  "name": "198_number_parseint_parsefloat",
   "status": "pass",
-  "bun": "sum3=6\nsum5=15\nclass_a=neg\nclass_b=zero\nclass_c=pos\njoin_a=x:y:end\njoin_b=x:y:z",
-  "node": "sum3=6\nsum5=15\nclass_a=neg\nclass_b=zero\nclass_c=pos\njoin_a=x:y:end\njoin_b=x:y:z",
-  "rts": "sum3=6\nsum5=15\nclass_a=neg\nclass_b=zero\nclass_c=pos\njoin_a=x:y:end\njoin_b=x:y:z"
+  "bun": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true",
+  "node": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true",
+  "rts": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true"
 }
 ,
 {
-  "name": "150_array_push_pop_shift_unshift",
+  "name": "19_bitwise_ops",
   "status": "pass",
-  "bun": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
-  "node": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
-  "rts": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6"
+  "bun": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5",
+  "node": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5",
+  "rts": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5"
 }
 ,
 {
-  "name": "151_array_slice_splice",
+  "name": "219_number_tostring_default",
   "status": "pass",
-  "bun": "slice_2=3,4,5\nslice_1_3=2,3\nslice_neg=4,5\noriginal=1,2,3,4,5\nsplice_removed=3,4\nsplice_arr=1,2,5\nsplice_insert=1,2,3,4,5\nsplice_replace=1,8,9,4,5",
-  "node": "slice_2=3,4,5\nslice_1_3=2,3\nslice_neg=4,5\noriginal=1,2,3,4,5\nsplice_removed=3,4\nsplice_arr=1,2,5\nsplice_insert=1,2,3,4,5\nsplice_replace=1,8,9,4,5",
-  "rts": "slice_2=3,4,5\nslice_1_3=2,3\nslice_neg=4,5\noriginal=1,2,3,4,5\nsplice_removed=3,4\nsplice_arr=1,2,5\nsplice_insert=1,2,3,4,5\nsplice_replace=1,8,9,4,5"
+  "bun": "default=42\nexplicit_10=42\nzero=0\nnegative=-123\nfloat=3.14\nlarge=1000000",
+  "node": "default=42\nexplicit_10=42\nzero=0\nnegative=-123\nfloat=3.14\nlarge=1000000",
+  "rts": "default=42\nexplicit_10=42\nzero=0\nnegative=-123\nfloat=3.14\nlarge=1000000"
+}
+,
+{
+  "name": "245_number_valueof",
+  "status": "rts_diverge",
+  "bun": "valueOf=42\nsame_type=true\nobj_type=true\nprimitive=123\nsame=true\nzero=0",
+  "node": "valueOf=42\nsame_type=true\nobj_type=true\nprimitive=123\nsame=true\nzero=0",
+  "rts": "valueOf=42\nsame_type=true\nobj_type=false\nprimitive=123\nsame=true\nzero=0"
+}
+,
+{
+  "name": "281_number_edges",
+  "status": "pass",
+  "bun": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true",
+  "node": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true",
+  "rts": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true"
+}
+,
+{
+  "name": "29_number_format",
+  "status": "pass",
+  "bun": "fixed=12.35\nbin=1010\noct=12\nhex=ff\nprec=123.46\nnan=NaN\ninf=Infinity\nnegzero=0",
+  "node": "fixed=12.35\nbin=1010\noct=12\nhex=ff\nprec=123.46\nnan=NaN\ninf=Infinity\nnegzero=0",
+  "rts": "fixed=12.35\nbin=1010\noct=12\nhex=ff\nprec=123.46\nnan=NaN\ninf=Infinity\nnegzero=0"
+}
+,
+{
+  "name": "367_coercion_traps",
+  "status": "rts_error",
+  "bun": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue",
+  "node": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "44_bitwise_unsigned",
+  "status": "pass",
+  "bun": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1",
+  "node": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1",
+  "rts": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1"
+}
+,
+{
+  "name": "46_number_format_edges",
+  "status": "pass",
+  "bun": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
+  "node": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
+  "rts": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0"
+}
+,
+{
+  "name": "51_coercion_weird",
+  "status": "rts_diverge",
+  "bun": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
+  "node": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
+  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=false\neq_b=false\neq_c=false\neq_d=false"
+}
+,
+{
+  "name": "95_nan_negative_zero",
+  "status": "pass",
+  "bun": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
+  "node": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
+  "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2"
+}
+,
+{
+  "name": "110_object_getownpropertydescriptors",
+  "status": "pass",
+  "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
+  "node": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
+  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false"
+}
+,
+{
+  "name": "126_object_assign",
+  "status": "pass",
+  "bun": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
+  "node": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
+  "rts": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true"
+}
+,
+{
+  "name": "134_object_is",
+  "status": "pass",
+  "bun": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true",
+  "node": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true",
+  "rts": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true"
 }
 ,
 {
@@ -496,243 +1736,11 @@
 }
 ,
 {
-  "name": "155_object_getprototypeof",
-  "status": "pass",
-  "bun": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
-  "node": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
-  "rts": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
-}
-,
-{
-  "name": "156_string_localecompare",
-  "status": "pass",
-  "bun": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
-  "node": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
-  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1"
-}
-,
-{
-  "name": "157_array_tostring_tolocalestring",
-  "status": "pass",
-  "bun": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
-  "node": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
-  "rts": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3"
-}
-,
-{
-  "name": "158_encodeuri_decodeuri",
-  "status": "pass",
-  "bun": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26",
-  "node": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26",
-  "rts": "encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26"
-}
-,
-{
-  "name": "159_array_every_callback_args",
-  "status": "pass",
-  "bun": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2",
-  "node": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2",
-  "rts": "forEach=10:0:3,20:1:3,30:2:3\nmap=10,21,32\nfilter=20,30\nfind=20\nfindIndex=2"
-}
-,
-{
-  "name": "15_math_methods",
-  "status": "pass",
-  "bun": "floor=3\nceil=4\nround=4\ntrunc=-3\nabs=12\nsqrt=9\npow=32\nlog=0\nexp=2.718\nmin=-2\nmax=9\nsign_n=-1\nsign_z=0\nhypot=13\nnan_add=NaN\ninf_mul=Infinity\nzero_div_zero=NaN",
-  "node": "floor=3\nceil=4\nround=4\ntrunc=-3\nabs=12\nsqrt=9\npow=32\nlog=0\nexp=2.718\nmin=-2\nmax=9\nsign_n=-1\nsign_z=0\nhypot=13\nnan_add=NaN\ninf_mul=Infinity\nzero_div_zero=NaN",
-  "rts": "floor=3\nceil=4\nround=4\ntrunc=-3\nabs=12\nsqrt=9\npow=32\nlog=0\nexp=2.718\nmin=-2\nmax=9\nsign_n=-1\nsign_z=0\nhypot=13\nnan_add=NaN\ninf_mul=Infinity\nzero_div_zero=NaN"
-}
-,
-{
-  "name": "160_string_fromcharcode",
-  "status": "pass",
-  "bun": "A=A\nABC=ABC\nhello=hello\nspace= \nnewline=\n\nHi=Hi\nzero=",
-  "node": "A=A\nABC=ABC\nhello=hello\nspace= \nnewline=\n\nHi=Hi\nzero=",
-  "rts": "A=A\nABC=ABC\nhello=hello\nspace= \nnewline=\n\nHi=Hi\nzero="
-}
-,
-{
-  "name": "161_array_isarray",
-  "status": "pass",
-  "bun": "array=true\nempty=true\nobject=false\nstring=false\nnumber=false\nnull=false\nundefined=false\narraylike=false",
-  "node": "array=true\nempty=true\nobject=false\nstring=false\nnumber=false\nnull=false\nundefined=false\narraylike=false",
-  "rts": "array=true\nempty=true\nobject=false\nstring=false\nnumber=false\nnull=false\nundefined=false\narraylike=false"
-}
-,
-{
   "name": "162_object_create_null",
   "status": "pass",
   "bun": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
   "node": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
   "rts": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1"
-}
-,
-{
-  "name": "163_math_clz32_imul",
-  "status": "pass",
-  "bun": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10",
-  "node": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10",
-  "rts": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10"
-}
-,
-{
-  "name": "164_math_fround",
-  "status": "pass",
-  "bun": "fround_1.5=1.5\nfround_1.337=1.3370000123977661\nfround_0=0\nfround_NaN=NaN\nfround_Inf=Infinity\nprecise=false",
-  "node": "fround_1.5=1.5\nfround_1.337=1.3370000123977661\nfround_0=0\nfround_NaN=NaN\nfround_Inf=Infinity\nprecise=false",
-  "rts": "fround_1.5=1.5\nfround_1.337=1.3370000123977661\nfround_0=0\nfround_NaN=NaN\nfround_Inf=Infinity\nprecise=false"
-}
-,
-{
-  "name": "165_string_match_search",
-  "status": "pass",
-  "bun": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
-  "node": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
-  "rts": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0"
-}
-,
-{
-  "name": "166_weakmap_weakset",
-  "status": "pass",
-  "bun": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false",
-  "node": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false",
-  "rts": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false"
-}
-,
-{
-  "name": "167_promise_race_any",
-  "status": "pass",
-  "bun": "race=1\nany=1\nrace2=4\nany2=4",
-  "node": "race=1\nany=1\nrace2=4\nany2=4",
-  "rts": "race=1\nany=1\nrace2=4\nany2=4"
-}
-,
-{
-  "name": "168_string_substring_substr",
-  "status": "pass",
-  "bun": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo",
-  "node": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo",
-  "rts": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo"
-}
-,
-{
-  "name": "169_array_of",
-  "status": "pass",
-  "bun": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2",
-  "node": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2",
-  "rts": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2"
-}
-,
-{
-  "name": "16_classes_basic",
-  "status": "pass",
-  "bun": "a_label=box:toy\na_size=3\na_next=box:drone\nb_label=box:book:gift\nis_box=true\nis_gift=true",
-  "node": "a_label=box:toy\na_size=3\na_next=box:drone\nb_label=box:book:gift\nis_box=true\nis_gift=true",
-  "rts": "a_label=box:toy\na_size=3\na_next=box:drone\nb_label=box:book:gift\nis_box=true\nis_gift=true"
-}
-,
-{
-  "name": "170_regexp_flags",
-  "status": "pass",
-  "bun": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello",
-  "node": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello",
-  "rts": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello"
-}
-,
-{
-  "name": "171_regexp_lastindex",
-  "status": "pass",
-  "bun": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
-  "node": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
-  "rts": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0"
-}
-,
-{
-  "name": "172_date_now_valueof",
-  "status": "pass",
-  "bun": "equal=true\nvalueOf=1704067200000\ngreater=true\ngetTime=1704067200000\nsame=true\nepoch=0",
-  "node": "equal=true\nvalueOf=1704067200000\ngreater=true\ngetTime=1704067200000\nsame=true\nepoch=0",
-  "rts": "equal=true\nvalueOf=1704067200000\ngreater=true\ngetTime=1704067200000\nsame=true\nepoch=0"
-}
-,
-{
-  "name": "173_date_toisostring",
-  "status": "pass",
-  "bun": "iso=2024-01-01T12:30:45.123Z\niso2=2000-12-31T23:59:59.999Z\nepoch=1970-01-01T00:00:00.000Z\njson=2024-01-01T12:30:45.123Z",
-  "node": "iso=2024-01-01T12:30:45.123Z\niso2=2000-12-31T23:59:59.999Z\nepoch=1970-01-01T00:00:00.000Z\njson=2024-01-01T12:30:45.123Z",
-  "rts": "iso=2024-01-01T12:30:45.123Z\niso2=2000-12-31T23:59:59.999Z\nepoch=1970-01-01T00:00:00.000Z\njson=2024-01-01T12:30:45.123Z"
-}
-,
-{
-  "name": "174_date_parse",
-  "status": "pass",
-  "bun": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true",
-  "node": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true",
-  "rts": "parse1=1704067200000\nparse2=978307199999\nepoch=0\ninvalid=true"
-}
-,
-{
-  "name": "175_boolean_constructor",
-  "status": "pass",
-  "bun": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false",
-  "node": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false",
-  "rts": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false"
-}
-,
-{
-  "name": "176_number_constructor",
-  "status": "pass",
-  "bun": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true",
-  "node": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true",
-  "rts": "MAX_VALUE=true\nMIN_VALUE=true\nMAX_SAFE_INTEGER=9007199254740991\nMIN_SAFE_INTEGER=-9007199254740991\nPOSITIVE_INFINITY=Infinity\nNEGATIVE_INFINITY=-Infinity\nNaN=NaN\nisNaN_NaN=true\nEPSILON=true"
-}
-,
-{
-  "name": "177_string_constructor",
-  "status": "pass",
-  "bun": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
-  "node": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
-  "rts": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3"
-}
-,
-{
-  "name": "178_array_constructor",
-  "status": "pass",
-  "bun": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
-  "node": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
-  "rts": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2"
-}
-,
-{
-  "name": "179_function_name_length",
-  "status": "pass",
-  "bun": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
-  "node": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
-  "rts": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0"
-}
-,
-{
-  "name": "17_try_catch_error",
-  "status": "pass",
-  "bun": "err_a=Error:boom\nfin_a=done\nerr_b=plain\ninner=TypeError\nouter=RangeError:bad:range\nis_error=true\nis_type=false\nis_range=true",
-  "node": "err_a=Error:boom\nfin_a=done\nerr_b=plain\ninner=TypeError\nouter=RangeError:bad:range\nis_error=true\nis_type=false\nis_range=true",
-  "rts": "err_a=Error:boom\nfin_a=done\nerr_b=plain\ninner=TypeError\nouter=RangeError:bad:range\nis_error=true\nis_type=false\nis_range=true"
-}
-,
-{
-  "name": "180_function_call_apply",
-  "status": "bun_node_diverge",
-  "bun": "__RUNTIME_ERROR__",
-  "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9"
-}
-,
-{
-  "name": "181_function_bind",
-  "status": "pass",
-  "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=24\noriginal=12\npartial=10\nrebind=24"
 }
 ,
 {
@@ -752,38 +1760,6 @@
 }
 ,
 {
-  "name": "184_symbol_for_keyfor",
-  "status": "pass",
-  "bun": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
-  "node": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
-  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol"
-}
-,
-{
-  "name": "185_map_set_size",
-  "status": "pass",
-  "bun": "map_empty=0\nmap_2=2\nmap_still_2=2\nmap_1=1\nmap_cleared=0\nset_empty=0\nset_2=2\nset_1=1",
-  "node": "map_empty=0\nmap_2=2\nmap_still_2=2\nmap_1=1\nmap_cleared=0\nset_empty=0\nset_2=2\nset_1=1",
-  "rts": "map_empty=0\nmap_2=2\nmap_still_2=2\nmap_1=1\nmap_cleared=0\nset_empty=0\nset_2=2\nset_1=1"
-}
-,
-{
-  "name": "186_map_foreach",
-  "status": "pass",
-  "bun": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
-  "node": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
-  "rts": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3"
-}
-,
-{
-  "name": "187_error_types",
-  "status": "pass",
-  "bun": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError",
-  "node": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError",
-  "rts": "Error=Error\nmessage=generic\nTypeError=TypeError\ntype_msg=type error\nRangeError=RangeError\nReferenceError=ReferenceError\nSyntaxError=SyntaxError\nURIError=URIError"
-}
-,
-{
   "name": "188_reflect_basics",
   "status": "pass",
   "bun": "get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c",
@@ -797,22 +1773,6 @@
   "bun": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
   "node": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
   "rts": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined"
-}
-,
-{
-  "name": "18_regex_methods",
-  "status": "pass",
-  "bun": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c",
-  "node": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c",
-  "rts": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c"
-}
-,
-{
-  "name": "190_array_entries_keys_values",
-  "status": "pass",
-  "bun": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
-  "node": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
-  "rts": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2"
 }
 ,
 {
@@ -837,6 +1797,606 @@
   "bun": "x=10\ny=20\napply=8\nmax=9",
   "node": "x=10\ny=20\napply=8\nmax=9",
   "rts": "x=10\ny=20\napply=8\nmax=9"
+}
+,
+{
+  "name": "20_object_methods",
+  "status": "pass",
+  "bun": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false",
+  "node": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false",
+  "rts": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false"
+}
+,
+{
+  "name": "210_object_tostring",
+  "status": "pass",
+  "bun": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
+  "node": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
+  "rts": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]"
+}
+,
+{
+  "name": "216_object_keys_order",
+  "status": "pass",
+  "bun": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
+  "node": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
+  "rts": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b"
+}
+,
+{
+  "name": "221_object_constructor",
+  "status": "pass",
+  "bun": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
+  "node": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
+  "rts": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true"
+}
+,
+{
+  "name": "227_object_hasownproperty",
+  "status": "pass",
+  "bun": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true",
+  "node": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true",
+  "rts": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true"
+}
+,
+{
+  "name": "230_object_valueof",
+  "status": "pass",
+  "bun": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
+  "node": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
+  "rts": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000"
+}
+,
+{
+  "name": "253_object_keys_empty",
+  "status": "pass",
+  "bun": "empty=\narr=0,1,2\nstr=0,1\nnum=",
+  "node": "empty=\narr=0,1,2\nstr=0,1\nnum=",
+  "rts": "empty=\narr=0,1,2\nstr=0,1\nnum="
+}
+,
+{
+  "name": "264_object_hasown",
+  "status": "pass",
+  "bun": "own=true:true\ninh=false:false\nmiss=false:false",
+  "node": "own=true:true\ninh=false:false\nmiss=false:false",
+  "rts": "own=true:true\ninh=false:false\nmiss=false:false"
+}
+,
+{
+  "name": "265_object_fromentries",
+  "status": "pass",
+  "bun": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
+  "node": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
+  "rts": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}"
+}
+,
+{
+  "name": "30_object_keys_values",
+  "status": "pass",
+  "bun": "keys=a,b,c\nvalues=1,2,3",
+  "node": "keys=a,b,c\nvalues=1,2,3",
+  "rts": "keys=a,b,c\nvalues=1,2,3"
+}
+,
+{
+  "name": "323_object_entries_fromEntries",
+  "status": "rts_diverge",
+  "bun": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
+  "node": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
+  "rts": "a=1,b=2,c=3\nnull\nnull\nnull\n10\n20\n{}"
+}
+,
+{
+  "name": "335_getter_setter",
+  "status": "rts_error",
+  "bun": "0\n5\n0\n0\n32\n100\n1.0.0\n10",
+  "node": "0\n5\n0\n0\n32\n100\n1.0.0\n10",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "336_prototype_chain",
+  "status": "rts_error",
+  "bun": "Rex speaks\nRex barks\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue",
+  "node": "Rex speaks\nRex barks\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "340_proxy_basics",
+  "status": "rts_diverge",
+  "bun": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
+  "node": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
+  "rts": "null\nfalse\nget:281474976710661|set:281474976710667=99|del:281474976710680\nnull\nmust be positive"
+}
+,
+{
+  "name": "341_getter_inheritance",
+  "status": "rts_error",
+  "bun": "5\nbase:5\n10\nbase:5\ntrue\nfalse",
+  "node": "5\nbase:5\n10\nbase:5\ntrue\nfalse",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "346_reflect_api",
+  "status": "rts_error",
+  "bun": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
+  "node": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "349_object_descriptors",
+  "status": "rts_diverge",
+  "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
+  "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
+  "rts": "42\n99\n100\nreadonly,normal\nnull\nfalse\ntrue\ntrue\n1\ntrue"
+}
+,
+{
+  "name": "354_obf_proxy_trap",
+  "status": "rts_error",
+  "bun": "255\ntest\n5\n20\nadd(2,3)|mul(4,5)",
+  "node": "255\ntest\n5\n20\nadd(2,3)|mul(4,5)",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "359_obf_getter_smuggle",
+  "status": "rts_error",
+  "bun": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
+  "node": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "368_iterator_protocol",
+  "status": "rts_error",
+  "bun": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
+  "node": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "380_proxy_advanced",
+  "status": "bun_node_diverge",
+  "bun": "HELLO, WORLD\nnew Point(3,4)\n3,4\ntrue\npublic1,public2\nfoo,bar\nundefined\ntrue\nfalse\n49\n1\nrevoked:TypeError",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "382_field_init_order",
+  "status": "rts_error",
+  "bun": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.block,S.c\nP.pv,C.cv\n10 20 10",
+  "node": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.block,S.c\nP.pv,C.cv\n10 20 10",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "387_object_create_descriptors",
+  "status": "rts_error",
+  "bun": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
+  "node": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "388_globalThis",
+  "status": "rts_error",
+  "bun": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
+  "node": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "389_proto_accessor",
+  "status": "rts_error",
+  "bun": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0",
+  "node": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "40_object_deep",
+  "status": "rts_diverge",
+  "bun": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
+  "node": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
+  "rts": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":281474976710657,\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false"
+}
+,
+{
+  "name": "48_object_freeze_mutation",
+  "status": "pass",
+  "bun": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}",
+  "node": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}",
+  "rts": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}"
+}
+,
+{
+  "name": "53_proxy_reflect",
+  "status": "rts_error",
+  "bun": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
+  "node": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "98_proxy_invariants",
+  "status": "rts_error",
+  "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
+  "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "361_functional_compose",
+  "status": "rts_error",
+  "bun": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36",
+  "node": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "362_data_structures",
+  "status": "bun_node_diverge",
+  "bun": "3\n3\n2\na\nb\n2\n1,2,3,4,5\n5,4,3,2,1\n1,2,3,5,7,8,9",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "363_algorithms",
+  "status": "rts_error",
+  "bun": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n4",
+  "node": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n4",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "364_design_patterns",
+  "status": "bun_node_diverge",
+  "bun": "got:1,got:2\nprod\ntrue\n78.54\n12\n14\n10\n5",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "384_builder_pattern",
+  "status": "bun_node_diverge",
+  "bun": "SELECT id, name, email FROM users WHERE age > 18 AND active = true ORDER BY name ASC LIMIT 10 OFFSET 20\nVec3(20,5,6)\n5\nGET https://api.example.com/users headers:Authorization,Accept timeout:3000",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "385_monad_patterns",
+  "status": "bun_node_diverge",
+  "bun": "Some(Alice)\nNone\nSome(Alice)\nNone\nGuest\nOk(2.380952380952381)\n2.38\nErr(division by zero)\nErr(not a number: abc)\n-1",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "386_trampoline",
+  "status": "rts_error",
+  "bun": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue",
+  "node": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "116_promise_finally",
+  "status": "rts_diverge",
+  "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
+  "node": "log=then:42,catch:error,finally1,finally2,then2:84",
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+}
+,
+{
+  "name": "167_promise_race_any",
+  "status": "pass",
+  "bun": "race=1\nany=1\nrace2=4\nany2=4",
+  "node": "race=1\nany=1\nrace2=4\nany2=4",
+  "rts": "race=1\nany=1\nrace2=4\nany2=4"
+}
+,
+{
+  "name": "200_promise_allsettled",
+  "status": "pass",
+  "bun": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
+  "node": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
+  "rts": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3"
+}
+,
+{
+  "name": "28_promise_sync",
+  "status": "pass",
+  "bun": "ctor=function",
+  "node": "ctor=function",
+  "rts": "ctor=function"
+}
+,
+{
+  "name": "304_promise_try",
+  "status": "pass",
+  "bun": "ok=5\nerr=boom",
+  "node": "ok=5\nerr=boom",
+  "rts": "ok=5\nerr=boom"
+}
+,
+{
+  "name": "365_async_patterns",
+  "status": "rts_error",
+  "bun": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
+  "node": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "42_promise_deep",
+  "status": "pass",
+  "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
+  "node": "one=3\ntwo=5\nall=a,b\nasync=9",
+  "rts": "one=3\ntwo=5\nall=a,b\nasync=9"
+}
+,
+{
+  "name": "83_promise_combinators",
+  "status": "pass",
+  "bun": "settled=fulfilled:1|rejected:x\nany=b",
+  "node": "settled=fulfilled:1|rejected:x\nany=b",
+  "rts": "settled=fulfilled:1|rejected:x\nany=b"
+}
+,
+{
+  "name": "92_promise_with_resolvers",
+  "status": "pass",
+  "bun": "value=ok",
+  "node": "value=ok",
+  "rts": "value=ok"
+}
+,
+{
+  "name": "170_regexp_flags",
+  "status": "pass",
+  "bun": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello",
+  "node": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello",
+  "rts": "source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello"
+}
+,
+{
+  "name": "171_regexp_lastindex",
+  "status": "pass",
+  "bun": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
+  "node": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
+  "rts": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0"
+}
+,
+{
+  "name": "18_regex_methods",
+  "status": "pass",
+  "bun": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c",
+  "node": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c",
+  "rts": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c"
+}
+,
+{
+  "name": "240_regexp_test_stateful",
+  "status": "pass",
+  "bun": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0",
+  "node": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0",
+  "rts": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0"
+}
+,
+{
+  "name": "243_string_split_regex",
+  "status": "pass",
+  "bun": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
+  "node": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
+  "rts": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b"
+}
+,
+{
+  "name": "250_regexp_source",
+  "status": "pass",
+  "bun": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)",
+  "node": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)",
+  "rts": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)"
+}
+,
+{
+  "name": "366_regex_advanced",
+  "status": "rts_diverge",
+  "bun": "2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo",
+  "node": "2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo",
+  "rts": "null\nnull\nnull\n$<d>/$<m>/$<y>\n\n\ncat=5\ndog=3\nbird=8\n123\n4\nhello ? world\na|b|c|\nHello World Foo"
+}
+,
+{
+  "name": "395_regex_d_flag",
+  "status": "rts_diverge",
+  "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
+  "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
+  "rts": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\nnull\nnull\nnull\n2026\nfoo@null|bar@null|baz@null\n42\nundefined\n0,2\nundefined"
+}
+,
+{
+  "name": "39_regex_deep",
+  "status": "pass",
+  "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
+  "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
+  "rts": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true"
+}
+,
+{
+  "name": "70_regex_indices",
+  "status": "pass",
+  "bun": "indices=[[1,4],[2,3],[3,4]]",
+  "node": "indices=[[1,4],[2,3],[3,4]]",
+  "rts": "indices=[[1,4],[2,3],[3,4]]"
+}
+,
+{
+  "name": "81_regex_named_groups",
+  "status": "pass",
+  "bun": "word=abbb",
+  "node": "word=abbb",
+  "rts": "word=abbb"
+}
+,
+{
+  "name": "99_regexp_unicode",
+  "status": "pass",
+  "bun": "words=café|λ\nchars=A|😀|B\nnamed=λ",
+  "node": "words=café|λ\nchars=A|😀|B\nnamed=λ",
+  "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
+}
+,
+{
+  "name": "101_textdecoder_stream",
+  "status": "rts_error",
+  "bun": "out=caf|é",
+  "node": "out=caf|é",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "64_readable_stream",
+  "status": "rts_error",
+  "bun": "out=a,b",
+  "node": "out=a,b",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "86_blob_stream",
+  "status": "rts_error",
+  "bun": "bytes=97,98",
+  "node": "bytes=97,98",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "88_compression_stream",
+  "status": "rts_error",
+  "bun": "gzip=28",
+  "node": "gzip=28",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "96_streams_transform",
+  "status": "rts_error",
+  "bun": "out=AB,CD",
+  "node": "out=AB,CD",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "02_string_coerce",
+  "status": "pass",
+  "bun": "String(42)=42\nString(true)=true\nString(false)=false\nString(null)=null\nString(undefined)=undefined\nString([])=\nString([1,2,3])=1,2,3\nString('hi')=hi\nString({})=[object Object]",
+  "node": "String(42)=42\nString(true)=true\nString(false)=false\nString(null)=null\nString(undefined)=undefined\nString([])=\nString([1,2,3])=1,2,3\nString('hi')=hi\nString({})=[object Object]",
+  "rts": "String(42)=42\nString(true)=true\nString(false)=false\nString(null)=null\nString(undefined)=undefined\nString([])=\nString([1,2,3])=1,2,3\nString('hi')=hi\nString({})=[object Object]"
+}
+,
+{
+  "name": "04_switch_strings",
+  "status": "pass",
+  "bun": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
+  "node": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
+  "rts": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal"
+}
+,
+{
+  "name": "06_string_methods",
+  "status": "pass",
+  "bun": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72",
+  "node": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72",
+  "rts": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72"
+}
+,
+{
+  "name": "124_string_trim_variants",
+  "status": "pass",
+  "bun": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello",
+  "node": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello",
+  "rts": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello"
+}
+,
+{
+  "name": "129_string_startswith_endswith",
+  "status": "pass",
+  "bun": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true",
+  "node": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true",
+  "rts": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true"
+}
+,
+{
+  "name": "133_string_repeat",
+  "status": "pass",
+  "bun": "repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text",
+  "node": "repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text",
+  "rts": "repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text"
+}
+,
+{
+  "name": "140_string_charat_charcodeat",
+  "status": "pass",
+  "bun": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
+  "node": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
+  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined"
+}
+,
+{
+  "name": "141_string_concat",
+  "status": "pass",
+  "bun": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
+  "node": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
+  "rts": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42"
+}
+,
+{
+  "name": "156_string_localecompare",
+  "status": "pass",
+  "bun": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
+  "node": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
+  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1"
+}
+,
+{
+  "name": "160_string_fromcharcode",
+  "status": "pass",
+  "bun": "A=A\nABC=ABC\nhello=hello\nspace= \nnewline=\n\nHi=Hi\nzero=",
+  "node": "A=A\nABC=ABC\nhello=hello\nspace= \nnewline=\n\nHi=Hi\nzero=",
+  "rts": "A=A\nABC=ABC\nhello=hello\nspace= \nnewline=\n\nHi=Hi\nzero="
+}
+,
+{
+  "name": "165_string_match_search",
+  "status": "pass",
+  "bun": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
+  "node": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
+  "rts": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0"
+}
+,
+{
+  "name": "168_string_substring_substr",
+  "status": "pass",
+  "bun": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo",
+  "node": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo",
+  "rts": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo"
+}
+,
+{
+  "name": "177_string_constructor",
+  "status": "pass",
+  "bun": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
+  "node": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3",
+  "rts": "valueOf=hello\ntoString=hello\nlength=5\ncharAt=h\nfunc_5=5\nfunc_true=true\nfunc_null=null\nfunc_undef=undefined\nfunc_obj=[object Object]\nfunc_arr=1,2,3"
 }
 ,
 {
@@ -872,91 +2432,11 @@
 }
 ,
 {
-  "name": "198_number_parseint_parsefloat",
-  "status": "pass",
-  "bun": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true",
-  "node": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true",
-  "rts": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true"
-}
-,
-{
-  "name": "199_array_from_mapfn",
-  "status": "pass",
-  "bun": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
-  "node": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
-  "rts": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6"
-}
-,
-{
-  "name": "19_bitwise_ops",
-  "status": "pass",
-  "bun": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5",
-  "node": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5",
-  "rts": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5"
-}
-,
-{
-  "name": "200_promise_allsettled",
-  "status": "pass",
-  "bun": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
-  "node": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
-  "rts": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3"
-}
-,
-{
-  "name": "201_math_random_deterministic",
-  "status": "pass",
-  "bun": "range=true\ndifferent=true\ntype=number\nall_in_range=true",
-  "node": "range=true\ndifferent=true\ntype=number\nall_in_range=true",
-  "rts": "range=true\ndifferent=true\ntype=number\nall_in_range=true"
-}
-,
-{
-  "name": "202_array_reduceright",
-  "status": "pass",
-  "bun": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
-  "node": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321",
-  "rts": "sum=10\nconcat=4,3,2,1\nflat=5,6,3,4,1,2\nnum=321"
-}
-,
-{
   "name": "203_string_localecompare_numeric",
   "status": "pass",
   "bun": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
   "node": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
   "rts": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1"
-}
-,
-{
-  "name": "204_typedarray_basic",
-  "status": "rts_error",
-  "bun": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
-  "node": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "205_arraybuffer_basic",
-  "status": "rts_error",
-  "bun": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
-  "node": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "206_dataview_basic",
-  "status": "rts_error",
-  "bun": "get0=255\nget1=128\nget16=1000\nget32=-123456\nbyteLength=8\nbyteOffset=0",
-  "node": "get0=255\nget1=128\nget16=1000\nget32=-123456\nbyteLength=8\nbyteOffset=0",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "207_json_stringify_space",
-  "status": "pass",
-  "bun": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
-  "node": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
-  "rts": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5"
 }
 ,
 {
@@ -968,59 +2448,11 @@
 }
 ,
 {
-  "name": "209_array_unshift_return",
-  "status": "pass",
-  "bun": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1",
-  "node": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1",
-  "rts": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1"
-}
-,
-{
-  "name": "20_object_methods",
-  "status": "pass",
-  "bun": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false",
-  "node": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false",
-  "rts": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false"
-}
-,
-{
-  "name": "210_object_tostring",
-  "status": "pass",
-  "bun": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
-  "node": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
-  "rts": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]"
-}
-,
-{
-  "name": "211_array_shift_empty",
-  "status": "pass",
-  "bun": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined",
-  "node": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined",
-  "rts": "result=undefined\nlength=0\nval=1\nempty_after=0\npopped=undefined"
-}
-,
-{
   "name": "212_string_indexof_empty",
   "status": "pass",
   "bun": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1",
   "node": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1",
   "rts": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1"
-}
-,
-{
-  "name": "213_math_min_max_empty",
-  "status": "pass",
-  "bun": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1",
-  "node": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1",
-  "rts": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1"
-}
-,
-{
-  "name": "214_array_length_setter",
-  "status": "pass",
-  "bun": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
-  "node": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
-  "rts": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty="
 }
 ,
 {
@@ -1032,59 +2464,11 @@
 }
 ,
 {
-  "name": "216_object_keys_order",
-  "status": "pass",
-  "bun": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
-  "node": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
-  "rts": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b"
-}
-,
-{
-  "name": "217_array_sort_stability",
-  "status": "pass",
-  "bun": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
-  "node": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
-  "rts": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9"
-}
-,
-{
   "name": "218_string_repeat_zero",
   "status": "pass",
   "bun": "repeat_0=\nrepeat_1=abc\nempty_5=\nspace_3=   x\nlarge=100\npattern=ababababab",
   "node": "repeat_0=\nrepeat_1=abc\nempty_5=\nspace_3=   x\nlarge=100\npattern=ababababab",
   "rts": "repeat_0=\nrepeat_1=abc\nempty_5=\nspace_3=   x\nlarge=100\npattern=ababababab"
-}
-,
-{
-  "name": "219_number_tostring_default",
-  "status": "pass",
-  "bun": "default=42\nexplicit_10=42\nzero=0\nnegative=-123\nfloat=3.14\nlarge=1000000",
-  "node": "default=42\nexplicit_10=42\nzero=0\nnegative=-123\nfloat=3.14\nlarge=1000000",
-  "rts": "default=42\nexplicit_10=42\nzero=0\nnegative=-123\nfloat=3.14\nlarge=1000000"
-}
-,
-{
-  "name": "21_template_literals",
-  "status": "pass",
-  "bun": "basic=rts:5\nnested=rts-ok:GO\nescapes=line1\nline2\tend\nmulti=a\nb\ncall=RTS:xx",
-  "node": "basic=rts:5\nnested=rts-ok:GO\nescapes=line1\nline2\tend\nmulti=a\nb\ncall=RTS:xx",
-  "rts": "basic=rts:5\nnested=rts-ok:GO\nescapes=line1\nline2\tend\nmulti=a\nb\ncall=RTS:xx"
-}
-,
-{
-  "name": "220_array_map_sparse",
-  "status": "pass",
-  "bun": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
-  "node": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
-  "rts": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2"
-}
-,
-{
-  "name": "221_object_constructor",
-  "status": "pass",
-  "bun": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
-  "node": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
-  "rts": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true"
 }
 ,
 {
@@ -1096,83 +2480,11 @@
 }
 ,
 {
-  "name": "223_array_filter_truthy",
-  "status": "pass",
-  "bun": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
-  "node": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone=",
-  "rts": "truthy=1,2,3,4,5\nevens=2,4\nodds=1,3,5\nnone="
-}
-,
-{
-  "name": "224_math_abs_sign",
-  "status": "pass",
-  "bun": "abs_5=5\nabs_-5=5\nabs_0=0\nabs_-0=0\nabs_inf=Infinity\nabs_3.14=3.14\nabs_str=10\nsign_abs=1",
-  "node": "abs_5=5\nabs_-5=5\nabs_0=0\nabs_-0=0\nabs_inf=Infinity\nabs_3.14=3.14\nabs_str=10\nsign_abs=1",
-  "rts": "abs_5=5\nabs_-5=5\nabs_0=0\nabs_-0=0\nabs_inf=Infinity\nabs_3.14=3.14\nabs_str=10\nsign_abs=1"
-}
-,
-{
   "name": "225_string_tolowercase_touppercase",
   "status": "pass",
   "bun": "lower=hello world\nupper=HELLO WORLD\nalready_lower=hello\nalready_upper=HELLO\nmixed_lower=hello world\nmixed_upper=HELLO WORLD\nwith_nums=ABC123",
   "node": "lower=hello world\nupper=HELLO WORLD\nalready_lower=hello\nalready_upper=HELLO\nmixed_lower=hello world\nmixed_upper=HELLO WORLD\nwith_nums=ABC123",
   "rts": "lower=hello world\nupper=HELLO WORLD\nalready_lower=hello\nalready_upper=HELLO\nmixed_lower=hello world\nmixed_upper=HELLO WORLD\nwith_nums=ABC123"
-}
-,
-{
-  "name": "226_array_find_undefined",
-  "status": "pass",
-  "bun": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined",
-  "node": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined",
-  "rts": "not_found=undefined\nfound=3\nidx_not_found=-1\nidx_found=2\nempty=undefined"
-}
-,
-{
-  "name": "227_object_hasownproperty",
-  "status": "pass",
-  "bun": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true",
-  "node": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true",
-  "rts": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true"
-}
-,
-{
-  "name": "228_json_parse_reviver",
-  "status": "pass",
-  "bun": "a=2\nb=4\nc=6\narr=11,12,13",
-  "node": "a=2\nb=4\nc=6\narr=11,12,13",
-  "rts": "a=2\nb=4\nc=6\narr=11,12,13"
-}
-,
-{
-  "name": "229_json_stringify_replacer_array",
-  "status": "pass",
-  "bun": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
-  "node": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
-  "rts": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}"
-}
-,
-{
-  "name": "22_typeof_instanceof",
-  "status": "pass",
-  "bun": "t_num=number\nt_str=string\nt_bool=boolean\nt_undef=undefined\nt_fn=function\nt_obj=object\nt_arr=object\nt_null=object\ni_sub=true\ni_base=true\ni_obj=true",
-  "node": "t_num=number\nt_str=string\nt_bool=boolean\nt_undef=undefined\nt_fn=function\nt_obj=object\nt_arr=object\nt_null=object\ni_sub=true\ni_base=true\ni_obj=true",
-  "rts": "t_num=number\nt_str=string\nt_bool=boolean\nt_undef=undefined\nt_fn=function\nt_obj=object\nt_arr=object\nt_null=object\ni_sub=true\ni_base=true\ni_obj=true"
-}
-,
-{
-  "name": "230_object_valueof",
-  "status": "pass",
-  "bun": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
-  "node": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
-  "rts": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000"
-}
-,
-{
-  "name": "231_array_tolocalestring",
-  "status": "pass",
-  "bun": "has_commas=true\nmixed=true\nempty=",
-  "node": "has_commas=true\nmixed=true\nempty=",
-  "rts": "has_commas=true\nmixed=true\nempty="
 }
 ,
 {
@@ -1184,43 +2496,11 @@
 }
 ,
 {
-  "name": "233_array_some_short_circuit",
-  "status": "pass",
-  "bun": "result=true\ncount=3\nresult2=false\ncount2=5",
-  "node": "result=true\ncount=3\nresult2=false\ncount2=5",
-  "rts": "result=true\ncount=3\nresult2=false\ncount2=5"
-}
-,
-{
-  "name": "234_array_indexof_fromindex",
-  "status": "pass",
-  "bun": "2=1\n2_from_2=3\n2_from_3=3\n1=0\n1_from_1=4\n2_from_-2=3\n1_from_-1=4",
-  "node": "2=1\n2_from_2=3\n2_from_3=3\n1=0\n1_from_1=4\n2_from_-2=3\n1_from_-1=4",
-  "rts": "2=1\n2_from_2=3\n2_from_3=3\n1=0\n1_from_1=4\n2_from_-2=3\n1_from_-1=4"
-}
-,
-{
-  "name": "235_array_every_short_circuit",
-  "status": "pass",
-  "bun": "result=false\ncount=3\nresult2=true\ncount2=5",
-  "node": "result=false\ncount=3\nresult2=true\ncount2=5",
-  "rts": "result=false\ncount=3\nresult2=true\ncount2=5"
-}
-,
-{
   "name": "236_string_includes_position",
   "status": "pass",
   "bun": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false",
   "node": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false",
   "rts": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false"
-}
-,
-{
-  "name": "237_array_lastindexof_fromindex",
-  "status": "pass",
-  "bun": "2=3\n2_from_2=1\n2_from_1=1\n1=4\n1_from_3=0\n2_from_-2=3\n1_from_-1=4",
-  "node": "2=3\n2_from_2=1\n2_from_1=1\n1=4\n1_from_3=0\n2_from_-2=3\n1_from_-1=4",
-  "rts": "2=3\n2_from_2=1\n2_from_1=1\n1=4\n1_from_3=0\n2_from_-2=3\n1_from_-1=4"
 }
 ,
 {
@@ -1232,51 +2512,11 @@
 }
 ,
 {
-  "name": "239_math_pow",
-  "status": "pass",
-  "bun": "2_3=8\n10_2=100\n5_0=1\n2_-1=0.5\n4_0.5=2\nneg_2=4\nneg_3=-8\noperator=8\nsame=true",
-  "node": "2_3=8\n10_2=100\n5_0=1\n2_-1=0.5\n4_0.5=2\nneg_2=4\nneg_3=-8\noperator=8\nsame=true",
-  "rts": "2_3=8\n10_2=100\n5_0=1\n2_-1=0.5\n4_0.5=2\nneg_2=4\nneg_3=-8\noperator=8\nsame=true"
-}
-,
-{
   "name": "23_string_advanced",
   "status": "pass",
   "bun": "padStart=0007\npadEnd=7...\nrepeat=xoxoxo\nnormalize=Cafe\ntrimStart=cafe  |\ntrimEnd=|  cafe\nincludes=true\nstarts=true\nsliceNeg=bet\nsplitLimit=a,b,c",
   "node": "padStart=0007\npadEnd=7...\nrepeat=xoxoxo\nnormalize=Cafe\ntrimStart=cafe  |\ntrimEnd=|  cafe\nincludes=true\nstarts=true\nsliceNeg=bet\nsplitLimit=a,b,c",
   "rts": "padStart=0007\npadEnd=7...\nrepeat=xoxoxo\nnormalize=Cafe\ntrimStart=cafe  |\ntrimEnd=|  cafe\nincludes=true\nstarts=true\nsliceNeg=bet\nsplitLimit=a,b,c"
-}
-,
-{
-  "name": "240_regexp_test_stateful",
-  "status": "pass",
-  "bun": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0",
-  "node": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0",
-  "rts": "test1=true\nlastIndex1=2\ntest2=true\nlastIndex2=4\ntest3=true\nlastIndex3=6\ntest4=false\nlastIndex4=0"
-}
-,
-{
-  "name": "241_math_sqrt_cbrt",
-  "status": "pass",
-  "bun": "sqrt_4=2\nsqrt_9=3\nsqrt_16=4\nsqrt_2=1.4142135623730951\nsqrt_0=0\nsqrt_neg=NaN\ncbrt_8=2\ncbrt_27=3",
-  "node": "sqrt_4=2\nsqrt_9=3\nsqrt_16=4\nsqrt_2=1.4142135623730951\nsqrt_0=0\nsqrt_neg=NaN\ncbrt_8=2\ncbrt_27=3",
-  "rts": "sqrt_4=2\nsqrt_9=3\nsqrt_16=4\nsqrt_2=1.4142135623730951\nsqrt_0=0\nsqrt_neg=NaN\ncbrt_8=2\ncbrt_27=3"
-}
-,
-{
-  "name": "242_array_map_return",
-  "status": "pass",
-  "bun": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
-  "node": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
-  "rts": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6"
-}
-,
-{
-  "name": "243_string_split_regex",
-  "status": "pass",
-  "bun": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
-  "node": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
-  "rts": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b"
 }
 ,
 {
@@ -1288,70 +2528,6 @@
 }
 ,
 {
-  "name": "245_number_valueof",
-  "status": "rts_diverge",
-  "bun": "valueOf=42\nsame_type=true\nobj_type=true\nprimitive=123\nsame=true\nzero=0",
-  "node": "valueOf=42\nsame_type=true\nobj_type=true\nprimitive=123\nsame=true\nzero=0",
-  "rts": "valueOf=42\nsame_type=true\nobj_type=false\nprimitive=123\nsame=true\nzero=0"
-}
-,
-{
-  "name": "246_boolean_valueof",
-  "status": "pass",
-  "bun": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
-  "node": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
-  "rts": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true"
-}
-,
-{
-  "name": "247_object_isprototypeof",
-  "status": "pass",
-  "bun": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true",
-  "node": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true",
-  "rts": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true"
-}
-,
-{
-  "name": "248_array_foreach_return",
-  "status": "pass",
-  "bun": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
-  "node": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined",
-  "rts": "result=undefined\nresult2=undefined\nsum=6\nresult3=undefined"
-}
-,
-{
-  "name": "249_date_getters",
-  "status": "pass",
-  "bun": "utc_year=2024\nutc_month=0\nutc_date=15\nutc_hours=10\nutc_minutes=30\nutc_seconds=45\nutc_ms=123\nutc_day=1",
-  "node": "utc_year=2024\nutc_month=0\nutc_date=15\nutc_hours=10\nutc_minutes=30\nutc_seconds=45\nutc_ms=123\nutc_day=1",
-  "rts": "utc_year=2024\nutc_month=0\nutc_date=15\nutc_hours=10\nutc_minutes=30\nutc_seconds=45\nutc_ms=123\nutc_day=1"
-}
-,
-{
-  "name": "24_array_creation_iter",
-  "status": "pass",
-  "bun": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true",
-  "node": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true",
-  "rts": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true"
-}
-,
-{
-  "name": "250_regexp_source",
-  "status": "pass",
-  "bun": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)",
-  "node": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)",
-  "rts": "source1=abc\nsource2=test\nsource3=hello\nsource4=\\d+\nempty=(?:)"
-}
-,
-{
-  "name": "251_array_constructor_spread",
-  "status": "pass",
-  "bun": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
-  "node": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
-  "rts": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0"
-}
-,
-{
   "name": "252_string_match_groups",
   "status": "pass",
   "bun": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
@@ -1360,75 +2536,11 @@
 }
 ,
 {
-  "name": "253_object_keys_empty",
-  "status": "pass",
-  "bun": "empty=\narr=0,1,2\nstr=0,1\nnum=",
-  "node": "empty=\narr=0,1,2\nstr=0,1\nnum=",
-  "rts": "empty=\narr=0,1,2\nstr=0,1\nnum="
-}
-,
-{
-  "name": "254_array_reduce_no_initial",
-  "status": "pass",
-  "bun": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
-  "node": "sum=10\nproduct=24\nsingle=42\nsentence=hello world",
-  "rts": "sum=10\nproduct=24\nsingle=42\nsentence=hello world"
-}
-,
-{
-  "name": "255_math_round_floor_ceil",
-  "status": "pass",
-  "bun": "round_2.4=2\nround_2.5=3\nround_2.6=3\nround_-2.5=-2\nfloor_2.9=2\nfloor_-2.1=-3\nceil_2.1=3\nceil_-2.9=-2\nround_0=0\nfloor_0=0\nceil_0=0",
-  "node": "round_2.4=2\nround_2.5=3\nround_2.6=3\nround_-2.5=-2\nfloor_2.9=2\nfloor_-2.1=-3\nceil_2.1=3\nceil_-2.9=-2\nround_0=0\nfloor_0=0\nceil_0=0",
-  "rts": "round_2.4=2\nround_2.5=3\nround_2.6=3\nround_-2.5=-2\nfloor_2.9=2\nfloor_-2.1=-3\nceil_2.1=3\nceil_-2.9=-2\nround_0=0\nfloor_0=0\nceil_0=0"
-}
-,
-{
   "name": "256_string_replace_function",
   "status": "pass",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "rts": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John"
-}
-,
-{
-  "name": "257_array_flat_depth",
-  "status": "pass",
-  "bun": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
-  "node": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3",
-  "rts": "depth0=1,2,3,4,5\ndepth1=1,2,3,4,5\ndepth2=1,2,3,4,5\ndepth3=1,2,3,4,5\ndepthInf=1,2,3,4,5\nsimple=1,2,3"
-}
-,
-{
-  "name": "258_array_flatmap",
-  "status": "pass",
-  "bun": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
-  "node": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
-  "rts": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]"
-}
-,
-{
-  "name": "259_array_at",
-  "status": "pass",
-  "bun": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
-  "node": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined",
-  "rts": "p1=b\nn1=c\nn2=b\nz=a\noor=undefined"
-}
-,
-{
-  "name": "25_closures",
-  "status": "pass",
-  "bun": "add=9\niife=12",
-  "node": "add=9\niife=12",
-  "rts": "add=9\niife=12"
-}
-,
-{
-  "name": "260_findlast",
-  "status": "pass",
-  "bun": "last=2\nidx=4\nnone=undefined\nnoneIdx=-1",
-  "node": "last=2\nidx=4\nnone=undefined\nnoneIdx=-1",
-  "rts": "last=2\nidx=4\nnone=undefined\nnoneIdx=-1"
 }
 ,
 {
@@ -1456,75 +2568,43 @@
 }
 ,
 {
-  "name": "264_object_hasown",
+  "name": "320_string_padstart_padend",
   "status": "pass",
-  "bun": "own=true:true\ninh=false:false\nmiss=false:false",
-  "node": "own=true:true\ninh=false:false\nmiss=false:false",
-  "rts": "own=true:true\ninh=false:false\nmiss=false:false"
+  "bun": "    a\n0000a\nabc\na    \na----\nabc\nxxx\nyyy\n1231ab",
+  "node": "    a\n0000a\nabc\na    \na----\nabc\nxxx\nyyy\n1231ab",
+  "rts": "    a\n0000a\nabc\na    \na----\nabc\nxxx\nyyy\n1231ab"
 }
 ,
 {
-  "name": "265_object_fromentries",
+  "name": "322_string_at",
   "status": "pass",
-  "bun": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
-  "node": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
-  "rts": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}"
+  "bun": "h\ne\no\nl\nundefined\nundefined\nundefined",
+  "node": "h\ne\no\nl\nundefined\nundefined\nundefined",
+  "rts": "h\ne\no\nl\nundefined\nundefined\nundefined"
 }
 ,
 {
-  "name": "266_logical_assignment",
+  "name": "37_string_positions",
   "status": "pass",
-  "bun": "vars=5,y,9\nobj=2,done,3",
-  "node": "vars=5,y,9\nobj=2,done,3",
-  "rts": "vars=5,y,9\nobj=2,done,3"
+  "bun": "includes=true\nstartsWith=true\nendsWith=true",
+  "node": "includes=true\nstartsWith=true\nendsWith=true",
+  "rts": "includes=true\nstartsWith=true\nendsWith=true"
 }
 ,
 {
-  "name": "267_private_fields",
+  "name": "91_string_wellformed",
   "status": "pass",
-  "bun": "inner=7:20\nouter=SyntaxError",
-  "node": "inner=7:20\nouter=SyntaxError",
-  "rts": "inner=7:20\nouter=SyntaxError"
+  "bun": "wf=false\nfix=�",
+  "node": "wf=false\nfix=�",
+  "rts": "wf=false\nfix=�"
 }
 ,
 {
-  "name": "268_private_methods",
+  "name": "184_symbol_for_keyfor",
   "status": "pass",
-  "bun": "both=6:15\nerr=SyntaxError",
-  "node": "both=6:15\nerr=SyntaxError",
-  "rts": "both=6:15\nerr=SyntaxError"
-}
-,
-{
-  "name": "269_static_blocks",
-  "status": "pass",
-  "bun": "order=field|block1:3|block2:5",
-  "node": "order=field|block1:3|block2:5",
-  "rts": "order=field|block1:3|block2:5"
-}
-,
-{
-  "name": "26_map_set_instances",
-  "status": "pass",
-  "bun": "m_size=2\nm_get=1\nm_has=true\nm_after=1\ns_size=2\ns_has=true\ns_after=1",
-  "node": "m_size=2\nm_get=1\nm_has=true\nm_after=1\ns_size=2\ns_has=true\ns_after=1",
-  "rts": "m_size=2\nm_get=1\nm_has=true\nm_after=1\ns_size=2\ns_has=true\ns_after=1"
-}
-,
-{
-  "name": "270_new_target",
-  "status": "rts_diverge",
-  "bun": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
-  "node": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
-  "rts": "f1=call\nwrap=281474976710675\ncls=null:null"
-}
-,
-{
-  "name": "271_computed_class_members",
-  "status": "rts_error",
-  "bun": "sum=5\niter=1,2\nsym=ok",
-  "node": "sum=5\niter=1,2\nsym=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "bun": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
+  "node": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
+  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol"
 }
 ,
 {
@@ -1552,179 +2632,147 @@
 }
 ,
 {
-  "name": "275_generator_yieldstar",
-  "status": "rts_error",
-  "bun": "steps=1:false|2:false|10:false|11:true",
-  "node": "steps=1:false|2:false|10:false|11:true",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "276_generator_return_throw",
-  "status": "rts_error",
-  "bun": "return=1,false,99,false\nthrow=",
-  "node": "return=1,false,99,false\nthrow=",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "277_error_cause",
-  "status": "pass",
-  "bun": "e1=msg:root\ne2=TypeError:msg",
-  "node": "e1=msg:root\ne2=TypeError:msg",
-  "rts": "e1=msg:root\ne2=TypeError:msg"
-}
-,
-{
-  "name": "278_aggregate_error",
-  "status": "pass",
-  "bun": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
-  "node": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
-  "rts": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b"
-}
-,
-{
-  "name": "279_error_chain_cause",
-  "status": "pass",
-  "bun": "top=top\nmid=mid\nleaf=leaf",
-  "node": "top=top\nmid=mid\nleaf=leaf",
-  "rts": "top=top\nmid=mid\nleaf=leaf"
-}
-,
-{
-  "name": "27_date_deterministic",
-  "status": "pass",
-  "bun": "stamp=1715344496789\nyear=2024\nmonth=4\ndate=10\nhours=12\niso=2024-05-10T12:34:56.789Z",
-  "node": "stamp=1715344496789\nyear=2024\nmonth=4\ndate=10\nhours=12\niso=2024-05-10T12:34:56.789Z",
-  "rts": "stamp=1715344496789\nyear=2024\nmonth=4\ndate=10\nhours=12\niso=2024-05-10T12:34:56.789Z"
-}
-,
-{
-  "name": "280_date_setutc_family",
-  "status": "pass",
-  "bun": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
-  "node": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
-  "rts": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789"
-}
-,
-{
-  "name": "281_number_edges",
-  "status": "pass",
-  "bun": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true",
-  "node": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true",
-  "rts": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true"
-}
-,
-{
-  "name": "282_math_imul",
-  "status": "pass",
-  "bun": "a=8\nb=-8\nc=-5\nd=-2",
-  "node": "a=8\nb=-8\nc=-5\nd=-2",
-  "rts": "a=8\nb=-8\nc=-5\nd=-2"
-}
-,
-{
-  "name": "283_math_fround",
-  "status": "pass",
-  "bun": "a=1.3370000123977661\nb=NaN\nc=Infinity\nd=0.3333333432674408",
-  "node": "a=1.3370000123977661\nb=NaN\nc=Infinity\nd=0.3333333432674408",
-  "rts": "a=1.3370000123977661\nb=NaN\nc=Infinity\nd=0.3333333432674408"
-}
-,
-{
-  "name": "284_math_f16round",
-  "status": "pass",
-  "bun": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
-  "node": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
-  "rts": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity"
-}
-,
-{
-  "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
-  "bun": "order=sync|qm|then|timeout",
-  "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
-}
-,
-{
-  "name": "286_setimmediate",
+  "name": "339_symbol_iterator",
   "status": "bun_node_diverge",
-  "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=micro|immediate|timeout"
+  "bun": "1\n2\n3\n4\n5\n10,11,12,13\n20 21 22\n3,4,5,6",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
-  "name": "287_url_canparse",
+  "name": "350_symbol_toPrimitive",
+  "status": "bun_node_diverge",
+  "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "378_symbol_species_hasinstance",
+  "status": "rts_error",
+  "bun": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue",
+  "node": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "54_symbol_registry",
   "status": "pass",
-  "bun": "abs=true\nrel=true\nbad=false",
-  "node": "abs=true\nrel=true\nbad=false",
-  "rts": "abs=true\nrel=true\nbad=false"
+  "bun": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
+  "node": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
+  "rts": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9"
 }
 ,
 {
-  "name": "288_abortsignal_timeout_any",
+  "name": "01_logical_truthy",
   "status": "pass",
-  "bun": "a=true:a\nc=true:a",
-  "node": "a=true:a\nc=true:a",
-  "rts": "a=true:a\nc=true:a"
+  "bun": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y",
+  "node": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y",
+  "rts": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y"
 }
 ,
 {
-  "name": "289_headers_getsetcookie",
+  "name": "03_equality",
   "status": "pass",
-  "bun": "type=function\nvals=a=1|b=2",
-  "node": "type=function\nvals=a=1|b=2",
-  "rts": "type=function\nvals=a=1|b=2"
+  "bun": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false",
+  "node": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false",
+  "rts": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false"
 }
 ,
 {
-  "name": "28_promise_sync",
+  "name": "09_nullish_optional",
   "status": "pass",
-  "bun": "ctor=function",
-  "node": "ctor=function",
-  "rts": "ctor=function"
+  "bun": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast",
+  "node": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast",
+  "rts": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast"
 }
 ,
 {
-  "name": "290_json_circular",
+  "name": "104_destructuring_edge_cases",
   "status": "pass",
-  "bun": "err=TypeError",
-  "node": "err=TypeError",
-  "rts": "err=TypeError"
+  "bun": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
+  "node": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
+  "rts": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
 }
 ,
 {
-  "name": "291_json_bigint",
-  "status": "rts_diverge",
-  "bun": "err=TypeError",
-  "node": "err=TypeError",
-  "rts": "err="
-}
-,
-{
-  "name": "292_json_tojson",
+  "name": "105_template_tagged_raw",
   "status": "pass",
-  "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\""
+  "bun": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
+  "node": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x",
+  "rts": "raw=line1\\n42\\tend\ntag=a\\n|b\\t|::42,x"
 }
 ,
 {
-  "name": "293_json_reviver_this",
-  "status": "rts_diverge",
-  "bun": "obj={\"a\":2,\"b\":4}\nseen=2",
-  "node": "obj={\"a\":2,\"b\":4}\nseen=2",
-  "rts": "obj=562949953421322\nseen="
-}
-,
-{
-  "name": "294_arrow_rest_params",
+  "name": "10_destructure_spread",
   "status": "pass",
-  "bun": "a=1:0:\nb=1:3:2,3,4",
-  "node": "a=1:0:\nb=1:3:2,3,4",
-  "rts": "a=1:0:\nb=1:3:2,3,4"
+  "bun": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40",
+  "node": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40",
+  "rts": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40"
+}
+,
+{
+  "name": "117_optional_catch_binding",
+  "status": "pass",
+  "bun": "result=caught\nresult2=with:msg",
+  "node": "result=caught\nresult2=with:msg",
+  "rts": "result=caught\nresult2=with:msg"
+}
+,
+{
+  "name": "118_numeric_separators",
+  "status": "pass",
+  "bun": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
+  "node": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
+  "rts": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890"
+}
+,
+{
+  "name": "119_nullish_assignment",
+  "status": "pass",
+  "bun": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false",
+  "node": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false",
+  "rts": "a=10\nb=20\nc=5\nx=100\ny=5\np=false\nq=false"
+}
+,
+{
+  "name": "11_objects_templates",
+  "status": "pass",
+  "bun": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana",
+  "node": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana",
+  "rts": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana"
+}
+,
+{
+  "name": "14_control_flow_functions",
+  "status": "pass",
+  "bun": "sum3=6\nsum5=15\nclass_a=neg\nclass_b=zero\nclass_c=pos\njoin_a=x:y:end\njoin_b=x:y:z",
+  "node": "sum3=6\nsum5=15\nclass_a=neg\nclass_b=zero\nclass_c=pos\njoin_a=x:y:end\njoin_b=x:y:z",
+  "rts": "sum3=6\nsum5=15\nclass_a=neg\nclass_b=zero\nclass_c=pos\njoin_a=x:y:end\njoin_b=x:y:z"
+}
+,
+{
+  "name": "21_template_literals",
+  "status": "pass",
+  "bun": "basic=rts:5\nnested=rts-ok:GO\nescapes=line1\nline2\tend\nmulti=a\nb\ncall=RTS:xx",
+  "node": "basic=rts:5\nnested=rts-ok:GO\nescapes=line1\nline2\tend\nmulti=a\nb\ncall=RTS:xx",
+  "rts": "basic=rts:5\nnested=rts-ok:GO\nescapes=line1\nline2\tend\nmulti=a\nb\ncall=RTS:xx"
+}
+,
+{
+  "name": "251_array_constructor_spread",
+  "status": "pass",
+  "bun": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
+  "node": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
+  "rts": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0"
+}
+,
+{
+  "name": "266_logical_assignment",
+  "status": "pass",
+  "bun": "vars=5,y,9\nobj=2,done,3",
+  "node": "vars=5,y,9\nobj=2,done,3",
+  "rts": "vars=5,y,9\nobj=2,done,3"
 }
 ,
 {
@@ -1760,131 +2808,11 @@
 }
 ,
 {
-  "name": "299_arguments_object",
-  "status": "rts_diverge",
-  "bun": "args=3|1|1,2,3|function",
-  "node": "args=3|1|1,2,3|function",
-  "rts": ""
-}
-,
-{
-  "name": "29_number_format",
-  "status": "pass",
-  "bun": "fixed=12.35\nbin=1010\noct=12\nhex=ff\nprec=123.46\nnan=NaN\ninf=Infinity\nnegzero=0",
-  "node": "fixed=12.35\nbin=1010\noct=12\nhex=ff\nprec=123.46\nnan=NaN\ninf=Infinity\nnegzero=0",
-  "rts": "fixed=12.35\nbin=1010\noct=12\nhex=ff\nprec=123.46\nnan=NaN\ninf=Infinity\nnegzero=0"
-}
-,
-{
   "name": "300_this_strict_top_level",
   "status": "rts_diverge",
   "bun": "strict=true\nsloppy=true",
   "node": "strict=true\nsloppy=true",
   "rts": "strict=true\nsloppy=null"
-}
-,
-{
-  "name": "301_groupby_dedicated",
-  "status": "pass",
-  "bun": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b",
-  "node": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b",
-  "rts": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=2:aa,cc|1:b"
-}
-,
-{
-  "name": "302_set_ops_dedicated",
-  "status": "pass",
-  "bun": "union=1,2,3,4\nsym=1,2,4\nsubset=true\nsup=true\ndis=true",
-  "node": "union=1,2,3,4\nsym=1,2,4\nsubset=true\nsup=true\ndis=true",
-  "rts": "union=1,2,3,4\nsym=1,2,4\nsubset=true\nsup=true\ndis=true"
-}
-,
-{
-  "name": "303_array_fromasync",
-  "status": "rts_error",
-  "bun": "gen=3,6\nprom=a,b",
-  "node": "gen=3,6\nprom=a,b",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "304_promise_try",
-  "status": "pass",
-  "bun": "ok=5\nerr=boom",
-  "node": "ok=5\nerr=boom",
-  "rts": "ok=5\nerr=boom"
-}
-,
-{
-  "name": "305_iterator_helpers",
-  "status": "rts_error",
-  "bun": "arr=6,8\nred=5",
-  "node": "arr=6,8\nred=5",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "306_iterator_toarray",
-  "status": "rts_error",
-  "bun": "a=1,2,3\nb=",
-  "node": "a=1,2,3\nb=",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "307_weakref_shape",
-  "status": "pass",
-  "bun": "type=function\nderef=object",
-  "node": "type=function\nderef=object",
-  "rts": "type=function\nderef=object"
-}
-,
-{
-  "name": "308_finalization_registry_shape",
-  "status": "pass",
-  "bun": "type=function\nreg=function\nunreg=function",
-  "node": "type=function\nreg=function\nunreg=function",
-  "rts": "type=function\nreg=function\nunreg=function"
-}
-,
-{
-  "name": "309_console_assert",
-  "status": "pass",
-  "bun": "threw=false\nafter=ok",
-  "node": "threw=false\nafter=ok",
-  "rts": "threw=false\nafter=ok"
-}
-,
-{
-  "name": "30_object_keys_values",
-  "status": "pass",
-  "bun": "keys=a,b,c\nvalues=1,2,3",
-  "node": "keys=a,b,c\nvalues=1,2,3",
-  "rts": "keys=a,b,c\nvalues=1,2,3"
-}
-,
-{
-  "name": "310_console_group",
-  "status": "rts_diverge",
-  "bun": "events=g:x|end",
-  "node": "events=g:x|end",
-  "rts": "x\n\nevents="
-}
-,
-{
-  "name": "311_console_table",
-  "status": "rts_diverge",
-  "bun": "calls=2",
-  "node": "calls=2",
-  "rts": "[ { a: 1 }, { a: 2 } ]\ncalls="
-}
-,
-{
-  "name": "312_console_dir",
-  "status": "rts_diverge",
-  "bun": "calls=object:1",
-  "node": "calls=object:1",
-  "rts": "{ a: { b: 1 } } { depth: 1 }\ncalls="
 }
 ,
 {
@@ -1912,22 +2840,6 @@
 }
 ,
 {
-  "name": "316_structuredclone_mixed",
-  "status": "pass",
-  "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
-}
-,
-{
-  "name": "317_bigint_literals",
-  "status": "rts_diverge",
-  "bun": "vals=10,255\neq=true\nseq=false",
-  "node": "vals=10,255\neq=true\nseq=false",
-  "rts": "eq=true\nseq=true"
-}
-,
-{
   "name": "318_numeric_separators",
   "status": "pass",
   "bun": "dec=1000000\nhex=65535\nbin=165\noct=668",
@@ -1944,211 +2856,123 @@
 }
 ,
 {
-  "name": "31_array_search_negative",
+  "name": "330_destructuring_defaults",
   "status": "pass",
-  "bun": "indexOf=3\nlastIndexOf=3\nincludes=true",
-  "node": "indexOf=3\nlastIndexOf=3\nincludes=true",
-  "rts": "indexOf=3\nlastIndexOf=3\nincludes=true"
+  "bun": "1 20 3\n5\n1 2 7\nhello world\nhello rts\nhello rts\n42",
+  "node": "1 20 3\n5\n1 2 7\nhello world\nhello rts\nhello rts\n42",
+  "rts": "1 20 3\n5\n1 2 7\nhello world\nhello rts\nhello rts\n42"
 }
 ,
 {
-  "name": "32_map_iteration",
+  "name": "331_labeled_statements",
   "status": "pass",
-  "bun": "map=a:1,c:3,",
-  "node": "map=a:1,c:3,",
-  "rts": "map=a:1,c:3,"
+  "bun": "0,0\n1,0\n2,0\nfound at 2,4\nbefore break\nafter block",
+  "node": "0,0\n1,0\n2,0\nfound at 2,4\nbefore break\nafter block",
+  "rts": "0,0\n1,0\n2,0\nfound at 2,4\nbefore break\nafter block"
 }
 ,
 {
-  "name": "33_date_value_methods",
+  "name": "332_comma_operator",
   "status": "pass",
-  "bun": "time=1717200000000\njson=2024-06-01T00:00:00.000Z\nvalue=1717200000000",
-  "node": "time=1717200000000\njson=2024-06-01T00:00:00.000Z\nvalue=1717200000000",
-  "rts": "time=1717200000000\njson=2024-06-01T00:00:00.000Z\nvalue=1717200000000"
+  "bun": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42",
+  "node": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42",
+  "rts": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42"
 }
 ,
 {
-  "name": "34_array_from_length_mapper",
-  "status": "pass",
-  "bun": "mapped=0,3,6,9",
-  "node": "mapped=0,3,6,9",
-  "rts": "mapped=0,3,6,9"
-}
-,
-{
-  "name": "35_error_no_args",
-  "status": "pass",
-  "bun": "err=Error:[]\ntype=TypeError:[]",
-  "node": "err=Error:[]\ntype=TypeError:[]",
-  "rts": "err=Error:[]\ntype=TypeError:[]"
-}
-,
-{
-  "name": "36_math_edges",
-  "status": "pass",
-  "bun": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8",
-  "node": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8",
-  "rts": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8"
-}
-,
-{
-  "name": "37_string_positions",
-  "status": "pass",
-  "bun": "includes=true\nstartsWith=true\nendsWith=true",
-  "node": "includes=true\nstartsWith=true\nendsWith=true",
-  "rts": "includes=true\nstartsWith=true\nendsWith=true"
-}
-,
-{
-  "name": "38_classes_deep",
-  "status": "pass",
-  "bun": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
-  "node": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
-  "rts": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true"
-}
-,
-{
-  "name": "39_regex_deep",
-  "status": "pass",
-  "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "rts": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true"
-}
-,
-{
-  "name": "40_object_deep",
+  "name": "333_void_operator",
   "status": "rts_diverge",
-  "bun": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
-  "node": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
-  "rts": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":281474976710657,\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false"
+  "bun": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6",
+  "node": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6",
+  "rts": "undefined\nundefined\nundefined\nundefined\nstring\nfalse\n2\n4\n6"
 }
 ,
 {
-  "name": "41_closures_deep",
-  "status": "rts_diverge",
-  "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nthis_arrow=null"
-}
-,
-{
-  "name": "42_promise_deep",
+  "name": "334_iife_patterns",
   "status": "pass",
-  "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=5\nall=a,b\nasync=9"
+  "bun": "42\n99\n7\n11\ninit called\n42",
+  "node": "42\n99\n7\n11\ninit called\n42",
+  "rts": "42\n99\n7\n11\ninit called\n42"
 }
 ,
 {
-  "name": "43_date_setters_deep",
-  "status": "pass",
-  "bun": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
-  "node": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
-  "rts": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8"
-}
-,
-{
-  "name": "44_bitwise_unsigned",
-  "status": "pass",
-  "bun": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1",
-  "node": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1",
-  "rts": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1"
-}
-,
-{
-  "name": "45_array_iterators_deep",
-  "status": "pass",
-  "bun": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3",
-  "node": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3",
-  "rts": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3"
-}
-,
-{
-  "name": "46_number_format_edges",
-  "status": "pass",
-  "bun": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
-  "node": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
-  "rts": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0"
-}
-,
-{
-  "name": "47_error_instanceof_deep",
-  "status": "pass",
-  "bun": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
-  "node": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
-  "rts": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true"
-}
-,
-{
-  "name": "48_object_freeze_mutation",
-  "status": "pass",
-  "bun": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}",
-  "node": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}",
-  "rts": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}"
-}
-,
-{
-  "name": "49_function_meta",
-  "status": "pass",
-  "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=12"
-}
-,
-{
-  "name": "50_json_deep",
-  "status": "pass",
-  "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"
-}
-,
-{
-  "name": "51_coercion_weird",
-  "status": "rts_diverge",
-  "bun": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
-  "node": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
-  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=false\neq_b=false\neq_c=false\neq_d=false"
-}
-,
-{
-  "name": "52_sparse_arrays",
-  "status": "pass",
-  "bun": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
-  "node": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
-  "rts": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5"
-}
-,
-{
-  "name": "53_proxy_reflect",
+  "name": "342_in_operator",
   "status": "rts_error",
-  "bun": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
-  "node": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
+  "bun": "true\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse",
+  "node": "true\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
-  "name": "54_symbol_registry",
-  "status": "pass",
-  "bun": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
-  "node": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
-  "rts": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9"
+  "name": "343_optional_chaining",
+  "status": "rts_diverge",
+  "bun": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
+  "node": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
+  "rts": "NYC\nnull\nnull\nnull\n1,2,3\nnull\nnull\nnull\nunknown\nNYC\n10\n0"
 }
 ,
 {
-  "name": "55_url_searchparams",
-  "status": "pass",
-  "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
+  "name": "345_string_template_tag",
+  "status": "rts_error",
+  "bun": "hello [world] the number is [42]\nno interpolation\n[1][2][3]\nline1\\nline2\ntab\\there\na|b|c\nline1\nline2\nline1\\nline2",
+  "node": "hello [world] the number is [42]\nno interpolation\n[1][2][3]\nline1\\nline2\ntab\\there\na|b|c\nline1\nline2\nline1\\nline2",
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
-  "name": "56_microtask_order",
-  "status": "pass",
-  "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "name": "352_obf_control_flow_flat",
+  "status": "rts_error",
+  "bun": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
+  "node": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "360_obf_iife_scope",
+  "status": "rts_error",
+  "bun": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge",
+  "node": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "377_for_in_detail",
+  "status": "rts_diverge",
+  "bun": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
+  "node": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
+  "rts": "own1,own2\nown1,own2\nstring:0,string:1,string:2\n__rts_class,x\n2\na=1,b=2\ntrue\ntrue"
+}
+,
+{
+  "name": "390_with_statement",
+  "status": "bun_node_diverge",
+  "bun": "50\nred rect\n5\n14\n10",
+  "node": "__RUNTIME_ERROR__",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "204_typedarray_basic",
+  "status": "rts_error",
+  "bun": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
+  "node": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "205_arraybuffer_basic",
+  "status": "rts_error",
+  "bun": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
+  "node": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "206_dataview_basic",
+  "status": "rts_error",
+  "bun": "get0=255\nget1=128\nget16=1000\nget32=-123456\nbyteLength=8\nbyteOffset=0",
+  "node": "get0=255\nget1=128\nget16=1000\nget32=-123456\nbyteLength=8\nbyteOffset=0",
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2157,86 +2981,6 @@
   "bun": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214",
   "node": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214",
   "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "58_text_encoding",
-  "status": "pass",
-  "bun": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
-  "node": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
-  "rts": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ"
-}
-,
-{
-  "name": "59_intl_basics",
-  "status": "rts_error",
-  "bun": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
-  "node": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "60_aggregate_error",
-  "status": "pass",
-  "bun": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
-  "node": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
-  "rts": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b"
-}
-,
-{
-  "name": "61_structured_clone",
-  "status": "pass",
-  "bun": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
-  "node": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z",
-  "rts": "orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z"
-}
-,
-{
-  "name": "62_abort_controller",
-  "status": "pass",
-  "bun": "before=false\nafter=true\nreason=stop\nseen=event:true",
-  "node": "before=false\nafter=true\nreason=stop\nseen=event:true",
-  "rts": "before=false\nafter=true\nreason=stop\nseen=event:true"
-}
-,
-{
-  "name": "63_event_target",
-  "status": "pass",
-  "bun": "ok=true\nlog=a:ping,b",
-  "node": "ok=true\nlog=a:ping,b",
-  "rts": "ok=true\nlog=a:ping,b"
-}
-,
-{
-  "name": "64_readable_stream",
-  "status": "rts_error",
-  "bun": "out=a,b",
-  "node": "out=a,b",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "65_bigint_typed_arrays",
-  "status": "rts_error",
-  "bun": "arr=1,-2,9007199254740991\ndv=-123",
-  "node": "arr=1,-2,9007199254740991\ndv=-123",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "66_weak_refs",
-  "status": "pass",
-  "bun": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false",
-  "node": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false",
-  "rts": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false"
-}
-,
-{
-  "name": "67_url_patternish",
-  "status": "rts_diverge",
-  "bun": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
-  "node": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
-  "rts": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/"
 }
 ,
 {
@@ -2256,19 +3000,67 @@
 }
 ,
 {
-  "name": "70_regex_indices",
-  "status": "pass",
-  "bun": "indices=[[1,4],[2,3],[3,4]]",
-  "node": "indices=[[1,4],[2,3],[3,4]]",
-  "rts": "indices=[[1,4],[2,3],[3,4]]"
+  "name": "82_dataview_floats",
+  "status": "rts_error",
+  "bun": "f64=3.141593\nf32=-1.5",
+  "node": "f64=3.141593\nf32=-1.5",
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
-  "name": "71_intl_segmenter",
+  "name": "93_typedarray_methods",
   "status": "rts_error",
-  "bun": "segments=hi:true| :false|there:true",
-  "node": "segments=hi:true| :false|there:true",
+  "bun": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
+  "node": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
   "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "107_url_edge_cases",
+  "status": "pass",
+  "bun": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
+  "node": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
+  "rts": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag"
+}
+,
+{
+  "name": "287_url_canparse",
+  "status": "pass",
+  "bun": "abs=true\nrel=true\nbad=false",
+  "node": "abs=true\nrel=true\nbad=false",
+  "rts": "abs=true\nrel=true\nbad=false"
+}
+,
+{
+  "name": "55_url_searchparams",
+  "status": "pass",
+  "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
+  "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
+  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
+}
+,
+{
+  "name": "67_url_patternish",
+  "status": "rts_diverge",
+  "bun": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
+  "node": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
+  "rts": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/"
+}
+,
+{
+  "name": "80_urlsearchparams_sort",
+  "status": "pass",
+  "bun": "query=x=1+2&x=3",
+  "node": "query=x=1+2&x=3",
+  "rts": "query=x=1+2&x=3"
+}
+,
+{
+  "name": "289_headers_getsetcookie",
+  "status": "pass",
+  "bun": "type=function\nvals=a=1|b=2",
+  "node": "type=function\nvals=a=1|b=2",
+  "rts": "type=function\nvals=a=1|b=2"
 }
 ,
 {
@@ -2304,195 +3096,11 @@
 }
 ,
 {
-  "name": "76_message_channel",
-  "status": "rts_error",
-  "bun": "recv=pong",
-  "node": "recv=pong",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "77_domexception",
-  "status": "pass",
-  "bun": "name=AbortError\nmsg=nope\ncode=20",
-  "node": "name=AbortError\nmsg=nope\ncode=20",
-  "rts": "name=AbortError\nmsg=nope\ncode=20"
-}
-,
-{
-  "name": "78_intl_more",
-  "status": "rts_error",
-  "bun": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
-  "node": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "79_subtle_digest",
-  "status": "rts_error",
-  "bun": "sha256_8=ba7816bf8f01cfea",
-  "node": "sha256_8=ba7816bf8f01cfea",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "80_urlsearchparams_sort",
-  "status": "pass",
-  "bun": "query=x=1+2&x=3",
-  "node": "query=x=1+2&x=3",
-  "rts": "query=x=1+2&x=3"
-}
-,
-{
-  "name": "81_regex_named_groups",
-  "status": "pass",
-  "bun": "word=abbb",
-  "node": "word=abbb",
-  "rts": "word=abbb"
-}
-,
-{
-  "name": "82_dataview_floats",
-  "status": "rts_error",
-  "bun": "f64=3.141593\nf32=-1.5",
-  "node": "f64=3.141593\nf32=-1.5",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "83_promise_combinators",
-  "status": "pass",
-  "bun": "settled=fulfilled:1|rejected:x\nany=b",
-  "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=fulfilled:1|rejected:x\nany=b"
-}
-,
-{
-  "name": "84_abortsignal_advanced",
-  "status": "pass",
-  "bun": "ab=true:x\nto=true:TimeoutError",
-  "node": "ab=true:x\nto=true:TimeoutError",
-  "rts": "ab=true:x\nto=true:TimeoutError"
-}
-,
-{
   "name": "85_request_response",
   "status": "rts_error",
   "bun": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
   "node": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
   "rts": "__RUNTIME_ERROR__"
 }
-,
-{
-  "name": "86_blob_stream",
-  "status": "rts_error",
-  "bun": "bytes=97,98",
-  "node": "bytes=97,98",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "87_modern_helpers",
-  "status": "pass",
-  "bun": "has=true\ncan=true",
-  "node": "has=true\ncan=true",
-  "rts": "has=true\ncan=true"
-}
-,
-{
-  "name": "88_compression_stream",
-  "status": "rts_error",
-  "bun": "gzip=28",
-  "node": "gzip=28",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "89_groupby",
-  "status": "pass",
-  "bun": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2",
-  "node": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2",
-  "rts": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2"
-}
-,
-{
-  "name": "90_set_operations",
-  "status": "pass",
-  "bun": "union=1,2,3,4\ninter=3\ndiff=1,2",
-  "node": "union=1,2,3,4\ninter=3\ndiff=1,2",
-  "rts": "union=1,2,3,4\ninter=3\ndiff=1,2"
-}
-,
-{
-  "name": "91_string_wellformed",
-  "status": "pass",
-  "bun": "wf=false\nfix=�",
-  "node": "wf=false\nfix=�",
-  "rts": "wf=false\nfix=�"
-}
-,
-{
-  "name": "92_promise_with_resolvers",
-  "status": "pass",
-  "bun": "value=ok",
-  "node": "value=ok",
-  "rts": "value=ok"
-}
-,
-{
-  "name": "93_typedarray_methods",
-  "status": "rts_error",
-  "bun": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
-  "node": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "94_sparse_array_enumeration",
-  "status": "pass",
-  "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
-}
-,
-{
-  "name": "95_nan_negative_zero",
-  "status": "pass",
-  "bun": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
-  "node": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
-  "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2"
-}
-,
-{
-  "name": "96_streams_transform",
-  "status": "rts_error",
-  "bun": "out=AB,CD",
-  "node": "out=AB,CD",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "97_structured_clone_edge",
-  "status": "pass",
-  "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true"
-}
-,
-{
-  "name": "98_proxy_invariants",
-  "status": "rts_error",
-  "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "99_regexp_unicode",
-  "status": "pass",
-  "bun": "words=café|λ\nchars=A|😀|B\nnamed=λ",
-  "node": "words=café|λ\nchars=A|😀|B\nnamed=λ",
-  "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
-}
 
-],"summary":{"total":312,"pass":255,"rts_diverge":18,"bun_node_diverge":4,"errors":35,"rejected":0}}
+],"summary":{"total":388,"pass":266,"rts_diverge":35,"bun_node_diverge":16,"errors":71,"rejected":0}}
