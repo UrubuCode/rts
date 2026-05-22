@@ -139,10 +139,41 @@ pub fn compile_program(
         })
         .collect();
 
+    // (cross-runtime #267) Pre-computa set de classes que tem field
+    // initializers (NAO ctor). Usado pelo synthesize para decidir se a
+    // subclasse sem ctor explicito deve chamar super.__init. Ctors com
+    // args ficam de fora — chamada implicita super() requer match de
+    // assinatura que MVP nao cobre.
+    let mut classes_with_init: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for class in &class_decls {
+        let has_field_init = class.members.iter().any(|m| matches!(m,
+            crate::parser::ast::ClassMember::Property(p)
+                if !p.modifiers.is_static && p.initializer.is_some()
+        ));
+        if has_field_init {
+            classes_with_init.insert(class.name.clone());
+        }
+    }
+    // Propaga: se classe X tem init, e Y extends X, Y eh marcada como
+    // has_init (precisa chamar X.__init via chain). Iteramos ate fixed point.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for class in &class_decls {
+            if classes_with_init.contains(&class.name) { continue; }
+            if let Some(parent) = class.super_class.as_deref() {
+                if classes_with_init.contains(parent) {
+                    classes_with_init.insert(class.name.clone());
+                    changed = true;
+                }
+            }
+        }
+    }
+
     let mut classes: HashMap<String, ClassMeta> = HashMap::new();
     let mut synthetic_fns: Vec<FunctionDecl> = Vec::new();
     for class in &class_decls {
-        let (meta, fns) = synthesize_class_fns(class);
+        let (meta, fns) = synthesize_class_fns(class, &classes_with_init);
         classes.insert(class.name.clone(), meta);
         synthetic_fns.extend(fns);
     }

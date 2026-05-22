@@ -680,8 +680,15 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                 }
             }
             MemberProp::PrivateName(pn) => {
-                let key = format!("#{}", pn.name.as_ref());
-                validate_private_scope(ctx, &key)?;
+                let raw_name = pn.name.as_ref();
+                let raw_key = format!("#{}", raw_name);
+                validate_private_scope(ctx, &raw_key)?;
+                // (cross-runtime #267) Mangle por current_class.
+                let key = if let Some(cur) = ctx.current_class.as_deref() {
+                    format!("#{}_{}", cur, raw_name)
+                } else {
+                    raw_key.clone()
+                };
                 let (kp, kl) = ctx.emit_str_literal(key.as_bytes())?;
                 ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
             }
