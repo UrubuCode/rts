@@ -194,34 +194,124 @@ type CallbackFn = unsafe extern "C" fn(i64) -> i64;
 /// (cross-runtime #56) Microtask queue thread-local. queueMicrotask
 /// enfileira o callback; ele eh drenado no fim do task corrente (top-level
 /// __RTS_MAIN ou apos um await).
+///
+/// Suporta dois tipos:
+/// - `Bare(fp)`: queueMicrotask(cb) — invoca fp() sem args.
+/// - `SettledThen { ... }`: Promise.then com promise ja' settled — invoca
+///   fp(value), settle o result slot com retorno (ou propaga rejection).
 use std::cell::RefCell;
+pub(crate) enum Microtask {
+    Bare(u64),
+    SettledThen {
+        fn_ptr: u64,
+        bound: Vec<i64>,
+        value: i64,
+        fulfilled: bool,
+        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    },
+}
 thread_local! {
-    static MICROTASK_QUEUE: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    static MICROTASK_QUEUE: RefCell<Vec<Microtask>> = const { RefCell::new(Vec::new()) };
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK(fp: u64) {
-    // (cross-runtime #285) JS spec quer enfileiramento, mas como Promise.then
-    // de promises ja' settled executa sync inline em RTS (PROMISE_THEN2 fast-path),
-    // queueMicrotask tambem precisa executar inline pra preservar a ordem FIFO
-    // entre eles. Refator completo precisa de event loop real (#376/#207).
+    // (cross-runtime #56) JS spec: queueMicrotask enfileira; drena no fim
+    // do script sync. Antes executava inline para "preservar FIFO com
+    // Promise.then fast-path", mas isso quebrava ordem com sync:end
+    // (callback rodava antes de continuar o top-level).
     if fp != 0 {
-        unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0); }
+        MICROTASK_QUEUE.with(|q| q.borrow_mut().push(Microtask::Bare(fp)));
     }
+}
+
+/// (cross-runtime #56/#285) Enfileira microtask de Promise.then com promise
+/// ja' settled. Quando drenado, invoca o callback (se fp != 0) e settle
+/// result_slot com o retorno; se promise rejeitada, propaga reject.
+pub fn enqueue_microtask_settled(
+    fn_ptr: u64,
+    bound: Vec<i64>,
+    value: i64,
+    fulfilled: bool,
+    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+) {
+    MICROTASK_QUEUE.with(|q| {
+        q.borrow_mut().push(Microtask::SettledThen {
+            fn_ptr,
+            bound,
+            value,
+            fulfilled,
+            result_slot,
+        })
+    });
 }
 
 /// Drena microtasks pendentes. Chamada pelo pipeline pos-main e tambem
 /// pode ser chamada pelo codegen no fim de cada task (futuro).
 pub fn drain_microtasks() {
+    use crate::namespaces::gc::promise_slot;
     loop {
-        let queue: Vec<u64> = MICROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
+        let queue: Vec<Microtask> =
+            MICROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
         if queue.is_empty() {
             break;
         }
-        for fp in queue {
-            if fp != 0 {
-                unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0); }
+        for task in queue {
+            match task {
+                Microtask::Bare(fp) => {
+                    if fp != 0 {
+                        unsafe {
+                            (std::mem::transmute::<u64, CallbackFn>(fp))(0);
+                        }
+                    }
+                }
+                Microtask::SettledThen {
+                    fn_ptr,
+                    bound,
+                    value,
+                    fulfilled,
+                    result_slot,
+                } => {
+                    if fulfilled {
+                        if fn_ptr == 0 {
+                            promise_slot::resolve(&result_slot, value);
+                        } else {
+                            let r = unsafe {
+                                invoke_microtask_callback(fn_ptr, &bound, Some(value))
+                            };
+                            promise_slot::resolve(&result_slot, r);
+                        }
+                    } else {
+                        // catch path nao usa este enqueue ainda; reject direto.
+                        promise_slot::reject(&result_slot, value);
+                    }
+                }
             }
+        }
+    }
+}
+
+/// Cópia local de invoke_callback (promise/ops.rs) para evitar dep
+/// circular do módulo. Aridade ate 8 com bound_args prepended.
+unsafe fn invoke_microtask_callback(
+    fn_ptr: u64,
+    bound: &[i64],
+    extra: Option<i64>,
+) -> i64 {
+    use std::mem::transmute;
+    let mut args: Vec<i64> = bound.to_vec();
+    if let Some(v) = extra {
+        args.push(v);
+    }
+    unsafe {
+        match args.len() {
+            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
+            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
+            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
+            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2],
+            ),
+            _ => 0,
         }
     }
 }

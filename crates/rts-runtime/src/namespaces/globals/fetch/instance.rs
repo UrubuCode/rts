@@ -174,34 +174,39 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
-            // (cross-runtime #56) Fast-path: ja' settled — executa sync.
-            // JS spec quer microtask queue, mas implementar isso quebra
-            // codigo que espera `await x.then(...)` resolver sincrono. Por
-            // ora mantemos sync para nao regredir suite; #56_microtask_order
-            // continua diverging.
+            // (cross-runtime #56/#285) Fast-path: ja' settled — enfileira
+            // como microtask em vez de executar sync. Sem isso, o callback
+            // rodava antes do top-level continuar, violando ordem JS spec.
             let cur_state = promise_slot::current_state(&arc);
             if cur_state != promise_slot::STATE_PENDING {
                 let value = promise_slot::current_value(&arc);
                 let result = promise_slot::new_pending();
                 let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
-                if cur_state == promise_slot::STATE_FULFILLED {
-                    if on_ful == 0 {
+                let fulfilled = cur_state == promise_slot::STATE_FULFILLED;
+                // Escolhe callback aplicavel: on_ful para fulfilled,
+                // on_rej para rejected. Se nao tem callback aplicavel,
+                // propaga sem invocar (passthrough).
+                let fp = if fulfilled { on_ful } else { on_rej };
+                if fp == 0 {
+                    // Sem callback aplicavel: settle imediato (passthrough).
+                    if fulfilled {
                         promise_slot::resolve(&result, value);
                     } else {
-                        let r = unsafe {
-                            (std::mem::transmute::<u64, CallbackFn>(on_ful))(value)
-                        };
-                        promise_slot::resolve(&result, r);
+                        promise_slot::reject(&result, value);
                     }
                 } else {
-                    if on_rej == 0 {
-                        promise_slot::reject(&result, value);
-                    } else {
-                        let r = unsafe {
-                            (std::mem::transmute::<u64, CallbackFn>(on_rej))(value)
-                        };
-                        promise_slot::resolve(&result, r);
-                    }
+                    // Enfileira no microtask queue. Mesmo o caminho on_rej
+                    // (catch) recupera: result e' resolved com retorno do cb.
+                    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_settled(
+                        fp,
+                        Vec::new(),
+                        value,
+                        true, // sempre invoca callback como "resolved" para
+                              // que o retorno vire resolve(result). Reject
+                              // path do on_rej tambem segue spec: callback
+                              // de catch recupera, resultado eh resolved.
+                        result,
+                    );
                 }
                 return result_handle;
             }
