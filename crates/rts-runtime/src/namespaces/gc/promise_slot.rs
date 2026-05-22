@@ -127,6 +127,21 @@ pub fn wait_blocking(slot: &Arc<PromiseSlot>) -> (u8, i64) {
         waiters.push(tx);
     }
 
+    // (engine multi-thread passivo) Detecta se estamos dentro de uma
+    // tokio worker thread (callback de `.then`, `spawn_blocking`, etc).
+    // `rt.block_on(rx)` panica "Cannot start a runtime from within a
+    // runtime" nesse caso. Usar `block_in_place` para informar ao
+    // scheduler tokio que vamos bloquear, depois bloqueia via
+    // `Handle::block_on` da runtime atual.
+    if crate::runtime::async_rt::in_tokio_thread() {
+        return tokio::task::block_in_place(|| {
+            let handle = tokio::runtime::Handle::current();
+            match handle.block_on(rx) {
+                Ok(v) => v,
+                Err(_) => (STATE_REJECTED, 0),
+            }
+        });
+    }
     let rt = crate::runtime::async_rt::rt();
     match rt.block_on(rx) {
         Ok(v) => v,
