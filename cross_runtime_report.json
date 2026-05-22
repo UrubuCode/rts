@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -2937,10 +2937,10 @@
 ,
 {
   "name": "377_for_in_detail",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
   "node": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
-  "rts": "own1,own2\nown1,own2\nstring:0,string:1,string:2\n__rts_class,x\n2\na=1,b=2\ntrue\ntrue"
+  "rts": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":273,"rts_diverge":25,"bun_node_diverge":16,"errors":74,"rejected":0}}
+],"summary":{"total":388,"pass":274,"rts_diverge":23,"bun_node_diverge":17,"errors":74,"rejected":0}}
