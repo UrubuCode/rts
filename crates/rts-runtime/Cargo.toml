@@ -29,3 +29,4 @@ tar = "0.4"
 ureq = { version = "2.12", default-features = true }
 slotmap = "1"
 rustc-hash = "1.1"
+time = { version = "0.3", features = ["local-offset"] }
