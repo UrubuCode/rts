@@ -161,9 +161,17 @@ process_fixture() {
 }
 export -f process_fixture
 
-# Coleta lista de fixtures
+# Coleta lista de fixtures. Aceita organizacao plana
+# (`tests/cross-runtime/*.ts`) OU em subpastas por categoria
+# (`tests/cross-runtime/<categoria>/*.ts`). `find` descend mas pula
+# `support/` (helpers nao executaveis isoladamente).
 shopt -s nullglob
-mapfile -t FIXTURES < <(printf '%s\n' "$FIXTURES_DIR"/*.ts | sort)
+mapfile -t FIXTURES < <(
+    find "$FIXTURES_DIR" -type f -name '*.ts' \
+        ! -path "$FIXTURES_DIR/support/*" \
+        ! -path "*/support/*" \
+        | sort
+)
 TOTAL=${#FIXTURES[@]}
 
 if [ "$TOTAL" -eq 0 ]; then
