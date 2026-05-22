@@ -503,9 +503,28 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         };
         if let Some(other_expr) = other {
             let other_tv = lower_expr(ctx, other_expr)?;
+            // Handle path: comparar via string_eq com handle de "undefined".
+            // Cobre `void X === undefined` e variaveis cujo valor eh "undefined".
+            if matches!(other_tv.ty, ValTy::Handle) {
+                let undef_h = ctx.emit_str_handle(b"undefined")?.val;
+                let fref = ctx.get_extern(
+                    "__RTS_FN_NS_GC_STRING_EQ",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(fref, &[other_tv.val, undef_h]);
+                let eq = ctx.builder.inst_results(inst)[0];
+                let result = if matches!(bin.op, BinaryOp::NotEqEq | BinaryOp::NotEq) {
+                    let one = ctx.builder.ins().iconst(cl::I64, 1);
+                    ctx.builder.ins().bxor(eq, one)
+                } else {
+                    eq
+                };
+                let result = ctx.builder.ins().ireduce(cl::I8, result);
+                return Ok(TypedVal::new(result, ValTy::Bool));
+            }
             // Caminho aplicavel quando `other` eh I64 (slot de Vec/Array) —
-            // compara com sentinel i64::MIN+2. Handles caem no path generico
-            // (string_eq) que ja' funciona para o caso de ident "undefined".
+            // compara com sentinel i64::MIN+2.
             if matches!(other_tv.ty, ValTy::I64 | ValTy::U64) {
                 let sentinel = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
                 let eq = ctx.builder.ins().icmp(

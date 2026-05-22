@@ -101,10 +101,14 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
         return lower_typeof(ctx, &u.arg);
     }
     if matches!(u.op, UnaryOp::Void) {
-        // `void X` avalia X (side effects) e retorna handle de "undefined".
-        // Em template/String(...) o handle stringifica como "undefined".
+        // `void X` avalia X (side effects) e retorna undefined. Usamos
+        // sentinel i64::MIN+2 para coincidir com a representacao undefined
+        // em slots I64 (Array/Vec/Map) — assim `void 0 === undefined` da
+        // true via fast path do binary op.
         let _ = lower_expr(ctx, &u.arg)?;
-        return ctx.emit_str_handle(b"undefined");
+        use cranelift_codegen::ir::InstBuilder;
+        let v = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+        return Ok(TypedVal::new(v, ValTy::I64));
     }
     // `delete obj.prop` / `delete obj["k"]` / `delete arr[i]`.
     if matches!(u.op, UnaryOp::Delete) {
@@ -274,6 +278,13 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     }
     if let Expr::Lit(Lit::Null(_)) = operand {
         return ctx.emit_str_handle(b"object");
+    }
+    // `typeof void X` -> "undefined" (X eh avaliado por side effects).
+    if let Expr::Unary(u) = operand {
+        if matches!(u.op, UnaryOp::Void) {
+            let _ = lower_expr(ctx, &u.arg)?;
+            return ctx.emit_str_handle(b"undefined");
+        }
     }
     if matches!(operand, Expr::Object(_) | Expr::Array(_)) {
         return ctx.emit_str_handle(b"object");
