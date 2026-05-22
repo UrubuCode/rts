@@ -87,11 +87,17 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
     } else {
         bool_true
     };
+    // (#1073) configurable rastreado via Object.defineProperty
+    let configurable = if crate::namespaces::collections::map::is_non_configurable(obj, &key_str) {
+        bool_false
+    } else {
+        bool_true
+    };
     let mut desc: IndexMap<String, i64> = IndexMap::new();
     desc.insert("value".to_string(), v);
     desc.insert("writable".to_string(), writable);
     desc.insert("enumerable".to_string(), enumerable);
-    desc.insert("configurable".to_string(), bool_true);
+    desc.insert("configurable".to_string(), configurable);
     alloc_entry(Entry::Map(Box::new(desc)))
 }
 
@@ -139,11 +145,17 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
         } else {
             bool_true
         };
+        // (#1073) configurable rastreado.
+        let configurable = if crate::namespaces::collections::map::is_non_configurable(obj, &k) {
+            bool_false
+        } else {
+            bool_true
+        };
         let mut desc: IndexMap<String, i64> = IndexMap::new();
         desc.insert("value".to_string(), v);
         desc.insert("writable".to_string(), writable);
         desc.insert("enumerable".to_string(), enumerable);
-        desc.insert("configurable".to_string(), bool_true);
+        desc.insert("configurable".to_string(), configurable);
         let desc_h = alloc_entry(Entry::Map(Box::new(desc))) as i64;
         out.insert(k, desc_h);
     }
