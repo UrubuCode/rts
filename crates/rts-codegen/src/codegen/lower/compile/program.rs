@@ -589,7 +589,7 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
             // - sem return -> None (void).
             let inferred = inspect_return_kind(&fn_decl.body);
             match inferred {
-                ReturnKind::String => Some(ValTy::Handle),
+                ReturnKind::String | ReturnKind::Handle => Some(ValTy::Handle),
                 ReturnKind::Bool => Some(ValTy::Bool),
                 ReturnKind::Number => Some(ValTy::F64),
                 ReturnKind::Void => None,
@@ -606,6 +606,7 @@ enum ReturnKind {
     Number,
     String,
     Bool,
+    Handle,
 }
 
 /// Heuristica de inferencia de return type baseada no shape do return expr.
@@ -670,6 +671,17 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
             _ => false,
         }
     }
+    // (cross-runtime #292) Object/Array literal e new-expr de classe
+    // retornam Handle. Sem isso, codegen tipa ret como F64 e callers
+    // (e.g. JSON.stringify) interpretam handle como f64 bits.
+    fn expr_yields_handle(e: &Expr) -> bool {
+        match e {
+            Expr::Object(_) | Expr::Array(_) | Expr::New(_) => true,
+            Expr::Paren(p) => expr_yields_handle(&p.expr),
+            Expr::Cond(c) => expr_yields_handle(&c.cons) || expr_yields_handle(&c.alt),
+            _ => false,
+        }
+    }
     fn check_stmt(stmt: &swc_ecma_ast::Stmt, found: &mut ReturnKind) {
         use swc_ecma_ast::Stmt;
         match stmt {
@@ -679,13 +691,20 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
                         ReturnKind::String
                     } else if expr_yields_bool(arg) {
                         ReturnKind::Bool
+                    } else if expr_yields_handle(arg) {
+                        ReturnKind::Handle
                     } else {
                         ReturnKind::Number
                     };
-                    // String trumps tudo; Bool trumps Number; Number eh fallback.
+                    // Precedencia: String > Handle > Bool > Number.
                     if new_kind == ReturnKind::String {
                         *found = ReturnKind::String;
-                    } else if new_kind == ReturnKind::Bool && *found != ReturnKind::String {
+                    } else if new_kind == ReturnKind::Handle && *found != ReturnKind::String {
+                        *found = ReturnKind::Handle;
+                    } else if new_kind == ReturnKind::Bool
+                        && *found != ReturnKind::String
+                        && *found != ReturnKind::Handle
+                    {
                         *found = ReturnKind::Bool;
                     } else if *found == ReturnKind::Void {
                         *found = ReturnKind::Number;
