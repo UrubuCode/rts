@@ -844,7 +844,15 @@ pub(super) fn lower_opt_chain(
             let access_was_ambig = ctx.var_member_call_values.contains(&access_tv.val);
             let access_val = match access_ty {
                 ValTy::F64 | ValTy::I32 => access_tv.val,
-                _ => ctx.coerce_to_i64(access_tv).val,
+                _ => {
+                    // Se member access retornou 0 (campo ausente em map literal),
+                    // converte para sentinel undefined (i64::MIN+2) — JS semantics.
+                    let raw = ctx.coerce_to_i64(access_tv).val;
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    let is_zero = ctx.builder.ins().icmp(IntCC::Equal, raw, zero);
+                    let undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                    ctx.builder.ins().select(is_zero, undef, raw)
+                }
             };
             let merge_cl_ty = match access_ty {
                 ValTy::F64 => cl::F64,
