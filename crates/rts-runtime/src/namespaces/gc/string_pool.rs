@@ -187,7 +187,12 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     let h = value as u64;
     let snap = snapshot_entry(h);
     match snap {
-        EntrySnap::Str(_) => h, // passthrough do handle original
+        // (#1041) Sempre clona quando o handle ja' eh string. O codegen
+        // libera o handle retornado tratando-o como "fresh"; sem o
+        // clone, o handle original (que pode ser referenciado por outro
+        // lugar, p.ex. slot de Vec/Map) seria liberado, causando UAF
+        // observado em `Object.fromEntries(Object.entries(obj).map(...))`.
+        EntrySnap::Str(bytes) => alloc_entry(Entry::String(bytes)),
         EntrySnap::None => {
             // Nao eh handle valido — interpreta como i64 raw OU bits f64.
             // (cross-runtime #49) `add.bind(null, 5)` chamado retorna i64
@@ -235,7 +240,10 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_VEC_SLOT(value: i64) -> u64 {
     let h = value as u64;
     let snap = snapshot_entry(h);
     match snap {
-        EntrySnap::Str(_) => h,
+        // (#1041) Idem AUTO: clona em vez de passthrough para evitar
+        // double-free quando o codegen libera o handle retornado como
+        // "fresh".
+        EntrySnap::Str(bytes) => alloc_entry(Entry::String(bytes)),
         EntrySnap::None => {
             const MAX_SAFE: i64 = (1i64 << 53) - 1;
             if value > MAX_SAFE || value < -MAX_SAFE {
