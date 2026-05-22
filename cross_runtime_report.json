@@ -169,10 +169,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -1652,7 +1652,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=timeout|immediate|micro"
 }
 ,
 {
@@ -2145,10 +2145,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
