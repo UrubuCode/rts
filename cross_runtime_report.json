@@ -769,10 +769,10 @@
 ,
 {
   "name": "347_weak_collections",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse",
   "node": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse",
-  "rts": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm null, age null\nfalse\ntrue\nfalse\nfalse"
+  "rts": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse"
 }
 ,
 {
@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":270,"rts_diverge":30,"bun_node_diverge":17,"errors":71,"rejected":0}}
+],"summary":{"total":388,"pass":273,"rts_diverge":28,"bun_node_diverge":16,"errors":71,"rejected":0}}
