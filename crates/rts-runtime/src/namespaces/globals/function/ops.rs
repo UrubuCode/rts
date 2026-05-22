@@ -636,6 +636,13 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(
     {
         let mut all_args = bound_args;
         all_args.extend(read_args_vec(args_handle));
+        // (engine multi-thread passivo) Preenche args faltantes com 0
+        // ate atender o numero de param_kinds. Caso: setTimeout(resolveFn, ms)
+        // chama com 0 args, mas resolveFn tem param_kinds=[0,0] (promise_h
+        // + value). Sem preencher, o trampolim lê lixo do stack como value.
+        while all_args.len() < param_kinds.len() {
+            all_args.push(0);
+        }
         let pushed_this = if !is_arrow && has_this_param {
             let effective = if has_bound_this { bound_this } else { this_arg };
             all_args.insert(0, effective);
