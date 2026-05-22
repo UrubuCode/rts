@@ -1417,10 +1417,10 @@
 ,
 {
   "name": "325_structuredclone_primitives",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
   "node": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
-  "rts": "42\nhello\n1\nnull\n2\n99\n2\n99"
+  "rts": "42\nhello\ntrue\nnull\n2\n99\n2\n99"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":274,"rts_diverge":27,"bun_node_diverge":16,"errors":71,"rejected":0}}
+],"summary":{"total":388,"pass":275,"rts_diverge":26,"bun_node_diverge":16,"errors":71,"rejected":0}}
