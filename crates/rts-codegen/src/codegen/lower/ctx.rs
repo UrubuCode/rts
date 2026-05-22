@@ -1107,13 +1107,11 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         // Cross-block reuse of raw Values causes Cranelift to spill them into
         // stack slots before GC calls, but if the defining block wasn't executed
         // the slot is uninitialized — breaking ternary chains (issue #359).
-        let cur_block = self.builder.current_block().unwrap_or_else(|| {
-            cranelift_codegen::ir::Block::with_number(0).unwrap()
-        });
-        let cache_key = (bytes.to_vec(), cur_block);
-        if let Some(&cached_val) = self.str_handle_cache.get(&cache_key) {
-            return Ok(TypedVal::new(cached_val, ValTy::Handle));
-        }
+        // (#1024) Não cachear o handle: o str_handle_cache reusava o mesmo
+        // SSA Value para múltiplos usos da mesma string literal no bloco,
+        // mas o handle pode ter sido movido para dentro de Vec/Map cujo
+        // dono libera a string antes do uso seguinte (ex: arr.map callback
+        // consome). Cada uso lexicográfico precisa alocar handle próprio.
         let (ptr, len) = self.emit_str_literal(bytes)?;
         let fref = self.get_extern(
             "__RTS_FN_NS_GC_STRING_FROM_STATIC",
@@ -1125,7 +1123,6 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         self.declare_gc_handle(val);
         self.fresh_handle_set.insert(val);
         self.register_temp_handle(val);
-        self.str_handle_cache.insert(cache_key, val);
         Ok(TypedVal::new(val, ValTy::Handle))
     }
 
