@@ -786,6 +786,16 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_TO_STRING(value: i64, tag: i64) -> u64 {
 /// TPL_COERCE_AUTO, preservando `console.log("oi")` -> `oi`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_INSPECT(value: i64) -> u64 {
+    // Sentinelas: false/true/undefined/null/sparse-hole (consistente
+    // com TPL_COERCE_AUTO). Sem isso console.log(opt_chain_undef) -> "null".
+    if value == i64::MIN { return alloc_entry(Entry::String(b"false".to_vec())); }
+    if value == i64::MIN + 1 { return alloc_entry(Entry::String(b"true".to_vec())); }
+    if value == i64::MIN + 2 || value == i64::MIN + 4 {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    if value == i64::MIN + 3 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
     if value == 0 {
         return alloc_entry(Entry::String(b"null".to_vec()));
     }

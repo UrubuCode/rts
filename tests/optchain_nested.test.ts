@@ -30,10 +30,10 @@ const r6: string = a3.db.conn.url;
 const a7 = { l1: { l2: { l3: { v: "deep" } } } };
 const r7: string = a7?.l1?.l2?.l3?.v;
 
-// 8. Nivel intermediario inexistente — fallback 0
+// 8. Nivel intermediario inexistente — JS retorna undefined.
 const a8: any = { x: 1 };
 const r8 = a8?.notExist?.deep;
-const r8IsZero = (r8 as any) === 0;
+const r8IsUndef = r8 === undefined;
 
 describe("optchain_nested", () => {
     test("2 levels", () => expect(r2).toBe("localhost"));
@@ -43,5 +43,5 @@ describe("optchain_nested", () => {
     test("via intermediate var", () => expect(rs5).toBe("alpha"));
     test("non-opt 3 levels", () => expect(r6).toBe("postgres://x"));
     test("4 levels", () => expect(r7).toBe("deep"));
-    test("missing intermediate → 0", () => expect(r8IsZero).toBe(true));
+    test("missing intermediate → undefined", () => expect(r8IsUndef).toBe(true));
 });

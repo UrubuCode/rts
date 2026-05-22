@@ -6,8 +6,8 @@ function print(value: string): void {
 }
 
 // (#271 + #456) `obj?.prop` em obj null produz "undefined" quando coerced
-// em template literal (alinhado a JS); o valor SSA subjacente continua 0
-// para curto-circuitar cadeias `a?.b?.c`.
+// em template literal (alinhado a JS); o valor SSA subjacente eh sentinel
+// i64::MIN+2 (undefined) para que comparacoes `=== undefined` funcionem.
 
 // 1. Null obj — retorna "undefined" em template literal
 const nullObj: { a: number } | null = null;
@@ -21,11 +21,11 @@ print(`${obj?.b}`);        // 99
 // 3. Em fn user com possivel null
 function getValue(o: { x: number } | null): number {
   const v = o?.x;
-  if (v === 0) return -1;
+  if ((v as any) === undefined) return -1;
   return v;
 }
 print(`${getValue({ x: 7 })}`);   // 7
-print(`${getValue(null)}`);       // -1 (v=0 vira -1)
+print(`${getValue(null)}`);       // -1 (v=undefined vira -1)
 
 // 4. Encadeado com ternario
 const cond: boolean = true;

@@ -19,14 +19,17 @@ function main() {
 
 function twice(x: i32): i32 { return x * 2; }
 
-function call_opt(fn: i64, x: i32): i32 {
-  // optional call: se fn e null (0), retorna 0; senao invoca.
+function call_opt(fn: i64, x: i32): i64 {
+  // optional call: se fn e null (0), retorna sentinel undefined; senao invoca.
   return fn?.(x);
 }
 
 function main2() {
-  print(`${call_opt(twice, 10)}`);  // 20
-  print(`${call_opt(0, 10)}`);      // 0 (short-circuit)
+  const r1 = call_opt(twice, 10);
+  print(`${r1}`);  // 20 (sentinel nao aplica em result truthy)
+  const r2 = call_opt(0, 10);
+  // r2 eh i64::MIN+2 (sentinel undefined). Aqui validamos via comparacao.
+  print(`${(r2 as any) === undefined ? "undefined" : "X"}`);
 }
 
 main();
@@ -34,6 +37,6 @@ main2();
 
 describe("fixture:nullish_optional", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("99\n42\n7\n20\n0\n");
+    expect(__rtsCapturedOutput).toBe("99\n42\n7\n20\nundefined\n");
   });
 });

@@ -856,10 +856,16 @@ pub(super) fn lower_opt_chain(
 
             ctx.builder.switch_to_block(null_block);
             ctx.builder.seal_block(null_block);
+            // Para tipos I64/Handle usa sentinel undefined (i64::MIN+2) — assim
+            // console.log/INSPECT/template stringificam como "undefined" (JS),
+            // nao como "null"/"0". F64/I32 nao tem sentinel (caem em 0).
             let z = match access_ty {
-                ValTy::F64 => ctx.builder.ins().f64const(0.0),
+                ValTy::F64 => {
+                    let bits = ctx.builder.ins().iconst(cl::I64, f64::NAN.to_bits() as i64);
+                    ctx.builder.ins().bitcast(cl::F64, cranelift_codegen::ir::MemFlags::new(), bits)
+                }
                 ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
-                _ => ctx.builder.ins().iconst(cl::I64, 0),
+                _ => ctx.builder.ins().iconst(cl::I64, i64::MIN + 2),
             };
             ctx.builder.ins().jump(merge, &[z.into()]);
 
@@ -914,7 +920,8 @@ pub(super) fn lower_opt_chain(
 
                     ctx.builder.switch_to_block(null_block);
                     ctx.builder.seal_block(null_block);
-                    let z = ctx.builder.ins().iconst(cl::I64, 0);
+                    // Sentinel undefined (i64::MIN+2) — INSPECT/TPL/TRUTHY entendem.
+                    let z = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
                     ctx.builder.ins().jump(merge, &[z.into()]);
 
                     ctx.builder.switch_to_block(call_block);
@@ -1006,7 +1013,7 @@ pub(super) fn lower_opt_chain(
 
             ctx.builder.switch_to_block(null_block);
             ctx.builder.seal_block(null_block);
-            let z = ctx.builder.ins().iconst(cl::I64, 0);
+            let z = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
             ctx.builder.ins().jump(merge, &[z.into()]);
 
             ctx.builder.switch_to_block(call_block);
