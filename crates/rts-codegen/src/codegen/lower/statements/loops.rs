@@ -378,10 +378,11 @@ pub(super) fn lower_for_in(ctx: &mut FnCtx, for_in: &swc_ecma_ast::ForInStmt) ->
 
     // (#94) for-in funciona em Map E Array. MAP_LEN/MAP_KEY_AT so'
     // funciona em Map (retorna -1 em Vec). Materializa keys via
-    // OBJECT_KEYS_AUTO (Vec<i64> de handles de string das keys),
-    // depois itera por indice usando VEC_LEN/VEC_GET.
+    // FOR_IN_KEYS (#1097) que estende OBJECT_KEYS_AUTO com walk
+    // da prototype chain (Object.create / class extends), filtra
+    // __rts_class e Map/Set JS conforme JS spec.
     let keys_fref = ctx.get_extern(
-        "__RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO",
+        "__RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS",
         &[cl::I64],
         Some(cl::I64),
     )?;

@@ -1277,6 +1277,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS",
+            map::__RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES",
             map::__RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES
         );
