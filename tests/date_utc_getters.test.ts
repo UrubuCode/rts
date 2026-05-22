@@ -11,13 +11,17 @@ out += d.getUTCHours() + "\n";       // 0
 out += d.getUTCMinutes() + "\n";     // 0
 out += d.getUTCSeconds() + "\n";     // 0
 out += d.getUTCMilliseconds() + "\n";// 0
-out += d.getTimezoneOffset() + "\n"; // 0 (RTS sempre UTC)
+// (cross-runtime #172) getTimezoneOffset agora retorna offset real do
+// sistema (em minutos, JS spec). Validamos so' que e' um numero, nao
+// um valor fixo (varia por TZ do host).
+const tz = d.getTimezoneOffset();
+out += (typeof tz === "number") + "\n"; // true
 
 // toUTCString / toDateString
 out += d.toDateString() + "\n";       // 1970-01-01
 
 describe("date_utc_getters", () => {
   test("UTC getters + extras (#220)", () => expect(out).toBe(
-    "1970\n0\n1\n0\n0\n0\n0\n0\n1970-01-01\n"
+    "1970\n0\n1\n0\n0\n0\n0\ntrue\n1970-01-01\n"
   ));
 });

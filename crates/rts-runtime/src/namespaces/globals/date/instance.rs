@@ -56,8 +56,15 @@ pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_FIELDS(
     let mi = if minute.is_nan() { 0 } else { minute as i64 };
     let s = if second.is_nan() { 0 } else { second as i64 };
     let frac_ms = if ms.is_nan() { 0 } else { ms as i64 };
-    let total_ms =
+    let total_ms_pretend_utc =
         crate::namespaces::date::ops::__RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, frac_ms);
+    // (cross-runtime #172) `new Date(year, mon, day, ...)` em JS spec
+    // interpreta os componentes como LOCAL time. pack() retorna ms como
+    // se fosse UTC, entao convertemos: utc_ms = local_components_ms -
+    // local_offset_at(date). Ex: 2024-01-01 00:00 local em UTC-3 vira
+    // 2024-01-01 03:00 UTC, ou seja +3h.
+    let local_offset_secs = local_offset_seconds_at(total_ms_pretend_utc);
+    let total_ms = total_ms_pretend_utc - (local_offset_secs as i64) * 1000;
     alloc_entry(Entry::DateMs(total_ms))
 }
 
@@ -195,11 +202,30 @@ pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_MILLISECONDS(handle: u64) -> i64 {
     __RTS_FN_GL_DATE_GET_MILLISECONDS(handle)
 }
 
-/// (#220) `getTimezoneOffset()` — diferenca minutos UTC vs local.
-/// RTS sempre UTC = 0.
+/// (#220 / cross-runtime #172) `getTimezoneOffset()` — diferenca minutos
+/// (local - UTC) NEGADA segundo JS spec. Ex: UTC-3 retorna +180.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET(_handle: u64) -> i64 {
-    0
+pub extern "C" fn __RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET(handle: u64) -> i64 {
+    let ms = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(v)) => *v,
+        _ => 0,
+    });
+    let secs = local_offset_seconds_at(ms);
+    // JS retorna (local - UTC) negado em minutos.
+    -(secs as i64) / 60
+}
+
+/// Retorna offset local em segundos para um timestamp ms-since-epoch.
+/// Best-effort: usa `time::UtcOffset::current_local_offset` (que pode
+/// falhar em ambientes multi-thread). Fallback retorna 0 (UTC).
+pub(crate) fn local_offset_seconds_at(_ms: i64) -> i32 {
+    // Note: ignoramos `ms` (sem DST history precisa) e usamos o offset
+    // atual do sistema. Para a maior parte das fixtures que testam
+    // `new Date(2024, 0, 1)` em ambiente moderno isso eh suficiente.
+    match time::UtcOffset::current_local_offset() {
+        Ok(o) => o.whole_seconds(),
+        Err(_) => 0,
+    }
 }
 
 /// (#552) `toUTCString()` — formato RFC 1123: "Day, DD Mon YYYY HH:MM:SS GMT".
