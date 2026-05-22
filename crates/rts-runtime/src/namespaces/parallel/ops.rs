@@ -49,23 +49,29 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: u64, fn_ptr: u64) {
-    let Some(items) = snapshot_vec(vec_handle) else {
-        return;
-    };
     if fn_ptr == 0 {
         return;
     }
+    // (engine) Quando o receiver eh Map/Set (codegen reescreveu Set.forEach
+    // em parallel.for_each), delega pro MAP_FOR_EACH que usa INVOKE_AUTO e
+    // sabe iterar storage Map<keyStr, val>.
+    let is_map_or_set = crate::namespaces::gc::handles::with_entry(vec_handle, |e| {
+        matches!(e, Some(crate::namespaces::gc::handles::Entry::Map(_)))
+    });
+    if is_map_or_set {
+        crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(
+            vec_handle, fn_ptr,
+        );
+        return;
+    }
+    let Some(items) = snapshot_vec(vec_handle) else {
+        return;
+    };
     // SAFETY: fn_ptr is `extern "C" fn(i64, i64, i64) -> i64`. Callbacks
     // de array methods (#776) recebem (val, idx, array_handle); lifted
     // callbacks com menos params ignoram args extras (calling convention).
     let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
     let arr = vec_handle as i64;
-    // JS Array.prototype.forEach garante ordem de iteracao (insertion
-    // order). Sem isso, codigo como `entries.forEach(([k,v]) => print(...))`
-    // produz saida fora de ordem (test object_builtins). Mantemos sequencial
-    // — a vantagem de parallelism vem em map/reduce que sao puros.
-    // (cross-runtime #52/#220) JS spec: forEach pula holes (slot vazio,
-    // sentinela MIN+4) sem invocar callback.
     items.iter().enumerate().for_each(|(i, &x)| {
         if x != i64::MIN + 4 {
             f(x, i as i64, arr);

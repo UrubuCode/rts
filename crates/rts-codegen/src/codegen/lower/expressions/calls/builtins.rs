@@ -846,7 +846,19 @@ pub(super) fn lower_map_set_builtin(
         // Aceita arrow inline ou ident de user fn — passa ptr/handle pra
         // MAP_FOR_EACH no runtime que invoca via transmute.
         "forEach" if call.args.len() == 1 && call.args[0].spread.is_none() => {
-            let cb_tv = lower_expr(ctx, &call.args[0].expr)?;
+            // Se o callback eh Ident de user fn, reify pra Function handle
+            // (com calling conv tail preservada) — INVOKE_AUTO interno do
+            // MAP_FOR_EACH precisa disso pra invocar com a aridade correta.
+            let cb_tv = if let Expr::Ident(id) = call.args[0].expr.as_ref() {
+                let name = id.sym.as_str().to_string();
+                if ctx.user_fns.contains_key(&name) {
+                    super::emit_hoisted_arrow_handle(ctx, &name, None)?
+                } else {
+                    lower_expr(ctx, &call.args[0].expr)?
+                }
+            } else {
+                lower_expr(ctx, &call.args[0].expr)?
+            };
             let cb_ptr = ctx.coerce_to_i64(cb_tv).val;
             let fref = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH",
