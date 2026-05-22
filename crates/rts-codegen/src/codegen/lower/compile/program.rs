@@ -290,11 +290,16 @@ pub fn compile_program(
         }
     }
 
+    // (#1052) Pre-coleta globais top-level inicializados como array literal
+    // de strings: `const X = ["a", "b", ...]`. Usado em inspect_return_kind
+    // para inferir que `return X[idx]` produz String.
+    let string_array_globals = collect_string_array_globals(program);
+
     // Phase 1: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     for fn_decl in &fn_decls {
         let address_taken = address_taken_fns.contains(&fn_decl.name);
-        let info = declare_user_fn(module, fn_decl, address_taken)?;
+        let info = declare_user_fn(module, fn_decl, address_taken, &string_array_globals)?;
         let mangled: String = format!("__user_{}", fn_decl.name);
         extern_cache.insert(mangled.clone(), info.id);
         user_fns.insert(fn_decl.name.clone(), info);
@@ -572,8 +577,9 @@ fn declare_user_fn(
     module: &mut dyn Module,
     fn_decl: &FunctionDecl,
     address_taken: bool,
+    string_array_globals: &std::collections::HashSet<String>,
 ) -> Result<UserFn> {
-    let (params, ret) = fn_signature(fn_decl);
+    let (params, ret) = fn_signature(fn_decl, string_array_globals);
     let mut sig = Signature::new(user_call_conv(module, &fn_decl.name, address_taken));
     for &ty in &params {
         sig.params.push(AbiParam::new(ty.cl_type()));
@@ -590,11 +596,51 @@ fn declare_user_fn(
     Ok(UserFn { id, params, ret })
 }
 
+/// (#1052) Coleta nomes de globais top-level inicializados como literal
+/// de array de strings (ex: `const _0x = ["a", "b", "c"]`). Usado pela
+/// inferencia de tipo de retorno para detectar `return arr[idx]` como
+/// String em fns sem anotacao explicita.
+fn collect_string_array_globals(program: &crate::parser::ast::Program) -> std::collections::HashSet<String> {
+    use crate::parser::ast::{Item, Statement};
+    use swc_ecma_ast::{Decl, Expr, Lit, Pat, Stmt};
+    let mut out = std::collections::HashSet::new();
+    for item in &program.items {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
+        for d in &var_decl.decls {
+            let Pat::Ident(id) = &d.name else { continue };
+            let Some(init) = d.init.as_deref() else { continue };
+            let Expr::Array(arr) = init else { continue };
+            // Aceita arrays nao-vazios cujos elementos visiveis sao todos
+            // string literals (ou string lit em paren). Holes ignoradas.
+            let mut all_str = true;
+            let mut any = false;
+            for elem in &arr.elems {
+                let Some(e) = elem else { continue };
+                any = true;
+                let mut cur: &Expr = &e.expr;
+                while let Expr::Paren(p) = cur { cur = &p.expr; }
+                match cur {
+                    Expr::Lit(Lit::Str(_)) => {}
+                    _ => { all_str = false; break; }
+                }
+            }
+            if any && all_str {
+                out.insert(id.sym.as_str().to_string());
+            }
+        }
+    }
+    out
+}
+
 fn user_symbol_name(name: &str) -> String {
     format!("__RTS_USER_{}", sanitize_symbol(name))
 }
 
-fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
+fn fn_signature(
+    fn_decl: &FunctionDecl,
+    string_array_globals: &std::collections::HashSet<String>,
+) -> (Vec<ValTy>, Option<ValTy>) {
     let params: Vec<ValTy> = fn_decl
         .parameters
         .iter()
@@ -618,7 +664,7 @@ fn fn_signature(fn_decl: &FunctionDecl) -> (Vec<ValTy>, Option<ValTy>) {
             //   logical) -> Bool. (cross-runtime #300)
             // - se algum return existe -> F64 (number, caso default).
             // - sem return -> None (void).
-            let inferred = inspect_return_kind(&fn_decl.body);
+            let inferred = inspect_return_kind(&fn_decl.body, string_array_globals);
             match inferred {
                 ReturnKind::String | ReturnKind::Handle => Some(ValTy::Handle),
                 ReturnKind::Bool => Some(ValTy::Bool),
@@ -644,19 +690,31 @@ enum ReturnKind {
 /// Conservador: retorna String quando QUALQUER ramo retorna expressao
 /// string-yielding; Number quando ha return mas nenhum visivelmente string;
 /// Void quando nao ha return value.
-fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
+fn inspect_return_kind(
+    body: &[Statement],
+    string_array_globals: &std::collections::HashSet<String>,
+) -> ReturnKind {
     use crate::parser::ast::Statement;
     use swc_ecma_ast::Expr;
-    fn expr_yields_string(e: &Expr) -> bool {
+    fn expr_yields_string(
+        e: &Expr,
+        sag: &std::collections::HashSet<String>,
+    ) -> bool {
         match e {
             Expr::Tpl(_) => true,
             Expr::Lit(swc_ecma_ast::Lit::Str(_)) => true,
             Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Add) => {
-                expr_yields_string(&b.left) || expr_yields_string(&b.right)
+                expr_yields_string(&b.left, sag) || expr_yields_string(&b.right, sag)
+            }
+            // (#1052) arr[i] onde arr e' global declarado como string[] literal.
+            // Heuristica conservadora: o ident base esta em sag.
+            Expr::Member(m) if m.computed_string_access().is_some() => {
+                if let Expr::Ident(id) = m.obj.as_ref() {
+                    return sag.contains(id.sym.as_str());
+                }
+                false
             }
             Expr::Call(c) => {
-                // .toString(), .join(), .slice() (em string), .concat() em string,
-                // .replace(), etc. Heuristica: prop name comum de string-returning.
                 if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
                     if let Expr::Member(m) = callee.as_ref() {
                         if let swc_ecma_ast::MemberProp::Ident(id) = &m.prop {
@@ -670,7 +728,6 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
                             );
                         }
                     }
-                    // String(x) coerce
                     if let Expr::Ident(id) = callee.as_ref() {
                         if id.sym.as_str() == "String" {
                             return true;
@@ -679,9 +736,21 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
                 }
                 false
             }
-            Expr::Paren(p) => expr_yields_string(&p.expr),
-            Expr::Cond(c) => expr_yields_string(&c.cons) || expr_yields_string(&c.alt),
+            Expr::Paren(p) => expr_yields_string(&p.expr, sag),
+            Expr::Cond(c) => expr_yields_string(&c.cons, sag) || expr_yields_string(&c.alt, sag),
             _ => false,
+        }
+    }
+    // Adapter trait p/ deteccao de arr[i] (computed access).
+    trait MemberComputedExt {
+        fn computed_string_access(&self) -> Option<()>;
+    }
+    impl MemberComputedExt for swc_ecma_ast::MemberExpr {
+        fn computed_string_access(&self) -> Option<()> {
+            match &self.prop {
+                swc_ecma_ast::MemberProp::Computed(_) => Some(()),
+                _ => None,
+            }
         }
     }
     // (cross-runtime #300) Detecta returns que produzem bool: literal
@@ -713,12 +782,16 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
             _ => false,
         }
     }
-    fn check_stmt(stmt: &swc_ecma_ast::Stmt, found: &mut ReturnKind) {
+    fn check_stmt(
+        stmt: &swc_ecma_ast::Stmt,
+        found: &mut ReturnKind,
+        sag: &std::collections::HashSet<String>,
+    ) {
         use swc_ecma_ast::Stmt;
         match stmt {
             Stmt::Return(r) => {
                 if let Some(arg) = r.arg.as_deref() {
-                    let new_kind = if expr_yields_string(arg) {
+                    let new_kind = if expr_yields_string(arg, sag) {
                         ReturnKind::String
                     } else if expr_yields_bool(arg) {
                         ReturnKind::Bool
@@ -744,27 +817,27 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
             }
             Stmt::Block(b) => {
                 for s in &b.stmts {
-                    check_stmt(s, found);
+                    check_stmt(s, found, sag);
                 }
             }
             Stmt::If(i) => {
-                check_stmt(&i.cons, found);
+                check_stmt(&i.cons, found, sag);
                 if let Some(alt) = i.alt.as_deref() {
-                    check_stmt(alt, found);
+                    check_stmt(alt, found, sag);
                 }
             }
             Stmt::Try(t) => {
                 for s in &t.block.stmts {
-                    check_stmt(s, found);
+                    check_stmt(s, found, sag);
                 }
                 if let Some(h) = &t.handler {
                     for s in &h.body.stmts {
-                        check_stmt(s, found);
+                        check_stmt(s, found, sag);
                     }
                 }
                 if let Some(f) = &t.finalizer {
                     for s in &f.stmts {
-                        check_stmt(s, found);
+                        check_stmt(s, found, sag);
                     }
                 }
             }
@@ -775,7 +848,7 @@ fn inspect_return_kind(body: &[Statement]) -> ReturnKind {
     for s in body {
         let Statement::Raw(raw) = s;
         if let Some(stmt) = raw.stmt.as_ref() {
-            check_stmt(stmt, &mut kind);
+            check_stmt(stmt, &mut kind, string_array_globals);
         }
     }
     kind
