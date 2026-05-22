@@ -156,6 +156,11 @@ fn scan_expr_for_arrows(
             // Coleta idents do body do arrow que existam em `locals`.
             collect_captured_from_arrow(arrow, locals, captured);
         }
+        // (cross-runtime #41/#195) Fn expressions tambem capturam:
+        // `function nested(base) { return function(extra) { return base + extra; } }`
+        Expr::Fn(fn_expr) => {
+            collect_captured_from_fn_expr(fn_expr, locals, captured);
+        }
         Expr::Call(c) => {
             if let Callee::Expr(e) = &c.callee {
                 scan_expr_for_arrows(e, locals, captured);
@@ -186,6 +191,29 @@ fn scan_expr_for_arrows(
             scan_expr_for_arrows(&c.alt, locals, captured);
         }
         _ => {}
+    }
+}
+
+/// (cross-runtime #41/#195) Mesma logica de Arrow mas para FnExpr.
+fn collect_captured_from_fn_expr(
+    fn_expr: &swc_ecma_ast::FnExpr,
+    enclosing_locals: &std::collections::HashSet<String>,
+    captured: &mut std::collections::BTreeSet<String>,
+) {
+    let mut fn_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for p in &fn_expr.function.params {
+        if let Pat::Ident(id) = &p.pat {
+            fn_locals.insert(id.id.sym.to_string());
+        }
+    }
+    let stmts: Vec<Stmt> = fn_expr.function.body.as_ref()
+        .map(|b| b.stmts.clone())
+        .unwrap_or_default();
+    for s in &stmts {
+        collect_decls_in_stmt(s, &mut fn_locals);
+    }
+    for s in &stmts {
+        collect_idents_used_in_stmt(s, enclosing_locals, &fn_locals, captured);
     }
 }
 
@@ -515,6 +543,23 @@ fn rename_ident_in_expr(expr: &mut Expr, old: &str, new: &str) {
                     }
                 }
                 swc_ecma_ast::BlockStmtOrExpr::Expr(e) => rename_ident_in_expr(e, old, new),
+            }
+        }
+        // (cross-runtime #41/#195) Fn expressions tambem capturam locais
+        // da fn enclosing — recursa no body.
+        Expr::Fn(fn_expr) => {
+            // Skip se shadow por param.
+            let shadowed = fn_expr.function.params.iter().any(|p| {
+                if let Pat::Ident(b) = &p.pat {
+                    b.id.sym.as_str() == old
+                } else { false }
+            });
+            if !shadowed {
+                if let Some(body) = fn_expr.function.body.as_mut() {
+                    for s in &mut body.stmts {
+                        rename_ident_in_stmt(s, old, new);
+                    }
+                }
             }
         }
         _ => {}
