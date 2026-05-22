@@ -28,6 +28,34 @@ fn cancel_timer(handle: u64) {
 
 type CallbackFn = unsafe extern "C" fn(i64) -> i64;
 
+/// Invoca callback de timer respeitando se `fp` eh fn_ptr raw ou Function
+/// handle (caso de resolver de `Promise.withResolvers` ou `new Promise`).
+/// INVOKE_AUTO detecta automaticamente.
+fn invoke_timer_cb(fp: u64) {
+    if fp == 0 {
+        return;
+    }
+    // Se for Function handle valido, usa INVOKE_AUTO; senao transmute direto.
+    let is_function_handle = crate::namespaces::gc::handles::with_entry(fp, |e| {
+        matches!(e, Some(crate::namespaces::gc::handles::Entry::Function(_)))
+    });
+    if is_function_handle {
+        unsafe extern "C" {
+            fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
+        }
+        let empty_args = crate::namespaces::gc::handles::alloc_entry(
+            crate::namespaces::gc::handles::Entry::Vec(Box::new(Vec::new())),
+        );
+        unsafe {
+            __RTS_FN_RT_INVOKE_AUTO(fp as i64, 0, empty_args);
+        }
+    } else {
+        unsafe {
+            (std::mem::transmute::<u64, CallbackFn>(fp))(0);
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 {
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -41,8 +69,8 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 
         if delay > 0 {
             thread::sleep(Duration::from_millis(delay));
         }
-        if !flag2.load(Ordering::Relaxed) && fp != 0 {
-            unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0) };
+        if !flag2.load(Ordering::Relaxed) {
+            invoke_timer_cb(fp);
         }
         free_handle(handle);
         cancel_timer(handle);
@@ -72,7 +100,7 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_INTERVAL(fp: u64, interval_ms: i64) -> 
             if flag2.load(Ordering::Relaxed) || fp == 0 {
                 break;
             }
-            unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0) };
+            invoke_timer_cb(fp);
         }
         free_handle(handle);
         cancel_timer(handle);
@@ -117,7 +145,7 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_IMMEDIATE(fp: u64) -> u64 {
         if !flag.load(Ordering::Relaxed) && fp != 0
             && !ran_t.swap(true, Ordering::AcqRel)
         {
-            unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0) };
+            invoke_timer_cb(fp);
         }
         free_handle(handle);
         cancel_timer(handle);
@@ -141,7 +169,7 @@ pub fn drain_immediates() {
             if !cancelled.load(Ordering::Relaxed) && fp != 0
                 && !ran.swap(true, Ordering::AcqRel)
             {
-                unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(0) };
+                invoke_timer_cb(fp);
             }
         }
     }
