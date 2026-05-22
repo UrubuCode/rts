@@ -169,10 +169,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -1641,18 +1641,18 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -2025,10 +2025,10 @@
 ,
 {
   "name": "41_closures_deep",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
   "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nthis_arrow=null"
 }
 ,
 {
@@ -2145,10 +2145,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|macro:timeout"
+  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":253,"rts_diverge":20,"bun_node_diverge":3,"errors":36,"rejected":0}}
+],"summary":{"total":312,"pass":255,"rts_diverge":19,"bun_node_diverge":3,"errors":35,"rejected":0}}
