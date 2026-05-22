@@ -600,6 +600,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
     if is_map_frozen(handle) {
         return;
     }
+    // (#1073) writable=false definido via Object.defineProperty bloqueia
+    // assignment silenciosamente (sloppy mode). Strict mode joga TypeError —
+    // RTS opera em sloppy por default (sem 'use strict').
+    if is_non_writable(handle, key) {
+        return;
+    }
     let key_owned = key.to_string();
     let sealed = is_map_sealed(handle);
     with_map_mut(handle, (), |m| {
@@ -1305,6 +1311,29 @@ pub(crate) fn unmark_non_writable(handle: u64, key: &str) {
         .remove(&(handle, key.to_string()));
 }
 
+/// (#1073) Tracking de configurable=false. Default JS para
+/// Object.defineProperty (sem flag) eh false; mas RTS so' marca
+/// quando explicitamente false para compat com object literal
+/// (campo de literal eh configurable=true).
+fn non_configurable_set() -> &'static Mutex<HashSet<(u64, String)>> {
+    static S: OnceLock<Mutex<HashSet<(u64, String)>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) fn is_non_configurable(handle: u64, key: &str) -> bool {
+    non_configurable_set()
+        .lock()
+        .unwrap()
+        .contains(&(handle, key.to_string()))
+}
+
+pub(crate) fn mark_non_configurable(handle: u64, key: &str) {
+    non_configurable_set()
+        .lock()
+        .unwrap()
+        .insert((handle, key.to_string()));
+}
+
 pub(crate) fn mark_non_enumerable(handle: u64, key: &str) {
     non_enumerable_set()
         .lock()
@@ -1349,10 +1378,27 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     let is_writable: Option<bool> = with_map(descriptor, None, |m| {
         m.get("writable").map(&bool_from)
     });
+    // (#1073) configurable flag.
+    let is_configurable: Option<bool> = with_map(descriptor, None, |m| {
+        m.get("configurable").map(&bool_from)
+    });
     let key_str = match str_from_abi(key_ptr, key_len) {
         Some(s) => s.to_string(),
         None => return obj,
     };
+    // (#1073) Tentativa de redefinir uma prop nao-configurable joga TypeError
+    // (sloppy mode tambem). Seta o error slot e retorna obj para que codigo
+    // user em try/catch capture o erro com e.constructor.name === "TypeError".
+    if is_non_configurable(obj, &key_str) {
+        let msg = format!("Cannot redefine property: {}", key_str);
+        let err_h = crate::namespaces::globals::error::instance::__RTS_FN_GL_TYPE_ERROR_NEW(
+            msg.as_ptr() as i64,
+            msg.len() as i64,
+            0,
+        );
+        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err_h);
+        return obj;
+    }
     if matches!(is_enumerable, Some(false)) {
         non_enumerable_set()
             .lock()
@@ -1371,7 +1417,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     } else if matches!(is_writable, Some(true)) {
         unmark_non_writable(obj, &key_str);
     }
-    __RTS_FN_NS_COLLECTIONS_MAP_SET(obj, key_ptr, key_len, value);
+    if matches!(is_configurable, Some(false)) {
+        mark_non_configurable(obj, &key_str);
+    }
+    // Bypass MAP_SET (que respeita writable=false): defineProperty sempre
+    // grava o valor mesmo se ja era non-writable.
+    let key_owned = key_str.clone();
+    with_map_mut(obj, (), |m| {
+        m.insert(key_owned, value);
+    });
     obj
 }
 
