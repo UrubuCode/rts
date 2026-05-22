@@ -307,6 +307,11 @@ pub(crate) fn emit_named_method_call(
 }
 
 fn collect_method_overrides(ctx: &FnCtx, base: &str, method: &str) -> Vec<(String, String)> {
+    // (cross-runtime #268) Private methods (`#m`) NAO tem dispatch virtual
+    // por JS spec — sao fixos na declaring class. Skip overrides.
+    if method.starts_with('#') {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     for (cname, _meta) in ctx.classes.iter() {
         if !is_subclass_of(ctx, cname, base) {

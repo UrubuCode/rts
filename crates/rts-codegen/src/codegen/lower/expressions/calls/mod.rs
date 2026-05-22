@@ -583,8 +583,25 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 MemberProp::PrivateName(pn) => Some(format!("#{}", pn.name.as_ref())),
                 _ => None,
             };
+            // (cross-runtime #268) Private methods sao escopados por
+            // declaring class — sem dispatch virtual. Em \`this.#m()\` dentro
+            // de A.call, queremos A.#m (nao B.#m). Forca a resolucao para
+            // current_class ao acessar private de \`this\`.
+            let is_private = matches!(&m.prop, MemberProp::PrivateName(_));
+            let force_class_for_private: Option<String> = if is_private
+                && matches!(m.obj.as_ref(), Expr::This(_))
+            {
+                ctx.current_class.clone()
+            } else {
+                None
+            };
             if let Some(method_name) = prop_method_name {
-                if let Some(class_name) = lhs_static_class(ctx, &m.obj) {
+                // (cross-runtime #268) Para private method (this.#m), forca
+                // class_name = current_class para evitar dispatch virtual.
+                let class_name_opt = force_class_for_private
+                    .clone()
+                    .or_else(|| lhs_static_class(ctx, &m.obj));
+                if let Some(class_name) = class_name_opt {
                     if resolve_method_owner(ctx, &class_name, &method_name).is_some() {
                         let recv_tv = lower_expr(ctx, &m.obj)?;
                         let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
