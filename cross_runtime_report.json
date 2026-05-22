@@ -1641,10 +1641,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":251,"rts_diverge":21,"bun_node_diverge":3,"errors":37,"rejected":0}}
+],"summary":{"total":312,"pass":250,"rts_diverge":22,"bun_node_diverge":3,"errors":37,"rejected":0}}
