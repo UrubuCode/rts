@@ -344,34 +344,47 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
 
     let callee_val = ctx.coerce_to_i64(callee).val;
 
-    // User fns address-taken (apply(double, ...), thread.spawn) sao
-    // declaradas com platform default callconv (SystemV/Win64) — ver
-    // user_call_conv. call_indirect precisa casar isso ou o argumento
-    // chega no registrador errado (#206 era stack corruption; o caso
-    // first_class_functions e arg_in_wrong_register).
-    let cc = ctx.module.isa().default_call_conv();
-    let mut sig = Signature::new(cc);
-    for _ in &call.args {
-        sig.params.push(AbiParam::new(cl::I64));
-    }
-    sig.returns.push(AbiParam::new(cl::I64));
-    let sig_ref = ctx.builder.import_signature(sig);
-
-    let mut args = Vec::with_capacity(call.args.len());
+    // (cross-runtime #84/#92 — promise resolvers via destructuring)
+    // Quando callee eh ident de tipo desconhecido (ValTy::I64), pode ser
+    // tanto fn_ptr raw quanto handle de Entry::Function (resolve/reject de
+    // Promise.withResolvers, callback recebido como arg, etc). Usar
+    // call_indirect direto num handle Function pula pra endereco invalido
+    // (segfault).
+    //
+    // INVOKE_AUTO detecta em runtime: se callee eh handle Function valido,
+    // extrai fn_ptr + bound_args + invoca via invoke_typed; senao trata
+    // como fn_ptr raw. Custo: um lookup HandleTable + branch — irrelevante
+    // vs call_indirect quando o engine eh thread-based.
+    // Empacota args num Vec handle
+    let vec_new = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+        &[],
+        Some(cl::I64),
+    )?;
+    let vec_push = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
+    let new_inst = ctx.builder.ins().call(vec_new, &[]);
+    let args_vec = ctx.builder.inst_results(new_inst)[0];
+    ctx.declare_gc_handle(args_vec);
     for arg in &call.args {
         if arg.spread.is_some() {
             return Err(anyhow!("spread not supported in indirect call"));
         }
         let tv = lower_expr(ctx, &arg.expr)?;
-        args.push(ctx.coerce_to_i64(tv).val);
+        let v = ctx.coerce_to_i64(tv).val;
+        ctx.builder.ins().call(vec_push, &[args_vec, v]);
     }
-
-    let inst = ctx.builder.ins().call_indirect(sig_ref, callee_val, &args);
-    let results = ctx.builder.inst_results(inst);
-    let v = results
-        .first()
-        .copied()
-        .unwrap_or_else(|| ctx.builder.ins().iconst(cl::I64, 0));
+    let invoke = ctx.get_extern(
+        "__RTS_FN_RT_INVOKE_AUTO",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let inst = ctx.builder.ins().call(invoke, &[callee_val, zero, args_vec]);
+    let v = ctx.builder.inst_results(inst)[0];
     Ok(TypedVal::new(v, ValTy::I64))
 }
 
