@@ -200,7 +200,10 @@ fn scan_this_expr(
     }
 }
 
-pub(crate) fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<FunctionDecl>) {
+pub(crate) fn synthesize_class_fns(
+    class: &ClassDecl,
+    classes_with_init: &std::collections::HashSet<String>,
+) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut methods: Vec<String> = Vec::new();
     let mut getters: Vec<String> = Vec::new();
     let mut setters: Vec<String> = Vec::new();
@@ -230,7 +233,13 @@ pub(crate) fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<Functio
                 if !prop.modifiers.is_static && prop.initializer.is_some() =>
             {
                 let init = prop.initializer.as_ref().unwrap().clone();
-                Some(make_field_init_stmt(&prop.name, init, prop.span))
+                // (cross-runtime #267) Privates escopados por declaring class.
+                let mangled_name = if let Some(rest) = prop.name.strip_prefix('#') {
+                    format!("#{}_{}", class.name, rest)
+                } else {
+                    prop.name.clone()
+                };
+                Some(make_field_init_stmt(&mangled_name, init, prop.span))
             }
             _ => None,
         })
@@ -396,20 +405,53 @@ pub(crate) fn synthesize_class_fns(class: &ClassDecl) -> (ClassMeta, Vec<Functio
     // com `extends` mas sem ctor explícito, TS gera um pass-through
     // `constructor(...args) { super(...args); }` — não suportamos rest
     // args ainda (#58/#59), então damos erro claro nesse caso.
-    if !has_constructor && !init_stmts.is_empty() {
-        if class.super_class.is_some() {
-            // Sub sem ctor + extends + initializers: precisaria de
-            // `super(...args)` implícito. Por simplicidade do MVP, exija
-            // ctor explícito nesse caso.
-            // (Ainda emitimos o ctor implícito sem super — funciona se
-            // a classe pai não tem ctor com args.)
+    // (cross-runtime #267) Mesmo sem initializers proprios, se super tem
+    // init, precisa gerar __init que chama super.__init. Caso contrario,
+    // privates declarados em ancestrais nao sao inicializados em
+    // subclasses sem ctor explicito.
+    let super_needs_init = class
+        .super_class
+        .as_deref()
+        .map(|s| classes_with_init.contains(s))
+        .unwrap_or(false);
+    if !has_constructor && (!init_stmts.is_empty() || super_needs_init) {
+        // Prepend chamada para `__class_<super>__init(this)` quando aplicavel.
+        let mut prelude: Vec<Statement> = Vec::new();
+        if super_needs_init {
+            let parent = class.super_class.as_deref().unwrap();
+            let super_init_call = Stmt::Expr(swc_ecma_ast::ExprStmt {
+                span: Default::default(),
+                expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    callee: swc_ecma_ast::Callee::Expr(Box::new(Expr::Ident(
+                        swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: class_init_name(parent).into(),
+                            optional: false,
+                        },
+                    ))),
+                    args: vec![swc_ecma_ast::ExprOrSpread {
+                        spread: None,
+                        expr: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
+                            span: Default::default(),
+                        })),
+                    }],
+                    type_args: None,
+                })),
+            });
+            prelude.push(Statement::Raw(
+                RawStmt::new("<super-init>".to_string(), class.span).with_stmt(super_init_call),
+            ));
         }
-        let init_only_body = weave_initializers(&[], &init_stmts, false);
+        let mut full_body = prelude;
+        full_body.extend(weave_initializers(&[], &init_stmts, false));
         fns.push(FunctionDecl {
             name: class_init_name(&class.name),
             parameters: vec![this_param(class.span)],
             return_type: None,
-            body: init_only_body,
+            body: full_body,
             span: class.span,
             is_async: false,
         });

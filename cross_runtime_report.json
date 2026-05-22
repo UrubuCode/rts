@@ -1481,18 +1481,18 @@
 ,
 {
   "name": "267_private_fields",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "inner=7:20\nouter=SyntaxError",
   "node": "inner=7:20\nouter=SyntaxError",
-  "rts": "inner=20:20\nouter=SyntaxError"
+  "rts": "inner=7:20\nouter=SyntaxError"
 }
 ,
 {
   "name": "268_private_methods",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "both=6:15\nerr=SyntaxError",
   "node": "both=6:15\nerr=SyntaxError",
-  "rts": "both=15:15\nerr=SyntaxError"
+  "rts": "both=6:15\nerr=SyntaxError"
 }
 ,
 {
@@ -1641,17 +1641,17 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":255,"rts_diverge":19,"bun_node_diverge":3,"errors":35,"rejected":0}}
+],"summary":{"total":312,"pass":255,"rts_diverge":18,"bun_node_diverge":4,"errors":35,"rejected":0}}
