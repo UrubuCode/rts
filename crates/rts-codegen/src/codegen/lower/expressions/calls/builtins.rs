@@ -713,10 +713,17 @@ pub(super) fn lower_map_set_builtin(
                 Some(cl::I64),
             )?;
             let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl]);
-            let v = ctx.builder.inst_results(inst)[0];
-            // (cross-runtime #872/95) Map.get pode retornar handle de
-            // string OU i64 raw — marca como ambiguo pra template literal
-            // usar TPL_COERCE_AUTO em runtime.
+            let raw = ctx.builder.inst_results(inst)[0];
+            // JS semantics: Map.get(missing) -> undefined. RTS map_get retorna
+            // 0; convertemos pro sentinel undefined (i64::MIN+2) para que
+            // INSPECT/TPL_COERCE_AUTO mostrem "undefined" corretamente.
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let is_zero = ctx.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal, raw, zero,
+            );
+            let undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+            let v = ctx.builder.ins().select(is_zero, undef, raw);
+            // Marca ambiguo pra template literal usar TPL_COERCE_AUTO.
             ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
