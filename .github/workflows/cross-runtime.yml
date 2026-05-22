@@ -504,14 +504,33 @@ jobs:
               const statusEmoji = d.status === 'rts_error' ? '💥' : '❌';
               const title = `${statusEmoji} cross-runtime: ${d.name} — ${d.status}`;
               let fixtureCode = '';
+              let fixtureRelPath = `tests/cross-runtime/${d.name}.ts`;
               try {
-                const p = `${process.env.GITHUB_WORKSPACE}/tests/cross-runtime/${d.name}.ts`;
-                if (fs.existsSync(p)) fixtureCode = fs.readFileSync(p, 'utf8');
+                // Fixtures sao organizadas em subpastas por categoria
+                // (tests/cross-runtime/<cat>/<name>.ts). Busca recursiva.
+                const base = `${process.env.GITHUB_WORKSPACE}/tests/cross-runtime`;
+                function findFixture(dir) {
+                  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                    const full = `${dir}/${ent.name}`;
+                    if (ent.isDirectory()) {
+                      const sub = findFixture(full);
+                      if (sub) return sub;
+                    } else if (ent.name === `${d.name}.ts`) {
+                      return full;
+                    }
+                  }
+                  return null;
+                }
+                const p = findFixture(base);
+                if (p) {
+                  fixtureCode = fs.readFileSync(p, 'utf8');
+                  fixtureRelPath = p.substring(process.env.GITHUB_WORKSPACE.length + 1).replace(/\\/g, '/');
+                }
               } catch (e) {
                 console.log(`Falha ler fixture ${d.name}: ${e.message}`);
               }
               let body = `## \`${d.name}\` — ${d.status}\n\n`;
-              body += `Categoria: \`${cat}\`. Fixture: [\`tests/cross-runtime/${d.name}.ts\`](../blob/main/tests/cross-runtime/${d.name}.ts)\n\n`;
+              body += `Categoria: \`${cat}\`. Fixture: [\`${fixtureRelPath}\`](../blob/main/${fixtureRelPath})\n\n`;
               if (fixtureCode) body += `### Código do teste\n\n\`\`\`ts\n${fixtureCode}\n\`\`\`\n\n`;
               body += `### Outputs\n\n`;
               body += `**Bun:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;

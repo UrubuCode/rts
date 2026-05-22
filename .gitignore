@@ -45,3 +45,4 @@ rts-types/
 
 # Regras locais do desenvolvedor — pessoal, nao versionar
 local-rules.md
+scripts/__pycache__/
