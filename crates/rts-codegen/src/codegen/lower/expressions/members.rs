@@ -1356,11 +1356,19 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             }
         }
         MemberProp::PrivateName(pn) => {
-            let key = format!("#{}", pn.name.as_ref());
-            validate_private_scope(ctx, &key)?;
+            let raw_name = pn.name.as_ref();
+            let raw_key = format!("#{}", raw_name);
+            validate_private_scope(ctx, &raw_key)?;
+            // (cross-runtime #267) Mangle por current_class (declaring class).
+            let key = if let Some(cur) = ctx.current_class.as_deref() {
+                format!("#{}_{}", cur, raw_name)
+            } else {
+                raw_key.clone()
+            };
             let field_ty = receiver_class
                 .as_deref()
-                .and_then(|c| field_type_in_hierarchy(ctx, c, &key));
+                .and_then(|c| field_type_in_hierarchy(ctx, c, &key)
+                    .or_else(|| field_type_in_hierarchy(ctx, c, &raw_key)));
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
     }
