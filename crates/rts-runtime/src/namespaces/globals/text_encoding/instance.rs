@@ -209,6 +209,14 @@ pub(crate) enum Microtask {
         fulfilled: bool,
         result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
     },
+    /// promise.finally(fp) fast-path: invoca fp() sem args, preserva state/value
+    /// original (resolve com value se fulfilled, reject se rejected).
+    SettledFinally {
+        fn_ptr: u64,
+        value: i64,
+        fulfilled: bool,
+        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    },
 }
 thread_local! {
     static MICROTASK_QUEUE: RefCell<Vec<Microtask>> = const { RefCell::new(Vec::new()) };
@@ -239,6 +247,24 @@ pub fn enqueue_microtask_settled(
         q.borrow_mut().push(Microtask::SettledThen {
             fn_ptr,
             bound,
+            value,
+            fulfilled,
+            result_slot,
+        })
+    });
+}
+
+/// Enfileira finally(fp) com promise ja settled. Quando drenado, invoca
+/// fp() sem args e propaga state/value original ao result_slot.
+pub fn enqueue_microtask_finally(
+    fn_ptr: u64,
+    value: i64,
+    fulfilled: bool,
+    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+) {
+    MICROTASK_QUEUE.with(|q| {
+        q.borrow_mut().push(Microtask::SettledFinally {
+            fn_ptr,
             value,
             fulfilled,
             result_slot,
@@ -283,6 +309,23 @@ pub fn drain_microtasks() {
                         }
                     } else {
                         // catch path nao usa este enqueue ainda; reject direto.
+                        promise_slot::reject(&result_slot, value);
+                    }
+                }
+                Microtask::SettledFinally {
+                    fn_ptr,
+                    value,
+                    fulfilled,
+                    result_slot,
+                } => {
+                    if fn_ptr != 0 {
+                        let _ = unsafe {
+                            invoke_microtask_callback(fn_ptr, &[], None)
+                        };
+                    }
+                    if fulfilled {
+                        promise_slot::resolve(&result_slot, value);
+                    } else {
                         promise_slot::reject(&result_slot, value);
                     }
                 }
