@@ -1305,7 +1305,21 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         }
                     }
                 }
-                return map_get_static_typed(ctx, obj_handle, s.value.as_bytes(), field_ty);
+                let tv = map_get_static_typed(ctx, obj_handle, s.value.as_bytes(), field_ty)?;
+                // Para acesso computed via string literal (e.g. `c["#x"]`),
+                // converte 0 (campo ausente) em sentinel undefined — JS spec.
+                // So' aplica quando field_ty era None (sem hint estatico).
+                if field_ty.is_none() && matches!(tv.ty, ValTy::I64) {
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    let is_zero = ctx.builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal, tv.val, zero,
+                    );
+                    let undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                    let result_v = ctx.builder.ins().select(is_zero, undef, tv.val);
+                    ctx.var_member_call_values.insert(result_v);
+                    return Ok(TypedVal::new(result_v, ValTy::I64));
+                }
+                return Ok(tv);
             }
             let idx_tv = lower_expr(ctx, &c.expr)?;
             match idx_tv.ty {
