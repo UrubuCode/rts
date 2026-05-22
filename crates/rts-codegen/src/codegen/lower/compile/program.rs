@@ -400,6 +400,14 @@ pub fn compile_program(
                             if classes.contains_key(cn) {
                                 global_class_ty.insert(name.clone(), cn.to_string());
                             }
+                            // (#1059) Globais inicializadas com `new WeakMap/
+                            // WeakSet()` precisam ser detectadas pelo codegen
+                            // para que `wm.set/get/has/delete` rotem para o
+                            // dispatch WEAKMAP_*/WEAKSET_*, em vez do
+                            // MAP_SET genérico que coerce key como string.
+                            if matches!(cn, "WeakMap" | "WeakSet" | "Map" | "Set") {
+                                global_class_ty.insert(name.clone(), cn.to_string());
+                            }
                         }
                     }
                 }

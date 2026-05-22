@@ -1790,7 +1790,13 @@ fn resolve_method_owner_local(ctx: &FnCtx, class: &str, method: &str) -> Option<
 pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
-        Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        Expr::Ident(id) => ctx
+            .local_class_ty
+            .get(id.sym.as_str())
+            .cloned()
+            // (#1059) Quando o ident nao esta em scope local mas eh global
+            // (top-level `const wm = new WeakMap()`), consulta global_class_ty.
+            .or_else(|| ctx.global_class_ty.get(id.sym.as_str()).cloned()),
         Expr::Paren(p) => lhs_static_class(ctx, &p.expr),
         Expr::TsAs(a) => class_name_from_ts_type(&a.type_ann)
             .or_else(|| lhs_static_class(ctx, &a.expr)),
