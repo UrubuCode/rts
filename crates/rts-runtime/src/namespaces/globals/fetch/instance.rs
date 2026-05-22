@@ -399,6 +399,51 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
     alloc_entry(Entry::PromiseAsync(slot)) as i64
 }
 
+/// (cross-runtime #84) `new Promise(executor)` — JS spec ctor.
+///
+/// 1. Cria slot pending.
+/// 2. Cria resolve/reject como Function handles (bound a promise_h).
+/// 3. Invoca executor(resolve, reject) sincronamente via INVOKE_AUTO.
+///    - INVOKE_AUTO detecta Function handle (executor) e despacha
+///      corretamente via FUNCTION_CALL.
+/// 4. Se executor lancar (slot de erro thread-local nao-zero), rejeita
+///    a promise com a excecao (JS spec).
+///
+/// O executor pode chamar resolve/reject sincronamente OU agendar via
+/// setTimeout/spawn_blocking. Em ambos os casos, settle eh idempotente
+/// e wait_blocking acorda waiters via oneshot::Sender.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
+    use crate::namespaces::gc::{error, promise_slot};
+    let slot = promise_slot::new_pending();
+    let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
+    if executor_h == 0 {
+        return promise_h;
+    }
+    let resolve_h = make_resolver_fn(promise_h, true);
+    let reject_h = make_resolver_fn(promise_h, false);
+    // Empacota args: [resolve_handle, reject_handle].
+    let args_vec = alloc_entry(Entry::Vec(Box::new(vec![
+        resolve_h as i64,
+        reject_h as i64,
+    ])));
+    // Limpa error slot da thread atual antes de invocar (sem isso, erro
+    // antigo de outra fn confundiria a propagacao).
+    error::__RTS_FN_RT_ERROR_CLEAR();
+    // INVOKE_AUTO detecta executor como Function handle e despacha.
+    unsafe extern "C" {
+        fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
+    }
+    let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(executor_h as i64, 0, args_vec) };
+    // Se executor lancou, propaga como reject (JS spec).
+    let err = error::__RTS_FN_RT_ERROR_GET();
+    if err != 0 {
+        error::__RTS_FN_RT_ERROR_CLEAR();
+        promise_slot::reject(&slot, err as i64);
+    }
+    promise_h
+}
+
 /// (cross-runtime #92) `Promise.withResolvers()` — ES2024.
 /// Retorna Map { promise, resolve, reject }. `resolve(v)` e `reject(e)`
 /// sao Function handles que settle a promise quando chamados.

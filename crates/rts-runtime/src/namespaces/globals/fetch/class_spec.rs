@@ -113,6 +113,18 @@ pub const RESPONSE_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
 // ── Promise ───────────────────────────────────────────────────────────────────
 
 pub const PROMISE_MEMBERS: &[NamespaceMember] = &[
+    // (cross-runtime #84) `new Promise(executor)` ctor.
+    NamespaceMember {
+        name: "Promise",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_PROMISE_NEW",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "new Promise((resolve, reject) => ...) — JS spec ctor.",
+        ts_signature: "new (executor: (resolve: (value: any) => void, reject: (reason: any) => void) => void): Promise<any>",
+        intrinsic: None,
+        pure: false,
+    },
     NamespaceMember {
         name: "then",
         kind: MemberKind::InstanceMethod,
