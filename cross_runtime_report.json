@@ -169,10 +169,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -1641,18 +1641,18 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=micro|immediate|timeout"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":253,"rts_diverge":19,"bun_node_diverge":4,"errors":36,"rejected":0}}
+],"summary":{"total":312,"pass":253,"rts_diverge":20,"bun_node_diverge":3,"errors":36,"rejected":0}}
