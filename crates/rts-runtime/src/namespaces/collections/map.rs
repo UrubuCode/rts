@@ -1013,6 +1013,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
         _ => None,
     });
     let handle = unwrap.unwrap_or(handle);
+    // (#1097) Map JS (new Map(...)) e Set JS nao expoem entradas via
+    // Object.keys / for-in — sao iteraveis por .entries()/.keys()/.values()
+    // ou for-of. JS spec: for-in em Map vazio retorna [].
+    if handle_is_map_kind(handle) || handle_is_set_kind(handle) {
+        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    }
     let result: Vec<i64> = with_entry(handle, |e| match e {
         Some(Entry::Map(m)) => {
             // Ordem JS (ECMA-262 OrdinaryOwnPropertyKeys): integer-indexed
@@ -1021,6 +1027,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
                 if k.as_str() == "__proto__" { continue; }
+                // (#1097) __rts_class eh tag interno usado pelo dispatch
+                // virtual de metodos de classe; nao aparece em for-in JS.
+                if k.as_str() == "__rts_class" { continue; }
                 // (#798) Symbol keys: separadas via getOwnPropertySymbols.
                 if is_symbol_key(k.as_str()) { continue; }
                 // (#110) Slots internos `__get_<name>`/`__set_<name>` armazenam
@@ -1068,6 +1077,71 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
         _ => Vec::new(),
     });
     alloc_entry(Entry::Vec(Box::new(result)))
+}
+
+/// (#1097) for-in JS enumera proprias + herdadas enumeraveis ao longo da
+/// prototype chain (via slot __proto__ setado por Object.create / class).
+/// Wraper sobre OBJECT_KEYS_AUTO que anexa keys do(s) ancestor(s) que ainda
+/// nao apareceram, preservando ordem JS (own first, depois chain).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS(handle: u64) -> u64 {
+    // Map/Set JS: nenhuma key visivel em for-in (Map/Set tem .entries()).
+    if handle_is_map_kind(handle) || handle_is_set_kind(handle) {
+        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    }
+    let base = __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle);
+    let mut keys_str: Vec<String> = with_entry(base, |e| match e {
+        Some(Entry::Vec(v)) => v
+            .iter()
+            .map(|h| {
+                with_entry(*h as u64, |se| match se {
+                    Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+                    _ => String::new(),
+                })
+            })
+            .collect(),
+        _ => Vec::new(),
+    });
+    let mut seen: HashSet<String> = keys_str.iter().cloned().collect();
+    // Walk __proto__ chain. Limita profundidade para guardar contra ciclos.
+    let mut cur_proto: u64 = with_map(handle, 0i64, |m| {
+        m.get("__proto__").copied().unwrap_or(0)
+    }) as u64;
+    let mut visited: HashSet<u64> = HashSet::new();
+    let mut steps = 0u32;
+    while cur_proto != 0 && steps < 64 {
+        steps += 1;
+        if !visited.insert(cur_proto) { break; }
+        // Se chain ancestral eh Map/Set JS, parar.
+        if handle_is_map_kind(cur_proto) || handle_is_set_kind(cur_proto) { break; }
+        let proto_keys: Vec<String> = with_entry(cur_proto, |e| match e {
+            Some(Entry::Map(m)) => m
+                .keys()
+                .filter(|k| {
+                    k.as_str() != "__proto__"
+                        && k.as_str() != "__rts_class"
+                        && !is_symbol_key(k)
+                        && !k.starts_with("__get_")
+                        && !k.starts_with("__set_")
+                })
+                .filter(|k| !is_non_enumerable(cur_proto, k))
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        });
+        for k in proto_keys {
+            if seen.insert(k.clone()) {
+                keys_str.push(k);
+            }
+        }
+        let next = with_map(cur_proto, 0i64, |m| m.get("__proto__").copied().unwrap_or(0));
+        cur_proto = next as u64;
+    }
+    let out: Vec<i64> = keys_str
+        .into_iter()
+        .map(|k| alloc_entry(Entry::String(k.into_bytes())) as i64)
+        .collect();
+    alloc_entry(Entry::Vec(Box::new(out)))
 }
 
 // (#479 follow-up) Frozen/sealed tracking global. Antes era thread-local,
