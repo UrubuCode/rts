@@ -225,6 +225,13 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 {
                                     field_types.insert(key.clone(), ValTy::I64);
                                 }
+                                // (#1092) Array literal field: armazena handle de Vec.
+                                // Sem isso, `data.keys` retorna I64 default, e
+                                // `data.keys[0]` / `data.keys.length` operam sobre
+                                // valor errado.
+                                swc_ecma_ast::Expr::Array(_) => {
+                                    field_types.insert(key.clone(), ValTy::Handle);
+                                }
                                 // (#210) Sub-object literal: registra tipos
                                 // dos campos do nested para nested
                                 // destructuring conseguir inferir.
