@@ -464,7 +464,13 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                     ctx.local_class_ty.insert(name.clone(), "RegExp".to_string());
                 }
                 if let swc_ecma_ast::Expr::New(ne) = init.as_ref() {
-                    if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
+                    // `new Foo<T>(...)` em TS vem como TsInstantiation
+                    // envelopando o Ident — peel para detectar a classe.
+                    let callee_inner: &swc_ecma_ast::Expr = match ne.callee.as_ref() {
+                        swc_ecma_ast::Expr::TsInstantiation(ti) => ti.expr.as_ref(),
+                        other => other,
+                    };
+                    if let swc_ecma_ast::Expr::Ident(cid) = callee_inner {
                         let cn = cid.sym.as_str().to_string();
                         // (#214) Error builtin classes: registra field
                         // types pra que `e.message`/`e.name` retorne
