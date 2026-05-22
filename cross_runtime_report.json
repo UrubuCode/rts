@@ -1641,10 +1641,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -2145,10 +2145,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -2369,10 +2369,10 @@
 ,
 {
   "name": "84_abortsignal_advanced",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "ab=true:x\nto=true:TimeoutError",
   "node": "ab=true:x\nto=true:TimeoutError",
-  "rts": "ab=true:x\nto=true:null"
+  "rts": "ab=true:x\nto=true:TimeoutError"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":252,"rts_diverge":20,"bun_node_diverge":3,"errors":37,"rejected":0}}
+],"summary":{"total":312,"pass":253,"rts_diverge":19,"bun_node_diverge":3,"errors":37,"rejected":0}}
