@@ -27,6 +27,297 @@ use super::super::analysis::captures::{
     promote_local_to_global, rename_uses_in_body,
 };
 
+/// (cross-runtime #41/#195) Promove `let` declaradas em escopo de
+/// for/while/block top-level cujos identificadores sao capturados por
+/// arrows lifted. Reescreve as referencias para um nome global.
+///
+/// Heuristica simples: para cada Stmt::For top-level com init = let,
+/// se o corpo do for contem uma arrow que referencia esse ident,
+/// promove a global `__cap_<i>_<var>`. Reescreve os usos no for inteiro.
+fn promote_top_level_captures(program: &mut Program, new_globals: &mut Vec<String>) {
+    use std::collections::HashSet;
+    let mut counter: u32 = 0;
+    let mut promoted_globals: Vec<(String, ())> = Vec::new();
+    for item in program.items.iter_mut() {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(stmt) = raw.stmt.as_mut() else { continue };
+        scan_and_promote_stmt(stmt, &mut counter, new_globals, &mut promoted_globals);
+    }
+    // Declarar os globals como `let __cap_..._x = 0` no inicio do program,
+    // antes da primeira fn/class/statement com referencia.
+    if !promoted_globals.is_empty() {
+        let mut new_decls: Vec<Item> = Vec::new();
+        for (name, _) in &promoted_globals {
+            // let <name> = 0; (top-level promove a global mutable via codegen)
+            let var_decl = swc_ecma_ast::VarDecl {
+                span: Default::default(),
+                ctxt: Default::default(),
+                kind: swc_ecma_ast::VarDeclKind::Let,
+                declare: false,
+                decls: vec![swc_ecma_ast::VarDeclarator {
+                    span: Default::default(),
+                    name: swc_ecma_ast::Pat::Ident(swc_ecma_ast::BindingIdent {
+                        id: swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: name.as_str().into(),
+                            optional: false,
+                        },
+                        type_ann: None,
+                    }),
+                    init: Some(Box::new(Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                        span: Default::default(),
+                        value: 0.0,
+                        raw: None,
+                    })))),
+                    definite: false,
+                }],
+            };
+            let stmt = Stmt::Decl(Decl::Var(Box::new(var_decl)));
+            new_decls.push(Item::Statement(Statement::Raw(
+                RawStmt::new("<promoted-global>".to_string(), Span::default()).with_stmt(stmt),
+            )));
+        }
+        for (i, decl) in new_decls.into_iter().enumerate() {
+            program.items.insert(i, decl);
+        }
+    }
+}
+
+/// Scaneia um Stmt procurando for(let var; ...) cujo body tem arrow
+/// que captura var. Se encontrou, promove var → global e reescreve.
+fn scan_and_promote_stmt(
+    stmt: &mut Stmt,
+    counter: &mut u32,
+    new_globals: &mut Vec<String>,
+    promoted_globals: &mut Vec<(String, ())>,
+) {
+    use std::collections::HashSet;
+    // Caso direto: Stmt::For com init=let.
+    if let Stmt::For(for_stmt) = stmt {
+        if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(init_vd)) = for_stmt.init.as_ref() {
+            if matches!(init_vd.kind, swc_ecma_ast::VarDeclKind::Let | swc_ecma_ast::VarDeclKind::Var)
+                && init_vd.decls.len() == 1
+            {
+                if let Pat::Ident(b) = &init_vd.decls[0].name {
+                    let var_name = b.id.sym.to_string();
+                    // Verifica se body contem arrow capturando var_name.
+                    if arrow_inside_captures(&for_stmt.body, &var_name) {
+                        let global_name = format!("__cap_{}_{}", counter, var_name);
+                        *counter += 1;
+                        new_globals.push(global_name.clone());
+                        promoted_globals.push((global_name.clone(), ()));
+                        // Reescreve init: substitui pelo assign ao global.
+                        let init_expr = init_vd.decls[0].init.clone().unwrap_or_else(|| {
+                            Box::new(Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                                span: Default::default(),
+                                value: 0.0,
+                                raw: None,
+                            })))
+                        });
+                        let assign = Expr::Assign(swc_ecma_ast::AssignExpr {
+                            span: Default::default(),
+                            op: swc_ecma_ast::AssignOp::Assign,
+                            left: swc_ecma_ast::AssignTarget::Simple(
+                                swc_ecma_ast::SimpleAssignTarget::Ident(
+                                    swc_ecma_ast::BindingIdent {
+                                        id: swc_ecma_ast::Ident {
+                                            span: Default::default(),
+                                            ctxt: Default::default(),
+                                            sym: global_name.clone().into(),
+                                            optional: false,
+                                        },
+                                        type_ann: None,
+                                    },
+                                ),
+                            ),
+                            right: init_expr,
+                        });
+                        for_stmt.init = Some(swc_ecma_ast::VarDeclOrExpr::Expr(Box::new(assign)));
+                        // Reescreve refs em test/update/body.
+                        if let Some(test) = for_stmt.test.as_mut() {
+                            rename_ident_in_expr_local(test, &var_name, &global_name);
+                        }
+                        if let Some(update) = for_stmt.update.as_mut() {
+                            rename_ident_in_expr_local(update, &var_name, &global_name);
+                        }
+                        rename_ident_in_stmt_local(&mut for_stmt.body, &var_name, &global_name);
+                    }
+                }
+            }
+        }
+    }
+    // Recursa em sub-statements (block, if, while, do-while, for-of, try).
+    match stmt {
+        Stmt::Block(b) => for s in &mut b.stmts { scan_and_promote_stmt(s, counter, new_globals, promoted_globals); }
+        Stmt::If(i) => {
+            scan_and_promote_stmt(&mut i.cons, counter, new_globals, promoted_globals);
+            if let Some(a) = i.alt.as_mut() { scan_and_promote_stmt(a, counter, new_globals, promoted_globals); }
+        }
+        Stmt::While(w) => scan_and_promote_stmt(&mut w.body, counter, new_globals, promoted_globals),
+        Stmt::DoWhile(w) => scan_and_promote_stmt(&mut w.body, counter, new_globals, promoted_globals),
+        Stmt::For(f) => scan_and_promote_stmt(&mut f.body, counter, new_globals, promoted_globals),
+        Stmt::ForIn(f) => scan_and_promote_stmt(&mut f.body, counter, new_globals, promoted_globals),
+        Stmt::ForOf(f) => scan_and_promote_stmt(&mut f.body, counter, new_globals, promoted_globals),
+        _ => {}
+    }
+}
+
+/// Procura recursivamente por Arrow Expr cujo body captura `var_name`.
+fn arrow_inside_captures(stmt: &Stmt, var_name: &str) -> bool {
+    let mut found = false;
+    fn scan_expr(e: &Expr, var: &str, found: &mut bool) {
+        if *found { return; }
+        if let Expr::Arrow(arrow) = e {
+            // Verifica se body referencia var (sem ser shadowed por param).
+            let shadowed = arrow.params.iter().any(|p| {
+                if let Pat::Ident(b) = p {
+                    b.id.sym.as_str() == var
+                } else { false }
+            });
+            if !shadowed && arrow_body_refs(arrow, var) {
+                *found = true;
+            }
+            return;
+        }
+        // Recursa.
+        match e {
+            Expr::Bin(b) => { scan_expr(&b.left, var, found); scan_expr(&b.right, var, found); }
+            Expr::Unary(u) => scan_expr(&u.arg, var, found),
+            Expr::Update(u) => scan_expr(&u.arg, var, found),
+            Expr::Cond(c) => { scan_expr(&c.test, var, found); scan_expr(&c.cons, var, found); scan_expr(&c.alt, var, found); }
+            Expr::Call(c) => {
+                if let Callee::Expr(ce) = &c.callee { scan_expr(ce, var, found); }
+                for a in &c.args { scan_expr(&a.expr, var, found); }
+            }
+            Expr::Assign(a) => scan_expr(&a.right, var, found),
+            Expr::Paren(p) => scan_expr(&p.expr, var, found),
+            Expr::Member(m) => scan_expr(&m.obj, var, found),
+            Expr::Tpl(t) => for e in &t.exprs { scan_expr(e, var, found); }
+            Expr::Array(arr) => for el in arr.elems.iter().flatten() { scan_expr(&el.expr, var, found); }
+            _ => {}
+        }
+    }
+    fn scan_stmt(s: &Stmt, var: &str, found: &mut bool) {
+        if *found { return; }
+        match s {
+            Stmt::Expr(e) => scan_expr(&e.expr, var, found),
+            Stmt::Return(r) => { if let Some(e) = r.arg.as_deref() { scan_expr(e, var, found); } }
+            Stmt::Block(b) => for s in &b.stmts { scan_stmt(s, var, found); }
+            Stmt::If(i) => { scan_expr(&i.test, var, found); scan_stmt(&i.cons, var, found); if let Some(a) = i.alt.as_deref() { scan_stmt(a, var, found); } }
+            Stmt::Decl(Decl::Var(v)) => for d in &v.decls { if let Some(init) = d.init.as_deref() { scan_expr(init, var, found); } }
+            Stmt::For(f) => { if let Some(t) = f.test.as_deref() { scan_expr(t, var, found); } scan_stmt(&f.body, var, found); }
+            Stmt::ForOf(f) => { scan_expr(&f.right, var, found); scan_stmt(&f.body, var, found); }
+            Stmt::While(w) => { scan_expr(&w.test, var, found); scan_stmt(&w.body, var, found); }
+            _ => {}
+        }
+    }
+    scan_stmt(stmt, var_name, &mut found);
+    found
+}
+
+fn arrow_body_refs(arrow: &swc_ecma_ast::ArrowExpr, var: &str) -> bool {
+    let body_stmts: Vec<Stmt> = match arrow.body.as_ref() {
+        swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => b.stmts.clone(),
+        swc_ecma_ast::BlockStmtOrExpr::Expr(e) => vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+            span: Default::default(),
+            arg: Some(e.clone()),
+        })],
+    };
+    let mut found = false;
+    fn scan_expr(e: &Expr, var: &str, found: &mut bool) {
+        if *found { return; }
+        match e {
+            Expr::Ident(id) => if id.sym.as_str() == var { *found = true; }
+            Expr::Bin(b) => { scan_expr(&b.left, var, found); scan_expr(&b.right, var, found); }
+            Expr::Unary(u) => scan_expr(&u.arg, var, found),
+            Expr::Update(u) => scan_expr(&u.arg, var, found),
+            Expr::Cond(c) => { scan_expr(&c.test, var, found); scan_expr(&c.cons, var, found); scan_expr(&c.alt, var, found); }
+            Expr::Call(c) => { if let Callee::Expr(ce) = &c.callee { scan_expr(ce, var, found); } for a in &c.args { scan_expr(&a.expr, var, found); } }
+            Expr::Assign(a) => scan_expr(&a.right, var, found),
+            Expr::Paren(p) => scan_expr(&p.expr, var, found),
+            Expr::Member(m) => scan_expr(&m.obj, var, found),
+            Expr::Tpl(t) => for e in &t.exprs { scan_expr(e, var, found); }
+            _ => {}
+        }
+    }
+    fn scan_stmt(s: &Stmt, var: &str, found: &mut bool) {
+        if *found { return; }
+        match s {
+            Stmt::Expr(e) => scan_expr(&e.expr, var, found),
+            Stmt::Return(r) => { if let Some(e) = r.arg.as_deref() { scan_expr(e, var, found); } }
+            Stmt::Block(b) => for s in &b.stmts { scan_stmt(s, var, found); }
+            Stmt::If(i) => { scan_expr(&i.test, var, found); scan_stmt(&i.cons, var, found); if let Some(a) = i.alt.as_deref() { scan_stmt(a, var, found); } }
+            Stmt::Decl(Decl::Var(v)) => for d in &v.decls { if let Some(init) = d.init.as_deref() { scan_expr(init, var, found); } }
+            _ => {}
+        }
+    }
+    for s in &body_stmts {
+        scan_stmt(s, var, &mut found);
+        if found { break; }
+    }
+    found
+}
+
+fn rename_ident_in_expr_local(e: &mut Expr, old: &str, new: &str) {
+    match e {
+        Expr::Ident(id) => { if id.sym.as_str() == old { id.sym = new.into(); } }
+        Expr::Bin(b) => { rename_ident_in_expr_local(&mut b.left, old, new); rename_ident_in_expr_local(&mut b.right, old, new); }
+        Expr::Unary(u) => rename_ident_in_expr_local(&mut u.arg, old, new),
+        Expr::Update(u) => rename_ident_in_expr_local(&mut u.arg, old, new),
+        Expr::Cond(c) => { rename_ident_in_expr_local(&mut c.test, old, new); rename_ident_in_expr_local(&mut c.cons, old, new); rename_ident_in_expr_local(&mut c.alt, old, new); }
+        Expr::Call(c) => {
+            if let Callee::Expr(ce) = &mut c.callee { rename_ident_in_expr_local(ce, old, new); }
+            for a in &mut c.args { rename_ident_in_expr_local(&mut a.expr, old, new); }
+        }
+        Expr::Assign(a) => {
+            if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(b)) = &mut a.left {
+                if b.id.sym.as_str() == old { b.id.sym = new.into(); }
+            }
+            rename_ident_in_expr_local(&mut a.right, old, new);
+        }
+        Expr::Paren(p) => rename_ident_in_expr_local(&mut p.expr, old, new),
+        Expr::Member(m) => rename_ident_in_expr_local(&mut m.obj, old, new),
+        Expr::Tpl(t) => for e in &mut t.exprs { rename_ident_in_expr_local(e, old, new); }
+        Expr::Array(arr) => for el in arr.elems.iter_mut().flatten() { rename_ident_in_expr_local(&mut el.expr, old, new); }
+        Expr::Arrow(a) => {
+            // So' renomeia se nao for shadowed por param da arrow.
+            let shadowed = a.params.iter().any(|p| if let Pat::Ident(b) = p { b.id.sym.as_str() == old } else { false });
+            if !shadowed {
+                match a.body.as_mut() {
+                    swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => for s in &mut b.stmts { rename_ident_in_stmt_local(s, old, new); }
+                    swc_ecma_ast::BlockStmtOrExpr::Expr(e) => rename_ident_in_expr_local(e, old, new),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rename_ident_in_stmt_local(s: &mut Stmt, old: &str, new: &str) {
+    match s {
+        Stmt::Expr(e) => rename_ident_in_expr_local(&mut e.expr, old, new),
+        Stmt::Return(r) => { if let Some(e) = r.arg.as_mut() { rename_ident_in_expr_local(e, old, new); } }
+        Stmt::Block(b) => for s in &mut b.stmts { rename_ident_in_stmt_local(s, old, new); }
+        Stmt::If(i) => {
+            rename_ident_in_expr_local(&mut i.test, old, new);
+            rename_ident_in_stmt_local(&mut i.cons, old, new);
+            if let Some(a) = i.alt.as_mut() { rename_ident_in_stmt_local(a, old, new); }
+        }
+        Stmt::Decl(Decl::Var(v)) => for d in &mut v.decls { if let Some(init) = d.init.as_mut() { rename_ident_in_expr_local(init, old, new); } }
+        Stmt::For(f) => {
+            if let Some(t) = f.test.as_mut() { rename_ident_in_expr_local(t, old, new); }
+            if let Some(u) = f.update.as_mut() { rename_ident_in_expr_local(u, old, new); }
+            rename_ident_in_stmt_local(&mut f.body, old, new);
+        }
+        Stmt::While(w) => {
+            rename_ident_in_expr_local(&mut w.test, old, new);
+            rename_ident_in_stmt_local(&mut w.body, old, new);
+        }
+        _ => {}
+    }
+}
+
 fn sanitize_for_symbol(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -173,6 +464,12 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         }
         acc.lift_in_user_fn(f);
     }
+
+    // (cross-runtime #41/#195) Pass 1.5: promote captures em statements
+    // top-level que tem arrows capturando locais (e.g. for-let + arrow).
+    // Sem isso, o lift abaixo gera `__lifted_arrow_N` sem acesso aos
+    // locais e codegen falha com "undefined variable".
+    promote_top_level_captures(program, &mut acc.new_globals);
 
     // Pass 2: top-level (arrows em script). Sem `this`. Mantém comportamento
     // anterior.
