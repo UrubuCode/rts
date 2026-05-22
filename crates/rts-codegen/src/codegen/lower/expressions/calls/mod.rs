@@ -1315,6 +1315,31 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let result = ctx.builder.ins().bor(eq, both_nan);
                         return Ok(TypedVal::new(result, ValTy::Bool));
                     }
+                    // (#1024) Strings sao handles distintos no HandleTable
+                    // mesmo com conteudo igual. Object.is("a","a") deve ser
+                    // true por spec — compara via gc.string_eq quando ambos
+                    // sao Handle (string ou outro objeto). Para String, eh
+                    // egal por conteudo (interning JS); para outros handles
+                    // (objeto/array/Map), eq do handle equivale a identity.
+                    if matches!(a_tv.ty, ValTy::Handle) && matches!(b_tv.ty, ValTy::Handle) {
+                        let a = a_tv.val;
+                        let b = b_tv.val;
+                        // Fast path: identity equal -> true.
+                        let id_eq = ctx.builder.ins().icmp(IntCC::Equal, a, b);
+                        // Slow path: gc.string_eq compara conteudo (retorna
+                        // 0/1 mesmo para handles que nao sao string).
+                        let str_eq_fn = ctx.get_extern(
+                            "__RTS_FN_NS_GC_STRING_EQ",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(str_eq_fn, &[a, b]);
+                        let content_eq_i64 = ctx.builder.inst_results(inst)[0];
+                        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                        let content_eq = ctx.builder.ins().icmp(IntCC::NotEqual, content_eq_i64, zero);
+                        let result = ctx.builder.ins().bor(id_eq, content_eq);
+                        return Ok(TypedVal::new(result, ValTy::Bool));
+                    }
                     // Ambos integers — compara diretamente.
                     let a = ctx.coerce_to_i64(a_tv).val;
                     let b = ctx.coerce_to_i64(b_tv).val;
