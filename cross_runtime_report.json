@@ -1481,10 +1481,10 @@
 ,
 {
   "name": "267_private_fields",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "inner=7:20\nouter=SyntaxError",
   "node": "inner=7:20\nouter=SyntaxError",
-  "rts": "inner=20:20\nouter=SyntaxError"
+  "rts": "inner=7:20\nouter=SyntaxError"
 }
 ,
 {
@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
