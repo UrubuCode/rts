@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -2908,7 +2908,7 @@
   "status": "rts_diverge",
   "bun": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
   "node": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
-  "rts": "NYC\nnull\nnull\nnull\n1,2,3\nnull\nnull\nnull\nunknown\nNYC\n10\n0"
+  "rts": "NYC\nnull\nundefined\nnull\n1,2,3\nundefined\nnull\nnull\nunknown\nNYC\n10\nundefined"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":269,"rts_diverge":32,"bun_node_diverge":16,"errors":71,"rejected":0}}
+],"summary":{"total":388,"pass":267,"rts_diverge":34,"bun_node_diverge":16,"errors":71,"rejected":0}}
