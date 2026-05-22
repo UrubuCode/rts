@@ -144,6 +144,14 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(handle: u64) -> i64 {
         _ => None,
     });
     let Some(arc) = slot_arc else { return 0 };
+    // (cross-runtime #56/#285) Drena microtasks antes de bloquear: o
+    // fast-path de Promise.then settled enfileira callbacks que precisam
+    // executar para o slot que estamos aguardando ser settled. Sem isso,
+    // `await Promise.resolve(x).then(f)` ficaria hang esperando o
+    // microtask drenar (que so' aconteceria no fim do __RTS_MAIN).
+    if promise_slot::current_state(&arc) == promise_slot::STATE_PENDING {
+        crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+    }
     let (state, value) = promise_slot::wait_blocking(&arc);
     // F5 (#416): se Promise rejected, propaga via slot de erro
     // thread-local que `try/catch` ja' le. O slot eh da thread atual
@@ -184,6 +192,21 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN_NS(p_handle: u64, fp: u64) -> u64 {
 
     // Resolve handle Function -> fn_ptr + bound args (ou usa fp como ptr direto).
     let (fn_ptr, bound, _has_this, _this) = resolve_callback_ptr(fp);
+
+    // (cross-runtime #56/#285) Fast-path: se a Promise ja' esta settled,
+    // enfileira no microtask queue em vez de spawn_blocking. Isso preserva
+    // a ordem JS spec (microtask FIFO) entre queueMicrotask e
+    // Promise.resolve().then(). Sem isso, spawn_blocking pode rodar antes
+    // do drain do microtask queue.
+    let state_now = promise_slot::current_state(&arc);
+    if state_now != promise_slot::STATE_PENDING {
+        let value = promise_slot::current_value(&arc);
+        let fulfilled = state_now == promise_slot::STATE_FULFILLED;
+        crate::namespaces::globals::text_encoding::instance::enqueue_microtask_settled(
+            fn_ptr, bound, value, fulfilled, result_clone,
+        );
+        return result_handle;
+    }
 
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
