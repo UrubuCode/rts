@@ -169,10 +169,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -1705,10 +1705,10 @@
 ,
 {
   "name": "292_json_tojson",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={}\ndate=\"2024-05-10T12:34:56.789Z\""
+  "rts": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\""
 }
 ,
 {
@@ -2145,10 +2145,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|macro:timeout"
+  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
 }
 ,
 {
@@ -2495,4 +2495,4 @@
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 
-],"summary":{"total":312,"pass":250,"rts_diverge":22,"bun_node_diverge":3,"errors":37,"rejected":0}}
+],"summary":{"total":312,"pass":251,"rts_diverge":20,"bun_node_diverge":4,"errors":37,"rejected":0}}
