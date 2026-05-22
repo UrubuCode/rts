@@ -514,6 +514,23 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let h = ctx.emit_str_handle(json_str.as_bytes())?;
                         return Ok(h);
                     }
+                    // (cross-runtime #292) JS spec: se o valor eh uma class
+                    // instance com metodo `toJSON()`, chama e usa o retorno.
+                    // Detectamos em compile-time se o arg eh `new C()` ou ident
+                    // tipado de classe registrada que tem `toJSON`.
+                    if let Some(rewritten) = rewrite_to_json_call(ctx, &call.args[0].expr) {
+                        let v_tv = lower_expr(ctx, &rewritten)?;
+                        let raw = ctx.coerce_to_i64(v_tv).val;
+                        let kind_v = ctx.builder.ins().iconst(cl::I32, 0);
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_JSON_STRINGIFY_TYPED",
+                            &[cl::I64, cl::I32],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[raw, kind_v]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Handle));
+                    }
                     let v_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let (raw, kind) = match v_tv.ty {
                         ValTy::Bool => (ctx.coerce_to_i64(v_tv).val, 2i64),
@@ -2846,3 +2863,42 @@ fn try_lower_object_to_string_call(
     Ok(Some(TypedVal::new(r, ValTy::Handle)))
 }
 
+
+
+/// (cross-runtime #292) Se `expr` for `new C(...)` ou ident tipado de classe
+/// registrada com metodo `toJSON`, retorna `<expr>.toJSON()` para que o
+/// codegen lower invoque o metodo antes de stringify.
+fn rewrite_to_json_call(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> Option<swc_ecma_ast::Expr> {
+    use swc_ecma_ast::{Expr, MemberExpr, MemberProp, Ident, CallExpr, Callee};
+    let class_name = match expr {
+        Expr::New(n) => match n.callee.as_ref() {
+            Expr::Ident(id) => Some(id.sym.to_string()),
+            _ => None,
+        },
+        Expr::Ident(id) => {
+            let name = id.sym.as_str();
+            ctx.local_class_ty.get(name).cloned()
+        }
+        _ => None,
+    }?;
+    let meta = ctx.classes.get(&class_name)?;
+    let has_to_json = meta.methods.iter().any(|m| m == "toJSON")
+        || resolve_method_owner(ctx, &class_name, "toJSON").is_some();
+    if !has_to_json {
+        return None;
+    }
+    Some(Expr::Call(CallExpr {
+        span: Default::default(),
+        ctxt: Default::default(),
+        callee: Callee::Expr(Box::new(Expr::Member(MemberExpr {
+            span: Default::default(),
+            obj: Box::new(expr.clone()),
+            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                span: Default::default(),
+                sym: "toJSON".into(),
+            }),
+        }))),
+        args: Vec::new(),
+        type_args: None,
+    }))
+}
