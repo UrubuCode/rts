@@ -1196,7 +1196,45 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         .map(|n| user_fn_names.contains(&n))
                         .unwrap_or(false);
 
-                    let target_method: Option<&str> = match method {
+                    // (#1044) Gate por receiver: so' reescreve quando m.obj
+                    // eh claramente array. Sem isso, `set.forEach(fn)` /
+                    // `map.forEach(fn)` viravam `parallel.for_each(set, fn)`
+                    // que itera Vec snapshot — vazio para Map/Set — e o
+                    // callback nunca eh invocado.
+                    // Tambem aceita Call cujo receiver/static eh um method
+                    // array-returning conhecido (ex: Object.entries(obj),
+                    // Object.keys(obj), arr.map(...).filter(...)).
+                    fn looks_array_call(e: &Expr) -> bool {
+                        let Expr::Call(c) = e else { return false };
+                        let Callee::Expr(ce) = &c.callee else { return false };
+                        let Expr::Member(mm) = ce.as_ref() else { return false };
+                        let MemberProp::Ident(p) = &mm.prop else { return false };
+                        let prop = p.sym.as_str();
+                        // Object.{keys,values,entries,getOwnPropertyNames,getOwnPropertySymbols}
+                        if let Expr::Ident(oid) = mm.obj.as_ref() {
+                            let on = oid.sym.as_str();
+                            if on == "Object" && matches!(
+                                prop, "keys" | "values" | "entries"
+                                | "getOwnPropertyNames" | "getOwnPropertySymbols"
+                            ) { return true; }
+                            if on == "Array" && matches!(prop, "from" | "of") { return true; }
+                        }
+                        // Array instance methods que retornam array.
+                        matches!(prop,
+                            "map" | "filter" | "slice" | "concat" | "flat" | "flatMap"
+                            | "splice" | "toReversed" | "toSorted" | "toSpliced" | "with"
+                            | "reverse" | "sort" | "fill" | "copyWithin" | "split"
+                        )
+                    }
+                    let recv_is_array = match m.obj.as_ref() {
+                        Expr::Array(_) => true,
+                        Expr::Ident(id) => ARRAY_RECEIVER_IDENTS
+                            .with(|s| s.borrow().contains(id.sym.as_str())),
+                        e => looks_array_call(e),
+                    };
+                    let target_method: Option<&str> = if !recv_is_array {
+                        None
+                    } else { match method {
                         "map" if call.args.len() == 1 && arg0_is_user_fn => Some("map"),
                         "forEach" if call.args.len() == 1 && arg0_is_user_fn => Some("for_each"),
                         "reduce" if call.args.len() == 2 && arg0_is_user_fn => Some("reduce"),
@@ -1210,7 +1248,7 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         "some" if call.args.len() == 1 && arg0_is_user_fn => Some("some"),
                         "every" if call.args.len() == 1 && arg0_is_user_fn => Some("every"),
                         _ => None,
-                    };
+                    }};
 
                     if let Some(par_method) = target_method {
                         let arr_expr = (*m.obj).clone();
