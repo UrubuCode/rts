@@ -753,10 +753,10 @@
 ,
 {
   "name": "327_set_basics",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\ntrue\nfalse\n4\n3\nfalse\n2,3,4\n0",
   "node": "3\ntrue\nfalse\n4\n3\nfalse\n2,3,4\n0",
-  "rts": "3\ntrue\nfalse\n4\n3\nfalse\n\n0"
+  "rts": "3\ntrue\nfalse\n4\n3\nfalse\n2,3,4\n0"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -1777,10 +1777,10 @@
 ,
 {
   "name": "191_object_values_entries_iteration",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
   "node": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
-  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries="
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1881,10 +1881,10 @@
 ,
 {
   "name": "323_object_entries_fromEntries",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
   "node": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
-  "rts": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2145,10 +2145,10 @@
 ,
 {
   "name": "83_promise_combinators",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=fulfilled:1|rejected:x\nany=b"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":274,"rts_diverge":26,"bun_node_diverge":17,"errors":71,"rejected":0}}
+],"summary":{"total":388,"pass":273,"rts_diverge":25,"bun_node_diverge":16,"errors":74,"rejected":0}}
