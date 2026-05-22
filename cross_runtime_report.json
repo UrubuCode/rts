@@ -1641,18 +1641,18 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|timeout|micro"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -2372,7 +2372,7 @@
   "status": "rts_diverge",
   "bun": "ab=true:x\nto=true:TimeoutError",
   "node": "ab=true:x\nto=true:TimeoutError",
-  "rts": "ab=true:x\nto=false:null"
+  "rts": "ab=true:x\nto=true:null"
 }
 ,
 {
