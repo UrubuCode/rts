@@ -2905,10 +2905,10 @@
 ,
 {
   "name": "343_optional_chaining",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
   "node": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
-  "rts": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\nundefined\nundefined\nunknown\nNYC\n10\nundefined"
+  "rts": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":273,"rts_diverge":28,"bun_node_diverge":16,"errors":71,"rejected":0}}
+],"summary":{"total":388,"pass":274,"rts_diverge":27,"bun_node_diverge":16,"errors":71,"rejected":0}}
