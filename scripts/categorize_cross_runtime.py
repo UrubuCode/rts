@@ -55,6 +55,15 @@ def categorize(name: str) -> str:
         # (organizacao por pasta) Catch-alls posteriores ao regex do CI.
         (r"(number_methods|number_edges)", "numeric"),
         (r"(logical|equality|nullish|control_flow)", "syntax"),
+        # Lote 320-395 (commit 734049f4) — patterns adicionais
+        (r"set_basics|weak_collections", "collections"),
+        (r"(labeled|iife|in_operator|optional_chaining|with_statement|for_in)", "syntax"),
+        (r"(getter|setter|prototype|proto|object_create|object_descriptors|field_init|globalthis)", "object-meta"),
+        (r"(bundler|obf_)", "misc-platform"),  # obfuscacao patterns
+        (r"(functional|algorithm|design_pattern|builder|monad|trampoline|data_structures)", "patterns"),
+        (r"(iterator_protocol|async_iterator)", "iteration"),
+        (r"private_", "classes"),
+        (r"async_pattern", "promises"),
     ]
     for pat, cat in rules:
         if re.search(pat, n):
