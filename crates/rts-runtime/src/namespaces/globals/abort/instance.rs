@@ -271,9 +271,14 @@ pub extern "C" fn __RTS_FN_GL_ABORT_SIGNAL_TIMEOUT(ms: i64) -> u64 {
         if delay > 0 {
             std::thread::sleep(std::time::Duration::from_millis(delay));
         }
-        // Reason = "TimeoutError" string (deveria ser DOMException, mas
-        // string serve pra typeof e .name basico).
-        let reason = alloc_entry(Entry::String(b"TimeoutError".to_vec()));
+        // (cross-runtime #84) Reason precisa ter `.name == "TimeoutError"`
+        // (JS spec usa DOMException; Entry::ErrorObj eh suficiente para
+        // satisfazer `.name`/`.message` que sao o que o spec testa).
+        let reason = alloc_entry(Entry::ErrorObj {
+            message: "The operation timed out.".to_string(),
+            name: "TimeoutError".to_string(),
+            cause: 0,
+        });
         let listeners_h: u64 = with_entry_mut(sig_clone, |e| {
             if let Some(Entry::Map(m)) = e {
                 m.insert("aborted".to_string(), 1);
