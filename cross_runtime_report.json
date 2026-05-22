@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -2881,10 +2881,10 @@
 ,
 {
   "name": "333_void_operator",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6",
   "node": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6",
-  "rts": "undefined\nundefined\nundefined\nundefined\nstring\nfalse\n2\n4\n6"
+  "rts": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":266,"rts_diverge":35,"bun_node_diverge":16,"errors":71,"rejected":0}}
+],"summary":{"total":388,"pass":269,"rts_diverge":32,"bun_node_diverge":16,"errors":71,"rejected":0}}
