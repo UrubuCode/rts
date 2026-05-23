@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":284,"rts_diverge":20,"bun_node_diverge":16,"errors":68,"rejected":0}}
+],"summary":{"total":388,"pass":283,"rts_diverge":21,"bun_node_diverge":16,"errors":68,"rejected":0}}
