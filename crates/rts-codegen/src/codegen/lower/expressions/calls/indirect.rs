@@ -394,6 +394,11 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
     let zero = ctx.builder.ins().iconst(cl::I64, 0);
     let inst = ctx.builder.ins().call(invoke, &[callee_val, zero, args_vec]);
     let v = ctx.builder.inst_results(inst)[0];
+    // (cross-runtime followup #1067) INVOKE_AUTO retorna i64 ambiguo
+    // (handle de string/object/Vec ou numero direto). Marca como
+    // var_member_call_values para que console.log/template use
+    // TPL_COERCE_AUTO/INSPECT (detecta handle em runtime).
+    ctx.var_member_call_values.insert(v);
     Ok(TypedVal::new(v, ValTy::I64))
 }
 
