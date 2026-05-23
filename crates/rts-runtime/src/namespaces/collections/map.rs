@@ -385,30 +385,43 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
             None
         }
     });
-    let _ = resolved;
+    let (actual_ptr, bound): (u64, Vec<i64>) = resolved.unwrap_or((fn_ptr, Vec::new()));
+    let n_bound = bound.len();
     // (cross-runtime #793) Para Set, callback recebe (value, value, set) — key
     // duplica como value2 (JS spec). Set storage no RTS usa Map<keyStr, 1>;
     // o "value" da iteracao e' a key (que e' o elemento adicionado).
     let is_set = handle_is_set_kind(handle);
-    for (k, v) in pairs {
-        // Tenta parsing da key como i64 — Set armazena numbers como
-        // chave string. Para Map<string,X>, mantem key como handle string.
-        let key_for_set: i64 = if is_set {
-            k.parse::<i64>().unwrap_or_else(|_| {
+    // Para Set, usa INVOKE_AUTO (suporta user fns com calling conv tail).
+    // Para Map, mantem transmute fn(i64,i64,i64) — callbacks de Map sao
+    // normalmente arrows lifted (windows_fastcall) que aceitam essa sig.
+    if is_set {
+        for (k, _v) in &pairs {
+            let key_for_set: i64 = k.parse::<i64>().unwrap_or_else(|_| {
                 alloc_entry(Entry::String(k.clone().into_bytes())) as i64
-            })
-        } else {
-            alloc_entry(Entry::String(k.clone().into_bytes())) as i64
-        };
-        let (a, b) = if is_set { (key_for_set, key_for_set) } else { (v, key_for_set) };
-        // Usa INVOKE_AUTO para suportar callbacks com qualquer aridade
-        // (1, 2 ou 3 args) e calling convention tail/windows_fastcall.
-        let args_vec = alloc_entry(Entry::Vec(Box::new(vec![a, b, handle as i64])));
-        crate::namespaces::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
-            fn_ptr as i64,
-            0,
-            args_vec,
-        );
+            });
+            let args_vec = alloc_entry(Entry::Vec(Box::new(vec![key_for_set, key_for_set, handle as i64])));
+            crate::namespaces::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
+                fn_ptr as i64,
+                0,
+                args_vec,
+            );
+        }
+        return;
+    }
+    for (k, v) in pairs {
+        let key_h = alloc_entry(Entry::String(k.into_bytes())) as i64;
+        unsafe {
+            use std::mem::transmute;
+            match n_bound {
+                0 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(actual_ptr)(
+                    v, key_h, handle as i64,
+                ),
+                1 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(actual_ptr)(
+                    bound[0], v, key_h, handle as i64,
+                ),
+                _ => 0,
+            };
+        }
     }
 }
 
