@@ -395,6 +395,19 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
                 return Ok(TypedVal::new(v, ValTy::Bool));
             }
         }
+        // (cross-runtime #317) `BigInt === Number` ou `Number === BigInt`
+        // sempre false (tipos diferentes em JS spec). RTS representa
+        // BigInt como i64, entao comparacao raw retornaria true. Detecta
+        // o mismatch sintatico antes do lower.
+        let is_bigint = |e: &Expr| matches!(e, Expr::Lit(Lit::BigInt(_)));
+        let is_num = |e: &Expr| matches!(e, Expr::Lit(Lit::Num(_)));
+        if (is_bigint(&bin.left) && is_num(&bin.right))
+            || (is_num(&bin.left) && is_bigint(&bin.right))
+        {
+            let val = if matches!(bin.op, BinaryOp::NotEqEq) { 1 } else { 0 };
+            let v = ctx.builder.ins().iconst(cl::I8, val);
+            return Ok(TypedVal::new(v, ValTy::Bool));
+        }
     }
     if let Some(tv) = try_operator_overload(ctx, bin)? {
         return Ok(tv);
