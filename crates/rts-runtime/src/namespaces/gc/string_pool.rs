@@ -446,6 +446,7 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
         Some(Entry::String(_)) => "string",
         Some(Entry::BooleanBox(_)) => "object",
         Some(Entry::StringBox(_)) => "object",
+        Some(Entry::NumberBox(_)) => "object",
         Some(Entry::Vec(_)) | Some(Entry::Map(_)) | Some(Entry::Buffer(_))
         | Some(Entry::Json(_)) | Some(Entry::DateMs(_))
         | Some(Entry::PromiseAsync(_)) | Some(Entry::Promise(_)) => "object",

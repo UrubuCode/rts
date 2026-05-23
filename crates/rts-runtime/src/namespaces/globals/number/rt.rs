@@ -74,6 +74,33 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_NEW_EMPTY() -> f64 {
     0.0
 }
 
+/// (cross-runtime #245) `new Number(value)` — wraps value como NumberBox
+/// para que `typeof === "object"` enquanto `valueOf()` recupera o primitive.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_NUMBER_NEW_BOXED(v: f64) -> u64 {
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::NumberBox(v),
+    )
+}
+
+/// `new Number()` (sem arg) — wraps 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_NUMBER_NEW_BOXED_EMPTY() -> u64 {
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::NumberBox(0.0),
+    )
+}
+
+/// NumberBox.valueOf() / toString() — recupera o primitive embrulhado.
+/// Aceita primitive f64 raw via bitcast: se nao for NumberBox, retorna NaN.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_NUMBER_BOX_VALUE_OF(boxed: u64) -> f64 {
+    crate::namespaces::gc::handles::with_entry(boxed, |e| match e {
+        Some(crate::namespaces::gc::handles::Entry::NumberBox(v)) => *v,
+        _ => f64::from_bits(boxed),
+    })
+}
+
 // ── Static methods ────────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
@@ -99,9 +126,20 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_IS_SAFE_INT(v: f64) -> i64 {
 
 // ── Instance methods ──────────────────────────────────────────────────────────
 
+/// `n.valueOf()` — identidade para primitivo; unbox para NumberBox.
+/// Recebe i64 raw — pode ser handle GC NumberBox OU bits de f64 primitive.
+/// Detecta via lookup no HandleTable.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_NUMBER_VALUE_OF(v: f64) -> f64 {
-    v
+pub extern "C" fn __RTS_FN_GL_NUMBER_VALUE_OF(handle_or_bits: i64) -> f64 {
+    let h = handle_or_bits as u64;
+    let unboxed = crate::namespaces::gc::handles::with_entry(h, |e| match e {
+        Some(crate::namespaces::gc::handles::Entry::NumberBox(inner)) => Some(*inner),
+        _ => None,
+    });
+    match unboxed {
+        Some(inner) => inner,
+        None => f64::from_bits(h),
+    }
 }
 
 #[unsafe(no_mangle)]
