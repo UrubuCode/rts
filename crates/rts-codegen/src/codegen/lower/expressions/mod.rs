@@ -180,6 +180,17 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     if is_global {
         return ctx.emit_str_handle(name.as_bytes());
     }
+    // (cross-runtime #1079) JS builtins sem GlobalClassSpec/Namespace dedicado
+    // — referenciados como valor (ex: `globalThis.Array === Array`, `typeof Map`,
+    // pattern `if (Array in globalThis)`). Retorna handle sentinel de string com
+    // o nome. Identidade via `===` funciona porque ambos os lados produzem o
+    // mesmo handle de string interna.
+    if matches!(name,
+        "Array" | "Object" | "Map" | "Set" | "Proxy" | "Reflect"
+        | "Math" | "JSON" | "Atomics" | "Intl"
+    ) {
+        return ctx.emit_str_handle(name.as_bytes());
+    }
     Err(anyhow!("undefined variable `{name}`"))
 }
 

@@ -273,6 +273,15 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
         if name == "globalThis" {
             return ctx.emit_str_handle(b"object");
         }
+        // (cross-runtime #1079) Builtins sem GlobalClassSpec dedicado mas
+        // referenciaveis: Array/Object/Map/Set/Proxy/... -> "function";
+        // Math/JSON/Reflect/Atomics/Intl -> "object".
+        if matches!(name, "Array" | "Object" | "Map" | "Set" | "Proxy") {
+            return ctx.emit_str_handle(b"function");
+        }
+        if matches!(name, "Math" | "JSON" | "Reflect" | "Atomics" | "Intl") {
+            return ctx.emit_str_handle(b"object");
+        }
         if !is_js_global && ctx.read_local(name).is_none() {
             return ctx.emit_str_handle(b"undefined");
         }
@@ -305,9 +314,49 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
             }
         }
     }
-    // `typeof Math.f16round` etc — namespace function members sao
-    // "function" em JS, mas o lower geral abortaria com erro.
+    // (cross-runtime #1079) `typeof globalThis.X` — classifica X como se fosse
+    // ident solo. Cobre globalThis.Math/JSON/Promise/Array/parseInt/isNaN/etc.
     if let Expr::Member(m) = operand {
+        if let Expr::Ident(obj_id) = m.obj.as_ref() {
+            if obj_id.sym.as_str() == "globalThis" {
+                if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
+                    let n = prop.sym.as_str();
+                    // Classes globais sem GlobalClassSpec dedicado -> "function"
+                    if matches!(n, "Array" | "Object" | "Map" | "Set" | "Proxy") {
+                        return ctx.emit_str_handle(b"function");
+                    }
+                    // Classes globais (Promise/Error/Symbol/WeakMap/etc) via spec -> "function"
+                    if crate::abi::global_class_lookup(n).is_some() {
+                        return ctx.emit_str_handle(b"function");
+                    }
+                    // Namespaces objeto -> "object"
+                    if matches!(n,
+                        "Math" | "JSON" | "Reflect" | "console" | "performance"
+                        | "globalThis" | "Atomics" | "Intl"
+                    ) {
+                        return ctx.emit_str_handle(b"object");
+                    }
+                    // Funcoes globais soltas
+                    if matches!(n,
+                        "parseInt" | "parseFloat" | "isNaN" | "isFinite"
+                        | "encodeURIComponent" | "decodeURIComponent"
+                        | "encodeURI" | "decodeURI"
+                        | "atob" | "btoa" | "structuredClone"
+                        | "fetch" | "setTimeout" | "setInterval"
+                        | "clearTimeout" | "clearInterval" | "queueMicrotask"
+                    ) {
+                        return ctx.emit_str_handle(b"function");
+                    }
+                    // Valores especiais
+                    if matches!(n, "NaN" | "Infinity") {
+                        return ctx.emit_str_handle(b"number");
+                    }
+                    if n == "undefined" {
+                        return ctx.emit_str_handle(b"undefined");
+                    }
+                }
+            }
+        }
         if let Some(qualified) = crate::codegen::lower::expressions::members::qualified_member_name(operand) {
             let target: String = if let Some(prop) = qualified.strip_prefix("Math.") {
                 format!("math.{prop}")
