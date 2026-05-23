@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "rts": "order=immediate|timeout|micro"
 }
 ,
 {
@@ -1929,10 +1929,10 @@
 ,
 {
   "name": "349_object_descriptors",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "42\n99\n42\nreadonly,normal\ncaught: null\n42\nfalse\ntrue\nfalse\n1\ntrue"
+  "rts": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue"
 }
 ,
 {
