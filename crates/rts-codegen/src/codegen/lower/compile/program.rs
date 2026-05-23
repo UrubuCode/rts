@@ -782,14 +782,26 @@ fn inspect_return_kind(
         use swc_ecma_ast::BinaryOp;
         match e {
             Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => true,
-            Expr::Bin(b) => matches!(
-                b.op,
-                BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq
-                | BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
-                | BinaryOp::In | BinaryOp::InstanceOf
-            ),
+            Expr::Bin(b) => {
+                if matches!(
+                    b.op,
+                    BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq
+                    | BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+                    | BinaryOp::In | BinaryOp::InstanceOf
+                ) {
+                    return true;
+                }
+                // (cross-runtime followup) `a && b` / `a || b` retornam bool
+                // quando AMBOS os lados sao bool. Cobre brand-check pattern:
+                // `v !== null && typeof v === "object" && #x in v`.
+                if matches!(b.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr) {
+                    return expr_yields_bool(&b.left) && expr_yields_bool(&b.right);
+                }
+                false
+            }
             Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Bang) => true,
             Expr::Paren(p) => expr_yields_bool(&p.expr),
+            Expr::Cond(c) => expr_yields_bool(&c.cons) && expr_yields_bool(&c.alt),
             _ => false,
         }
     }
