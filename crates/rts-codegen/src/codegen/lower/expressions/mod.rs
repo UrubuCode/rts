@@ -311,6 +311,30 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                         return Ok(TypedVal::new(n, ValTy::I64));
                     }
                 }
+                // (cross-runtime #67) `url.pathname = "..."` — setter para
+                // URL Entry::Env. Runtime ignora handles nao-URL.
+                if prop.sym.as_str() == "pathname" {
+                    use cranelift_codegen::ir::types as cl;
+                    let obj_tv = lower_expr(ctx, &m.obj)?;
+                    if matches!(obj_tv.ty, ValTy::Handle) {
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let val_tv = lower_expr(ctx, &a.right)?;
+                        let val_h = ctx.coerce_to_handle(val_tv)?.val;
+                        let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                        let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                        let p_inst = ctx.builder.ins().call(str_ptr, &[val_h]);
+                        let vp = ctx.builder.inst_results(p_inst)[0];
+                        let l_inst = ctx.builder.ins().call(str_len, &[val_h]);
+                        let vl = ctx.builder.inst_results(l_inst)[0];
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_URL_SET_PATHNAME",
+                            &[cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(f, &[obj_h, vp, vl]);
+                        return Ok(TypedVal::new(val_h, ValTy::Handle));
+                    }
+                }
             }
         }
         // (#object-setter) Intercepta `obj.X = value` quando obj tem

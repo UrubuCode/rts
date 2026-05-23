@@ -369,6 +369,152 @@ pub extern "C" fn __RTS_FN_GL_URL_SEARCH_PARAMS(handle: u64) -> u64 {
     sp
 }
 
+/// (#67) Helper: le campo string de uma URL como String owned.
+fn url_field_str(handle: u64, idx: usize) -> String {
+    let h = url_field(handle, idx);
+    with_entry(h, |e| match e {
+        Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+        _ => String::new(),
+    })
+}
+
+/// (#67) Atualiza um slot de URL com nova string. Libera o handle antigo.
+fn url_set_field(handle: u64, idx: usize, new_str: &str) {
+    use crate::namespaces::gc::handles::with_entry_mut;
+    let new_h = intern_str(new_str) as i64;
+    with_entry_mut(handle, |entry| {
+        if let Some(Entry::Env(v)) = entry {
+            if v.len() > idx {
+                let old = v[idx] as u64;
+                v[idx] = new_h;
+                if old != 0 {
+                    free_handle(old);
+                }
+            }
+        }
+    });
+}
+
+/// (#67) Encode pathname segment (RFC 3986 path char set). Espaco -> %20,
+/// nao toca em / e chars unreserved.
+fn percent_encode_path(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        let safe = matches!(b,
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
+            | b'-' | b'_' | b'.' | b'~'
+            | b'!' | b'$' | b'&' | b'\'' | b'(' | b')'
+            | b'*' | b'+' | b',' | b';' | b'='
+            | b':' | b'@' | b'/'
+            | b'%'
+        );
+        if safe {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{:02X}", b));
+        }
+    }
+    out
+}
+
+/// (#67) `url.pathname = "..."` setter. Percent-encode automatico
+/// para chars unsafe (ex: espaco -> %20).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_PATHNAME(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len);
+    let normalized = if raw.starts_with('/') {
+        raw.to_string()
+    } else {
+        format!("/{raw}")
+    };
+    let encoded = percent_encode_path(&normalized);
+    url_set_field(handle, 5, &encoded);
+}
+
+/// (#67) Reconstroi `url.href` atualizado, considerando setters E
+/// searchParams cacheado (cujo conteudo pode ter mudado via .set/.append).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_TO_STRING(handle: u64) -> u64 {
+    let protocol = url_field_str(handle, 1);
+    let hostname = url_field_str(handle, 3);
+    let port = url_field_str(handle, 4);
+    let pathname = url_field_str(handle, 5);
+    let username = url_field_str(handle, 9);
+    let password = url_field_str(handle, 10);
+    // Se searchParams foi mutado (cache existe), reconstroi search dele.
+    // Caso contrario, usa o slot search atual.
+    let search = {
+        let cached_sp = if let Ok(cache) = url_sp_cache().lock() {
+            cache.get(&handle).copied()
+        } else {
+            None
+        };
+        match cached_sp {
+            Some(sp) => {
+                // Itera pares e reconstroi `?k=v&k2=v2` com encoding USP
+                // (espaco -> '+').
+                let pairs: Vec<(String, String)> = with_usp_pairs(sp, Vec::new(), |slots| {
+                    let mut out = Vec::with_capacity(slots.len() / 2);
+                    for chunk in slots.chunks(2) {
+                        if chunk.len() == 2 {
+                            let k = key_str_of_handle(chunk[0]).unwrap_or_default();
+                            let v = key_str_of_handle(chunk[1]).unwrap_or_default();
+                            out.push((k, v));
+                        }
+                    }
+                    out
+                });
+                if pairs.is_empty() {
+                    String::new()
+                } else {
+                    let mut s = String::from("?");
+                    for (i, (k, v)) in pairs.iter().enumerate() {
+                        if i > 0 { s.push('&'); }
+                        s.push_str(&percent_encode_form(k));
+                        s.push('=');
+                        s.push_str(&percent_encode_form(v));
+                    }
+                    s
+                }
+            }
+            None => url_field_str(handle, 6),
+        }
+    };
+    let hash = url_field_str(handle, 7);
+    let host = if port.is_empty() {
+        hostname
+    } else {
+        format!("{hostname}:{port}")
+    };
+    let userinfo_str = if username.is_empty() && password.is_empty() {
+        String::new()
+    } else if password.is_empty() {
+        format!("{username}@")
+    } else {
+        format!("{username}:{password}@")
+    };
+    let href = format!("{protocol}//{userinfo_str}{host}{pathname}{search}{hash}");
+    // Atualiza o slot href cacheado tambem (para subsequentes leituras
+    // de url.href baterem com toString).
+    url_set_field(handle, 0, &href);
+    intern_str(&href)
+}
+
+/// (#67) URLSearchParams form encoding: espaco -> '+', chars unsafe -> %XX.
+/// Diferente do path encoding (que usa %20 para espaco).
+fn percent_encode_form(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
+            | b'*' | b'-' | b'.' | b'_' => out.push(b as char),
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_FREE(handle: u64) {
     // Collect inner string handles outside any with_entry closure to avoid
