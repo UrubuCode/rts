@@ -232,6 +232,48 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
     }
 
     if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
+        // (cross-runtime #1125) `globalThis[key] = v` — Map global singleton.
+        if matches!(a.op, AssignOp::Assign) {
+            // Peel TsAs/Paren para detectar `(globalThis as any)["k"]`.
+            fn peel<'a>(e: &'a Expr) -> &'a Expr {
+                match e {
+                    Expr::TsAs(a) => peel(&a.expr),
+                    Expr::TsTypeAssertion(a) => peel(&a.expr),
+                    Expr::TsConstAssertion(a) => peel(&a.expr),
+                    Expr::TsNonNull(a) => peel(&a.expr),
+                    Expr::Paren(p) => peel(&p.expr),
+                    _ => e,
+                }
+            }
+            if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
+                if obj_id.sym.as_str() == "globalThis" {
+                    if let MemberProp::Computed(c) = &m.prop {
+                        use cranelift_codegen::ir::InstBuilder;
+                        use cranelift_codegen::ir::types as cl;
+                        let key_tv = lower_expr(ctx, &c.expr)?;
+                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                        let val_tv = lower_expr(ctx, &a.right)?;
+                        let val = ctx.coerce_to_i64(val_tv).val;
+                        let gt_fn = ctx.get_extern("__RTS_FN_RT_GLOBAL_THIS_MAP", &[], Some(cl::I64))?;
+                        let gt_inst = ctx.builder.ins().call(gt_fn, &[]);
+                        let gt = ctx.builder.inst_results(gt_inst)[0];
+                        let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                        let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                        let p_inst = ctx.builder.ins().call(str_ptr, &[key_h]);
+                        let kp = ctx.builder.inst_results(p_inst)[0];
+                        let l_inst = ctx.builder.ins().call(str_len, &[key_h]);
+                        let kl = ctx.builder.inst_results(l_inst)[0];
+                        let set_fn = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(set_fn, &[gt, kp, kl, val]);
+                        return Ok(TypedVal::new(val, ValTy::I64));
+                    }
+                }
+            }
+        }
         // `arr.length = N` — JS spec: trunca/extende o array.
         // Detecta via prop name; runtime decide se eh Vec mesmo.
         if matches!(a.op, AssignOp::Assign) {

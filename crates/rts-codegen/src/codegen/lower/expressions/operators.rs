@@ -441,6 +441,42 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // aceita Vec ou Map, com key como handle (String, Symbol, etc).
     // Chama OBJ_HAS que despacha por Entry type do obj.
     if matches!(bin.op, BinaryOp::In) {
+        // (cross-runtime #1125) `key in globalThis` — Map global singleton.
+        // Peel TsAs/Paren para `(globalThis as any)`.
+        fn peel_gt<'a>(e: &'a Expr) -> &'a Expr {
+            match e {
+                Expr::TsAs(a) => peel_gt(&a.expr),
+                Expr::TsTypeAssertion(a) => peel_gt(&a.expr),
+                Expr::TsConstAssertion(a) => peel_gt(&a.expr),
+                Expr::TsNonNull(a) => peel_gt(&a.expr),
+                Expr::Paren(p) => peel_gt(&p.expr),
+                _ => e,
+            }
+        }
+        if let Expr::Ident(rid) = peel_gt(&bin.right) {
+            if rid.sym.as_str() == "globalThis" {
+                use cranelift_codegen::ir::InstBuilder;
+                let key_tv = lower_expr(ctx, &bin.left)?;
+                let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                let gt_fn = ctx.get_extern("__RTS_FN_RT_GLOBAL_THIS_MAP", &[], Some(cl::I64))?;
+                let gt_inst = ctx.builder.ins().call(gt_fn, &[]);
+                let gt = ctx.builder.inst_results(gt_inst)[0];
+                let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let p_inst = ctx.builder.ins().call(str_ptr, &[key_h]);
+                let kp = ctx.builder.inst_results(p_inst)[0];
+                let l_inst = ctx.builder.ins().call(str_len, &[key_h]);
+                let kl = ctx.builder.inst_results(l_inst)[0];
+                let has_fn = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_HAS",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let h_inst = ctx.builder.ins().call(has_fn, &[gt, kp, kl]);
+                let v = ctx.builder.inst_results(h_inst)[0];
+                return Ok(TypedVal::new(v, ValTy::Bool));
+            }
+        }
         // (#1091) Private field check: `#name in obj` (ES2022). SWC
         // representa LHS como Expr::PrivateName. RTS mangla private
         // fields como `#<class>_<name>` na declaracao; aqui usamos

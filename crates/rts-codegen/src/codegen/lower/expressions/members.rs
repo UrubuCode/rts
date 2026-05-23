@@ -668,8 +668,45 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
     // (cross-runtime #1079) `globalThis.X` em posicao de valor — re-lower
     // como ident solo `X`. Cobre identidade (globalThis.Array === Array),
     // chamadas (globalThis.parseInt("42")), reflexao.
-    if let Expr::Ident(obj_id) = m.obj.as_ref() {
+    // (cross-runtime #1125) `globalThis[key]` (computed) — despacha pra Map
+    // singleton via __RTS_FN_RT_GLOBAL_THIS_MAP. Pattern `ensureGlobal`.
+    // Peel TsAs/Paren para `(globalThis as any)`.
+    fn peel_obj<'a>(e: &'a Expr) -> &'a Expr {
+        match e {
+            Expr::TsAs(a) => peel_obj(&a.expr),
+            Expr::TsTypeAssertion(a) => peel_obj(&a.expr),
+            Expr::TsConstAssertion(a) => peel_obj(&a.expr),
+            Expr::TsNonNull(a) => peel_obj(&a.expr),
+            Expr::Paren(p) => peel_obj(&p.expr),
+            _ => e,
+        }
+    }
+    if let Expr::Ident(obj_id) = peel_obj(m.obj.as_ref()) {
         if obj_id.sym.as_str() == "globalThis" {
+            // Computed key — Map dinamico do globalThis.
+            if let swc_ecma_ast::MemberProp::Computed(c) = &m.prop {
+                use cranelift_codegen::ir::InstBuilder;
+                let key_tv = lower_expr(ctx, &c.expr)?;
+                let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                let gt_fn = ctx.get_extern("__RTS_FN_RT_GLOBAL_THIS_MAP", &[], Some(cl::I64))?;
+                let gt_inst = ctx.builder.ins().call(gt_fn, &[]);
+                let gt = ctx.builder.inst_results(gt_inst)[0];
+                let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let p_inst = ctx.builder.ins().call(str_ptr, &[key_h]);
+                let kp = ctx.builder.inst_results(p_inst)[0];
+                let l_inst = ctx.builder.ins().call(str_len, &[key_h]);
+                let kl = ctx.builder.inst_results(l_inst)[0];
+                let get_fn = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let g_inst = ctx.builder.ins().call(get_fn, &[gt, kp, kl]);
+                let v = ctx.builder.inst_results(g_inst)[0];
+                ctx.var_member_call_values.insert(v);
+                return Ok(TypedVal::new(v, ValTy::I64));
+            }
             if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
                 let n = prop.sym.as_str();
                 // So' redireciona se 'n' nao for var local capturando o nome.
