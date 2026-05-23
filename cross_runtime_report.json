@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -1233,10 +1233,10 @@
 ,
 {
   "name": "293_json_reviver_this",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "obj={\"a\":2,\"b\":4}\nseen=2",
   "node": "obj={\"a\":2,\"b\":4}\nseen=2",
-  "rts": "obj=562949953421322\nseen=null"
+  "rts": "obj={\"a\":2,\"b\":4}\nseen=2"
 }
 ,
 {
@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=timeout|immediate|micro"
 }
 ,
 {
@@ -2545,10 +2545,10 @@
 ,
 {
   "name": "261_string_matchall",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0",
   "node": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94349426135040 }\n{ n: 0, @@sym:281474976710669: 94349426135040 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94853547032576 }\n{ n: 0, @@sym:281474976710669: 94853547032576 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":289,"rts_diverge":25,"bun_node_diverge":16,"errors":58,"rejected":0}}
+],"summary":{"total":388,"pass":290,"rts_diverge":25,"bun_node_diverge":16,"errors":57,"rejected":0}}
