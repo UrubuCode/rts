@@ -369,13 +369,22 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
     let new_inst = ctx.builder.ins().call(vec_new, &[]);
     let args_vec = ctx.builder.inst_results(new_inst)[0];
     ctx.declare_gc_handle(args_vec);
+    let vec_extend = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
     for arg in &call.args {
-        if arg.spread.is_some() {
-            return Err(anyhow!("spread not supported in indirect call"));
-        }
         let tv = lower_expr(ctx, &arg.expr)?;
-        let v = ctx.coerce_to_i64(tv).val;
-        ctx.builder.ins().call(vec_push, &[args_vec, v]);
+        if arg.spread.is_some() {
+            // (cross-runtime #1067) Spread em indirect call: extend o args
+            // vec com elementos do source vec/array.
+            let src = ctx.coerce_to_i64(tv).val;
+            ctx.builder.ins().call(vec_extend, &[args_vec, src]);
+        } else {
+            let v = ctx.coerce_to_i64(tv).val;
+            ctx.builder.ins().call(vec_push, &[args_vec, v]);
+        }
     }
     let invoke = ctx.get_extern(
         "__RTS_FN_RT_INVOKE_AUTO",
@@ -404,9 +413,18 @@ pub(super) fn emit_function_handle_indirect_call(
         &[cl::I64, cl::I64],
         None,
     )?;
+    let vec_extend_h = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
     for a in &call.args {
         if a.spread.is_some() {
-            return Err(anyhow!("spread em call de handle Function nao suportado"));
+            // (cross-runtime #1067) Spread em call de handle Function: extend.
+            let tv = lower_expr(ctx, &a.expr)?;
+            let src = ctx.coerce_to_i64(tv).val;
+            ctx.builder.ins().call(vec_extend_h, &[args_handle, src]);
+            continue;
         }
         let tv = lower_expr(ctx, &a.expr)?;
         // Args numéricos são empacotados como `f64::to_bits` (i64) para
