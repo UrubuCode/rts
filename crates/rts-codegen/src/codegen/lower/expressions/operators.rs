@@ -659,6 +659,86 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return lower_add(ctx, lhs, rhs);
     }
 
+    // (cross-runtime #51) Loose equality ECMA Abstract Equality:
+    // `==` aplica coercoes. Subset implementado:
+    // - Bool == X / X == Bool   -> ToNumber(Bool) == X
+    // - String == Number        -> ToNumber(String) == Number
+    // (`===` preserva comparacao por tipo estrito.)
+    if matches!(bin.op, BinaryOp::EqEq | BinaryOp::NotEq) {
+        let bool_other = match (lhs.ty, rhs.ty) {
+            (ValTy::Bool, _) => Some((lhs, rhs)),
+            (_, ValTy::Bool) => Some((rhs, lhs)),
+            _ => None,
+        };
+        if let Some((bool_v, other_v)) = bool_other {
+            // ToNumber(bool): 0 ou 1, ja' eh i64 (0/1).
+            let bool_num = ctx.coerce_to_i64(bool_v).val;
+            // ToNumber(other): Handle string -> __RTS_FN_GL_NUMBER_FROM_STR
+            //                  F64/I64 -> passthrough
+            //                  Handle outros -> NaN (heuristica: usa COERCE_AUTO->FROM_STR)
+            let other_num = match other_v.ty {
+                ValTy::Handle => {
+                    let fref = ctx.get_extern(
+                        "__RTS_FN_GL_NUMBER_FROM_STR",
+                        &[cl::I64],
+                        Some(cl::F64),
+                    )?;
+                    let inst = ctx.builder.ins().call(fref, &[other_v.val]);
+                    let f = ctx.builder.inst_results(inst)[0];
+                    ctx.builder.ins().fcvt_to_sint_sat(cl::I64, f)
+                }
+                ValTy::F64 => ctx.builder.ins().fcvt_to_sint_sat(cl::I64, other_v.val),
+                _ => ctx.coerce_to_i64(other_v).val,
+            };
+            let eq = ctx.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                bool_num,
+                other_num,
+            );
+            let result = if matches!(bin.op, BinaryOp::NotEq) {
+                let one = ctx.builder.ins().iconst(cl::I8, 1);
+                ctx.builder.ins().bxor(eq, one)
+            } else {
+                eq
+            };
+            return Ok(TypedVal::new(result, ValTy::Bool));
+        }
+        // String literal == Number / Number == String literal:
+        // Aplica somente quando o lado String eh literal (Lit::Str) — assim
+        // nao quebra `handle == 0` (test de handle invalido) que ja' funciona
+        // por comparacao raw i64.
+        let is_str_lit = |e: &Expr| matches!(e, Expr::Lit(Lit::Str(_)));
+        let str_num_pair = match (lhs.ty, rhs.ty) {
+            (ValTy::Handle, ValTy::F64) | (ValTy::Handle, ValTy::I64) | (ValTy::Handle, ValTy::I32)
+                if is_str_lit(&bin.left) => Some((lhs, rhs)),
+            (ValTy::F64, ValTy::Handle) | (ValTy::I64, ValTy::Handle) | (ValTy::I32, ValTy::Handle)
+                if is_str_lit(&bin.right) => Some((rhs, lhs)),
+            _ => None,
+        };
+        if let Some((str_v, num_v)) = str_num_pair {
+            let fref = ctx.get_extern(
+                "__RTS_FN_GL_NUMBER_FROM_STR",
+                &[cl::I64],
+                Some(cl::F64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[str_v.val]);
+            let str_num = ctx.builder.inst_results(inst)[0];
+            let num_f = ctx.coerce_to_f64(num_v).val;
+            let eq = ctx.builder.ins().fcmp(
+                cranelift_codegen::ir::condcodes::FloatCC::Equal,
+                str_num,
+                num_f,
+            );
+            let result = if matches!(bin.op, BinaryOp::NotEq) {
+                let one = ctx.builder.ins().iconst(cl::I8, 1);
+                ctx.builder.ins().bxor(eq, one)
+            } else {
+                eq
+            };
+            return Ok(TypedVal::new(result, ValTy::Bool));
+        }
+    }
+
     // String equality (#130): quando ambos sao Handle, comparar por
     // conteudo via __RTS_FN_NS_GC_STRING_EQ. Sem isso `==` compararia
     // handles u64 (sempre distintos para interneds diferentes).
