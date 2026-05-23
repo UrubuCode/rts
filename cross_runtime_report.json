@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1777,10 +1777,10 @@
 ,
 {
   "name": "191_object_values_entries_iteration",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
   "node": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries="
 }
 ,
 {
@@ -1881,10 +1881,10 @@
 ,
 {
   "name": "323_object_entries_fromEntries",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
   "node": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":277,"rts_diverge":23,"bun_node_diverge":16,"errors":72,"rejected":0}}
+],"summary":{"total":388,"pass":279,"rts_diverge":23,"bun_node_diverge":16,"errors":70,"rejected":0}}
