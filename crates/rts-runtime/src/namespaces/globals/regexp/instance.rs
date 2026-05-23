@@ -68,7 +68,12 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
     // groups.
     let result = with_entry_mut(handle, |entry| {
         if let Some(Entry::Regex(rx)) = entry {
-            let start = if rx.global { rx.last_index } else { 0 };
+            // (#1086) Sticky flag (y) tambem usa lastIndex; alem disso,
+            // sticky exige que o match aconteca EXATAMENTE em lastIndex
+            // (sem skip de chars).
+            let sticky = rx.flags.contains('y');
+            let use_last_idx = rx.global || sticky;
+            let start = if use_last_idx { rx.last_index } else { 0 };
             if start > s_full.len() {
                 rx.last_index = 0;
                 return None;
@@ -79,13 +84,18 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
             }
             let caps_opt = rx.regex.captures(&s_full[start..]);
             let Some(caps) = caps_opt else {
-                if rx.global { rx.last_index = 0; }
+                if use_last_idx { rx.last_index = 0; }
                 return None;
             };
             let m0 = caps.get(0).unwrap();
+            // Sticky: match precisa comecar em pos=0 (relativo ao start absoluto).
+            if sticky && m0.start() != 0 {
+                rx.last_index = 0;
+                return None;
+            }
             let abs_start = start + m0.start();
             let abs_end = start + m0.end();
-            if rx.global {
+            if use_last_idx {
                 rx.last_index = abs_end;
             }
             // Coleta captures (0..N).
