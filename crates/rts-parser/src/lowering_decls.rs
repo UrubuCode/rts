@@ -1,11 +1,14 @@
 fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan) -> ClassDecl {
     let mut members = Vec::new();
     let mut static_init_body: Vec<Statement> = Vec::new();
+    let mut static_init_blocks: Vec<(usize, Vec<Statement>)> = Vec::new();
+    let mut static_fields_seen: usize = 0;
 
     for member in &class.body {
         match member {
             SwcClassMember::StaticBlock(sb) => {
                 let stmts = lower_block_body(cm, Some(&sb.body));
+                static_init_blocks.push((static_fields_seen, stmts.clone()));
                 static_init_body.extend(stmts);
                 continue;
             }
@@ -180,6 +183,9 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                 if name.is_empty() {
                     continue;
                 }
+                if prop.is_static {
+                    static_fields_seen += 1;
+                }
 
                 members.push(ClassMember::Property(PropertyDecl {
                     name,
@@ -198,6 +204,9 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
                 }));
             }
             SwcClassMember::PrivateProp(prop) => {
+                if prop.is_static {
+                    static_fields_seen += 1;
+                }
                 members.push(ClassMember::Property(PropertyDecl {
                     name: format!("#{}", prop.key.name),
                     modifiers: MemberModifiers {
@@ -254,6 +263,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
         members,
         is_abstract: class.is_abstract,
         static_init_body,
+        static_init_blocks,
         span: convert_span(cm, span),
     }
 }

@@ -30,7 +30,9 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
     // Stmts dos `static { ... }` blocks, drenados das ClassDecls,
     // agrupados por classe pra re-emitir na posicao correta.
     // (#1077) preserva ordem source mantendo ligacao class->stmts.
-    let mut static_init_by_class: HashMap<String, Vec<Statement>> = HashMap::new();
+    // (#1077 follow-up) Cada entry eh (count_of_static_fields_before, stmts)
+    // pra reconstruir interleaving (field, block, field, ...).
+    let mut static_init_by_class: HashMap<String, Vec<(usize, Vec<Statement>)>> = HashMap::new();
 
     for item in program.items.iter_mut() {
         let Item::Class(class) = item else { continue };
@@ -59,14 +61,16 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
             }
             true
         });
-        // Drena `static { ... }` blocks. Mantem ordem source — multiplos
-        // blocks na mesma classe sao concatenados, e classes anteriores
-        // executam antes (program order).
-        if !class.static_init_body.is_empty() {
+        // Drena `static { ... }` blocks. (#1077 follow-up) Usa
+        // static_init_blocks (com indice de fields antes) pra interleaving.
+        // static_init_body permanece para callers que ainda esperam flat list.
+        if !class.static_init_blocks.is_empty() {
             static_init_by_class
                 .entry(class_name.clone())
                 .or_default()
-                .extend(std::mem::take(&mut class.static_init_body));
+                .extend(std::mem::take(&mut class.static_init_blocks));
+            // Limpa o flat tb pra nao re-emit duplicado.
+            class.static_init_body.clear();
         }
     }
 
@@ -141,11 +145,13 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
     // Anexa os stmts dos `static { }` blocks depois das declaracoes
     // das let. Eles vao por `rewrite_static_in_program` na proxima fase
     // — mas como ja' rodamos rewrite acima, precisamos rodar so' neles.
-    for (_cls, stmts) in static_init_by_class.iter_mut() {
-        for stmt in stmts.iter_mut() {
-            let Statement::Raw(r) = stmt;
-            if let Some(s) = r.stmt.as_mut() {
-                rewrite_static_in_swc_stmt(s, &static_keys);
+    for (_cls, blocks) in static_init_by_class.iter_mut() {
+        for (_count_before, stmts) in blocks.iter_mut() {
+            for stmt in stmts.iter_mut() {
+                let Statement::Raw(r) = stmt;
+                if let Some(s) = r.stmt.as_mut() {
+                    rewrite_static_in_swc_stmt(s, &static_keys);
+                }
             }
         }
     }
@@ -159,33 +165,44 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
     //
     // static_init_stmts (de `static { ... }` blocks) tambem sao agrupados
     // por classe — vao logo depois das decls da sua classe.
+    // (#1077) Decls de fields por classe, preservando ordem de declaracao.
     let mut decls_by_class: HashMap<String, Vec<Item>> = HashMap::new();
     for sf_idx in 0..fields.len() {
         let sf = &fields[sf_idx];
         decls_by_class.entry(sf.class.clone()).or_default().push(decls[sf_idx].clone());
     }
-    // static blocks: separar por classe usando ordem original (varremos
-    // class items de novo). Aqui simplificamos: anexamos todos os static
-    // blocks ao final, depois das decls da ultima classe relevante.
     let mut new_items: Vec<Item> = Vec::with_capacity(program.items.len() + decls.len());
     for item in program.items.drain(..) {
         if let Item::Class(c) = &item {
             let class_name = c.name.clone();
-            // 1. lets de static fields ANTES da classe (precondicao do codegen).
-            if let Some(class_decls) = decls_by_class.remove(&class_name) {
-                for d in class_decls {
-                    new_items.push(d);
+            let class_field_decls = decls_by_class.remove(&class_name).unwrap_or_default();
+            let class_blocks = static_init_by_class.remove(&class_name).unwrap_or_default();
+            // (#1077 follow-up) Interleave fields e blocks pela ordem source.
+            // class_blocks eh Vec<(count_fields_before, stmts)>. Para cada
+            // field index N, emite todos os blocks com count_before == N
+            // antes do field N+1.
+            let mut block_iter = class_blocks.into_iter().peekable();
+            for (i, decl) in class_field_decls.iter().enumerate() {
+                // Blocks com count_before == i vao antes do field i.
+                while let Some((cb, _)) = block_iter.peek() {
+                    if *cb == i {
+                        let (_, stmts) = block_iter.next().unwrap();
+                        for s in stmts {
+                            new_items.push(Item::Statement(s));
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                new_items.push(decl.clone());
+            }
+            // Blocks que aparecem apos todos os fields (count_before >= len).
+            for (_, stmts) in block_iter {
+                for s in stmts {
+                    new_items.push(Item::Statement(s));
                 }
             }
-            // 2. a propria classe.
             new_items.push(item);
-            // 3. static {} blocks DEPOIS da classe (no source order, executariam
-            //    apos os fields static — JS spec).
-            if let Some(blocks) = static_init_by_class.remove(&class_name) {
-                for stmt in blocks {
-                    new_items.push(Item::Statement(stmt));
-                }
-            }
         } else {
             new_items.push(item);
         }
@@ -196,9 +213,11 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
             new_items.push(d);
         }
     }
-    for (_cls, stmts) in static_init_by_class {
-        for stmt in stmts {
-            new_items.push(Item::Statement(stmt));
+    for (_cls, blocks) in static_init_by_class {
+        for (_, stmts) in blocks {
+            for s in stmts {
+                new_items.push(Item::Statement(s));
+            }
         }
     }
     program.items = new_items;

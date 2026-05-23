@@ -107,6 +107,13 @@ pub struct ClassDecl {
     /// expand_static_fields prepend-os ao top-level depois das declaracoes
     /// de static fields, mantendo a ordem de inicializacao TS.
     pub static_init_body: Vec<Statement>,
+    /// (cross-runtime #1077 follow-up) Blocos `static {}` com sua posicao
+    /// relativa: (count_of_static_fields_before, stmts). Permite reconstruir
+    /// interleaving (field1, block, field2, block2, ...).
+    /// Tamanho = numero de blocks. NOTA: redundante com static_init_body
+    /// quando ha apenas 1 block ou todos no fim, mas necessario pra
+    /// interleaving real.
+    pub static_init_blocks: Vec<(usize, Vec<Statement>)>,
     pub span: Span,
 }
 
