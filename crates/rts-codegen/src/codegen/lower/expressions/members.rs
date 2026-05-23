@@ -747,13 +747,62 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 let n = prop.sym.as_str();
                 // So' redireciona se 'n' nao for var local capturando o nome.
                 if ctx.read_local(n).is_none() {
+                    // (cross-runtime #1125) Tenta primeiro lookup no Map
+                    // singleton do globalThis. Se nao tem (handle invalido
+                    // ou MAP_GET retorna 0), fallback para ident solo.
+                    // Cobre `(globalThis as any).__myLib` setado via ensureGlobal.
+                    use cranelift_codegen::ir::InstBuilder;
+                    let gt_fn = ctx.get_extern("__RTS_FN_RT_GLOBAL_THIS_MAP", &[], Some(cl::I64))?;
+                    let gt_inst = ctx.builder.ins().call(gt_fn, &[]);
+                    let gt = ctx.builder.inst_results(gt_inst)[0];
+                    let has_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_HAS",
+                        &[cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let (kp, kl) = ctx.emit_str_literal(n.as_bytes())?;
+                    let h_inst = ctx.builder.ins().call(has_fn, &[gt, kp, kl]);
+                    let has = ctx.builder.inst_results(h_inst)[0];
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    use cranelift_codegen::ir::condcodes::IntCC;
+                    let has_it = ctx.builder.ins().icmp(IntCC::NotEqual, has, zero);
+
+                    let map_block = ctx.builder.create_block();
+                    let synth_block = ctx.builder.create_block();
+                    let merge = ctx.builder.create_block();
+                    ctx.builder.append_block_param(merge, cl::I64);
+                    ctx.builder.ins().brif(has_it, map_block, &[], synth_block, &[]);
+
+                    ctx.builder.switch_to_block(map_block);
+                    ctx.builder.seal_block(map_block);
+                    let get_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+                        &[cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let g_inst = ctx.builder.ins().call(get_fn, &[gt, kp, kl]);
+                    let v_map = ctx.builder.inst_results(g_inst)[0];
+                    ctx.builder.ins().jump(merge, &[v_map.into()]);
+
+                    ctx.builder.switch_to_block(synth_block);
+                    ctx.builder.seal_block(synth_block);
                     let synth = Expr::Ident(swc_ecma_ast::Ident {
                         span: prop.span,
                         ctxt: Default::default(),
                         sym: prop.sym.clone(),
                         optional: false,
                     });
-                    return super::lower_expr(ctx, &synth);
+                    // Tenta ident solo; se falhar (undefined var), retorna 0.
+                    let synth_v = super::lower_expr(ctx, &synth)
+                        .map(|tv| ctx.coerce_to_i64(tv).val)
+                        .unwrap_or_else(|_| ctx.builder.ins().iconst(cl::I64, 0));
+                    ctx.builder.ins().jump(merge, &[synth_v.into()]);
+
+                    ctx.builder.switch_to_block(merge);
+                    ctx.builder.seal_block(merge);
+                    let result = ctx.builder.block_params(merge)[0];
+                    ctx.var_member_call_values.insert(result);
+                    return Ok(TypedVal::new(result, ValTy::I64));
                 }
             }
         }
