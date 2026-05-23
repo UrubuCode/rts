@@ -191,6 +191,13 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     ) {
         return ctx.emit_str_handle(name.as_bytes());
     }
+    // (cross-runtime #1072) Classes de usuario em posicao de valor —
+    // retorna handle sentinel "[class <Name>]". Suporta Reflect.construct,
+    // identidade, typeof (que classifica via classes.contains_key → "function").
+    if ctx.classes.contains_key(name) {
+        let label = format!("[class {name}]");
+        return ctx.emit_str_handle(label.as_bytes());
+    }
     Err(anyhow!("undefined variable `{name}`"))
 }
 
