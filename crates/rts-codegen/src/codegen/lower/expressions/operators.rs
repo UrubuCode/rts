@@ -395,6 +395,31 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // aceita Vec ou Map, com key como handle (String, Symbol, etc).
     // Chama OBJ_HAS que despacha por Entry type do obj.
     if matches!(bin.op, BinaryOp::In) {
+        // (#1091) Private field check: `#name in obj` (ES2022). SWC
+        // representa LHS como Expr::PrivateName. RTS mangla private
+        // fields como `#<class>_<name>` na declaracao; aqui usamos
+        // current_class para construir a key correta.
+        if let Expr::PrivateName(pn) = bin.left.as_ref() {
+            let raw = pn.name.as_ref();
+            let key_str = if let Some(cur) = ctx.current_class.as_deref() {
+                format!("#{}_{}", cur, raw)
+            } else {
+                format!("#{}", raw)
+            };
+            let key_tv = ctx.emit_str_handle(key_str.as_bytes())?;
+            let obj_tv = lower_expr(ctx, &bin.right)?;
+            if matches!(obj_tv.ty, ValTy::Handle | ValTy::I64 | ValTy::U64) {
+                let obj_h = obj_tv.val;
+                let fref = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_OBJ_HAS",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(fref, &[obj_h, key_tv.val]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(v, ValTy::Bool));
+            }
+        }
         let key_tv = lower_expr(ctx, &bin.left)?;
         let obj_tv = lower_expr(ctx, &bin.right)?;
         // (#83) Aceita tambem I64/U64 — em callbacks de array methods o

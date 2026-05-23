@@ -266,7 +266,45 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: u64, key_h: u64) -> i64
     if let Some(r) = vec_result {
         return r;
     }
-    with_map(obj_h, 0, |m| if m.contains_key(&key) { 1 } else { 0 })
+    // (#1091) `in` walking prototype chain + class methods.
+    // Para instances de classe, methods sao fns globais (nao slots em
+    // instance), entao consultamos class registry via __rts_class tag.
+    if with_map(obj_h, 0, |m| if m.contains_key(&key) { 1 } else { 0 }) == 1 {
+        return 1;
+    }
+    // Walk __proto__ chain.
+    let mut visited: HashSet<u64> = HashSet::new();
+    let mut cur = with_map(obj_h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
+    let mut steps = 0u32;
+    while cur != 0 && steps < 64 {
+        steps += 1;
+        if !visited.insert(cur) { break; }
+        let found = with_map(cur, 0, |m| if m.contains_key(&key) { 1 } else { 0 });
+        if found == 1 { return 1; }
+        cur = with_map(cur, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
+    }
+    // Class method: consulta global class registry pelo __rts_class.
+    let class_name: Option<String> = with_entry(obj_h, |e| match e {
+        Some(Entry::Map(m)) => m.get("__rts_class").and_then(|v| {
+            with_entry(*v as u64, |ce| match ce {
+                Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                _ => None,
+            })
+        }),
+        _ => None,
+    });
+    if class_name.is_some() {
+        // Object.prototype tem toString, hasOwnProperty, valueOf, isPrototypeOf,
+        // propertyIsEnumerable, toLocaleString.
+        if matches!(
+            key.as_str(),
+            "toString" | "hasOwnProperty" | "valueOf" | "isPrototypeOf"
+            | "propertyIsEnumerable" | "toLocaleString" | "constructor"
+        ) {
+            return 1;
+        }
+    }
+    0
 }
 
 /// (cross-runtime #753) `MAP_SET` aceitando key como handle (resolve
