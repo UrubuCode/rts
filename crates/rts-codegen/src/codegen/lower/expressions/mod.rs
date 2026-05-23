@@ -183,6 +183,29 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     Err(anyhow!("undefined variable `{name}`"))
 }
 
+/// (#1051) Detecta se uma expressao eh literal float nao-inteiro (ex:
+/// \`3.14\`, \`-0.5\`). Usado para decidir se preserva precisao via
+/// bitcast em vez de fcvt_to_sint_sat (que trunca). Peel TS wrappers
+/// e unary minus em num literal.
+pub(super) fn rhs_is_non_integer_float_lit(e: &Expr) -> bool {
+    let mut cur = e;
+    loop {
+        match cur {
+            Expr::Paren(p) => cur = &p.expr,
+            Expr::TsAs(a) => cur = &a.expr,
+            Expr::TsConstAssertion(a) => cur = &a.expr,
+            Expr::TsTypeAssertion(a) => cur = &a.expr,
+            Expr::TsSatisfies(a) => cur = &a.expr,
+            Expr::TsNonNull(n) => cur = &n.expr,
+            Expr::Lit(Lit::Num(n)) => return n.value.fract() != 0.0,
+            Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
+                cur = &u.arg;
+            }
+            _ => return false,
+        }
+    }
+}
+
 fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<TypedVal> {
     use swc_ecma_ast::{AssignOp, AssignTarget};
 
@@ -319,7 +342,20 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                         // Plain MAP_SET — re-aplica logica de assign normal
                         // (sem chamar lower_assign_expr de novo, faz inline).
                         let value_tv = lower_expr(ctx, &a.right)?;
-                        let value_i64 = ctx.coerce_to_i64(value_tv).val;
+                        // (#1051 part 2) Preserva precisao f64 quando RHS eh
+                        // literal float nao-inteiro — bitcast em vez de
+                        // fcvt_to_sint_sat que trunca.
+                        let value_i64 = if matches!(value_tv.ty, ValTy::F64)
+                            && rhs_is_non_integer_float_lit(&a.right)
+                        {
+                            ctx.builder.ins().bitcast(
+                                cl::I64,
+                                cranelift_codegen::ir::MemFlags::new(),
+                                value_tv.val,
+                            )
+                        } else {
+                            ctx.coerce_to_i64(value_tv).val
+                        };
                         let (kptr2, klen2) = ctx.emit_str_literal(prop_name.as_bytes())?;
                         let map_set = ctx.get_extern(
                             "__RTS_FN_NS_COLLECTIONS_MAP_SET",
@@ -588,30 +624,11 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
             }
         }
 
-        // (#1051) RHS eh literal float nao-inteiro (ex: `3.14`)? bitcast
-        // os bits f64 em i64 para preservar precisao. coerce_to_i64
-        // truncaria para 3. INSPECT/TPL_COERCE_AUTO detectam o bit
-        // pattern (|v| > 2^53) e renderizam como float.
-        fn rhs_is_non_integer_float(e: &Expr) -> bool {
-            let mut cur = e;
-            loop {
-                match cur {
-                    Expr::Paren(p) => cur = &p.expr,
-                    Expr::TsAs(a) => cur = &a.expr,
-                    Expr::TsConstAssertion(a) => cur = &a.expr,
-                    Expr::TsTypeAssertion(a) => cur = &a.expr,
-                    Expr::TsSatisfies(a) => cur = &a.expr,
-                    Expr::TsNonNull(n) => cur = &n.expr,
-                    Expr::Lit(Lit::Num(n)) => return n.value.fract() != 0.0,
-                    Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
-                        cur = &u.arg;
-                    }
-                    _ => return false,
-                }
-            }
-        }
+        // (#1051) RHS eh literal float nao-inteiro? bitcast em vez de
+        // fcvt_to_sint_sat (que trunca). INSPECT/TPL_COERCE_AUTO
+        // detectam o bit pattern (|v| > 2^53) e renderizam como float.
         let bitcast_f64 = matches!(rhs.ty, ValTy::F64)
-            && rhs_is_non_integer_float(final_rhs_expr.as_ref());
+            && rhs_is_non_integer_float_lit(final_rhs_expr.as_ref());
         let rhs_i64 = if bitcast_f64 {
             ctx.builder.ins().bitcast(
                 cranelift_codegen::ir::types::I64,
