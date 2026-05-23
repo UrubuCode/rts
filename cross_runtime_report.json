@@ -385,10 +385,10 @@
 ,
 {
   "name": "351_obf_string_array",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "hello\nworld\nworld\nhello\nhello\nworld\nfoo\nbar\n3\n1,2,3",
   "node": "hello\nworld\nworld\nhello\nhello\nworld\nfoo\nbar\n3\n1,2,3",
-  "rts": "hello\nworld\nworld\nhello\nhello\nworld\nfoo\nbar\n0"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -609,10 +609,10 @@
 ,
 {
   "name": "271_computed_class_members",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "sum=5\niter=1,2\nsym=ok",
   "node": "sum=5\niter=1,2\nsym=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iter=C\nsym=null"
 }
 ,
 {
@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94221696413696 }\n{ n: 0, @@sym:281474976710669: 94221696413696 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94423909523456 }\n{ n: 0, @@sym:281474976710669: 94423909523456 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":286,"rts_diverge":26,"bun_node_diverge":16,"errors":60,"rejected":0}}
+],"summary":{"total":388,"pass":286,"rts_diverge":25,"bun_node_diverge":17,"errors":60,"rejected":0}}
