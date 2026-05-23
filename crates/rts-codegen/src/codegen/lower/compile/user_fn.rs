@@ -217,6 +217,22 @@ pub(crate) fn compile_user_fn(
             ) {
                 fn_ctx.var_member_call_values.insert(block_param);
             }
+            // (cross-runtime #1130) Param tipado `any`/`unknown`/sem anotacao
+            // pode receber handle (Map/Vec/String/Function/instance) ou
+            // numero. Marca como ambiguo pra que `typeof v` despache runtime
+            // helper que inspeciona Entry em vez de assumir "number".
+            // Brand check pattern `typeof v === "object" && #x in v` depende
+            // disso.
+            if ty == ValTy::I64 {
+                let ann = param.type_annotation.as_deref().map(str::trim);
+                let is_ambiguous_ann = match ann {
+                    None => true,
+                    Some(a) => matches!(a, "any" | "unknown" | "object" | "Object"),
+                };
+                if is_ambiguous_ann {
+                    fn_ctx.var_member_call_values.insert(block_param);
+                }
+            }
 
             // (#592) Param tipado `Cls[]` registra local_array_class_ty
             // pra que arr[i].field saiba o tipo do field na classe.
