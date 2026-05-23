@@ -856,11 +856,14 @@ fn inspect_handle(h: u64, depth: usize) -> String {
             format!("[ {} ]", parts.join(", "))
         }
         R::Map(entries) => {
-            // (#1080) Object.create(null) — slot __proto__ existe com
-            // valor 0. Node/Bun imprimem como `[Object: null prototype] {...}`.
-            let is_null_proto = entries
-                .iter()
-                .any(|(k, v)| k == b"__proto__" && *v == 0);
+            // (#1080) Object.create(null) — handle marcado em null_proto_set
+            // (preserva mesmo se user setar __proto__ depois) ou slot
+            // __proto__ existe com valor 0. Node/Bun imprimem como
+            // `[Object: null prototype] {...}`.
+            let is_null_proto = crate::namespaces::collections::map::is_null_proto_handle(h)
+                || entries
+                    .iter()
+                    .any(|(k, v)| k == b"__proto__" && *v == 0);
             // Filtra slots internos das entries impressas.
             let visible: Vec<&(Vec<u8>, i64)> = entries
                 .iter()
