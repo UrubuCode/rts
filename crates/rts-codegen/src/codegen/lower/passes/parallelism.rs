@@ -57,6 +57,12 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
     fn init_looks_array(e: &Expr) -> bool {
         match e {
             Expr::Array(_) => true,
+            // (#83) `await <expr_que_retorna_array>` propaga: typicamente
+            // Promise.all/allSettled/any/race retornam Promise<Array>.
+            // Sem isso, `const r = await Promise.allSettled([...]); r.map(...)`
+            // nao registra `r` como array receiver e o lift falha (SIGILL
+            // ja' visto em #860 pattern).
+            Expr::Await(a) => init_looks_array(&a.arg),
             Expr::Call(c) => match &c.callee {
                 swc_ecma_ast::Callee::Expr(ce) => match ce.as_ref() {
                     Expr::Member(m) => {
@@ -88,7 +94,21 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
                                 | "getOwnPropertyNames" | "getOwnPropertySymbols"
                             )
                         );
-                        prop_is_array_returning || obj_is_array_static || obj_is_object_static
+                        // (#83) Promise.all/allSettled/any/race retornam
+                        // Promise<Array>. Detectado direto (sem await wrapper)
+                        // para chains tipo `Promise.all([...]).then(arr => ...)`.
+                        let obj_is_promise_combinator = matches!(
+                            m.obj.as_ref(),
+                            Expr::Ident(id) if id.sym.as_str() == "Promise"
+                        ) && matches!(
+                            &m.prop,
+                            MemberProp::Ident(p) if matches!(
+                                p.sym.as_str(),
+                                "all" | "allSettled" | "any" | "race"
+                            )
+                        );
+                        prop_is_array_returning || obj_is_array_static
+                            || obj_is_object_static || obj_is_promise_combinator
                     }
                     _ => false,
                 },
