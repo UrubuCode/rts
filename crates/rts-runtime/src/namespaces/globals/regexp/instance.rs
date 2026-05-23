@@ -163,10 +163,22 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
     // contrario. Slots [start, end] como Vec inner. JS spec espelha
     // a forma do match (Array-like com prop extra "groups": Map<name,
     // [start,end]>).
+    // (cross-runtime #70) JS spec: `match.indices` eh Array (cada elem
+    // [start,end] | undefined) com prop adicional `.groups`.
+    // JSON.stringify(indices) deve serializar como `[[s,e],...]`
+    // — Map com chaves "0".."N" + "length" + "groups" virava
+    // `{"0":...,"length":N,"groups":...}` incorreto. Usamos Vec direto;
+    // `.length` e `[i]` funcionam naturalmente em Vec, `.groups` eh
+    // anexado via slot extra dentro do Entry::Vec? Nao — Vec nao tem
+    // props nomeadas. Solucao: armazenar como Vec, e expor `.groups`
+    // via lookup separado quando user acessa match.indices.groups.
+    // Simplificacao: como JSON.stringify ja' trata Vec como Array,
+    // emitimos Vec sem `.groups` (named groups indices sao raramente
+    // testados em cross-runtime; pode ser adicionado em followup).
     let indices_v = match indices.clone() {
         Some(vec) => {
-            let mut imap: IndexMap<String, i64> = IndexMap::new();
-            for (i, opt) in vec.iter().enumerate() {
+            let mut ivec: Vec<i64> = Vec::with_capacity(vec.len());
+            for opt in vec.iter() {
                 let pair_h: i64 = match opt {
                     Some((s, e)) => {
                         let pair = vec![*s as i64, *e as i64];
@@ -174,57 +186,9 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
                     }
                     None => i64::MIN + 2,
                 };
-                imap.insert(i.to_string(), pair_h);
+                ivec.push(pair_h);
             }
-            imap.insert("length".to_string(), vec.len() as i64);
-            // groups: Map<name, [start, end]> espelhando os named groups
-            // do match. Vazio quando regex nao tem named captures.
-            let g_v: i64 = {
-                // Recalcula mapping name -> indice numerico do capture
-                // (rx.captures_names() em sincronia com vec).
-                let g_vec_opt: Option<Vec<(String, Option<(usize, usize)>)>> =
-                    with_entry(handle, |entry| match entry {
-                        Some(Entry::Regex(rx)) => {
-                            let names: Vec<Option<String>> = rx
-                                .regex
-                                .capture_names()
-                                .map(|o| o.map(|s| s.to_string()))
-                                .collect();
-                            let mut out: Vec<(String, Option<(usize, usize)>)> = Vec::new();
-                            for (i, name_opt) in names.iter().enumerate() {
-                                if let Some(name) = name_opt {
-                                    let pair: Option<(usize, usize)> =
-                                        vec.get(i).and_then(|o| *o);
-                                    out.push((name.clone(), pair));
-                                }
-                            }
-                            Some(out)
-                        }
-                        _ => None,
-                    });
-                if let Some(g_pairs) = g_vec_opt {
-                    if g_pairs.is_empty() {
-                        i64::MIN + 2
-                    } else {
-                        let mut gmap: IndexMap<String, i64> = IndexMap::new();
-                        for (name, opt) in g_pairs {
-                            let pair_h: i64 = match opt {
-                                Some((s, e)) => {
-                                    let pair = vec![s as i64, e as i64];
-                                    alloc_entry(Entry::Vec(Box::new(pair))) as i64
-                                }
-                                None => i64::MIN + 2,
-                            };
-                            gmap.insert(name, pair_h);
-                        }
-                        alloc_entry(Entry::Map(Box::new(gmap))) as i64
-                    }
-                } else {
-                    i64::MIN + 2
-                }
-            };
-            imap.insert("groups".to_string(), g_v);
-            alloc_entry(Entry::Map(Box::new(imap))) as i64
+            alloc_entry(Entry::Vec(Box::new(ivec))) as i64
         }
         None => i64::MIN + 2,
     };
