@@ -758,28 +758,47 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         BinaryOp::LtEq => Ok(lower_icmp(ctx, IntCC::SignedLessThanOrEqual, lhs_p, rhs_p)),
         BinaryOp::Gt => Ok(lower_icmp(ctx, IntCC::SignedGreaterThan, lhs_p, rhs_p)),
         BinaryOp::GtEq => Ok(lower_icmp(ctx, IntCC::SignedGreaterThanOrEqual, lhs_p, rhs_p)),
-        BinaryOp::BitOr => Ok(TypedVal::new(ctx.builder.ins().bor(lv, rv), ty)),
-        BinaryOp::BitXor => Ok(TypedVal::new(ctx.builder.ins().bxor(lv, rv), ty)),
-        BinaryOp::BitAnd => Ok(TypedVal::new(ctx.builder.ins().band(lv, rv), ty)),
-        BinaryOp::LShift => {
-            Ok(TypedVal::new(ctx.builder.ins().ishl(lv, rv), ty))
-        }
-        BinaryOp::RShift => {
-            Ok(TypedVal::new(ctx.builder.ins().sshr(lv, rv), ty))
+        BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::BitAnd
+        | BinaryOp::LShift | BinaryOp::RShift => {
+            // (#1066) JS bitops aplicam ToInt32 nos operandos. Quando
+            // promote_numeric resultou em F64 (operando >= 2^31, ex:
+            // 0xDEADBEEF), Cranelift bitops nao aceitam F64 — converte
+            // via fcvt_to_sint para I64 (ToInt32 semantics aprox.).
+            use cranelift_codegen::ir::types as cl;
+            let (lv_i, rv_i) = if matches!(ty, ValTy::F64) {
+                let l = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, lv);
+                let r = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, rv);
+                (l, r)
+            } else {
+                (lv, rv)
+            };
+            let res_ty = if matches!(ty, ValTy::F64) { ValTy::I64 } else { ty };
+            let v = match bin.op {
+                BinaryOp::BitOr => ctx.builder.ins().bor(lv_i, rv_i),
+                BinaryOp::BitXor => ctx.builder.ins().bxor(lv_i, rv_i),
+                BinaryOp::BitAnd => ctx.builder.ins().band(lv_i, rv_i),
+                BinaryOp::LShift => ctx.builder.ins().ishl(lv_i, rv_i),
+                BinaryOp::RShift => ctx.builder.ins().sshr(lv_i, rv_i),
+                _ => unreachable!(),
+            };
+            Ok(TypedVal::new(v, res_ty))
         }
         BinaryOp::ZeroFillRShift => {
             // JS spec: ToUint32(lhs) >>> (rhs & 0x1F). Promove para i64,
             // aplica masks de 32 bits no LHS, depois shift unsigned.
             // Retorna em i64 — resultado eh 0..=u32::MAX, valor JS preservado.
             use cranelift_codegen::ir::types as cl;
-            let lv64 = if matches!(ty, ValTy::I32 | ValTy::I64) {
-                if ctx.builder.func.dfg.value_type(lv) == cl::I64 {
-                    lv
-                } else {
-                    ctx.builder.ins().sextend(cl::I64, lv)
-                }
-            } else {
+            // (#1066) Coerce F64 -> I64 antes de qualquer manipulacao.
+            let lv = if matches!(ty, ValTy::F64) {
+                ctx.builder.ins().fcvt_to_sint_sat(cl::I64, lv)
+            } else { lv };
+            let rv = if matches!(ty, ValTy::F64) {
+                ctx.builder.ins().fcvt_to_sint_sat(cl::I64, rv)
+            } else { rv };
+            let lv64 = if ctx.builder.func.dfg.value_type(lv) == cl::I64 {
                 lv
+            } else {
+                ctx.builder.ins().sextend(cl::I64, lv)
             };
             let rv64 = if ctx.builder.func.dfg.value_type(rv) == cl::I64 {
                 rv
