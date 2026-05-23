@@ -2090,6 +2090,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
             return lower_user_call(ctx, &resolved, call);
         }
+        // (cross-runtime #1067) Callee eh member computed (`obj[k](args)`,
+        // `arr[i](x)`) ou outra expressao que produz fn handle. Lower o
+        // callee como expressao, depois faz indirect call via FUNCTION_APPLY.
+        if let Expr::Member(m) = callee.as_ref() {
+            if matches!(&m.prop, MemberProp::Computed(_)) {
+                return lower_indirect_call(ctx, callee, call);
+            }
+        }
     }
     Err(anyhow!("unsupported call expression form"))
 }
