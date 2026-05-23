@@ -444,7 +444,7 @@
   "status": "rts_diverge",
   "bun": "vals=10,255\neq=true\nseq=false",
   "node": "vals=10,255\neq=true\nseq=false",
-  "rts": "eq=true\nseq=true"
+  "rts": "vals=100,2550\neq=true\nseq=true"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=timeout|micro|immediate"
 }
 ,
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94138694701056 }\n{ n: 0, @@sym:281474976710669: 94138694701056 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94037578149888 }\n{ n: 0, @@sym:281474976710669: 94037578149888 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -2921,10 +2921,10 @@
 ,
 {
   "name": "352_obf_control_flow_flat",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
   "node": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":284,"rts_diverge":26,"bun_node_diverge":16,"errors":62,"rejected":0}}
+],"summary":{"total":388,"pass":285,"rts_diverge":25,"bun_node_diverge":17,"errors":61,"rejected":0}}
