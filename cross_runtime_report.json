@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -1969,10 +1969,10 @@
 ,
 {
   "name": "382_field_init_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.block,S.c\nP.pv,C.cv\n10 20 10",
   "node": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.block,S.c\nP.pv,C.cv\n10 20 10",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.c,S.block\nP.pv,C.cv\n10 20 10"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":283,"rts_diverge":25,"bun_node_diverge":16,"errors":64,"rejected":0}}
+],"summary":{"total":388,"pass":282,"rts_diverge":27,"bun_node_diverge":16,"errors":63,"rejected":0}}
