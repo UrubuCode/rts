@@ -184,8 +184,41 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     if value == 0 {
         return alloc_entry(Entry::String(b"null".to_vec()));
     }
+    coerce_auto_inner(value)
+}
+
+/// (cross-runtime #335/#1056) Variante de TPL_COERCE_AUTO que prefere
+/// renderizar `value=0` como "0" em vez de "null". Usado em contextos
+/// onde o valor vem de getter/computacao/member access — caso onde
+/// retornar 0 numerico eh mais comum que null literal. O caso `null` em
+/// concat continua coberto via sentinel `i64::MIN+3`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TPL_COERCE_NUM_BIAS(value: i64) -> u64 {
+    if value == i64::MIN { return alloc_entry(Entry::String(b"false".to_vec())); }
+    if value == i64::MIN + 1 { return alloc_entry(Entry::String(b"true".to_vec())); }
+    if value == i64::MIN + 2 || value == i64::MIN + 4 {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    }
+    if value == i64::MIN + 3 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
+    }
+    // value=0 sem snapshot valido vira "0" (em vez de "null").
     let h = value as u64;
     let snap = snapshot_entry(h);
+    if matches!(snap, EntrySnap::None) && value == 0 {
+        return alloc_entry(Entry::String(b"0".to_vec()));
+    }
+    coerce_auto_inner_with_snap(value, snap)
+}
+
+fn coerce_auto_inner(value: i64) -> u64 {
+    let h = value as u64;
+    let snap = snapshot_entry(h);
+    coerce_auto_inner_with_snap(value, snap)
+}
+
+fn coerce_auto_inner_with_snap(value: i64, snap: EntrySnap) -> u64 {
+    let h = value as u64;
     match snap {
         // (#1041) Sempre clona quando o handle ja' eh string. O codegen
         // libera o handle retornado tratando-o como "fresh"; sem o
