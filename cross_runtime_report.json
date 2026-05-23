@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=immediate|micro|timeout"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -1732,7 +1732,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=100\nkeys=a\nb=10\ngetter=5"
+  "rts": "value=42\nstill=42\nkeys=a\nb=10\ngetter=5"
 }
 ,
 {
@@ -1932,7 +1932,7 @@
   "status": "rts_diverge",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "42\n99\n100\nreadonly,normal\nnull\nfalse\ntrue\ntrue\n1\ntrue"
+  "rts": "42\n99\n42\nreadonly,normal\ncaught: null\n42\nfalse\ntrue\nfalse\n1\ntrue"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":274,"rts_diverge":23,"bun_node_diverge":17,"errors":74,"rejected":0}}
+],"summary":{"total":388,"pass":275,"rts_diverge":23,"bun_node_diverge":16,"errors":74,"rejected":0}}
