@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|micro|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1673,10 +1673,10 @@
 ,
 {
   "name": "51_coercion_weird",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
   "node": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
-  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=false\neq_b=false\neq_c=true\neq_d=true"
+  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94499069689856 }\n{ n: 0, @@sym:281474976710669: 94499069689856 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94159917215744 }\n{ n: 0, @@sym:281474976710669: 94159917215744 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
