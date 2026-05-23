@@ -82,38 +82,44 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
                 rx.last_index = 0;
                 return None;
             }
-            let caps_opt = rx.regex.captures(&s_full[start..]);
+            let caps_opt = rx.engine.captures(&s_full[start..]);
             let Some(caps) = caps_opt else {
                 if use_last_idx { rx.last_index = 0; }
                 return None;
             };
-            let m0 = caps.get(0).unwrap();
+            let m0 = match caps.groups.first().and_then(|o| o.clone()) {
+                Some(m) => m,
+                None => {
+                    if use_last_idx { rx.last_index = 0; }
+                    return None;
+                }
+            };
             // Sticky: match precisa comecar em pos=0 (relativo ao start absoluto).
-            if sticky && m0.start() != 0 {
+            if sticky && m0.start != 0 {
                 rx.last_index = 0;
                 return None;
             }
-            let abs_start = start + m0.start();
-            let abs_end = start + m0.end();
+            let abs_start = start + m0.start;
+            let abs_end = start + m0.end;
             if use_last_idx {
                 rx.last_index = abs_end;
             }
             // Coleta captures (0..N).
-            let mut groups_vec: Vec<Option<String>> = Vec::with_capacity(caps.len());
-            // (#regex-d) Coleta indices [start, end] absolutos por capture
-            // quando flag 'd' (hasIndices) esta setada.
             let has_indices = rx.flags.contains('d');
-            let mut indices_vec: Vec<Option<(usize, usize)>> = Vec::with_capacity(caps.len());
-            for i in 0..caps.len() {
-                let m = caps.get(i);
-                groups_vec.push(m.map(|mm| mm.as_str().to_string()));
-                indices_vec.push(m.map(|mm| (start + mm.start(), start + mm.end())));
+            let mut groups_vec: Vec<Option<String>> = Vec::with_capacity(caps.groups.len());
+            let mut indices_vec: Vec<Option<(usize, usize)>> = Vec::with_capacity(caps.groups.len());
+            for opt in &caps.groups {
+                groups_vec.push(opt.as_ref().map(|m| m.text.clone()));
+                indices_vec.push(opt.as_ref().map(|m| (start + m.start, start + m.end)));
             }
             // Coleta named groups.
+            let names = rx.engine.capture_names();
             let mut named_groups: Vec<(String, Option<String>)> = Vec::new();
-            for name in rx.regex.capture_names().flatten() {
-                let m = caps.name(name).map(|m| m.as_str().to_string());
-                named_groups.push((name.to_string(), m));
+            for (i, name_opt) in names.iter().enumerate() {
+                if let Some(name) = name_opt {
+                    let text = caps.groups.get(i).and_then(|o| o.as_ref()).map(|m| m.text.clone());
+                    named_groups.push((name.clone(), text));
+                }
             }
             let indices = if has_indices { Some(indices_vec) } else { None };
             Some((groups_vec, named_groups, abs_start, s_full.clone(), indices))
@@ -293,7 +299,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_LAST_INDEX_SET(handle: u64, n: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_REGEXP_SOURCE(handle: u64) -> u64 {
     let source: Option<String> = with_entry(handle, |entry| match entry {
-        Some(Entry::Regex(rx)) => Some(rx.regex.as_str().to_owned()),
+        Some(Entry::Regex(rx)) => Some(rx.engine.source()),
         _ => None,
     });
     match source {

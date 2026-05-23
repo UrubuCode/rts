@@ -552,7 +552,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     // o getter builtin em vez de retornar 0.
     let regex_field: Option<String> = with_entry(handle, |e| match e {
         Some(Entry::Regex(rx)) => match key {
-            "source" => Some(rx.regex.as_str().to_string()),
+            "source" => Some(rx.engine.source()),
             "flags" => Some(rx.flags.clone()),
             _ => None,
         },

@@ -30,9 +30,276 @@ const SENTINEL_INVALID: u64 = 0;
 /// Wrapper que armazena a regex compilada + flags JS canonicas.
 /// O crate `regex` nao expoe flags pos-compile de forma uniforme; RTS
 /// guarda flags do callsite para `re.flags/global/ignoreCase/multiline`.
+/// (#1107) Engine de regex usado. `Fast` (crate `regex`, RE2) eh o
+/// caminho rapido O(n) garantido; `Fancy` (crate `fancy-regex`) eh
+/// usado quando o pattern tem features que RE2 nao suporta
+/// (lookbehind/lookahead, backreferences).
+#[derive(Debug)]
+pub enum RegexEngine {
+    Fast(regex::Regex),
+    Fancy(fancy_regex::Regex),
+}
+
+/// Match agnostico ao engine: somente boundaries (start/end) e a string
+/// matched. Suficiente para is_match, find, e iteracao top-level.
+#[derive(Debug, Clone)]
+pub struct EngineMatch {
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+}
+
+/// Captures agnostico ao engine: lista de Option<(start, end, text)> em
+/// ordem (grupo 0 = full match, grupos 1..N = capture groups). None
+/// quando o grupo nao participou.
+#[derive(Debug, Clone)]
+pub struct EngineCaptures {
+    pub groups: Vec<Option<EngineMatch>>,
+}
+
+impl RegexEngine {
+    pub fn is_match(&self, s: &str) -> bool {
+        match self {
+            RegexEngine::Fast(r) => r.is_match(s),
+            RegexEngine::Fancy(r) => r.is_match(s).unwrap_or(false),
+        }
+    }
+
+    pub fn find(&self, s: &str) -> Option<EngineMatch> {
+        match self {
+            RegexEngine::Fast(r) => r.find(s).map(|m| EngineMatch {
+                start: m.start(),
+                end: m.end(),
+                text: m.as_str().to_string(),
+            }),
+            RegexEngine::Fancy(r) => r.find(s).ok().flatten().map(|m| EngineMatch {
+                start: m.start(),
+                end: m.end(),
+                text: m.as_str().to_string(),
+            }),
+        }
+    }
+
+    pub fn captures(&self, s: &str) -> Option<EngineCaptures> {
+        match self {
+            RegexEngine::Fast(r) => r.captures(s).map(|caps| EngineCaptures {
+                groups: (0..caps.len())
+                    .map(|i| caps.get(i).map(|m| EngineMatch {
+                        start: m.start(),
+                        end: m.end(),
+                        text: m.as_str().to_string(),
+                    }))
+                    .collect(),
+            }),
+            RegexEngine::Fancy(r) => r.captures(s).ok().flatten().map(|caps| EngineCaptures {
+                groups: (0..caps.len())
+                    .map(|i| caps.get(i).map(|m| EngineMatch {
+                        start: m.start(),
+                        end: m.end(),
+                        text: m.as_str().to_string(),
+                    }))
+                    .collect(),
+            }),
+        }
+    }
+
+    pub fn captures_all(&self, s: &str) -> Vec<EngineCaptures> {
+        match self {
+            RegexEngine::Fast(r) => r
+                .captures_iter(s)
+                .map(|caps| EngineCaptures {
+                    groups: (0..caps.len())
+                        .map(|i| caps.get(i).map(|m| EngineMatch {
+                            start: m.start(),
+                            end: m.end(),
+                            text: m.as_str().to_string(),
+                        }))
+                        .collect(),
+                })
+                .collect(),
+            RegexEngine::Fancy(r) => r
+                .captures_iter(s)
+                .filter_map(|res| res.ok())
+                .map(|caps| EngineCaptures {
+                    groups: (0..caps.len())
+                        .map(|i| caps.get(i).map(|m| EngineMatch {
+                            start: m.start(),
+                            end: m.end(),
+                            text: m.as_str().to_string(),
+                        }))
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+
+    pub fn find_all(&self, s: &str) -> Vec<EngineMatch> {
+        match self {
+            RegexEngine::Fast(r) => r
+                .find_iter(s)
+                .map(|m| EngineMatch {
+                    start: m.start(),
+                    end: m.end(),
+                    text: m.as_str().to_string(),
+                })
+                .collect(),
+            RegexEngine::Fancy(r) => r
+                .find_iter(s)
+                .filter_map(|res| res.ok())
+                .map(|m| EngineMatch {
+                    start: m.start(),
+                    end: m.end(),
+                    text: m.as_str().to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Nomes dos capture groups (None para grupos nao-nomeados).
+    /// Indices alinhados com `groups` de EngineCaptures.
+    pub fn capture_names(&self) -> Vec<Option<String>> {
+        match self {
+            RegexEngine::Fast(r) => r
+                .capture_names()
+                .map(|n| n.map(|s| s.to_string()))
+                .collect(),
+            RegexEngine::Fancy(r) => r
+                .capture_names()
+                .map(|n| n.map(|s| s.to_string()))
+                .collect(),
+        }
+    }
+
+    pub fn captures_len(&self) -> usize {
+        match self {
+            RegexEngine::Fast(r) => r.captures_len(),
+            RegexEngine::Fancy(r) => r.captures_len(),
+        }
+    }
+
+    /// Source pattern como string (usado por `re.source`).
+    pub fn source(&self) -> String {
+        match self {
+            RegexEngine::Fast(r) => r.as_str().to_string(),
+            RegexEngine::Fancy(r) => r.as_str().to_string(),
+        }
+    }
+
+    /// Replace primeiro match com `replacement` (sintaxe Rust-regex:
+    /// `$N` para grupo numerico, `${name}` para named). Para Fancy, faz
+    /// substituicao manual mas suporta apenas `${name}` / `$N` simples.
+    pub fn replace_first(&self, s: &str, replacement: &str) -> String {
+        match self {
+            RegexEngine::Fast(r) => r.replace(s, replacement).into_owned(),
+            RegexEngine::Fancy(_) => self.replace_n(s, replacement, 1),
+        }
+    }
+
+    pub fn replace_all(&self, s: &str, replacement: &str) -> String {
+        match self {
+            RegexEngine::Fast(r) => r.replace_all(s, replacement).into_owned(),
+            RegexEngine::Fancy(_) => self.replace_n(s, replacement, usize::MAX),
+        }
+    }
+
+    fn replace_n(&self, s: &str, replacement: &str, limit: usize) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut last_end = 0usize;
+        let mut count = 0usize;
+        for caps in self.captures_all(s) {
+            if count >= limit { break; }
+            let m0 = match caps.groups.first().and_then(|o| o.clone()) {
+                Some(m) => m,
+                None => continue,
+            };
+            out.push_str(&s[last_end..m0.start]);
+            out.push_str(&substitute_replacement(replacement, &caps));
+            last_end = m0.end;
+            count += 1;
+        }
+        out.push_str(&s[last_end..]);
+        out
+    }
+}
+
+/// Aplica substituicao no replacement string. Suporta:
+/// - `$N` (N de 0-9) -> grupo numerico
+/// - `${name}` -> grupo nomeado
+/// - `$&` -> match completo
+/// - `$$` -> literal `$`
+fn substitute_replacement(repl: &str, caps: &EngineCaptures) -> String {
+    let mut out = String::with_capacity(repl.len());
+    let bytes = repl.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'$' {
+            out.push(bytes[i] as char);
+            i += 1;
+            continue;
+        }
+        if i + 1 >= bytes.len() {
+            out.push('$');
+            i += 1;
+            continue;
+        }
+        let next = bytes[i + 1];
+        if next == b'$' {
+            out.push('$');
+            i += 2;
+        } else if next == b'&' {
+            if let Some(Some(m)) = caps.groups.first() {
+                out.push_str(&m.text);
+            }
+            i += 2;
+        } else if next == b'{' {
+            if let Some(end_rel) = repl[i + 2..].find('}') {
+                let name = &repl[i + 2..i + 2 + end_rel];
+                // tenta nome (em order) — fancy-regex nao tem name lookup
+                // direto via EngineCaptures, entao recompila names.
+                // Heuristica: index numerico OK; nome requer caller fornecer
+                // tabela name->idx separadamente. Aqui ignoramos name lookup
+                // (caller pre-processa ${name} -> $N quando precisa).
+                if let Ok(n) = name.parse::<usize>() {
+                    if let Some(Some(m)) = caps.groups.get(n) {
+                        out.push_str(&m.text);
+                    }
+                }
+                i = i + 2 + end_rel + 1;
+            } else {
+                out.push('$');
+                i += 1;
+            }
+        } else if next.is_ascii_digit() {
+            // $N (1 ou 2 digitos)
+            let n_end = if i + 2 < bytes.len() && bytes[i + 2].is_ascii_digit() {
+                i + 3
+            } else {
+                i + 2
+            };
+            let n: usize = repl[i + 1..n_end].parse().unwrap_or(0);
+            if let Some(Some(m)) = caps.groups.get(n) {
+                out.push_str(&m.text);
+            }
+            i = n_end;
+        } else {
+            out.push('$');
+            i += 1;
+        }
+    }
+    out
+}
+
 #[derive(Debug)]
 pub struct RtsRegex {
+    /// Mantido para compat com callsites que assumem `regex::Regex`.
+    /// Quando o pattern requer fancy-regex, este campo eh inicializado
+    /// com um placeholder vazio (`.*?` ou similar) e o `engine` carrega
+    /// a versao fancy real. Callsites novos devem ler `engine`.
     pub regex: regex::Regex,
+    /// (#1107) Engine real usado. Para patterns sem lookaround eh
+    /// Fast(regex::Regex) (mesma instancia que `regex`); para patterns
+    /// com lookaround eh Fancy(fancy_regex::Regex).
+    pub engine: RegexEngine,
     pub global: bool,
     /// Flags JS canonicas em ordem (`d g i m s u y` apenas as setadas).
     pub flags: String,

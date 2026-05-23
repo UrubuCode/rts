@@ -119,23 +119,23 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
     let mr: MatchResultExt = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rts_rx)) => {
             if rts_rx.global {
-                let all: Vec<Vec<u8>> = rts_rx.regex
-                    .find_iter(&s_owned)
-                    .map(|m| m.as_str().as_bytes().to_vec())
+                let all: Vec<Vec<u8>> = rts_rx
+                    .engine
+                    .find_all(&s_owned)
+                    .into_iter()
+                    .map(|m| m.text.into_bytes())
                     .collect();
                 MatchResultExt::All(all)
             } else {
-                match rts_rx.regex.captures(&s_owned) {
+                match rts_rx.engine.captures(&s_owned) {
                     Some(caps) => {
-                        let index = caps.get(0).map(|m| m.start()).unwrap_or(0);
-                        let items: Vec<Option<Vec<u8>>> = (0..caps.len())
-                            .map(|i| caps.get(i).map(|m| m.as_str().as_bytes().to_vec()))
+                        let index = caps.groups.first().and_then(|o| o.as_ref()).map(|m| m.start).unwrap_or(0);
+                        let items: Vec<Option<Vec<u8>>> = caps
+                            .groups
+                            .iter()
+                            .map(|o| o.as_ref().map(|m| m.text.clone().into_bytes()))
                             .collect();
-                        let names: Vec<Option<String>> = rts_rx
-                            .regex
-                            .capture_names()
-                            .map(|n| n.map(|s| s.to_string()))
-                            .collect();
+                        let names = rts_rx.engine.capture_names();
                         MatchResultExt::First { items, index, names }
                     }
                     None => MatchResultExt::None,
@@ -206,7 +206,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_REGEX(
     };
     let s_owned = s.to_string();
     with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rx)) => rx.regex.find(&s_owned).map(|m| m.start() as i64).unwrap_or(-1),
+        Some(Entry::Regex(rx)) => rx.engine.find(&s_owned).map(|m| m.start as i64).unwrap_or(-1),
         _ => -1,
     })
 }
@@ -257,9 +257,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
     let out = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rx)) => {
             if rx.global {
-                Some(rx.regex.replace_all(&s_owned, repl_rust.as_str()).into_owned())
+                Some(rx.engine.replace_all(&s_owned, repl_rust.as_str()))
             } else {
-                Some(rx.regex.replace(&s_owned, repl_rust.as_str()).into_owned())
+                Some(rx.engine.replace_first(&s_owned, repl_rust.as_str()))
             }
         }
         _ => None,
@@ -339,29 +339,28 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
     let infos: Vec<MatchInfo> = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rts_rx)) => {
             let has_indices = rts_rx.flags.contains('d');
-            let names: Vec<Option<String>> = rts_rx
-                .regex
-                .capture_names()
-                .map(|n| n.map(|s| s.to_string()))
-                .collect();
-            rts_rx.regex.captures_iter(&s_owned).map(|caps| {
-                let groups: Vec<Option<String>> = (0..caps.len())
-                    .map(|i| caps.get(i).map(|m| m.as_str().to_string()))
+            let names: Vec<Option<String>> = rts_rx.engine.capture_names();
+            rts_rx.engine.captures_all(&s_owned).into_iter().map(|caps| {
+                let groups: Vec<Option<String>> = caps
+                    .groups
+                    .iter()
+                    .map(|o| o.as_ref().map(|m| m.text.clone()))
                     .collect();
                 let named: Vec<(String, Option<String>)> = names
                     .iter()
                     .enumerate()
                     .filter_map(|(i, n)| {
                         n.as_ref().map(|name| {
-                            (name.clone(), caps.get(i).map(|m| m.as_str().to_string()))
+                            (name.clone(), caps.groups.get(i).and_then(|o| o.as_ref()).map(|m| m.text.clone()))
                         })
                     })
                     .collect();
-                let idx = caps.get(0).map(|m| m.start()).unwrap_or(0);
+                let idx = caps.groups.first().and_then(|o| o.as_ref()).map(|m| m.start).unwrap_or(0);
                 let indices = if has_indices {
                     Some(
-                        (0..caps.len())
-                            .map(|i| caps.get(i).map(|m| (m.start(), m.end())))
+                        caps.groups
+                            .iter()
+                            .map(|o| o.as_ref().map(|m| (m.start, m.end)))
                             .collect::<Vec<_>>(),
                     )
                 } else { None };
@@ -451,28 +450,20 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
     // Coleta matches primeiro para nao ter borrow mutavel simultaneo.
     let matches: Vec<(usize, usize, Vec<String>)> = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rts_rx)) => {
-            if rts_rx.global {
-                rts_rx.regex.captures_iter(&s_owned).map(|caps| {
-                    let start = caps.get(0).unwrap().start();
-                    let end = caps.get(0).unwrap().end();
-                    let groups: Vec<String> = (0..caps.len())
-                        .map(|i| caps.get(i).map(|m| m.as_str().to_owned()).unwrap_or_default())
-                        .collect();
-                    (start, end, groups)
-                }).collect()
+            let caps_iter: Vec<_> = if rts_rx.global {
+                rts_rx.engine.captures_all(&s_owned)
             } else {
-                match rts_rx.regex.captures(&s_owned) {
-                    Some(caps) => {
-                        let start = caps.get(0).unwrap().start();
-                        let end = caps.get(0).unwrap().end();
-                        let groups: Vec<String> = (0..caps.len())
-                            .map(|i| caps.get(i).map(|m| m.as_str().to_owned()).unwrap_or_default())
-                            .collect();
-                        vec![(start, end, groups)]
-                    }
-                    None => Vec::new(),
-                }
-            }
+                rts_rx.engine.captures(&s_owned).map(|c| vec![c]).unwrap_or_default()
+            };
+            caps_iter.into_iter().map(|caps| {
+                let full = caps.groups.first().and_then(|o| o.clone()).unwrap();
+                let groups: Vec<String> = caps
+                    .groups
+                    .iter()
+                    .map(|o| o.as_ref().map(|m| m.text.clone()).unwrap_or_default())
+                    .collect();
+                (full.start, full.end, groups)
+            }).collect()
         }
         _ => Vec::new(),
     });
@@ -574,25 +565,22 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
     // \"a1b2c3\".split(/(\\d)/) -> [\"a\", \"1\", \"b\", \"2\", \"c\", \"3\", \"\"].
     let parts: Vec<Option<String>> = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rts_rx)) => {
-            let has_groups = rts_rx.regex.captures_len() > 1;
-            if !has_groups {
-                return rts_rx.regex.split(&s).take(lim).map(|p| Some(p.to_owned())).collect();
-            }
-            // Manual split com injecao de capture groups.
+            let has_groups = rts_rx.engine.captures_len() > 1;
+            let all_caps = rts_rx.engine.captures_all(&s);
+            // Manual split com (e sem) capture groups intercalados.
             let mut out: Vec<Option<String>> = Vec::new();
             let mut last_end = 0usize;
-            for caps in rts_rx.regex.captures_iter(&s) {
+            for caps in all_caps {
                 if out.len() >= lim { break; }
-                let full = caps.get(0).unwrap();
-                // segmento antes do match
-                out.push(Some(s[last_end..full.start()].to_owned()));
-                if out.len() >= lim { break; }
-                // capture groups (1..N) intercalados
-                for i in 1..caps.len() {
-                    if out.len() >= lim { break; }
-                    out.push(caps.get(i).map(|m| m.as_str().to_owned()));
+                let full = caps.groups.first().and_then(|o| o.clone()).unwrap();
+                out.push(Some(s[last_end..full.start].to_owned()));
+                if has_groups {
+                    for i in 1..caps.groups.len() {
+                        if out.len() >= lim { break; }
+                        out.push(caps.groups[i].as_ref().map(|m| m.text.clone()));
+                    }
                 }
-                last_end = full.end();
+                last_end = full.end;
             }
             if out.len() < lim {
                 out.push(Some(s[last_end..].to_owned()));
