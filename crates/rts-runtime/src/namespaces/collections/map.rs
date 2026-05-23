@@ -547,6 +547,20 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     if let Some(s) = err_field {
         return alloc_entry(Entry::String(s.into_bytes())) as i64;
     }
+    // (#1104) `e.constructor` em ErrorObj — JS spec: retorna ref a classe
+    // (TypeError/Error/etc) cujo `.name` eh o nome do construtor. RTS
+    // reify um Map sintetico com slot "name" para satisfazer o padrao
+    // comum `e.constructor.name`.
+    let ctor_name: Option<String> = with_entry(handle, |e| match e {
+        Some(Entry::ErrorObj { name, .. }) if key == "constructor" => Some(name.clone()),
+        _ => None,
+    });
+    if let Some(class_name) = ctor_name {
+        let mut m: IndexMap<String, i64> = IndexMap::new();
+        let name_h = alloc_entry(Entry::String(class_name.into_bytes())) as i64;
+        m.insert("name".to_string(), name_h);
+        return alloc_entry(Entry::Map(Box::new(m))) as i64;
+    }
     // (cross-runtime #97) Regex instance getters via MAP_GET_CHAIN: quando
     // `obj.re.source` chega aqui com handle de Entry::Regex, dispatch para
     // o getter builtin em vez de retornar 0.
