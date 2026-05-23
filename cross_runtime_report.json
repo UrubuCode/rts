@@ -612,7 +612,7 @@
   "status": "rts_diverge",
   "bun": "sum=5\niter=1,2\nsym=ok",
   "node": "sum=5\niter=1,2\nsym=ok",
-  "rts": "iter=C\nsym=null"
+  "rts": "iter=C\nsym=0"
 }
 ,
 {
@@ -660,7 +660,7 @@
   "status": "rts_diverge",
   "bun": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
   "node": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
-  "rts": "null eats bone\nnull moves (energy:null)\n0 learned sit\n0 learned shake\n0 performs shake\n0\n0 guides Alice\nnull eats kibble\nnull moves (energy:null)\n281474976710716\n562949953421341\ntrue\ntrue\ntrue"
+  "rts": "null eats bone\nnull moves (energy:0)\n0 learned sit\n0 learned shake\n0 performs shake\n0\n0 guides Alice\nnull eats kibble\nnull moves (energy:0)\n281474976710716\n562949953421341\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -1044,7 +1044,7 @@
   "status": "rts_diverge",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
   "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "counter=4:5\niife=12\nlet=null,1,2,\nvar=null,1,2,\nthis_arrow=null"
+  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nthis_arrow=0"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94448425959424 }\n{ n: 0, @@sym:281474976710669: 94448425959424 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94432273862656 }\n{ n: 0, @@sym:281474976710669: 94432273862656 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -2988,7 +2988,7 @@
   "status": "rts_diverge",
   "bun": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
   "node": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
-  "rts": "orig_len=null\nmoved_len=null"
+  "rts": "orig_len=0\nmoved_len=0"
 }
 ,
 {
