@@ -386,6 +386,17 @@ pub(crate) fn synthesize_class_fns(
                         let ann = ann.trim();
                         field_types.insert(prop.name.clone(), ValTy::from_annotation(ann));
                         field_class_names.insert(prop.name.clone(), ann.to_string());
+                    } else if let Some(init) = prop.initializer.as_ref() {
+                        // (cross-runtime #341) Sem anotacao, inferir do init:
+                        // `_v = true` => Bool. Sem isso, console.log(this._v)
+                        // imprime 1 em vez de "true".
+                        let inferred = crate::codegen::lower::analysis::types::infer_expr_ty(
+                            Some(init.as_ref()),
+                        );
+                        if matches!(inferred, ValTy::Bool) {
+                            field_types.insert(prop.name.clone(), ValTy::Bool);
+                            field_class_names.insert(prop.name.clone(), "boolean".to_string());
+                        }
                     }
                     if prop.modifiers.readonly {
                         readonly_fields.insert(prop.name.clone());
