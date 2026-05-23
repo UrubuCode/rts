@@ -277,9 +277,16 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
     let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let Some(s) = str_from_abi(s_ptr, s_len) else { return empty_vec(); };
     let s_owned = s.to_string();
-    type MatchInfo = (Vec<Option<String>>, Vec<(String, Option<String>)>, usize);
+    type MatchInfo = (
+        Vec<Option<String>>,
+        Vec<(String, Option<String>)>,
+        usize,
+        Option<Vec<Option<(usize, usize)>>>,
+        Vec<Option<String>>, // names em paralelo aos indices, para .groups
+    );
     let infos: Vec<MatchInfo> = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rts_rx)) => {
+            let has_indices = rts_rx.flags.contains('d');
             let names: Vec<Option<String>> = rts_rx
                 .regex
                 .capture_names()
@@ -299,12 +306,19 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
                     })
                     .collect();
                 let idx = caps.get(0).map(|m| m.start()).unwrap_or(0);
-                (groups, named, idx)
+                let indices = if has_indices {
+                    Some(
+                        (0..caps.len())
+                            .map(|i| caps.get(i).map(|m| (m.start(), m.end())))
+                            .collect::<Vec<_>>(),
+                    )
+                } else { None };
+                (groups, named, idx, indices, names.clone())
             }).collect()
         }
         _ => Vec::new(),
     });
-    let outer: Vec<i64> = infos.into_iter().map(|(groups, named, idx)| {
+    let outer: Vec<i64> = infos.into_iter().map(|(groups, named, idx, indices_opt, names)| {
         let mut map: IndexMap<String, i64> = IndexMap::new();
         for (i, opt) in groups.iter().enumerate() {
             let v = match opt {
@@ -331,6 +345,38 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
             alloc_entry(Entry::Map(Box::new(gmap))) as i64
         };
         map.insert("groups".to_string(), groups_v);
+        // (#1087) indices Map quando flag 'd' setada.
+        let indices_v = match indices_opt {
+            Some(vec) => {
+                let mut imap: IndexMap<String, i64> = IndexMap::new();
+                for (i, opt) in vec.iter().enumerate() {
+                    let pair_h: i64 = match opt {
+                        Some((s, e)) => alloc_entry(Entry::Vec(Box::new(vec![*s as i64, *e as i64]))) as i64,
+                        None => i64::MIN + 2,
+                    };
+                    imap.insert(i.to_string(), pair_h);
+                }
+                imap.insert("length".to_string(), vec.len() as i64);
+                let any_named = names.iter().any(|n| n.is_some());
+                let g_v: i64 = if any_named {
+                    let mut gmap: IndexMap<String, i64> = IndexMap::new();
+                    for (i, name_opt) in names.iter().enumerate() {
+                        if let Some(name) = name_opt {
+                            let pair_h: i64 = match vec.get(i).and_then(|o| *o) {
+                                Some((s, e)) => alloc_entry(Entry::Vec(Box::new(vec![s as i64, e as i64]))) as i64,
+                                None => i64::MIN + 2,
+                            };
+                            gmap.insert(name.clone(), pair_h);
+                        }
+                    }
+                    alloc_entry(Entry::Map(Box::new(gmap))) as i64
+                } else { i64::MIN + 2 };
+                imap.insert("groups".to_string(), g_v);
+                alloc_entry(Entry::Map(Box::new(imap))) as i64
+            }
+            None => i64::MIN + 2,
+        };
+        map.insert("indices".to_string(), indices_v);
         alloc_entry(Entry::Map(Box::new(map))) as i64
     }).collect();
     alloc_entry(Entry::Vec(Box::new(outer)))

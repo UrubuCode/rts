@@ -142,23 +142,73 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
         alloc_entry(Entry::Map(Box::new(gmap))) as i64
     };
     map.insert("groups".to_string(), groups_v);
-    // (#regex-d) indices: Vec<[start, end]> quando flag 'd' setada;
-    // undefined caso contrario. JSON.stringify renderiza como
-    // `[[s,e],[s,e],...]`.
-    let indices_v = match indices {
+    // (#regex-d / #1087) indices: Map-like com slots "0".."N",
+    // "length" e "groups" quando flag 'd' setada; undefined caso
+    // contrario. Slots [start, end] como Vec inner. JS spec espelha
+    // a forma do match (Array-like com prop extra "groups": Map<name,
+    // [start,end]>).
+    let indices_v = match indices.clone() {
         Some(vec) => {
-            let mut outer: Vec<i64> = Vec::with_capacity(vec.len());
-            for opt in vec {
+            let mut imap: IndexMap<String, i64> = IndexMap::new();
+            for (i, opt) in vec.iter().enumerate() {
                 let pair_h: i64 = match opt {
                     Some((s, e)) => {
-                        let pair = vec![s as i64, e as i64];
+                        let pair = vec![*s as i64, *e as i64];
                         alloc_entry(Entry::Vec(Box::new(pair))) as i64
                     }
                     None => i64::MIN + 2,
                 };
-                outer.push(pair_h);
+                imap.insert(i.to_string(), pair_h);
             }
-            alloc_entry(Entry::Vec(Box::new(outer))) as i64
+            imap.insert("length".to_string(), vec.len() as i64);
+            // groups: Map<name, [start, end]> espelhando os named groups
+            // do match. Vazio quando regex nao tem named captures.
+            let g_v: i64 = {
+                // Recalcula mapping name -> indice numerico do capture
+                // (rx.captures_names() em sincronia com vec).
+                let g_vec_opt: Option<Vec<(String, Option<(usize, usize)>)>> =
+                    with_entry(handle, |entry| match entry {
+                        Some(Entry::Regex(rx)) => {
+                            let names: Vec<Option<String>> = rx
+                                .regex
+                                .capture_names()
+                                .map(|o| o.map(|s| s.to_string()))
+                                .collect();
+                            let mut out: Vec<(String, Option<(usize, usize)>)> = Vec::new();
+                            for (i, name_opt) in names.iter().enumerate() {
+                                if let Some(name) = name_opt {
+                                    let pair: Option<(usize, usize)> =
+                                        vec.get(i).and_then(|o| *o);
+                                    out.push((name.clone(), pair));
+                                }
+                            }
+                            Some(out)
+                        }
+                        _ => None,
+                    });
+                if let Some(g_pairs) = g_vec_opt {
+                    if g_pairs.is_empty() {
+                        i64::MIN + 2
+                    } else {
+                        let mut gmap: IndexMap<String, i64> = IndexMap::new();
+                        for (name, opt) in g_pairs {
+                            let pair_h: i64 = match opt {
+                                Some((s, e)) => {
+                                    let pair = vec![s as i64, e as i64];
+                                    alloc_entry(Entry::Vec(Box::new(pair))) as i64
+                                }
+                                None => i64::MIN + 2,
+                            };
+                            gmap.insert(name, pair_h);
+                        }
+                        alloc_entry(Entry::Map(Box::new(gmap))) as i64
+                    }
+                } else {
+                    i64::MIN + 2
+                }
+            };
+            imap.insert("groups".to_string(), g_v);
+            alloc_entry(Entry::Map(Box::new(imap))) as i64
         }
         None => i64::MIN + 2,
     };
