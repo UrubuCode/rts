@@ -148,7 +148,22 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_CREATE(proto: u64) -> u64 {
     with_map_mut(h, (), |m| {
         m.insert("__proto__".to_string(), proto as i64);
     });
+    // (#1080-format) Object.create(null) cria objeto sem prototype.
+    // Marca para preservar a semantica mesmo se user setar __proto__
+    // depois (em null-proto objects, __proto__ vira regular property).
+    if proto == 0 {
+        null_proto_set().lock().unwrap().insert(h);
+    }
     h
+}
+
+fn null_proto_set() -> &'static std::sync::Mutex<std::collections::HashSet<u64>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u64>>> = std::sync::OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+pub fn is_null_proto_handle(handle: u64) -> bool {
+    null_proto_set().lock().unwrap().contains(&handle)
 }
 
 /// (#162) `Object.create(proto, descriptors)` 2-arg variant — aplica
@@ -1353,6 +1368,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (#218 phase2) Proxy: trap `getPrototypeOf` ou forward.
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
         return crate::namespaces::globals::proxy::ops::dispatch_get_proto(target, handler);
+    }
+    // (#1080-format) Object.create(null) handles tem proto = null mesmo
+    // que .__proto__ slot tenha sido sobrescrito pelo user (regular prop).
+    if is_null_proto_handle(handle) {
+        return 0;
     }
     // (#1080) Sentinel proto strings: JS spec:
     // - Object.getPrototypeOf(Object.prototype) === null (depth termina)
