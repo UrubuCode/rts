@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|macro:timeout"
+  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=timeout|immediate|micro"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -2217,10 +2217,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined"
+  "rts": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\nnull\nnull\nnull\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined"
 }
 ,
 {
@@ -2233,10 +2233,10 @@
 ,
 {
   "name": "70_regex_indices",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "indices=[[1,4],[2,3],[3,4]]",
   "node": "indices=[[1,4],[2,3],[3,4]]",
-  "rts": "indices={\"0\":[1,4],\"1\":[2,3],\"2\":[3,4],\"length\":3}"
+  "rts": "indices=[[1,4],[2,3],[3,4]]"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94161563443200 }\n{ n: 0, @@sym:281474976710669: 94161563443200 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94230412324864 }\n{ n: 0, @@sym:281474976710669: 94230412324864 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":291,"rts_diverge":23,"bun_node_diverge":17,"errors":57,"rejected":0}}
+],"summary":{"total":388,"pass":292,"rts_diverge":23,"bun_node_diverge":16,"errors":57,"rejected":0}}
