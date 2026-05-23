@@ -605,6 +605,12 @@ fn lift_arrows_in_expr(
                                                 },
                                             ))),
                                         })
+                                    } else if is_coerce_ident {
+                                        // (#1137 follow-up) Coerce idents (String/Number/Boolean)
+                                        // ja' retornam tipo certo. `String(p) + 0` faria string
+                                        // concat ("10" + 0 = "100"), quebrando map(String). Skip
+                                        // o wrap aritmetico — retorna inner_call direto.
+                                        inner_call
                                     } else {
                                         // `cb(p) + 0` quebra TCO e forca conversao numerica
                                         // (user fn retorna f64, lifted ABI retorna i64).
