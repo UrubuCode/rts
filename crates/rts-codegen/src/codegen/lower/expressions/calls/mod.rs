@@ -1465,19 +1465,44 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // Nota: ownKeys retorna sorted (mesma limitacao de Object.keys).
             if let Some(method) = qualified.strip_prefix("Reflect.") {
                 match method {
-                    "get" if call.args.len() == 2 => {
-                        // Returna I64 (slot raw). Slots podem carregar handle
-                        // de string/map ou int direto; sem analise de tipo no
-                        // call site, deixamos o caller decidir via cast/use.
+                    "get" if call.args.len() >= 2 && call.args.len() <= 3 => {
+                        // (cross-runtime #53) Usa MAP_GET_KH que aceita key
+                        // como string handle (em vez de StrPtr ptr+len que
+                        // requer literal/ann conhecido em compile-time).
+                        // Cobre `Reflect.get(t, prop)` em fn body onde prop
+                        // eh param Handle (string em runtime).
+                        // 3o arg (receiver) ignorado.
                         // (#795) Marca como ambiguo pra TPL_COERCE_AUTO
-                        // resolver bool sentinels (i64::MIN/MIN+1) e string
-                        // handles em concat (`"" + Reflect.get(d, "writable")`).
-                        let tv = lower_ns_call(ctx, "collections.map_get", call)?;
-                        ctx.var_member_call_values.insert(tv.val);
-                        return Ok(tv);
+                        // resolver bool sentinels e string handles em concat.
+                        let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                        let get_fn = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_GET_KH",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(get_fn, &[obj_h, key_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        ctx.var_member_call_values.insert(v);
+                        return Ok(TypedVal::new(v, ValTy::I64));
                     }
                     "has" if call.args.len() == 2 => {
-                        return lower_ns_call(ctx, "collections.map_has", call);
+                        // (cross-runtime #53) Usa OBJ_HAS que aceita key handle
+                        // (em vez de StrPtr ptr+len). Tambem dispatch Proxy.
+                        let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                        let has_fn = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_OBJ_HAS",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(has_fn, &[obj_h, key_h]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::Bool));
                     }
                     "ownKeys" if call.args.len() == 1 => {
                         return lower_ns_call(ctx, "collections.map_keys", call);
@@ -1492,9 +1517,23 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         let t = ctx.builder.ins().iconst(cl::I64, 1);
                         return Ok(TypedVal::new(t, ValTy::Bool));
                     }
-                    "set" if call.args.len() == 3 => {
-                        // map_set eh Void. Faz a chamada e retorna true.
-                        let _ = lower_ns_call(ctx, "collections.map_set", call)?;
+                    "set" if call.args.len() == 3 || call.args.len() == 4 => {
+                        // (cross-runtime #53) OBJ_SET aceita key handle (vs
+                        // StrPtr) e dispatcha Proxy `set` trap.
+                        // 4o arg (receiver) eh ignorado — RTS v0 nao tem
+                        // receiver-aware getter/setter dispatch via Proxy.
+                        let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                        let val_tv = lower_expr(ctx, &call.args[2].expr)?;
+                        let val = ctx.coerce_to_i64(val_tv).val;
+                        let set_fn = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_OBJ_SET",
+                            &[cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(set_fn, &[obj_h, key_h, val]);
                         let t = ctx.builder.ins().iconst(cl::I64, 1);
                         return Ok(TypedVal::new(t, ValTy::Bool));
                     }

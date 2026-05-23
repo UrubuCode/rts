@@ -402,6 +402,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: u64, key_h: u64) -> 
     let Some(key) = key_handle_to_string(key_h) else {
         return 0;
     };
+    // (cross-runtime #340/#53) Proxy: dispatch `get` trap antes do
+    // path raw — consistente com MAP_HAS/MAP_GET/MAP_SET. Sem isso,
+    // `Reflect.get(proxy, key)` em fn body via codegen MAP_GET_KH
+    // pulava o trap.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h) {
+        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, &key);
+    }
     // Vec path: parse key como array index.
     let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
