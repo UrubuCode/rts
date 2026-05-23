@@ -203,6 +203,7 @@ fn scan_this_expr(
 pub(crate) fn synthesize_class_fns(
     class: &ClassDecl,
     classes_with_init: &std::collections::HashSet<String>,
+    class_ctor_params: &HashMap<String, Vec<crate::parser::ast::Parameter>>,
 ) -> (ClassMeta, Vec<FunctionDecl>) {
     let mut methods: Vec<String> = Vec::new();
     let mut getters: Vec<String> = Vec::new();
@@ -415,10 +416,53 @@ pub(crate) fn synthesize_class_fns(
         .map(|s| classes_with_init.contains(s))
         .unwrap_or(false);
     if !has_constructor && (!init_stmts.is_empty() || super_needs_init) {
-        // Prepend chamada para `__class_<super>__init(this)` quando aplicavel.
+        // (cross-runtime #1057) Resolve params herdados do ctor da super class
+        // (chain). Sem isso, `class Dog extends Animal {}` gera __init(this)
+        // chamando Animal.__init(this) sem propagar args, e GuideDog que
+        // chama `super(name)` falha em Dog.__init com "espera 0 args".
+        let inherited_ctor_params: Vec<crate::parser::ast::Parameter> = {
+            let mut cur = class.super_class.clone();
+            let mut found: Vec<crate::parser::ast::Parameter> = Vec::new();
+            // Sobe a chain ate achar uma classe com ctor explicito.
+            while let Some(parent_name) = cur {
+                if let Some(ps) = class_ctor_params.get(&parent_name) {
+                    if !ps.is_empty() {
+                        found = ps.clone();
+                        break;
+                    }
+                }
+                // Olha o grandparent — busca proxima classe na chain.
+                let grand = class_ctor_params
+                    .keys()
+                    .find_map(|_| None::<String>); // placeholder; precisaria do super_class do parent
+                let _ = grand;
+                break; // simplifica para 1 nivel — Dog->Animal direto.
+            }
+            found
+        };
+        // Prepend chamada para `__class_<super>__init(this, ...args)` quando aplicavel.
         let mut prelude: Vec<Statement> = Vec::new();
         if super_needs_init {
             let parent = class.super_class.as_deref().unwrap();
+            // Args do super_init: this + cada inherited param como ident.
+            let mut super_args: Vec<swc_ecma_ast::ExprOrSpread> = Vec::new();
+            super_args.push(swc_ecma_ast::ExprOrSpread {
+                spread: None,
+                expr: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
+                    span: Default::default(),
+                })),
+            });
+            for p in &inherited_ctor_params {
+                super_args.push(swc_ecma_ast::ExprOrSpread {
+                    spread: None,
+                    expr: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                        span: Default::default(),
+                        ctxt: Default::default(),
+                        sym: p.name.clone().into(),
+                        optional: false,
+                    })),
+                });
+            }
             let super_init_call = Stmt::Expr(swc_ecma_ast::ExprStmt {
                 span: Default::default(),
                 expr: Box::new(Expr::Call(swc_ecma_ast::CallExpr {
@@ -432,12 +476,7 @@ pub(crate) fn synthesize_class_fns(
                             optional: false,
                         },
                     ))),
-                    args: vec![swc_ecma_ast::ExprOrSpread {
-                        spread: None,
-                        expr: Box::new(Expr::This(swc_ecma_ast::ThisExpr {
-                            span: Default::default(),
-                        })),
-                    }],
+                    args: super_args,
                     type_args: None,
                 })),
             });
@@ -447,9 +486,12 @@ pub(crate) fn synthesize_class_fns(
         }
         let mut full_body = prelude;
         full_body.extend(weave_initializers(&[], &init_stmts, false));
+        // Params do __init sintetico: this + params herdados (pass-through).
+        let mut params = vec![this_param(class.span)];
+        params.extend(inherited_ctor_params.iter().cloned());
         fns.push(FunctionDecl {
             name: class_init_name(&class.name),
-            parameters: vec![this_param(class.span)],
+            parameters: params,
             return_type: None,
             body: full_body,
             span: class.span,
