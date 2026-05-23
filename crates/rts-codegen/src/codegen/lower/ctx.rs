@@ -1213,11 +1213,22 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             _ => {
                 let i64v = self.coerce_to_i64(tv).val;
                 let zero = self.builder.ins().iconst(cl::I64, 0);
-                self.builder.ins().icmp(
+                // (cross-runtime #1133) Sentinel undefined (i64::MIN+2) deve
+                // ser falsy em branch context. Sem isso `while (cur?.next)`
+                // / `if (x?.missing)` sao sempre truthy quando o lado direito
+                // eh undefined. JS spec: undefined eh falsy.
+                let undef = self.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                let not_zero = self.builder.ins().icmp(
                     cranelift_codegen::ir::condcodes::IntCC::NotEqual,
                     i64v,
                     zero,
-                )
+                );
+                let not_undef = self.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    i64v,
+                    undef,
+                );
+                self.builder.ins().band(not_zero, not_undef)
             }
         }
     }
