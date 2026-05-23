@@ -1508,12 +1508,21 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         return lower_ns_call(ctx, "collections.map_keys", call);
                     }
                     "deleteProperty" if call.args.len() == 2 => {
+                        // (cross-runtime #53) MAP_DELETE_AUTO aceita key handle
+                        // (vs StrPtr) e dispatcha Proxy `deleteProperty` trap.
                         // JS spec: Reflect.deleteProperty retorna true tanto
                         // para chave existente quanto inexistente (so' falha
                         // em props nao-configurable, que RTS v0 nao distingue).
-                        // map_delete devolve 1/0 (existente/inexistente);
-                        // forcamos true e descartamos o resultado.
-                        let _ = lower_ns_call(ctx, "collections.map_delete", call)?;
+                        let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
+                        let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                        let key_tv = lower_expr(ctx, &call.args[1].expr)?;
+                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                        let del_fn = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        ctx.builder.ins().call(del_fn, &[obj_h, key_h]);
                         let t = ctx.builder.ins().iconst(cl::I64, 1);
                         return Ok(TypedVal::new(t, ValTy::Bool));
                     }
