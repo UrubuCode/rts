@@ -846,11 +846,33 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
     /// Hoje so' Bool precisa: pode chegar como i8 (icmp result) e variable
     /// e' i64 — uextend implicito.
     fn normalize_to_var_ty(&mut self, val: Value, ty: ValTy) -> Value {
-        if matches!(ty, ValTy::Bool) {
-            let v_ty = self.builder.func.dfg.value_type(val);
-            if v_ty == cl::I8 {
-                return self.builder.ins().uextend(cl::I64, val);
-            }
+        let v_ty = self.builder.func.dfg.value_type(val);
+        let expected = ty.cl_type();
+        if v_ty == expected {
+            // Caso comum: tipos batem (incl. I64/Handle/U64 todos cl::I64).
+            return val;
+        }
+        if matches!(ty, ValTy::Bool) && v_ty == cl::I8 {
+            return self.builder.ins().uextend(cl::I64, val);
+        }
+        // (cross-runtime #372) Var declarada F64 mas RHS eh int (ex: literal
+        // `b = 20` em `let b: f64`). Converte via fcvt.
+        if expected == cl::F64 && v_ty == cl::I64 {
+            return self.builder.ins().fcvt_from_sint(cl::F64, val);
+        }
+        if expected == cl::F64 && v_ty == cl::I32 {
+            let as_i64 = self.builder.ins().sextend(cl::I64, val);
+            return self.builder.ins().fcvt_from_sint(cl::F64, as_i64);
+        }
+        // F64 -> I64 (truncate): caso reverso, atribuicao de F64 a var int.
+        if expected == cl::I64 && v_ty == cl::F64 {
+            return self.builder.ins().fcvt_to_sint_sat(cl::I64, val);
+        }
+        if expected == cl::I32 && v_ty == cl::I64 {
+            return self.builder.ins().ireduce(cl::I32, val);
+        }
+        if expected == cl::I64 && v_ty == cl::I32 {
+            return self.builder.ins().sextend(cl::I64, val);
         }
         val
     }

@@ -595,12 +595,33 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             decl.init.as_deref(),
             Some(swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Null(_)))
         );
+        // (cross-runtime #372) Para `let` (mutavel) sem anotacao cujo init
+        // eh literal int (I32/I64), promover para F64. Justifica porque
+        // reatribuicao com expressao F64 (ex: `k = c + 273.15`) coerce
+        // f64 -> int via fcvt_to_sint_sat perdendo a parte decimal. JS
+        // spec trata todos os numbers como f64. `const` fica com tipo
+        // inferido (sem reatribuicao). `var` segue mesma regra de let.
+        let is_mutable_kind = matches!(
+            var_decl.kind,
+            swc_ecma_ast::VarDeclKind::Let | swc_ecma_ast::VarDeclKind::Var
+        );
+        let init_is_int_lit = matches!(
+            decl.init.as_deref(),
+            Some(swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(_)))
+        ) && matches!(inferred_ty, ValTy::I32 | ValTy::I64);
+        let promote_to_f64 = is_mutable_kind
+            && init_is_int_lit
+            && ann_ty.is_none()
+            && !init_is_undef_or_null_literal;
+
         let ty = if ctx.module_scope && ctx.has_global(&name) {
             ctx.var_ty(&name).unwrap_or(ann_ty.unwrap_or(inferred_ty))
         } else if init_is_undef_or_null_literal {
             // Mantem I64 para preservar sentinela; coerce_to_f64 do MIN+2
             // arredondaria para -9.2e18 e ??= falharia.
             ValTy::I64
+        } else if promote_to_f64 {
+            ValTy::F64
         } else {
             ann_ty.unwrap_or(inferred_ty)
         };
