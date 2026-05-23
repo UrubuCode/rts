@@ -182,7 +182,40 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
                 ))
             }
         },
-        UnaryOp::Plus => Ok(operand),
+        UnaryOp::Plus => {
+            // (cross-runtime #1069) JS spec: unary `+` faz ToNumber.
+            // Sentinels: true=1, false=0, null=0, undefined=NaN.
+            // Handle string: parse numerico via NUM_COERCE.
+            // I64/F64/I32: passthrough (ja sao numbers).
+            match operand.ty {
+                ValTy::Handle => {
+                    let coerce_fn = ctx.get_extern(
+                        "__RTS_FN_RT_TO_NUMBER",
+                        &[cl::I64],
+                        Some(cl::F64),
+                    )?;
+                    let inst = ctx.builder.ins().call(coerce_fn, &[operand.val]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    Ok(TypedVal::new(v, ValTy::F64))
+                }
+                ValTy::Bool => {
+                    // Bool i64 0/1 ja eh numero.
+                    Ok(TypedVal::new(operand.val, ValTy::I64))
+                }
+                ValTy::I64 | ValTy::U64 => {
+                    // Pode ser sentinel (null/undefined). Routine via TO_NUMBER.
+                    let coerce_fn = ctx.get_extern(
+                        "__RTS_FN_RT_TO_NUMBER",
+                        &[cl::I64],
+                        Some(cl::F64),
+                    )?;
+                    let inst = ctx.builder.ins().call(coerce_fn, &[operand.val]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    Ok(TypedVal::new(v, ValTy::F64))
+                }
+                _ => Ok(operand),
+            }
+        }
         UnaryOp::Bang => {
             use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
             // (#550) Handle: !handle === true quando handle == 0 OU handle
