@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -1433,10 +1433,10 @@
 ,
 {
   "name": "338_bundler_module_patterns",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
   "node": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
-  "rts": "5\n20\n3.14159\n1\n1\nnull\nnull\ntrue\nworld"
+  "rts": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld"
 }
 ,
 {
@@ -1732,7 +1732,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=42\nkeys=a\nb=10\ngetter=5"
+  "rts": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":277,"rts_diverge":21,"bun_node_diverge":16,"errors":74,"rejected":0}}
+],"summary":{"total":388,"pass":278,"rts_diverge":19,"bun_node_diverge":17,"errors":74,"rejected":0}}
