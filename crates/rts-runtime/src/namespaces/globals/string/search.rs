@@ -108,7 +108,11 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
     };
     let s_owned = s.to_string();
     enum MatchResultExt {
-        First { items: Vec<Vec<u8>>, index: usize },
+        First {
+            items: Vec<Option<Vec<u8>>>,
+            index: usize,
+            names: Vec<Option<String>>,
+        },
         All(Vec<Vec<u8>>),
         None,
     }
@@ -124,10 +128,15 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
                 match rts_rx.regex.captures(&s_owned) {
                     Some(caps) => {
                         let index = caps.get(0).map(|m| m.start()).unwrap_or(0);
-                        let items: Vec<Vec<u8>> = (0..caps.len())
-                            .map(|i| caps.get(i).map(|m| m.as_str().as_bytes().to_vec()).unwrap_or_default())
+                        let items: Vec<Option<Vec<u8>>> = (0..caps.len())
+                            .map(|i| caps.get(i).map(|m| m.as_str().as_bytes().to_vec()))
                             .collect();
-                        MatchResultExt::First { items, index }
+                        let names: Vec<Option<String>> = rts_rx
+                            .regex
+                            .capture_names()
+                            .map(|n| n.map(|s| s.to_string()))
+                            .collect();
+                        MatchResultExt::First { items, index, names }
                     }
                     None => MatchResultExt::None,
                 }
@@ -136,18 +145,39 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
         _ => MatchResultExt::None,
     });
     match mr {
-        MatchResultExt::First { items, index } => {
+        MatchResultExt::First { items, index, names } => {
             if items.is_empty() { return 0; }
-            // Retorna Map com chaves "0","1",... + "index" + "input" + "length".
+            // Retorna Map com chaves "0","1",... + "index" + "input" + "length" + "groups".
             let mut map: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
-            for (i, bytes) in items.iter().enumerate() {
-                let h = alloc_entry(Entry::String(bytes.clone())) as i64;
+            for (i, opt) in items.iter().enumerate() {
+                let h: i64 = match opt {
+                    Some(bytes) => alloc_entry(Entry::String(bytes.clone())) as i64,
+                    None => i64::MIN + 2,
+                };
                 map.insert(i.to_string(), h);
             }
             map.insert("length".to_string(), items.len() as i64);
             map.insert("index".to_string(), index as i64);
             let input_h = alloc_entry(Entry::String(s_owned.into_bytes())) as i64;
             map.insert("input".to_string(), input_h);
+            // (#1086) groups: Map<name, string|undefined> ou undefined.
+            let any_named = names.iter().any(|n| n.is_some());
+            let groups_v: i64 = if !any_named {
+                i64::MIN + 2
+            } else {
+                let mut gmap: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+                for (i, n) in names.iter().enumerate() {
+                    if let Some(name) = n {
+                        let v: i64 = match items.get(i).and_then(|o| o.as_ref()) {
+                            Some(bytes) => alloc_entry(Entry::String(bytes.clone())) as i64,
+                            None => i64::MIN + 2,
+                        };
+                        gmap.insert(name.clone(), v);
+                    }
+                }
+                alloc_entry(Entry::Map(Box::new(gmap))) as i64
+            };
+            map.insert("groups".to_string(), groups_v);
             alloc_entry(Entry::Map(Box::new(map)))
         }
         MatchResultExt::All(items) => {
@@ -201,13 +231,35 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
         Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
         _ => None,
     }).unwrap_or_default();
+    // (#1086) JS spec: `$<name>` interpola o named capture group; Rust
+    // regex crate usa `${name}`. Converte sintaxe antes de chamar replace.
+    fn js_to_rust_replacement(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'$' && i + 1 < bytes.len() && bytes[i + 1] == b'<' {
+                if let Some(end) = s[i + 2..].find('>') {
+                    out.push_str("${");
+                    out.push_str(&s[i + 2..i + 2 + end]);
+                    out.push('}');
+                    i = i + 2 + end + 1;
+                    continue;
+                }
+            }
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+        out
+    }
+    let repl_rust = js_to_rust_replacement(&repl);
 
     let out = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rx)) => {
             if rx.global {
-                Some(rx.regex.replace_all(&s_owned, repl.as_str()).into_owned())
+                Some(rx.regex.replace_all(&s_owned, repl_rust.as_str()).into_owned())
             } else {
-                Some(rx.regex.replace(&s_owned, repl.as_str()).into_owned())
+                Some(rx.regex.replace(&s_owned, repl_rust.as_str()).into_owned())
             }
         }
         _ => None,
@@ -517,15 +569,44 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
     });
     let Some(s) = s_opt else { return alloc_entry(Entry::Vec(Box::new(Vec::new()))); };
     let lim = if limit < 0 { usize::MAX } else { limit as usize };
-    let parts: Vec<String> = with_entry(regex_handle, |e| match e {
+    // (#1086) JS spec: split com regex que tem capture groups inclui os
+    // matches dos grupos no resultado, intercalados com as partes. Ex:
+    // \"a1b2c3\".split(/(\\d)/) -> [\"a\", \"1\", \"b\", \"2\", \"c\", \"3\", \"\"].
+    let parts: Vec<Option<String>> = with_entry(regex_handle, |e| match e {
         Some(Entry::Regex(rts_rx)) => {
-            rts_rx.regex.split(&s).take(lim).map(|p| p.to_owned()).collect()
+            let has_groups = rts_rx.regex.captures_len() > 1;
+            if !has_groups {
+                return rts_rx.regex.split(&s).take(lim).map(|p| Some(p.to_owned())).collect();
+            }
+            // Manual split com injecao de capture groups.
+            let mut out: Vec<Option<String>> = Vec::new();
+            let mut last_end = 0usize;
+            for caps in rts_rx.regex.captures_iter(&s) {
+                if out.len() >= lim { break; }
+                let full = caps.get(0).unwrap();
+                // segmento antes do match
+                out.push(Some(s[last_end..full.start()].to_owned()));
+                if out.len() >= lim { break; }
+                // capture groups (1..N) intercalados
+                for i in 1..caps.len() {
+                    if out.len() >= lim { break; }
+                    out.push(caps.get(i).map(|m| m.as_str().to_owned()));
+                }
+                last_end = full.end();
+            }
+            if out.len() < lim {
+                out.push(Some(s[last_end..].to_owned()));
+            }
+            out
         }
-        _ => vec![s.clone()],
+        _ => vec![Some(s.clone())],
     });
     let vec_h = unsafe { __RTS_FN_NS_COLLECTIONS_VEC_NEW() };
     for part in parts {
-        let h = alloc_str(&part) as i64;
+        let h: i64 = match part {
+            Some(p) => alloc_str(&p) as i64,
+            None => i64::MIN + 2, // undefined sentinel para grupos nao-participantes
+        };
         unsafe { __RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec_h, h) };
     }
     vec_h
