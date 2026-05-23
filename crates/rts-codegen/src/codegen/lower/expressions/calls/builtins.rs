@@ -1012,6 +1012,11 @@ pub(super) fn lower_console_call(
         &[cl::I64],
         Some(cl::I64),
     )?;
+    let num_bias = ctx.get_extern(
+        "__RTS_FN_RT_TPL_COERCE_NUM_BIAS",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
     for arg in &call.args {
         if arg.spread.is_some() {
             return Err(anyhow!("spread not supported in console.* args"));
@@ -1024,12 +1029,25 @@ pub(super) fn lower_console_call(
         // (#573) U64 tambem pode ser handle ambiguo (ex: JSON.parse retorno
         // de '42' eh i64 raw com tipo U64). Auto-coerce decide em runtime.
         let needs_auto = matches!(tv.ty, ValTy::Handle | ValTy::U64) && !is_known_str;
-        let h = ctx.coerce_to_handle(tv)?.val;
-        let h = if needs_auto {
-            let inst = ctx.builder.ins().call(auto_coerce, &[h]);
+        // (cross-runtime #335/#1056) I64 marcado var_member_call_values (ex:
+        // `obj.field`, `getter()`, member call result) — coerce com bias
+        // numerico: value=0 vira "0" em vez de "null" (TPL_COERCE_AUTO).
+        // Casos legitimos de `null` continuam cobertos via sentinel `i64::MIN+3`.
+        let needs_num_bias = matches!(tv.ty, ValTy::I64)
+            && ctx.var_member_call_values.contains(&tv.val)
+            && !is_known_str;
+        let h = if needs_num_bias {
+            let val_i64 = ctx.coerce_to_i64(tv).val;
+            let inst = ctx.builder.ins().call(num_bias, &[val_i64]);
             ctx.builder.inst_results(inst)[0]
         } else {
-            h
+            let h0 = ctx.coerce_to_handle(tv)?.val;
+            if needs_auto {
+                let inst = ctx.builder.ins().call(auto_coerce, &[h0]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                h0
+            }
         };
         acc = Some(match acc {
             None => h,
