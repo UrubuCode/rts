@@ -269,6 +269,10 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
             return ctx.emit_str_handle(b"function");
         }
         let is_js_global = matches!(name, "NaN" | "Infinity" | "undefined");
+        // globalThis e' "object" em JS.
+        if name == "globalThis" {
+            return ctx.emit_str_handle(b"object");
+        }
         if !is_js_global && ctx.read_local(name).is_none() {
             return ctx.emit_str_handle(b"undefined");
         }
