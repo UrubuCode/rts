@@ -665,6 +665,27 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             }
         }
     }
+    // (cross-runtime #1079) `globalThis.X` em posicao de valor — re-lower
+    // como ident solo `X`. Cobre identidade (globalThis.Array === Array),
+    // chamadas (globalThis.parseInt("42")), reflexao.
+    if let Expr::Ident(obj_id) = m.obj.as_ref() {
+        if obj_id.sym.as_str() == "globalThis" {
+            if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
+                let n = prop.sym.as_str();
+                // So' redireciona se 'n' nao for var local capturando o nome.
+                if ctx.read_local(n).is_none() {
+                    let synth = Expr::Ident(swc_ecma_ast::Ident {
+                        span: prop.span,
+                        ctxt: Default::default(),
+                        sym: prop.sym.clone(),
+                        optional: false,
+                    });
+                    return super::lower_expr(ctx, &synth);
+                }
+            }
+        }
+    }
+
     // (#162/155) `Object.prototype` / `Array.prototype` — referencia ao
     // prototype singleton da classe global. Sem suporte completo a prototype
     // chain ainda; retorna handle de string sentinel "[<class>.prototype]"
