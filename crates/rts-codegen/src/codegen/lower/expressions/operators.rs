@@ -1257,6 +1257,20 @@ fn promote_numeric(
     cranelift_codegen::ir::Value,
     ValTy,
 )> {
+    // (#1069) JS spec para -, *, /, %, **: operandos sao coerced via
+    // ToNumber. Se algum lado eh Handle (string), aplica Number(handle)
+    // em runtime via __RTS_FN_RT_TO_NUMBER e promove F64.
+    let handle_to_f64 = |ctx: &mut FnCtx, tv: TypedVal| -> Result<cranelift_codegen::ir::Value> {
+        let h = ctx.coerce_to_i64(tv).val;
+        let f = ctx.get_extern("__RTS_FN_GL_NUMBER_FROM_STR", &[cl::I64], Some(cl::F64))?;
+        let inst = ctx.builder.ins().call(f, &[h]);
+        Ok(ctx.builder.inst_results(inst)[0])
+    };
+    if matches!(lhs.ty, ValTy::Handle) || matches!(rhs.ty, ValTy::Handle) {
+        let lf = if matches!(lhs.ty, ValTy::Handle) { handle_to_f64(ctx, lhs)? } else { to_f64(ctx, lhs) };
+        let rf = if matches!(rhs.ty, ValTy::Handle) { handle_to_f64(ctx, rhs)? } else { to_f64(ctx, rhs) };
+        return Ok((lf, rf, ValTy::F64));
+    }
     if matches!(lhs.ty, ValTy::F64) || matches!(rhs.ty, ValTy::F64) {
         return Ok((to_f64(ctx, lhs), to_f64(ctx, rhs), ValTy::F64));
     }
@@ -1461,8 +1475,19 @@ fn lower_div(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> 
     // Promovemos ambos os lados a f64 e fazemos fdiv. IEEE-754 cobre
     // divisor 0 naturalmente (Inf/-Inf/NaN), entao nao precisamos do
     // guard de #296 aqui.
-    let lf = to_f64(ctx, lhs);
-    let rf = to_f64(ctx, rhs);
+    // (#1069) Handle (string) coerce via Number(s) antes de to_f64.
+    let lf = if matches!(lhs.ty, ValTy::Handle) {
+        let h = ctx.coerce_to_i64(lhs).val;
+        let f = ctx.get_extern("__RTS_FN_GL_NUMBER_FROM_STR", &[cl::I64], Some(cl::F64))?;
+        let inst = ctx.builder.ins().call(f, &[h]);
+        ctx.builder.inst_results(inst)[0]
+    } else { to_f64(ctx, lhs) };
+    let rf = if matches!(rhs.ty, ValTy::Handle) {
+        let h = ctx.coerce_to_i64(rhs).val;
+        let f = ctx.get_extern("__RTS_FN_GL_NUMBER_FROM_STR", &[cl::I64], Some(cl::F64))?;
+        let inst = ctx.builder.ins().call(f, &[h]);
+        ctx.builder.inst_results(inst)[0]
+    } else { to_f64(ctx, rhs) };
     Ok(TypedVal::new(ctx.builder.ins().fdiv(lf, rf), ValTy::F64))
 }
 
