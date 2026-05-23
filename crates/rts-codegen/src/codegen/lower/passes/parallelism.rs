@@ -70,7 +70,19 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
                             &m.prop,
                             MemberProp::Ident(p) if matches!(p.sym.as_str(), "from" | "of")
                         );
-                        prop_is_array_returning || obj_is_array_static
+                        // (#1101) Object.entries/keys/values retornam Vec.
+                        let obj_is_object_static = matches!(
+                            m.obj.as_ref(),
+                            Expr::Ident(id) if id.sym.as_str() == "Object"
+                        ) && matches!(
+                            &m.prop,
+                            MemberProp::Ident(p) if matches!(
+                                p.sym.as_str(),
+                                "keys" | "values" | "entries"
+                                | "getOwnPropertyNames" | "getOwnPropertySymbols"
+                            )
+                        );
+                        prop_is_array_returning || obj_is_array_static || obj_is_object_static
                     }
                     _ => false,
                 },
