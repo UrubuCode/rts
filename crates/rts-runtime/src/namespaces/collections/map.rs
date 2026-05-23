@@ -182,8 +182,9 @@ pub fn is_null_proto_handle(handle: u64) -> bool {
 /// (#162) `Object.create(proto, descriptors)` 2-arg variant — aplica
 /// descriptors ao objeto. Cada entry de `descs` deve ser
 /// `{ key: { value, writable?, enumerable?, configurable? } }`.
-/// Para v0, extraimos so o `value` e fazemos MAP_SET — meta de
-/// writable/enumerable/configurable nao eh enforced ainda.
+/// Para v0, extraimos so o `value` e fazemos MAP_SET. Tambem respeita
+/// `enumerable: false` via mark_non_enumerable. writable/configurable
+/// nao sao enforced ainda.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_OBJECT_APPLY_DESCRIPTORS(target: u64, descs: u64) {
     let pairs: Vec<(String, i64)> = with_entry(descs, |e| match e {
@@ -196,13 +197,25 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_APPLY_DESCRIPTORS(target: u64, descs: u64) 
     });
     for (key, desc_h_i) in pairs {
         let desc_h = desc_h_i as u64;
-        let value: i64 = with_entry(desc_h, |e| match e {
-            Some(Entry::Map(d)) => d.get("value").copied().unwrap_or(0),
-            _ => desc_h_i,
+        // Extrai value + enumerable. Sentinel JS para false eh i64::MIN
+        // (TPL coercion convention). enumerable defaulta a true quando
+        // ausente em Object.defineProperty mas a false em Object.create
+        // descriptors — aqui assumimos defineProperty-like (default true).
+        let (value, is_non_enum): (i64, bool) = with_entry(desc_h, |e| match e {
+            Some(Entry::Map(d)) => {
+                let v = d.get("value").copied().unwrap_or(0);
+                let enum_v = d.get("enumerable").copied();
+                let non_enum = matches!(enum_v, Some(x) if x == i64::MIN);
+                (v, non_enum)
+            }
+            _ => (desc_h_i, false),
         });
         with_map_mut(target, (), |m| {
             m.insert(key.clone(), value);
         });
+        if is_non_enum {
+            mark_non_enumerable(target, &key);
+        }
     }
 }
 
