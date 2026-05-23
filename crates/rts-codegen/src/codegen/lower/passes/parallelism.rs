@@ -501,6 +501,17 @@ fn lift_arrows_in_expr(
                                     call.args[0].expr.as_ref(),
                                     Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
                                 );
+                            // (#345) Para `arr.reduce(fn, init)` com init
+                            // string literal, slot 0 (acc) eh string handle.
+                            // Sem isso, o lifter assume i64 e `acc + s` vira
+                            // iadd em vez de string concat.
+                            let reduce_init_is_string = (method == "reduce"
+                                || method == "reduceRight")
+                                && call.args.len() >= 2
+                                && matches!(
+                                    call.args[1].expr.as_ref(),
+                                    Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+                                );
                             // Quando arg eh Ident referenciando user fn (named callback),
                             // wrappamos em arrow inline `(p1..pN) => ident(p1..pN)` antes
                             // do try_lift_arrow_arg. Garante adapter de signature
@@ -635,7 +646,8 @@ fn lift_arrows_in_expr(
                                     new_fns,
                                     counter,
                                     method == "forEach",
-                                    recv_is_object_entries || mapper_slot0_is_string,
+                                    recv_is_object_entries || mapper_slot0_is_string
+                                        || reduce_init_is_string,
                                     method == "reduce" || method == "reduceRight",
                                 ) {
                                     // Substitui arg por Ident.
