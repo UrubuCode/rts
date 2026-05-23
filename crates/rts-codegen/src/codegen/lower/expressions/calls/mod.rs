@@ -2104,7 +2104,43 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // `arr[i](x)`) ou outra expressao que produz fn handle. Lower o
         // callee como expressao, depois faz indirect call via FUNCTION_APPLY.
         if let Expr::Member(m) = callee.as_ref() {
-            if matches!(&m.prop, MemberProp::Computed(_)) {
+            if let MemberProp::Computed(c) = &m.prop {
+                // (cross-runtime #1052) `arr[<methodName>](args)` quando a key
+                // resolve estaticamente para string method name (push/slice/etc):
+                // reescreve como `arr.<method>(args)` em compile time para
+                // ir pelo path otimizado (sem crashar em fn handle invalido).
+                let static_key: Option<String> = match c.expr.as_ref() {
+                    Expr::Lit(swc_ecma_ast::Lit::Str(s)) => Some(s.value.to_string_lossy().to_string()),
+                    _ => None,
+                };
+                if let Some(method) = static_key {
+                    let is_array_method = matches!(
+                        method.as_str(),
+                        "slice" | "concat" | "push" | "pop" | "shift" | "unshift"
+                        | "indexOf" | "lastIndexOf" | "includes" | "join"
+                        | "reverse" | "filter" | "map" | "forEach" | "find"
+                        | "findIndex" | "every" | "some" | "reduce" | "flat"
+                        | "splice" | "sort" | "fill" | "copyWithin" | "at"
+                    );
+                    if is_array_method {
+                        let synth_callee = Expr::Member(swc_ecma_ast::MemberExpr {
+                            span: m.span,
+                            obj: m.obj.clone(),
+                            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                                span: m.span,
+                                sym: method.into(),
+                            }),
+                        });
+                        let synth_call = swc_ecma_ast::CallExpr {
+                            span: call.span,
+                            ctxt: call.ctxt,
+                            callee: Callee::Expr(Box::new(synth_callee)),
+                            args: call.args.clone(),
+                            type_args: None,
+                        };
+                        return super::lower_call(ctx, &synth_call);
+                    }
+                }
                 return lower_indirect_call(ctx, callee, call);
             }
         }
