@@ -877,6 +877,30 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         return reify_ns_fn_as_handle(ctx, member);
                     }
                 }
+                // (cross-runtime #1048) `Class.staticGetter` (sem call): static
+                // getter de user class. Compilado como `__class_<C>_static_<g>`
+                // recebendo zero args. Chamada direta retorna o valor.
+                if let Some(meta) = ctx.classes.get(cls) {
+                    if meta.static_methods.iter().any(|m| m == prop_name) {
+                        let fn_name = crate::codegen::lower::compile::class::class_static_method_name(cls, prop_name);
+                        if let Some(abi) = ctx.user_fns.get(&fn_name).cloned() {
+                            // So' static getter (0 params); static method com
+                            // 0 args e' reificavel mas ai dispara user call
+                            // implicito perdendo semantica de fn handle. Como
+                            // proxy, so' chama se ret eh nao-void.
+                            if abi.params.is_empty() {
+                                use cranelift_codegen::ir::InstBuilder;
+                                let mangled = format!("__user_{fn_name}");
+                                if let Some(&fn_id) = ctx.extern_cache.get(mangled.as_str()) {
+                                    let fref = ctx.fref_for_id(fn_id);
+                                    let inst = ctx.builder.ins().call(fref, &[]);
+                                    let v = ctx.builder.inst_results(inst)[0];
+                                    return Ok(TypedVal::new(v, abi.ret.unwrap_or(ValTy::I64)));
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
