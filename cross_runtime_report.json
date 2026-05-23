@@ -1457,10 +1457,10 @@
 ,
 {
   "name": "355_obf_number_encoding",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
   "node": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":279,"rts_diverge":23,"bun_node_diverge":16,"errors":70,"rejected":0}}
+],"summary":{"total":388,"pass":280,"rts_diverge":23,"bun_node_diverge":16,"errors":69,"rejected":0}}
