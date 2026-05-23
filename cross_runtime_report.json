@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -1969,10 +1969,10 @@
 ,
 {
   "name": "382_field_init_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.block,S.c\nP.pv,C.cv\n10 20 10",
   "node": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.block,S.c\nP.pv,C.cv\n10 20 10",
-  "rts": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.c,S.block\nP.pv,C.cv\n10 20 10"
+  "rts": "Base.x,Base.y,Base.constructor,Child.z,Child.constructor,Child.z.reassign\na-field,c-field,constructor-start,b-constructor,constructor-end\nS.a,S.b,S.block,S.c\nP.pv,C.cv\n10 20 10"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 93911822487552 }\n{ n: 0, @@sym:281474976710669: 93911822487552 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94202360877056 }\n{ n: 0, @@sym:281474976710669: 94202360877056 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":284,"rts_diverge":26,"bun_node_diverge":16,"errors":62,"rejected":0}}
+],"summary":{"total":388,"pass":283,"rts_diverge":26,"bun_node_diverge":17,"errors":62,"rejected":0}}
