@@ -726,6 +726,22 @@ fn fn_signature(
         })
         .collect();
 
+    // (#345) Tag fn de tagged template recebe TemplateStringsArray
+    // como primeiro param. Quando body retorna `param[i]`, sabemos que
+    // eh string handle — adicionamos o nome ao set de "string array
+    // globals" virtual para reuso da heurística existente.
+    let mut sag_extended: std::collections::HashSet<String> =
+        string_array_globals.clone();
+    for p in &fn_decl.parameters {
+        if let Some(ann) = p.type_annotation.as_deref() {
+            let trimmed = ann.trim();
+            if trimmed == "TemplateStringsArray" || trimmed.starts_with("string[")
+                || trimmed.ends_with("string[]")
+            {
+                sag_extended.insert(p.name.clone());
+            }
+        }
+    }
     let ret = match fn_decl.return_type.as_deref() {
         Some("void") => None,
         Some(r) => Some(ValTy::from_annotation(r)),
@@ -738,7 +754,7 @@ fn fn_signature(
             //   logical) -> Bool. (cross-runtime #300)
             // - se algum return existe -> F64 (number, caso default).
             // - sem return -> None (void).
-            let inferred = inspect_return_kind(&fn_decl.body, string_array_globals);
+            let inferred = inspect_return_kind(&fn_decl.body, &sag_extended);
             match inferred {
                 ReturnKind::String | ReturnKind::Handle => Some(ValTy::Handle),
                 ReturnKind::Bool => Some(ValTy::Bool),
