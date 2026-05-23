@@ -204,8 +204,19 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64
             }
         }
         Kind::Other => {
-            // Map handle: numeric index → string key lookup (e.g. match result arrays).
-            use super::map::__RTS_FN_NS_COLLECTIONS_MAP_GET;
+            // (cross-runtime #340) Map handle: lookup com key string. O `index`
+            // pode ser:
+            // - String handle (computed key `obj[key]` onde key="a") -> usar MAP_GET_KH.
+            // - i64 raw (numeric index `arr[0]` aplicado a Map result) -> usar
+            //   index.to_string() como key.
+            use super::map::{__RTS_FN_NS_COLLECTIONS_MAP_GET, __RTS_FN_NS_COLLECTIONS_MAP_GET_KH};
+            // Detecta se index eh handle GC valido String/Symbol — usa MAP_GET_KH.
+            let is_str_handle = with_entry(index as u64, |e| matches!(e,
+                Some(Entry::String(_)) | Some(Entry::Symbol { .. })
+            ));
+            if is_str_handle {
+                return __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(handle, index as u64);
+            }
             let key = index.to_string();
             let key_bytes = key.as_bytes();
             __RTS_FN_NS_COLLECTIONS_MAP_GET(handle, key_bytes.as_ptr(), key_bytes.len() as i64)
