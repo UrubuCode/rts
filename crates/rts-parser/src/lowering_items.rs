@@ -321,6 +321,21 @@ fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
                 expr_yields_string(&b.left) || expr_yields_string(&b.right)
             }
             Expr::Paren(p) => expr_yields_string(&p.expr),
+            // (cross-runtime #270) `() => String(x)` em arrow body produz
+            // handle string. Sem isso, return_type vira "i64" e caller
+            // formata handle bruto como int. Restrito a `String(x)` direto
+            // — adicionar `.toString()` ou Cond regride callbacks polimorficos
+            // de JSON.stringify replacer (que esperam passthrough i64).
+            Expr::Call(c) => {
+                if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                    if let Expr::Ident(id) = callee.as_ref() {
+                        if id.sym.as_str() == "String" {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
             _ => false,
         }
     }
