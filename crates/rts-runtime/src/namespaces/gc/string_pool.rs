@@ -339,6 +339,64 @@ pub extern "C" fn __RTS_FN_RT_TRUTHY(value: i64) -> i64 {
     }
 }
 
+/// (cross-runtime #1069) JS ToNumber abstract operation. Usado para
+/// unary `+` quando operando eh handle/sentinel/bool ambiguo.
+/// - false=MIN -> 0; true=MIN+1 -> 1
+/// - undefined=MIN+2 -> NaN
+/// - null=MIN+3 -> 0
+/// - value==0 -> 0
+/// - Handle Entry::String: parseFloat-like (trim + numeric tail).
+///   Vazio/whitespace -> 0; nao-parseavel -> NaN; "0x10" hex -> 16.
+/// - Handle Entry::Vec len==0 -> 0; len==1 -> ToNumber(slot[0]); >1 -> NaN
+/// - Handle Entry::Map/outros -> NaN
+/// - i64 puro nao-handle: passthrough como f64.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TO_NUMBER(value: i64) -> f64 {
+    if value == 0 || value == i64::MIN || value == i64::MIN + 3 {
+        return 0.0;
+    }
+    if value == i64::MIN + 1 {
+        return 1.0;
+    }
+    if value == i64::MIN + 2 || value == i64::MIN + 4 {
+        return f64::NAN;
+    }
+    if value > 0 {
+        let h = value as u64;
+        let result = with_entry(h, |entry| match entry {
+            Some(Entry::String(b)) => {
+                let s = std::str::from_utf8(b).unwrap_or("").trim();
+                if s.is_empty() {
+                    return Some(0.0);
+                }
+                // Hex/oct/bin prefixes (JS spec for unary +).
+                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                    return Some(i64::from_str_radix(hex, 16).map(|n| n as f64).unwrap_or(f64::NAN));
+                }
+                if let Some(oct) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
+                    return Some(i64::from_str_radix(oct, 8).map(|n| n as f64).unwrap_or(f64::NAN));
+                }
+                if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
+                    return Some(i64::from_str_radix(bin, 2).map(|n| n as f64).unwrap_or(f64::NAN));
+                }
+                Some(s.parse::<f64>().unwrap_or(f64::NAN))
+            }
+            Some(Entry::Vec(v)) => match v.len() {
+                0 => Some(0.0),
+                1 => Some(__RTS_FN_RT_TO_NUMBER(v[0])),
+                _ => Some(f64::NAN),
+            },
+            Some(_) => Some(f64::NAN),
+            None => None,
+        });
+        if let Some(r) = result {
+            return r;
+        }
+    }
+    // Fallback: trata como i64 raw (integer puro).
+    value as f64
+}
+
 /// Spread universal: copia elementos de `src` para o Vec `dst`.
 /// Detecta tipo de Entry e itera apropriadamente:
 /// - Entry::Vec -> push de cada slot
