@@ -2832,7 +2832,12 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     let func_id = *ctx.extern_cache.get(mangled.as_str()).unwrap();
     let fref = ctx.fref_for_id(func_id);
 
-    if call.args.len() != abi.params.len() {
+    // (cross-runtime #299) JS spec: chamada com MENOS args completa com
+    // undefined; MAIS args sao acessiveis via `arguments` (RTS nao
+    // tem `arguments` real mas silenciosamente ignora extras pra
+    // compat com pattern \`function f() { ... arguments... }\`).
+    // RTS antes rejeitava ambos os casos.
+    if call.args.len() < abi.params.len() {
         return Err(anyhow!(
             "function `{name}` expects {} argument(s), got {}",
             abi.params.len(),
@@ -2841,7 +2846,7 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     }
 
     let mut values = Vec::new();
-    for (arg, expected_ty) in call.args.iter().zip(abi.params.iter().copied()) {
+    for (arg, expected_ty) in call.args.iter().take(abi.params.len()).zip(abi.params.iter().copied()) {
         if arg.spread.is_some() {
             return Err(anyhow!("spread not supported"));
         }
