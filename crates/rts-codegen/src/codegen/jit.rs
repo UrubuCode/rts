@@ -1379,6 +1379,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD",
+            map::__RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES",
             map::__RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES
         );

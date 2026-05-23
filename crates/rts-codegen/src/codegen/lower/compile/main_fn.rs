@@ -87,6 +87,32 @@ pub(crate) fn compile_main(
             }
         }
 
+        // (#1114) Registra methods de classe (instance + getters/setters)
+        // no class_method_registry para que `\"method\" in instance` retorne
+        // true via OBJ_HAS.
+        {
+            for (cls_name, meta) in classes.iter() {
+                let mut all_methods: Vec<String> = meta.methods.clone();
+                for g in &meta.getters {
+                    all_methods.push(g.clone());
+                }
+                for s in &meta.setters {
+                    all_methods.push(s.clone());
+                }
+                if all_methods.is_empty() { continue; }
+                let (cp, cl_len) = fn_ctx.emit_str_literal(cls_name.as_bytes())?;
+                let reg_fn = fn_ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD",
+                    &[cl::I64, cl::I64, cl::I64, cl::I64],
+                    None,
+                )?;
+                for method_name in &all_methods {
+                    let (mp, ml) = fn_ctx.emit_str_literal(method_name.as_bytes())?;
+                    fn_ctx.builder.ins().call(reg_fn, &[cp, cl_len, mp, ml]);
+                }
+            }
+        }
+
         // (#301) Var hoisting top-level: declarar vars `var x` antes de
         // executar body, com valor 0 (proxy undefined). Globals existentes
         // ja' tem registro em `globals` map — pulamos.

@@ -293,7 +293,19 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: u64, key_h: u64) -> i64
         }),
         _ => None,
     });
-    if class_name.is_some() {
+    if let Some(cls) = class_name.as_ref() {
+        // (#1114) Class method registry: emit no init de __RTS_MAIN
+        // registra cada method declarado por classe; consulta por
+        // __rts_class tag da instancia.
+        if class_method_registry()
+            .lock()
+            .unwrap()
+            .get(cls)
+            .map(|set| set.contains(&key))
+            .unwrap_or(false)
+        {
+            return 1;
+        }
         // Object.prototype tem toString, hasOwnProperty, valueOf, isPrototypeOf,
         // propertyIsEnumerable, toLocaleString.
         if matches!(
@@ -318,6 +330,35 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: u64, key_h: u64, val
     with_map_mut(obj_h, (), |m| {
         m.insert(key, value);
     });
+}
+
+/// (#1114) Registry de methods declarados por classe. Populado pelo
+/// codegen via __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD no inicio
+/// de __RTS_MAIN; consultado pelo `in` operator (OBJ_HAS).
+fn class_method_registry() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, std::collections::HashSet<String>>,
+> {
+    static R: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>,
+    > = std::sync::OnceLock::new();
+    R.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD(
+    class_ptr: *const u8,
+    class_len: i64,
+    method_ptr: *const u8,
+    method_len: i64,
+) {
+    let Some(cls) = str_from_abi(class_ptr, class_len) else { return };
+    let Some(method) = str_from_abi(method_ptr, method_len) else { return };
+    class_method_registry()
+        .lock()
+        .unwrap()
+        .entry(cls.to_string())
+        .or_insert_with(std::collections::HashSet::new)
+        .insert(method.to_string());
 }
 
 /// (cross-runtime #753) `MAP_GET` aceitando key como handle. Retorna
