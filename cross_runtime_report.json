@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2212,7 +2212,7 @@
   "status": "rts_diverge",
   "bun": "2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo",
   "node": "2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo",
-  "rts": "null\nnull\nnull\n$<d>/$<m>/$<y>\n\n\ncat=5\ndog=3\nbird=8\n123\n4\nhello ? world\na|b|c|\nHello World Foo"
+  "rts": "2026\n05\n22\n22/05/2026\n\n\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo"
 }
 ,
 {
