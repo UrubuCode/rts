@@ -1027,6 +1027,46 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 let v = ctx.builder.inst_results(inst)[0];
                 return Ok(TypedVal::new(v, ValTy::I64));
             }
+            // (cross-runtime #70/#1162) `arr.groups` em Vec handle —
+            // side-table lookup para regex `.indices.groups` (Vec da spec
+            // tem prop adicional). Retorna 0 (=> undefined) quando vec
+            // nao eh regex indices. Falls through pro MAP_GET path quando
+            // obj eh Map normal.
+            if key == "groups" && (matches!(obj_tv.ty, ValTy::Handle) || recv_is_ambiguous) {
+                let f = ctx.get_extern(
+                    "__RTS_FN_GL_REGEXP_INDICES_GROUPS",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_handle]);
+                let v = ctx.builder.inst_results(inst)[0];
+                // Se retornar 0 (handle invalido = undefined-ish), fallback
+                // para MAP_GET para casos Map nao-indices.
+                use cranelift_codegen::ir::condcodes::IntCC;
+                let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                let is_zero = ctx.builder.ins().icmp(IntCC::Equal, v, zero);
+                let map_block = ctx.builder.create_block();
+                let merge = ctx.builder.create_block();
+                ctx.builder.append_block_param(merge, cl::I64);
+                ctx.builder.ins().brif(is_zero, map_block, &[], merge, &[v.into()]);
+
+                ctx.builder.switch_to_block(map_block);
+                ctx.builder.seal_block(map_block);
+                let (kp, kl) = ctx.emit_str_literal(b"groups")?;
+                let map_get = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst2 = ctx.builder.ins().call(map_get, &[obj_handle, kp, kl]);
+                let v2 = ctx.builder.inst_results(inst2)[0];
+                ctx.builder.ins().jump(merge, &[v2.into()]);
+
+                ctx.builder.switch_to_block(merge);
+                ctx.builder.seal_block(merge);
+                let result = ctx.builder.block_params(merge)[0];
+                return Ok(TypedVal::new(result, ValTy::Handle));
+            }
         }
     }
 

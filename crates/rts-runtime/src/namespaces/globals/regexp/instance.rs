@@ -4,8 +4,36 @@
 //! Instance methods delegate to the existing `regex` namespace ops.
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
+use indexmap::IndexMap;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// (cross-runtime #70/#1162) Side-table indices_vec_handle -> groups_map_handle.
+/// `match.indices` eh um Vec (Array de [s,e]); a prop adicional `.groups`
+/// (named capture indices) eh resolvida via lookup nesta tabela.
+static INDICES_GROUPS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, u64>>> =
+    std::sync::OnceLock::new();
+
+fn indices_groups_table() -> &'static std::sync::Mutex<std::collections::HashMap<u64, u64>> {
+    INDICES_GROUPS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn register_indices_groups(indices_vec: u64, groups_map: u64) {
+    if let Ok(mut t) = indices_groups_table().lock() {
+        t.insert(indices_vec, groups_map);
+    }
+}
+
+/// (#70/#1162) Lookup: dado um handle de indices Vec, retorna o handle do
+/// Map de named groups indices. 0 se nao registrado (regex sem named groups).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REGEXP_INDICES_GROUPS(vec_handle: u64) -> u64 {
+    indices_groups_table()
+        .lock()
+        .ok()
+        .and_then(|t| t.get(&vec_handle).copied())
+        .unwrap_or(0)
+}
 
 // ── Constructors ──────────────────────────────────────────────────────────────
 
@@ -163,18 +191,13 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
     // contrario. Slots [start, end] como Vec inner. JS spec espelha
     // a forma do match (Array-like com prop extra "groups": Map<name,
     // [start,end]>).
-    // (cross-runtime #70) JS spec: `match.indices` eh Array (cada elem
-    // [start,end] | undefined) com prop adicional `.groups`.
-    // JSON.stringify(indices) deve serializar como `[[s,e],...]`
-    // — Map com chaves "0".."N" + "length" + "groups" virava
-    // `{"0":...,"length":N,"groups":...}` incorreto. Usamos Vec direto;
-    // `.length` e `[i]` funcionam naturalmente em Vec, `.groups` eh
-    // anexado via slot extra dentro do Entry::Vec? Nao — Vec nao tem
-    // props nomeadas. Solucao: armazenar como Vec, e expor `.groups`
-    // via lookup separado quando user acessa match.indices.groups.
-    // Simplificacao: como JSON.stringify ja' trata Vec como Array,
-    // emitimos Vec sem `.groups` (named groups indices sao raramente
-    // testados em cross-runtime; pode ser adicionado em followup).
+    // (cross-runtime #70/#1162) JS spec: `match.indices` eh Array de
+    // [start,end] | undefined COM prop adicional `.groups` (Map de named
+    // capture indices). Usamos Entry::Vec + side-table de "groups por
+    // vec handle" para suportar ambos os patterns:
+    //   - `m.indices[i]` e `m.indices.length` => Vec direto
+    //   - `m.indices.groups.name` => lookup via REGEXP_INDICES_GROUPS_GET
+    //   - `JSON.stringify(m.indices)` => Vec serializa como array
     let indices_v = match indices.clone() {
         Some(vec) => {
             let mut ivec: Vec<i64> = Vec::with_capacity(vec.len());
@@ -188,7 +211,46 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: u64, ptr: i64, len: i64) -> u6
                 };
                 ivec.push(pair_h);
             }
-            alloc_entry(Entry::Vec(Box::new(ivec))) as i64
+            let vec_h = alloc_entry(Entry::Vec(Box::new(ivec)));
+            // Registra named groups indices em side-table.
+            let g_vec_opt: Option<Vec<(String, Option<(usize, usize)>)>> =
+                with_entry(handle, |entry| match entry {
+                    Some(Entry::Regex(rx)) => {
+                        let names: Vec<Option<String>> = rx
+                            .regex
+                            .capture_names()
+                            .map(|o| o.map(|s| s.to_string()))
+                            .collect();
+                        let mut out: Vec<(String, Option<(usize, usize)>)> = Vec::new();
+                        for (i, name_opt) in names.iter().enumerate() {
+                            if let Some(name) = name_opt {
+                                let pair: Option<(usize, usize)> =
+                                    vec.get(i).and_then(|o| *o);
+                                out.push((name.clone(), pair));
+                            }
+                        }
+                        Some(out)
+                    }
+                    _ => None,
+                });
+            if let Some(g_pairs) = g_vec_opt {
+                if !g_pairs.is_empty() {
+                    let mut gmap: IndexMap<String, i64> = IndexMap::new();
+                    for (name, opt) in g_pairs {
+                        let pair_h: i64 = match opt {
+                            Some((s, e)) => {
+                                let pair = vec![s as i64, e as i64];
+                                alloc_entry(Entry::Vec(Box::new(pair))) as i64
+                            }
+                            None => i64::MIN + 2,
+                        };
+                        gmap.insert(name, pair_h);
+                    }
+                    let groups_h = alloc_entry(Entry::Map(Box::new(gmap)));
+                    register_indices_groups(vec_h, groups_h);
+                }
+            }
+            vec_h as i64
         }
         None => i64::MIN + 2,
     };
