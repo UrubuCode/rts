@@ -1354,10 +1354,38 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
         return crate::namespaces::globals::proxy::ops::dispatch_get_proto(target, handler);
     }
+    // (#1080) Sentinel proto strings: JS spec:
+    // - Object.getPrototypeOf(Object.prototype) === null (depth termina)
+    // - Object.getPrototypeOf(Array.prototype) === Object.prototype
+    // - Object.getPrototypeOf(Map.prototype) === Object.prototype
+    // - Object.getPrototypeOf(Set.prototype) === Object.prototype
+    let sentinel_kind: Option<&'static [u8]> = with_entry(handle, |e| match e {
+        Some(Entry::String(b)) => match b.as_slice() {
+            b"[Object.prototype]" => Some(b"object".as_slice()),
+            b"[Array.prototype]" | b"[Map.prototype]" | b"[Set.prototype]" => {
+                Some(b"chained".as_slice())
+            }
+            _ => None,
+        },
+        _ => None,
+    });
+    match sentinel_kind {
+        Some(b"object") => return 0,
+        Some(b"chained") => return alloc_entry(Entry::String(b"[Object.prototype]".to_vec())),
+        _ => {}
+    }
     // Vec → Array.prototype sentinel.
     let is_vec = with_entry(handle, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
         return alloc_entry(Entry::String(b"[Array.prototype]".to_vec()));
+    }
+    // (#1080) new Map() / new Set() retornam Map/Set kind handles —
+    // o proto deles eh Map.prototype / Set.prototype, nao Object.prototype.
+    if handle_is_map_kind(handle) {
+        return alloc_entry(Entry::String(b"[Map.prototype]".to_vec()));
+    }
+    if handle_is_set_kind(handle) {
+        return alloc_entry(Entry::String(b"[Set.prototype]".to_vec()));
     }
     // Map: se __proto__ slot setado explicit (por Object.create), retorna ele.
     // Se slot ausente, default Object.prototype sentinel.

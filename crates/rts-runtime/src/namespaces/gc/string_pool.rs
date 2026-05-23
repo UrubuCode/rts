@@ -856,20 +856,36 @@ fn inspect_handle(h: u64, depth: usize) -> String {
             format!("[ {} ]", parts.join(", "))
         }
         R::Map(entries) => {
-            if entries.is_empty() {
-                return "{}".to_string();
-            }
-            let parts: Vec<String> = entries
+            // (#1080) Object.create(null) — slot __proto__ existe com
+            // valor 0. Node/Bun imprimem como `[Object: null prototype] {...}`.
+            let is_null_proto = entries
                 .iter()
-                .map(|(k, v)| {
-                    format!(
-                        "{}: {}",
-                        String::from_utf8_lossy(k),
-                        inspect_slot(*v, depth + 1)
-                    )
-                })
+                .any(|(k, v)| k == b"__proto__" && *v == 0);
+            // Filtra slots internos das entries impressas.
+            let visible: Vec<&(Vec<u8>, i64)> = entries
+                .iter()
+                .filter(|(k, _)| k != b"__proto__" && k != b"__rts_class")
                 .collect();
-            format!("{{ {} }}", parts.join(", "))
+            let body = if visible.is_empty() {
+                "{}".to_string()
+            } else {
+                let parts: Vec<String> = visible
+                    .iter()
+                    .map(|(k, v)| {
+                        format!(
+                            "{}: {}",
+                            String::from_utf8_lossy(k),
+                            inspect_slot(*v, depth + 1)
+                        )
+                    })
+                    .collect();
+                format!("{{ {} }}", parts.join(", "))
+            };
+            if is_null_proto {
+                format!("[Object: null prototype] {body}")
+            } else {
+                body
+            }
         }
         R::Json(s) => s,
         R::Other(name) => format!("[object {}]", name),
