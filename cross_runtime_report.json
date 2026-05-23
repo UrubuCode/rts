@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -2217,10 +2217,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\nnull\nnull\nnull\n2026\nfoo@null|bar@null|baz@null\n42\nundefined\n0,2\nundefined"
+  "rts": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined"
 }
 ,
 {
@@ -2233,10 +2233,10 @@
 ,
 {
   "name": "70_regex_indices",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "indices=[[1,4],[2,3],[3,4]]",
   "node": "indices=[[1,4],[2,3],[3,4]]",
-  "rts": "indices=[[1,4],[2,3],[3,4]]"
+  "rts": "indices={\"0\":[1,4],\"1\":[2,3],\"2\":[3,4],\"length\":3}"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":274,"rts_diverge":24,"bun_node_diverge":16,"errors":74,"rejected":0}}
+],"summary":{"total":388,"pass":275,"rts_diverge":23,"bun_node_diverge":16,"errors":74,"rejected":0}}
