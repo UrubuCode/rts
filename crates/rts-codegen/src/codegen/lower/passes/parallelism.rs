@@ -482,7 +482,15 @@ fn lift_arrows_in_expr(
                             // usa `tail (f64) -> X`). Sem isso, parallel.* recebe ptr nu
                             // e callback interpreta i64 bits como f64 (#XXX).
                             if let Expr::Ident(ident) = call.args[arg_idx].expr.as_ref() {
-                                if user_fn_names.contains(ident.sym.as_str()) {
+                                // (cross-runtime #1137) Boolean/Number/String como callback —
+                                // sao coerce fns globais. Wrap em arrow `(x) => Boolean(x)`
+                                // pra que se torne uma user fn liftavel e o callback passe
+                                // pelo path comum em vez de tentar usar handle sentinel como fn ptr.
+                                let is_coerce_ident = matches!(
+                                    ident.sym.as_str(),
+                                    "Boolean" | "Number" | "String"
+                                );
+                                if user_fn_names.contains(ident.sym.as_str()) || is_coerce_ident {
                                     let ident_clone = ident.clone();
                                     // (#776) Cria wrap arrow com `arrow_arity` params para
                                     // casar com a ABI runtime nova. Determina quantos args
