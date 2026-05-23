@@ -588,7 +588,39 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
             }
         }
 
-        let rhs_i64 = ctx.coerce_to_i64(rhs).val;
+        // (#1051) RHS eh literal float nao-inteiro (ex: `3.14`)? bitcast
+        // os bits f64 em i64 para preservar precisao. coerce_to_i64
+        // truncaria para 3. INSPECT/TPL_COERCE_AUTO detectam o bit
+        // pattern (|v| > 2^53) e renderizam como float.
+        fn rhs_is_non_integer_float(e: &Expr) -> bool {
+            let mut cur = e;
+            loop {
+                match cur {
+                    Expr::Paren(p) => cur = &p.expr,
+                    Expr::TsAs(a) => cur = &a.expr,
+                    Expr::TsConstAssertion(a) => cur = &a.expr,
+                    Expr::TsTypeAssertion(a) => cur = &a.expr,
+                    Expr::TsSatisfies(a) => cur = &a.expr,
+                    Expr::TsNonNull(n) => cur = &n.expr,
+                    Expr::Lit(Lit::Num(n)) => return n.value.fract() != 0.0,
+                    Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
+                        cur = &u.arg;
+                    }
+                    _ => return false,
+                }
+            }
+        }
+        let bitcast_f64 = matches!(rhs.ty, ValTy::F64)
+            && rhs_is_non_integer_float(final_rhs_expr.as_ref());
+        let rhs_i64 = if bitcast_f64 {
+            ctx.builder.ins().bitcast(
+                cranelift_codegen::ir::types::I64,
+                cranelift_codegen::ir::MemFlags::new(),
+                rhs.val,
+            )
+        } else {
+            ctx.coerce_to_i64(rhs).val
+        };
 
         if let MemberProp::Ident(id) = &m.prop {
             if let Some(cls) = lhs_static_class(ctx, &m.obj) {
