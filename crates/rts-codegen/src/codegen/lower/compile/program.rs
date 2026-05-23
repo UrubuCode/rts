@@ -808,14 +808,28 @@ fn inspect_return_kind(
                 if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
                     if let Expr::Member(m) = callee.as_ref() {
                         if let swc_ecma_ast::MemberProp::Ident(id) = &m.prop {
-                            return matches!(
-                                id.sym.as_str(),
+                            let method = id.sym.as_str();
+                            if matches!(
+                                method,
                                 "toString" | "join" | "concat" | "replace"
                                 | "replaceAll" | "trim" | "trimStart" | "trimEnd"
                                 | "toUpperCase" | "toLowerCase" | "padStart"
                                 | "padEnd" | "repeat" | "substring" | "substr"
                                 | "slice" | "charAt" | "normalize"
-                            );
+                            ) {
+                                return true;
+                            }
+                            // (#345) `arr.reduce(fn, "")` — initial value
+                            // string implica retorno string. Detecta via 2o arg.
+                            if matches!(method, "reduce" | "reduceRight")
+                                && c.args.len() >= 2
+                                && matches!(
+                                    c.args[1].expr.as_ref(),
+                                    Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+                                )
+                            {
+                                return true;
+                            }
                         }
                     }
                     if let Expr::Ident(id) = callee.as_ref() {
