@@ -29,6 +29,18 @@ where
     })
 }
 
+/// (#1107) Helper agnostico ao engine — usar quando o callsite precisar
+/// suportar lookaround/backref. Closure recebe `&RegexEngine`.
+fn with_engine<F, R>(handle: u64, default: R, f: F) -> R
+where
+    F: FnOnce(&crate::namespaces::gc::handles::RegexEngine) -> R,
+{
+    with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => f(&rx.engine),
+        _ => default,
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
     pat_ptr: *const u8,
@@ -67,8 +79,51 @@ pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
         }
     }
     match builder.build() {
-        Ok(rx) => alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex { regex: rx, global, flags: canon, last_index: 0 }))),
-        Err(_) => 0,
+        Ok(rx) => {
+            let engine = crate::namespaces::gc::handles::RegexEngine::Fast(rx.clone());
+            alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex {
+                regex: rx,
+                engine,
+                global,
+                flags: canon,
+                last_index: 0,
+            })))
+        }
+        Err(_) => {
+            // (#1107) Fallback fancy-regex para patterns que RE2 rejeita
+            // (lookbehind, lookahead, backreferences). Preserva flags JS
+            // via prefixo inline (?ims) quando aplicavel.
+            let mut prefix = String::new();
+            let has_inline_flags = pattern.starts_with("(?");
+            if !has_inline_flags {
+                let mut flag_chars = String::new();
+                if flags.contains('i') { flag_chars.push('i'); }
+                if flags.contains('m') { flag_chars.push('m'); }
+                if flags.contains('s') { flag_chars.push('s'); }
+                if flags.contains('x') { flag_chars.push('x'); }
+                if !flag_chars.is_empty() {
+                    prefix = format!("(?{flag_chars})");
+                }
+            }
+            let full_pat = format!("{prefix}{pattern}");
+            match fancy_regex::Regex::new(&full_pat) {
+                Ok(fancy) => {
+                    // Placeholder vazio para o campo `regex` legado (so' usado
+                    // por callsites pre-1107 que nao foram migrados; chamadas
+                    // sob fancy devem rotear pelo `engine`).
+                    let placeholder = regex::Regex::new("").unwrap();
+                    let engine = crate::namespaces::gc::handles::RegexEngine::Fancy(fancy);
+                    alloc_entry(Entry::Regex(Box::new(crate::namespaces::gc::handles::RtsRegex {
+                        regex: placeholder,
+                        engine,
+                        global,
+                        flags: canon,
+                        last_index: 0,
+                    })))
+                }
+                Err(_) => 0,
+            }
+        }
     }
 }
 
@@ -91,9 +146,9 @@ pub extern "C" fn __RTS_FN_NS_REGEX_TEST(handle: u64, ptr: *const u8, len: i64) 
                     rx.last_index = 0;
                     return 0;
                 }
-                match rx.regex.find(&s_full[start..]) {
+                match rx.engine.find(&s_full[start..]) {
                     Some(m) => {
-                        rx.last_index = start + m.end();
+                        rx.last_index = start + m.end;
                         1
                     }
                     None => {
@@ -101,7 +156,7 @@ pub extern "C" fn __RTS_FN_NS_REGEX_TEST(handle: u64, ptr: *const u8, len: i64) 
                         0
                     }
                 }
-            } else if rx.regex.is_match(s_full) {
+            } else if rx.engine.is_match(s_full) {
                 1
             } else {
                 0
@@ -132,11 +187,11 @@ pub extern "C" fn __RTS_FN_NS_REGEX_FIND(handle: u64, ptr: *const u8, len: i64) 
                         rx.last_index = 0;
                         return None;
                     }
-                    match rx.regex.find(&s_full[start..]) {
+                    match rx.engine.find(&s_full[start..]) {
                         Some(m) => {
-                            let abs_end = start + m.end();
+                            let abs_end = start + m.end;
                             rx.last_index = abs_end;
-                            Some(m.as_str().as_bytes().to_vec())
+                            Some(m.text.into_bytes())
                         }
                         None => {
                             rx.last_index = 0;
@@ -144,7 +199,7 @@ pub extern "C" fn __RTS_FN_NS_REGEX_FIND(handle: u64, ptr: *const u8, len: i64) 
                         }
                     }
                 } else {
-                    rx.regex.find(s_full).map(|m| m.as_str().as_bytes().to_vec())
+                    rx.engine.find(s_full).map(|m| m.text.into_bytes())
                 }
             }
             _ => None,
@@ -159,8 +214,8 @@ pub extern "C" fn __RTS_FN_NS_REGEX_FIND(handle: u64, ptr: *const u8, len: i64) 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_REGEX_FIND_AT(handle: u64, ptr: *const u8, len: i64) -> i64 {
     let s = unsafe { str_from(ptr, len) };
-    with_regex(handle, -1i64, |rx| {
-        rx.find(s).map(|m| m.start() as i64).unwrap_or(-1)
+    with_engine(handle, -1i64, |eng| {
+        eng.find(s).map(|m| m.start as i64).unwrap_or(-1)
     })
 }
 
@@ -174,7 +229,7 @@ pub extern "C" fn __RTS_FN_NS_REGEX_REPLACE(
 ) -> u64 {
     let s = unsafe { str_from(ptr, len) };
     let rep = unsafe { str_from(rep_ptr, rep_len) };
-    let out = with_regex(handle, s.to_string(), |rx| rx.replace(s, rep).into_owned());
+    let out = with_engine(handle, s.to_string(), |eng| eng.replace_first(s, rep));
     alloc_string(out.into_bytes())
 }
 
@@ -188,14 +243,12 @@ pub extern "C" fn __RTS_FN_NS_REGEX_REPLACE_ALL(
 ) -> u64 {
     let s = unsafe { str_from(ptr, len) };
     let rep = unsafe { str_from(rep_ptr, rep_len) };
-    let out = with_regex(handle, s.to_string(), |rx| {
-        rx.replace_all(s, rep).into_owned()
-    });
+    let out = with_engine(handle, s.to_string(), |eng| eng.replace_all(s, rep));
     alloc_string(out.into_bytes())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_COUNT(handle: u64, ptr: *const u8, len: i64) -> i64 {
     let s = unsafe { str_from(ptr, len) };
-    with_regex(handle, 0i64, |rx| rx.find_iter(s).count() as i64)
+    with_engine(handle, 0i64, |eng| eng.find_all(s).len() as i64)
 }
