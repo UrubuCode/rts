@@ -665,6 +665,42 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             }
         }
     }
+    // (cross-runtime #1052) `obj[<StringLit>]` ou `obj[k[N]]` (k const array
+    // de strings) quando key resolve estaticamente para "length"/"name"
+    // (propriedade comum) — reescreve como `obj.<prop>` para usar path direto
+    // em vez de MAP_GET literal (que retorna 0 em Vec/Array).
+    if let MemberProp::Computed(c) = &m.prop {
+        let static_key: Option<String> = match c.expr.as_ref() {
+            Expr::Lit(swc_ecma_ast::Lit::Str(s)) => Some(s.value.to_string_lossy().to_string()),
+            Expr::Member(inner) => {
+                if let (Expr::Ident(arr_id), MemberProp::Computed(ic)) =
+                    (inner.obj.as_ref(), &inner.prop)
+                {
+                    if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = ic.expr.as_ref() {
+                        let idx = n.value as usize;
+                        let arr_name = arr_id.sym.as_str().to_string();
+                        crate::codegen::lower::passes::parallelism::STRING_ARRAY_VALUES
+                            .with(|c| c.borrow().get(&arr_name).and_then(|v| v.get(idx).cloned()))
+                    } else { None }
+                } else { None }
+            }
+            _ => None,
+        };
+        if let Some(prop_name) = static_key {
+            if matches!(prop_name.as_str(), "length" | "name" | "size" | "byteLength") {
+                let synth = Expr::Member(swc_ecma_ast::MemberExpr {
+                    span: m.span,
+                    obj: m.obj.clone(),
+                    prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                        span: m.span,
+                        sym: prop_name.into(),
+                    }),
+                });
+                return lower_expr(ctx, &synth);
+            }
+        }
+    }
+
     // (cross-runtime #1079) `globalThis.X` em posicao de valor — re-lower
     // como ident solo `X`. Cobre identidade (globalThis.Array === Array),
     // chamadas (globalThis.parseInt("42")), reflexao.

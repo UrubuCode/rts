@@ -36,6 +36,12 @@ thread_local! {
     /// receiver eh claramente Array, para nao confundir com Map.forEach
     /// que tem (value, key, map).
     static ARRAY_RECEIVER_IDENTS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+
+    /// (cross-runtime #1052) Mapa de top-level `const k = ["str1", "str2", ...]`
+    /// para suas string literals. Permite codegen propagar `k[N]` em compile
+    /// time, despachando `arr[k[N]](args)` como `arr.<method>(args)`.
+    pub(crate) static STRING_ARRAY_VALUES: RefCell<std::collections::HashMap<String, Vec<String>>>
+        = RefCell::new(std::collections::HashMap::new());
 }
 
 /// Coleta nomes de vars top-level `let`/`var` com init numerico/bool

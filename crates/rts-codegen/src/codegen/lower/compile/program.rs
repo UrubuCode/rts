@@ -308,6 +308,11 @@ pub fn compile_program(
     // de strings: `const X = ["a", "b", ...]`. Usado em inspect_return_kind
     // para inferir que `return X[idx]` produz String.
     let string_array_globals = collect_string_array_globals(program);
+    // (cross-runtime #1052) Popula thread_local com valores das string-arrays
+    // top-level pra que codegen possa propagar `k[N]` em compile time.
+    let sav = collect_string_array_values(program);
+    crate::codegen::lower::passes::parallelism::STRING_ARRAY_VALUES
+        .with(|c| *c.borrow_mut() = sav);
 
     // Phase 1: declare all user functions so forward calls resolve.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
@@ -649,6 +654,53 @@ fn collect_string_array_globals(program: &crate::parser::ast::Program) -> std::c
             }
             if any && all_str {
                 out.insert(id.sym.as_str().to_string());
+            }
+        }
+    }
+    out
+}
+
+/// (cross-runtime #1052) Coleta valores de strings literais top-level
+/// `const k = ["push", "length", ...]`. Permite codegen propagar
+/// `k[N]` para string literal em compile time, despachando
+/// `arr[k[N]](args)` como `arr.<method>(args)`.
+pub(crate) fn collect_string_array_values(
+    program: &crate::parser::ast::Program,
+) -> std::collections::HashMap<String, Vec<String>> {
+    use crate::parser::ast::{Item, Statement};
+    use swc_ecma_ast::{Decl, Expr, Lit, Pat, Stmt};
+    let mut out = std::collections::HashMap::new();
+    for item in &program.items {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
+        for d in &var_decl.decls {
+            let Pat::Ident(id) = &d.name else { continue };
+            let Some(init) = d.init.as_deref() else { continue };
+            let Expr::Array(arr) = init else { continue };
+            fn try_eval_str(e: &Expr) -> Option<String> {
+                let mut cur = e;
+                while let Expr::Paren(p) = cur { cur = &p.expr; }
+                match cur {
+                    Expr::Lit(Lit::Str(s)) => Some(s.value.to_string_lossy().to_string()),
+                    Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Add) => {
+                        let l = try_eval_str(&b.left)?;
+                        let r = try_eval_str(&b.right)?;
+                        Some(format!("{l}{r}"))
+                    }
+                    _ => None,
+                }
+            }
+            let mut vals: Vec<String> = Vec::new();
+            let mut ok = true;
+            for elem in &arr.elems {
+                let Some(e) = elem else { ok = false; break; };
+                match try_eval_str(&e.expr) {
+                    Some(s) => vals.push(s),
+                    None => { ok = false; break; }
+                }
+            }
+            if ok && !vals.is_empty() {
+                out.insert(id.sym.as_str().to_string(), vals);
             }
         }
     }
