@@ -466,6 +466,11 @@ pub enum Entry {
     /// `valueOf()` recupera o handle string original. `String(x)` (sem
     /// `new`) mantem caminho primitive.
     StringBox(u64),
+    /// (cross-runtime #245) `new Number(x)` boxed primitive — wraps f64
+    /// so `typeof new Number(...)` returns "object" while `valueOf()`
+    /// recovers the underlying number. `Number(x)` (no `new`) keeps
+    /// primitive path.
+    NumberBox(f64),
     /// (#289) `Headers` instance — multimap case-insensitive key -> list
     /// of values. Headers.get junta com ", "; getSetCookie retorna a lista
     /// raw de "set-cookie" sem juntar.

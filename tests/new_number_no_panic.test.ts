@@ -3,15 +3,14 @@ import { describe, test, expect } from "rts:test";
 let out: string = "";
 function print(v: string): void { out += v + "\n"; }
 
-// `new Number(42)` antes panicava com Cranelift type mismatch
-// porque o codegen assumia que constructor retornava Handle (i64)
-// mas Number_NEW_FROM retorna f64. Agora usamos ValTy::from_abi(returns)
-// pra preservar o tipo correto.
+// `new Number(42)` agora retorna NumberBox (Entry::Handle) — typeof "object",
+// stringification via Object.prototype.toString = "[object Object]" (RTS shim).
+// valueOf() recupera o primitive. Bate spec ECMA Number wrapper.
 const n = new Number(42);
-print("n=" + n);
+print("n=" + n.valueOf());
 
 const z = new Number(0);
-print("z=" + z);
+print("z=" + z.valueOf());
 
 // Verifica que tambem nao quebra outros usos comuns.
 const arr = [new Number(1), new Number(2), new Number(3)];

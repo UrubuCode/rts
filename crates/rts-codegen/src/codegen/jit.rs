@@ -1802,6 +1802,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     use crate::namespaces::globals::number::rt as num_rt;
     add_fn!("__RTS_FN_GL_NUMBER_NEW_FROM",    num_rt::__RTS_FN_GL_NUMBER_NEW_FROM);
     add_fn!("__RTS_FN_GL_NUMBER_NEW_EMPTY",   num_rt::__RTS_FN_GL_NUMBER_NEW_EMPTY);
+    add_fn!("__RTS_FN_GL_NUMBER_NEW_BOXED",   num_rt::__RTS_FN_GL_NUMBER_NEW_BOXED);
+    add_fn!("__RTS_FN_GL_NUMBER_NEW_BOXED_EMPTY", num_rt::__RTS_FN_GL_NUMBER_NEW_BOXED_EMPTY);
+    add_fn!("__RTS_FN_GL_NUMBER_BOX_VALUE_OF", num_rt::__RTS_FN_GL_NUMBER_BOX_VALUE_OF);
     add_fn!("__RTS_FN_GL_NUMBER_IS_NAN",      num_rt::__RTS_FN_GL_NUMBER_IS_NAN);
     add_fn!("__RTS_FN_GL_NUMBER_IS_FINITE",   num_rt::__RTS_FN_GL_NUMBER_IS_FINITE);
     add_fn!("__RTS_FN_GL_NUMBER_IS_INTEGER",  num_rt::__RTS_FN_GL_NUMBER_IS_INTEGER);
