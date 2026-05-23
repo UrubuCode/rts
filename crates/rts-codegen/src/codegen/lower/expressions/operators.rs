@@ -739,6 +739,99 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         }
     }
 
+    // (#51) Loose `==` com Array literal vs String: converte Array para
+    // string via TPL_COERCE_AUTO (Vec -> "1,2,3" join). Sem isso
+    // `[] == ""` falha pq STRING_EQ compara Vec handle vs "" string.
+    if matches!(bin.op, BinaryOp::EqEq | BinaryOp::NotEq)
+        && lhs.ty == ValTy::Handle
+        && rhs.ty == ValTy::Handle
+    {
+        let lhs_is_arr = matches!(bin.left.as_ref(), Expr::Array(_));
+        let rhs_is_arr = matches!(bin.right.as_ref(), Expr::Array(_));
+        if lhs_is_arr || rhs_is_arr {
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let l_h = if lhs_is_arr {
+                let inst = ctx.builder.ins().call(coerce_fn, &[lhs.val]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                lhs.val
+            };
+            let r_h = if rhs_is_arr {
+                let inst = ctx.builder.ins().call(coerce_fn, &[rhs.val]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                rhs.val
+            };
+            // Agora compara string-eq.
+            let fref = ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_EQ",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[l_h, r_h]);
+            let eq = ctx.builder.inst_results(inst)[0];
+            let result = if matches!(bin.op, BinaryOp::NotEq) {
+                let one = ctx.builder.ins().iconst(cl::I64, 1);
+                ctx.builder.ins().bxor(eq, one)
+            } else {
+                eq
+            };
+            return Ok(TypedVal::new(result, ValTy::Bool));
+        }
+    }
+
+    // (#51) Loose `==` com Array literal vs Number: array.toString -> ToNumber.
+    if matches!(bin.op, BinaryOp::EqEq | BinaryOp::NotEq) {
+        let lhs_arr = matches!(bin.left.as_ref(), Expr::Array(_));
+        let rhs_arr = matches!(bin.right.as_ref(), Expr::Array(_));
+        let arr_num_pair = if lhs_arr
+            && lhs.ty == ValTy::Handle
+            && matches!(rhs.ty, ValTy::F64 | ValTy::I64 | ValTy::I32)
+        {
+            Some((lhs, rhs))
+        } else if rhs_arr
+            && rhs.ty == ValTy::Handle
+            && matches!(lhs.ty, ValTy::F64 | ValTy::I64 | ValTy::I32)
+        {
+            Some((rhs, lhs))
+        } else {
+            None
+        };
+        if let Some((arr_v, num_v)) = arr_num_pair {
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[arr_v.val]);
+            let arr_str = ctx.builder.inst_results(inst)[0];
+            let from_str = ctx.get_extern(
+                "__RTS_FN_GL_NUMBER_FROM_STR",
+                &[cl::I64],
+                Some(cl::F64),
+            )?;
+            let inst = ctx.builder.ins().call(from_str, &[arr_str]);
+            let arr_num = ctx.builder.inst_results(inst)[0];
+            let num_f = ctx.coerce_to_f64(num_v).val;
+            let eq = ctx.builder.ins().fcmp(
+                cranelift_codegen::ir::condcodes::FloatCC::Equal,
+                arr_num,
+                num_f,
+            );
+            let result = if matches!(bin.op, BinaryOp::NotEq) {
+                let one = ctx.builder.ins().iconst(cl::I8, 1);
+                ctx.builder.ins().bxor(eq, one)
+            } else {
+                eq
+            };
+            return Ok(TypedVal::new(result, ValTy::Bool));
+        }
+    }
+
     // String equality (#130): quando ambos sao Handle, comparar por
     // conteudo via __RTS_FN_NS_GC_STRING_EQ. Sem isso `==` compararia
     // handles u64 (sempre distintos para interneds diferentes).
