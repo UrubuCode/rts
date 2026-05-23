@@ -574,25 +574,37 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         let user_args: &[swc_ecma_ast::ExprOrSpread] =
             new_expr.args.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
         let expected = abi.params.len().saturating_sub(1);
-        if user_args.len() != expected {
+        // (cross-runtime #1057) Se user_args < expected, preenche com sentinel
+        // (defaults). Cobre `class Dog extends Animal {}` onde __init herda
+        // (name, energy=100) e `new Dog("Rex")` passa 1 arg.
+        if user_args.len() > expected {
             return Err(anyhow!(
-                "constructor de `{class_name}` espera {} argumento(s), recebeu {}",
+                "constructor de `{class_name}` espera ate {} argumento(s), recebeu {}",
                 expected,
                 user_args.len()
             ));
         }
         let mut args = vec![handle];
-        for (a, expected_ty) in user_args.iter().zip(abi.params.iter().skip(1).copied()) {
-            if a.spread.is_some() {
-                return Err(anyhow!("spread em `new` nao suportado"));
+        for (i, expected_ty) in abi.params.iter().skip(1).copied().enumerate() {
+            if i < user_args.len() {
+                let a = &user_args[i];
+                if a.spread.is_some() {
+                    return Err(anyhow!("spread em `new` nao suportado"));
+                }
+                let tv = lower_expr(ctx, &a.expr)?;
+                let value = match expected_ty {
+                    ValTy::I32 => ctx.coerce_to_i32(tv).val,
+                    ValTy::F64 => to_f64(ctx, tv),
+                    _ => ctx.coerce_to_i64(tv).val,
+                };
+                args.push(value);
+            } else {
+                let v = match expected_ty {
+                    ValTy::F64 => ctx.builder.ins().f64const(f64::NAN),
+                    _ => ctx.builder.ins().iconst(cl::I64, 0),
+                };
+                args.push(v);
             }
-            let tv = lower_expr(ctx, &a.expr)?;
-            let value = match expected_ty {
-                ValTy::I32 => ctx.coerce_to_i32(tv).val,
-                ValTy::F64 => to_f64(ctx, tv),
-                _ => ctx.coerce_to_i64(tv).val,
-            };
-            args.push(value);
         }
         ctx.builder.ins().call(fref, &args);
     }

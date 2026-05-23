@@ -103,24 +103,37 @@ pub(super) fn lower_super_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<Typed
         .ok_or_else(|| anyhow!("`this` indisponivel em super(...)"))?;
     let mut args = vec![this_val.val];
     let expected = abi.params.len().saturating_sub(1);
-    if call.args.len() != expected {
+    // (cross-runtime #1057) Se call.args < expected, preenche com sentinel
+    // undefined/0 (default value). expand_default_args nao alcanca super()
+    // pra reescrever no caller. Se call.args > expected, ainda eh erro.
+    if call.args.len() > expected {
         return Err(anyhow!(
-            "super(...) espera {} argumento(s), recebeu {}",
+            "super(...) espera ate {} argumento(s), recebeu {}",
             expected,
             call.args.len()
         ));
     }
-    for (a, expected_ty) in call.args.iter().zip(abi.params.iter().skip(1).copied()) {
-        if a.spread.is_some() {
-            return Err(anyhow!("spread em super(...) nao suportado"));
+    for (i, expected_ty) in abi.params.iter().skip(1).copied().enumerate() {
+        if i < call.args.len() {
+            let a = &call.args[i];
+            if a.spread.is_some() {
+                return Err(anyhow!("spread em super(...) nao suportado"));
+            }
+            let tv = lower_expr(ctx, &a.expr)?;
+            let value = match expected_ty {
+                ValTy::I32 => ctx.coerce_to_i32(tv).val,
+                ValTy::F64 => to_f64(ctx, tv),
+                _ => ctx.coerce_to_i64(tv).val,
+            };
+            args.push(value);
+        } else {
+            // Preenche com default: F64 -> NaN; outros -> 0/undefined sentinel.
+            let v = match expected_ty {
+                ValTy::F64 => ctx.builder.ins().f64const(f64::NAN),
+                _ => ctx.builder.ins().iconst(cl::I64, 0),
+            };
+            args.push(v);
         }
-        let tv = lower_expr(ctx, &a.expr)?;
-        let value = match expected_ty {
-            ValTy::I32 => ctx.coerce_to_i32(tv).val,
-            ValTy::F64 => to_f64(ctx, tv),
-            _ => ctx.coerce_to_i64(tv).val,
-        };
-        args.push(value);
     }
     ctx.builder.ins().call(fref, &args);
     Ok(TypedVal::new(

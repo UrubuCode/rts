@@ -170,10 +170,24 @@ pub fn compile_program(
         }
     }
 
+    // (cross-runtime #1057) Pre-coleta params do constructor de cada classe.
+    // Permite que subclasse sem ctor explicito propague params na chamada
+    // sintetica de super.__init. Sem isso, `class Dog extends Animal {}`
+    // gerava __class_Dog__init(this) chamando __class_Animal__init(this)
+    // sem args, e `super(name)` em sub-sub-class falhava com "espera 0 args".
+    let mut class_ctor_params: HashMap<String, Vec<crate::parser::ast::Parameter>> = HashMap::new();
+    for class in &class_decls {
+        for m in &class.members {
+            if let crate::parser::ast::ClassMember::Constructor(c) = m {
+                class_ctor_params.insert(class.name.clone(), c.parameters.clone());
+                break;
+            }
+        }
+    }
     let mut classes: HashMap<String, ClassMeta> = HashMap::new();
     let mut synthetic_fns: Vec<FunctionDecl> = Vec::new();
     for class in &class_decls {
-        let (meta, fns) = synthesize_class_fns(class, &classes_with_init);
+        let (meta, fns) = synthesize_class_fns(class, &classes_with_init, &class_ctor_params);
         classes.insert(class.name.clone(), meta);
         synthetic_fns.extend(fns);
     }
