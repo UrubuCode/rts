@@ -28,8 +28,9 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
     // reescrita de C.field e pra detectar conflitos.
     let mut static_map: HashMap<(String, String), String> = HashMap::new();
     // Stmts dos `static { ... }` blocks, drenados das ClassDecls,
-    // re-emitidos como top-level apos as let de static fields.
-    let mut static_init_stmts: Vec<Statement> = Vec::new();
+    // agrupados por classe pra re-emitir na posicao correta.
+    // (#1077) preserva ordem source mantendo ligacao class->stmts.
+    let mut static_init_by_class: HashMap<String, Vec<Statement>> = HashMap::new();
 
     for item in program.items.iter_mut() {
         let Item::Class(class) = item else { continue };
@@ -62,11 +63,14 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
         // blocks na mesma classe sao concatenados, e classes anteriores
         // executam antes (program order).
         if !class.static_init_body.is_empty() {
-            static_init_stmts.extend(std::mem::take(&mut class.static_init_body));
+            static_init_by_class
+                .entry(class_name.clone())
+                .or_default()
+                .extend(std::mem::take(&mut class.static_init_body));
         }
     }
 
-    if fields.is_empty() && static_init_stmts.is_empty() {
+    if fields.is_empty() && static_init_by_class.is_empty() {
         return;
     }
 
@@ -137,26 +141,67 @@ pub(crate) fn expand_static_fields(program: &mut Program) {
     // Anexa os stmts dos `static { }` blocks depois das declaracoes
     // das let. Eles vao por `rewrite_static_in_program` na proxima fase
     // — mas como ja' rodamos rewrite acima, precisamos rodar so' neles.
-    for stmt in static_init_stmts.iter_mut() {
-        let Statement::Raw(r) = stmt;
-        if let Some(s) = r.stmt.as_mut() {
-            rewrite_static_in_swc_stmt(s, &static_keys);
+    for (_cls, stmts) in static_init_by_class.iter_mut() {
+        for stmt in stmts.iter_mut() {
+            let Statement::Raw(r) = stmt;
+            if let Some(s) = r.stmt.as_mut() {
+                rewrite_static_in_swc_stmt(s, &static_keys);
+            }
         }
     }
-    for stmt in static_init_stmts {
-        decls.push(Item::Statement(stmt));
-    }
 
-    // Insere antes da primeira Class declaration (pra que ja existam
-    // quando o codegen das classes processar referências).
-    let insert_at = program
-        .items
-        .iter()
-        .position(|i| matches!(i, Item::Class(_)))
-        .unwrap_or(0);
-    for (i, decl) in decls.into_iter().enumerate() {
-        program.items.insert(insert_at + i, decl);
+    // (cross-runtime #1077) Insere os decls de static field IMEDIATAMENTE
+    // antes da Class declaration correspondente — preservando program order.
+    // Antes a logica colocava tudo antes da PRIMEIRA classe, o que quebrava
+    // quando o initializer referenciava idents declarados depois daquela
+    // classe (ex: `class A {}; const slog = []; class S { static a = slog.push(...) }`
+    // movia o `let __class_static_S_a = slog.push(...)` para antes de `const slog`).
+    //
+    // static_init_stmts (de `static { ... }` blocks) tambem sao agrupados
+    // por classe — vao logo depois das decls da sua classe.
+    let mut decls_by_class: HashMap<String, Vec<Item>> = HashMap::new();
+    for sf_idx in 0..fields.len() {
+        let sf = &fields[sf_idx];
+        decls_by_class.entry(sf.class.clone()).or_default().push(decls[sf_idx].clone());
     }
+    // static blocks: separar por classe usando ordem original (varremos
+    // class items de novo). Aqui simplificamos: anexamos todos os static
+    // blocks ao final, depois das decls da ultima classe relevante.
+    let mut new_items: Vec<Item> = Vec::with_capacity(program.items.len() + decls.len());
+    for item in program.items.drain(..) {
+        if let Item::Class(c) = &item {
+            let class_name = c.name.clone();
+            // 1. lets de static fields ANTES da classe (precondicao do codegen).
+            if let Some(class_decls) = decls_by_class.remove(&class_name) {
+                for d in class_decls {
+                    new_items.push(d);
+                }
+            }
+            // 2. a propria classe.
+            new_items.push(item);
+            // 3. static {} blocks DEPOIS da classe (no source order, executariam
+            //    apos os fields static — JS spec).
+            if let Some(blocks) = static_init_by_class.remove(&class_name) {
+                for stmt in blocks {
+                    new_items.push(Item::Statement(stmt));
+                }
+            }
+        } else {
+            new_items.push(item);
+        }
+    }
+    // Defensivo: decls/blocks remanescentes (classe nao encontrada) — no fim.
+    for (_cls, ds) in decls_by_class {
+        for d in ds {
+            new_items.push(d);
+        }
+    }
+    for (_cls, stmts) in static_init_by_class {
+        for stmt in stmts {
+            new_items.push(Item::Statement(stmt));
+        }
+    }
+    program.items = new_items;
 }
 
 /// Default value compativel com a anotacao do field. Static fields sem
