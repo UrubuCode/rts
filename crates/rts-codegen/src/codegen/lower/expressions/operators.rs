@@ -1634,8 +1634,11 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
             let inst = ctx.builder.ins().call(coerce_fn, &[lhs.val]);
             ctx.builder.inst_results(inst)[0]
         } else if lhs_ambig {
+            // (cross-runtime #41) NUM_BIAS: value=0 vira "0" em vez de
+            // "null" (caso comum em fn() retornando 0 de closure/getter).
+            // null literal ainda vira "null" via sentinel MIN+3.
             let coerce_fn = ctx.get_extern(
-                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                "__RTS_FN_RT_TPL_COERCE_NUM_BIAS",
                 &[cl::I64],
                 Some(cl::I64),
             )?;
@@ -1654,7 +1657,7 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
             ctx.builder.inst_results(inst)[0]
         } else if rhs_ambig {
             let coerce_fn = ctx.get_extern(
-                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                "__RTS_FN_RT_TPL_COERCE_NUM_BIAS",
                 &[cl::I64],
                 Some(cl::I64),
             )?;

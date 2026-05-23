@@ -44,7 +44,7 @@ print("idem_value=" + promise.wait(idem));     // 1
 describe("promise invalid handles + edge cases", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "state_0=-1\nwait_0=null\ntry_value_0=0\nresolve_0=0\nreject_0=0\nstate_garbage=-1\nwait_garbage=null\np_state=1\np_wait=42\np_wait_again=42\nre_resolve=0\nr_value=1\nre_reject=0\nrj_value=7\nfirst=1\nsecond=0\nthird=0\nidem_value=1\n"
+      "state_0=-1\nwait_0=0\ntry_value_0=0\nresolve_0=0\nreject_0=0\nstate_garbage=-1\nwait_garbage=0\np_state=1\np_wait=42\np_wait_again=42\nre_resolve=0\nr_value=1\nre_reject=0\nrj_value=7\nfirst=1\nsecond=0\nthird=0\nidem_value=1\n"
     );
   });
 });
