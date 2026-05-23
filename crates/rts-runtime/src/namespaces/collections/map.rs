@@ -1448,6 +1448,26 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     if matches!(is_configurable, Some(false)) {
         mark_non_configurable(obj, &key_str);
     }
+    // (#1111) Accessor descriptor: { get: fn } / { set: fn }. RTS armazena
+    // como slots internos __get_<name>/__set_<name> (handle/fn_ptr) e
+    // MAP_GET_CHAIN/MAP_SET detectam e invocam via INVOKE_AUTO.
+    let getter: Option<i64> = with_map(descriptor, None, |m| m.get("get").copied().filter(|v| *v != 0));
+    let setter: Option<i64> = with_map(descriptor, None, |m| m.get("set").copied().filter(|v| *v != 0));
+    if getter.is_some() || setter.is_some() {
+        let key_owned = key_str.clone();
+        with_map_mut(obj, (), |m| {
+            if let Some(g) = getter {
+                m.insert(format!("__get_{}", key_owned), g);
+            }
+            if let Some(s) = setter {
+                m.insert(format!("__set_{}", key_owned), s);
+            }
+            // Remove eventual data slot anterior — accessor e data sao
+            // mutuamente exclusivos em JS spec.
+            m.shift_remove(key_owned.as_str());
+        });
+        return obj;
+    }
     // Bypass MAP_SET (que respeita writable=false): defineProperty sempre
     // grava o valor mesmo se ja era non-writable.
     let key_owned = key_str.clone();
