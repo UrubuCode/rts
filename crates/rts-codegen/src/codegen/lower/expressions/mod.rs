@@ -219,6 +219,16 @@ pub(super) fn rhs_is_non_integer_float_lit(e: &Expr) -> bool {
             Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
                 cur = &u.arg;
             }
+            // (cross-runtime #1144) `c + 273.15` — binary com pelo menos
+            // um operando float lit non-integer eh garantidamente F64.
+            Expr::Bin(b) if matches!(
+                b.op,
+                swc_ecma_ast::BinaryOp::Add | swc_ecma_ast::BinaryOp::Sub
+                    | swc_ecma_ast::BinaryOp::Mul | swc_ecma_ast::BinaryOp::Div
+            ) => {
+                return rhs_is_non_integer_float_lit(&b.left)
+                    || rhs_is_non_integer_float_lit(&b.right);
+            }
             _ => return false,
         }
     }
