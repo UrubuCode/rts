@@ -274,6 +274,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: u64, key_h: u64) -> i64
         Some(s) => s,
         None => return 0,
     };
+    // (cross-runtime #340) Proxy: dispatch `has` trap quando obj_h eh Proxy.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h) {
+        return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, &key);
+    }
     // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
     let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
         Some(Entry::Vec(v)) => {

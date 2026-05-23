@@ -781,9 +781,13 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     ctx.builder.ins().call(set_fn, &[obj_h, kp, kl, rhs_i64]);
                 } else {
                     let key_tv = lower_expr(ctx, &c.expr)?;
-                    // Hot path: key claramente numerica -> VEC_SET direto
-                    // (sem alocar handle string por iteracao).
-                    if matches!(key_tv.ty, ValTy::I32 | ValTy::I64 | ValTy::U64) {
+                    // (cross-runtime #340) Hot path: key claramente numerica
+                    // (literal Num) -> VEC_SET direto. Caso ambiguo (param,
+                    // member call result, I64 marcado) cai em OBJ_SET que
+                    // detecta tipo (Vec usa numeric, Map usa key handle).
+                    let is_clear_num = matches!(c.expr.as_ref(), Expr::Lit(Lit::Num(_)))
+                        || matches!(key_tv.ty, ValTy::I32);
+                    if is_clear_num {
                         let idx = ctx.coerce_to_i64(key_tv).val;
                         let vec_set = ctx.get_extern(
                             "__RTS_FN_NS_COLLECTIONS_VEC_SET",
