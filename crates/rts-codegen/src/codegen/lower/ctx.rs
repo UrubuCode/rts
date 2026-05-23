@@ -78,6 +78,12 @@ impl ValTy {
             "u16" | "U16" => return ValTy::U16,
             _ => {}
         }
+        // (cross-runtime followup) Type predicate `param is Type` ou
+        // `asserts param is Type` — semantica de retorno eh boolean.
+        // Sem isso, console.log(fn(...)) imprime 0/1 em vez de true/false.
+        if trimmed.contains(" is ") || trimmed.starts_with("asserts ") {
+            return ValTy::Bool;
+        }
         // Tipos de array (`T[]`, `Array<T>`, `ReadonlyArray<T>`) sao
         // representados como handles GC (Vec<i64>) — `.length`, `.push`,
         // `for...of` dispatcham via gc.handle_len/vec_*.
