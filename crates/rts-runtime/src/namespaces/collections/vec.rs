@@ -37,6 +37,20 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LEN(handle: u64) -> i64 {
     with_vec(handle, -1, |v| v.len() as i64)
 }
 
+/// (cross-runtime #1067) Suporte a spread em indirect call: copia todos
+/// os elementos de `src` para `dst`. Usado pelo codegen para `f(...args)`
+/// onde args eh Vec.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM(dst: u64, src: u64) {
+    let items: Vec<i64> = with_vec(src, Vec::new(), |v| v.clone());
+    with_vec_mut(dst, (), |v| {
+        for x in items {
+            if v.len() >= 1_000_000 { break; }
+            v.push(x);
+        }
+    });
+}
+
 /// Limite duro de elementos por vec — protege contra OOM em cenarios
 /// patologicos (ex: generator infinito desugared para buffer eager,
 /// loop sem condicao de parada). 1M i64 = 8MiB por vec, suficiente
