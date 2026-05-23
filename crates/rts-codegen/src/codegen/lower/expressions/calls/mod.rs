@@ -1669,6 +1669,29 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
             // (#208 / #476) Array static globals: isArray, from.
             if let Some(method) = qualified.strip_prefix("Array.") {
+                // (#861) Array.fromAsync(iter, mapper?) — Promise<Array>.
+                // Suporte parcial: array sync de promises (ou valores). Async
+                // generator depende de #211 (state machine generator).
+                if method == "fromAsync" && (call.args.len() == 1 || call.args.len() == 2) {
+                    if call.args.iter().any(|a| a.spread.is_some()) {
+                        return Err(anyhow!("spread not supported in Array.fromAsync"));
+                    }
+                    let iter_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let iter_h = ctx.coerce_to_i64(iter_tv).val;
+                    let mapper_h = if call.args.len() == 2 {
+                        lower_callable_target_h(ctx, &call.args[1].expr)?
+                    } else {
+                        ctx.builder.ins().iconst(cl::I64, 0)
+                    };
+                    let f = ctx.get_extern(
+                        "__RTS_FN_GL_ARRAY_FROM_ASYNC",
+                        &[cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[iter_h, mapper_h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
                 if method == "isArray" && call.args.len() == 1
                     && call.args[0].spread.is_none()
                 {
