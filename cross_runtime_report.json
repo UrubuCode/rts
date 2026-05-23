@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=immediate|micro|timeout"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1465,10 +1465,10 @@
 ,
 {
   "name": "356_obf_dispatcher",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "14\n1024\n42\n7\n99\nolleh\nWORLD\na-b-c",
   "node": "14\n1024\n42\n7\n99\nolleh\nWORLD\na-b-c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "14\n1024\n42\n7\n99\n281474976710695\n281474976710700\n281474976710712"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94423909523456 }\n{ n: 0, @@sym:281474976710669: 94423909523456 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94587976040448 }\n{ n: 0, @@sym:281474976710669: 94587976040448 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":286,"rts_diverge":25,"bun_node_diverge":17,"errors":60,"rejected":0}}
+],"summary":{"total":388,"pass":286,"rts_diverge":27,"bun_node_diverge":16,"errors":59,"rejected":0}}
