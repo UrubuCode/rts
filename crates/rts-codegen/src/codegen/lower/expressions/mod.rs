@@ -745,6 +745,119 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         return Ok(TypedVal::new(rhs_i64, ValTy::I64));
     }
 
+    // (#1083) Array destructuring assignment: `[a, b] = [b, a]`,
+    // `[arr[i], arr[j]] = [arr[j], arr[i]]`. Lowera para:
+    //   const __tmp_0 = rhs[0]; const __tmp_1 = rhs[1];
+    //   a = __tmp_0; b = __tmp_1;
+    // Cada slot pode ser ident OU member (arr[i] / obj.x).
+    if let AssignTarget::Pat(pat) = &a.left {
+        if matches!(a.op, AssignOp::Assign) {
+            if let swc_ecma_ast::AssignTargetPat::Array(arr_pat) = pat {
+                use swc_ecma_ast::{Expr as SwcExpr, ExprOrSpread};
+                let rhs_tv = lower_expr(ctx, &a.right)?;
+                let rhs_h = ctx.coerce_to_i64(rhs_tv).val;
+                let vec_get = ctx.get_extern(
+                    "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+                    &[cranelift_codegen::ir::types::I64, cranelift_codegen::ir::types::I64],
+                    Some(cranelift_codegen::ir::types::I64),
+                )?;
+                // Materializa primeiro todos os slots em SSA values pra
+                // suportar swap (avalia RHS antes de mutar LHS).
+                let mut values: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(arr_pat.elems.len());
+                for (i, _) in arr_pat.elems.iter().enumerate() {
+                    let idx_v = ctx.builder.ins().iconst(
+                        cranelift_codegen::ir::types::I64,
+                        i as i64,
+                    );
+                    let inst = ctx.builder.ins().call(vec_get, &[rhs_h, idx_v]);
+                    values.push(ctx.builder.inst_results(inst)[0]);
+                }
+                // Escreve cada slot.
+                for (elem, v) in arr_pat.elems.iter().zip(values.iter()) {
+                    let Some(e) = elem else { continue }; // hole — skip
+                    // Construct synthetic AssignExpr (elem = literal_v) via shortcut:
+                    // chamamos write_assign_target_simple sintetico.
+                    // Para simplicidade, suportamos so' Ident e Member computed.
+                    match e {
+                        swc_ecma_ast::Pat::Ident(id) => {
+                            let nm = id.id.sym.as_str();
+                            // VEC_GET retorna i64 raw. Se a var local eh F64,
+                            // converte via fcvt; o normalize do write_local
+                            // espera tipos compativeis.
+                            let val_to_write = if let Some(ty) = ctx.var_ty(nm) {
+                                match ty {
+                                    ValTy::F64 => ctx.builder.ins().fcvt_from_sint(
+                                        cranelift_codegen::ir::types::F64,
+                                        *v,
+                                    ),
+                                    _ => *v,
+                                }
+                            } else { *v };
+                            ctx.write_local(nm, val_to_write)?;
+                        }
+                        swc_ecma_ast::Pat::Expr(expr) => {
+                            if let SwcExpr::Member(m) = expr.as_ref() {
+                                let obj_tv = lower_expr(ctx, &m.obj)?;
+                                let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                                match &m.prop {
+                                    MemberProp::Computed(c) => {
+                                        let idx_tv = lower_expr(ctx, &c.expr)?;
+                                        // Vec slot via VEC_SET (key numerica).
+                                        if matches!(idx_tv.ty, ValTy::I64 | ValTy::I32 | ValTy::U64 | ValTy::F64) {
+                                            let idx = ctx.coerce_to_i64(idx_tv).val;
+                                            let vec_set = ctx.get_extern(
+                                                "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+                                                &[
+                                                    cranelift_codegen::ir::types::I64,
+                                                    cranelift_codegen::ir::types::I64,
+                                                    cranelift_codegen::ir::types::I64,
+                                                ],
+                                                None,
+                                            )?;
+                                            ctx.builder.ins().call(vec_set, &[obj_h, idx, *v]);
+                                        } else {
+                                            // chave string handle -> MAP_SET_KH
+                                            let key_h = ctx.coerce_to_i64(idx_tv).val;
+                                            let map_set_kh = ctx.get_extern(
+                                                "__RTS_FN_NS_COLLECTIONS_MAP_SET_KH",
+                                                &[
+                                                    cranelift_codegen::ir::types::I64,
+                                                    cranelift_codegen::ir::types::I64,
+                                                    cranelift_codegen::ir::types::I64,
+                                                ],
+                                                None,
+                                            )?;
+                                            ctx.builder.ins().call(map_set_kh, &[obj_h, key_h, *v]);
+                                        }
+                                    }
+                                    MemberProp::Ident(id) => {
+                                        let (kp, kl) = ctx.emit_str_literal(id.sym.as_bytes())?;
+                                        let map_set = ctx.get_extern(
+                                            "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                                            &[
+                                                cranelift_codegen::ir::types::I64,
+                                                cranelift_codegen::ir::types::I64,
+                                                cranelift_codegen::ir::types::I64,
+                                                cranelift_codegen::ir::types::I64,
+                                            ],
+                                            None,
+                                        )?;
+                                        ctx.builder.ins().call(map_set, &[obj_h, kp, kl, *v]);
+                                    }
+                                    _ => return Err(anyhow!("destructure assign: unsupported member prop kind")),
+                                }
+                            } else {
+                                return Err(anyhow!("destructure assign target: unsupported expr kind"));
+                            }
+                        }
+                        _ => return Err(anyhow!("destructure assign: unsupported pattern element")),
+                    }
+                }
+                return Ok(TypedVal::new(rhs_h, ValTy::I64));
+            }
+        }
+    }
+
     let name = match &a.left {
         AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) => {
             id.sym.as_str().to_string()
