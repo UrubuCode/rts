@@ -707,6 +707,15 @@ fn lift_arrows_in_expr(
         Expr::Unary(u) => {
             lift_arrows_in_expr(&mut u.arg, user_fn_names, new_fns, counter);
         }
+        // (cross-runtime followup) `arr.filter(Boolean).length` —
+        // o `.length` eh Member; sem recursar, o `.filter(...)` dentro
+        // nao tem arrow inline liftado.
+        Expr::Member(m) => {
+            lift_arrows_in_expr(&mut m.obj, user_fn_names, new_fns, counter);
+            if let MemberProp::Computed(c) = &mut m.prop {
+                lift_arrows_in_expr(&mut c.expr, user_fn_names, new_fns, counter);
+            }
+        }
         _ => {}
     }
 }
@@ -1264,6 +1273,17 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
         }
         Expr::Unary(u) => {
             rewrite_array_methods_in_expr(&mut u.arg, user_fn_names);
+            return;
+        }
+        // (cross-runtime followup #54) `arr.filter(Boolean).length` —
+        // o `.length` eh um Member; sem recursar no obj, o `.filter(...)`
+        // dentro fica sem rewrite e o codegen tenta MAP_GET("filter") em
+        // Vec -> trapz -> SIGILL.
+        Expr::Member(m) => {
+            rewrite_array_methods_in_expr(&mut m.obj, user_fn_names);
+            if let MemberProp::Computed(c) = &mut m.prop {
+                rewrite_array_methods_in_expr(&mut c.expr, user_fn_names);
+            }
             return;
         }
         _ => {}
