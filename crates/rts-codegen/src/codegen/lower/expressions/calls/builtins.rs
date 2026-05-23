@@ -164,7 +164,13 @@ pub(super) fn lower_string_builtin(
         }
         // ── slicing ───────────────────────────────────────────────────────
         "slice" => {
-            let start = arg_i64(ctx, call, 0)?;
+            // (cross-runtime followup) slice() sem args = slice(0). Antes
+            // chamava arg_i64(0) que falhava com "missing arg #0".
+            let start = if !call.args.is_empty() {
+                arg_i64(ctx, call, 0)?
+            } else {
+                ctx.builder.ins().iconst(cl::I64, 0)
+            };
             let end = if call.args.len() > 1 {
                 arg_i64(ctx, call, 1)?
             } else {
