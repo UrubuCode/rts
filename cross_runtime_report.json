@@ -604,7 +604,7 @@
   "status": "rts_diverge",
   "bun": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
   "node": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
-  "rts": "f1=call\nwrap=281474976710677\ncls=undefined:undefined"
+  "rts": "f1=call\nf2=[object Object]\nwrap=281474976710679\ncls=undefined:undefined"
 }
 ,
 {
@@ -1897,10 +1897,10 @@
 ,
 {
   "name": "336_prototype_chain",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Rex speaks\nRex barks\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue",
   "node": "Rex speaks\nRex barks\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0 speaks\n0 barks\ntrue\nfalse\nfalse\ntrue\ntrue"
 }
 ,
 {
@@ -1977,10 +1977,10 @@
 ,
 {
   "name": "387_object_create_descriptors",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
   "node": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "Rex breathes\nRex\nLab\nname,breed,_age\ntrue\nfalse\na,b\nhello from base1\nhello from base2\n\n0 shape\n0"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94415339376640 }\n{ n: 0, @@sym:281474976710669: 94415339376640 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94019205111808 }\n{ n: 0, @@sym:281474976710669: 94019205111808 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":301,"rts_diverge":15,"bun_node_diverge":16,"errors":56,"rejected":0}}
+],"summary":{"total":388,"pass":300,"rts_diverge":18,"bun_node_diverge":16,"errors":54,"rejected":0}}
