@@ -604,6 +604,15 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             let v = ctx.builder.ins().iconst(cl::I64, val);
             return Ok(TypedVal::new(v, ValTy::Bool));
         }
+        // (cross-runtime #367) `null/undefined == Number` ou `Number ==
+        // null/undefined` sempre false em JS spec — coerce nao se aplica.
+        // RTS antes comparava 0 == 0 (true) porque null vira 0 raw.
+        let is_num_lit = |e: &Expr| matches!(e, Expr::Lit(Lit::Num(_)));
+        if (lhs_nu && is_num_lit(&bin.right)) || (rhs_nu && is_num_lit(&bin.left)) {
+            let val = if matches!(bin.op, BinaryOp::NotEq) { 1 } else { 0 };
+            let v = ctx.builder.ins().iconst(cl::I8, val);
+            return Ok(TypedVal::new(v, ValTy::Bool));
+        }
     }
 
     // (#786) `expr === undefined` / `expr !== undefined` quando expr eh
