@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|timeout|micro"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94305133232128 }\n{ n: 0, @@sym:281474976710669: 94305133232128 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94719029714944 }\n{ n: 0, @@sym:281474976710669: 94719029714944 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3041,10 +3041,10 @@
 ,
 {
   "name": "67_url_patternish",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
   "node": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
-  "rts": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/"
+  "rts": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":293,"rts_diverge":23,"bun_node_diverge":16,"errors":56,"rejected":0}}
+],"summary":{"total":388,"pass":294,"rts_diverge":22,"bun_node_diverge":16,"errors":56,"rejected":0}}
