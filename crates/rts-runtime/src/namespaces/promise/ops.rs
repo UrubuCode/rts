@@ -389,6 +389,60 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(vec_handle: u64) -> u64 {
     result_handle
 }
 
+/// `Array.fromAsync(iterable, mapper?)` — coleta valores de iteravel sync ou
+/// async para Promise<Array>. Implementacao minima (issue #861):
+/// - Vec handle (array sync): aplica mapper a cada elem, wrap em Promise.resolve
+///   se nao for Promise ja, depois Promise.all.
+/// - Async iterable (gen()): nao suportado ate #211 (generator state machine).
+///   Retorna Promise rejeitado.
+///
+/// `fn_ptr=0` => sem mapper. Caller faz invoke_typed (1 arg, retorna i64/handle).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64) -> u64 {
+    // Suporte minimo: iterable e' Vec. Aplica mapper sync (se houver),
+    // wrap cada valor em Promise.resolve se ja' nao for, faz Promise.all.
+    use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+
+    let snapshot: Option<Vec<i64>> = with_entry(iterable, |e| match e {
+        Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
+        _ => None,
+    });
+    let Some(items) = snapshot else {
+        // Async iterable / outros tipos — retorna Promise rejected.
+        let result = promise_slot::new_pending();
+        let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+        let msg = b"Array.fromAsync: only sync iterables supported (issue #211 blocks async generators)".to_vec();
+        let err_handle = alloc_entry(Entry::String(msg));
+        promise_slot::reject(&result, err_handle as i64);
+        return result_handle;
+    };
+
+    // Aplica mapper se fornecido. mapper(value, index) -> mapped.
+    let mapped: Vec<i64> = if mapper_handle != 0 {
+        items.iter().enumerate().map(|(i, &v)| {
+            let args_vec = alloc_entry(Entry::Vec(Box::new(vec![v, i as i64])));
+            unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(mapper_handle, 0, args_vec) }
+        }).collect()
+    } else {
+        items
+    };
+
+    // Wrap cada valor: se ja' for Promise handle, mantem; senao Promise.resolve.
+    let wrapped: Vec<i64> = mapped.iter().map(|&v| {
+        let is_promise = with_entry(v as u64, |e| matches!(e, Some(Entry::PromiseAsync(_))));
+        if is_promise {
+            v
+        } else {
+            let slot = promise_slot::new_pending();
+            promise_slot::resolve(&slot, v);
+            alloc_entry(Entry::PromiseAsync(slot)) as i64
+        }
+    }).collect();
+
+    let promises_vec = alloc_entry(Entry::Vec(Box::new(wrapped)));
+    __RTS_FN_NS_PROMISE_ALL(promises_vec)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_RACE(vec_handle: u64) -> u64 {
     let handles = collect_promise_handles(vec_handle);

@@ -1163,6 +1163,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROMISE_ANY", pr::__RTS_FN_NS_PROMISE_ANY);
         add_fn!("__RTS_FN_NS_PROMISE_ALL_SETTLED", pr::__RTS_FN_NS_PROMISE_ALL_SETTLED);
         add_fn!("__RTS_FN_NS_PROMISE_CREATE", pr::__RTS_FN_NS_PROMISE_CREATE);
+        // (#861) Array.fromAsync — implementacao vive em promise/ops.rs por
+        // reutilizar a infra de Promise.all e PromiseSlot.
+        add_fn!("__RTS_FN_GL_ARRAY_FROM_ASYNC", pr::__RTS_FN_GL_ARRAY_FROM_ASYNC);
     }
 
     // ── namespaces::collections ───────────────────────────────────────
