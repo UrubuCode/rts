@@ -378,10 +378,16 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if let Expr::Ident(obj_id) = m.obj.as_ref() {
                 let cn = obj_id.sym.as_str();
                 if let Some(meta) = ctx.classes.get(cn) {
-                    if let MemberProp::Ident(method_id) = &m.prop {
-                        let mn = method_id.sym.as_str();
-                        if meta.static_methods.iter().any(|m| m == mn) {
-                            let fn_name = class_static_method_name(cn, mn);
+                    // (cross-runtime #1056) Suporta MemberProp::PrivateName
+                    // alem de Ident — `ClassName.#staticPrivate(...)`.
+                    let method_name_opt: Option<String> = match &m.prop {
+                        MemberProp::Ident(id) => Some(id.sym.as_str().to_string()),
+                        MemberProp::PrivateName(pn) => Some(format!("#{}", pn.name.as_ref())),
+                        _ => None,
+                    };
+                    if let Some(mn) = method_name_opt {
+                        if meta.static_methods.iter().any(|m| m == &mn) {
+                            let fn_name = class_static_method_name(cn, &mn);
                             return lower_user_call(ctx, &fn_name, call);
                         }
                     }
@@ -588,10 +594,17 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // de A.call, queremos A.#m (nao B.#m). Forca a resolucao para
             // current_class ao acessar private de \`this\`.
             let is_private = matches!(&m.prop, MemberProp::PrivateName(_));
-            let force_class_for_private: Option<String> = if is_private
-                && matches!(m.obj.as_ref(), Expr::This(_))
-            {
-                ctx.current_class.clone()
+            let force_class_for_private: Option<String> = if is_private {
+                match m.obj.as_ref() {
+                    Expr::This(_) => ctx.current_class.clone(),
+                    // (cross-runtime #1056) `ClassName.#priv()` em static method —
+                    // chamada para private static. obj eh ident == nome da classe.
+                    Expr::Ident(id) => {
+                        let n = id.sym.as_str();
+                        if ctx.classes.contains_key(n) { Some(n.to_string()) } else { None }
+                    }
+                    _ => None,
+                }
             } else {
                 None
             };
