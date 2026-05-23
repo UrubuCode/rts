@@ -2,20 +2,41 @@
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
 
-/// Sentinel para `undefined` em RTS (NaN-tagged i64). Mantido em sync com
-/// outras coercoes do codegen: 0 = false, qualquer outro valor = true,
-/// excepto sentinel undefined.
-const UNDEFINED_SENTINEL: i64 = i64::MIN;
+/// Sentinels JS (em sync com sentinel_for em codegen):
+/// MIN   = false, MIN+1 = true, MIN+2 = undefined, MIN+3 = null.
+const FALSE_SENTINEL: i64 = i64::MIN;
+const UNDEFINED_SENTINEL: i64 = i64::MIN + 2;
+const NULL_SENTINEL: i64 = i64::MIN + 3;
 
 /// `Boolean(x)` — coerce truthy/falsy. Implementacao pura em runtime para
 /// quando o codegen nao consegue resolver inline (fallback).
+///
+/// Falsy: 0 (number/false-old-style), FALSE_SENTINEL, UNDEFINED_SENTINEL,
+/// NULL_SENTINEL, empty string handle (Entry::String len==0), NaN (f64 bits).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_BOOLEAN_COERCE(value: i64) -> i64 {
-    if value == 0 || value == UNDEFINED_SENTINEL {
-        0
-    } else {
-        1
+    // (cross-runtime #1069) Sentinels JS — todos falsy.
+    if value == 0
+        || value == FALSE_SENTINEL
+        || value == UNDEFINED_SENTINEL
+        || value == NULL_SENTINEL
+    {
+        return 0;
     }
+    // String handle vazio: detectar Entry::String len==0. NaN check
+    // omitido — f64::from_bits sobre i64 negativo (ex: -1) tambem
+    // produz NaN e classificaria incorretamente i64 puro negativo.
+    if value > 0 {
+        let h = value as u64;
+        let is_empty_str = with_entry(h, |e| match e {
+            Some(Entry::String(b)) => Some(b.is_empty()),
+            _ => None,
+        });
+        if matches!(is_empty_str, Some(true)) {
+            return 0;
+        }
+    }
+    1
 }
 
 /// Quando `recv` for handle de `Entry::BooleanBox`, retorna o bool boxed.
