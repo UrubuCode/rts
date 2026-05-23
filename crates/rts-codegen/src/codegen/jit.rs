@@ -1173,6 +1173,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_NEW
         );
         add_fn!(
+            "__RTS_FN_RT_GLOBAL_THIS_MAP",
+            map::__RTS_FN_RT_GLOBAL_THIS_MAP
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_FREE",
             map::__RTS_FN_NS_COLLECTIONS_MAP_FREE
         );

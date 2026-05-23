@@ -78,6 +78,19 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> u64 {
     alloc_entry(Entry::Map(Box::new(IndexMap::new())))
 }
 
+/// (cross-runtime #1125) Storage do `globalThis` para escrita/leitura
+/// dinamica (`globalThis[k] = v` / `globalThis[k]` / `k in globalThis`).
+/// Singleton lazy-init via OnceLock — handle Map persistente durante
+/// toda a sessao.
+static GLOBAL_THIS_HANDLE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_GLOBAL_THIS_MAP() -> u64 {
+    *GLOBAL_THIS_HANDLE.get_or_init(|| {
+        alloc_entry(Entry::Map(Box::new(IndexMap::new())))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREE(handle: u64) {
     free_handle(handle);
