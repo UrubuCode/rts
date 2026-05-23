@@ -281,6 +281,9 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // acima via inferencia de instanceof. Sem isso o callee
         // `Object.prototype.hasOwnProperty` vira sentinel string e o
         // `.call(...)` falha em "unsupported call expression form".
+        // (cross-runtime #1064) Tambem suporta `Array.prototype.<method>.call(obj, ...args)`
+        // -> `obj.<method>(...args)` para slice/push/concat/etc (pattern
+        // tsc/esbuild __spreadArray helper).
         if let Expr::Member(outer) = callee.as_ref() {
             if let MemberProp::Ident(call_id) = &outer.prop {
                 if call_id.sym.as_str() == "call" && !call.args.is_empty() {
@@ -291,7 +294,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                 method,
                                 "hasOwnProperty" | "propertyIsEnumerable"
                             );
-                            if is_universal {
+                            let is_array_proto_method = matches!(
+                                method,
+                                "slice" | "concat" | "push" | "pop" | "shift" | "unshift"
+                                | "indexOf" | "lastIndexOf" | "includes" | "join"
+                                | "reverse" | "filter" | "map" | "forEach" | "find"
+                                | "findIndex" | "every" | "some" | "reduce" | "flat"
+                            );
+                            if is_universal || is_array_proto_method {
                                 if let Expr::Member(inner) = mid.obj.as_ref() {
                                     let proto_match = matches!(
                                         &inner.prop,
@@ -299,7 +309,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                     );
                                     let obj_is_object = matches!(
                                         inner.obj.as_ref(),
-                                        Expr::Ident(id) if id.sym.as_str() == "Object"
+                                        Expr::Ident(id) if matches!(id.sym.as_str(), "Object" | "Array")
                                     );
                                     if proto_match && obj_is_object {
                                         // Sintetiza `<arg0>.<method>(...rest)`.
