@@ -1889,10 +1889,10 @@
 ,
 {
   "name": "335_getter_setter",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0\n5\n0\n0\n32\n100\n1.0.0\n10",
   "node": "0\n5\n0\n0\n32\n100\n1.0.0\n10",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "null\n5\nnull\n0\n32\n100\nnull\n10"
 }
 ,
 {
@@ -1913,18 +1913,18 @@
 ,
 {
   "name": "341_getter_inheritance",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "5\nbase:5\n10\nbase:5\ntrue\nfalse",
   "node": "5\nbase:5\n10\nbase:5\ntrue\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "5\nbase:5\n10\nbase:5\nnull\nnull"
 }
 ,
 {
   "name": "346_reflect_api",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
   "node": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\nfalse\nx,y\n10\n99\nfalse\n7\nnull null\nfalse\n42\ntrue"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":283,"rts_diverge":22,"bun_node_diverge":16,"errors":67,"rejected":0}}
+],"summary":{"total":388,"pass":283,"rts_diverge":25,"bun_node_diverge":16,"errors":64,"rejected":0}}
