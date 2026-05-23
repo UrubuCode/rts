@@ -444,7 +444,7 @@
   "status": "rts_diverge",
   "bun": "vals=10,255\neq=true\nseq=false",
   "node": "vals=10,255\neq=true\nseq=false",
-  "rts": "vals=100,2550\neq=true\nseq=true"
+  "rts": "vals=10,255\neq=true\nseq=true"
 }
 ,
 {
@@ -1908,7 +1908,7 @@
   "status": "rts_diverge",
   "bun": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
   "node": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
-  "rts": "0\nfalse\nget:a|set:b=99|del:b\n0\nmust be positive"
+  "rts": "1\nfalse\nget:a|set:b=99|del:b\n0\nmust be positive"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94179913920512 }\n{ n: 0, @@sym:281474976710669: 94179913920512 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 93832053841920 }\n{ n: 0, @@sym:281474976710669: 93832053841920 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":296,"rts_diverge":20,"bun_node_diverge":16,"errors":56,"rejected":0}}
+],"summary":{"total":388,"pass":297,"rts_diverge":19,"bun_node_diverge":16,"errors":56,"rejected":0}}
