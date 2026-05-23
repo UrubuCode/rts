@@ -644,7 +644,7 @@
   "status": "rts_diverge",
   "bun": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
   "node": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
-  "rts": "1\n1\n0\n0\n5\nnot a Point\n1\n0\n1\n0\nWhiskers says meow\nRex says woof"
+  "rts": "true\ntrue\nfalse\nfalse\n5\nnot a Point\n1\n0\n1\n0\nWhiskers says meow\nRex says woof"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -2644,7 +2644,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94587976040448 }\n{ n: 0, @@sym:281474976710669: 94587976040448 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
+  "rts": "{ amount: 9, currency: 'USD' }\n[object Object]\n[object Object]0.01\n{ n: 0, @@sym:281474976710669: 94184328982528 }\n{ n: 0, @@sym:281474976710669: 94184328982528 }\n[object Object]\n{ x: 3, y: 4 }\n[object Object]\nfalse"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":286,"rts_diverge":27,"bun_node_diverge":16,"errors":59,"rejected":0}}
+],"summary":{"total":388,"pass":285,"rts_diverge":28,"bun_node_diverge":16,"errors":59,"rejected":0}}
