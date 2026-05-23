@@ -2111,6 +2111,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 // ir pelo path otimizado (sem crashar em fn handle invalido).
                 let static_key: Option<String> = match c.expr.as_ref() {
                     Expr::Lit(swc_ecma_ast::Lit::Str(s)) => Some(s.value.to_string_lossy().to_string()),
+                    // (cross-runtime #1052) Constant propagation: `k[N]`
+                    // quando `k` eh top-level const array de strings.
+                    Expr::Member(inner) => {
+                        if let (Expr::Ident(arr_id), MemberProp::Computed(ic)) =
+                            (inner.obj.as_ref(), &inner.prop)
+                        {
+                            if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = ic.expr.as_ref() {
+                                let idx = n.value as usize;
+                                let arr_name = arr_id.sym.as_str().to_string();
+                                crate::codegen::lower::passes::parallelism::STRING_ARRAY_VALUES
+                                    .with(|c| c.borrow().get(&arr_name).and_then(|v| v.get(idx).cloned()))
+                            } else { None }
+                        } else { None }
+                    }
                     _ => None,
                 };
                 if let Some(method) = static_key {
