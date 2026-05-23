@@ -52,23 +52,38 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE_REVIVER(ptr: u64, len: i64, reviver_h: 
     if reviver_h == 0 {
         return root_handle;
     }
-    // JS spec: cria objeto raiz `{ "": root }` e chama reviver com key="".
-    apply_reviver(reviver_h, "", root_handle)
+    // JS spec InternalizeJSONProperty: cria holder raiz `{ "": root }` e chama
+    // reviver com this=holder, key="", value=root.
+    use indexmap::IndexMap;
+    let mut root_holder: IndexMap<String, i64> = IndexMap::new();
+    root_holder.insert(String::new(), root_handle as i64);
+    let holder_h = alloc_entry(Entry::Map(Box::new(root_holder)));
+    apply_reviver(reviver_h, holder_h, "")
 }
 
-/// Walk bottom-up: para cada slot, recursa primeiro, depois invoca reviver.
-fn apply_reviver(reviver_h: u64, key: &str, value: u64) -> u64 {
+/// Walk bottom-up (ECMA InternalizeJSONProperty): para cada child, recursa
+/// primeiro com o holder atual como `this`, depois invoca reviver(key, value)
+/// com `this`=holder.
+fn apply_reviver(reviver_h: u64, holder: u64, key: &str) -> u64 {
     use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
     use crate::namespaces::collections::vec as v_ns;
-    // Recursa em children primeiro.
+    // Pega o value (child) do holder.
+    let value: u64 = with_entry(holder, |e| match e {
+        Some(Entry::Map(m)) => m.get(key).copied().unwrap_or(0) as u64,
+        Some(Entry::Vec(arr)) => key.parse::<usize>().ok()
+            .and_then(|i| arr.get(i).copied())
+            .unwrap_or(0) as u64,
+        _ => 0,
+    });
+    // Recursa em children do value (que vira novo holder).
     let kind = with_entry(value, |e| match e {
         Some(Entry::Map(m)) => Some(("map", m.iter().map(|(k,v)| (k.clone(), *v)).collect::<Vec<_>>())),
         Some(Entry::Vec(arr)) => Some(("vec", arr.iter().enumerate().map(|(i,v)| (i.to_string(), *v)).collect::<Vec<_>>())),
         _ => None,
     });
     if let Some((k_type, entries)) = kind {
-        for (k, v) in entries {
-            let new_v = apply_reviver(reviver_h, &k, v as u64);
+        for (k, _v) in entries {
+            let new_v = apply_reviver(reviver_h, value, &k);
             // Atualiza slot.
             use crate::namespaces::gc::handles::with_entry_mut;
             with_entry_mut(value, |e| {
@@ -92,11 +107,11 @@ fn apply_reviver(reviver_h: u64, key: &str, value: u64) -> u64 {
             });
         }
     }
-    // Invoca reviver(key, value).
+    // Invoca reviver.call(holder, key, value).
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
     let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
-    let result = unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(reviver_h, 0, args) };
-    let _ = v_ns::__RTS_FN_NS_COLLECTIONS_VEC_GET; // keep import
+    let result = unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(reviver_h, holder as i64, args) };
+    let _ = v_ns::__RTS_FN_NS_COLLECTIONS_VEC_GET;
     result as u64
 }
 

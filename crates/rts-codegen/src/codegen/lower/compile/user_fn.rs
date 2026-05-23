@@ -216,6 +216,10 @@ pub(crate) fn compile_user_fn(
                 || (is_reduce_lifted && (i == 0 || i == 1))
             ) {
                 fn_ctx.var_member_call_values.insert(block_param);
+                // (#862) Tambem marca pelo nome para que reads em blocks
+                // sucessores propaguem ambiguity — use_var em block diferente
+                // gera SSA Value novo que nao esta em var_member_call_values.
+                fn_ctx.local_ambiguous_vars.insert(param.name.clone());
             }
             // (cross-runtime #1130) Param tipado `any`/`unknown`/sem anotacao
             // pode receber handle (Map/Vec/String/Function/instance) ou
@@ -231,6 +235,8 @@ pub(crate) fn compile_user_fn(
                 };
                 if is_ambiguous_ann {
                     fn_ctx.var_member_call_values.insert(block_param);
+                    // (#862) Idem — propagar por nome via local_ambiguous_vars.
+                    fn_ctx.local_ambiguous_vars.insert(param.name.clone());
                 }
             }
 

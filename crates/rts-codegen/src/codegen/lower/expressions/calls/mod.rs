@@ -434,7 +434,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     )?;
                     let inst = ctx.builder.ins().call(f, &[s_ptr, s_len, r_h]);
                     let v = ctx.builder.inst_results(inst)[0];
-                    return Ok(TypedVal::new(v, ValTy::U64));
+                    // Handle (nao U64) para que a var seja registrada como
+                    // GC root e o Map/Vec resultante nao seja coletado antes
+                    // do consumer (ex: JSON.stringify subsequente).
+                    return Ok(TypedVal::new(v, ValTy::Handle));
                 }
                 // JSON.stringify(value, replacer) — 2-arg. Replacer pode ser
                 // array de keys (filtra props) ou fn (transforma valores).
