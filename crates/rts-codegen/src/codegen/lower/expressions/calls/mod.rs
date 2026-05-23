@@ -2832,30 +2832,31 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     let func_id = *ctx.extern_cache.get(mangled.as_str()).unwrap();
     let fref = ctx.fref_for_id(func_id);
 
-    // (cross-runtime #299) JS spec: chamada com MENOS args completa com
+    // (cross-runtime #299/#270) JS spec: chamada com MENOS args completa com
     // undefined; MAIS args sao acessiveis via `arguments` (RTS nao
     // tem `arguments` real mas silenciosamente ignora extras pra
     // compat com pattern \`function f() { ... arguments... }\`).
-    // RTS antes rejeitava ambos os casos.
-    if call.args.len() < abi.params.len() {
-        return Err(anyhow!(
-            "function `{name}` expects {} argument(s), got {}",
-            abi.params.len(),
-            call.args.len()
-        ));
-    }
-
+    // Fill com sentinel undefined (i64::MIN+2) quando faltam args.
     let mut values = Vec::new();
-    for (arg, expected_ty) in call.args.iter().take(abi.params.len()).zip(abi.params.iter().copied()) {
-        if arg.spread.is_some() {
-            return Err(anyhow!("spread not supported"));
-        }
-        let tv = lower_expr(ctx, &arg.expr)?;
-        let value = match expected_ty {
-            ValTy::I32 => ctx.coerce_to_i32(tv).val,
-            ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64
-            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => ctx.coerce_to_i64(tv).val,
-            ValTy::F64 => to_f64(ctx, tv),
+    for (i, expected_ty) in abi.params.iter().copied().enumerate() {
+        let value = if let Some(arg) = call.args.get(i) {
+            if arg.spread.is_some() {
+                return Err(anyhow!("spread not supported"));
+            }
+            let tv = lower_expr(ctx, &arg.expr)?;
+            match expected_ty {
+                ValTy::I32 => ctx.coerce_to_i32(tv).val,
+                ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64
+                | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => ctx.coerce_to_i64(tv).val,
+                ValTy::F64 => to_f64(ctx, tv),
+            }
+        } else {
+            // Param ausente — fill com undefined sentinel (ou 0.0 pra F64).
+            match expected_ty {
+                ValTy::F64 => ctx.builder.ins().f64const(f64::NAN),
+                ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+                _ => ctx.builder.ins().iconst(cl::I64, i64::MIN + 2),
+            }
         };
         values.push(value);
     }
