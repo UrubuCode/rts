@@ -12,6 +12,52 @@ use super::members::lhs_static_class;
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 
 pub(super) fn lower_update_expr(ctx: &mut FnCtx, u: &swc_ecma_ast::UpdateExpr) -> Result<TypedVal> {
+    // (cross-runtime #1054) `obj.field++` / `this.#field++` — reescreve para
+    // `obj.field = obj.field + 1` via AssignExpr sintetico. Antes so'
+    // identificadores simples eram aceitos.
+    if let Expr::Member(_) = u.arg.as_ref() {
+        let cur = lower_expr(ctx, &u.arg)?;
+        let one = match cur.ty {
+            ValTy::I32 => TypedVal::new(ctx.builder.ins().iconst(cl::I32, 1), ValTy::I32),
+            _ => TypedVal::new(ctx.builder.ins().iconst(cl::I64, 1), ValTy::I64),
+        };
+        let new_val = match u.op {
+            UpdateOp::PlusPlus => lower_add(ctx, cur, one)?,
+            UpdateOp::MinusMinus => lower_sub(ctx, cur, one)?,
+        };
+        // Constroi AssignExpr sintetico para o store: target = <new_val_lit>
+        // — mas como ja temos o Cranelift Value, precisamos chamar o path
+        // de assign diretamente. Mais simples: rewrite para `target = target op 1`.
+        let one_lit = Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+            span: Default::default(),
+            value: 1.0,
+            raw: None,
+        }));
+        let bin_op = match u.op {
+            UpdateOp::PlusPlus => swc_ecma_ast::BinaryOp::Add,
+            UpdateOp::MinusMinus => swc_ecma_ast::BinaryOp::Sub,
+        };
+        let rhs = Expr::Bin(swc_ecma_ast::BinExpr {
+            span: Default::default(),
+            op: bin_op,
+            left: u.arg.clone(),
+            right: Box::new(one_lit),
+        });
+        let assign = swc_ecma_ast::AssignExpr {
+            span: Default::default(),
+            op: swc_ecma_ast::AssignOp::Assign,
+            left: swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(match u.arg.as_ref() {
+                    Expr::Member(m) => m.clone(),
+                    _ => unreachable!(),
+                }),
+            ),
+            right: Box::new(rhs),
+        };
+        let _ = super::lower_expr(ctx, &Expr::Assign(assign))?;
+        // Postfix: retorna valor antigo; prefix: valor novo.
+        if u.prefix { return Ok(new_val); } else { return Ok(cur); }
+    }
     let name =
         ident_name(&u.arg).ok_or_else(|| anyhow!("update target must be a simple identifier"))?;
     let cur = ctx
