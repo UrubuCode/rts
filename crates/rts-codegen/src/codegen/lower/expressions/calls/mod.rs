@@ -1567,6 +1567,32 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     // implicito via FUNCTION_APPLY com `this = inst`. Deixa
                     // newTarget como follow-up (afeta prototype chain).
                     "construct" if matches!(call.args.len(), 2 | 3) => {
+                        // (cross-runtime #1127) User class como target: monta
+                        // NewExpr sintetico e chama lower_new. Sem isso, Reflect.construct
+                        // tratava class como Function handle e retornava instancia com
+                        // campos null.
+                        if let Expr::Ident(target_id) = call.args[0].expr.as_ref() {
+                            let cls = target_id.sym.as_str();
+                            if ctx.classes.contains_key(cls) {
+                                // Args eh array literal? Extrai elementos pra passar como new args.
+                                if let Expr::Array(arr) = call.args[1].expr.as_ref() {
+                                    let mut new_args: Vec<swc_ecma_ast::ExprOrSpread> = Vec::new();
+                                    for elem_opt in &arr.elems {
+                                        if let Some(elem) = elem_opt {
+                                            new_args.push(elem.clone());
+                                        }
+                                    }
+                                    let new_expr_synth = swc_ecma_ast::NewExpr {
+                                        span: Default::default(),
+                                        ctxt: Default::default(),
+                                        callee: Box::new(Expr::Ident(target_id.clone())),
+                                        args: Some(new_args),
+                                        type_args: None,
+                                    };
+                                    return self::new_expr::lower_new(ctx, &new_expr_synth);
+                                }
+                            }
+                        }
                         let target_h = lower_callable_target_h(ctx, &call.args[0].expr)?;
                         let args_tv = lower_expr(ctx, &call.args[1].expr)?;
                         let args_h = ctx.coerce_to_i64(args_tv).val;
