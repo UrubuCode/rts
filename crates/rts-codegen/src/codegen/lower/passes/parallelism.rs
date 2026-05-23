@@ -1114,6 +1114,27 @@ fn has_capture(expr: &Expr, params: &[String], user_fn_names: &HashSet<String>) 
             lhs_cap || has_capture(&a.right, params, user_fn_names)
         }
         Expr::Seq(s) => s.exprs.iter().any(|e| has_capture(e, params, user_fn_names)),
+        // (#860) Optional chain `obj?.prop` / `obj?.[k]` / `obj?.fn()` — recursa
+        // no obj e em args. Sem isso, `arr.map(x => x.groups?.l)` falha o lift,
+        // arrow vira __hoisted_arrow_N e o array_methods_pass nao reescreve,
+        // resultando em path codegen quebrado (SIGILL).
+        Expr::OptChain(o) => match o.base.as_ref() {
+            swc_ecma_ast::OptChainBase::Member(m) => {
+                has_capture(&m.obj, params, user_fn_names)
+                    || matches!(&m.prop,
+                        swc_ecma_ast::MemberProp::Computed(c)
+                            if has_capture(&c.expr, params, user_fn_names))
+            }
+            swc_ecma_ast::OptChainBase::Call(c) => {
+                let callee_cap = has_capture(&c.callee, params, user_fn_names);
+                if callee_cap { return true; }
+                for a in &c.args {
+                    if a.spread.is_some() { return true; }
+                    if has_capture(&a.expr, params, user_fn_names) { return true; }
+                }
+                false
+            }
+        },
         // Conservador: qualquer outra forma (Fn, Arrow nested, etc) → captura.
         _ => true,
     }
