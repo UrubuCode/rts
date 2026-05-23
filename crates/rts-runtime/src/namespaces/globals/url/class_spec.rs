@@ -148,13 +148,13 @@ pub const URL_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
         name: "toString",
         kind: MemberKind::InstanceMethod,
-        symbol: "__RTS_FN_GL_URL_HREF",
+        symbol: "__RTS_FN_GL_URL_TO_STRING",
         args: &[AbiType::Handle],
         returns: AbiType::Handle,
-        doc: "url.toString() — alias de href.",
+        doc: "url.toString() — reconstroi href dinamicamente, considerando setters E mudancas em searchParams (cache).",
         ts_signature: "toString(): string",
         intrinsic: None,
-        pure: true,
+        pure: false,
     },
     // (#373) url.searchParams — constroi URLSearchParams a partir de search.
     NamespaceMember {

@@ -713,6 +713,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_URL_PASSWORD", __RTS_FN_GL_URL_PASSWORD);
     add_fn!("__RTS_FN_GL_URL_FREE", __RTS_FN_GL_URL_FREE);
     add_fn!("__RTS_FN_GL_URL_SEARCH_PARAMS", __RTS_FN_GL_URL_SEARCH_PARAMS);
+    // (#67) URL setters + dynamic toString.
+    add_fn!("__RTS_FN_GL_URL_SET_PATHNAME", __RTS_FN_GL_URL_SET_PATHNAME);
+    add_fn!("__RTS_FN_GL_URL_TO_STRING", __RTS_FN_GL_URL_TO_STRING);
     // (#373) URLSearchParams.
     add_fn!("__RTS_FN_GL_USP_NEW", __RTS_FN_GL_USP_NEW);
     add_fn!("__RTS_FN_GL_USP_GET", __RTS_FN_GL_USP_GET);
