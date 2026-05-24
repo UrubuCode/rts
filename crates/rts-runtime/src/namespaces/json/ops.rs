@@ -152,8 +152,14 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE5(ptr: u64, len: i64) -> u64 {
 /// um wrapper Entry::Json on-demand para preservar o tipo escalar.
 fn json_value_to_handle(v: &Value) -> u64 {
     match v {
-        Value::Null => 0,
-        Value::Bool(b) => if *b { 1 } else { 0 },
+        // (PR #1206) JS spec: JSON.parse("null") === null. RTS representa
+        // null como sentinel `i64::MIN+3` para que `typeof` reporte
+        // "object" e templates rendam "null". Antes retornava 0 que
+        // colidia com handle invalido.
+        Value::Null => (i64::MIN + 3) as u64,
+        // Sentinels bool: MIN = false, MIN+1 = true. Caller (TPL_COERCE_AUTO,
+        // typeof, etc) ja' decodifica.
+        Value::Bool(b) => if *b { (i64::MIN + 1) as u64 } else { i64::MIN as u64 },
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 i as u64
@@ -594,6 +600,15 @@ fn stringify_value_with_keys(v: i64, keys: &[String]) -> String {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(handle: u64) -> u64 {
+    // (PR #1206) JS spec: `JSON.stringify(undefined)` retorna `undefined`
+    // (nao string). RTS nao tem como expressar isso na ABI binaria
+    // — retorna o sentinel undefined (i64::MIN+2) para sinalizar.
+    // Callers que esperam string handle (ex: console.log direto) deveriam
+    // dispatcher via TPL_COERCE_AUTO que mapeia sentinel → "undefined".
+    let val_i64 = handle as i64;
+    if val_i64 == i64::MIN + 2 || val_i64 == i64::MIN + 4 {
+        return (i64::MIN + 2) as u64;
+    }
     if let Some(s) = stringify_any_inner(handle) {
         return alloc_entry(Entry::String(s.into_bytes()));
     }
@@ -611,10 +626,18 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(handle: u64) -> u64 {
 /// `kind`: 0=i64/handle (caminho legacy), 1=f64 bits, 2=bool, 3=null/undefined.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64 {
+    // (PR #1206) JS spec: `JSON.stringify(undefined)` retorna `undefined`
+    // (sentinel). Caller via TPL_COERCE_AUTO mapeia → "undefined" em
+    // console.log. Detecta sentinel ANTES do match kind, porque mesmo
+    // kind=0 pode chegar com sentinel quando o codegen nao tipo
+    // estaticamente (var: any, member access, etc.).
+    if value == i64::MIN + 2 || value == i64::MIN + 4 {
+        return (i64::MIN + 2) as u64;
+    }
     let s = match kind {
         // Bool: 0/1 -> "false"/"true"
         2 => if value != 0 { "true".to_string() } else { "false".to_string() },
-        // null/undefined -> "null"
+        // null/undefined -> "null" (JS spec: JSON.stringify(null) === "null")
         3 => "null".to_string(),
         // f64 bits: numero JS-format
         1 => {
