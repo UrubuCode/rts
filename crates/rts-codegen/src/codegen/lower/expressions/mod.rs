@@ -851,7 +851,7 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
     if let AssignTarget::Pat(pat) = &a.left {
         if matches!(a.op, AssignOp::Assign) {
             if let swc_ecma_ast::AssignTargetPat::Array(arr_pat) = pat {
-                use swc_ecma_ast::{Expr as SwcExpr, ExprOrSpread};
+                use swc_ecma_ast::Expr as SwcExpr;
                 let rhs_tv = lower_expr(ctx, &a.right)?;
                 let rhs_h = ctx.coerce_to_i64(rhs_tv).val;
                 let vec_get = ctx.get_extern(

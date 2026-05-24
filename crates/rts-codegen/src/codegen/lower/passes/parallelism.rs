@@ -1014,10 +1014,9 @@ fn try_lift_arrow_arg(
         }
     }
     let ret_string = body_stmts.iter().any(|st| {
-        if let Statement::Raw(raw) = st {
-            if let Some(Stmt::Return(r)) = raw.stmt.as_ref() {
-                return r.arg.as_deref().is_some_and(yields_string);
-            }
+        let Statement::Raw(raw) = st;
+        if let Some(Stmt::Return(r)) = raw.stmt.as_ref() {
+            return r.arg.as_deref().is_some_and(yields_string);
         }
         false
     });

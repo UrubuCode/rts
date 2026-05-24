@@ -110,7 +110,7 @@ fn apply_reviver(reviver_h: u64, holder: u64, key: &str) -> u64 {
     // Invoca reviver.call(holder, key, value).
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
     let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
-    let result = unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(reviver_h, holder as i64, args) };
+    let result = __RTS_FN_GL_FUNCTION_APPLY_TYPED(reviver_h, holder as i64, args);
     let _ = v_ns::__RTS_FN_NS_COLLECTIONS_VEC_GET;
     result as u64
 }
@@ -460,7 +460,7 @@ fn apply_stringify_replacer(replacer_h: u64, key: &str, value: u64) -> u64 {
     use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
     let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
-    let result = unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(replacer_h, 0, args) };
+    let result = __RTS_FN_GL_FUNCTION_APPLY_TYPED(replacer_h, 0, args);
     let new_value = result as u64;
     if is_undefined_handle(new_value) {
         return new_value;

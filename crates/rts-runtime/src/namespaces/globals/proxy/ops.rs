@@ -206,11 +206,9 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -
     }
     // Forward default: aloca instancia + apply.
     let inst = alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new())));
-    let _ = unsafe {
-        crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED(
-            target, inst as i64, args_handle,
-        )
-    };
+    let _ = crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED(
+        target, inst as i64, args_handle,
+    );
     inst
 }
 

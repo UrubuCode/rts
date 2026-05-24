@@ -4,7 +4,6 @@
 //! Instance methods delegate to the existing `regex` namespace ops.
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
-use indexmap::IndexMap;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

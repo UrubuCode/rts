@@ -88,9 +88,9 @@ fn invoke_listeners(listeners_h: u64) {
         // INVOKE_AUTO(fn_h, this=0, args=empty_vec).
         let empty_args = alloc_entry(Entry::Vec(Box::new(Vec::new())));
         unsafe extern "C" {
-            fn __RTS_FN_RT_INVOKE_AUTO(fn_h: i64, this_h: i64, args_h: i64) -> i64;
+            fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
         }
-        let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(fp as i64, 0, empty_args as i64) };
+        let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(fp as i64, 0, empty_args) };
     }
 }
 

@@ -432,7 +432,7 @@ pub(crate) fn synthesize_class_fns(
         // chamando Animal.__init(this) sem propagar args, e GuideDog que
         // chama `super(name)` falha em Dog.__init com "espera 0 args".
         let inherited_ctor_params: Vec<crate::parser::ast::Parameter> = {
-            let mut cur = class.super_class.clone();
+            let cur = class.super_class.clone();
             let mut found: Vec<crate::parser::ast::Parameter> = Vec::new();
             // Sobe a chain ate achar uma classe com ctor explicito.
             while let Some(parent_name) = cur {

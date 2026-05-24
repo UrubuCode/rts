@@ -3089,7 +3089,7 @@ fn try_lower_object_to_string_call(
 /// registrada com metodo `toJSON`, retorna `<expr>.toJSON()` para que o
 /// codegen lower invoque o metodo antes de stringify.
 fn rewrite_to_json_call(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> Option<swc_ecma_ast::Expr> {
-    use swc_ecma_ast::{Expr, MemberExpr, MemberProp, Ident, CallExpr, Callee};
+    use swc_ecma_ast::{Expr, MemberExpr, MemberProp, CallExpr, Callee};
     let class_name = match expr {
         Expr::New(n) => match n.callee.as_ref() {
             Expr::Ident(id) => Some(id.sym.to_string()),
