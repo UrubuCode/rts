@@ -345,6 +345,18 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: true,
     },
     NamespaceMember {
+        // Deprecated alias de toUTCString (mantido pra compat web legacy).
+        name: "toGMTString",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATE_TO_UTC_STRING",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Deprecated alias de toUTCString.",
+        ts_signature: "toGMTString(): string",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
         name: "toDateString",
         kind: MemberKind::InstanceMethod,
         symbol: "__RTS_FN_GL_DATE_TO_DATE_STRING",
