@@ -938,7 +938,11 @@ fn inspect_handle(h: u64, depth: usize) -> String {
         None => R::None,
     });
     match r {
-        R::Str(b) => format!("'{}'", String::from_utf8_lossy(&b)),
+        // (PR #1209) Bun/Node usam aspas duplas em inspect de strings dentro
+        // de arrays/objects (Node usa simples por default, Bun duplas; RTS
+        // segue Bun pela maior parte das fixtures cross-runtime usarem
+        // Bun como referencia).
+        R::Str(b) => format!("\"{}\"", String::from_utf8_lossy(&b)),
         R::Vec(slots) => {
             if slots.is_empty() {
                 return "[]".to_string();
