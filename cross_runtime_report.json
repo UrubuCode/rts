@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "367_coercion_traps",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue",
   "node": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue",
-  "rts": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n4\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\nfalse\ntrue\ntrue"
+  "rts": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":301,"rts_diverge":20,"bun_node_diverge":16,"errors":51,"rejected":0}}
+],"summary":{"total":388,"pass":303,"rts_diverge":18,"bun_node_diverge":16,"errors":51,"rejected":0}}
