@@ -9,8 +9,6 @@
 use std::cell::Cell;
 use std::sync::OnceLock;
 
-use super::handles::{Entry, alloc_entry};
-
 thread_local! {
     static DEPTH: Cell<u32> = const { Cell::new(0) };
 }
@@ -27,8 +25,15 @@ fn stack_limit() -> u32 {
 }
 
 fn set_stack_overflow_error() {
-    let msg = b"RangeError: Maximum call stack size exceeded".to_vec();
-    let handle = alloc_entry(Entry::String(msg));
+    // (cross-runtime #200) Cria um `RangeError` real em vez de string handle —
+    // permite que `catch (e: any) { console.log(e.message, e.name) }` leia
+    // `"Maximum call stack size exceeded"` e `"RangeError"` respectivamente.
+    let msg = b"Maximum call stack size exceeded";
+    let handle = crate::namespaces::globals::error::instance::__RTS_FN_GL_RANGE_ERROR_NEW(
+        msg.as_ptr() as i64,
+        msg.len() as i64,
+        0,
+    );
     super::error::__RTS_FN_RT_ERROR_SET(handle);
 }
 
