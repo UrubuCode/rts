@@ -63,7 +63,7 @@ where
     })
 }
 
-fn with_map_mut<F, R>(handle: u64, default: R, f: F) -> R
+pub(crate) fn with_map_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut IndexMap<String, i64>) -> R,
 {
@@ -719,6 +719,21 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     });
     if let Some(b) = regex_bool {
         return if b { i64::MIN + 1 } else { i64::MIN };
+    }
+    // (cross-runtime #336) Entry::Function via MAP_GET_CHAIN: `cn.name` /
+    // `cn.length` em handles reificados (ex: ctor stub do prototype map
+    // criado em FUNCTION_PROTOTYPE_GET). Sem isso, leitura caia no
+    // generic map loop que retorna 0 (Function nao tem slots Map).
+    let fn_field: Option<i64> = crate::namespaces::gc::handles::with_entry(handle, |e| match e {
+        Some(Entry::Function(d)) => match key {
+            "name" => Some(alloc_entry(Entry::String(d.name.as_bytes().to_vec())) as i64),
+            "length" => Some(d.arity as i64),
+            _ => None,
+        },
+        _ => None,
+    });
+    if let Some(v) = fn_field {
+        return v;
     }
     let key_owned = key.to_string();
     let mut current = handle;

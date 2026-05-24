@@ -585,6 +585,14 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
     }
     // Aloca novo Map FORA do lock pra evitar reentrant locks com shards.
     let new_proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+    // (cross-runtime #336) Popula `constructor` slot no prototype Map.
+    // JS spec: `C.prototype.constructor === C`. Sem isso,
+    // `Object.getPrototypeOf(c).constructor` retorna 0 e iteracao do
+    // prototype chain (`while (proto) { chain.push(proto.constructor.name); }`)
+    // nao consegue extrair nomes das classes da hierarquia.
+    crate::namespaces::collections::map::with_map_mut(new_proto, (), |m| {
+        m.insert("constructor".to_string(), handle as i64);
+    });
     // Insere; se outra thread venceu a corrida, descarta o nosso.
     let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&existing) = registry.get(&fn_ptr) {
