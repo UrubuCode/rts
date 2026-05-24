@@ -928,23 +928,38 @@ impl LiftAcc {
                 let is_direct = matches!(&call.callee, Callee::Expr(ce) if matches!(ce.as_ref(), Expr::Ident(_)));
                 if is_direct {
                     for arg in call.args.iter_mut() {
-                        let body_stmts: Vec<Statement> = match arg.expr.as_ref() {
-                            Expr::Arrow(arrow) => arrow_body_to_stmts(arrow)
-                                .into_iter()
-                                .map(|s| Statement::Raw(
-                                    RawStmt::new("<lifted>".to_string(), Span::default()).with_stmt(s),
-                                ))
-                                .collect(),
+                        let (body_stmts, has_return_value): (Vec<Statement>, bool) = match arg.expr.as_ref() {
+                            Expr::Arrow(arrow) => {
+                                // (cross-runtime #1125) Expression-body arrows
+                                // (`() => expr`) returnam o expr — manter
+                                // ret_ty como i64 para que o caller leia o
+                                // valor de volta. Block-body arrows com
+                                // returns explicitos sao tratados como void
+                                // (compat com UI callbacks pre-existentes).
+                                let has_ret = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_));
+                                let stmts = arrow_body_to_stmts(arrow)
+                                    .into_iter()
+                                    .map(|s| Statement::Raw(
+                                        RawStmt::new("<lifted>".to_string(), Span::default()).with_stmt(s),
+                                    ))
+                                    .collect();
+                                (stmts, has_ret)
+                            }
                             _ => continue,
                         };
                         let syn_name = format!("__lifted_arrow_{}", self.counter);
                         self.counter += 1;
                         let mut body_stmts = body_stmts;
                         self.lift_in_body(class_name, &mut body_stmts, in_class);
+                        let ret_ty = if has_return_value {
+                            Some("i64".to_string())
+                        } else {
+                            Some("void".to_string())
+                        };
                         self.new_fns.push(Item::Function(FunctionDecl {
                             name: syn_name.clone(),
                             parameters: Vec::new(),
-                            return_type: Some("void".to_string()),
+                            return_type: ret_ty,
                             body: body_stmts,
                             span: Span::default(),
                             is_async: false,
