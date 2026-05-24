@@ -588,6 +588,8 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
         crate::namespaces::collections::map::with_map_mut(proto, (), |m| {
             m.insert("constructor".to_string(), ctor_stub as i64);
         });
+        // (cross-runtime #377) constructor eh non-enumerable em Object.prototype.
+        crate::namespaces::collections::map::mark_non_enumerable(proto, "constructor");
         proto
     })
 }
@@ -626,6 +628,11 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
     crate::namespaces::collections::map::with_map_mut(new_proto, (), |m| {
         m.insert("constructor".to_string(), handle as i64);
     });
+    // (cross-runtime #377) `constructor` slot eh non-enumerable em JS spec
+    // — class methods (incluindo constructor sintetico) nao aparecem em
+    // `for...in`. Sem isso, fixture 377_for_in_detail reportava
+    // `x,constructor` em vez de so' `x`.
+    crate::namespaces::collections::map::mark_non_enumerable(new_proto, "constructor");
     // Insere; se outra thread venceu a corrida, descarta o nosso.
     let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&existing) = registry.get(&fn_ptr) {
