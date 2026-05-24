@@ -960,11 +960,61 @@ fn inspect_handle(h: u64, depth: usize) -> String {
                 || entries
                     .iter()
                     .any(|(k, v)| k == b"__proto__" && *v == 0);
+            // (PR #1214) Map/Set instances — Bun/Node imprimem como `Map(N) { k: v, ... }`
+            // e `Set(N) { v1, v2, ... }`. RTS armazena Map JS como Entry::Map
+            // tagged em set_kind_set/map_kind_set (separado de obj literal Map).
+            let is_map_kind = crate::namespaces::collections::map::handle_is_map_kind(h);
+            let is_set_kind = crate::namespaces::collections::map::handle_is_set_kind(h);
             // Filtra slots internos das entries impressas.
             let visible: Vec<&(Vec<u8>, i64)> = entries
                 .iter()
                 .filter(|(k, _)| k != b"__proto__" && k != b"__rts_class")
                 .collect();
+            if is_set_kind {
+                // Set: em RTS, item.key eh a forma stringified do valor
+                // (via STRING_FROM_I64/F64) e item.value eh sentinel 1.
+                // Pra inspect, mostramos as keys (raw values), nao value=1.
+                // Para keys numericas, parsea de volta como number; senao
+                // mostra entre aspas (string).
+                if visible.is_empty() {
+                    return "Set(0) {}".to_string();
+                }
+                let n = visible.len();
+                let parts: Vec<String> = visible
+                    .iter()
+                    .map(|(k, _)| {
+                        let s = String::from_utf8_lossy(k);
+                        // Tenta number (i64 ou f64); senao mostra como string.
+                        if let Ok(_) = s.parse::<i64>() {
+                            s.to_string()
+                        } else if let Ok(f) = s.parse::<f64>() {
+                            format_js_number(f)
+                        } else if s == "true" || s == "false" || s == "null" || s == "undefined" {
+                            s.to_string()
+                        } else {
+                            format!("\"{}\"", s)
+                        }
+                    })
+                    .collect();
+                return format!("Set({}) {{ {} }}", n, parts.join(", "));
+            }
+            if is_map_kind {
+                if visible.is_empty() {
+                    return "Map(0) {}".to_string();
+                }
+                let n = visible.len();
+                let parts: Vec<String> = visible
+                    .iter()
+                    .map(|(k, v)| {
+                        format!(
+                            "\"{}\" => {}",
+                            String::from_utf8_lossy(k),
+                            inspect_slot(*v, depth + 1)
+                        )
+                    })
+                    .collect();
+                return format!("Map({}) {{ {} }}", n, parts.join(", "));
+            }
             let body = if visible.is_empty() {
                 "{}".to_string()
             } else {
