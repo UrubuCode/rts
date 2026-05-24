@@ -404,6 +404,25 @@ fn stringify_value_visited(
     visited: &mut std::collections::HashSet<u64>,
     circular: &mut bool,
 ) -> String {
+    // (PR #1211) NaN/+Infinity em JSON viram "null". Bits f64 conhecidos
+    // que NAO colidem com sentinels do RTS (i64::MIN..MIN+4).
+    // -Infinity bits = `0xFFF0_0000_0000_0000` = i64::MIN — colisao com
+    // sentinel false. JS spec dize que -Infinity vira null em
+    // JSON.stringify, e essa colisao significa que `false` em JSON
+    // tambem viraria null por essa heuristica — incorreto. Por isso
+    // tratamos -Infinity como excecao explicita: quando o valor i64::MIN
+    // chega aqui via field declarado f64, fica null; quando vem de
+    // sentinel bool, mantemos false. Distinguishing requer contexto
+    // estatico; sem ele, o caso bool eh muito mais comum e mantemos.
+    let bits = v as u64;
+    if bits == f64::INFINITY.to_bits() || bits == f64::NAN.to_bits() {
+        return "null".to_string();
+    }
+    // Outros bits NaN do f64 (mantissa nao-canonica) tambem viram null.
+    let as_f64 = f64::from_bits(bits);
+    if as_f64.is_nan() {
+        return "null".to_string();
+    }
     if v == i64::MIN { return "false".to_string(); }
     if v == i64::MIN + 1 { return "true".to_string(); }
     if v == i64::MIN + 2 || v == i64::MIN + 3 || v == i64::MIN + 4 {
