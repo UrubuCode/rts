@@ -588,6 +588,64 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         }
     }
 
+    // (cross-runtime #1069) Relacionais `<`, `<=`, `>`, `>=` com null/undefined
+    // literais: spec 7.2.13 + 13.10.1.
+    //
+    // - `null` coerge para 0 via ToNumber. `null >= 0` = !(0 < 0) = true.
+    // - `undefined` coerge para NaN. Qualquer comparacao com NaN retorna false.
+    //
+    // Sem este shortcut, `null` (sentinel i64::MIN+3) era comparado raw vs 0
+    // pelo icmp signed e retornava resultado errado.
+    if matches!(
+        bin.op,
+        BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+    ) {
+        let is_null_lit = |e: &Expr| matches!(e, Expr::Lit(Lit::Null(_)));
+        let is_undef_ident = |e: &Expr| matches!(e, Expr::Ident(id) if id.sym.as_str() == "undefined");
+        let lhs_null = is_null_lit(&bin.left);
+        let rhs_null = is_null_lit(&bin.right);
+        let lhs_undef = is_undef_ident(&bin.left);
+        let rhs_undef = is_undef_ident(&bin.right);
+        // Caso 1: algum lado e' undefined literal → sempre false.
+        if lhs_undef || rhs_undef {
+            let v = ctx.builder.ins().iconst(cl::I8, 0);
+            return Ok(TypedVal::new(v, ValTy::Bool));
+        }
+        // Caso 2: ambos null → null<null,null<=null,null>null,null>=null
+        // todos seguem regra ToNumber(null)=0: 0<0=false, 0<=0=true,
+        // 0>0=false, 0>=0=true.
+        if lhs_null && rhs_null {
+            let val = matches!(bin.op, BinaryOp::LtEq | BinaryOp::GtEq) as i64;
+            let v = ctx.builder.ins().iconst(cl::I8, val);
+            return Ok(TypedVal::new(v, ValTy::Bool));
+        }
+        // Caso 3: um lado eh null → substitui por 0 e segue path numerico.
+        if lhs_null || rhs_null {
+            let other_expr = if lhs_null { &bin.right } else { &bin.left };
+            let other_tv = lower_expr(ctx, other_expr)?;
+            // null vira f64 0.0 para combinar com qualquer tipo numerico.
+            let zero_f = ctx.builder.ins().f64const(0.0);
+            let zero_tv = TypedVal::new(zero_f, ValTy::F64);
+            let (lv, rv, _ty) = if lhs_null {
+                promote_numeric(ctx, zero_tv, other_tv)?
+            } else {
+                promote_numeric(ctx, other_tv, zero_tv)?
+            };
+            let lhs_p = TypedVal::new(lv, ValTy::F64);
+            let rhs_p = TypedVal::new(rv, ValTy::F64);
+            use cranelift_codegen::ir::condcodes::FloatCC;
+            let cc = match bin.op {
+                BinaryOp::Lt => FloatCC::LessThan,
+                BinaryOp::LtEq => FloatCC::LessThanOrEqual,
+                BinaryOp::Gt => FloatCC::GreaterThan,
+                BinaryOp::GtEq => FloatCC::GreaterThanOrEqual,
+                _ => unreachable!(),
+            };
+            let result = ctx.builder.ins().fcmp(cc, lhs_p.val, rhs_p.val);
+            return Ok(TypedVal::new(result, ValTy::Bool));
+        }
+    }
+
     // (#643/null-undef) `null == undefined` deve ser true em JS abstract
     // equality. Em RTS, null vira (0, Handle) e undefined vira handle
     // de string "undefined" — comparacao normal falharia. Detecta caso

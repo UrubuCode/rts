@@ -254,9 +254,25 @@ pub(super) fn lower_coerce_to_boolean(ctx: &mut FnCtx, call: &CallExpr) -> Resul
             let truthy = ctx.builder.ins().bxor(falsy, one);
             return Ok(Some(TypedVal::new(truthy, ValTy::Bool)));
         }
+        // (cross-runtime #1069) Argumento i64 generico (param de arrow
+        // liftado em `arr.filter(Boolean)`, slot Vec): rotear via runtime
+        // __RTS_FN_GL_BOOLEAN_COERCE que trata sentinels JS:
+        //   - i64::MIN+2 (undefined), i64::MIN+3 (null), i64::MIN (false) → 0
+        //   - handle de string vazio → 0
+        //   - 0 → 0
+        //   - resto → 1
+        // Sem isso, `[null, undefined, "", false, NaN].filter(Boolean)`
+        // sobrevive porque icmp ne 0 trata sentinels (i64 muito negativos)
+        // como truthy.
+        let _ = IntCC::NotEqual;
         let v = ctx.coerce_to_i64(tv).val;
-        let zero = ctx.builder.ins().iconst(cl::I64, 0);
-        let result = ctx.builder.ins().icmp(IntCC::NotEqual, v, zero);
+        let coerce_fn = ctx.get_extern(
+            "__RTS_FN_GL_BOOLEAN_COERCE",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(coerce_fn, &[v]);
+        let result = ctx.builder.inst_results(inst)[0];
         return Ok(Some(TypedVal::new(result, ValTy::Bool)));
     }
     let v = ctx.builder.ins().iconst(cl::I64, 0);

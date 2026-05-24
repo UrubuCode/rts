@@ -1298,7 +1298,13 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                             Expr::Ident(i) => Some(i.sym.to_string()),
                             _ => None,
                         })
-                        .map(|n| user_fn_names.contains(&n))
+                        .map(|n| {
+                            // (cross-runtime #1069) Coerce idents (Boolean/Number/String)
+                            // tambem sao validos como callback de map/filter/etc — o wrap
+                            // arrow logo abaixo trata is_coerce_ident explicitamente.
+                            user_fn_names.contains(&n)
+                                || matches!(n.as_str(), "Boolean" | "Number" | "String")
+                        })
                         .unwrap_or(false);
 
                     // (#1044) Gate por receiver: so' reescreve quando m.obj
