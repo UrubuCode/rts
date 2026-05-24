@@ -559,6 +559,39 @@ fn proto_registry() -> &'static std::sync::Mutex<std::collections::HashMap<u64, 
     FN_PROTOTYPE_REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// (cross-runtime #336) Object.prototype singleton — Map cacheado com
+/// `constructor: {name: "Object"}`. Usado em prototype chain inspection:
+/// quando uma classe raiz (sem super) e' criada, seu proto Map recebe
+/// `__proto__ = OBJECT_PROTOTYPE_HANDLE()`, garantindo que iteracao
+/// chain `while (proto) { ... proto = Object.getPrototypeOf(proto); }`
+/// termine com `proto.constructor.name === "Object"` antes do null.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
+    static SINGLETON: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *SINGLETON.get_or_init(|| {
+        let proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+        let ctor_stub = alloc_entry(Entry::Function(Box::new(crate::namespaces::gc::handles::FunctionData {
+            fn_ptr: 0,
+            arity: 0,
+            name: "Object".into(),
+            bound_this: 0,
+            has_bound_this: false,
+            bound_args: Vec::new(),
+            is_arrow: false,
+            has_this_param: false,
+            param_kinds: Vec::new(),
+            return_kind: 0,
+            source: None,
+            keep_alive: None,
+            prototype_handle: 0,
+        })));
+        crate::namespaces::collections::map::with_map_mut(proto, (), |m| {
+            m.insert("constructor".to_string(), ctor_stub as i64);
+        });
+        proto
+    })
+}
+
 /// (#264) Lazy-aloca e retorna o handle de `fn.prototype`.
 /// Constructor functions usam isto pra anexar metodos compartilhados.
 /// Primeiro acesso aloca um Map vazio; chamadas subsequentes retornam o mesmo

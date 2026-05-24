@@ -562,40 +562,12 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         // caia no default sentinel "[Object.prototype]" e perdia o
         // `.constructor` slot da classe — quebra iteracao de prototype
         // chain (`while (proto) { chain.push(proto.constructor.name); }`).
-        if let Ok(fn_addr) = super::emit_user_fn_addr(ctx, &class_init_name(&class_name)) {
-            let arity = ctx
-                .user_fns
-                .get(&class_init_name(&class_name))
-                .map(|f| f.params.len() as i64)
-                .unwrap_or(0);
-            let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
-            let name_tv = ctx.emit_str_handle(class_name.as_bytes())?;
-            let name_h = ctx.coerce_to_i64(name_tv).val;
-            let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
-            let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
-            let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
-            let n_ptr = ctx.builder.inst_results(inst_p)[0];
-            let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
-            let n_len = ctx.builder.inst_results(inst_l)[0];
-            let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
-            let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
-            let reify_fn = ctx.get_extern(
-                "__RTS_FN_GL_FUNCTION_REIFY",
-                &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
-                Some(cl::I64),
-            )?;
-            let inst_r = ctx.builder.ins().call(
-                reify_fn,
-                &[fn_addr.val, arity_v, n_ptr, n_len, is_arrow_v, has_this_v],
-            );
-            let fn_handle = ctx.builder.inst_results(inst_r)[0];
-            let proto_get = ctx.get_extern(
-                "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst_proto = ctx.builder.ins().call(proto_get, &[fn_handle]);
-            let proto_h = ctx.builder.inst_results(inst_proto)[0];
+        //
+        // Tambem encadeia recursivamente: `proto_C.__proto__ = proto_B`,
+        // `proto_B.__proto__ = proto_A`, etc. — permitindo iteracao
+        // multi-nivel da prototype chain.
+        let proto_h_opt = emit_proto_for_class(ctx, &class_name, map_set)?;
+        if let Some(proto_h) = proto_h_opt {
             let (proto_kp, proto_kl) = ctx.emit_str_literal(b"__proto__")?;
             ctx.builder.ins().call(map_set, &[handle, proto_kp, proto_kl, proto_h]);
         }
@@ -1009,4 +981,72 @@ pub(super) fn lower_function_method_call(
         }
         _ => Ok(None),
     }
+}
+
+/// (cross-runtime #336) Emite IR para obter o handle do prototype Map de
+/// `class_name`, garantindo que `proto.__proto__` aponta para o proto da
+/// super classe (recursivo). Retorna None quando a classe nao tem
+/// `__class_X__init` registrado (classes vazias sem super).
+fn emit_proto_for_class(
+    ctx: &mut FnCtx,
+    class_name: &str,
+    map_set: cranelift_codegen::ir::FuncRef,
+) -> Result<Option<cranelift_codegen::ir::Value>> {
+    let init_name = class_init_name(class_name);
+    let Ok(fn_addr) = super::emit_user_fn_addr(ctx, &init_name) else {
+        return Ok(None);
+    };
+    let arity = ctx.user_fns.get(&init_name).map(|f| f.params.len() as i64).unwrap_or(0);
+    let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+    let name_tv = ctx.emit_str_handle(class_name.as_bytes())?;
+    let name_h = ctx.coerce_to_i64(name_tv).val;
+    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+    let n_ptr = ctx.builder.inst_results(inst_p)[0];
+    let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+    let n_len = ctx.builder.inst_results(inst_l)[0];
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY",
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
+        Some(cl::I64),
+    )?;
+    let inst_r = ctx.builder.ins().call(
+        reify_fn,
+        &[fn_addr.val, arity_v, n_ptr, n_len, is_arrow_v, has_this_v],
+    );
+    let fn_handle = ctx.builder.inst_results(inst_r)[0];
+    let proto_get = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
+        &[cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst_proto = ctx.builder.ins().call(proto_get, &[fn_handle]);
+    let proto_h = ctx.builder.inst_results(inst_proto)[0];
+
+    let super_name = ctx
+        .classes
+        .get(class_name)
+        .and_then(|m| m.super_class.clone());
+    if let Some(super_name) = super_name {
+        if let Some(super_proto) = emit_proto_for_class(ctx, &super_name, map_set)? {
+            let (proto_kp, proto_kl) = ctx.emit_str_literal(b"__proto__")?;
+            ctx.builder.ins().call(map_set, &[proto_h, proto_kp, proto_kl, super_proto]);
+        }
+    } else {
+        // (cross-runtime #336) Classe raiz: `proto.__proto__ = Object.prototype`.
+        // Object.prototype singleton com `constructor.name === "Object"`.
+        let obj_proto_fn = ctx.get_extern(
+            "__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE",
+            &[],
+            Some(cl::I64),
+        )?;
+        let inst_op = ctx.builder.ins().call(obj_proto_fn, &[]);
+        let obj_proto = ctx.builder.inst_results(inst_op)[0];
+        let (proto_kp, proto_kl) = ctx.emit_str_literal(b"__proto__")?;
+        ctx.builder.ins().call(map_set, &[proto_h, proto_kp, proto_kl, obj_proto]);
+    }
+    Ok(Some(proto_h))
 }
