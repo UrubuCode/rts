@@ -445,6 +445,30 @@ pub(super) fn lower_continue_stmt(ctx: &mut FnCtx, c: &swc_ecma_ast::ContinueStm
 
 pub(super) fn lower_labeled_stmt(ctx: &mut FnCtx, lbl: &swc_ecma_ast::LabeledStmt) -> Result<bool> {
     let name = lbl.label.sym.as_str().to_string();
+    // (cross-runtime #1071) Labeled BlockStmt (sem loop por baixo): `lbl: { ... break lbl; ... }`.
+    // Empurra um par (break_block, break_block, label) no loop_stack para que
+    // `break lbl` ache o alvo. `continue` em labeled block eh erro de sintaxe
+    // em JS, entao reusamos break_block para os dois slots (so break vai consumir).
+    if let swc_ecma_ast::Stmt::Block(b) = lbl.body.as_ref() {
+        use cranelift_codegen::ir::InstBuilder;
+        let exit = ctx.builder.create_block();
+        ctx.loop_stack.push((exit, exit, Some(name.clone())));
+        let mut terminated = false;
+        for s in &b.stmts {
+            let exits = lower_stmt(ctx, s)?;
+            if exits {
+                terminated = true;
+                break;
+            }
+        }
+        ctx.loop_stack.pop();
+        if !terminated && !ctx.builder.is_unreachable() {
+            ctx.builder.ins().jump(exit, &[]);
+        }
+        ctx.builder.switch_to_block(exit);
+        ctx.builder.seal_block(exit);
+        return Ok(false);
+    }
     let prev = ctx.pending_label.take();
     ctx.pending_label = Some(name);
     let terminated = lower_stmt(ctx, &lbl.body)?;
