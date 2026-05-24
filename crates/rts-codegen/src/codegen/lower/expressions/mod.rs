@@ -373,9 +373,35 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     } else {
                         false
                     };
+                    // (cross-runtime #1071) Mesmo para class instance, se a
+                    // classe NAO tem setter sintatic (`set x() {}`) para a
+                    // prop, tenta dynamic `__set_<key>` via walk __proto__
+                    // — cobre `Object.defineProperty(Widget.prototype, ...,
+                    // {set})`. Sem isso o assign caia em MAP_SET direto
+                    // sem invocar o setter dinamico.
+                    let has_static_setter = if is_class_instance {
+                        if let Expr::Ident(id) = m.obj.as_ref() {
+                            ctx.local_class_ty.get(id.sym.as_str())
+                                .and_then(|cls| {
+                                    ctx.classes.get(cls).map(|meta| {
+                                        meta.setters.iter().any(|s| s == prop_name)
+                                    })
+                                })
+                                .unwrap_or(false)
+                        } else if matches!(m.obj.as_ref(), Expr::This(_)) {
+                            ctx.current_class.as_deref()
+                                .and_then(|cls| ctx.classes.get(cls))
+                                .map(|meta| meta.setters.iter().any(|s| s == prop_name))
+                                .unwrap_or(false)
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
                     use cranelift_codegen::ir::types as cl;
-                    if is_class_instance {
-                        // deixa cair no fluxo normal abaixo (sem intercept)
+                    if is_class_instance && has_static_setter {
+                        // Setter sintatic existe — deixa fluxo normal abaixo despachar.
                     } else {
                     let obj_tv = lower_expr(ctx, &m.obj)?;
                     if matches!(obj_tv.ty, ValTy::Handle) {

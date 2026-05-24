@@ -148,7 +148,27 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT(
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
-    with_map(handle, 0, |m| m.get(key).copied().unwrap_or(0))
+    // (cross-runtime #1071) Walk __proto__ chain sem disparar Proxy trap.
+    // Usado em lookup de slots sentinela `__get_<k>` / `__set_<k>` que
+    // podem viver no prototype Map de uma classe (caso classico:
+    // `Object.defineProperty(Widget.prototype, "visible", {get, set})`).
+    // Como o lookup eh para slots internos do RTS (nao chaves user-visible),
+    // walk recursivo eh seguro.
+    let mut current = handle;
+    let mut depth = 0u32;
+    while current != 0 && depth < 64 {
+        let found = with_map(current, 0i64, |m| m.get(key).copied().unwrap_or(0));
+        if found != 0 {
+            return found;
+        }
+        let next = with_map(current, 0i64, |m| m.get("__proto__").copied().unwrap_or(0));
+        if next == 0 {
+            return 0;
+        }
+        current = next as u64;
+        depth += 1;
+    }
+    0
 }
 
 /// (#264 PR5) Cria novo Map vazio com `__proto__` = proto_handle.
