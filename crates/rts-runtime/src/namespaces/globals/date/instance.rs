@@ -162,7 +162,22 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_STRING(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING(handle: u64) -> u64 {
-    __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
+    // Default locale: pt-BR-style `DD/MM/YYYY` (mesmo formato emitido
+    // por Bun em locale padrao do Windows). Sem Intl real, retorna o
+    // formato mais comum em vez do ISO completo. JS spec deixa em aberto
+    // o formato exato — qualquer impl deve gerar string parseable e
+    // estavel pra o user.
+    use crate::namespaces::date::ops::*;
+    let ms = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(v)) => *v,
+        _ => 0,
+    });
+    let year = __RTS_FN_NS_DATE_YEAR(ms);
+    // getMonth() retorna 0..11; locale strings sao 1-based (01..12).
+    let month = __RTS_FN_NS_DATE_MONTH(ms) + 1;
+    let day = __RTS_FN_NS_DATE_DAY(ms);
+    let s = format!("{:02}/{:02}/{:04}", day, month, year);
+    alloc_entry(Entry::String(s.into_bytes()))
 }
 
 // (#220) UTC getters — RTS armazena ms em UTC, entao getUTCX = getX.
@@ -376,16 +391,43 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_JSON(handle: u64) -> u64 {
     __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
 }
 
-/// `toLocaleString()` — alias de toISOString (sem locale support).
+/// `toLocaleString()` — formato `DD/MM/YYYY, HH:MM:SS` (locale pt-BR
+/// default no Windows, mesmo formato emitido por Bun). Sem Intl real,
+/// retorna o formato mais comum em vez do ISO completo.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_STRING(handle: u64) -> u64 {
-    __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
+    use crate::namespaces::date::ops::*;
+    let ms = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(v)) => *v,
+        _ => 0,
+    });
+    let year = __RTS_FN_NS_DATE_YEAR(ms);
+    let month = __RTS_FN_NS_DATE_MONTH(ms) + 1;
+    let day = __RTS_FN_NS_DATE_DAY(ms);
+    let hour = __RTS_FN_NS_DATE_HOUR(ms);
+    let minute = __RTS_FN_NS_DATE_MINUTE(ms);
+    let second = __RTS_FN_NS_DATE_SECOND(ms);
+    let s = format!(
+        "{:02}/{:02}/{:04}, {:02}:{:02}:{:02}",
+        day, month, year, hour, minute, second
+    );
+    alloc_entry(Entry::String(s.into_bytes()))
 }
 
 /// `toLocaleTimeString()` — pega depois do 'T' do ISO.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING(handle: u64) -> u64 {
-    __RTS_FN_GL_DATE_TO_TIME_STRING(handle)
+    // Locale time string: `HH:MM:SS` (sem ms nem timezone).
+    use crate::namespaces::date::ops::*;
+    let ms = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(v)) => *v,
+        _ => 0,
+    });
+    let hour = __RTS_FN_NS_DATE_HOUR(ms);
+    let minute = __RTS_FN_NS_DATE_MINUTE(ms);
+    let second = __RTS_FN_NS_DATE_SECOND(ms);
+    let s = format!("{:02}:{:02}:{:02}", hour, minute, second);
+    alloc_entry(Entry::String(s.into_bytes()))
 }
 
 /// `toTimeString()` — pega depois do 'T' do ISO.
