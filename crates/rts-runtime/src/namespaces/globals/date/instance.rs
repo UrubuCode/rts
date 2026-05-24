@@ -276,16 +276,33 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_UTC_STRING(handle: u64) -> u64 {
     alloc_entry(Entry::String(s.into_bytes()))
 }
 
-/// (#220) `toDateString()` — pega ate o 'T' do ISO.
+/// (#220) `toDateString()` — JS spec format `Sat Jun 15 2024`.
+/// Antes RTS retornava `YYYY-MM-DD` (ISO date), divergindo de Bun/Node
+/// que usam o formato `<weekday> <month> <day> <year>` definido pela spec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_DATE_TO_DATE_STRING(handle: u64) -> u64 {
-    let iso_h = __RTS_FN_GL_DATE_TO_ISO_STRING(handle);
-    let bytes: Vec<u8> = with_entry(iso_h, |e| match e {
-        Some(Entry::String(b)) => b.clone(),
-        _ => Vec::new(),
+    use crate::namespaces::date::ops::*;
+    let ms = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(v)) => *v,
+        _ => 0,
     });
-    let take = bytes.iter().position(|&b| b == b'T').unwrap_or(bytes.len());
-    alloc_entry(Entry::String(bytes[..take].to_vec()))
+    let year = __RTS_FN_NS_DATE_YEAR(ms);
+    let month = __RTS_FN_NS_DATE_MONTH(ms);
+    let day = __RTS_FN_NS_DATE_DAY(ms);
+    let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
+    let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    let mon_names = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let s = format!(
+        "{} {} {:02} {:04}",
+        day_names[dow.clamp(0, 6) as usize],
+        mon_names[month.clamp(0, 11) as usize],
+        day,
+        year,
+    );
+    alloc_entry(Entry::String(s.into_bytes()))
 }
 
 // (#220) Date setters — mutate Entry::DateMs in-place.

@@ -18,10 +18,11 @@ const tz = d.getTimezoneOffset();
 out += (typeof tz === "number") + "\n"; // true
 
 // toUTCString / toDateString
-out += d.toDateString() + "\n";       // 1970-01-01
+// (PR #1203) toDateString agora segue JS spec: "Thu Jan 01 1970"
+out += d.toDateString() + "\n";
 
 describe("date_utc_getters", () => {
   test("UTC getters + extras (#220)", () => expect(out).toBe(
-    "1970\n0\n1\n0\n0\n0\n0\ntrue\n1970-01-01\n"
+    "1970\n0\n1\n0\n0\n0\n0\ntrue\nThu Jan 01 1970\n"
   ));
 });
