@@ -907,6 +907,12 @@ fn inspect_return_kind(
         }
         match e {
             Expr::Object(_) | Expr::Array(_) | Expr::New(_) => true,
+            // (cross-runtime #41) `return function() {...}` / `return () => ...`
+            // produz fn handle (ponteiro de user fn liftada via hoist).
+            // Sem isso, body inferia Number/F64 e o ponteiro era convertido
+            // via fcvt_from_sint perdendo bits — chamada subsequente
+            // `f(...)` falhava.
+            Expr::Fn(_) | Expr::Arrow(_) => true,
             Expr::Member(m) => {
                 if let swc_ecma_ast::MemberProp::Computed(_) = &m.prop {
                     if let Expr::Ident(id) = peel(m.obj.as_ref()) {
