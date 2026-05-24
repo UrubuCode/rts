@@ -218,7 +218,7 @@ fn coerce_auto_inner(value: i64) -> u64 {
 }
 
 fn coerce_auto_inner_with_snap(value: i64, snap: EntrySnap) -> u64 {
-    let h = value as u64;
+    let _h = value as u64;
     match snap {
         // (#1041) Sempre clona quando o handle ja' eh string. O codegen
         // libera o handle retornado tratando-o como "fresh"; sem o

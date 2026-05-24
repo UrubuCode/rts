@@ -35,7 +35,7 @@ use super::super::analysis::captures::{
 /// se o corpo do for contem uma arrow que referencia esse ident,
 /// promove a global `__cap_<i>_<var>`. Reescreve os usos no for inteiro.
 fn promote_top_level_captures(program: &mut Program, new_globals: &mut Vec<String>) {
-    use std::collections::HashSet;
+    
     let mut counter: u32 = 0;
     let mut promoted_globals: Vec<(String, ())> = Vec::new();
     for item in program.items.iter_mut() {
@@ -92,7 +92,7 @@ fn scan_and_promote_stmt(
     new_globals: &mut Vec<String>,
     promoted_globals: &mut Vec<(String, ())>,
 ) {
-    use std::collections::HashSet;
+    
     // Caso direto: Stmt::For com init=let.
     if let Stmt::For(for_stmt) = stmt {
         if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(init_vd)) = for_stmt.init.as_ref() {

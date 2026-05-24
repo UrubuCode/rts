@@ -476,9 +476,9 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
 fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
     use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry};
     let fn_ptr = if is_resolve {
-        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE as usize as u64
+        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE as *const () as usize as u64
     } else {
-        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT as usize as u64
+        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT as *const () as usize as u64
     };
     alloc_entry(Entry::Function(Box::new(FunctionData {
         fn_ptr,

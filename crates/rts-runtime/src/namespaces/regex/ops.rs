@@ -1,7 +1,7 @@
 //! Regex runtime operations — backend `regex` crate.
 
 use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
-use regex::{Regex, RegexBuilder};
+use regex::RegexBuilder;
 
 unsafe fn slice_from(ptr: *const u8, len: i64) -> &'static [u8] {
     if ptr.is_null() || len <= 0 {
@@ -17,16 +17,6 @@ unsafe fn str_from(ptr: *const u8, len: i64) -> &'static str {
 
 fn alloc_string(bytes: Vec<u8>) -> u64 {
     alloc_entry(Entry::String(bytes))
-}
-
-fn with_regex<F, R>(handle: u64, default: R, f: F) -> R
-where
-    F: FnOnce(&Regex) -> R,
-{
-    with_entry(handle, |entry| match entry {
-        Some(Entry::Regex(rx)) => f(&rx.regex),
-        _ => default,
-    })
 }
 
 /// (#1107) Helper agnostico ao engine — usar quando o callsite precisar

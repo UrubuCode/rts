@@ -7,8 +7,7 @@
 //!   reificado (com bound_this/bound_args).
 
 use anyhow::{Result, anyhow};
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types as cl};
-use cranelift_module::Module;
+use cranelift_codegen::ir::{InstBuilder, types as cl};
 use swc_ecma_ast::{CallExpr, Expr};
 
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};

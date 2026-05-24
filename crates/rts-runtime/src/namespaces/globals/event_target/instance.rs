@@ -132,9 +132,9 @@ pub extern "C" fn __RTS_FN_GL_EVENT_TARGET_DISPATCH(h: u64, event_h: u64) -> i64
         }
         let args = alloc_entry(Entry::Vec(Box::new(vec![event_h as i64])));
         unsafe extern "C" {
-            fn __RTS_FN_RT_INVOKE_AUTO(fn_h: i64, this_h: i64, args_h: i64) -> i64;
+            fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
         }
-        let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(fp as i64, h as i64, args as i64) };
+        let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(fp as i64, h as i64, args) };
     }
     1
 }

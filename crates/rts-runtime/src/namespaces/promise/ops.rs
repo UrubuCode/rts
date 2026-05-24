@@ -421,7 +421,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
     let mapped: Vec<i64> = if mapper_handle != 0 {
         items.iter().enumerate().map(|(i, &v)| {
             let args_vec = alloc_entry(Entry::Vec(Box::new(vec![v, i as i64])));
-            unsafe { __RTS_FN_GL_FUNCTION_APPLY_TYPED(mapper_handle, 0, args_vec) }
+            __RTS_FN_GL_FUNCTION_APPLY_TYPED(mapper_handle, 0, args_vec)
         }).collect()
     } else {
         items
