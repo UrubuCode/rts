@@ -321,6 +321,13 @@ pub(super) fn lower_ns_call_body(
             // (#92) promise.wait retorna i64 ambiguo: handle de string OU
             // valor inteiro. Marca pra TPL_COERCE_AUTO resolver em runtime.
             | "__RTS_FN_NS_PROMISE_WAIT"
+            // (PR #1207) JSON.parse retorna handle ambiguo — pode ser
+            // Map, Vec, String, scalar i64, ou sentinel JS (true/false/null).
+            // Marca pra `.flags`/`.source`/`.port` em sub-obj NAO colidir
+            // com GLOBAL_CLASS_SPECS getters (RegExp.flags, URL.port, etc).
+            | "__RTS_FN_NS_JSON_PARSE"
+            | "__RTS_FN_NS_JSON_PARSE_REVIVER"
+            | "__RTS_FN_NS_JSON_PARSE5"
         ) {
             ctx.var_member_call_values.insert(v);
         }
