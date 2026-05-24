@@ -150,7 +150,10 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_STRING(handle: u64) -> u64 {
     let s = format!(
         "{} {} {:02} {:04} {:02}:{:02}:{:02} GMT+0000 (Coordinated Universal Time)",
         day_names[dow.clamp(0, 6) as usize],
-        mon_names[(month.clamp(1, 12) - 1) as usize],
+        // (PR #1204) month e' 0-based (JS spec: getMonth() retorna 0..11).
+        // Antes era `(month.clamp(1, 12) - 1)` assumindo 1-based, errando
+        // o nome do mes: June (5) virava May (4).
+        mon_names[month.clamp(0, 11) as usize],
         day,
         year,
         hour,
@@ -267,7 +270,8 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_UTC_STRING(handle: u64) -> u64 {
         "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
         day_names[dow.clamp(0, 6) as usize],
         day,
-        mon_names[(month.clamp(1, 12) - 1) as usize],
+        // (PR #1204) month e' 0-based (JS spec).
+        mon_names[month.clamp(0, 11) as usize],
         year,
         hour,
         minute,
