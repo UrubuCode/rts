@@ -995,13 +995,16 @@ fn inspect_handle(h: u64, depth: usize) -> String {
 /// Slot cru de Vec/Map: < 2^48 = numero JS; >= 2^48 e handle valido =
 /// inspect recursivo; senao numero.
 fn inspect_slot(raw: i64, depth: usize) -> String {
-    // Sentinela bool em slot de Vec/Map (gerado pelo codegen).
-    if raw == i64::MIN {
-        return "false".to_string();
-    }
-    if raw == i64::MIN + 1 {
-        return "true".to_string();
-    }
+    // Sentinelas JS em slot de Vec/Map (gerados pelo codegen):
+    //   MIN     = false
+    //   MIN+1   = true
+    //   MIN+2   = undefined
+    //   MIN+3   = null
+    //   MIN+4   = sparse hole (renderiza como undefined isolado)
+    if raw == i64::MIN { return "false".to_string(); }
+    if raw == i64::MIN + 1 { return "true".to_string(); }
+    if raw == i64::MIN + 2 || raw == i64::MIN + 4 { return "undefined".to_string(); }
+    if raw == i64::MIN + 3 { return "null".to_string(); }
     let h = raw as u64;
     if h < (1u64 << 48) {
         return format_js_number(raw as f64);
