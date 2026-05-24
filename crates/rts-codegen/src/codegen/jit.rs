@@ -515,6 +515,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FUNCTION_TO_STRING", __RTS_FN_GL_FUNCTION_TO_STRING);
     add_fn!("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET", __RTS_FN_GL_FUNCTION_PROTOTYPE_GET);
     add_fn!("__RTS_FN_GL_FUNCTION_PROTOTYPE_SET", __RTS_FN_GL_FUNCTION_PROTOTYPE_SET);
+    add_fn!("__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE", __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE);
     add_fn!("__RTS_FN_RT_INVOKE_AUTO", __RTS_FN_RT_INVOKE_AUTO);
     {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TPL_COERCE_AUTO;
