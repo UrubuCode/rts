@@ -426,7 +426,25 @@ pub(crate) fn synthesize_class_fns(
         .as_deref()
         .map(|s| classes_with_init.contains(s))
         .unwrap_or(false);
-    if !has_constructor && (!init_stmts.is_empty() || super_needs_init) {
+    // (cross-runtime #336) Sempre gera `__init` sintetico para classes
+    // sem ctor user — necessario para que `new ClassX()` em new_expr.rs
+    // possa fazer `emit_user_fn_addr(__class_X__init)` e instalar
+    // `__proto__` chain. O body fica vazio quando nao ha init_stmts nem
+    // super_needs_init, mas o symbol existe.
+    //
+    // Verifica se super tem qualquer ctor real (com_constructor=true) —
+    // nesse caso precisamos delegar pra super.__init mesmo se nao houver
+    // field initializers proprios. Sem isso, `class Sub extends Holder {}`
+    // falha em popular fields setados em Holder ctor (this.cfg = ...).
+    let super_has_ctor = class
+        .super_class
+        .as_deref()
+        .map(|s| class_ctor_params.contains_key(s))
+        .unwrap_or(false);
+    // Re-avalia super_needs_init englobando classes cuja inicializacao
+    // depende de super.__init real (ctor user, nao apenas field inits).
+    let super_needs_init = super_needs_init || super_has_ctor;
+    if !has_constructor {
         // (cross-runtime #1057) Resolve params herdados do ctor da super class
         // (chain). Sem isso, `class Dog extends Animal {}` gera __init(this)
         // chamando Animal.__init(this) sem propagar args, e GuideDog que
