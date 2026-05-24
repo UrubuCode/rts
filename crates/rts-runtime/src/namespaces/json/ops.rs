@@ -658,10 +658,14 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64
         2 => if value != 0 { "true".to_string() } else { "false".to_string() },
         // null/undefined -> "null" (JS spec: JSON.stringify(null) === "null")
         3 => "null".to_string(),
-        // f64 bits: numero JS-format
+        // f64 bits: numero JS-format. NaN/+-Infinity viram "null" (JS spec).
         1 => {
             let f = f64::from_bits(value as u64);
-            crate::namespaces::gc::string_pool::format_js_number(f)
+            if !f.is_finite() {
+                "null".to_string()
+            } else {
+                crate::namespaces::gc::string_pool::format_js_number(f)
+            }
         }
         // i64/handle: tenta como handle valido; senao formata como numero.
         _ => {
