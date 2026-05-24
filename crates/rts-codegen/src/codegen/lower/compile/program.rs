@@ -891,9 +891,37 @@ fn inspect_return_kind(
     // retornam Handle. Sem isso, codegen tipa ret como F64 e callers
     // (e.g. JSON.stringify) interpretam handle como f64 bits.
     fn expr_yields_handle(e: &Expr) -> bool {
+        // (cross-runtime #1125/#1079) `(globalThis as any)[key]` — computed
+        // member access em globalThis sempre retorna any/handle. Sem isso,
+        // `function ensureGlobal(...) { return (globalThis as any)[key]; }`
+        // infere F64 e o map handle volta como f64-bits corrompido.
+        fn peel<'a>(e: &'a Expr) -> &'a Expr {
+            match e {
+                Expr::TsAs(a) => peel(&a.expr),
+                Expr::TsTypeAssertion(a) => peel(&a.expr),
+                Expr::TsConstAssertion(a) => peel(&a.expr),
+                Expr::TsNonNull(a) => peel(&a.expr),
+                Expr::Paren(p) => peel(&p.expr),
+                _ => e,
+            }
+        }
         match e {
             Expr::Object(_) | Expr::Array(_) | Expr::New(_) => true,
+            Expr::Member(m) => {
+                if let swc_ecma_ast::MemberProp::Computed(_) = &m.prop {
+                    if let Expr::Ident(id) = peel(m.obj.as_ref()) {
+                        if id.sym.as_str() == "globalThis" {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
             Expr::Paren(p) => expr_yields_handle(&p.expr),
+            Expr::TsAs(a) => expr_yields_handle(&a.expr),
+            Expr::TsTypeAssertion(a) => expr_yields_handle(&a.expr),
+            Expr::TsConstAssertion(a) => expr_yields_handle(&a.expr),
+            Expr::TsNonNull(a) => expr_yields_handle(&a.expr),
             Expr::Cond(c) => expr_yields_handle(&c.cons) || expr_yields_handle(&c.alt),
             _ => false,
         }
