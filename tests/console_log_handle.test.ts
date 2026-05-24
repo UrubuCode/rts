@@ -32,8 +32,8 @@ const d = `[${JSON.parse('"hello"')}]`;
 // 5. JSON.parse com null
 const e = `[${JSON.parse('null')}]`;
 
-// 6. JSON.parse com bool — em RTS v0 retorna i64 raw (1/0), nao
-// Entry::Json(Bool). Limitacao do pipeline JSON, fora do escopo deste fix.
+// 6. JSON.parse com bool — apos PR #1206 retorna sentinel JS (MIN/MIN+1)
+// que TPL_COERCE_AUTO mapeia pra "true"/"false".
 const f = `[${JSON.parse('true')}]`;
 
 // 7. WeakMap.get retornando i64 (numero)
@@ -61,7 +61,7 @@ describe("console_log_handle", () => {
     test("JSON.parse number scalar", () => expect(c).toBe("[42]"));
     test("JSON.parse string scalar", () => expect(d).toBe("[hello]"));
     test("JSON.parse null", () => expect(e).toBe("[null]"));
-    test("JSON.parse true (v0 returns 1)", () => expect(f).toBe("[1]"));
+    test("JSON.parse true (PR #1206: sentinel → 'true')", () => expect(f).toBe("[true]"));
     test("WeakMap.get number value", () => expect(g).toBe("[99]"));
     test("WeakMap.get missing → undefined-ish (null in v0)", () =>
         expect(h).toBe("[null]"));
