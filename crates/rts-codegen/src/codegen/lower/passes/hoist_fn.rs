@@ -202,6 +202,15 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     });
                 }
             } else if let Some(n) = pat_to_param_name(&p.pat) {
+                // (cross-runtime #341) `function(this: any, ...args)` — TS
+                // permite anotar o tipo do `this` implicito como primeiro
+                // pseudo-param. Em RTS, `this` eh thread-local slot, nao
+                // parametro. Filtrar evita que callers passem `obj` como
+                // valor de `this` e o body leia args+1 (lixo) em vez de
+                // THIS_GET correto.
+                if n == "this" {
+                    continue;
+                }
                 parameters.push(Parameter {
                     name: n,
                     type_annotation: None,

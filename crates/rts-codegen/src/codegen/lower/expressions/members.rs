@@ -937,6 +937,20 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 if ctx.user_fns.contains_key(obj_name) && ctx.var_ty(obj_name).is_none() {
                     return lower_user_fn_getter(ctx, obj_name, prop_name);
                 }
+                // (cross-runtime #336) `Class.prototype` para classes user
+                // resolvem para o mesmo Map que `Object.getPrototypeOf(c)`.
+                // Reifica __class_X__init e chama FUNCTION_PROTOTYPE_GET.
+                // Sem isso, `Class.prototype` caia no path generico de
+                // member access em Ident desconhecido (handle = 0 ou novo).
+                if prop_name == "prototype"
+                    && ctx.classes.contains_key(obj_name)
+                    && ctx.var_ty(obj_name).is_none()
+                {
+                    let init_fn = crate::codegen::lower::compile::class::class_init_name(obj_name);
+                    if ctx.user_fns.contains_key(&init_fn) {
+                        return lower_user_fn_getter(ctx, &init_fn, "prototype");
+                    }
+                }
             }
         }
     }
