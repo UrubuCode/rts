@@ -612,7 +612,7 @@
   "status": "rts_diverge",
   "bun": "sum=5\niter=1,2\nsym=ok",
   "node": "sum=5\niter=1,2\nsym=ok",
-  "rts": "iter=C\nsym=0"
+  "rts": "iter=C,281474976710663\nsym=0"
 }
 ,
 {
@@ -660,7 +660,7 @@
   "status": "rts_diverge",
   "bun": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
   "node": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
-  "rts": "null eats bone\nnull moves (energy:0)\n0 learned sit\n0 learned shake\n0 performs shake\n0\n0 guides Alice\nnull eats kibble\nnull moves (energy:0)\n281474976710716\n562949953421341\ntrue\ntrue\ntrue"
+  "rts": "Rex eats bone\nRex moves (energy:0)\n281474976710661 learned sit\n281474976710661 learned shake\n281474976710661 performs shake\n0\n281474976710700 guides Alice\nBuddy eats kibble\nBuddy moves (energy:0)\n281474976710725\n281474976710726\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|macro:timeout"
+  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|timeout|micro"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -1980,7 +1980,7 @@
   "status": "rts_diverge",
   "bun": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
   "node": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
-  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\n\n0 shape\n0"
+  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC\n0 shape\n0"
 }
 ,
 {
@@ -2044,7 +2044,7 @@
   "status": "bun_node_diverge",
   "bun": "3\n3\n2\na\nb\n2\n1,2,3,4,5\n5,4,3,2,1\n1,2,3,5,7,8,9",
   "node": "__RUNTIME_ERROR__",
-  "rts": "3\n3\n2\n281474976710669\n281474976710670\n2\n\n\nfalse,false,false,false,false,false,false"
+  "rts": "3\n3\n2\n281474976710675\n281474976710676\n2\n\n\nfalse,false,false,false,false,false,false"
 }
 ,
 {
@@ -2937,10 +2937,10 @@
 ,
 {
   "name": "377_for_in_detail",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
   "node": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
-  "rts": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue"
+  "rts": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx,constructor\n0\na=1,b=2\ntrue\ntrue"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":300,"rts_diverge":21,"bun_node_diverge":16,"errors":51,"rejected":0}}
+],"summary":{"total":388,"pass":301,"rts_diverge":19,"bun_node_diverge":17,"errors":51,"rejected":0}}
