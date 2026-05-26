@@ -23,8 +23,8 @@ use crate::parser::ast::{
 use crate::parser::span::Span;
 
 use super::super::analysis::captures::{
-    collect_captures_in_body, collect_local_decls, make_sync_param_to_global,
-    promote_local_to_global, rename_uses_in_body,
+    collect_captured_from_arrow, collect_captures_in_body, collect_local_decls,
+    make_sync_param_to_global, promote_local_to_global, rename_uses_in_body,
 };
 
 /// (cross-runtime #41/#195) Promove `let` declaradas em escopo de
@@ -428,6 +428,8 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         user_fn_first_param_ty,
         alias_to_real,
         needs_c_callconv: HashSet::new(),
+        scope_vars: HashSet::new(),
+        lifted_captures: HashMap::new(),
     };
 
     // Pass 1: dentro de classes (constructors e métodos). Arrows que usam
@@ -560,7 +562,54 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
     for global_item in prepend.into_iter().rev() {
         program.items.insert(0, global_item);
     }
+    // (#195) Publica o mapa de capturas pro codegen consumir ao materializar
+    // os idents `__lifted_arrow_N` como handles Function com bound_args.
+    set_lifted_captures(std::mem::take(&mut acc.lifted_captures));
     acc.needs_c_callconv
+}
+
+thread_local! {
+    static LIFTED_ARROW_CAPTURES: std::cell::RefCell<HashMap<String, Vec<String>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// (#195) Registra o mapa `__lifted_arrow_N -> [capturas]` produzido pelo
+/// pass de lift, pra o codegen reificar com REIFY_CAPTURED.
+pub(crate) fn set_lifted_captures(map: HashMap<String, Vec<String>>) {
+    LIFTED_ARROW_CAPTURES.with(|c| *c.borrow_mut() = map);
+}
+
+/// (#195) Consulta as capturas de um `__lifted_arrow_N`. None se a arrow nao
+/// captura nada (caminho normal de func_addr/reify simples).
+pub(crate) fn lifted_arrow_captures(name: &str) -> Option<Vec<String>> {
+    LIFTED_ARROW_CAPTURES.with(|c| c.borrow().get(name).cloned())
+}
+
+/// (#195) Coleta vars de `locals` capturadas por arrows que aparecem em
+/// posicao de RETURN (`return (b) => ...`). Sao candidatas a captura-por-valor
+/// (bound_args) em vez de promote-to-global, porque o arrow eh retornado e
+/// chamado via FUNCTION_CALL — captura-por-ativacao correta (curry).
+fn captures_for_returned_arrows(
+    body: &[Statement],
+    locals: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for s in body {
+        let Statement::Raw(raw) = s;
+        let Some(stmt) = raw.stmt.as_ref() else { continue };
+        if let Stmt::Return(r) = stmt {
+            if let Some(arg) = r.arg.as_deref() {
+                if let Expr::Arrow(arrow) = arg {
+                    let mut set = std::collections::BTreeSet::new();
+                    collect_captured_from_arrow(arrow, locals, &mut set);
+                    for c in set {
+                        out.insert(c);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 struct LiftAcc {
@@ -586,6 +635,15 @@ struct LiftAcc {
     /// — devem ser declaradas com C callconv também para evitar
     /// corrupção de stack na fronteira (#206).
     needs_c_callconv: HashSet<String>,
+    /// (#195) Variaveis em escopo no ponto de cada lift — nomes de vars
+    /// locais/params do escopo enclosing. Usado por `lift_arrow_to_ident`
+    /// pra detectar capturas (free vars que sao desses, e nao user fns).
+    /// Atualizado conforme desce em fns/arrows.
+    scope_vars: HashSet<String>,
+    /// (#195) Mapa `__lifted_arrow_N` -> nomes das vars capturadas (ordem
+    /// estavel). O codegen consulta pra reificar via REIFY_CAPTURED, passando
+    /// os valores das capturas como bound_args.
+    lifted_captures: HashMap<String, Vec<String>>,
 }
 
 
@@ -612,11 +670,31 @@ impl LiftAcc {
         let param_names: std::collections::HashSet<String> =
             f.parameters.iter().map(|p| p.name.clone()).collect();
 
+        // (#195) Captura POR VALOR: para arrows RETORNADOS (curry
+        // `(a) => (b) => a+b`), a captura vira bound_args em vez de global
+        // compartilhada. Detecta vars capturadas SO' por arrows em posicao de
+        // return (so'-leitura, sem reentrada de callback C-ABI). Essas sao
+        // resolvidas por `lift_arrow_to_ident` via scope_vars — fora do
+        // promote-to-global abaixo.
+        let by_value: std::collections::HashSet<String> =
+            captures_for_returned_arrows(&f.body, &locals);
+        // Popula scope_vars com as vars desta fn pra que lift_arrow_to_ident
+        // detecte as capturas dos arrows aninhados.
+        let prev_scope: Vec<String> = locals
+            .iter()
+            .filter(|n| self.scope_vars.insert((*n).clone()))
+            .cloned()
+            .collect();
+
         // Promove cada captura pra global e reescreve toda a fn.
         // Insere as syncs de parâmetros no topo (em ordem reversa para
         // manter a ordem original).
         let mut param_syncs: Vec<(String, String)> = Vec::new(); // (global, param)
         for var in &captured {
+            // Pula vars que serao capturadas por valor (arrows retornados).
+            if by_value.contains(var) {
+                continue;
+            }
             let global = format!("__cb_local_{}_{}", sanitize_for_symbol(&f.name), var);
             self.new_globals.push(global.clone());
             if param_names.contains(var) {
@@ -641,8 +719,14 @@ impl LiftAcc {
         }
 
         // Agora roda o lift normal — idents nos arrows são globais,
-        // resolvem sem problema.
+        // resolvem sem problema. (As capturas por-valor sao detectadas via
+        // scope_vars e viram params do __lifted_arrow_N.)
         self.lift_in_body("", &mut f.body, /*in_class=*/ false);
+
+        // Restaura scope_vars (remove o que esta fn adicionou).
+        for n in &prev_scope {
+            self.scope_vars.remove(n);
+        }
     }
 
     /// Lift de uma arrow anônima (sem captura) para uma user fn sintética
@@ -753,7 +837,45 @@ impl LiftAcc {
         // descartados (parameters: Vec::new()), o que quebrava qualquer arrow
         // com params: `(i) => values[i]` perdia `i`. Prologo cobre
         // destructuring; rest vira variadic (expand_rest_args trata depois).
-        let (parameters, prologue) = Self::arrow_params_to_parameters(arrow, &syn_name);
+        let (own_parameters, prologue) = Self::arrow_params_to_parameters(arrow, &syn_name);
+
+        // (#195) Captura POR VALOR: detecta free vars do arrow que estao em
+        // escopo (vars locais/params do enclosing), excluindo user fns. Cada
+        // captura vira um param INICIAL (bound_args sao prepended em
+        // FUNCTION_CALL: `all_args = bound_args ++ args_reais`). O codegen
+        // reifica via REIFY_CAPTURED passando os valores. So' cobre captura
+        // so'-leitura simples; mutavel/global compartilhada segue o caminho
+        // antigo (promote-to-global ja' rodou e transformou em ident global,
+        // que nao aparece como free var aqui).
+        let captures: Vec<String> = {
+            let mut set = std::collections::BTreeSet::new();
+            collect_captured_from_arrow(arrow, &self.scope_vars, &mut set);
+            set.into_iter()
+                // Exclui user fns (sao chamaveis globais, nao capturas) e
+                // nomes ja' promovidos a global pelo caminho antigo.
+                .filter(|n| {
+                    !self.user_fn_names.contains(n)
+                        && !n.starts_with("__cb_")
+                        && !n.starts_with("__rts_")
+                })
+                .collect()
+        };
+
+        let mut parameters: Vec<Parameter> = Vec::with_capacity(captures.len() + own_parameters.len());
+        for cap in &captures {
+            parameters.push(Parameter {
+                name: cap.clone(),
+                type_annotation: None,
+                modifiers: MemberModifiers::default(),
+                variadic: false,
+                default: None,
+                span: Span::default(),
+            });
+        }
+        parameters.extend(own_parameters);
+        if !captures.is_empty() {
+            self.lifted_captures.insert(syn_name.clone(), captures);
+        }
 
         let mut all_stmts: Vec<Stmt> = prologue;
         all_stmts.extend(raw_stmts);
@@ -766,8 +888,19 @@ impl LiftAcc {
             })
             .collect();
 
-        // Recurse para arrows aninhadas.
+        // Recurse para arrows aninhadas. Adiciona os params PROPRIOS deste
+        // arrow ao escopo visivel, pra que arrows aninhados (ex: curry
+        // `(a) => (b) => a+b`) detectem `a` como captura. Restaura depois.
+        let added_to_scope: Vec<String> = arrow
+            .params
+            .iter()
+            .filter_map(|p| if let Pat::Ident(id) = p { Some(id.id.sym.to_string()) } else { None })
+            .filter(|n| self.scope_vars.insert(n.clone()))
+            .collect();
         self.lift_in_body(class_name, &mut body_stmts, in_class);
+        for n in &added_to_scope {
+            self.scope_vars.remove(n);
+        }
 
         // Expression-body arrows always return a value; block-body arrows
         // with explicit `return` also do, but we can't easily detect that

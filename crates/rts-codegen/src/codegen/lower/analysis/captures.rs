@@ -217,7 +217,7 @@ fn collect_captured_from_fn_expr(
     }
 }
 
-fn collect_captured_from_arrow(
+pub(crate) fn collect_captured_from_arrow(
     arrow: &swc_ecma_ast::ArrowExpr,
     enclosing_locals: &std::collections::HashSet<String>,
     captured: &mut std::collections::BTreeSet<String>,
