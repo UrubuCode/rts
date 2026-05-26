@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":304,"rts_diverge":18,"bun_node_diverge":16,"errors":50,"rejected":0}}
+],"summary":{"total":388,"pass":302,"rts_diverge":19,"bun_node_diverge":17,"errors":50,"rejected":0}}
