@@ -263,8 +263,46 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             let mark_fn = ctx.get_extern(mark_sym, &[cl::I64], None)?;
             ctx.builder.ins().call(mark_fn, &[h]);
             // Initial entries: \`new Set([1,2,3])\` ou \`new Map([[\"a\",1],[\"b\",2]])\`.
-            // v0: aceita Expr::Array literal; outros casos sao no-op.
+            // Aceita Expr::Array literal (caminho estatico abaixo) E tambem
+            // arg que NAO eh array literal (var/expr que resolve pra Vec em
+            // runtime, ex: `new Map(entries)`) via MAP_FROM_ENTRIES.
             let init_arg = new_expr.args.as_ref().and_then(|args| args.first());
+            // (374) `new Map(<expr-nao-literal>)` — popula via runtime.
+            // Restrito a Ident/Member (var que ja' materializou o Vec de
+            // pares). CallExpr inline (`new Map(arr.map(...))`) e' excluido:
+            // o Vec temporario do .map+parallel ainda nao tem materializacao
+            // estavel e crashava no MAP_FROM_ENTRIES — usar var intermediaria
+            // (`const r = arr.map(...); new Map(r)`) funciona. Follow-up.
+            if class_name == "Map" {
+                if let Some(arg) = init_arg {
+                    let arg_is_safe = matches!(
+                        arg.expr.as_ref(),
+                        Expr::Ident(_) | Expr::Member(_)
+                            | Expr::Paren(_) | Expr::TsAs(_) | Expr::TsNonNull(_)
+                    );
+                    if arg.spread.is_none()
+                        && !matches!(arg.expr.as_ref(), Expr::Array(_))
+                        && arg_is_safe
+                    {
+                        let src_tv = lower_expr(ctx, &arg.expr)?;
+                        let src_h = ctx.coerce_to_i64(src_tv).val;
+                        let from_entries = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst_fe = ctx.builder.ins().call(from_entries, &[src_h]);
+                        let m2 = ctx.builder.inst_results(inst_fe)[0];
+                        let mark_fn2 = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_MARK_AS_MAP",
+                            &[cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(mark_fn2, &[m2]);
+                        return Ok(TypedVal::new(m2, ValTy::Handle));
+                    }
+                }
+            }
             if let Some(arg) = init_arg {
                 if let Expr::Array(arr) = arg.expr.as_ref() {
                     if class_name == "Set" {
