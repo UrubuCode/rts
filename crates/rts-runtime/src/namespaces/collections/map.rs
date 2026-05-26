@@ -1903,22 +1903,26 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
     let m = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
     for ph in pair_handles {
         let pair_h = ph as u64;
-        let kv: Option<(String, i64)> = with_entry(pair_h, |entry| match entry {
-            Some(Entry::Vec(pair)) if pair.len() >= 2 => {
-                let key_h = pair[0] as u64;
-                let key_str: Option<String> = with_entry(key_h, |ke| match ke {
-                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-                    _ => None,
-                });
-                key_str.map(|k| (k, pair[1]))
-            }
+        // Extrai (key_handle, value) SEM aninhar with_entry (evita reentrar
+        // no lock do mesmo shard -> deadlock). Resolve a String da chave
+        // numa segunda passada, ja' fora do lock do par.
+        let pair_kv: Option<(i64, i64)> = with_entry(pair_h, |entry| match entry {
+            Some(Entry::Vec(pair)) if pair.len() >= 2 => Some((pair[0], pair[1])),
             _ => None,
         });
-        if let Some((k, v)) = kv {
-            with_map_mut(m, (), |mm| {
-                mm.insert(k, v);
-            });
-        }
+        let Some((key_raw, val)) = pair_kv else { continue };
+        let key_h = key_raw as u64;
+        let key_str: Option<String> = with_entry(key_h, |ke| match ke {
+            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+            _ => None,
+        });
+        // (374) Chave numerica (`new Map([[1,"one"]])`): key_raw eh um i64
+        // cru, nao handle de String. Usa a representacao decimal como key,
+        // consistente com string_from_i64 do caminho de array literal.
+        let key = key_str.unwrap_or_else(|| key_raw.to_string());
+        with_map_mut(m, (), |mm| {
+            mm.insert(key, val);
+        });
     }
     m
 }

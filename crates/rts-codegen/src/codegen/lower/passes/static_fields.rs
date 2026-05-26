@@ -238,6 +238,33 @@ fn default_expr_for_ann(ann: Option<&str>) -> Expr {
             span: Default::default(),
             value: false,
         })),
+        Some(t) if !t.ends_with("[]") => {
+            let base = t.split('<').next().unwrap_or(t).trim();
+            // (374) Map/Set sem init: default `new Map()`/`new Set()` (em vez
+            // de `0` numerico, que tipava o global como numero e fazia o
+            // member call crashar). O static block sobrescreve com o valor
+            // real; o default so' garante que o global ja' eh um handle valido.
+            if matches!(base, "Map" | "Set" | "WeakMap" | "WeakSet") {
+                Expr::New(swc_ecma_ast::NewExpr {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    callee: Box::new(Expr::Ident(swc_ecma_ast::Ident {
+                        span: Default::default(),
+                        ctxt: Default::default(),
+                        sym: base.into(),
+                        optional: false,
+                    })),
+                    args: Some(Vec::new()),
+                    type_args: None,
+                })
+            } else {
+                Expr::Lit(Lit::Num(swc_ecma_ast::Number {
+                    span: Default::default(),
+                    value: 0.0,
+                    raw: None,
+                }))
+            }
+        }
         _ => Expr::Lit(Lit::Num(swc_ecma_ast::Number {
             span: Default::default(),
             value: 0.0,
@@ -250,12 +277,45 @@ fn default_expr_for_ann(ann: Option<&str>) -> Expr {
 /// ou "string". Tipos compostos sao deixados como undefined-ann; o
 /// codegen ainda usara o tipo do initializer.
 fn build_type_ann(ann: &str) -> Option<Box<swc_ecma_ast::TsTypeAnn>> {
-    use swc_ecma_ast::{TsKeywordType, TsKeywordTypeKind, TsType, TsTypeAnn};
-    let kind = match ann.trim() {
+    use swc_ecma_ast::{
+        Ident, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsType, TsTypeAnn, TsTypeRef,
+    };
+    let trimmed = ann.trim();
+    let kind = match trimmed {
         "number" | "i64" | "f64" | "i32" => TsKeywordTypeKind::TsNumberKeyword,
         "string" => TsKeywordTypeKind::TsStringKeyword,
         "boolean" | "bool" => TsKeywordTypeKind::TsBooleanKeyword,
-        _ => return None,
+        _ => {
+            // (374) Tipos compostos por classe (Map<...>, Set<...>, RegExp,
+            // ou classe do usuario): preserva como TsTypeRef pra que o
+            // codegen registre a var global em global_class_ty e roteie
+            // `.set`/`.get` etc. Sem isso o static field private virava `0`
+            // numerico sem tipo e o member call crashava (SIGILL).
+            //
+            // Extrai o nome-base do tipo generico: `Map<number,string>` ->
+            // `Map`. `T[]` mantemos como None (array ja' tem heuristica
+            // propria via local_array_vars no caminho de field).
+            if trimmed.ends_with("[]") {
+                return None;
+            }
+            let base = trimmed.split('<').next().unwrap_or(trimmed).trim();
+            if base.is_empty() || !base.chars().next().unwrap().is_ascii_uppercase() {
+                return None;
+            }
+            return Some(Box::new(TsTypeAnn {
+                span: Default::default(),
+                type_ann: Box::new(TsType::TsTypeRef(TsTypeRef {
+                    span: Default::default(),
+                    type_name: TsEntityName::Ident(Ident {
+                        span: Default::default(),
+                        ctxt: Default::default(),
+                        sym: base.into(),
+                        optional: false,
+                    }),
+                    type_params: None,
+                })),
+            }));
+        }
     };
     Some(Box::new(TsTypeAnn {
         span: Default::default(),
