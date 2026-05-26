@@ -232,6 +232,8 @@ pub(crate) fn lower_super_prop_assign(
     };
 
     let rhs = lower_expr(ctx, &final_rhs_expr)?;
+    let rhs_ty = rhs.ty;
+    let rhs_val = rhs.val;
     let rhs_i64 = ctx.coerce_to_i64(rhs).val;
     let this_val = ctx
         .read_local("this")
@@ -256,13 +258,21 @@ pub(crate) fn lower_super_prop_assign(
         return Ok(TypedVal::new(rhs_i64, ValTy::I64));
     }
 
+    // Campo herdado `number` (F64): store simetrico com a leitura. Armazena
+    // os BITS do f64 (converte RHS pra f64 e bitcasta).
+    let store_val = if field_type_in_hierarchy(ctx, &parent, &prop_name) == Some(ValTy::F64) {
+        let f = to_f64(ctx, TypedVal::new(rhs_val, rhs_ty));
+        ctx.builder.ins().bitcast(cl::I64, cranelift_codegen::ir::MemFlags::new(), f)
+    } else {
+        rhs_i64
+    };
     let set_fn = ctx.get_extern(
         "__RTS_FN_NS_COLLECTIONS_MAP_SET",
         &[cl::I64, cl::I64, cl::I64, cl::I64],
         None,
     )?;
     let (kp, kl) = ctx.emit_str_literal(prop_name.as_bytes())?;
-    ctx.builder.ins().call(set_fn, &[recv_i64, kp, kl, rhs_i64]);
+    ctx.builder.ins().call(set_fn, &[recv_i64, kp, kl, store_val]);
     Ok(TypedVal::new(rhs_i64, ValTy::I64))
 }
 

@@ -24,6 +24,20 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
 
         if let Pat::Ident(id) = &decl.name {
             if let Some(ann) = id.type_ann.as_ref() {
+                // (372) `f: () => number` — fn que retorna number. Marca pra
+                // que `f()` reinterprete o i64-bits do invoke como f64.
+                if let swc_ecma_ast::TsType::TsFnOrConstructorType(
+                    swc_ecma_ast::TsFnOrConstructorType::TsFnType(fnty),
+                ) = ann.type_ann.as_ref()
+                {
+                    if matches!(
+                        fnty.type_ann.type_ann.as_ref(),
+                        swc_ecma_ast::TsType::TsKeywordType(k)
+                            if matches!(k.kind, swc_ecma_ast::TsKeywordTypeKind::TsNumberKeyword)
+                    ) {
+                        ctx.local_fn_ret_f64.insert(name.clone());
+                    }
+                }
                 if let Some(cn) = class_name_from_annotation(&ann.type_ann) {
                     if ctx.classes.contains_key(&cn)
                         || crate::abi::global_class_lookup(&cn).is_some()
@@ -625,11 +639,26 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         } else {
             ann_ty.unwrap_or(inferred_ty)
         };
+        // (372) Init ambiguo (resultado de invoke/member call) atribuido a
+        // var `: number`: o valor i64 carrega BITS de f64 (ex: arrow
+        // `() => this.campoF64`). fcvt_from_sint o corromperia. Preserva como
+        // I64 ambiguo — igual ao caminho sem anotacao, onde INSPECT/coercao
+        // resolve em runtime. Sem isso `const r: number = gf()` lia lixo.
+        let init_is_ambiguous_call = ctx.var_member_call_values.contains(&init_val)
+            && matches!(inferred_ty, ValTy::I64 | ValTy::U64);
         let init_coerced = match ty {
             ValTy::I32 => ctx.coerce_to_i32(TypedVal::new(init_val, inferred_ty)).val,
             ValTy::I64 => ctx.coerce_to_i64(TypedVal::new(init_val, inferred_ty)).val,
+            ValTy::F64 if init_is_ambiguous_call => init_val,
             ValTy::F64 => ctx.coerce_to_f64(TypedVal::new(init_val, inferred_ty)).val,
             _ => init_val,
+        };
+        // Quando preservamos o init ambiguo como I64, a var precisa ser
+        // tipada I64 (nao F64) pra leituras subsequentes nao fazerem fcvt.
+        let ty = if matches!(ty, ValTy::F64) && init_is_ambiguous_call {
+            ValTy::I64
+        } else {
+            ty
         };
 
         // (#627) Propaga flag de ambiguidade — quando init eh resultado de
@@ -638,6 +667,13 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         let init_was_ambiguous = ctx.var_member_call_values.contains(&init_val);
         if init_was_ambiguous && ann_ty.is_none() {
             ctx.local_ambiguous_vars.insert(name.clone());
+        }
+        // (372) Var `: number` que preservou init ambiguo como I64 (arrow
+        // retornando campo f64): propaga ambiguidade pra que leituras/console
+        // usem INSPECT/TPL_COERCE_AUTO em runtime em vez de fcvt.
+        if init_is_ambiguous_call {
+            ctx.local_ambiguous_vars.insert(name.clone());
+            ctx.var_member_call_values.insert(init_coerced);
         }
         // (cross-runtime edge_json5) Quando var declarada com `: any` e init
         // eh uma Call, marca como ambiguous para que `obj.X` member access

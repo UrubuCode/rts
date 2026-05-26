@@ -17,9 +17,9 @@ use self::calls::{
     lower_super_prop_assign, lower_super_prop_read, resolve_setter_owner,
 };
 use self::members::{
-    class_field_uses_flat, emit_flat_field_write, field_is_readonly_in_hierarchy, lhs_static_class,
-    lower_array_lit, lower_member_expr, lower_object_lit, validate_private_scope,
-    validate_visibility,
+    assign_target_field_is_f64, class_field_uses_flat, emit_flat_field_write,
+    field_is_readonly_in_hierarchy, lhs_static_class, lower_array_lit, lower_member_expr,
+    lower_object_lit, validate_private_scope, validate_visibility,
 };
 use self::operators::{lower_bin, lower_cond, lower_opt_chain, lower_update_expr, to_f64};
 
@@ -462,12 +462,24 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                         // Plain MAP_SET — re-aplica logica de assign normal
                         // (sem chamar lower_assign_expr de novo, faz inline).
                         let value_tv = lower_expr(ctx, &a.right)?;
-                        // (#1051 part 2) Preserva precisao f64 quando RHS eh
-                        // literal float nao-inteiro — bitcast em vez de
-                        // fcvt_to_sint_sat que trunca.
-                        let value_i64 = if matches!(value_tv.ty, ValTy::F64)
+                        // (372) Campo `number` (F64): representacao uniforme =
+                        // BITS do f64, simetrica com a leitura tipada. Converte
+                        // o RHS pra f64 e bitcasta (inclusive init/assign
+                        // inteiro). Cobre o caso `inst.campoF64 = <int|metodo>`
+                        // que cai neste plain_block do dispatch de setter.
+                        let value_i64 = if assign_target_field_is_f64(ctx, m) {
+                            let f = to_f64(ctx, value_tv);
+                            ctx.builder.ins().bitcast(
+                                cl::I64,
+                                cranelift_codegen::ir::MemFlags::new(),
+                                f,
+                            )
+                        } else if matches!(value_tv.ty, ValTy::F64)
                             && rhs_is_non_integer_float_lit(&a.right)
                         {
+                            // (#1051 part 2) Preserva precisao f64 quando RHS eh
+                            // literal float nao-inteiro — bitcast em vez de
+                            // fcvt_to_sint_sat que trunca.
                             ctx.builder.ins().bitcast(
                                 cl::I64,
                                 cranelift_codegen::ir::MemFlags::new(),
@@ -744,12 +756,25 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
             }
         }
 
-        // (#1051) RHS eh literal float nao-inteiro? bitcast em vez de
-        // fcvt_to_sint_sat (que trunca). INSPECT/TPL_COERCE_AUTO
-        // detectam o bit pattern (|v| > 2^53) e renderizam como float.
-        let bitcast_f64 = matches!(rhs.ty, ValTy::F64)
-            && rhs_is_non_integer_float_lit(final_rhs_expr.as_ref());
-        let rhs_i64 = if bitcast_f64 {
+        // (372) Campo `number` (F64): representacao uniforme = BITS do f64.
+        // A leitura tipada (map_get_static_typed) reinterpreta via bitcast.
+        // Converte o RHS pra f64 (i64/i32 -> fcvt_from_sint) e bitcasta, pra
+        // que store e load sejam simetricos — inclusive quando o init eh
+        // inteiro (`a: number = 100`) ou vem de chamada de metodo
+        // (`this.#k = this.#toKelvin(c)`).
+        let dest_field_is_f64 = assign_target_field_is_f64(ctx, m);
+        let rhs_i64 = if dest_field_is_f64 {
+            let f = to_f64(ctx, rhs);
+            ctx.builder.ins().bitcast(
+                cranelift_codegen::ir::types::I64,
+                cranelift_codegen::ir::MemFlags::new(),
+                f,
+            )
+        } else if matches!(rhs.ty, ValTy::F64)
+            && rhs_is_non_integer_float_lit(final_rhs_expr.as_ref())
+        {
+            // (#1051) RHS literal float nao-inteiro em campo sem F64 conhecido
+            // (objeto generico). INSPECT/TPL_COERCE_AUTO detectam |v|>2^53.
             ctx.builder.ins().bitcast(
                 cranelift_codegen::ir::types::I64,
                 cranelift_codegen::ir::MemFlags::new(),
