@@ -649,6 +649,94 @@ impl LiftAcc {
     /// `__lifted_arrow_N`. Retorna o `Ident` que substitui a arrow no AST.
     /// Não trata captura de `this` — caller é responsável por garantir que
     /// a arrow não usa `this` (ou está fora de classe).
+    /// (#195 parcial) Converte os parametros proprios de uma arrow
+    /// (`Vec<Pat>`) em `Vec<Parameter>` + prologo de destructuring, espelhando
+    /// `hoist_fn::build_fn_decl`. Sem isso a arrow liftada perdia os proprios
+    /// params (`(i) => values[i]` virava fn sem `i` -> "undefined variable i").
+    /// Cobre rest (`...args`), destructuring (`[k,v]`/`{a}`) e filtra `this`.
+    fn arrow_params_to_parameters(
+        arrow: &swc_ecma_ast::ArrowExpr,
+        syn_name: &str,
+    ) -> (Vec<Parameter>, Vec<Stmt>) {
+        let mut prologue: Vec<Stmt> = Vec::new();
+        let mut parameters: Vec<Parameter> = Vec::with_capacity(arrow.params.len());
+        for (i, pat) in arrow.params.iter().enumerate() {
+            let pat_for_destruct: Option<&Pat> = match pat {
+                Pat::Array(_) | Pat::Object(_) => Some(pat),
+                Pat::Assign(a) if matches!(a.left.as_ref(), Pat::Array(_) | Pat::Object(_)) => {
+                    Some(a.left.as_ref())
+                }
+                _ => None,
+            };
+            if let Some(dpat) = pat_for_destruct {
+                let synth_name = format!("__lift_destruct_{}_{}", syn_name, i);
+                let synth_ident = swc_ecma_ast::Ident::new(
+                    synth_name.as_str().into(),
+                    Default::default(),
+                    Default::default(),
+                );
+                let var_decl = swc_ecma_ast::VarDecl {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    kind: swc_ecma_ast::VarDeclKind::Const,
+                    declare: false,
+                    decls: vec![swc_ecma_ast::VarDeclarator {
+                        span: Default::default(),
+                        name: dpat.clone(),
+                        init: Some(Box::new(Expr::Ident(synth_ident))),
+                        definite: false,
+                    }],
+                };
+                prologue.push(Stmt::Decl(swc_ecma_ast::Decl::Var(Box::new(var_decl))));
+                parameters.push(Parameter {
+                    name: synth_name,
+                    type_annotation: None,
+                    modifiers: MemberModifiers::default(),
+                    variadic: false,
+                    default: None,
+                    span: Span::default(),
+                });
+            } else if let Pat::Rest(rest) = pat {
+                if let Pat::Ident(b) = rest.arg.as_ref() {
+                    parameters.push(Parameter {
+                        name: b.id.sym.to_string(),
+                        type_annotation: None,
+                        modifiers: MemberModifiers::default(),
+                        variadic: true,
+                        default: None,
+                        span: Span::default(),
+                    });
+                }
+            } else if let Pat::Ident(b) = pat {
+                let n = b.id.sym.to_string();
+                if n == "this" {
+                    continue;
+                }
+                parameters.push(Parameter {
+                    name: n,
+                    type_annotation: None,
+                    modifiers: MemberModifiers::default(),
+                    variadic: false,
+                    default: None,
+                    span: Span::default(),
+                });
+            } else if let Pat::Assign(a) = pat {
+                // Param com default `(x = 1) => ...` — nome simples + default.
+                if let Pat::Ident(b) = a.left.as_ref() {
+                    parameters.push(Parameter {
+                        name: b.id.sym.to_string(),
+                        type_annotation: None,
+                        modifiers: MemberModifiers::default(),
+                        variadic: false,
+                        default: Some(a.right.clone()),
+                        span: Span::default(),
+                    });
+                }
+            }
+        }
+        (parameters, prologue)
+    }
+
     fn lift_arrow_to_ident(
         &mut self,
         class_name: &str,
@@ -657,7 +745,19 @@ impl LiftAcc {
     ) -> swc_ecma_ast::Ident {
         let has_return_value = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_));
         let raw_stmts = arrow_body_to_stmts(arrow);
-        let mut body_stmts: Vec<Statement> = raw_stmts
+
+        let syn_name = format!("__lifted_arrow_{}", self.counter);
+        self.counter += 1;
+
+        // (#195 parcial) Preserva os parametros proprios da arrow. Antes
+        // descartados (parameters: Vec::new()), o que quebrava qualquer arrow
+        // com params: `(i) => values[i]` perdia `i`. Prologo cobre
+        // destructuring; rest vira variadic (expand_rest_args trata depois).
+        let (parameters, prologue) = Self::arrow_params_to_parameters(arrow, &syn_name);
+
+        let mut all_stmts: Vec<Stmt> = prologue;
+        all_stmts.extend(raw_stmts);
+        let mut body_stmts: Vec<Statement> = all_stmts
             .into_iter()
             .map(|s| {
                 Statement::Raw(
@@ -665,9 +765,6 @@ impl LiftAcc {
                 )
             })
             .collect();
-
-        let syn_name = format!("__lifted_arrow_{}", self.counter);
-        self.counter += 1;
 
         // Recurse para arrows aninhadas.
         self.lift_in_body(class_name, &mut body_stmts, in_class);
@@ -679,7 +776,7 @@ impl LiftAcc {
 
         self.new_fns.push(Item::Function(FunctionDecl {
             name: syn_name.clone(),
-            parameters: Vec::new(),
+            parameters,
             return_type: ret_ty,
             body: body_stmts,
             span: Span::default(),
