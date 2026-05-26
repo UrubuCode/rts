@@ -7,6 +7,64 @@ use swc_ecma_ast::{Callee, Expr, Stmt};
 
 use crate::parser::ast::{ClassMember, Item, Parameter, Program, Statement};
 
+/// (375) Preenche args omitidos numa chamada `super(...)` com os defaults do
+/// constructor do pai. `super(name)` com `Animal`'s `constructor(name, e=100)`
+/// vira `super(name, 100)`. Percorre o stmt procurando `Expr::Call` com callee
+/// Super (top-level ou dentro de Expr/If/Block).
+fn fill_super_call_defaults(
+    stmt: &mut Stmt,
+    param_names: &[String],
+    defaults: &[Option<Box<Expr>>],
+) {
+    fn fill_in_expr(e: &mut Expr, param_names: &[String], defaults: &[Option<Box<Expr>>]) {
+        if let Expr::Call(call) = e {
+            if matches!(call.callee, Callee::Super(_)) {
+                let provided = call.args.len();
+                let total = defaults.len();
+                if provided < total {
+                    let mut bindings: std::collections::HashMap<String, Expr> =
+                        std::collections::HashMap::new();
+                    for (idx, arg) in call.args.iter().enumerate() {
+                        if let Some(pn) = param_names.get(idx) {
+                            bindings.insert(pn.clone(), (*arg.expr).clone());
+                        }
+                    }
+                    for i in provided..total {
+                        if let Some(def) = &defaults[i] {
+                            let mut def_clone = (**def).clone();
+                            substitute_param_refs(&mut def_clone, &bindings);
+                            if let Some(pn) = param_names.get(i) {
+                                bindings.insert(pn.clone(), def_clone.clone());
+                            }
+                            call.args.push(swc_ecma_ast::ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(def_clone),
+                            });
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    match stmt {
+        Stmt::Expr(e) => fill_in_expr(&mut e.expr, param_names, defaults),
+        Stmt::Block(b) => {
+            for s in &mut b.stmts {
+                fill_super_call_defaults(s, param_names, defaults);
+            }
+        }
+        Stmt::If(i) => {
+            fill_super_call_defaults(&mut i.cons, param_names, defaults);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                fill_super_call_defaults(alt, param_names, defaults);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// (#640) Substitui referencias a Ident(param_name) por exprs ja resolvidas
 /// do callsite. Isso permite defaults que referenciam outros params funcionarem
 /// quando o callsite preenche o slot indireto (ex: `rect(5)` com
@@ -66,6 +124,10 @@ pub(crate) fn expand_default_args(program: &mut Program) {
     // callsite.
     let mut fn_defaults: HashMap<String, (Vec<String>, Vec<Option<Box<Expr>>>)> = HashMap::new();
     let mut method_defaults: HashMap<(String, String), (Vec<String>, Vec<Option<Box<Expr>>>)> = HashMap::new();
+    // (375) Hierarquia + quais classes tem constructor proprio, pra propagar
+    // o constructor herdado a subclasses sem `constructor` declarado.
+    let mut class_super: HashMap<String, Option<String>> = HashMap::new();
+    let mut has_own_ctor: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     fn extract_names(params: &[Parameter]) -> Vec<String> {
         params.iter().map(|p| p.name.clone()).collect()
@@ -82,6 +144,10 @@ pub(crate) fn expand_default_args(program: &mut Program) {
                 }
             }
             Item::Class(c) => {
+                class_super.insert(c.name.clone(), c.super_class.clone());
+                if c.members.iter().any(|m| matches!(m, ClassMember::Constructor(_))) {
+                    has_own_ctor.insert(c.name.clone());
+                }
                 for m in &c.members {
                     if let ClassMember::Method(method) = m {
                         if method.parameters.iter().any(|p| p.default.is_some()) {
@@ -97,9 +163,61 @@ pub(crate) fn expand_default_args(program: &mut Program) {
                             );
                         }
                     }
+                    // (375) Constructor com default params: registra sob chave
+                    // especial `(Class, "<constructor>")` pra que `new Class()`
+                    // preencha os slots omitidos. Sem isso `constructor(e=100)`
+                    // + `new A()` deixava `e` como sentinel/0.
+                    if let ClassMember::Constructor(ctor) = m {
+                        if ctor.parameters.iter().any(|p| p.default.is_some()) {
+                            let names = extract_names(&ctor.parameters);
+                            let defaults: Vec<Option<Box<Expr>>> = ctor
+                                .parameters
+                                .iter()
+                                .map(|p| p.default.clone())
+                                .collect();
+                            method_defaults.insert(
+                                (c.name.clone(), "<constructor>".to_string()),
+                                (names, defaults),
+                            );
+                        }
+                    }
                 }
             }
             _ => {}
+        }
+    }
+
+    // (375) Propaga o constructor herdado: subclasse sem `constructor`
+    // proprio usa os defaults do constructor do ancestral mais proximo que
+    // tem um. `class Dog extends Animal {}` + `new Dog("Rex")` aplica os
+    // defaults de `Animal`'s constructor.
+    let class_names: Vec<String> = class_super.keys().cloned().collect();
+    for cn in class_names {
+        if has_own_ctor.contains(&cn) {
+            continue;
+        }
+        if method_defaults.contains_key(&(cn.clone(), "<constructor>".to_string())) {
+            continue;
+        }
+        // Caminha ancestrais ate achar um com constructor-defaults.
+        let mut cur = class_super.get(&cn).cloned().flatten();
+        let mut guard = 0;
+        while let Some(parent) = cur {
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+            if let Some(defs) =
+                method_defaults.get(&(parent.clone(), "<constructor>".to_string())).cloned()
+            {
+                method_defaults.insert((cn.clone(), "<constructor>".to_string()), defs);
+                break;
+            }
+            if has_own_ctor.contains(&parent) {
+                // Ancestral tem constructor proprio mas sem defaults — para.
+                break;
+            }
+            cur = class_super.get(&parent).cloned().flatten();
         }
     }
 
@@ -119,6 +237,15 @@ pub(crate) fn expand_default_args(program: &mut Program) {
                 }
             }
             Item::Class(c) => {
+                // (375) Defaults do constructor do pai pra preencher
+                // `super(...)` com args omitidos.
+                let parent_ctor_defaults = class_super
+                    .get(&c.name)
+                    .cloned()
+                    .flatten()
+                    .and_then(|p| {
+                        method_defaults.get(&(p, "<constructor>".to_string())).cloned()
+                    });
                 for m in c.members.iter_mut() {
                     match m {
                         ClassMember::Constructor(ctor) => {
@@ -126,6 +253,9 @@ pub(crate) fn expand_default_args(program: &mut Program) {
                                 let Statement::Raw(raw) = s;
                                 if let Some(stmt) = raw.stmt.as_mut() {
                                     expand_in_stmt(stmt, &fn_defaults, &method_defaults);
+                                    if let Some((pnames, pdefs)) = &parent_ctor_defaults {
+                                        fill_super_call_defaults(stmt, pnames, pdefs);
+                                    }
                                 }
                             }
                         }
@@ -323,9 +453,52 @@ fn expand_in_expr(
             expand_in_expr(&mut a.right, fn_defaults, method_defaults);
         }
         Expr::New(n) => {
+            // Recurse nos args providos primeiro.
             if let Some(args) = n.args.as_mut() {
                 for a in args {
                     expand_in_expr(&mut a.expr, fn_defaults, method_defaults);
+                }
+            }
+            // (375) Preenche defaults do constructor da classe quando o
+            // callsite omite args. `new A()` com `constructor(e = 100)` ->
+            // `new A(100)`.
+            let class_name = if let Expr::Ident(id) = n.callee.as_ref() {
+                Some(id.sym.to_string())
+            } else {
+                None
+            };
+            if let Some(cn) = class_name {
+                if let Some((param_names, defaults)) =
+                    method_defaults.get(&(cn, "<constructor>".to_string()))
+                {
+                    let args_vec = n.args.get_or_insert_with(Vec::new);
+                    let provided = args_vec.len();
+                    let total = defaults.len();
+                    if provided < total {
+                        let mut bindings: std::collections::HashMap<String, Expr> =
+                            std::collections::HashMap::new();
+                        for (idx, arg) in args_vec.iter().enumerate() {
+                            if let Some(pn) = param_names.get(idx) {
+                                bindings.insert(pn.clone(), (*arg.expr).clone());
+                            }
+                        }
+                        for i in provided..total {
+                            if let Some(def) = &defaults[i] {
+                                let mut def_clone = (**def).clone();
+                                substitute_param_refs(&mut def_clone, &bindings);
+                                expand_in_expr(&mut def_clone, fn_defaults, method_defaults);
+                                if let Some(pn) = param_names.get(i) {
+                                    bindings.insert(pn.clone(), def_clone.clone());
+                                }
+                                args_vec.push(swc_ecma_ast::ExprOrSpread {
+                                    spread: None,
+                                    expr: Box::new(def_clone),
+                                });
+                            } else {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
