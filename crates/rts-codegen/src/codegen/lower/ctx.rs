@@ -1154,6 +1154,28 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         Ok(TypedVal::new(val, ValTy::Handle))
     }
 
+    /// Passa um valor adiante como Handle SEM stringificar.
+    ///
+    /// `coerce_to_handle` significa "produza uma string GC" — apropriado em
+    /// contexto de template/concat, mas destrutivo quando o valor ja eh um
+    /// handle de objeto/array/Map que deve ser propagado cru (ex: `return
+    /// (globalThis as any)[key]`, `const x: any = obj; return x`). Nestes
+    /// casos um valor i64/U64/Handle ja carrega os bits do handle e so'
+    /// precisa ser reinterpretado como Handle. F64/Bool caem no caminho de
+    /// coercao normal (sao genuinamente escalares e viram string).
+    pub fn pass_as_handle(&mut self, tv: TypedVal) -> Result<TypedVal> {
+        match tv.ty {
+            ValTy::Handle => Ok(tv),
+            ValTy::U64 | ValTy::I64 | ValTy::I32
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
+                let v = self.coerce_to_i64(tv).val;
+                Ok(TypedVal::new(v, ValTy::Handle))
+            }
+            // F64/Bool: nao sao handles — delega pra coercao que stringifica.
+            _ => self.coerce_to_handle(tv),
+        }
+    }
+
     /// Coerces any value to a GC string handle.
     pub fn coerce_to_handle(&mut self, tv: TypedVal) -> Result<TypedVal> {
         match tv.ty {
