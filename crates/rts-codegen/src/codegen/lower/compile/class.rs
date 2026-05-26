@@ -246,6 +246,50 @@ pub(crate) fn synthesize_class_fns(
         })
         .collect();
 
+    // (375) Pre-passada: coleta tipos de campos ANTES de processar metodos,
+    // pra que getters sem anotacao (`get name() { return this.#name; }`)
+    // possam inferir o return_type do tipo do campo retornado — mesmo quando
+    // o getter aparece antes da propriedade no fonte. Cobre tanto a anotacao
+    // explicita quanto a inferida do initializer.
+    let mut prescan_field_ty: HashMap<String, String> = HashMap::new();
+    for member in &class.members {
+        match member {
+            ClassMember::Property(prop) if !prop.modifiers.is_static => {
+                if let Some(ann) = prop.type_annotation.as_deref() {
+                    prescan_field_ty.insert(prop.name.clone(), ann.trim().to_string());
+                } else if let Some(init) = prop.initializer.as_ref() {
+                    // Infere tipo do initializer quando nao ha anotacao:
+                    // string lit / template -> "string"; bool -> "boolean".
+                    // Cobre `#v = "A-priv"` (private string sem `: string`).
+                    if matches!(
+                        init.as_ref(),
+                        swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_))
+                            | swc_ecma_ast::Expr::Tpl(_)
+                    ) {
+                        prescan_field_ty.insert(prop.name.clone(), "string".to_string());
+                    } else {
+                        let inferred = crate::codegen::lower::analysis::types::infer_expr_ty(
+                            Some(init.as_ref()),
+                        );
+                        if matches!(inferred, ValTy::Bool) {
+                            prescan_field_ty.insert(prop.name.clone(), "boolean".to_string());
+                        }
+                    }
+                }
+            }
+            ClassMember::Constructor(ctor) => {
+                for p in &ctor.parameters {
+                    if let Some(ann) = p.type_annotation.as_deref() {
+                        prescan_field_ty
+                            .entry(p.name.clone())
+                            .or_insert_with(|| ann.trim().to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     for member in &class.members {
         match member {
             ClassMember::Constructor(ctor) => {
@@ -362,10 +406,23 @@ pub(crate) fn synthesize_class_fns(
                     let mut params = Vec::with_capacity(method.parameters.len() + 1);
                     params.push(this_param(method.span));
                     params.extend(method.parameters.iter().cloned());
+                    // (375) Getter OU metodo sem anotacao cujo corpo eh
+                    // `return this.<field>`: herda o tipo do campo. Sem isso a
+                    // inferencia caia em F64 e um campo string voltava como
+                    // handle cru (`d.name`/`b.getV()` imprimiam o numero do
+                    // handle). Cobre tanto `get name()` quanto `getV()`.
+                    let return_type = if method.return_type.is_none()
+                        && matches!(method.role, MethodRole::Getter | MethodRole::Method)
+                    {
+                        getter_field_return_ty(&method.body, &prescan_field_ty)
+                            .or_else(|| method.return_type.clone())
+                    } else {
+                        method.return_type.clone()
+                    };
                     fns.push(FunctionDecl {
                         name: synth_name,
                         parameters: params,
-                        return_type: method.return_type.clone(),
+                        return_type,
                         body: method.body.clone(),
                         span: method.span,
                         is_async: false,
@@ -579,6 +636,48 @@ pub(crate) fn synthesize_class_fns(
 }
 
 /// `this.<name> = <init>;` como Statement RTS.
+/// (375) Para um getter sem anotacao cujo corpo retorna `this.<field>`,
+/// devolve a anotacao de tipo do campo (de `prescan_field_ty`). Permite que a
+/// inferencia de return_type herde o tipo do campo em vez de cair em F64.
+/// Conservador: so' reconhece `return this.<ident>` / `return this.#<priv>`
+/// como unico statement relevante; qualquer outra forma retorna None.
+fn getter_field_return_ty(
+    body: &[Statement],
+    prescan_field_ty: &HashMap<String, String>,
+) -> Option<String> {
+    use swc_ecma_ast::{Expr, MemberProp, Stmt};
+    fn field_of_return(e: &Expr) -> Option<String> {
+        // Peel Paren/TsAs/TsNonNull.
+        let inner = match e {
+            Expr::Paren(p) => return field_of_return(&p.expr),
+            Expr::TsAs(a) => return field_of_return(&a.expr),
+            Expr::TsNonNull(n) => return field_of_return(&n.expr),
+            other => other,
+        };
+        let Expr::Member(m) = inner else { return None };
+        if !matches!(m.obj.as_ref(), Expr::This(_)) {
+            return None;
+        }
+        match &m.prop {
+            MemberProp::Ident(id) => Some(id.sym.to_string()),
+            MemberProp::PrivateName(pn) => Some(format!("#{}", pn.name.as_ref())),
+            MemberProp::Computed(_) => None,
+        }
+    }
+    for s in body {
+        let Statement::Raw(rs) = s;
+        let Some(stmt) = rs.stmt.as_ref() else { continue };
+        if let Stmt::Return(r) = stmt {
+            if let Some(arg) = r.arg.as_deref() {
+                if let Some(field) = field_of_return(arg) {
+                    return prescan_field_ty.get(&field).cloned();
+                }
+            }
+        }
+    }
+    None
+}
+
 fn make_field_init_stmt(
     name: &str,
     init: Box<swc_ecma_ast::Expr>,
