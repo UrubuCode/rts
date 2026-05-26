@@ -1081,10 +1081,10 @@
 ,
 {
   "name": "108_generator_functions",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
   "node": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=\nfib=0,1,1,2,3"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":302,"rts_diverge":20,"bun_node_diverge":16,"errors":50,"rejected":0}}
+],"summary":{"total":388,"pass":303,"rts_diverge":20,"bun_node_diverge":16,"errors":49,"rejected":0}}
