@@ -2862,6 +2862,71 @@ pub(super) fn emit_hoisted_arrow_handle(
     Ok(TypedVal::new(handle, ValTy::Handle))
 }
 
+/// (#195) Reifica `__lifted_arrow_N` que captura variaveis livres POR VALOR.
+/// Empacota os valores capturados num Vec (bitcast f64->bits) e chama
+/// REIFY_CAPTURED — bound_args sao prepended em cada invocacao, dando
+/// captura-por-ativacao correta (curry/recursao). Os capturados sao os
+/// params INICIAIS da fn liftada (ver lift_arrow_to_ident).
+pub(crate) fn emit_lifted_arrow_handle_with_captures(
+    ctx: &mut FnCtx,
+    name: &str,
+    capture_vals: &[TypedVal],
+) -> Result<TypedVal> {
+    use cranelift_codegen::ir::types as cl;
+    let fn_addr = emit_user_fn_addr(ctx, name)?.val;
+    let arity = ctx.user_fns.get(name).map(|f| f.params.len() as i64).unwrap_or(0);
+    let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+    let name_tv = ctx.emit_str_handle(name.as_bytes())?;
+    let name_h = ctx.coerce_to_i64(name_tv).val;
+    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let n_ptr = {
+        let i = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+        ctx.builder.inst_results(i)[0]
+    };
+    let n_len = {
+        let i = ctx.builder.ins().call(str_len_fn, &[name_h]);
+        ctx.builder.inst_results(i)[0]
+    };
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 1);
+    let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+
+    // Empacota capturas num Vec<i64> (f64 -> bits). param_kinds reflete o
+    // tipo de cada capture + zeros para os params proprios (codegen ja' passa
+    // valores como i64; f64 reinterpretado via param_kinds[i]=1).
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let bound_h = {
+        let i = ctx.builder.ins().call(vec_new, &[]);
+        ctx.builder.inst_results(i)[0]
+    };
+    let vec_push = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+    // A fn liftada e' i64-only (params sem anotacao de tipo viram i64). Passa
+    // cada captura coergida pra i64 — `coerce_to_i64` converte f64 numerico
+    // (40.0 -> 40) e mantem handles. param_kinds vazio = caminho rapido
+    // invoke_all_i64. (Captura f64 FRACIONARIA perde precisao — follow-up.)
+    for cv in capture_vals {
+        let raw = ctx.coerce_to_i64(*cv).val;
+        ctx.builder.ins().call(vec_push, &[bound_h, raw]);
+    }
+    // Mantem o Vec vivo durante a reificacao.
+    ctx.declare_gc_handle(bound_h);
+
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY_CAPTURED",
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32, cl::I64, cl::I64, cl::I64, cl::I32],
+        Some(cl::I64),
+    )?;
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let return_kind_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let inst = ctx.builder.ins().call(
+        reify_fn,
+        &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v, bound_h, zero, zero, return_kind_v],
+    );
+    let handle = ctx.builder.inst_results(inst)[0];
+    ctx.declare_gc_handle(handle);
+    Ok(TypedVal::new(handle, ValTy::Handle))
+}
+
 /// `obj.fn(...)` onde `obj` e uma var local (HashMap-like, ex: namespace
 /// TS desugared). Faz map_get(obj, "fn") -> i64 (funcptr) e
 /// call_indirect com signature i64-only.

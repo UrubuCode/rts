@@ -133,6 +133,23 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         // Function handle com is_arrow=1 para que INVOKE_AUTO não faça
         // THIS_PUSH — arrow não tem own this.
         if name.starts_with("__hoisted_arrow_") || name.starts_with("__lifted_arrow_") {
+            // (#195) Arrow que captura variaveis livres por valor: reifica via
+            // REIFY_CAPTURED passando os valores das capturas como bound_args.
+            // Isso da captura-por-ativacao correta (curry/recursao), ao
+            // contrario do promote-to-global compartilhado.
+            if let Some(captures) =
+                crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(name)
+            {
+                let cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> = captures
+                    .iter()
+                    .filter_map(|c| ctx.read_local(c))
+                    .collect();
+                // So' usa o caminho de captura quando TODAS resolvem como
+                // local em escopo (senao cai no fallback antigo).
+                if cap_vals.len() == captures.len() {
+                    return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &cap_vals);
+                }
+            }
             // Se `this` é local (escopo de método de classe), captura o valor
             // atual no handle via REIFY_BOUND. Arrows armazenadas/retornadas
             // leem `this` correto mesmo após o método retornar.

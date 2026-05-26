@@ -275,6 +275,62 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
     })))
 }
 
+/// (#195) Reifica uma arrow liftada com variaveis CAPTURADAS por valor.
+/// `bound_args_handle` aponta um `Entry::Vec` com os valores das capturas, na
+/// mesma ordem em que aparecem como params INICIAIS da fn liftada. Em cada
+/// invocacao, FUNCTION_CALL/INVOKE_AUTO fazem `all_args = bound_args ++
+/// args_reais` — semantica de captura-por-valor por-ativacao (curry/recursao
+/// corretos, ao contrario do antigo promote-to-global compartilhado).
+///
+/// `param_kinds_ptr/len` descreve TODOS os params (capturas + proprios) pra
+/// que `invoke_typed` reinterprete f64-bits corretamente.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
+    fn_ptr: u64,
+    arity: i64,
+    name_ptr: i64,
+    name_len: i64,
+    is_arrow: i32,
+    has_this_param: i32,
+    bound_args_handle: u64,
+    param_kinds_ptr: i64,
+    param_kinds_len: i64,
+    return_kind: i32,
+) -> u64 {
+    let name = if name_ptr != 0 && name_len > 0 {
+        unsafe {
+            let bytes = std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize);
+            std::str::from_utf8(bytes).unwrap_or("anonymous").to_owned()
+        }
+    } else {
+        "anonymous".to_owned()
+    };
+    let bound_args = read_args_vec(bound_args_handle);
+    let param_kinds = if param_kinds_ptr != 0 && param_kinds_len > 0 {
+        unsafe {
+            std::slice::from_raw_parts(param_kinds_ptr as *const u8, param_kinds_len as usize)
+                .to_vec()
+        }
+    } else {
+        Vec::new()
+    };
+    alloc_entry(Entry::Function(Box::new(FunctionData {
+        fn_ptr,
+        arity: arity.clamp(0, 255) as u8,
+        name: name.into_boxed_str(),
+        bound_this: 0,
+        has_bound_this: false,
+        bound_args,
+        is_arrow: is_arrow != 0,
+        has_this_param: has_this_param != 0,
+        param_kinds,
+        return_kind: return_kind.clamp(0, 4) as u8,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+    })))
+}
+
 /// `new Function(...args, body)` — compila body em runtime via eval.
 /// Args: `params_handle` (string handle com nomes separados por virgula),
 /// `body_handle` (string handle com codigo do body).
