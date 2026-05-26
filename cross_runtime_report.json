@@ -633,18 +633,18 @@
 ,
 {
   "name": "372_private_methods",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
   "node": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
-  "rts": "3\n1,2,3\n3\n2\n99.85000000000002\n373\n211.73000000000005\n273\n[INFO] ok\n20"
+  "rts": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20"
 }
 ,
 {
   "name": "373_private_in_check",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
   "node": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
-  "rts": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof"
+  "rts": "true\ntrue\nfalse\nfalse\n6526685895646559000\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof"
 }
 ,
 {
@@ -689,10 +689,10 @@
 ,
 {
   "name": "38_classes_deep",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
   "node": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
-  "rts": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true"
+  "rts": "a0=1\na1=5\na2=4622945017495814000\nb0=11\nb1=beta:11\nis_base=true\nis_double=true"
 }
 ,
 {
@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":304,"rts_diverge":17,"bun_node_diverge":16,"errors":51,"rejected":0}}
+],"summary":{"total":388,"pass":301,"rts_diverge":20,"bun_node_diverge":16,"errors":51,"rejected":0}}
