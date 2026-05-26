@@ -46,3 +46,6 @@ rts-types/
 # Regras locais do desenvolvedor — pessoal, nao versionar
 local-rules.md
 scripts/__pycache__/
+
+# Arquivos temporarios de debug/repro
+tmp/

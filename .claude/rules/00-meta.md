@@ -33,7 +33,7 @@ Ler estes arquivos em ordem (caminho relativo a raiz do repo):
 
 | Arquivo | Conteudo |
 |---|---|
-| `.claude/rules/00-meta.md` | Este arquivo — meta + RTK + local-rules + zero regressao |
+| `.claude/rules/00-meta.md` | Este arquivo — meta + RTK + local-rules + zero regressao + roadmap |
 | `.claude/rules/01-architecture.md` | Projeto + Arquitetura + ABI + Namespaces |
 | `.claude/rules/02-runtime.md` | HandleTable + tokio + GC + State |
 | `.claude/rules/03-features.md` | Silent parallelism + async/Promise/Function + capacidades |
@@ -46,9 +46,36 @@ Ler estes arquivos em ordem (caminho relativo a raiz do repo):
 - **REGRA OBRIGATORIA: USO DO RTK** (abaixo)
 - **REQUISITO OBRIGATORIO: local-rules.md** (abaixo)
 - **REGRA OBRIGATORIA: ZERO REGRESSAO ANTES DE MERGE** (abaixo)
+- **REGRA OBRIGATORIA: SEGUIR ROADMAP-CORRECAO.md** (abaixo)
 
 Adicionar/remover regras meta exige atualizar esta lista no mesmo
 commit.
+
+## REGRA OBRIGATORIA: SEGUIR ROADMAP-CORRECAO.md
+
+Antes de iniciar qualquer correcao de bug de paridade cross-runtime
+(issues `💥 cross-runtime`, categorias de tracking, falhas da suite TS),
+voce **DEVE** ler o arquivo `ROADMAP-CORRECAO.md` que fica **um nivel acima
+da raiz do repo** (`../ROADMAP-CORRECAO.md`, ao lado da pasta `rts1/`).
+
+Esse arquivo define a **ordem topologica** de correcao baseada no grafo de
+dependencias entre features. A ordem nao eh arbitraria: corrigir fora de
+ordem causa o padrao "conserta um, quebra outro", porque varios testes
+compartilham a mesma fundacao.
+
+### Como aplicar
+
+1. Sempre escolher a proxima tarefa do **nivel mais baixo ainda nao
+   concluido**. Nunca pular para um nivel superior antes de fechar as
+   fundacoes de que ele depende.
+2. Respeitar os blocos marcados ⚠️ no roadmap (ex: 336/387/341 sao uma
+   raiz so; cadeia 204→205→206 eh linear).
+3. Ao concluir um item (PR mergeado + suite verde), marcar `[x]` no
+   roadmap no mesmo PR.
+4. Se a analise mudar (nova dependencia descoberta), atualizar o grafo no
+   roadmap no mesmo PR — nunca deixar o roadmap desatualizado.
+5. Se o usuario pedir explicitamente para atacar um caso fora de ordem,
+   pedir confirmacao apontando a dependencia faltante antes de prosseguir.
 
 ## REGRA OBRIGATORIA: USO DO RTK PARA COMANDOS ESPECIFICOS
 

@@ -402,7 +402,12 @@ pub(super) fn lower_return_stmt(
                 let coerced = match ret_ty {
                     ValTy::I32 => ctx.coerce_to_i32(tv),
                     ValTy::F64 => ctx.coerce_to_f64(tv),
-                    ValTy::Handle => ctx.coerce_to_handle(tv)?,
+                    // Handle no return: propaga o handle CRU. Usar
+                    // coerce_to_handle aqui stringificava objetos/arrays/Maps
+                    // (TPL_COERCE_AUTO), corrompendo `return (globalThis as
+                    // any)[key]` e similares — o caller via o objeto como um
+                    // handle de string. pass_as_handle so reinterpreta i64.
+                    ValTy::Handle => ctx.pass_as_handle(tv)?,
                     _ => ctx.coerce_to_i64(tv),
                 };
                 ctx.emit_trace_pop()?;

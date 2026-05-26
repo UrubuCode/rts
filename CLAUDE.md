@@ -32,6 +32,8 @@ e a aplicação de tudo o que ele determina.
 - **REQUISITO OBRIGATÓRIO: local-rules.md** (verificar e ler se existir)
 - **REGRA OBRIGATÓRIA: ZERO REGRESSÃO ANTES DE MERGE** (suite verde
   obrigatoria)
+- **REGRA OBRIGATÓRIA: SEGUIR `../ROADMAP-CORRECAO.md`** (ordem topologica
+  de correcao de bugs cross-runtime; detalhada em `.claude/rules/00-meta.md`)
 
 Esta lista deve ser mantida em sincronia com as proximas secoes deste
 arquivo. Se uma regra obrigatoria for adicionada/removida em outro lugar,
