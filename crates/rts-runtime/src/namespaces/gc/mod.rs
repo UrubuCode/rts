@@ -11,6 +11,7 @@ pub mod collector;
 pub mod debug;
 pub mod env;
 pub mod error;
+pub mod generator;
 pub mod global_roots;
 pub mod handles;
 pub mod instance;
