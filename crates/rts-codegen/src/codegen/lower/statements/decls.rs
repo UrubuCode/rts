@@ -23,6 +23,21 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         };
 
         if let Pat::Ident(id) = &decl.name {
+            // (generators) `const it = g()` onde `g` eh generator fn -> marca
+            // `it` como generator_var pra que `it.next()` use GENERATOR_NEXT.
+            if let Some(init) = &decl.init {
+                if let swc_ecma_ast::Expr::Call(c) = init.as_ref() {
+                    if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                        if let swc_ecma_ast::Expr::Ident(fid) = callee.as_ref() {
+                            if crate::codegen::lower::compile::program::is_generator_fn(
+                                fid.sym.as_str(),
+                            ) {
+                                ctx.generator_vars.insert(name.clone());
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(ann) = id.type_ann.as_ref() {
                 // (372) `f: () => number` — fn que retorna number. Marca pra
                 // que `f()` reinterprete o i64-bits do invoke como f64.

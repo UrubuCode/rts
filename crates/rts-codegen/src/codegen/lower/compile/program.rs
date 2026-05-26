@@ -81,6 +81,22 @@ pub fn compile_program(
     expand_spread_args(program);
     expand_rest_args(program);
 
+    // (generators) Detecta user fns que sao generators: o generator_desugar
+    // prepend `const __gen_buf = []` no body. Registra os nomes num
+    // thread-local pra que o decl marque `const it = g()` como generator_var
+    // e `it.next()` roteie para GENERATOR_NEXT (cursor lateral).
+    {
+        let mut gen_fns: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in &program.items {
+            if let Item::Function(f) = item {
+                if fn_body_declares_gen_buf(&f.body) {
+                    gen_fns.insert(f.name.clone());
+                }
+            }
+        }
+        set_generator_fns(gen_fns);
+    }
+
     // Single-file AOT path: imports are not stripped before compile_program,
     // so we scan them here to populate node_import_map (JIT multi-file path
     // already populated this in ModuleGraph::flatten_for_jit).
@@ -1038,6 +1054,41 @@ fn has_return_value(body: &[Statement]) -> bool {
         if let Some(stmt) = raw.stmt.as_ref() {
             if check_stmt(stmt) {
                 return true;
+            }
+        }
+    }
+    false
+}
+
+thread_local! {
+    static GENERATOR_FNS: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// (generators) Registra nomes de generator fns (detectadas via
+/// `const __gen_buf = []` no body — marcador do generator_desugar).
+pub(crate) fn set_generator_fns(fns: std::collections::HashSet<String>) {
+    GENERATOR_FNS.with(|c| *c.borrow_mut() = fns);
+}
+
+/// (generators) True se `name` eh uma generator fn registrada.
+pub(crate) fn is_generator_fn(name: &str) -> bool {
+    GENERATOR_FNS.with(|c| c.borrow().contains(name))
+}
+
+/// (generators) True se o body declara `const __gen_buf = ...` no topo —
+/// marcador do generator_desugar.
+fn fn_body_declares_gen_buf(body: &[Statement]) -> bool {
+    use crate::parser::ast::Statement;
+    use swc_ecma_ast::{Decl, Pat, Stmt};
+    for s in body {
+        let Statement::Raw(raw) = s;
+        let Some(Stmt::Decl(Decl::Var(v))) = raw.stmt.as_ref() else { continue };
+        for d in &v.decls {
+            if let Pat::Ident(id) = &d.name {
+                if id.id.sym.as_str() == "__gen_buf" {
+                    return true;
+                }
             }
         }
     }

@@ -169,6 +169,33 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         return lower_dynamic_import(ctx, call);
     }
     if let Callee::Expr(callee) = &call.callee {
+        // (generators) `<genVar>.next()` — protocolo de iterador finito.
+        // Roteia para GENERATOR_NEXT (cursor lateral sobre o Vec retornado
+        // pela generator fn), devolvendo `{value,done}` (Map). So' dispara
+        // para vars marcadas como generator (`const it = g()`), evitando
+        // conflito com objetos que tem `.next()` proprio.
+        if let Expr::Member(m) = callee.as_ref() {
+            if let MemberProp::Ident(prop) = &m.prop {
+                if prop.sym.as_str() == "next" && call.args.is_empty() {
+                    if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                        if ctx.generator_vars.contains(obj_id.sym.as_str()) {
+                            use cranelift_codegen::ir::types as cl;
+                            let recv_tv = lower_expr(ctx, &m.obj)?;
+                            let recv = ctx.coerce_to_i64(recv_tv).val;
+                            let next_fn = ctx.get_extern(
+                                "__RTS_FN_NS_GC_GENERATOR_NEXT",
+                                &[cl::I64],
+                                Some(cl::I64),
+                            )?;
+                            let inst = ctx.builder.ins().call(next_fn, &[recv]);
+                            let h = ctx.builder.inst_results(inst)[0];
+                            ctx.declare_gc_handle(h);
+                            return Ok(TypedVal::new(h, ValTy::Handle));
+                        }
+                    }
+                }
+            }
+        }
         if let Expr::SuperProp(sp) = callee.as_ref() {
             return lower_super_method_call(ctx, sp, call);
         }

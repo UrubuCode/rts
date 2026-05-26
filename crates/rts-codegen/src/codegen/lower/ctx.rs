@@ -527,6 +527,11 @@ pub struct FnCtx<'m, 'fb> {
     /// string builtin (`__RTS_FN_GL_STRING_INDEX_OF`) e retorna lixo.
     pub local_array_vars: std::collections::HashSet<String>,
 
+    /// (generators) Vars inicializadas com chamada a uma generator fn
+    /// (`const it = g()`). `it.next()` roteia para GENERATOR_NEXT (cursor
+    /// lateral sobre o Vec); outras vars com `.next()` usam dispatch normal.
+    pub generator_vars: std::collections::HashSet<String>,
+
     /// Counter para gerar nomes únicos de locals temporários em
     /// optional chain calls aninhadas (#481). Usado por
     /// `lower_opt_chain` quando o receiver é uma expressão complexa
@@ -610,6 +615,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),
             local_array_vars: std::collections::HashSet::new(),
+            generator_vars: std::collections::HashSet::new(),
             local_nested_obj_field_types: HashMap::new(),
             opt_chain_temp_counter: 0,
             current_fn_name: String::new(),
