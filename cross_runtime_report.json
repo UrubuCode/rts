@@ -649,10 +649,10 @@
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\n281474976710727\n-1\n281474976710711"
 }
 ,
 {
@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|timeout"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":302,"rts_diverge":18,"bun_node_diverge":17,"errors":51,"rejected":0}}
+],"summary":{"total":388,"pass":304,"rts_diverge":18,"bun_node_diverge":16,"errors":50,"rejected":0}}
