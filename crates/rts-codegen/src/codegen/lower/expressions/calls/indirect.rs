@@ -333,12 +333,28 @@ pub(super) fn lower_var_member_call(
 pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> Result<TypedVal> {
     let callee = lower_expr(ctx, callee_expr)?;
 
+    // (372) Callee eh var `f: () => number`? O invoke retorna i64 carregando
+    // os BITS de um f64 (arrow `() => this.campoF64`). Reinterpreta o
+    // resultado via bitcast pra que o valor seja o f64 correto, nao o inteiro
+    // dos bits.
+    let ret_is_f64 = matches!(callee_expr, Expr::Ident(id)
+        if ctx.local_fn_ret_f64.contains(id.sym.as_str()));
+
     // Quando callee é Handle (var que recebeu fn handle de bind/REIFY/
     // new Function), despacha via __RTS_FN_GL_FUNCTION_CALL — esse path
     // entende bound_args, has_this_param, is_arrow, etc. Caso contrário
     // trata como fn pointer raw (call_indirect direto).
     if matches!(callee.ty, ValTy::Handle) {
-        return emit_function_handle_indirect_call(ctx, callee.val, call);
+        let tv = emit_function_handle_indirect_call(ctx, callee.val, call)?;
+        if ret_is_f64 && matches!(tv.ty, ValTy::I64) {
+            let f = ctx.builder.ins().bitcast(
+                cl::F64,
+                cranelift_codegen::ir::MemFlags::new(),
+                tv.val,
+            );
+            return Ok(TypedVal::new(f, ValTy::F64));
+        }
+        return Ok(tv);
     }
 
     let callee_val = ctx.coerce_to_i64(callee).val;

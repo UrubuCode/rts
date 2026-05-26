@@ -491,6 +491,12 @@ pub struct FnCtx<'m, 'fb> {
     /// atraves da var. Sem isso, destructuring de param de fn perde info.
     pub local_ambiguous_vars: std::collections::HashSet<String>,
 
+    /// (372) Vars declaradas com tipo de funcao que retorna `number`
+    /// (`f: () => number`). Quando chamadas via invoke, o resultado i64
+    /// carrega os BITS de um f64 (ex: arrow `() => this.campoF64`) e deve ser
+    /// reinterpretado via bitcast, nao tratado como inteiro.
+    pub local_fn_ret_f64: std::collections::HashSet<String>,
+
     /// Dedup de data sections por conteúdo: bytes → DataId já declarado.
     /// Evita criar múltiplos .Lrts_str_N com bytes idênticos quando o mesmo
     /// literal aparece mais de uma vez (dentro ou entre funções do módulo).
@@ -599,6 +605,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             var_member_call_values: std::collections::HashSet::new(),
             var_vec_slot_values: std::collections::HashSet::new(),
             local_ambiguous_vars: std::collections::HashSet::new(),
+            local_fn_ret_f64: std::collections::HashSet::new(),
             str_data_cache: HashMap::new(),
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),

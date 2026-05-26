@@ -1874,6 +1874,16 @@ pub(super) fn map_get_static_typed(
         )),
         Some(ValTy::Handle) => Ok(TypedVal::new(v, ValTy::Handle)),
         Some(ValTy::Bool) => Ok(TypedVal::new(v, ValTy::Bool)),
+        // Campo `number` (F64): armazenado como os BITS do f64 (store
+        // simetrico bitcasta f64->i64). Reinterpreta i64->f64 via bitcast.
+        Some(ValTy::F64) => {
+            let f = ctx.builder.ins().bitcast(
+                cl::F64,
+                cranelift_codegen::ir::MemFlags::new(),
+                v,
+            );
+            Ok(TypedVal::new(f, ValTy::F64))
+        }
         _ => {
             // (#proto-method) Sem tipo declarado, marcar como
             // var_member_call_values para que template literal use
@@ -2020,6 +2030,35 @@ fn resolve_method_owner_local(ctx: &FnCtx, class: &str, method: &str) -> Option<
             None => return None,
         }
     }
+}
+
+/// True quando o destino de `recv.field = ...` / `this.#field = ...` eh um
+/// campo cujo tipo declarado eh F64. Usado para decidir bitcast no store,
+/// casando com a leitura tipada que reinterpreta os bits via bitcast.
+pub(super) fn assign_target_field_is_f64(ctx: &FnCtx, m: &swc_ecma_ast::MemberExpr) -> bool {
+    let Some(cls) = lhs_static_class(ctx, &m.obj) else {
+        return false;
+    };
+    let key = match &m.prop {
+        MemberProp::Ident(id) => id.sym.to_string(),
+        MemberProp::PrivateName(pn) => format!("#{}", pn.name.as_ref()),
+        MemberProp::Computed(_) => return false,
+    };
+    if field_type_in_hierarchy(ctx, &cls, &key) == Some(ValTy::F64) {
+        return true;
+    }
+    // Field initializers sinteticos usam a chave private MANGLED (`#Cls_x`)
+    // como MemberProp::Ident (ver make_field_init_stmt). field_types guarda a
+    // chave raw (`#x`). Faz strip do prefixo de classe pra casar.
+    if let Some(rest) = key.strip_prefix('#') {
+        if let Some((_cls_prefix, raw)) = rest.split_once('_') {
+            let raw_key = format!("#{raw}");
+            if field_type_in_hierarchy(ctx, &cls, &raw_key) == Some(ValTy::F64) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
