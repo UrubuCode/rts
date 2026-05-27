@@ -379,19 +379,29 @@ pub(crate) fn lower_class_method_call_with_recv(
         arg_values.push(value);
     }
 
-    if distinct_owners.len() == 1 {
-        return emit_method_call(ctx, &static_owner, method_name, recv_i64, &arg_values);
+    let result = if distinct_owners.len() == 1 {
+        emit_method_call(ctx, &static_owner, method_name, recv_i64, &arg_values)?
+    } else {
+        emit_virtual_dispatch(
+            ctx,
+            class_name,
+            method_name,
+            &static_owner,
+            recv_i64,
+            &arg_values,
+            &overrides,
+        )?
+    };
+    // (cross-runtime) Metodo cujo retorno foi inferido como I64 generico
+    // (ex: `take(): T | undefined` num `Box<string>`) pode na verdade
+    // devolver um handle de string. Marca como ambiguo pra que
+    // console.log/template usem num_bias (snapshot detecta string handle)
+    // em vez de imprimir o handle como numero cru. Nao afeta aritmetica
+    // (var_member_call_values so' muda formatacao de print/template).
+    if matches!(result.ty, ValTy::I64) {
+        ctx.var_member_call_values.insert(result.val);
     }
-
-    emit_virtual_dispatch(
-        ctx,
-        class_name,
-        method_name,
-        &static_owner,
-        recv_i64,
-        &arg_values,
-        &overrides,
-    )
+    Ok(result)
 }
 
 pub(crate) fn emit_method_call(
