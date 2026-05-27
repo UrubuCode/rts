@@ -352,6 +352,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_ERROR_TO_STRING", __RTS_FN_GL_ERROR_TO_STRING);
     add_fn!("__RTS_FN_GL_ERROR_STACK", __RTS_FN_GL_ERROR_STACK);
     add_fn!("__RTS_FN_GL_ERROR_CAUSE", __RTS_FN_GL_ERROR_CAUSE);
+    add_fn!("__RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE", __RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE);
     add_fn!("__RTS_FN_GL_IS_ERROR", __RTS_FN_GL_IS_ERROR);
     add_fn!("__RTS_FN_GL_IS_ERROR_NAMED", __RTS_FN_GL_IS_ERROR_NAMED);
 
