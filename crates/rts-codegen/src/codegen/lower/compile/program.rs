@@ -858,6 +858,9 @@ fn inspect_return_kind(
             }
             Expr::Paren(p) => expr_yields_string(&p.expr, sag),
             Expr::Cond(c) => expr_yields_string(&c.cons, sag) || expr_yields_string(&c.alt, sag),
+            // Var local conhecida como string-yielding (coletada acima) ou
+            // global string[]/string conhecido.
+            Expr::Ident(id) => sag.contains(id.sym.as_str()),
             _ => false,
         }
     }
@@ -1010,11 +1013,33 @@ fn inspect_return_kind(
             _ => {}
         }
     }
+    // (#270 new_target / String-via-var) Coleta vars locais inicializadas
+    // com expr string-yielding (`const s = String(x)`, `let t = a.join(",")`)
+    // no topo do body. `return s` referenciando uma delas conta como String.
+    // Sem isso, fn que retorna uma string guardada em var inferia Number e o
+    // handle voltava como bits crus.
+    let mut string_vars: std::collections::HashSet<String> =
+        string_array_globals.clone();
+    {
+        use swc_ecma_ast::{Decl, Pat, Stmt};
+        for s in body {
+            let Statement::Raw(raw) = s;
+            let Some(Stmt::Decl(Decl::Var(v))) = raw.stmt.as_ref() else { continue };
+            for d in &v.decls {
+                let Pat::Ident(id) = &d.name else { continue };
+                let Some(init) = d.init.as_deref() else { continue };
+                if expr_yields_string(init, string_array_globals) {
+                    string_vars.insert(id.id.sym.as_str().to_string());
+                }
+            }
+        }
+    }
+
     let mut kind = ReturnKind::Void;
     for s in body {
         let Statement::Raw(raw) = s;
         if let Some(stmt) = raw.stmt.as_ref() {
-            check_stmt(stmt, &mut kind, string_array_globals);
+            check_stmt(stmt, &mut kind, &string_vars);
         }
     }
     kind
