@@ -310,6 +310,24 @@ pub(super) fn lower_var_member_call(
         ctx.builder.ins().call(vec_push, &[args_h, v]);
     }
 
+    // (#1078/#341) Metodo de prototype que retorna f64 inequivoco:
+    // INVOKE_AUTO_TYPED(rk=1) invoca como `-> f64` (preserva o valor) e
+    // reinterpreta os bits via bitcast. Sem isso o trampolim trunca o f64.
+    if crate::codegen::lower::compile::program::proto_method_is_f64(prop) {
+        let invoke_typed = ctx.get_extern(
+            "__RTS_FN_RT_INVOKE_AUTO_TYPED",
+            &[cl::I64, cl::I64, cl::I64, cl::I32],
+            Some(cl::I64),
+        )?;
+        let rk_v = ctx.builder.ins().iconst(cl::I32, 1);
+        let inst = ctx.builder.ins().call(invoke_typed, &[callee_val, obj_h, args_h, rk_v]);
+        let v = ctx.builder.inst_results(inst)[0];
+        let f = ctx.builder.ins().bitcast(
+            cl::F64, cranelift_codegen::ir::MemFlags::new(), v,
+        );
+        return Ok(TypedVal::new(f, ValTy::F64));
+    }
+
     let invoke_auto = ctx.get_extern(
         "__RTS_FN_RT_INVOKE_AUTO",
         &[cl::I64, cl::I64, cl::I64],
