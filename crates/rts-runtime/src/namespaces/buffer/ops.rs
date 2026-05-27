@@ -288,3 +288,103 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_TO_STRING(handle: u64) -> u64 {
     let text = std::str::from_utf8(&bytes).unwrap_or("");
     unsafe { __RTS_FN_NS_GC_STRING_NEW(text.as_ptr(), text.len() as i64) }
 }
+
+// ── DataView (big-endian por padrao, igual JS) ──────────────────────────────
+// DataView opera sobre um Entry::Buffer. Os getters/setters seguem a spec JS:
+// big-endian quando `little_endian == 0`. Cobre cross-runtime 206_dataview_basic.
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT8(handle: u64, offset: i64, val: i64) {
+    with_buffer_mut(handle, (), |b| {
+        if offset >= 0 {
+            if let Some(s) = b.get_mut(offset as usize) {
+                *s = val as u8;
+            }
+        }
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT8(handle: u64, offset: i64) -> i64 {
+    with_buffer(handle, 0, |b| {
+        if offset >= 0 {
+            b.get(offset as usize).map(|&v| v as i64).unwrap_or(0)
+        } else {
+            0
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT16(handle: u64, offset: i64, val: i64) {
+    write_bytes_at(handle, offset, &(val as u16).to_be_bytes());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT16(handle: u64, offset: i64) -> i64 {
+    read_bytes_at::<2>(handle, offset).map(|b| u16::from_be_bytes(b) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_INT32(handle: u64, offset: i64, val: i64) {
+    write_bytes_at(handle, offset, &(val as i32).to_be_bytes());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_INT32(handle: u64, offset: i64) -> i64 {
+    read_bytes_at::<4>(handle, offset).map(|b| i32::from_be_bytes(b) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_BYTE_LENGTH(handle: u64) -> i64 {
+    with_buffer(handle, 0, |b| b.len() as i64)
+}
+
+fn write_bytes_at(handle: u64, offset: i64, bytes: &[u8]) {
+    with_buffer_mut(handle, (), |b| {
+        if offset < 0 {
+            return;
+        }
+        let start = offset as usize;
+        for (i, &byte) in bytes.iter().enumerate() {
+            if let Some(s) = b.get_mut(start + i) {
+                *s = byte;
+            }
+        }
+    });
+}
+
+fn read_bytes_at<const N: usize>(handle: u64, offset: i64) -> Option<[u8; N]> {
+    with_buffer(handle, None, |b| {
+        if offset < 0 {
+            return None;
+        }
+        let start = offset as usize;
+        let mut out = [0u8; N];
+        for i in 0..N {
+            out[i] = *b.get(start + i)?;
+        }
+        Some(out)
+    })
+}
+
+/// `new ArrayBuffer(size)` — aloca um buffer de bytes zerado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_BUFFER_NEW(size: i64) -> u64 {
+    __RTS_FN_NS_BUFFER_ALLOC(size)
+}
+
+/// `new DataView(buffer)` — view sobre o ArrayBuffer (byteOffset 0). O
+/// handle do DataView eh o proprio handle do buffer (sem offset/length
+/// parciais por enquanto).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_NEW(buffer: u64) -> u64 {
+    buffer
+}
+
+/// `dataView.byteOffset` — sempre 0 nesta implementacao (view cobre todo
+/// o buffer).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_BYTE_OFFSET(_handle: u64) -> i64 {
+    0
+}

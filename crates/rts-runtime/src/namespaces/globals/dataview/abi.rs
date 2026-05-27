@@ -1,0 +1,146 @@
+//! ABI specs para `ArrayBuffer` e `DataView`.
+
+use crate::abi::{AbiType, GlobalClassSpec, MemberKind, NamespaceMember};
+
+// ── ArrayBuffer ─────────────────────────────────────────────────────────────
+
+pub const ARRAY_BUFFER_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_ARRAY_BUFFER_NEW",
+        args: &[AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "new ArrayBuffer(byteLength) — allocates a zeroed byte buffer.",
+        ts_signature: "new ArrayBuffer(byteLength: number): ArrayBuffer",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "byteLength",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_BYTE_LENGTH",
+        args: &[AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Byte length of the buffer.",
+        ts_signature: "byteLength: number",
+        intrinsic: None,
+        pure: true,
+    },
+];
+
+pub const ARRAY_BUFFER_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "ArrayBuffer",
+    doc: "Built-in ArrayBuffer class (raw byte buffer).",
+    members: ARRAY_BUFFER_MEMBERS,
+};
+
+// ── DataView ────────────────────────────────────────────────────────────────
+
+pub const DATA_VIEW_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_DATAVIEW_NEW",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "new DataView(buffer) — view over an ArrayBuffer (big-endian by default).",
+        ts_signature: "new DataView(buffer: ArrayBuffer): DataView",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "setUint8",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_SET_UINT8",
+        args: &[AbiType::Handle, AbiType::I64, AbiType::I64],
+        returns: AbiType::Void,
+        doc: "setUint8(byteOffset, value).",
+        ts_signature: "setUint8(byteOffset: number, value: number): void",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "getUint8",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_GET_UINT8",
+        args: &[AbiType::Handle, AbiType::I64],
+        returns: AbiType::I64,
+        doc: "getUint8(byteOffset).",
+        ts_signature: "getUint8(byteOffset: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "setUint16",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_SET_UINT16",
+        args: &[AbiType::Handle, AbiType::I64, AbiType::I64],
+        returns: AbiType::Void,
+        doc: "setUint16(byteOffset, value) — big-endian.",
+        ts_signature: "setUint16(byteOffset: number, value: number): void",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "getUint16",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_GET_UINT16",
+        args: &[AbiType::Handle, AbiType::I64],
+        returns: AbiType::I64,
+        doc: "getUint16(byteOffset) — big-endian.",
+        ts_signature: "getUint16(byteOffset: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "setInt32",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_SET_INT32",
+        args: &[AbiType::Handle, AbiType::I64, AbiType::I64],
+        returns: AbiType::Void,
+        doc: "setInt32(byteOffset, value) — big-endian.",
+        ts_signature: "setInt32(byteOffset: number, value: number): void",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "getInt32",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_GET_INT32",
+        args: &[AbiType::Handle, AbiType::I64],
+        returns: AbiType::I64,
+        doc: "getInt32(byteOffset) — big-endian.",
+        ts_signature: "getInt32(byteOffset: number): number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "byteLength",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_BYTE_LENGTH",
+        args: &[AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Byte length of the view.",
+        ts_signature: "byteLength: number",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "byteOffset",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_DATAVIEW_BYTE_OFFSET",
+        args: &[AbiType::Handle],
+        returns: AbiType::I64,
+        doc: "Byte offset within the backing buffer (always 0 here).",
+        ts_signature: "byteOffset: number",
+        intrinsic: None,
+        pure: true,
+    },
+];
+
+pub const DATA_VIEW_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "DataView",
+    doc: "Built-in DataView class (big-endian accessors over an ArrayBuffer).",
+    members: DATA_VIEW_MEMBERS,
+};
