@@ -47,14 +47,18 @@ pub fn desugar_generator_body(body: &BlockStmt) -> BlockStmt {
         stmts.push(transform_stmt(stmt.clone()));
     }
 
-    // return __gen_buf;
+    // return __RTS_GEN_FINISH(__gen_buf, undefined);
+    // O codegen mapeia FINISH(vec, ret) -> registra o ret_value do Vec no
+    // side-table do generator e retorna o Vec. `return X` no corpo (tratado
+    // em transform_stmt) ja' usa FINISH com o X. Este eh o caso "esgotou sem
+    // return explicito" -> ret undefined.
     stmts.push(Stmt::Return(swc_ecma_ast::ReturnStmt {
         span,
-        arg: Some(Box::new(Expr::Ident(Ident::new(
-            BUF_NAME.into(),
+        arg: Some(Box::new(gen_finish_call(
+            Expr::Ident(Ident::new(BUF_NAME.into(), span, Default::default())),
+            None,
             span,
-            Default::default(),
-        )))),
+        ))),
     }));
 
     BlockStmt {
@@ -121,8 +125,42 @@ fn transform_stmt(stmt: Stmt) -> Stmt {
             right: Box::new(transform_expr(*fi.right)),
             body: Box::new(transform_stmt(*fi.body)),
         }),
+        // `return X` num generator: retorna o buffer-ate-aqui com X como
+        // ret_value (via FINISH). `return;` (sem arg) -> ret undefined.
+        Stmt::Return(r) => Stmt::Return(swc_ecma_ast::ReturnStmt {
+            span: r.span,
+            arg: Some(Box::new(gen_finish_call(
+                Expr::Ident(Ident::new(BUF_NAME.into(), r.span, Default::default())),
+                r.arg.as_deref().cloned(),
+                r.span,
+            ))),
+        }),
         other => other,
     }
+}
+
+/// Constroi `__RTS_GEN_FINISH(buf, ret)` — sentinela que o codegen mapeia
+/// pra registrar o ret_value do generator e devolver o Vec.
+fn gen_finish_call(buf: Expr, ret: Option<Expr>, span: swc_common::Span) -> Expr {
+    let ret_expr = ret.unwrap_or(Expr::Ident(Ident::new(
+        "undefined".into(),
+        span,
+        Default::default(),
+    )));
+    Expr::Call(CallExpr {
+        span,
+        ctxt: Default::default(),
+        callee: Callee::Expr(Box::new(Expr::Ident(Ident::new(
+            "__RTS_GEN_FINISH".into(),
+            span,
+            Default::default(),
+        )))),
+        args: vec![
+            ExprOrSpread { spread: None, expr: Box::new(buf) },
+            ExprOrSpread { spread: None, expr: Box::new(ret_expr) },
+        ],
+        type_args: None,
+    })
 }
 
 fn transform_expr(expr: Expr) -> Expr {

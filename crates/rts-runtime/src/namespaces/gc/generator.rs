@@ -27,6 +27,22 @@ const BOOL_TRUE: i64 = i64::MIN + 1;
 thread_local! {
     /// Cursor de iteracao por handle de Vec consumido via `.next()`.
     static GEN_CURSORS: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
+    /// Valor de `return X` do generator por handle de Vec. Devolvido pelo
+    /// primeiro `.next()` apos esgotar os yields (`{value:X, done:true}`).
+    static GEN_RETS: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
+}
+
+/// `__RTS_GEN_FINISH(buf, ret)` — registra o ret_value do generator (do
+/// `return X`) e devolve o proprio Vec. Chamado no `return` desugarado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_SET_RET(vec_handle: u64, ret: i64) -> u64 {
+    // So' registra ret nao-undefined (evita poluir o side-table a toa).
+    if ret != UNDEFINED {
+        GEN_RETS.with(|c| {
+            c.borrow_mut().insert(vec_handle, ret);
+        });
+    }
+    vec_handle
 }
 
 /// `gen.next()` onde `gen` eh o Vec retornado por uma generator fn finita.
@@ -57,8 +73,13 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
             _ => UNDEFINED,
         });
         make_result(val, false)
+    } else if cursor == len {
+        // Primeiro next apos esgotar os yields: devolve o ret_value (`return
+        // X`) com done:true. Se nao houver, undefined.
+        let ret = GEN_RETS.with(|c| c.borrow().get(&vec_handle).copied()).unwrap_or(UNDEFINED);
+        make_result(ret, true)
     } else {
-        // Esgotado. MVP nao captura `return X` do generator -> value undefined.
+        // Esgotado e ja' devolveu o ret: value undefined, done:true (JS spec).
         make_result(UNDEFINED, true)
     }
 }
