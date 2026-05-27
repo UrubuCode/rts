@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=timeout|immediate|micro"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -2953,10 +2953,10 @@
 ,
 {
   "name": "204_typedarray_basic",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
   "node": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3"
 }
 ,
 {
@@ -2988,7 +2988,7 @@
   "status": "rts_diverge",
   "bun": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
   "node": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
-  "rts": "orig_len=0\nmoved_len=0"
+  "rts": "orig_len=0\nmoved_len=0\nmoved="
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":306,"rts_diverge":17,"bun_node_diverge":16,"errors":49,"rejected":0}}
+],"summary":{"total":388,"pass":305,"rts_diverge":19,"bun_node_diverge":16,"errors":48,"rejected":0}}
