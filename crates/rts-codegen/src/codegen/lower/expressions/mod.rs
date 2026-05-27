@@ -1348,8 +1348,21 @@ fn lower_tagged_tpl(
                     .last()
                     .map(|t| matches!(t, crate::codegen::lower::ctx::ValTy::Handle | crate::codegen::lower::ctx::ValTy::I64))
                     .unwrap_or(false);
-                if n_params >= 1 && synthetic_call.args.len() > n_params && last_is_handle {
-                    let rest_idx = n_params - 1;
+                // (cross-runtime #345) So' empacota quando o slot de rest eh
+                // >= 1 (n_params >= 2). O slot 0 eh sempre `strings`
+                // (TemplateStringsArray, agora Handle) — NUNCA o rest. Sem
+                // este guard, `tag(strings)` (1 param) com TemplateStringsArray
+                // Handle disparava o empacotamento e metia [cookedArray, val]
+                // no proprio `strings`, corrompendo strings[0]/strings[1].
+                // Tag de 1 param ignora os valores interpolados (JS: args
+                // extras sao descartados), entao basta nao empacotar.
+                // (cross-runtime #345) `>= n_params - 1`: o slot rest sempre
+                // recebe um array, mesmo vazio. `tag\`ab\`` (0 interp) ->
+                // values=[] (args.len()==1==n_params-1, drain de range vazio);
+                // `tag\`a${1}b\`` (1 interp) -> values=[1]; etc. Sem isto, com
+                // 0/1 valores o `values` ficava sem array (length -1).
+                let rest_idx = n_params - 1;
+                if n_params >= 2 && synthetic_call.args.len() >= rest_idx && last_is_handle {
                     let extra: Vec<Option<ExprOrSpread>> = synthetic_call
                         .args
                         .drain(rest_idx..)
