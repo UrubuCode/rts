@@ -612,7 +612,7 @@
   "status": "rts_diverge",
   "bun": "sum=5\niter=1,2\nsym=ok",
   "node": "sum=5\niter=1,2\nsym=ok",
-  "rts": "iter=C,281474976710663\nsym=0"
+  "rts": "sum=5\niter=C,281474976710663\nsym=0"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":313,"rts_diverge":15,"bun_node_diverge":16,"errors":44,"rejected":0}}
+],"summary":{"total":388,"pass":313,"rts_diverge":14,"bun_node_diverge":17,"errors":44,"rejected":0}}
