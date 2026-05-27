@@ -181,6 +181,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     use crate::namespaces::gc::string_pool::*;
     add_fn!("__RTS_FN_NS_GC_GENERATOR_NEXT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_NEXT);
     add_fn!("__RTS_FN_NS_GC_GENERATOR_SET_RET", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_SET_RET);
+    add_fn!("__RTS_FN_NS_GC_GENERATOR_RETURN", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_RETURN);
     add_fn!("__RTS_FN_NS_GC_TAGGED_RAW_GET", crate::namespaces::gc::tagged_raw::__RTS_FN_NS_GC_TAGGED_RAW_GET);
     add_fn!("__RTS_FN_NS_GC_TAGGED_RAW_REGISTER", crate::namespaces::gc::tagged_raw::__RTS_FN_NS_GC_TAGGED_RAW_REGISTER);
     add_fn!("__RTS_FN_NS_GC_STRING_NEW", __RTS_FN_NS_GC_STRING_NEW);
