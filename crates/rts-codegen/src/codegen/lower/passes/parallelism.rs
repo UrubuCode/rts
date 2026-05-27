@@ -37,6 +37,11 @@ thread_local! {
     /// que tem (value, key, map).
     static ARRAY_RECEIVER_IDENTS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 
+    /// (cross-runtime) Nomes de metodos de classe com return_type array.
+    /// Populado no array_methods_pass; lido por looks_array_call p/ reconhecer
+    /// `inst.method().filter()` (chain direto) como receiver array.
+    static METHODS_RET_ARRAY: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+
     /// (cross-runtime #1052) Mapa de top-level `const k = ["str1", "str2", ...]`
     /// para suas string literals. Permite codegen propagar `k[N]` em compile
     /// time, despachando `arr[k[N]](args)` como `arr.<method>(args)`.
@@ -52,31 +57,35 @@ thread_local! {
 /// para `Array.from`/`Array.of`, ou metodo de array conhecido em chain
 /// (`.map`/`.filter`/`.slice`/`.concat`/`.flat`/`.flatMap`). Type-annotation
 /// `T[]` ou `Array<T>` tambem qualifica.
-fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
-    let mut out = HashSet::new();
-    // (cross-runtime) Nomes de METODOS de classe cujo return_type declarado eh
-    // array (`getItems(): string[]`). Permite marcar `const v = inst.m()` como
-    // array-receiver -> `v.map(...)` funciona. Lido textual do FunctionDecl
-    // sintetico (`__class_<C>_<m>`) — o pass roda antes da compilacao mas o
-    // AST ja' tem os metodos sintetizados? Nao: usamos os ClassMember direto.
-    let mut methods_ret_array: HashSet<String> = HashSet::new();
+/// (cross-runtime) Nomes de metodos de classe cujo `return_type` declarado eh
+/// array (`getItems(): string[]` / `Array<T>` / `ReadonlyArray<T>`). Lido
+/// textual do AST — disponivel mesmo antes da compilacao das fns. Usado pra
+/// reconhecer `inst.method()` como array-returning (var e chain direto).
+fn collect_methods_ret_array(program: &Program) -> HashSet<String> {
     fn ret_type_is_array(rt: Option<&str>) -> bool {
         rt.map(|r| {
             let t = r.trim();
             t.ends_with("[]") || t.starts_with("Array<") || t.starts_with("ReadonlyArray<")
         }).unwrap_or(false)
     }
+    let mut out = HashSet::new();
     for item in &program.items {
         if let Item::Class(c) = item {
             for mem in &c.members {
                 if let crate::parser::ast::ClassMember::Method(method) = mem {
                     if ret_type_is_array(method.return_type.as_deref()) {
-                        methods_ret_array.insert(method.name.clone());
+                        out.insert(method.name.clone());
                     }
                 }
             }
         }
     }
+    out
+}
+
+fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let methods_ret_array = collect_methods_ret_array(program);
     let init_looks_array = |e: &Expr| -> bool {
         // closure que tambem consulta methods_ret_array p/ `inst.method()`.
         fn rec(e: &Expr, methods_ret_array: &HashSet<String>) -> bool {
@@ -1303,6 +1312,11 @@ pub(crate) fn array_methods_pass(program: &mut Program) {
         })
         .collect();
 
+    // (cross-runtime) Popula o set de metodos ret-array p/ looks_array_call
+    // reconhecer `inst.method().filter()` como receiver array.
+    let mra = collect_methods_ret_array(program);
+    METHODS_RET_ARRAY.with(|c| *c.borrow_mut() = mra);
+
     // Visita top-level statements.
     let n_items = program.items.len();
     for i in 0..n_items {
@@ -1430,11 +1444,17 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                             if on == "Array" && matches!(prop, "from" | "of") { return true; }
                         }
                         // Array instance methods que retornam array.
-                        matches!(prop,
+                        if matches!(prop,
                             "map" | "filter" | "slice" | "concat" | "flat" | "flatMap"
                             | "splice" | "toReversed" | "toSorted" | "toSpliced" | "with"
                             | "reverse" | "sort" | "fill" | "copyWithin" | "split"
-                        )
+                        ) {
+                            return true;
+                        }
+                        // (cross-runtime) `inst.method()` cujo metodo de classe
+                        // declara return array (`getItems(): string[]`). Cobre o
+                        // chain direto `s.getItems().filter(...)`.
+                        METHODS_RET_ARRAY.with(|s| s.borrow().contains(prop))
                     }
                     let recv_is_array = match m.obj.as_ref() {
                         Expr::Array(_) => true,
