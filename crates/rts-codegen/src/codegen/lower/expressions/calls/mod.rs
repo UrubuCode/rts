@@ -721,7 +721,19 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                     // Global class instance methods (e.g. Date.getFullYear())
                     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
-                        if let Some(member) = spec.instance_method(&method_name) {
+                        // Overload por aridade: prefere o membro cujo numero de
+                        // params (ABI args menos o Handle implicito) casa com os
+                        // args do call. Sem isso, `view.setUint16(o, v, le)`
+                        // (3 args) pegava o overload big-endian de 2 args
+                        // (cross-runtime 57). Cai no primeiro-por-nome se nenhum
+                        // casar exatamente.
+                        let n_call_args = call.args.len();
+                        let member = spec.members.iter().find(|m| {
+                            matches!(m.kind, crate::abi::member::MemberKind::InstanceMethod)
+                                && m.name == method_name
+                                && m.args.len().saturating_sub(1) == n_call_args
+                        }).or_else(|| spec.instance_method(&method_name));
+                        if let Some(member) = member {
                             let recv_tv = lower_expr(ctx, &m.obj)?;
                             // (#245) Quando member.args[0] eh F64 (Number/etc.
                             // primitives wrapped), passa recv como F64 raw.
