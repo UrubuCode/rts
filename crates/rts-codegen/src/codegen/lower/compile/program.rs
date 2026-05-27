@@ -1156,7 +1156,7 @@ fn fn_body_returns_f64(body: &[Statement]) -> bool {
                                     "sqrt" | "cbrt" | "pow" | "exp" | "expm1" | "log"
                                     | "log2" | "log10" | "log1p" | "sin" | "cos" | "tan"
                                     | "asin" | "acos" | "atan" | "atan2" | "sinh" | "cosh"
-                                    | "tanh" | "hypot" | "random" | "fround" | "cbrt");
+                                    | "tanh" | "hypot" | "random" | "fround");
                             }
                         }
                     }
