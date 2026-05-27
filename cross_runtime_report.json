@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
+  "rts": "sync:start|sync:end|macro:timeout"
 }
 ,
 {
@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=micro|timeout|immediate"
 }
 ,
 {
@@ -2961,10 +2961,10 @@
 ,
 {
   "name": "205_arraybuffer_basic",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
   "node": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
-  "rts": "byteLength=8\nview8_0=0\nview8_1=0\nview32_0=0\nsliced=4"
+  "rts": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4"
 }
 ,
 {
