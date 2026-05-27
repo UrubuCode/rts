@@ -708,6 +708,37 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
     new_proto
 }
 
+/// (cross-runtime #387) `instance instanceof Ctor` para FUNCAO-CONSTRUTORA
+/// (pre-ES6). Semantica JS: anda a `__proto__` chain de `instance` e
+/// retorna true se algum elo for identico a `Ctor.prototype` (`ctor_h` eh o
+/// handle Function da fn-construtora). Cobre heranca via
+/// `Dog.prototype = Object.create(Animal.prototype)`: a chain da instancia
+/// passa por Dog.prototype e Animal.prototype, entao `d instanceof Animal`
+/// tambem casa. Retorna 0/1 (bool sentinel decidido pelo codegen).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> i64 {
+    use crate::namespaces::collections::map::with_map_mut;
+    // Resolve Ctor.prototype (lazy-aloca se preciso — mesma fn que `new` usa).
+    let target_proto = __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(ctor_h);
+    if target_proto == 0 {
+        return 0;
+    }
+    let read_proto = |h: u64| -> i64 {
+        with_map_mut(h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0))
+    };
+    // Anda a __proto__ chain da instancia.
+    let mut current = read_proto(instance_h);
+    let mut depth = 0u32;
+    while current != 0 && depth < 64 {
+        if current as u64 == target_proto {
+            return 1;
+        }
+        current = read_proto(current as u64);
+        depth += 1;
+    }
+    0
+}
+
 /// (#proto-method) Auto-dispatch: se \`callee\` eh handle Function valido,
 /// chama via invoke_typed (com return_kind correto). Senao trata como
 /// fn_ptr cru e faz invoke_n (todos i64). Usado por
