@@ -62,6 +62,18 @@ pub(crate) fn expand_destructuring(program: &mut Program) {
             }
             i += 1;
         }
+
+        // (cross-runtime #368) Desce em blocos swc aninhados (loops, if,
+        // try/catch, block, switch) — destructuring decls dentro deles tambem
+        // precisam ser expandidos. Sem isto, `const {value,done} = it.next()`
+        // dentro de um for/while quebra ("destructuring not supported" em fn,
+        // "invalid block reference" no top-level).
+        for stmt_box in body.iter_mut() {
+            let Statement::Raw(raw) = stmt_box;
+            if let Some(stmt) = raw.stmt.as_mut() {
+                expand_destruct_in_swc_stmt(stmt, counter);
+            }
+        }
     }
 
     for item in program.items.iter_mut() {
@@ -127,6 +139,99 @@ pub(crate) fn expand_destructuring(program: &mut Program) {
             program.items.insert(i + k, Item::Statement(s));
         }
         i += 1;
+    }
+
+    // (cross-runtime #368) Desce em blocos swc aninhados de cada statement
+    // top-level (for/while/if/try/block/switch).
+    for item in program.items.iter_mut() {
+        if let Item::Statement(Statement::Raw(raw)) = item {
+            if let Some(stmt) = raw.stmt.as_mut() {
+                expand_destruct_in_swc_stmt(stmt, &mut counter);
+            }
+        }
+    }
+}
+
+/// (cross-runtime #368) Expande destructuring decls (`const {a,b} = e`,
+/// `const [x,y] = e`) dentro de blocos swc aninhados — corpos de loop, if,
+/// try/catch/finally, block, switch. Recursa em profundidade. Reusa
+/// `expand_destruct_decl`, extraindo o swc `Stmt` de cada `Statement`
+/// produzido para reinserir no `Vec<swc Stmt>` do bloco.
+fn expand_destruct_in_swc_stmt(stmt: &mut Stmt, counter: &mut u32) {
+    match stmt {
+        Stmt::Block(b) => expand_destruct_in_swc_block(&mut b.stmts, counter),
+        Stmt::For(f) => expand_destruct_in_swc_stmt(&mut f.body, counter),
+        Stmt::ForIn(f) => expand_destruct_in_swc_stmt(&mut f.body, counter),
+        Stmt::ForOf(f) => expand_destruct_in_swc_stmt(&mut f.body, counter),
+        Stmt::While(w) => expand_destruct_in_swc_stmt(&mut w.body, counter),
+        Stmt::DoWhile(d) => expand_destruct_in_swc_stmt(&mut d.body, counter),
+        Stmt::Labeled(l) => expand_destruct_in_swc_stmt(&mut l.body, counter),
+        Stmt::If(i) => {
+            expand_destruct_in_swc_stmt(&mut i.cons, counter);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                expand_destruct_in_swc_stmt(alt, counter);
+            }
+        }
+        Stmt::Try(t) => {
+            expand_destruct_in_swc_block(&mut t.block.stmts, counter);
+            if let Some(h) = t.handler.as_mut() {
+                expand_destruct_in_swc_block(&mut h.body.stmts, counter);
+            }
+            if let Some(f) = t.finalizer.as_mut() {
+                expand_destruct_in_swc_block(&mut f.stmts, counter);
+            }
+        }
+        Stmt::Switch(s) => {
+            for case in s.cases.iter_mut() {
+                expand_destruct_in_swc_block(&mut case.cons, counter);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Expande destructuring num `Vec<swc Stmt>` (corpo de bloco), em duas fases:
+/// primeiro expande os decls com pattern do proprio nivel, depois recursa nos
+/// blocos aninhados de cada statement resultante.
+fn expand_destruct_in_swc_block(stmts: &mut Vec<Stmt>, counter: &mut u32) {
+    let mut i = 0;
+    while i < stmts.len() {
+        let has_pattern = matches!(
+            &stmts[i],
+            Stmt::Decl(Decl::Var(v))
+                if v.decls.iter().any(|d| !matches!(d.name, Pat::Ident(_)))
+        );
+        if !has_pattern {
+            i += 1;
+            continue;
+        }
+        let Stmt::Decl(Decl::Var(var_decl)) = &stmts[i] else {
+            i += 1;
+            continue;
+        };
+        let kind = var_decl.kind;
+        let mut new_stmts: Vec<Statement> = Vec::new();
+        for decl in &var_decl.decls {
+            expand_destruct_decl(&decl.name, decl.init.as_deref(), kind, counter, &mut new_stmts);
+        }
+        // Extrai o swc Stmt de cada Statement produzido.
+        let swc_stmts: Vec<Stmt> = new_stmts
+            .into_iter()
+            .filter_map(|s| {
+                let Statement::Raw(raw) = s;
+                raw.stmt
+            })
+            .collect();
+        let n = swc_stmts.len();
+        stmts.remove(i);
+        for (k, s) in swc_stmts.into_iter().enumerate() {
+            stmts.insert(i + k, s);
+        }
+        i += n.max(1);
+    }
+    // Recursa nos blocos aninhados (depois da expansao deste nivel).
+    for s in stmts.iter_mut() {
+        expand_destruct_in_swc_stmt(s, counter);
     }
 }
 
