@@ -169,6 +169,26 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         return lower_dynamic_import(ctx, call);
     }
     if let Callee::Expr(callee) = &call.callee {
+        // (generators) `__RTS_GEN_FINISH(buf, ret)` — sentinela do
+        // generator_desugar no `return`. Registra o ret_value (devolvido pelo
+        // `.next()` ao esgotar) e retorna o Vec `buf`.
+        if let Expr::Ident(id) = callee.as_ref() {
+            if id.sym.as_str() == "__RTS_GEN_FINISH" && call.args.len() == 2 {
+                use cranelift_codegen::ir::types as cl;
+                let buf_tv = lower_expr(ctx, &call.args[0].expr)?;
+                let buf = ctx.coerce_to_i64(buf_tv).val;
+                let ret_tv = lower_expr(ctx, &call.args[1].expr)?;
+                let ret = ctx.coerce_to_i64(ret_tv).val;
+                let set_ret = ctx.get_extern(
+                    "__RTS_FN_NS_GC_GENERATOR_SET_RET",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(set_ret, &[buf, ret]);
+                let h = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(h, ValTy::Handle));
+            }
+        }
         // (generators) `<genVar>.next()` — protocolo de iterador finito.
         // Roteia para GENERATOR_NEXT (cursor lateral sobre o Vec retornado
         // pela generator fn), devolvendo `{value,done}` (Map). So' dispara
