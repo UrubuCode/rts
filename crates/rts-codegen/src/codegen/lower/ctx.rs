@@ -412,6 +412,11 @@ pub struct FnCtx<'m, 'fb> {
     /// loops. Label permite \`break LABEL\` saltar para um loop externo
     /// específico em vez do mais interno.
     pub loop_stack: Vec<(Block, Block, Option<String>)>,
+    /// (#128 fase 2) Stack de corpos `finally` ativos (do try mais externo
+    /// ao mais interno). Um `return` dentro de um `try` com `finally` inlina
+    /// estes blocos (mais interno primeiro) antes de emitir `return_` —
+    /// semantica JS: finally roda antes do return efetivar.
+    pub finally_stack: Vec<swc_ecma_ast::BlockStmt>,
     /// Quando \`Stmt::Labeled\` envolve o próximo loop, registra aqui o
     /// nome do label. O loop seguinte consome (via \`take()\`) ao fazer
     /// push no \`loop_stack\`.
@@ -596,6 +601,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             is_tail_conv: false,
             var_counter: 0,
             loop_stack: Vec::new(),
+            finally_stack: Vec::new(),
             pending_label: None,
             warnings: Vec::new(),
             node_import_map,
