@@ -110,6 +110,12 @@ pub fn compile_program(
     // o handle de string voltava como bits crus.
     register_string_ret_fns(program);
 
+    // (#1071) Getters bool instalados via `Object.defineProperty(C.prototype,
+    // "x", { get(){ return this._campo } })` onde `_campo` eh bool. Registra
+    // `x` para que a leitura `obj.x` tipe o resultado como Bool (true/false,
+    // nao 1/0).
+    register_bool_getters(program);
+
     // Single-file AOT path: imports are not stripped before compile_program,
     // so we scan them here to populate node_import_map (JIT multi-file path
     // already populated this in ModuleGraph::flatten_for_jit).
@@ -1191,6 +1197,185 @@ pub(crate) fn set_generator_fns(fns: std::collections::HashSet<String>) {
 /// (generators) True se `name` eh uma generator fn registrada.
 pub(crate) fn is_generator_fn(name: &str) -> bool {
     GENERATOR_FNS.with(|c| c.borrow().contains(name))
+}
+
+thread_local! {
+    // (#1071) nomes de getters (via defineProperty) que retornam bool.
+    static BOOL_GETTERS: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// (#1071) True se `obj.<name>` eh um getter (defineProperty) que retorna bool.
+pub(crate) fn is_bool_getter(name: &str) -> bool {
+    BOOL_GETTERS.with(|c| c.borrow().contains(name))
+}
+
+/// Pre-scan: `Object.defineProperty(C.prototype, "x", { get(){ return
+/// this._campo } })` onde `_campo` eh campo bool de C → registra `x`.
+fn register_bool_getters(program: &Program) {
+    use crate::parser::ast::{ClassMember, Item, Statement};
+    use swc_ecma_ast::{Callee, Expr, MemberProp, Prop, PropName, PropOrSpread, Stmt};
+
+    // 1. Mapa: classe -> conjunto de campos bool.
+    let mut class_bool_fields: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for item in &program.items {
+        if let Item::Class(c) = item {
+            let mut fields = std::collections::HashSet::new();
+            for m in &c.members {
+                if let ClassMember::Property(p) = m {
+                    let is_bool = p.type_annotation.as_deref() == Some("boolean")
+                        || matches!(
+                            p.initializer.as_deref(),
+                            Some(Expr::Lit(swc_ecma_ast::Lit::Bool(_)))
+                        );
+                    if is_bool {
+                        fields.insert(p.name.clone());
+                    }
+                }
+            }
+            if !fields.is_empty() {
+                class_bool_fields.insert(c.name.clone(), fields);
+            }
+        }
+    }
+    if class_bool_fields.is_empty() {
+        return;
+    }
+
+    // Bodies de fns top-level (o getter inline pode ter virado Ident de fn
+    // hoisted apos desugar_object_methods/hoist_fn_expressions).
+    let mut fn_bodies: HashMap<String, Vec<Stmt>> = HashMap::new();
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            let stmts: Vec<Stmt> = f.body.iter().filter_map(|s| {
+                let Statement::Raw(raw) = s;
+                raw.stmt.clone()
+            }).collect();
+            fn_bodies.insert(f.name.clone(), stmts);
+        }
+    }
+    // `return this.<campo>` com campo em fields?
+    fn stmts_ret_bool_field(stmts: &[Stmt], fields: &std::collections::HashSet<String>) -> bool {
+        use swc_ecma_ast::{Expr, MemberProp, Stmt};
+        for s in stmts {
+            if let Stmt::Return(r) = s {
+                if let Some(Expr::Member(m)) = r.arg.as_deref() {
+                    if matches!(m.obj.as_ref(), Expr::This(_)) {
+                        if let MemberProp::Ident(p) = &m.prop {
+                            if fields.contains(p.sym.as_str()) { return true; }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    // 2. Varre `Object.defineProperty(C.prototype, "x", { get(){...} })`.
+    // O getter retorna `this._campo`? Se `_campo` eh bool de C, registra x.
+    let getter_returns_bool_field = |getter: &Expr, fields: &std::collections::HashSet<String>| -> bool {
+        // getter inline (fn-expr/arrow) OU Ident de fn hoisted.
+        if let Expr::Ident(id) = getter {
+            if let Some(stmts) = fn_bodies.get(id.sym.as_str()) {
+                return stmts_ret_bool_field(stmts, fields);
+            }
+        }
+        let body = match getter {
+            Expr::Fn(fe) => fe.function.body.as_ref().map(|b| b.stmts.clone()),
+            Expr::Arrow(a) => match a.body.as_ref() {
+                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => Some(b.stmts.clone()),
+                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                    // arrow expr-body: `() => this._f`
+                    if let Expr::Member(m) = e.as_ref() {
+                        if matches!(m.obj.as_ref(), Expr::This(_)) {
+                            if let MemberProp::Ident(p) = &m.prop {
+                                return fields.contains(p.sym.as_str());
+                            }
+                        }
+                    }
+                    return false;
+                }
+            },
+            _ => None,
+        };
+        let Some(stmts) = body else { return false };
+        for s in &stmts {
+            if let Stmt::Return(r) = s {
+                if let Some(Expr::Member(m)) = r.arg.as_deref() {
+                    if matches!(m.obj.as_ref(), Expr::This(_)) {
+                        if let MemberProp::Ident(p) = &m.prop {
+                            if fields.contains(p.sym.as_str()) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    };
+
+    for item in &program.items {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::Expr(e)) = raw.stmt.as_ref() else { continue };
+        let Expr::Call(c) = e.expr.as_ref() else { continue };
+        let Callee::Expr(callee) = &c.callee else { continue };
+        let Expr::Member(m) = callee.as_ref() else { continue };
+        let is_object = matches!(m.obj.as_ref(), Expr::Ident(id) if id.sym.as_str() == "Object");
+        let is_define = matches!(&m.prop, MemberProp::Ident(p) if p.sym.as_str() == "defineProperty");
+        if !is_object || !is_define { continue; }
+        // arg0 = C.prototype; extrai C.
+        let Some(arg0) = c.args.first() else { continue };
+        let Expr::Member(proto_m) = arg0.expr.as_ref() else { continue };
+        let is_proto = matches!(&proto_m.prop, MemberProp::Ident(p) if p.sym.as_str() == "prototype");
+        if !is_proto { continue; }
+        let Expr::Ident(cls_id) = proto_m.obj.as_ref() else { continue };
+        let Some(fields) = class_bool_fields.get(cls_id.sym.as_str()) else { continue };
+        // arg1 = "x" (nome); arg2 = { get(){...} }.
+        let prop_name = c.args.get(1).and_then(|a| match a.expr.as_ref() {
+            Expr::Lit(swc_ecma_ast::Lit::Str(s)) => s.value.as_str().map(|v| v.to_string()),
+            _ => None,
+        });
+        let Some(prop_name) = prop_name else { continue };
+        let Some(desc_arg) = c.args.get(2) else { continue };
+        let Expr::Object(desc) = desc_arg.expr.as_ref() else { continue };
+        for dp in &desc.props {
+            let PropOrSpread::Prop(dprop) = dp else { continue };
+            // get pode vir como KeyValue("get", fn) OU Method com PropName "get".
+            let getter_expr: Option<&Expr> = match dprop.as_ref() {
+                Prop::KeyValue(kv) => {
+                    let is_get = matches!(&kv.key, PropName::Ident(i) if i.sym.as_str() == "get");
+                    if is_get { Some(kv.value.as_ref()) } else { None }
+                }
+                _ => None,
+            };
+            if let Some(getter) = getter_expr {
+                if getter_returns_bool_field(getter, fields) {
+                    BOOL_GETTERS.with(|s| { s.borrow_mut().insert(prop_name.clone()); });
+                }
+            }
+            // Method-shorthand `get() {...}` no descriptor.
+            if let Prop::Method(meth) = dprop.as_ref() {
+                let is_get = matches!(&meth.key, PropName::Ident(i) if i.sym.as_str() == "get");
+                if is_get {
+                    let stmts = meth.function.body.as_ref().map(|b| b.stmts.clone()).unwrap_or_default();
+                    for s in &stmts {
+                        if let Stmt::Return(r) = s {
+                            if let Some(Expr::Member(mm)) = r.arg.as_deref() {
+                                if matches!(mm.obj.as_ref(), Expr::This(_)) {
+                                    if let MemberProp::Ident(p) = &mm.prop {
+                                        if fields.contains(p.sym.as_str()) {
+                                            BOOL_GETTERS.with(|s| { s.borrow_mut().insert(prop_name.clone()); });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 thread_local! {

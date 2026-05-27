@@ -1504,6 +1504,17 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     }
                 }
             }
+            // (#1071) Getter instalado via `Object.defineProperty(C.prototype,
+            // "key", { get(){ return this._campo } })` onde `_campo` eh bool.
+            // O scan registra `key` como bool-getter; aqui tipamos o resultado
+            // como Bool para que `console.log` printe true/false (e nao 1/0).
+            let field_ty = field_ty.or_else(|| {
+                if crate::codegen::lower::compile::program::is_bool_getter(key) {
+                    Some(ValTy::Bool)
+                } else {
+                    None
+                }
+            });
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
         MemberProp::Computed(c) => {
