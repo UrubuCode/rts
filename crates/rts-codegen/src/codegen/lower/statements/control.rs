@@ -603,6 +603,17 @@ pub(super) fn lower_throw_stmt(
     let set_fref = ctx.get_extern("__RTS_FN_RT_ERROR_SET", &[cl::I64], None)?;
     ctx.builder.ins().call(set_fref, &[handle.val]);
 
+    // (#128 fase 2) Se ha catch-block lexico ativo, `throw` desvia direto pra
+    // ele (interrompe o fluxo) e marca o catch como alvejado (tem predecessor).
+    // Retorna `true` (bloco terminou). Sem isso, `if (c) throw e; return x;`
+    // executava o `return x` apos o throw.
+    if let Some((catch_blk, targeted)) = ctx.catch_target_stack.last_mut() {
+        let cb = *catch_blk;
+        *targeted = true;
+        ctx.builder.ins().jump(cb, &[]);
+        return Ok(true);
+    }
+
     Ok(false)
 }
 
@@ -613,24 +624,36 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
     let clear_fref = ctx.get_extern("__RTS_FN_RT_ERROR_CLEAR", &[], None)?;
     ctx.builder.ins().call(clear_fref, &[]);
 
-    // (#128 fase 2) Empurra o corpo do finally no finally_stack ANTES de
-    // lowerar o try-body, pra que um `return` dentro do try inline o finally
-    // antes de emitir `return_`. Pop apos o try-body (catch/finally proprios
-    // nao devem re-inlinar este finally).
-    if has_finally {
-        ctx.finally_stack
-            .push(t.finalizer.as_ref().unwrap().clone());
-    }
-    let try_terminated = lower_block(ctx, &t.block)?;
-    if has_finally {
-        ctx.finally_stack.pop();
-    }
-
+    // (#128 fase 2) Cria o catch_block ANTES de lowerar o try-body pra que um
+    // `throw` lexico dentro do try faca jump direto pra ele.
     let catch_block = if has_catch {
         Some(ctx.builder.create_block())
     } else {
         None
     };
+
+    // (#128 fase 2) Empurra o corpo do finally no finally_stack ANTES de
+    // lowerar o try-body, pra que um `return` dentro do try inline o finally
+    // antes de emitir `return_`. Pop apos o try-body.
+    if has_finally {
+        ctx.finally_stack
+            .push(t.finalizer.as_ref().unwrap().clone());
+    }
+    // (#128 fase 2) Empurra (catch_block, alvejado=false). Throw lexico marca
+    // alvejado=true. Pop apos o body e captura se o catch recebeu jump.
+    if let Some(cb) = catch_block {
+        ctx.catch_target_stack.push((cb, false));
+    }
+    let try_terminated = lower_block(ctx, &t.block)?;
+    let catch_was_targeted = if catch_block.is_some() {
+        ctx.catch_target_stack.pop().map(|(_, t)| t).unwrap_or(false)
+    } else {
+        false
+    };
+    if has_finally {
+        ctx.finally_stack.pop();
+    }
+
     let finally_block = if has_finally {
         Some(ctx.builder.create_block())
     } else {
@@ -638,11 +661,7 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
     };
     let after_block = ctx.builder.create_block();
 
-    // (#128 fase 2) Se o try-body terminou com terminator (ex: `return` que
-    // ja' inlinou o finally), nao emitir o error-check brif — o bloco esta
-    // preenchido. (No modelo fase-1, `throw` nao desvia o fluxo; um try que
-    // termina com `return` incondicional torna o catch inalcancavel de
-    // qualquer forma — unwind real eh follow-up.)
+    // (#128 fase 2) Fall-through do try (sem terminator): error-check brif.
     if !try_terminated && !ctx.builder.is_unreachable() {
         let get_fref = ctx.get_extern("__RTS_FN_RT_ERROR_GET", &[], Some(cl::I64))?;
         let inst = ctx.builder.ins().call(get_fref, &[]);
@@ -656,12 +675,12 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
             .brif(is_err, err_target, &[], ok_target, &[]);
     }
 
-    // (#128 fase 2) try-body terminou (return inlinou o finally): no modelo
-    // fase-1 (throw nao desvia), nenhum caminho alcanca catch/finally/after
-    // — sao blocos orfaos. Sela-os (Cranelift remove blocos selados sem
-    // predecessores) e sinaliza terminado. Sem isto o after_block ficava
-    // vazio sem terminator ("block does not end in terminator").
-    if try_terminated {
+    // (#128 fase 2) try-body terminou por RETURN (nao por throw-pro-catch):
+    // catch/finally/after sao orfaos. Sela-os e sinaliza terminado. Quando o
+    // catch FOI alvejado por throw lexico (catch_was_targeted), NAO selamos —
+    // seguimos pro processamento do catch abaixo (ele tem o predecessor do
+    // jump do throw).
+    if try_terminated && !catch_was_targeted {
         if let Some(cb) = catch_block {
             ctx.builder.seal_block(cb);
         }
