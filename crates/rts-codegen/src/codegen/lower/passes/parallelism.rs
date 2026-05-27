@@ -54,7 +54,32 @@ thread_local! {
 /// `T[]` ou `Array<T>` tambem qualifica.
 fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
     let mut out = HashSet::new();
-    fn init_looks_array(e: &Expr) -> bool {
+    // (cross-runtime) Nomes de METODOS de classe cujo return_type declarado eh
+    // array (`getItems(): string[]`). Permite marcar `const v = inst.m()` como
+    // array-receiver -> `v.map(...)` funciona. Lido textual do FunctionDecl
+    // sintetico (`__class_<C>_<m>`) — o pass roda antes da compilacao mas o
+    // AST ja' tem os metodos sintetizados? Nao: usamos os ClassMember direto.
+    let mut methods_ret_array: HashSet<String> = HashSet::new();
+    fn ret_type_is_array(rt: Option<&str>) -> bool {
+        rt.map(|r| {
+            let t = r.trim();
+            t.ends_with("[]") || t.starts_with("Array<") || t.starts_with("ReadonlyArray<")
+        }).unwrap_or(false)
+    }
+    for item in &program.items {
+        if let Item::Class(c) = item {
+            for mem in &c.members {
+                if let crate::parser::ast::ClassMember::Method(method) = mem {
+                    if ret_type_is_array(method.return_type.as_deref()) {
+                        methods_ret_array.insert(method.name.clone());
+                    }
+                }
+            }
+        }
+    }
+    let init_looks_array = |e: &Expr| -> bool {
+        // closure que tambem consulta methods_ret_array p/ `inst.method()`.
+        fn rec(e: &Expr, methods_ret_array: &HashSet<String>) -> bool {
         match e {
             Expr::Array(_) => true,
             // (#83) `await <expr_que_retorna_array>` propaga: typicamente
@@ -62,11 +87,18 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
             // Sem isso, `const r = await Promise.allSettled([...]); r.map(...)`
             // nao registra `r` como array receiver e o lift falha (SIGILL
             // ja' visto em #860 pattern).
-            Expr::Await(a) => init_looks_array(&a.arg),
+            Expr::Await(a) => rec(&a.arg, methods_ret_array),
             Expr::Call(c) => match &c.callee {
                 swc_ecma_ast::Callee::Expr(ce) => match ce.as_ref() {
                     Expr::Member(m) => {
-                        let prop_is_array_returning = matches!(
+                        // (cross-runtime) `inst.method()` cujo metodo de classe
+                        // declara return array (`getItems(): string[]`). Sem
+                        // isso, `const v = s.getItems(); v.map(...)` crashava.
+                        let method_ret_array = matches!(
+                            &m.prop,
+                            MemberProp::Ident(p) if methods_ret_array.contains(p.sym.as_str())
+                        );
+                        let prop_is_array_returning = method_ret_array || matches!(
                             &m.prop,
                             MemberProp::Ident(p) if matches!(
                                 p.sym.as_str(),
@@ -129,7 +161,9 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
             },
             _ => false,
         }
-    }
+        }
+        rec(e, &methods_ret_array)
+    };
     for item in &program.items {
         let Item::Statement(Statement::Raw(raw)) = item else { continue };
         let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
