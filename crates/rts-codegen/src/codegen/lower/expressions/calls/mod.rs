@@ -835,6 +835,32 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             return Ok(tv);
                         }
                     }
+                    // (cross-runtime #222) Receiver Call que devolve i64
+                    // AMBIGUO (ex: `m.get(k)` retorna o handle do array como
+                    // i64, nao ValTy::Handle) seguido de array method
+                    // (`.join`/`.map`/etc): tenta lower_array_builtin com o
+                    // recv coerido ANTES do fallback chain-Map abaixo. Sem
+                    // isto, `m.get(k).join(",")` caia em MAP_GET("join") +
+                    // trapz -> SIGILL. Var intermediaria ja' funcionava.
+                    if matches!(m.obj.as_ref(), Expr::Call(_))
+                        && matches!(recv_tv.ty, ValTy::I64 | ValTy::U64)
+                    {
+                        let is_array_method = matches!(
+                            method_name.as_str(),
+                            "join" | "map" | "filter" | "forEach" | "reduce"
+                            | "slice" | "concat" | "indexOf" | "lastIndexOf"
+                            | "includes" | "reverse" | "find" | "findIndex"
+                            | "every" | "some" | "flat" | "flatMap" | "at"
+                            | "fill" | "sort" | "push" | "pop" | "shift"
+                            | "unshift" | "splice" | "keys" | "values" | "entries"
+                        );
+                        if is_array_method {
+                            let recv_h = ctx.coerce_to_i64(recv_tv).val;
+                            if let Some(tv) = lower_array_builtin(ctx, &method_name, recv_h, call)? {
+                                return Ok(tv);
+                            }
+                        }
+                    }
                     // (#480 chain) Method chain em Call result: \`c.add(5).add(3)\`.
                     // Receiver i64 (return this) que e' handle de Map. Faz map_get +
                     // INVOKE_AUTO em qualquer Call obj.
