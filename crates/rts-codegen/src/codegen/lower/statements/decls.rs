@@ -581,6 +581,25 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 if mid.sym.as_str() == "bind" {
                                     ctx.local_class_ty.insert(name.clone(), "Function".to_string());
                                 }
+                                // (cross-runtime) `const p = Promise.resolve(x)`
+                                // (e .reject/.all/.race/.allSettled/.any) marca
+                                // `p` como Promise pra que `p.then(cb)` resolva
+                                // o handler de Promise em vez de cair no
+                                // fallback Map -> trapz -> SIGILL. O chain
+                                // direto `Promise.resolve(x).then(...)` ja'
+                                // funciona; faltava o caso com var.
+                                if let swc_ecma_ast::Expr::Ident(obj_id) = m.obj.as_ref() {
+                                    if obj_id.sym.as_str() == "Promise"
+                                        && matches!(
+                                            mid.sym.as_str(),
+                                            "resolve" | "reject" | "all" | "race"
+                                            | "allSettled" | "any"
+                                        )
+                                    {
+                                        ctx.local_class_ty
+                                            .insert(name.clone(), "Promise".to_string());
+                                    }
+                                }
                                 // Class.staticMethod(...) → propaga ret_class.
                                 if let swc_ecma_ast::Expr::Ident(obj_id) = m.obj.as_ref() {
                                     let cls_name = obj_id.sym.as_str();
