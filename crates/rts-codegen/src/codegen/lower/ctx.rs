@@ -417,6 +417,13 @@ pub struct FnCtx<'m, 'fb> {
     /// estes blocos (mais interno primeiro) antes de emitir `return_` —
     /// semantica JS: finally roda antes do return efetivar.
     pub finally_stack: Vec<swc_ecma_ast::BlockStmt>,
+    /// (#128 fase 2) Stack de (catch_block, foi_alvejado) ativos. Um `throw`
+    /// LEXICO dentro de um `try`-com-catch faz jump pro catch_block (interrompe
+    /// o fluxo) e marca `foi_alvejado=true` no topo. O lower_try_stmt usa esse
+    /// flag pra distinguir try-terminado-por-throw (catch tem predecessor,
+    /// processa normal) de por-return (catch orfao, sela). So' cobre throw
+    /// lexico; throw em fn chamada continua via error slot + check pos-call.
+    pub catch_target_stack: Vec<(Block, bool)>,
     /// Quando \`Stmt::Labeled\` envolve o próximo loop, registra aqui o
     /// nome do label. O loop seguinte consome (via \`take()\`) ao fazer
     /// push no \`loop_stack\`.
@@ -608,6 +615,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             var_counter: 0,
             loop_stack: Vec::new(),
             finally_stack: Vec::new(),
+            catch_target_stack: Vec::new(),
             pending_label: None,
             warnings: Vec::new(),
             node_import_map,
