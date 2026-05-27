@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=timeout|micro|immediate"
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -1977,10 +1977,10 @@
 ,
 {
   "name": "387_object_create_descriptors",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
   "node": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
-  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n78\ntrue\ntrue"
+  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":310,"rts_diverge":17,"bun_node_diverge":17,"errors":44,"rejected":0}}
+],"summary":{"total":388,"pass":312,"rts_diverge":16,"bun_node_diverge":16,"errors":44,"rejected":0}}
