@@ -259,6 +259,19 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
     let elem = ctx.builder.inst_results(inst)[0];
     ctx.write_local(&bind_name, elem)?;
 
+    // (cross-runtime #222) Bind simples de for-of sem tipo Handle estatico:
+    // o slot pode carregar um handle (string/obj) OU i64 puro. Caso
+    // `for (const k of map.keys())` / `map.values()` onde os elementos sao
+    // strings. Marca o elem como vec-slot ambiguo pra que template
+    // (`ks + k`) use coercao runtime (detecta string) em vez de imprimir o
+    // handle cru. So' quando NAO ha destructuring (esse ja' marca por slot).
+    if array_destructure_names.is_none()
+        && !matches!(bind_ty, ValTy::Handle | ValTy::F64 | ValTy::I32)
+    {
+        ctx.var_member_call_values.insert(elem);
+        ctx.var_vec_slot_values.insert(elem);
+    }
+
     // (#210) for-of array destructuring: cada nome vira local extraindo
     // posicao correspondente do vec via vec_get. Fora-do-range retorna 0.
     if let Some(names) = &array_destructure_names {
