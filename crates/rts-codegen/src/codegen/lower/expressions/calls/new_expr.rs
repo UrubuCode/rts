@@ -203,6 +203,17 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         ));
     }
 
+    // (#810) TypedArrays — `new Uint8Array([..])`, `new Int32Array(n)`, etc.
+    // Backing store eh um Vec<i64> (collections.vec_*), reusando indexacao,
+    // `.length` e `Array.from`. Os valores armazenados sao normalizados ao
+    // alcance do tipo (mask/wrap) no momento do push, para casar com a
+    // semantica JS (ex: Uint8 trunca a 0..255, Int8 estende sinal).
+    if !ctx.classes.contains_key(&class_name) {
+        if let Some(elem) = typed_array_kind(&class_name) {
+            return lower_new_typed_array(ctx, new_expr, elem);
+        }
+    }
+
     // (#780) `new Array()`
     if class_name == "Array" && !ctx.classes.contains_key(&class_name) {
         let n_args = new_expr.args.as_ref().map(|a| a.len()).unwrap_or(0);
@@ -668,7 +679,150 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
     Ok(TypedVal::new(handle, ValTy::Handle))
 }
 
+/// (#810) Elemento de um TypedArray: (bits, signed, is_float).
+/// `None` quando o nome nao eh um TypedArray conhecido.
+#[derive(Clone, Copy)]
+pub(super) struct TaElem {
+    bits: u32,
+    signed: bool,
+    is_float: bool,
+}
 
+pub(super) fn typed_array_kind(name: &str) -> Option<TaElem> {
+    let e = |bits, signed, is_float| Some(TaElem { bits, signed, is_float });
+    match name {
+        "Int8Array" => e(8, true, false),
+        "Uint8Array" | "Uint8ClampedArray" => e(8, false, false),
+        "Int16Array" => e(16, true, false),
+        "Uint16Array" => e(16, false, false),
+        "Int32Array" => e(32, true, false),
+        "Uint32Array" => e(32, false, false),
+        "Float32Array" | "Float64Array" => e(64, true, true),
+        _ => None,
+    }
+}
+
+/// (#810) `new <TypedArray>(arg)` — backing Vec<i64>.
+/// - arg array literal `[a,b,c]`: cada elemento normalizado e empurrado.
+/// - arg numerico `n`: Vec de `n` zeros.
+/// - arg handle (outro array/typed array): copia elementos normalizados.
+pub(super) fn lower_new_typed_array(
+    ctx: &mut FnCtx,
+    new_expr: &swc_ecma_ast::NewExpr,
+    elem: TaElem,
+) -> Result<TypedVal> {
+    let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst = ctx.builder.ins().call(new_fn, &[]);
+    let vec_h = ctx.builder.inst_results(inst)[0];
+
+    let args = new_expr.args.as_deref().unwrap_or(&[]);
+    if let Some(arg) = args.first() {
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported in `new TypedArray`"));
+        }
+        match arg.expr.as_ref() {
+            // `new Uint8Array([1,2,3])` — elementos estaticos.
+            Expr::Array(arr) => {
+                let push_fn = ctx
+                    .get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+                for el in &arr.elems {
+                    let Some(el) = el else { continue };
+                    if el.spread.is_some() {
+                        return Err(anyhow!("spread not supported in `new TypedArray`"));
+                    }
+                    let tv = lower_expr(ctx, &el.expr)?;
+                    let norm = normalize_ta_elem(ctx, tv, elem);
+                    ctx.builder.ins().call(push_fn, &[vec_h, norm]);
+                }
+            }
+            _ => {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                if matches!(tv.ty, ValTy::I64 | ValTy::I32 | ValTy::U64 | ValTy::F64) {
+                    // `new Uint16Array(3)` — Vec de 3 zeros.
+                    let len = ctx.coerce_to_i64(tv).val;
+                    let push_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                        &[cl::I64, cl::I64],
+                        None,
+                    )?;
+                    let zero = if elem.is_float {
+                        let z = ctx.builder.ins().f64const(0.0);
+                        ctx.builder.ins().bitcast(cl::I64, cranelift_codegen::ir::MemFlags::new(), z)
+                    } else {
+                        ctx.builder.ins().iconst(cl::I64, 0)
+                    };
+                    // Loop runtime: empurra `len` zeros. Usa um contador local
+                    // (Cranelift Variable via declare_local) no estilo dos loops
+                    // do codegen — evita block params/BlockArg.
+                    let counter = format!("__rts_ta_fill_i_{:p}", &new_expr.span);
+                    let i0 = ctx.builder.ins().iconst(cl::I64, 0);
+                    ctx.declare_local(&counter, ValTy::I64, i0);
+                    let header = ctx.builder.create_block();
+                    let body = ctx.builder.create_block();
+                    let exit = ctx.builder.create_block();
+                    ctx.builder.ins().jump(header, &[]);
+                    ctx.builder.switch_to_block(header);
+                    let i_now = ctx
+                        .read_local(&counter)
+                        .ok_or_else(|| anyhow!("ta fill counter sumiu"))?;
+                    let cond = ctx.builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
+                        i_now.val,
+                        len,
+                    );
+                    ctx.builder.ins().brif(cond, body, &[], exit, &[]);
+                    ctx.builder.switch_to_block(body);
+                    ctx.builder.ins().call(push_fn, &[vec_h, zero]);
+                    let i_now = ctx
+                        .read_local(&counter)
+                        .ok_or_else(|| anyhow!("ta fill counter sumiu"))?;
+                    let inext = ctx.builder.ins().iadd_imm(i_now.val, 1);
+                    ctx.write_local(&counter, inext)?;
+                    ctx.builder.ins().jump(header, &[]);
+                    ctx.builder.switch_to_block(exit);
+                    ctx.builder.seal_block(header);
+                    ctx.builder.seal_block(body);
+                    ctx.builder.seal_block(exit);
+                } else if matches!(tv.ty, ValTy::Handle) {
+                    // `new Int32Array(otherArrayLike)` — copia via runtime helper.
+                    let src_h = ctx.coerce_to_i64(tv).val;
+                    let copy_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
+                        &[cl::I64, cl::I64],
+                        None,
+                    )?;
+                    ctx.builder.ins().call(copy_fn, &[vec_h, src_h]);
+                }
+            }
+        }
+    }
+    Ok(TypedVal::new(vec_h, ValTy::Handle))
+}
+
+/// Normaliza um valor ao alcance do elemento do TypedArray e devolve um i64
+/// pronto para `vec_push`. Float* mantem como bits f64; inteiros aplicam
+/// mask/extensao de sinal.
+fn normalize_ta_elem(ctx: &mut FnCtx, tv: TypedVal, elem: TaElem) -> cranelift_codegen::ir::Value {
+    use cranelift_codegen::ir::MemFlags;
+    if elem.is_float {
+        // Float32/64 — guarda bits f64 (Vec interpreta como number via INSPECT).
+        let f = ctx.coerce_to_f64(tv).val;
+        return ctx.builder.ins().bitcast(cl::I64, MemFlags::new(), f);
+    }
+    // Inteiro: trunca a `bits` via band, depois estende sinal se signed.
+    let mut v = ctx.coerce_to_i64(tv).val;
+    if elem.bits < 64 {
+        let mask = (1i64 << elem.bits) - 1;
+        v = ctx.builder.ins().band_imm(v, mask);
+        if elem.signed {
+            // sign-extend: shift left ate o topo e arithmetic shift right.
+            let shift = 64 - elem.bits as i64;
+            v = ctx.builder.ins().ishl_imm(v, shift);
+            v = ctx.builder.ins().sshr_imm(v, shift);
+        }
+    }
+    v
+}
 
 /// Function global (#359): `new Function(...params, body)` variadic.
 /// Concatena params em CSV e chama __RTS_FN_GL_FUNCTION_NEW(params_str, body).
