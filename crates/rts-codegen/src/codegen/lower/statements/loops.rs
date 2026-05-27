@@ -327,6 +327,17 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                 *ann_ty
             };
             ctx.declare_local(name, resolved_ty, val);
+            // (cross-runtime #208/#494) Sem tipo estatico Handle, o slot pode
+            // carregar um handle (string/obj) OU i64 puro — caso `arr.entries()`
+            // onde o slot 1 e' o elemento do array (string quando arr eh de
+            // strings). Marca o valor como vec-slot ambiguo pra que template
+            // (`i + ":" + v`) use TPL_COERCE_VEC_SLOT/INSPECT e detecte string
+            // em runtime, em vez de imprimir o handle cru. Sem isso,
+            // `for (const [i,v] of arr.entries())` imprimia o numero do handle.
+            if !matches!(resolved_ty, ValTy::Handle) {
+                ctx.var_member_call_values.insert(val);
+                ctx.var_vec_slot_values.insert(val);
+            }
         }
     }
 
