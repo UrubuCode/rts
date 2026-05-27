@@ -1357,7 +1357,10 @@ pub(super) fn lower_array_builtin(
             }
             Ok(Some(TypedVal::new(last, ValTy::I64)))
         }
-        "slice" => {
+        // (#93) `subarray(start, end)` em TypedArray Vec backing: trata como
+        // slice (cópia do range). TypedArray real compartilharia o buffer, mas
+        // pra Vec backing a cópia eh suficiente para leitura via Array.from.
+        "slice" | "subarray" => {
             // arr.slice(start?, end?). end omitido = i64::MIN sentinel.
             let start_tv = if let Some(arg) = call.args.first() {
                 if arg.spread.is_some() { return Ok(None); }
@@ -1411,6 +1414,28 @@ pub(super) fn lower_array_builtin(
                 }
             }
             Ok(Some(TypedVal::new(acc, ValTy::Handle)))
+        }
+        // (#93) `typedArray.set(srcArray, offset?)` — copia elementos de
+        // srcArray a partir de offset. Restrito a `set([...], n)` (1o arg
+        // array literal) para NAO colidir com Map.set / obj.set(k, v).
+        "set" if matches!(call.args.first().map(|a| a.expr.as_ref()), Some(Expr::Array(_)))
+            && call.args.iter().all(|a| a.spread.is_none()) => {
+            let src_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let src_h = ctx.coerce_to_i64(src_tv).val;
+            let offset = if let Some(a) = call.args.get(1) {
+                let tv = lower_expr(ctx, &a.expr)?;
+                ctx.coerce_to_i64(tv).val
+            } else {
+                ctx.builder.ins().iconst(cl::I64, 0)
+            };
+            let set_from = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_VEC_SET_FROM",
+                &[cl::I64, cl::I64, cl::I64],
+                None,
+            )?;
+            ctx.builder.ins().call(set_from, &[obj_h, src_h, offset]);
+            // set retorna undefined; devolve o proprio handle (no-op p/ chains).
+            Ok(Some(TypedVal::new(obj_h, ValTy::Handle)))
         }
         "fill" => {
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
