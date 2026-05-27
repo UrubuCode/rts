@@ -634,6 +634,25 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                             }
                                         }
                                     }
+                                    // (cross-runtime builder) `const c2 = inst.method()`
+                                    // onde `inst` tem classe C conhecida e o metodo
+                                    // de instancia retorna `this` ou C: marca `c2`
+                                    // como C pra que `c2.method()` resolva o metodo
+                                    // (builder pattern). Sem isso, `c.inc().inc()`
+                                    // / `const c2 = c.inc(); c2.inc()` caia no
+                                    // fallback MAP_GET("inc") -> trapz -> SIGILL.
+                                    if let Some(recv_cls) = ctx.local_class_ty.get(obj_id.sym.as_str()).cloned() {
+                                        let mn = mid.sym.as_str();
+                                        let fname = crate::codegen::lower::compile::class::class_method_name(&recv_cls, mn);
+                                        // ret_class do metodo == a propria classe (ex:
+                                        // `inc(): C { ...; return this; }`).
+                                        let ret_is_self = ctx.user_fns.get(&fname)
+                                            .map(|abi| abi.ret_class.as_deref() == Some(recv_cls.as_str()))
+                                            .unwrap_or(false);
+                                        if ret_is_self {
+                                            ctx.local_class_ty.insert(name.clone(), recv_cls);
+                                        }
+                                    }
                                 }
                             }
                         }
