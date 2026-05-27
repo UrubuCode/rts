@@ -1401,6 +1401,13 @@ pub(super) fn lower_opt_chain(
                     };
                     let call_tv = super::calls::lower_call(ctx, &synthetic)?;
                     let result_ty = call_tv.ty;
+                    // (cross-runtime) Se a chamada sintetica foi marcada
+                    // ambigua (var_member_call_values — ex: metodo que pode
+                    // devolver handle de string), propaga pro block param do
+                    // merge. Sem isso, `obj?.f()` cujo `obj.f()` retorna
+                    // string imprimia o handle como numero cru. Espelha o
+                    // caso OptChainBase::Member acima (#795).
+                    let call_was_ambig = ctx.var_member_call_values.contains(&call_tv.val);
                     // Empacota result em i64 — F64 vai como bits.
                     let call_packed = if matches!(result_ty, ValTy::F64) {
                         ctx.builder.ins().bitcast(
@@ -1416,6 +1423,9 @@ pub(super) fn lower_opt_chain(
                     ctx.builder.switch_to_block(merge);
                     ctx.builder.seal_block(merge);
                     ctx.optional_chain_values.insert(result);
+                    if call_was_ambig {
+                        ctx.var_member_call_values.insert(result);
+                    }
                     // Para F64 retornado, desempacota bits via bitcast.
                     let final_val = if matches!(result_ty, ValTy::F64) {
                         ctx.builder.ins().bitcast(
