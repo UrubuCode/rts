@@ -3008,6 +3008,69 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
         .ok_or_else(|| anyhow!("call to undeclared user function `{name}`"))?
         .clone();
 
+    // (cross-runtime #348) Spread em chamada a user fn: o call direto eh
+    // posicional (aridade fixa), incompativel com `f(...xs)` onde o numero
+    // de args so' se conhece em runtime. Roteia via INVOKE_AUTO sobre um
+    // handle Function reificado COM param_kinds/return_kind (lower_callable
+    // _target_h) — assim invoke_typed reinterpreta f64-bits corretamente.
+    // Monta o args Vec: push normal (f64 -> bits) + VEC_EXTEND_FROM p/ spread.
+    if call.args.iter().any(|a| a.spread.is_some()) {
+        let callee = lower_callable_target_h(
+            ctx,
+            &swc_ecma_ast::Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: name.into(),
+                optional: false,
+            }),
+        )?;
+        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+        let vec_push = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            &[cl::I64, cl::I64],
+            None,
+        )?;
+        let vec_extend = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
+            &[cl::I64, cl::I64],
+            None,
+        )?;
+        let new_inst = ctx.builder.ins().call(vec_new, &[]);
+        let args_vec = ctx.builder.inst_results(new_inst)[0];
+        ctx.declare_gc_handle(args_vec);
+        for arg in &call.args {
+            let tv = lower_expr(ctx, &arg.expr)?;
+            if arg.spread.is_some() {
+                // Source eh um Vec/array — extend com seus elementos.
+                let src = ctx.coerce_to_i64(tv).val;
+                ctx.builder.ins().call(vec_extend, &[args_vec, src]);
+            } else {
+                // Arg posicional: f64 viaja como BITS (invoke_typed
+                // reinterpreta via param_kinds[i]==1); o resto como i64.
+                let v = if matches!(tv.ty, ValTy::F64) {
+                    ctx.builder.ins().bitcast(
+                        cl::I64,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        tv.val,
+                    )
+                } else {
+                    ctx.coerce_to_i64(tv).val
+                };
+                ctx.builder.ins().call(vec_push, &[args_vec, v]);
+            }
+        }
+        let invoke = ctx.get_extern(
+            "__RTS_FN_RT_INVOKE_AUTO",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        let inst = ctx.builder.ins().call(invoke, &[callee, zero, args_vec]);
+        let v = ctx.builder.inst_results(inst)[0];
+        ctx.var_member_call_values.insert(v);
+        return Ok(TypedVal::new(v, ValTy::I64));
+    }
+
     let mangled: String = format!("__user_{name}");
     if !ctx.extern_cache.contains_key(mangled.as_str()) {
         return Err(anyhow!("call to undeclared user function `{name}`"));
