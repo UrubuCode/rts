@@ -223,6 +223,18 @@ fn lower_params_with_destructure(
     let mut lowered = Vec::with_capacity(params.len());
     let mut prologue: Vec<Statement> = Vec::new();
     for (i, param) in params.iter().enumerate() {
+        // TS `this` param (`function f(this: T, ...)`): pseudo-parametro
+        // sintatico — `this` vem do slot thread-local, nao dos argumentos.
+        // Descartar para que os args reais alinhem com os params restantes
+        // (sem isso, `new (Fn)(arg)` passa `arg` para o slot `this` e o
+        // primeiro param real fica undefined — cross-runtime 336/387).
+        if i == 0 {
+            if let Pat::Ident(id) = &param.pat {
+                if id.id.sym.as_ref() == "this" {
+                    continue;
+                }
+            }
+        }
         let needs_destructure = is_destructure_pat(&param.pat);
         if needs_destructure {
             // Pattern original (pode estar dentro de Pat::Assign quando ha default).
