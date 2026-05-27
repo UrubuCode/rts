@@ -877,6 +877,15 @@ fn inspect_return_kind(
             Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Add) => {
                 expr_yields_string(&b.left, sag) || expr_yields_string(&b.right, sag)
             }
+            // (#374/LookupTable) `a ?? "fallback"` / `a || "fallback"`:
+            // se o lado esquerdo eh string-yielding OU o fallback eh string,
+            // o resultado eh string. Cobre `map.get(k) ?? "default"` (T=string).
+            Expr::Bin(b) if matches!(
+                b.op,
+                swc_ecma_ast::BinaryOp::NullishCoalescing | swc_ecma_ast::BinaryOp::LogicalOr
+            ) => {
+                expr_yields_string(&b.left, sag) || expr_yields_string(&b.right, sag)
+            }
             // (#1052) arr[i] onde arr e' global declarado como string[] literal.
             // Heuristica conservadora: o ident base esta em sag.
             Expr::Member(m) if m.computed_string_access().is_some() => {
