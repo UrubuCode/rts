@@ -1361,7 +1361,14 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                     }};
 
                     if let Some(par_method) = target_method {
-                        let arr_expr = (*m.obj).clone();
+                        let mut arr_expr = (*m.obj).clone();
+                        // (cross-runtime #54) O receiver pode ser ELE PROPRIO
+                        // uma chain de array methods (`arr.filter(f).map(g)`):
+                        // ao reescrever o `.map`, recursar no `.filter` interno
+                        // ANTES de montar o arg, senao o `.filter` fica sem
+                        // rewrite e o codegen faz MAP_GET("filter") em Vec ->
+                        // trapz -> SIGILL.
+                        rewrite_array_methods_in_expr(&mut arr_expr, user_fn_names);
                         let fn_arg = call.args[0].expr.clone();
                         let new_args: Vec<swc_ecma_ast::ExprOrSpread> = if par_method == "reduce" {
                             let init_arg = call.args[1].expr.clone();
