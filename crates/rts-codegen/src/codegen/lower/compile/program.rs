@@ -1222,6 +1222,29 @@ fn register_proto_method_f64(program: &Program) {
         }
         e
     }
+    // Registra `method` se a fn-expr/ident RHS retorna f64 inequivoco.
+    let register_if_f64 = |method: &str, rhs: &Expr, bodies: &HashMap<String, &[Statement]>| {
+        let is_f64 = match peel(rhs) {
+            Expr::Fn(fe) => fe
+                .function
+                .body
+                .as_ref()
+                .map(|b| fn_body_returns_f64_swc(&b.stmts))
+                .unwrap_or(false),
+            Expr::Ident(id) => bodies
+                .get(id.sym.as_str())
+                .map(|b| fn_body_returns_f64(b))
+                .unwrap_or(false),
+            _ => false,
+        };
+        if is_f64 {
+            PROTO_METHOD_F64.with(|c| {
+                c.borrow_mut().insert(method.to_string());
+            });
+        }
+    };
+
+    // Caso 1: `Fn.prototype.<m> = <fn>` (heranca classica).
     for item in &program.items {
         let Item::Statement(Statement::Raw(raw)) = item else { continue };
         let Some(Stmt::Expr(e)) = raw.stmt.as_ref() else { continue };
@@ -1231,16 +1254,121 @@ fn register_proto_method_f64(program: &Program) {
         let Expr::Member(inner) = lhs_m.obj.as_ref() else { continue };
         let is_proto = matches!(&inner.prop, MemberProp::Ident(p) if p.sym.as_str() == "prototype");
         if !is_proto { continue; }
-        if let Expr::Ident(id) = peel(a.right.as_ref()) {
-            if let Some(body) = fn_bodies.get(id.sym.as_str()) {
-                if fn_body_returns_f64(body) {
-                    PROTO_METHOD_F64.with(|c| {
-                        c.borrow_mut().insert(method_id.sym.as_str().to_string());
-                    });
+        register_if_f64(method_id.sym.as_str(), a.right.as_ref(), &fn_bodies);
+    }
+
+    // Caso 2: descriptors em `Object.create(proto, { m: { value: fn } })` e
+    // `Object.defineProperty(obj, "m", { value: fn })`. Varre recursivamente
+    // todas as expressoes (top-level + corpos de fn) procurando esses calls.
+    fn visit_expr(
+        e: &Expr,
+        bodies: &HashMap<String, &[Statement]>,
+        reg: &dyn Fn(&str, &Expr, &HashMap<String, &[Statement]>),
+    ) {
+        use swc_ecma_ast::{Callee, Prop, PropName, PropOrSpread};
+        // Desce em wrappers comuns para alcancar o Call interno.
+        match e {
+            Expr::Assign(a) => { visit_expr(a.right.as_ref(), bodies, reg); }
+            Expr::Paren(p) => { visit_expr(&p.expr, bodies, reg); }
+            Expr::TsAs(x) => { visit_expr(&x.expr, bodies, reg); }
+            Expr::TsNonNull(x) => { visit_expr(&x.expr, bodies, reg); }
+            _ => {}
+        }
+        if let Expr::Call(c) = e {
+            if let Callee::Expr(callee) = &c.callee {
+                if let Expr::Member(m) = callee.as_ref() {
+                    let is_object = matches!(m.obj.as_ref(),
+                        Expr::Ident(id) if id.sym.as_str() == "Object");
+                    let prop = match &m.prop {
+                        MemberProp::Ident(p) => Some(p.sym.as_str()),
+                        _ => None,
+                    };
+                    // Object.create(proto, descriptors): descriptors eh arg[1].
+                    // Object.defineProperties(obj, descriptors): arg[1].
+                    if is_object && matches!(prop, Some("create") | Some("defineProperties")) {
+                        if let Some(arg) = c.args.get(1) {
+                            if let Expr::Object(obj) = arg.expr.as_ref() {
+                                for p in &obj.props {
+                                    let PropOrSpread::Prop(prop) = p else { continue };
+                                    let Prop::KeyValue(kv) = prop.as_ref() else { continue };
+                                    let name = match &kv.key {
+                                        PropName::Ident(i) => Some(i.sym.as_str().to_string()),
+                                        PropName::Str(s) => s.value.as_str().map(|v| v.to_string()),
+                                        _ => None,
+                                    };
+                                    // value eh um descriptor `{ value: fn, ... }`.
+                                    if let (Some(name), Expr::Object(desc)) = (name, kv.value.as_ref()) {
+                                        for dp in &desc.props {
+                                            let PropOrSpread::Prop(dprop) = dp else { continue };
+                                            let Prop::KeyValue(dkv) = dprop.as_ref() else { continue };
+                                            let is_value = matches!(&dkv.key,
+                                                PropName::Ident(i) if i.sym.as_str() == "value");
+                                            if is_value {
+                                                reg(&name, dkv.value.as_ref(), bodies);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Object.defineProperty(obj, "m", { value: fn }): arg[1]=name, arg[2]=descriptor.
+                    if is_object && prop == Some("defineProperty") {
+                        let name = c.args.first().and_then(|_| c.args.get(1)).and_then(|a| {
+                            match a.expr.as_ref() {
+                                Expr::Lit(swc_ecma_ast::Lit::Str(s)) => s.value.as_str().map(|v| v.to_string()),
+                                _ => None,
+                            }
+                        });
+                        if let (Some(name), Some(desc_arg)) = (name, c.args.get(2)) {
+                            if let Expr::Object(desc) = desc_arg.expr.as_ref() {
+                                for dp in &desc.props {
+                                    let PropOrSpread::Prop(dprop) = dp else { continue };
+                                    let Prop::KeyValue(dkv) = dprop.as_ref() else { continue };
+                                    let is_value = matches!(&dkv.key,
+                                        PropName::Ident(i) if i.sym.as_str() == "value");
+                                    if is_value {
+                                        reg(&name, dkv.value.as_ref(), bodies);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Recursa nos args.
+            for a in &c.args {
+                visit_expr(&a.expr, bodies, reg);
+            }
+        }
+    }
+    // Varre statements top-level (basta para o padrao comum; descriptors em
+    // corpos de fn sao raros e cobertos pelo Caso 1 quando usam prototype.m=).
+    for item in &program.items {
+        if let Item::Statement(Statement::Raw(raw)) = item {
+            if let Some(Stmt::Expr(e)) = raw.stmt.as_ref() {
+                visit_expr(e.expr.as_ref(), &fn_bodies, &register_if_f64);
+            }
+            // Tambem em var decls (`const proto = Object.create(...)`).
+            if let Some(Stmt::Decl(swc_ecma_ast::Decl::Var(v))) = raw.stmt.as_ref() {
+                for d in &v.decls {
+                    if let Some(init) = d.init.as_deref() {
+                        visit_expr(init, &fn_bodies, &register_if_f64);
+                    }
                 }
             }
         }
     }
+}
+
+/// fn_body_returns_f64 sobre stmts SWC crus (corpo de fn-expr inline).
+fn fn_body_returns_f64_swc(stmts: &[swc_ecma_ast::Stmt]) -> bool {
+    use crate::parser::ast::{RawStmt, Statement};
+    let wrapped: Vec<Statement> = stmts
+        .iter()
+        .map(|s| Statement::Raw(RawStmt::new(String::new(), Default::default()).with_stmt(s.clone())))
+        .collect();
+    fn_body_returns_f64(&wrapped)
 }
 
 /// (generators) True se o body declara `const __gen_buf = ...` no topo —
