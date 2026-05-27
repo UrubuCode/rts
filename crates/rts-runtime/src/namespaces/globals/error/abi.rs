@@ -63,6 +63,21 @@ pub const ERROR_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    // V8/Node-only: popula `target.stack`. RTS nao mantem stack traces de
+    // erro (formato diverge por design); registramos um no-op para que o
+    // padrao `if (Error.captureStackTrace) Error.captureStackTrace(this, C)`
+    // compile e rode (cross-runtime 369_error_handling).
+    NamespaceMember {
+        name: "captureStackTrace",
+        kind: MemberKind::StaticMethod,
+        symbol: "__RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE",
+        args: &[AbiType::Handle, AbiType::Handle],
+        returns: AbiType::Void,
+        doc: "No-op stub (RTS does not maintain error stack traces).",
+        ts_signature: "captureStackTrace(target: object, ctor?: Function): void",
+        intrinsic: None,
+        pure: false,
+    },
 ];
 
 pub const CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {

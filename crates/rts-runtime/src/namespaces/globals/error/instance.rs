@@ -301,3 +301,9 @@ pub extern "C" fn __RTS_FN_GL_ERROR_TO_STRING(handle: u64) -> u64 {
     };
     alloc_str(s)
 }
+
+/// `Error.captureStackTrace(target, ctor?)` — no-op. V8/Node populariam
+/// `target.stack`; RTS nao mantem stack traces de erro (formato diverge por
+/// design). Aceita os dois handles e nao faz nada.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE(_target: u64, _ctor: u64) {}
