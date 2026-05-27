@@ -601,10 +601,10 @@
 ,
 {
   "name": "270_new_target",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
   "node": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
-  "rts": "f1=call\nf2=[object Object]\nwrap=281474976710677\ncls=undefined:undefined"
+  "rts": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined"
 }
 ,
 {
@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":312,"rts_diverge":16,"bun_node_diverge":16,"errors":44,"rejected":0}}
+],"summary":{"total":388,"pass":311,"rts_diverge":16,"bun_node_diverge":17,"errors":44,"rejected":0}}
