@@ -352,6 +352,13 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                             let key_h = if matches!(tv.ty, ValTy::F64) {
                                 let inst_s = ctx.builder.ins().call(from_f64, &[tv.val]);
                                 ctx.builder.inst_results(inst_s)[0]
+                            } else if matches!(tv.ty, ValTy::Handle) {
+                                // (cross-runtime #316) Elemento string/handle: a
+                                // KEY do Set eh o CONTEUDO da string, nao o numero
+                                // do handle. Sem isto `new Set(["a","b","a"])` nao
+                                // deduplicava (cada "a" tinha handle distinto) e
+                                // has("a") falhava. Usa o proprio handle string.
+                                tv.val
                             } else {
                                 let i = ctx.coerce_to_i64(tv).val;
                                 let inst_s = ctx.builder.ins().call(from_i64, &[i]);
