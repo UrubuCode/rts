@@ -78,6 +78,10 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
                                 // precisa registrar `s` como array, senao
                                 // `s.map(...)` nao eh reconhecido -> SIGILL.
                                 | "sort" | "reverse" | "fill" | "copyWithin"
+                                // (cross-runtime) `str.split(sep)` retorna array
+                                // de strings. `const parts = s.split("-")` precisa
+                                // registrar `parts` como array p/ `parts.map(...)`.
+                                | "split"
                             )
                         );
                         let obj_is_array_static = matches!(
