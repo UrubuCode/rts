@@ -104,6 +104,12 @@ pub fn compile_program(
     // (nao Number generico) — metodos que retornam int ficam de fora.
     register_proto_method_f64(program);
 
+    // (#270) Coleta nomes de fns (incl. arrows liftadas) cujo corpo retorna
+    // string inequivoca. `inspect_return_kind` consulta isso para inferir que
+    // `return someFn()` (call de fn string-yielding) retorna string — sem isso
+    // o handle de string voltava como bits crus.
+    register_string_ret_fns(program);
+
     // Single-file AOT path: imports are not stripped before compile_program,
     // so we scan them here to populate node_import_map (JIT multi-file path
     // already populated this in ModuleGraph::flatten_for_jit).
@@ -799,6 +805,52 @@ enum ReturnKind {
     Handle,
 }
 
+/// (#270) True se algum `return` no bloco SWC produz string inequivoca
+/// (template, str literal, String(...), concat com string). Usado para
+/// detectar arrows/fns locais string-yielding (`const a = () => "x"`).
+fn block_returns_string(
+    stmts: &[swc_ecma_ast::Stmt],
+    sag: &std::collections::HashSet<String>,
+) -> bool {
+    use swc_ecma_ast::{Expr, Lit, Stmt};
+    fn yields(e: &Expr, sag: &std::collections::HashSet<String>) -> bool {
+        match e {
+            Expr::Tpl(_) => true,
+            Expr::Lit(Lit::Str(_)) => true,
+            Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Add) =>
+                yields(&b.left, sag) || yields(&b.right, sag),
+            Expr::Paren(p) => yields(&p.expr, sag),
+            Expr::Cond(c) => yields(&c.cons, sag) || yields(&c.alt, sag),
+            Expr::Call(c) => {
+                if let swc_ecma_ast::Callee::Expr(ce) = &c.callee {
+                    if let Expr::Ident(id) = ce.as_ref() {
+                        return id.sym.as_str() == "String" || sag.contains(id.sym.as_str());
+                    }
+                    if let Expr::Member(m) = ce.as_ref() {
+                        if let swc_ecma_ast::MemberProp::Ident(p) = &m.prop {
+                            return matches!(p.sym.as_str(),
+                                "toString" | "join" | "concat" | "replace" | "replaceAll"
+                                | "trim" | "toUpperCase" | "toLowerCase" | "slice" | "padStart"
+                                | "padEnd" | "repeat" | "substring" | "charAt");
+                        }
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+    fn check(s: &Stmt, sag: &std::collections::HashSet<String>) -> bool {
+        match s {
+            Stmt::Return(r) => r.arg.as_deref().map(|e| yields(e, sag)).unwrap_or(false),
+            Stmt::Block(b) => b.stmts.iter().any(|s| check(s, sag)),
+            Stmt::If(i) => check(&i.cons, sag) || i.alt.as_deref().map(|a| check(a, sag)).unwrap_or(false),
+            _ => false,
+        }
+    }
+    stmts.iter().any(|s| check(s, sag))
+}
+
 /// Heuristica de inferencia de return type baseada no shape do return expr.
 /// Conservador: retorna String quando QUALQUER ramo retorna expressao
 /// string-yielding; Number quando ha return mas nenhum visivelmente string;
@@ -856,7 +908,13 @@ fn inspect_return_kind(
                         }
                     }
                     if let Expr::Ident(id) = callee.as_ref() {
-                        if id.sym.as_str() == "String" {
+                        // `String(...)` coercao; `arrow()`/`fn()` de var local
+                        // string-yielding (sag); ou fn top-level/liftada que
+                        // retorna string (STRING_RET_FNS — #270).
+                        if id.sym.as_str() == "String"
+                            || sag.contains(id.sym.as_str())
+                            || fn_returns_string(id.sym.as_str())
+                        {
                             return true;
                         }
                     }
@@ -1028,7 +1086,7 @@ fn inspect_return_kind(
     let mut string_vars: std::collections::HashSet<String> =
         string_array_globals.clone();
     {
-        use swc_ecma_ast::{Decl, Pat, Stmt};
+        use swc_ecma_ast::{Decl, Expr, Pat, Stmt};
         for s in body {
             let Statement::Raw(raw) = s;
             let Some(Stmt::Decl(Decl::Var(v))) = raw.stmt.as_ref() else { continue };
@@ -1037,6 +1095,33 @@ fn inspect_return_kind(
                 let Some(init) = d.init.as_deref() else { continue };
                 if expr_yields_string(init, string_array_globals) {
                     string_vars.insert(id.id.sym.as_str().to_string());
+                }
+                // (#270) `const arrow = () => <string-expr>` / `function() {
+                // return <string-expr> }` em var local: registra o NOME para
+                // que `return arrow()` (call dessa var) seja inferido como
+                // string. Sem isso, fn que retorna `arrow()` (call de arrow
+                // local string-yielding) inferia Number e o handle voltava cru.
+                let arrow_body_str = match init {
+                    Expr::Arrow(a) => match a.body.as_ref() {
+                        swc_ecma_ast::BlockStmtOrExpr::Expr(e) =>
+                            expr_yields_string(e, string_array_globals),
+                        swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) =>
+                            block_returns_string(&b.stmts, string_array_globals),
+                    },
+                    Expr::Fn(f) => f.function.body.as_ref()
+                        .map(|b| block_returns_string(&b.stmts, string_array_globals))
+                        .unwrap_or(false),
+                    _ => false,
+                };
+                if arrow_body_str {
+                    string_vars.insert(id.id.sym.as_str().to_string());
+                }
+                // (#270) `const arrow = <Ident de fn liftada string-yielding>`
+                // — o lift troca a arrow inline por um Ident pra fn liftada.
+                if let Expr::Ident(fid) = init {
+                    if fn_returns_string(fid.sym.as_str()) {
+                        string_vars.insert(id.id.sym.as_str().to_string());
+                    }
                 }
             }
         }
@@ -1106,6 +1191,32 @@ pub(crate) fn set_generator_fns(fns: std::collections::HashSet<String>) {
 /// (generators) True se `name` eh uma generator fn registrada.
 pub(crate) fn is_generator_fn(name: &str) -> bool {
     GENERATOR_FNS.with(|c| c.borrow().contains(name))
+}
+
+thread_local! {
+    // (#270) nomes de fns (incl. arrows liftadas) cujo corpo retorna string.
+    static STRING_RET_FNS: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// (#270) True se a user fn `name` retorna string inequivoca.
+fn fn_returns_string(name: &str) -> bool {
+    STRING_RET_FNS.with(|c| c.borrow().contains(name))
+}
+
+/// Pre-pass: registra fns top-level cujo corpo retorna string inequivoca.
+fn register_string_ret_fns(program: &Program) {
+    let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = std::collections::HashSet::new();
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            // Reusa inspect_return_kind: String => retorna string.
+            if matches!(inspect_return_kind(&f.body, &empty), ReturnKind::String) {
+                out.insert(f.name.clone());
+            }
+        }
+    }
+    STRING_RET_FNS.with(|c| *c.borrow_mut() = out);
 }
 
 thread_local! {
