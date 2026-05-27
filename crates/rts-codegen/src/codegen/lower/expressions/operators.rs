@@ -1940,6 +1940,13 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         if known_global {
             return lower_global_instanceof(ctx, &class_name, &bin.left);
         }
+        // (cross-runtime #387) RHS eh uma FUNCAO-CONSTRUTORA (pre-ES6,
+        // `function Animal(){}`). Reifica a fn, resolve seu prototype e anda
+        // a __proto__ chain da instancia via INSTANCEOF_PROTO. Cobre heranca
+        // por `Dog.prototype = Object.create(Animal.prototype)`.
+        if ctx.user_fns.contains_key(&class_name) {
+            return lower_ctor_fn_instanceof(ctx, &class_name, &bin.left);
+        }
         return Err(anyhow!("instanceof RHS `{class_name}` is not a known class"));
     }
 
@@ -1992,6 +1999,65 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     }
 
     Ok(TypedVal::new(acc, ValTy::Bool))
+}
+
+/// (cross-runtime #387) `lhs instanceof <CtorFn>` — fn-construtora pre-ES6.
+/// Reifica a fn como handle Function (carrega o fn_ptr que indexa o
+/// prototype registry) e chama INSTANCEOF_PROTO, que anda a `__proto__`
+/// chain da instancia comparando com `CtorFn.prototype`. Cobre heranca via
+/// `Sub.prototype = Object.create(Base.prototype)`.
+fn lower_ctor_fn_instanceof(
+    ctx: &mut FnCtx,
+    fn_name: &str,
+    lhs_expr: &Expr,
+) -> Result<TypedVal> {
+    use super::calls::emit_user_fn_addr;
+    let lhs = lower_expr(ctx, lhs_expr)?;
+    // Primitivos nunca casam — so' handles (Map de instancia).
+    if !matches!(lhs.ty, ValTy::Handle | ValTy::I64 | ValTy::U64) {
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        return Ok(TypedVal::new(zero, ValTy::Bool));
+    }
+    let recv = ctx.coerce_to_i64(lhs).val;
+
+    // Reifica a fn-construtora como handle Function (REIFY simples — so'
+    // precisamos do fn_ptr pra resolver o prototype no registry).
+    let fn_addr = emit_user_fn_addr(ctx, fn_name)?.val;
+    let arity = ctx
+        .user_fns
+        .get(fn_name)
+        .map(|f| f.params.len() as i64)
+        .unwrap_or(0);
+    let arity_v = ctx.builder.ins().iconst(cl::I64, arity);
+    let name_tv = ctx.emit_str_handle(fn_name.as_bytes())?;
+    let name_h = ctx.coerce_to_i64(name_tv).val;
+    let str_ptr_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+    let str_len_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+    let inst_p = ctx.builder.ins().call(str_ptr_fn, &[name_h]);
+    let n_ptr = ctx.builder.inst_results(inst_p)[0];
+    let inst_l = ctx.builder.ins().call(str_len_fn, &[name_h]);
+    let n_len = ctx.builder.inst_results(inst_l)[0];
+    let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let reify_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_REIFY",
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
+        Some(cl::I64),
+    )?;
+    let inst_r = ctx
+        .builder
+        .ins()
+        .call(reify_fn, &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v]);
+    let fn_handle = ctx.builder.inst_results(inst_r)[0];
+
+    let check_fn = ctx.get_extern(
+        "__RTS_FN_RT_INSTANCEOF_PROTO",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(check_fn, &[recv, fn_handle]);
+    let r = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(r, ValTy::Bool))
 }
 
 /// `lhs instanceof <GlobalClass>` — dispatcha para runtime fn que detecta
