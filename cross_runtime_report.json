@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":316,"rts_diverge":14,"bun_node_diverge":16,"errors":42,"rejected":0}}
+],"summary":{"total":388,"pass":315,"rts_diverge":14,"bun_node_diverge":17,"errors":42,"rejected":0}}
