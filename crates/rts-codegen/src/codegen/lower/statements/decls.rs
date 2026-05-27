@@ -105,6 +105,14 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             if matches!(init_peeled, swc_ecma_ast::Expr::Array(_)) {
                 ctx.local_array_vars.insert(name.clone());
             }
+            // Alias direto de array: `const es = arr` onde `arr` ja' eh
+            // array conhecido. Sem isso, `es.map(arrow)` nao reconhece o
+            // receiver como Vec e cai no caminho string/map_get (trap).
+            if let swc_ecma_ast::Expr::Ident(id) = init_peeled {
+                if ctx.local_array_vars.contains(id.sym.as_str()) {
+                    ctx.local_array_vars.insert(name.clone());
+                }
+            }
             // (#798) `const x = Object.keys/values/getOwnPropertyNames/getOwnPropertySymbols(...)`
             // retorna Vec — marca pra que `x.includes(sym)` use VEC_INCLUDES e nao
             // o string builtin (que ignora needle e retorna 0).

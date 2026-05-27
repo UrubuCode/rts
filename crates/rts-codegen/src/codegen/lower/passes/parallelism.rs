@@ -136,7 +136,15 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
                     )
             }).unwrap_or(false);
             let init_is_array = decl.init.as_deref().map(init_looks_array).unwrap_or(false);
-            if ann_is_array || init_is_array {
+            // Alias direto de array: `const es = arr` onde `arr` ja' foi
+            // registrado como array receiver. Permite que `es.map(arrow)`
+            // tenha o arrow liftado igual a `arr.map(arrow)` (caso contrario
+            // o arrow inline nao eh liftado e o codegen trapa).
+            let init_is_array_alias = matches!(
+                decl.init.as_deref(),
+                Some(Expr::Ident(id)) if out.contains(id.sym.as_str())
+            );
+            if ann_is_array || init_is_array || init_is_array_alias {
                 out.insert(name);
             }
         }
