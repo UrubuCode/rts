@@ -858,6 +858,37 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
             }
         }
 
+        // (#811/205) `view[i] = v` onde view eh TypedArray-view sobre buffer:
+        // escreve `elem_bytes` bytes little-endian via TA_SET_ELEM no buffer
+        // (compartilhado entre views). Para float, rhs_i64 carrega os bits f64.
+        if let (Expr::Ident(obj_id), MemberProp::Computed(c)) = (m.obj.as_ref(), &m.prop) {
+            if let Some(&(eb, _sg, fl)) = ctx.local_ta_view.get(obj_id.sym.as_str()) {
+                use cranelift_codegen::ir::types as cl;
+                let obj_h = {
+                    let tv = lower_expr(ctx, &m.obj)?;
+                    ctx.coerce_to_i64(tv).val
+                };
+                let idx_tv = lower_expr(ctx, &c.expr)?;
+                let idx = ctx.coerce_to_i64(idx_tv).val;
+                // Para float, garante que rhs_i64 sao bits de f64.
+                let val = if fl != 0 {
+                    let f = to_f64(ctx, TypedVal::new(rhs_i64, ValTy::I64));
+                    ctx.builder.ins().bitcast(cl::I64, cranelift_codegen::ir::MemFlags::new(), f)
+                } else {
+                    rhs_i64
+                };
+                let eb_v = ctx.builder.ins().iconst(cl::I64, eb);
+                let fl_v = ctx.builder.ins().iconst(cl::I64, fl);
+                let set_elem = ctx.get_extern(
+                    "__RTS_FN_GL_TA_SET_ELEM",
+                    &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                    None,
+                )?;
+                ctx.builder.ins().call(set_elem, &[obj_h, idx, eb_v, fl_v, val]);
+                return Ok(TypedVal::new(rhs_i64, ValTy::I64));
+            }
+        }
+
         let obj_tv = lower_expr(ctx, &m.obj)?;
         let obj_h = ctx.coerce_to_i64(obj_tv).val;
         let set_fn = ctx.get_extern(

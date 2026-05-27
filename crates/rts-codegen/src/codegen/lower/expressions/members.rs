@@ -1518,6 +1518,31 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
         MemberProp::Computed(c) => {
+            // (#811/205) `view[i]` onde view eh TypedArray-view sobre buffer:
+            // le `elem_bytes` bytes little-endian via TA_GET_ELEM.
+            if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                if let Some(&(eb, sg, fl)) = ctx.local_ta_view.get(obj_id.sym.as_str()) {
+                    let idx_tv = lower_expr(ctx, &c.expr)?;
+                    let idx = ctx.coerce_to_i64(idx_tv).val;
+                    let eb_v = ctx.builder.ins().iconst(cl::I64, eb);
+                    let sg_v = ctx.builder.ins().iconst(cl::I64, sg);
+                    let fl_v = ctx.builder.ins().iconst(cl::I64, fl);
+                    let get_fn = ctx.get_extern(
+                        "__RTS_FN_GL_TA_GET_ELEM",
+                        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx, eb_v, sg_v, fl_v]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    let ty = if fl != 0 { ValTy::F64 } else { ValTy::I64 };
+                    let v = if fl != 0 {
+                        ctx.builder.ins().bitcast(cl::F64, cranelift_codegen::ir::MemFlags::new(), v)
+                    } else {
+                        v
+                    };
+                    return Ok(TypedVal::new(v, ty));
+                }
+            }
             if let Expr::Lit(Lit::Str(s)) = c.expr.as_ref() {
                 // (#261) Computed key string literal: tenta inferir field_ty
                 // do mesmo caminho que MemberProp::Ident usaria — lookup

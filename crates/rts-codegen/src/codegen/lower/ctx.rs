@@ -537,6 +537,12 @@ pub struct FnCtx<'m, 'fb> {
     /// lateral sobre o Vec); outras vars com `.next()` usam dispatch normal.
     pub generator_vars: std::collections::HashSet<String>,
 
+    /// (#811/205) Vars que sao TypedArray-view sobre um ArrayBuffer
+    /// (`const v = new Uint8Array(buffer)`): o valor eh o handle do buffer e
+    /// `v[i]` le/escreve `elem_bytes` bytes little-endian. Tupla:
+    /// (elem_bytes, signed, is_float).
+    pub local_ta_view: HashMap<String, (i64, i64, i64)>,
+
     /// Counter para gerar nomes únicos de locals temporários em
     /// optional chain calls aninhadas (#481). Usado por
     /// `lower_opt_chain` quando o receiver é uma expressão complexa
@@ -622,6 +628,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             num_val_cache: HashMap::new(),
             local_array_vars: std::collections::HashSet::new(),
             generator_vars: std::collections::HashSet::new(),
+            local_ta_view: HashMap::new(),
             local_nested_obj_field_types: HashMap::new(),
             opt_chain_temp_counter: 0,
             current_fn_name: String::new(),

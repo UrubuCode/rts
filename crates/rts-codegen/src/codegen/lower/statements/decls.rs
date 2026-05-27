@@ -542,6 +542,23 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             ctx.local_class_ty
                                 .insert(name.clone(), "__proto_instance".to_string());
                         }
+                        // (#811/205) `const v = new Uint8Array(buffer)` onde
+                        // `buffer` eh ArrayBuffer: v eh uma VIEW sobre o mesmo
+                        // buffer (escritas compartilhadas). Marca `local_ta_view`
+                        // com (elem_bytes, signed, is_float) e o lower do new
+                        // retorna o handle do buffer direto.
+                        if let Some((eb, sg, fl)) = ta_elem_meta(&cn) {
+                            let arg_is_arraybuffer = ne.args.as_ref()
+                                .and_then(|a| a.first())
+                                .map(|a| matches!(a.expr.as_ref(),
+                                    swc_ecma_ast::Expr::Ident(id)
+                                        if ctx.local_class_ty.get(id.sym.as_str())
+                                            .map(|c| c == "ArrayBuffer").unwrap_or(false)))
+                                .unwrap_or(false);
+                            if arg_is_arraybuffer {
+                                ctx.local_ta_view.insert(name.clone(), (eb, sg, fl));
+                            }
+                        }
                         if is_error_class {
                             let mut ft: std::collections::HashMap<String, ValTy> =
                                 std::collections::HashMap::new();
@@ -830,5 +847,21 @@ fn zero_for_ty(ctx: &mut FnCtx, ty: ValTy) -> cranelift_codegen::ir::Value {
         ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
         ValTy::F64 => ctx.builder.ins().f64const(0.0),
         _ => ctx.builder.ins().iconst(cl::I64, 0),
+    }
+}
+
+/// (#811/205) Metadados do elemento de um TypedArray: (elem_bytes, signed,
+/// is_float). None se o nome nao for um TypedArray conhecido.
+pub(crate) fn ta_elem_meta(name: &str) -> Option<(i64, i64, i64)> {
+    match name {
+        "Int8Array" => Some((1, 1, 0)),
+        "Uint8Array" | "Uint8ClampedArray" => Some((1, 0, 0)),
+        "Int16Array" => Some((2, 1, 0)),
+        "Uint16Array" => Some((2, 0, 0)),
+        "Int32Array" => Some((4, 1, 0)),
+        "Uint32Array" => Some((4, 0, 0)),
+        "Float32Array" => Some((4, 0, 1)),
+        "Float64Array" => Some((8, 0, 1)),
+        _ => None,
     }
 }
