@@ -1294,6 +1294,12 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                 // / `if (x?.missing)` sao sempre truthy quando o lado direito
                 // eh undefined. JS spec: undefined eh falsy.
                 let undef = self.builder.ins().iconst(cl::I64, i64::MIN + 2);
+                // (cross-runtime #368) Sentinel bool false (i64::MIN) — usado
+                // pelo codegen para empacotar `false` em object literal/map.
+                // Quando lido como i64 ambiguo (campo sem field type, ex:
+                // `const {done} = it.next(); if (done)`), precisa ser falsy.
+                // BOOL_TRUE (i64::MIN+1) ja' eh truthy (nao-zero, nao-undef).
+                let bool_false = self.builder.ins().iconst(cl::I64, i64::MIN);
                 let not_zero = self.builder.ins().icmp(
                     cranelift_codegen::ir::condcodes::IntCC::NotEqual,
                     i64v,
@@ -1304,7 +1310,13 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
                     i64v,
                     undef,
                 );
-                self.builder.ins().band(not_zero, not_undef)
+                let not_bool_false = self.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    i64v,
+                    bool_false,
+                );
+                let r = self.builder.ins().band(not_zero, not_undef);
+                self.builder.ins().band(r, not_bool_false)
             }
         }
     }

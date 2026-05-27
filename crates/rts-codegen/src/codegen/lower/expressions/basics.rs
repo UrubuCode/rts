@@ -271,8 +271,20 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
                 ctx.builder
                     .ins()
                     .icmp(IntCC::Equal, value, zero);
+            // (cross-runtime #368) Sentinels falsy: bool false (i64::MIN) e
+            // undefined (i64::MIN+2). `!falseField` deve dar true quando o
+            // campo bool foi lido como i64 ambiguo (sem field type). Espelha
+            // to_branch_cond. BOOL_TRUE (i64::MIN+1) segue truthy.
+            let bool_false = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+            let is_false_sentinel =
+                ctx.builder.ins().icmp(IntCC::Equal, value, bool_false);
+            let undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+            let is_undef =
+                ctx.builder.ins().icmp(IntCC::Equal, value, undef);
+            let falsy = ctx.builder.ins().bor(is_zero, is_false_sentinel);
+            let falsy = ctx.builder.ins().bor(falsy, is_undef);
             Ok(TypedVal::new(
-                ctx.builder.ins().uextend(cl::I64, is_zero),
+                ctx.builder.ins().uextend(cl::I64, falsy),
                 ValTy::Bool,
             ))
         }
