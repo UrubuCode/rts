@@ -383,6 +383,50 @@ pub(super) fn lower_return_stmt(
     ctx: &mut FnCtx,
     ret_stmt: &swc_ecma_ast::ReturnStmt,
 ) -> Result<bool> {
+    // (#128 fase 2) `return` dentro de try-com-finally: avalia o valor de
+    // retorno, roda os finally pendentes (mais interno primeiro) e so' entao
+    // emite `return_`. Sem tail-call (o return nao eh mais o ultimo ato).
+    if !ctx.finally_stack.is_empty() {
+        let ret_val: Option<crate::codegen::lower::ctx::TypedVal> = match &ret_stmt.arg {
+            Some(arg) => Some(lower_expr(ctx, arg)?),
+            None => None,
+        };
+        // Clona (topo = mais interno primeiro) e inlina cada finally. NAO
+        // drena: pode haver multiplos `return` no mesmo try (ex: `if (c)
+        // return a; return b;`) — cada um precisa rodar os finally. Para
+        // evitar recursao infinita se um finally tiver `return`, esvazia
+        // temporariamente o stack durante o inline e restaura depois.
+        let pending: Vec<swc_ecma_ast::BlockStmt> =
+            ctx.finally_stack.iter().rev().cloned().collect();
+        let saved = std::mem::take(&mut ctx.finally_stack);
+        for fin in &pending {
+            lower_block(ctx, fin)?;
+            if ctx.builder.is_unreachable() {
+                break;
+            }
+        }
+        ctx.finally_stack = saved;
+        if !ctx.builder.is_unreachable() {
+            match (ctx.return_ty, ret_val) {
+                (None, _) | (_, None) => {
+                    ctx.emit_trace_pop()?;
+                    ctx.builder.ins().return_(&[]);
+                }
+                (Some(ret_ty), Some(tv)) => {
+                    let coerced = match ret_ty {
+                        ValTy::I32 => ctx.coerce_to_i32(tv),
+                        ValTy::F64 => ctx.coerce_to_f64(tv),
+                        ValTy::Handle => ctx.pass_as_handle(tv)?,
+                        _ => ctx.coerce_to_i64(tv),
+                    };
+                    ctx.emit_trace_pop()?;
+                    ctx.builder.ins().return_(&[coerced.val]);
+                }
+            }
+        }
+        return Ok(true);
+    }
+
     if let Some(arg) = &ret_stmt.arg {
         let is_direct_tail_call = is_direct_call_expr(arg);
         let prev = ctx.in_tail_position;
@@ -568,7 +612,19 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
 
     let clear_fref = ctx.get_extern("__RTS_FN_RT_ERROR_CLEAR", &[], None)?;
     ctx.builder.ins().call(clear_fref, &[]);
-    lower_block(ctx, &t.block)?;
+
+    // (#128 fase 2) Empurra o corpo do finally no finally_stack ANTES de
+    // lowerar o try-body, pra que um `return` dentro do try inline o finally
+    // antes de emitir `return_`. Pop apos o try-body (catch/finally proprios
+    // nao devem re-inlinar este finally).
+    if has_finally {
+        ctx.finally_stack
+            .push(t.finalizer.as_ref().unwrap().clone());
+    }
+    let try_terminated = lower_block(ctx, &t.block)?;
+    if has_finally {
+        ctx.finally_stack.pop();
+    }
 
     let catch_block = if has_catch {
         Some(ctx.builder.create_block())
@@ -582,7 +638,12 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
     };
     let after_block = ctx.builder.create_block();
 
-    if !ctx.builder.is_unreachable() {
+    // (#128 fase 2) Se o try-body terminou com terminator (ex: `return` que
+    // ja' inlinou o finally), nao emitir o error-check brif — o bloco esta
+    // preenchido. (No modelo fase-1, `throw` nao desvia o fluxo; um try que
+    // termina com `return` incondicional torna o catch inalcancavel de
+    // qualquer forma — unwind real eh follow-up.)
+    if !try_terminated && !ctx.builder.is_unreachable() {
         let get_fref = ctx.get_extern("__RTS_FN_RT_ERROR_GET", &[], Some(cl::I64))?;
         let inst = ctx.builder.ins().call(get_fref, &[]);
         let err_handle = ctx.builder.inst_results(inst)[0];
@@ -593,6 +654,22 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
         ctx.builder
             .ins()
             .brif(is_err, err_target, &[], ok_target, &[]);
+    }
+
+    // (#128 fase 2) try-body terminou (return inlinou o finally): no modelo
+    // fase-1 (throw nao desvia), nenhum caminho alcanca catch/finally/after
+    // — sao blocos orfaos. Sela-os (Cranelift remove blocos selados sem
+    // predecessores) e sinaliza terminado. Sem isto o after_block ficava
+    // vazio sem terminator ("block does not end in terminator").
+    if try_terminated {
+        if let Some(cb) = catch_block {
+            ctx.builder.seal_block(cb);
+        }
+        if let Some(fb) = finally_block {
+            ctx.builder.seal_block(fb);
+        }
+        ctx.builder.seal_block(after_block);
+        return Ok(true);
     }
 
     if let Some(cb) = catch_block {
@@ -687,8 +764,8 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
         let clear_fref = ctx.get_extern("__RTS_FN_RT_ERROR_CLEAR", &[], None)?;
         ctx.builder.ins().call(clear_fref, &[]);
 
-        lower_block(ctx, &handler.body)?;
-        if !ctx.builder.is_unreachable() {
+        let catch_terminated = lower_block(ctx, &handler.body)?;
+        if !catch_terminated && !ctx.builder.is_unreachable() {
             let next = finally_block.unwrap_or(after_block);
             ctx.builder.ins().jump(next, &[]);
         }
