@@ -498,7 +498,16 @@ fn lift_arrows_in_stmt(
                 lift_arrows_in_expr(arg, user_fn_names, new_fns, counter);
             }
         }
-        _ => {}
+        // (cross-runtime #369) Desce em blocos aninhados. Sem isto, um
+        // `arr.map(arrow)` dentro de if/catch/loop nao tem o arrow inline
+        // liftado; o codegen de `.map(arrowInline)` em bloco aninhado
+        // corrompe o fluxo (block merge/after orfao -> "invalid block
+        // reference").
+        other => {
+            for child in child_stmts_mut(other) {
+                lift_arrows_in_stmt(child, user_fn_names, new_fns, counter);
+            }
+        }
     }
 }
 
@@ -1343,8 +1352,52 @@ fn rewrite_array_methods_in_stmt(stmt: &mut Stmt, user_fn_names: &HashSet<String
                 rewrite_array_methods_in_expr(arg, user_fn_names);
             }
         }
+        // (cross-runtime #369) Desce em blocos aninhados (if/catch/loop/etc).
+        other => {
+            for child in child_stmts_mut(other) {
+                rewrite_array_methods_in_stmt(child, user_fn_names);
+            }
+        }
+    }
+}
+
+/// (cross-runtime #369) Coleta refs mutaveis dos statements-filho de um
+/// statement composto, para que os passes de lift/rewrite de array methods
+/// desçam em blocos aninhados (if, try/catch/finally, loops, switch, block,
+/// labeled). Statements simples (sem filhos) retornam vazio.
+fn child_stmts_mut(stmt: &mut Stmt) -> Vec<&mut Stmt> {
+    let mut out: Vec<&mut Stmt> = Vec::new();
+    match stmt {
+        Stmt::Block(b) => out.extend(b.stmts.iter_mut()),
+        Stmt::If(i) => {
+            out.push(&mut i.cons);
+            if let Some(alt) = i.alt.as_deref_mut() {
+                out.push(alt);
+            }
+        }
+        Stmt::Try(t) => {
+            out.extend(t.block.stmts.iter_mut());
+            if let Some(h) = t.handler.as_mut() {
+                out.extend(h.body.stmts.iter_mut());
+            }
+            if let Some(f) = t.finalizer.as_mut() {
+                out.extend(f.stmts.iter_mut());
+            }
+        }
+        Stmt::For(f) => out.push(&mut f.body),
+        Stmt::ForIn(f) => out.push(&mut f.body),
+        Stmt::ForOf(f) => out.push(&mut f.body),
+        Stmt::While(w) => out.push(&mut w.body),
+        Stmt::DoWhile(d) => out.push(&mut d.body),
+        Stmt::Labeled(l) => out.push(&mut l.body),
+        Stmt::Switch(s) => {
+            for case in s.cases.iter_mut() {
+                out.extend(case.cons.iter_mut());
+            }
+        }
         _ => {}
     }
+    out
 }
 
 fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String>) {

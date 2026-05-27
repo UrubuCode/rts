@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,3,B,C"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\ntimeout,micro1,micro2,queueMicrotask,micro3\n1,A,2,3,B,C"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=micro|immediate|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -3009,10 +3009,10 @@
 ,
 {
   "name": "93_typedarray_methods",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
   "node": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":314,"rts_diverge":15,"bun_node_diverge":16,"errors":43,"rejected":0}}
+],"summary":{"total":388,"pass":314,"rts_diverge":16,"bun_node_diverge":16,"errors":42,"rejected":0}}
