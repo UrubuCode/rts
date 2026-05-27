@@ -2294,6 +2294,23 @@ pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
                                 }
                             }
                         }
+                        // (cross-runtime builder) Metodo de instancia de classe
+                        // de USUARIO que retorna a propria classe (`inc(): C {
+                        // return this }`). Permite chain direto `c.inc().inc()`.
+                        // RESTRITIVO: so' quando ret_class do metodo == a classe
+                        // do receiver (builder genuino), pra nao resolver classe
+                        // indevida (regressao da tentativa anterior).
+                        if ctx.classes.contains_key(&recv_cls) {
+                            let fname = crate::codegen::lower::compile::class::class_method_name(
+                                &recv_cls,
+                                method_id.sym.as_str(),
+                            );
+                            if let Some(abi) = ctx.user_fns.get(&fname) {
+                                if abi.ret_class.as_deref() == Some(recv_cls.as_str()) {
+                                    return Some(recv_cls);
+                                }
+                            }
+                        }
                     }
                 }
             }
