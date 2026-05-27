@@ -162,6 +162,51 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
             }
         }
     }
+
+    // (cross-runtime #1065) Params e locais anotados como array DENTRO de
+    // user fns. Sem isso, `function dec(encoded: number[]) {
+    // encoded.map(arrow) }` nao reconhece `encoded` como array receiver, o
+    // `.map(__lifted_arrow)` nao vira `parallel.map` e o codegen trapa
+    // (SIGILL). O set eh global de nomes; o gate ainda exige
+    // `arg0_is_user_fn`, entao falso-positivo de nome eh inofensivo.
+    fn ts_type_is_array(ty: &swc_ecma_ast::TsType) -> bool {
+        matches!(ty, swc_ecma_ast::TsType::TsArrayType(_))
+            || matches!(
+                ty,
+                swc_ecma_ast::TsType::TsTypeRef(tr) if matches!(
+                    &tr.type_name,
+                    swc_ecma_ast::TsEntityName::Ident(i) if i.sym.as_str() == "Array"
+                )
+            )
+    }
+    fn ann_str_is_array(ann: &str) -> bool {
+        let t = ann.trim();
+        t.ends_with("[]") || t.starts_with("Array<") || t.starts_with("ReadonlyArray<")
+    }
+    for item in &program.items {
+        let Item::Function(f) = item else { continue };
+        // Params anotados `T[]` / `Array<T>`.
+        for p in &f.parameters {
+            if p.type_annotation.as_deref().map(ann_str_is_array).unwrap_or(false) {
+                out.insert(p.name.clone());
+            }
+        }
+        // Locais (const/let/var) anotados array ou com init array.
+        for stmt_raw in &f.body {
+            let Statement::Raw(raw) = stmt_raw;
+            let Some(Stmt::Decl(Decl::Var(var_decl))) = raw.stmt.as_ref() else { continue };
+            for decl in &var_decl.decls {
+                let Pat::Ident(id) = &decl.name else { continue };
+                let ann_is_array = id.type_ann.as_ref()
+                    .map(|ann| ts_type_is_array(&ann.type_ann))
+                    .unwrap_or(false);
+                let init_is_array = decl.init.as_deref().map(init_looks_array).unwrap_or(false);
+                if ann_is_array || init_is_array {
+                    out.insert(id.id.sym.as_str().to_string());
+                }
+            }
+        }
+    }
     out
 }
 
