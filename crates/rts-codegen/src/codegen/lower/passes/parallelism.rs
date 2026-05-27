@@ -73,6 +73,11 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
                                 "map" | "filter" | "slice" | "concat" | "flat"
                                 | "flatMap" | "toReversed" | "toSorted" | "toSpliced"
                                 | "with" | "splice"
+                                // (cross-runtime) Mutators in-place que retornam
+                                // o proprio array (this). `const s = arr.sort(cmp)`
+                                // precisa registrar `s` como array, senao
+                                // `s.map(...)` nao eh reconhecido -> SIGILL.
+                                | "sort" | "reverse" | "fill" | "copyWithin"
                             )
                         );
                         let obj_is_array_static = matches!(
