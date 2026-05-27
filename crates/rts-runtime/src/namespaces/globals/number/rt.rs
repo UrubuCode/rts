@@ -230,6 +230,15 @@ fn js_exp_notation(s: &str) -> String {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_TO_STRING_RADIX(v: f64, radix: i64) -> u64 {
+    // (cross-runtime) JS spec: NaN/Infinity -> "NaN"/"Infinity"/"-Infinity"
+    // (Rust formataria como "NaN"/"inf"/"-inf"). Aplica antes de qualquer
+    // radix. `(1/0).toString()` deve dar "Infinity", nao "inf".
+    if v.is_nan() {
+        return alloc_str("NaN");
+    }
+    if v.is_infinite() {
+        return alloc_str(if v > 0.0 { "Infinity" } else { "-Infinity" });
+    }
     let r = radix.clamp(2, 36) as u32;
     if r == 10 {
         // Fast path: standard decimal representation.
