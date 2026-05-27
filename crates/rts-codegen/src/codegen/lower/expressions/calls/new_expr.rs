@@ -792,9 +792,11 @@ pub(super) fn lower_new_typed_array(
                     ctx.builder.seal_block(exit);
                 } else if matches!(tv.ty, ValTy::Handle) {
                     let src_h = ctx.coerce_to_i64(tv).val;
-                    // `new Uint8Array(arrayBuffer)` — se o arg eh uma var com
-                    // classe estatica ArrayBuffer, le os BYTES do Entry::Buffer
-                    // (um byte por slot). Senao, trata como array-like (Vec).
+                    // (#811/205) `new Uint8Array(arrayBuffer)` — VIEW VIVA: o
+                    // valor da TypedArray eh o PROPRIO handle do buffer. `v[i]`
+                    // le/escreve `elem_bytes` bytes via TA_GET/SET_ELEM
+                    // (marcado em local_ta_view no decls). Escritas sao
+                    // compartilhadas entre views do mesmo buffer.
                     let is_array_buffer = matches!(
                         arg.expr.as_ref(),
                         Expr::Ident(id) if ctx
@@ -803,12 +805,16 @@ pub(super) fn lower_new_typed_array(
                             .map(|c| c == "ArrayBuffer")
                             .unwrap_or(false)
                     );
-                    let copy_sym = if is_array_buffer {
-                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER"
-                    } else {
-                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM"
-                    };
-                    let copy_fn = ctx.get_extern(copy_sym, &[cl::I64, cl::I64], None)?;
+                    if is_array_buffer {
+                        // Retorna o handle do buffer direto (view viva).
+                        return Ok(TypedVal::new(src_h, ValTy::Handle));
+                    }
+                    // Array-like generico: copia para o Vec.
+                    let copy_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
+                        &[cl::I64, cl::I64],
+                        None,
+                    )?;
                     ctx.builder.ins().call(copy_fn, &[vec_h, src_h]);
                 }
             }
