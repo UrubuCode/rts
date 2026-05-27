@@ -1446,6 +1446,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     if is_null_proto_handle(handle) {
         return 0;
     }
+    // (cross-runtime #336) Topo da prototype chain: o singleton
+    // Object.prototype (Map real instalado como __proto__ raiz das classes)
+    // nao tem proto — getPrototypeOf retorna null. Sem isso, iterar a chain
+    // (`while (proto) { ...; proto = getPrototypeOf(proto); }`) dava uma
+    // volta extra retornando o sentinel `[Object.prototype]` em vez de
+    // terminar, imprimindo lixo (` 0`) apos "Object".
+    if handle == crate::namespaces::globals::function::ops::__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() {
+        return 0;
+    }
     // (#1080) Sentinel proto strings: JS spec:
     // - Object.getPrototypeOf(Object.prototype) === null (depth termina)
     // - Object.getPrototypeOf(Array.prototype) === Object.prototype
