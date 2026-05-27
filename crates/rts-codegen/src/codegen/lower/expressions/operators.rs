@@ -1922,7 +1922,20 @@ fn same_strict_kind(a: ValTy, b: ValTy) -> bool {
 fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     use super::members::emit_class_tag_read;
 
-    let class_name = match bin.right.as_ref() {
+    // Peel TS-only wrappers/paren do RHS: `x instanceof (Shape as any)` e
+    // `x instanceof (C)` devem resolver para o Ident `Shape`/`C`. Sem isso o
+    // codegen rejeitava com "RHS must be a class identifier" (cross-runtime 387).
+    fn peel_instanceof_rhs(e: &Expr) -> &Expr {
+        match e {
+            Expr::Paren(p) => peel_instanceof_rhs(&p.expr),
+            Expr::TsAs(a) => peel_instanceof_rhs(&a.expr),
+            Expr::TsTypeAssertion(a) => peel_instanceof_rhs(&a.expr),
+            Expr::TsConstAssertion(a) => peel_instanceof_rhs(&a.expr),
+            Expr::TsNonNull(a) => peel_instanceof_rhs(&a.expr),
+            _ => e,
+        }
+    }
+    let class_name = match peel_instanceof_rhs(bin.right.as_ref()) {
         Expr::Ident(id) => id.sym.as_str().to_string(),
         _ => return Err(anyhow!("instanceof RHS must be a class identifier")),
     };
