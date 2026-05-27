@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -2964,7 +2964,7 @@
   "status": "rts_diverge",
   "bun": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
   "node": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
-  "rts": "byteLength=8\nview8_0=0\nview8_1=0\nview32_0=0\nsliced=0"
+  "rts": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=0\nsliced=0"
 }
 ,
 {
@@ -2977,10 +2977,10 @@
 ,
 {
   "name": "57_dataview_endianness",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214",
   "node": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214",
-  "rts": "u16be=1234\nu16le=5678\ni32=-42\nbytes="
+  "rts": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214"
 }
 ,
 {
