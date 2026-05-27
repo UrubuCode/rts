@@ -753,6 +753,36 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(
     this_arg: i64,
     args_handle: u64,
 ) -> i64 {
+    invoke_auto_impl(callee, this_arg, args_handle, None)
+}
+
+/// (#1078/#341) INVOKE_AUTO com return_kind explicito do call site.
+/// `override_return_kind`: 255 = usar o do handle; 0/1/2/3 = forcar
+/// i64/f64/bool/i32. O override so' eh aplicado quando o handle nao tem
+/// return_kind proprio (rk=0). Usado quando o codegen sabe o tipo de retorno
+/// do metodo de prototype (ex: `circ.area(): number` via Math.sqrt) — sem
+/// isso o trampolim invoca como `-> i64` e trunca o f64 (le RAX/XMM0 errado).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO_TYPED(
+    callee: i64,
+    this_arg: i64,
+    args_handle: u64,
+    override_return_kind: i32,
+) -> i64 {
+    let ov = if override_return_kind == 255 {
+        None
+    } else {
+        Some(override_return_kind as u8)
+    };
+    invoke_auto_impl(callee, this_arg, args_handle, ov)
+}
+
+fn invoke_auto_impl(
+    callee: i64,
+    this_arg: i64,
+    args_handle: u64,
+    override_return_kind: Option<u8>,
+) -> i64 {
     // (#218 phase2) Proxy callable: se callee for Entry::Proxy, despacha
     // pra trap `apply` ou faz forward chamando o target via Function.apply.
     if let Some((target, handler)) =
@@ -795,16 +825,26 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(
         } else {
             false
         };
-        let r = unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, return_kind) };
+        // Override do call site so' quando o handle nao declara return_kind.
+        let effective_rk = match override_return_kind {
+            Some(ov) if return_kind == 0 => ov,
+            _ => return_kind,
+        };
+        let r = unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, effective_rk) };
         if pushed_this {
             crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
         }
         return r;
     }
-    // Fn ptr raw — invoke_n com args vec.
+    // Fn ptr raw — usa invoke_typed com override (param_kinds vazio).
     let args_v = read_args_vec(args_handle);
     crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
-    let r = unsafe { invoke_n(callee as u64, &args_v) };
+    let rk = override_return_kind.unwrap_or(0);
+    let r = if rk == 0 {
+        unsafe { invoke_n(callee as u64, &args_v) }
+    } else {
+        unsafe { invoke_typed(callee as u64, &args_v, &[], rk) }
+    };
     crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
     r
 }

@@ -97,6 +97,13 @@ pub fn compile_program(
         set_generator_fns(gen_fns);
     }
 
+    // (#1078/#341) Metodos de prototype que retornam f64 INEQUIVOCO.
+    // `Fn.prototype.m = namedFn` onde namedFn retorna evidencia forte de
+    // float (Math.sqrt/pow/.../ divisao `/` / float lit nao-inteiro). O call
+    // site `obj.m()` usa INVOKE_AUTO_TYPED(rk=1) para nao truncar. So' f64
+    // (nao Number generico) — metodos que retornam int ficam de fora.
+    register_proto_method_f64(program);
+
     // Single-file AOT path: imports are not stripped before compile_program,
     // so we scan them here to populate node_import_map (JIT multi-file path
     // already populated this in ModuleGraph::flatten_for_jit).
@@ -1099,6 +1106,141 @@ pub(crate) fn set_generator_fns(fns: std::collections::HashSet<String>) {
 /// (generators) True se `name` eh uma generator fn registrada.
 pub(crate) fn is_generator_fn(name: &str) -> bool {
     GENERATOR_FNS.with(|c| c.borrow().contains(name))
+}
+
+thread_local! {
+    // (#1078/#341) nomes de metodos de prototype que retornam f64 inequivoco.
+    static PROTO_METHOD_F64: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// (#1078/#341) True se `obj.<method>()` (metodo de prototype dinamico) retorna
+/// f64 inequivoco. Lido pelo call site para usar INVOKE_AUTO_TYPED(rk=1).
+pub(crate) fn proto_method_is_f64(method: &str) -> bool {
+    PROTO_METHOD_F64.with(|c| c.borrow().contains(method))
+}
+
+/// Evidencia FORTE de retorno f64 num corpo de fn: algum `return` cuja expr eh
+/// divisao `/`, Math.<float-fn>(...), Math.PI/E/..., ou float literal
+/// nao-inteiro. Conservador — int puro (`a+b`, literal inteiro) NAO dispara.
+fn fn_body_returns_f64(body: &[Statement]) -> bool {
+    use crate::parser::ast::Statement;
+    use swc_ecma_ast::{Expr, Lit, Stmt};
+
+    fn expr_is_f64(e: &Expr) -> bool {
+        match e {
+            Expr::Lit(Lit::Num(n)) => n.value.fract() != 0.0,
+            Expr::Bin(b) => {
+                if matches!(b.op, swc_ecma_ast::BinaryOp::Div) {
+                    return true; // `/` sempre f64 (JS spec)
+                }
+                // +,-,*,** propagam f64 se qualquer lado for f64.
+                if matches!(b.op,
+                    swc_ecma_ast::BinaryOp::Add | swc_ecma_ast::BinaryOp::Sub
+                    | swc_ecma_ast::BinaryOp::Mul | swc_ecma_ast::BinaryOp::Exp) {
+                    return expr_is_f64(&b.left) || expr_is_f64(&b.right);
+                }
+                false
+            }
+            Expr::Paren(p) => expr_is_f64(&p.expr),
+            Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => expr_is_f64(&u.arg),
+            Expr::Call(c) => {
+                // Math.<float-fn>(...) — sempre f64.
+                if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                    if let Expr::Member(m) = callee.as_ref() {
+                        let is_math = matches!(m.obj.as_ref(),
+                            Expr::Ident(id) if id.sym.as_str() == "Math");
+                        if is_math {
+                            if let swc_ecma_ast::MemberProp::Ident(p) = &m.prop {
+                                return matches!(p.sym.as_str(),
+                                    "sqrt" | "cbrt" | "pow" | "exp" | "expm1" | "log"
+                                    | "log2" | "log10" | "log1p" | "sin" | "cos" | "tan"
+                                    | "asin" | "acos" | "atan" | "atan2" | "sinh" | "cosh"
+                                    | "tanh" | "hypot" | "random" | "fround" | "cbrt");
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            Expr::Member(m) => {
+                // Math.PI / Math.E / Math.SQRT2 / ... — constantes f64.
+                let is_math = matches!(m.obj.as_ref(),
+                    Expr::Ident(id) if id.sym.as_str() == "Math");
+                if is_math {
+                    if let swc_ecma_ast::MemberProp::Ident(p) = &m.prop {
+                        return matches!(p.sym.as_str(),
+                            "PI" | "E" | "SQRT2" | "SQRT1_2" | "LN2" | "LN10"
+                            | "LOG2E" | "LOG10E");
+                    }
+                }
+                false
+            }
+            Expr::Cond(c) => expr_is_f64(&c.cons) || expr_is_f64(&c.alt),
+            _ => false,
+        }
+    }
+    fn check(stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Return(r) => r.arg.as_deref().map(expr_is_f64).unwrap_or(false),
+            Stmt::Block(b) => b.stmts.iter().any(check),
+            Stmt::If(i) => check(&i.cons) || i.alt.as_deref().map(check).unwrap_or(false),
+            _ => false,
+        }
+    }
+    for s in body {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = raw.stmt.as_ref() {
+            if check(stmt) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Pre-scan: `Fn.prototype.<m> = <namedFn>` onde namedFn retorna f64
+/// inequivoco → registra `m` em PROTO_METHOD_F64.
+fn register_proto_method_f64(program: &Program) {
+    use crate::parser::ast::Statement;
+    use swc_ecma_ast::{AssignTarget, Expr, MemberProp, SimpleAssignTarget, Stmt};
+
+    let mut fn_bodies: HashMap<String, &[Statement]> = HashMap::new();
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            fn_bodies.insert(f.name.clone(), f.body.as_slice());
+        }
+    }
+    fn peel(mut e: &Expr) -> &Expr {
+        loop {
+            match e {
+                Expr::TsAs(x) => e = &x.expr,
+                Expr::Paren(x) => e = &x.expr,
+                Expr::TsNonNull(x) => e = &x.expr,
+                _ => break,
+            }
+        }
+        e
+    }
+    for item in &program.items {
+        let Item::Statement(Statement::Raw(raw)) = item else { continue };
+        let Some(Stmt::Expr(e)) = raw.stmt.as_ref() else { continue };
+        let Expr::Assign(a) = e.expr.as_ref() else { continue };
+        let AssignTarget::Simple(SimpleAssignTarget::Member(lhs_m)) = &a.left else { continue };
+        let MemberProp::Ident(method_id) = &lhs_m.prop else { continue };
+        let Expr::Member(inner) = lhs_m.obj.as_ref() else { continue };
+        let is_proto = matches!(&inner.prop, MemberProp::Ident(p) if p.sym.as_str() == "prototype");
+        if !is_proto { continue; }
+        if let Expr::Ident(id) = peel(a.right.as_ref()) {
+            if let Some(body) = fn_bodies.get(id.sym.as_str()) {
+                if fn_body_returns_f64(body) {
+                    PROTO_METHOD_F64.with(|c| {
+                        c.borrow_mut().insert(method_id.sym.as_str().to_string());
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// (generators) True se o body declara `const __gen_buf = ...` no topo —
