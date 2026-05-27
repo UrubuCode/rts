@@ -109,3 +109,47 @@ fn make_result(value: i64, done: bool) -> u64 {
     m.insert("done".to_string(), if done { BOOL_TRUE } else { BOOL_FALSE });
     alloc_entry(Entry::Map(Box::new(m)))
 }
+
+// ── Iterator helpers (#306) ─────────────────────────────────────────────────
+// `Iterator.from(arr)` cria um iterator-wrapper: clona o Vec e usa o cursor
+// lateral (GEN_CURSORS) para rastrear consumo. `.toArray()` devolve os
+// elementos restantes (cursor..len) e avança o cursor ao fim — a 2a chamada
+// retorna vazio (iterator esgotado), igual a JS.
+
+/// `Iterator.from(vec)` — novo handle de iterator sobre uma cópia do Vec,
+/// com cursor lateral em 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ITERATOR_FROM(vec_handle: u64) -> u64 {
+    let items: Vec<i64> = with_entry(vec_handle, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let h = alloc_entry(Entry::Vec(Box::new(items)));
+    GEN_CURSORS.with(|c| {
+        c.borrow_mut().insert(h, 0);
+    });
+    h
+}
+
+/// `iterator.toArray()` — devolve um novo Vec com os elementos do cursor
+/// ate o fim; avanca o cursor ao fim (esgota o iterator).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ITERATOR_TO_ARRAY(it_handle: u64) -> u64 {
+    let all: Vec<i64> = with_entry(it_handle, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let cursor = GEN_CURSORS.with(|c| {
+        let mut m = c.borrow_mut();
+        let entry = m.entry(it_handle).or_insert(0);
+        let cur = *entry;
+        *entry = all.len(); // esgota
+        cur
+    });
+    let rest: Vec<i64> = if cursor < all.len() {
+        all[cursor..].to_vec()
+    } else {
+        Vec::new()
+    };
+    alloc_entry(Entry::Vec(Box::new(rest)))
+}

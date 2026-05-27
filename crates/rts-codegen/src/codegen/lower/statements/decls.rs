@@ -610,6 +610,16 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 // fallback Map -> trapz -> SIGILL. O chain
                                 // direto `Promise.resolve(x).then(...)` ja'
                                 // funciona; faltava o caso com var.
+                                // (#306) `const it = Iterator.from(arr)` marca
+                                // `it` como Iterator pra que `it.toArray()` resolva.
+                                if let swc_ecma_ast::Expr::Ident(obj_id) = m.obj.as_ref() {
+                                    if obj_id.sym.as_str() == "Iterator"
+                                        && mid.sym.as_str() == "from"
+                                    {
+                                        ctx.local_class_ty
+                                            .insert(name.clone(), "Iterator".to_string());
+                                    }
+                                }
                                 if let swc_ecma_ast::Expr::Ident(obj_id) = m.obj.as_ref() {
                                     if obj_id.sym.as_str() == "Promise"
                                         && matches!(

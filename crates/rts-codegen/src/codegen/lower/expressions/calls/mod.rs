@@ -214,6 +214,44 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                 }
+                // (#306) `<iterVar>.toArray()` — consome iterator wrapper a
+                // partir do cursor lateral, devolve Vec do restante. So' p/
+                // vars marcadas Iterator ou chain inline `Iterator.from(x)`.
+                if prop.sym.as_str() == "toArray" && call.args.is_empty() {
+                    let is_iter = match m.obj.as_ref() {
+                        Expr::Ident(obj_id) => ctx
+                            .local_class_ty
+                            .get(obj_id.sym.as_str())
+                            .map(|c| c == "Iterator")
+                            .unwrap_or(false),
+                        Expr::Call(c) => {
+                            if let Callee::Expr(cb) = &c.callee {
+                                if let Expr::Member(mm) = cb.as_ref() {
+                                    let prop_from = matches!(&mm.prop,
+                                        MemberProp::Ident(p) if p.sym.as_str() == "from");
+                                    let obj_iter = matches!(mm.obj.as_ref(),
+                                        Expr::Ident(o) if o.sym.as_str() == "Iterator");
+                                    prop_from && obj_iter
+                                } else { false }
+                            } else { false }
+                        }
+                        _ => false,
+                    };
+                    if is_iter {
+                        use cranelift_codegen::ir::types as cl;
+                        let recv_tv = lower_expr(ctx, &m.obj)?;
+                        let recv = ctx.coerce_to_i64(recv_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_ITERATOR_TO_ARRAY",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[recv]);
+                        let h = ctx.builder.inst_results(inst)[0];
+                        ctx.declare_gc_handle(h);
+                        return Ok(TypedVal::new(h, ValTy::Handle));
+                    }
+                }
                 // (generators) `<genVar>.return(v)` — encerra o generator,
                 // devolve `{value:v, done:true}` e marca esgotado. So' p/
                 // generator_vars.
@@ -1822,6 +1860,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                     _ => {}
                 }
+            }
+            // (#306) `Iterator.from(arr)` — cria iterator-wrapper (Vec + cursor
+            // lateral). `.toArray()` consome (ver lower_var_member_call).
+            if qualified == "Iterator.from" && call.args.len() == 1
+                && call.args[0].spread.is_none()
+            {
+                let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
+                let src_h = ctx.coerce_to_i64(arg_tv).val;
+                let f = ctx.get_extern("__RTS_FN_GL_ITERATOR_FROM", &[cl::I64], Some(cl::I64))?;
+                let inst = ctx.builder.ins().call(f, &[src_h]);
+                let v = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(v, ValTy::Handle));
             }
             // (#208 / #476) Array static globals: isArray, from.
             if let Some(method) = qualified.strip_prefix("Array.") {
