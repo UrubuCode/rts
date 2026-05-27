@@ -791,13 +791,24 @@ pub(super) fn lower_new_typed_array(
                     ctx.builder.seal_block(body);
                     ctx.builder.seal_block(exit);
                 } else if matches!(tv.ty, ValTy::Handle) {
-                    // `new Int32Array(otherArrayLike)` — copia via runtime helper.
                     let src_h = ctx.coerce_to_i64(tv).val;
-                    let copy_fn = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
-                        &[cl::I64, cl::I64],
-                        None,
-                    )?;
+                    // `new Uint8Array(arrayBuffer)` — se o arg eh uma var com
+                    // classe estatica ArrayBuffer, le os BYTES do Entry::Buffer
+                    // (um byte por slot). Senao, trata como array-like (Vec).
+                    let is_array_buffer = matches!(
+                        arg.expr.as_ref(),
+                        Expr::Ident(id) if ctx
+                            .local_class_ty
+                            .get(id.sym.as_str())
+                            .map(|c| c == "ArrayBuffer")
+                            .unwrap_or(false)
+                    );
+                    let copy_sym = if is_array_buffer {
+                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER"
+                    } else {
+                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM"
+                    };
+                    let copy_fn = ctx.get_extern(copy_sym, &[cl::I64, cl::I64], None)?;
                     ctx.builder.ins().call(copy_fn, &[vec_h, src_h]);
                 }
             }

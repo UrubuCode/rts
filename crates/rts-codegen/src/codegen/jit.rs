@@ -1433,6 +1433,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_POP",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_POP
         );

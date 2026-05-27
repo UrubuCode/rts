@@ -51,6 +51,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM(dst: u64, src: u64) {
     });
 }
 
+/// (#57/#205) `new Uint8Array(arrayBuffer)` — materializa um Vec<i64> com os
+/// BYTES do ArrayBuffer (`Entry::Buffer`), um byte por slot. Snapshot de
+/// leitura (escritas posteriores no Vec nao refletem no buffer; view viva
+/// real fica como follow-up).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER(dst: u64, src: u64) {
+    let bytes: Vec<u8> = with_entry(src, |entry| match entry {
+        Some(Entry::Buffer(b)) => b.clone(),
+        _ => Vec::new(),
+    });
+    with_vec_mut(dst, (), |v| {
+        for b in bytes {
+            if v.len() >= 1_000_000 { break; }
+            v.push(b as i64);
+        }
+    });
+}
+
 /// Limite duro de elementos por vec — protege contra OOM em cenarios
 /// patologicos (ex: generator infinito desugared para buffer eager,
 /// loop sem condicao de parada). 1M i64 = 8MiB por vec, suficiente
