@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -2092,7 +2092,7 @@
   "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,finally1,then2:84,catch:error,finally2"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
