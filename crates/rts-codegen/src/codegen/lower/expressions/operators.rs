@@ -730,6 +730,55 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         }
     }
 
+    // (cross-runtime #368) `x === false` / `x === true` (e ==/!==/!=) onde x
+    // eh um campo bool lido como i64 ambiguo (sem field type — ex: retorno de
+    // fn). O bool foi empacotado como sentinel i64::MIN (false) / i64::MIN+1
+    // (true). Sem isto, `m.done === false` compara sentinel contra 0 -> sempre
+    // false. Detecta o bool literal sintatico e compara o outro lado contra a
+    // forma canonica (0/1) OU o sentinel correspondente.
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::EqEq | BinaryOp::NotEq) {
+        let bool_lit = |e: &Expr| match e {
+            Expr::Lit(Lit::Bool(b)) => Some(b.value),
+            _ => None,
+        };
+        let (lit_val, other_expr) = match (bool_lit(&bin.left), bool_lit(&bin.right)) {
+            (Some(b), None) => (Some(b), Some(&bin.right)),
+            (None, Some(b)) => (Some(b), Some(&bin.left)),
+            _ => (None, None),
+        };
+        if let (Some(b), Some(other)) = (lit_val, other_expr) {
+            let other_tv = lower_expr(ctx, other)?;
+            // So' aplica quando o outro lado eh i64 ambiguo (pode carregar
+            // sentinel). Bool/F64/Handle seguem pelos caminhos existentes.
+            if matches!(other_tv.ty, ValTy::I64 | ValTy::U64) {
+                use cranelift_codegen::ir::condcodes::IntCC;
+                let sentinel = ctx.builder.ins().iconst(
+                    cl::I64,
+                    if b { i64::MIN + 1 } else { i64::MIN },
+                );
+                // strict (===/!==): compara so' contra o sentinel bool — um
+                // i64 numerico real (0/1) NAO eh === a um boolean (tipos
+                // diferentes), entao nao casa o canonico. loose (==/!=) coage
+                // ToNumber(bool), entao tambem aceita o canonico 0/1.
+                let eq_sent = ctx.builder.ins().icmp(IntCC::Equal, other_tv.val, sentinel);
+                let eq = if matches!(bin.op, BinaryOp::EqEq | BinaryOp::NotEq) {
+                    let canon = ctx.builder.ins().iconst(cl::I64, if b { 1 } else { 0 });
+                    let eq_canon = ctx.builder.ins().icmp(IntCC::Equal, other_tv.val, canon);
+                    ctx.builder.ins().bor(eq_sent, eq_canon)
+                } else {
+                    eq_sent
+                };
+                let result = if matches!(bin.op, BinaryOp::NotEqEq | BinaryOp::NotEq) {
+                    let one = ctx.builder.ins().iconst(cl::I8, 1);
+                    ctx.builder.ins().bxor(eq, one)
+                } else {
+                    eq
+                };
+                return Ok(TypedVal::new(result, ValTy::Bool));
+            }
+        }
+    }
+
     let lhs = lower_expr(ctx, &bin.left)?;
     let rhs = lower_expr(ctx, &bin.right)?;
 

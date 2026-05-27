@@ -42,14 +42,35 @@ function negate(): string {
   return !g["ready"] ? "not-ready" : "ready";
 }
 
+// Comparacao estrita/loose com bool literal sobre campo bool ambiguo.
+function eqFalse(): string {
+  const o = { done: false };
+  const m = (() => o)();
+  return m["done"] === false ? "eq" : "neq";
+}
+function eqTrue(): string {
+  const o = { done: true };
+  const m = (() => o)();
+  return m["done"] === true ? "eq" : "neq";
+}
+// JS-spec: numero real nao eh === a bool (tipos diferentes), mas == coage.
+const strictNumBool = (1 === (true as any)) ? "T" : "F";
+const looseNumBool = (1 == (true as any)) ? "T" : "F";
+
 const a = mkFalse();
 const b = mkTrue();
 const c = iterate();
 const d = negate();
+const e = eqFalse();
+const f = eqTrue();
 
 describe("bool false sentinel in branch (#368)", () => {
   test("false field is falsy in if", () => expect(a).toBe("falsy"));
   test("true field is truthy in if", () => expect(b).toBe("truthy"));
   test("iterator done=false loops, done=true breaks", () => expect(c).toBe("1,2,3"));
   test("negation of false field", () => expect(d).toBe("not-ready"));
+  test("field === false (strict)", () => expect(e).toBe("eq"));
+  test("field === true (strict)", () => expect(f).toBe("eq"));
+  test("1 === true is false (JS strict)", () => expect(strictNumBool).toBe("F"));
+  test("1 == true is true (JS loose)", () => expect(looseNumBool).toBe("T"));
 });
