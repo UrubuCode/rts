@@ -557,6 +557,11 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 .unwrap_or(false);
                             if arg_is_arraybuffer {
                                 ctx.local_ta_view.insert(name.clone(), (eb, sg, fl));
+                            } else {
+                                // (#93) `new Uint8Array([...])`/`(n)` — Vec backing.
+                                // Marca como array para que metodos genericos
+                                // (at/fill/slice/copyWithin/includes/...) funcionem.
+                                ctx.local_array_vars.insert(name.clone());
                             }
                         }
                         if is_error_class {

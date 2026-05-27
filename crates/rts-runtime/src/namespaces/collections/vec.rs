@@ -339,6 +339,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(handle: u64, index: i64, value
     });
 }
 
+/// (#93) `typedArray.set(src, offset)`: copia os elementos de `src` (Vec)
+/// para `dst` comecando em `offset`. Out-of-bounds eh ignorado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_FROM(dst: u64, src: u64, offset: i64) {
+    let items: Vec<i64> = with_vec(src, Vec::new(), |v| v.clone());
+    if offset < 0 {
+        return;
+    }
+    with_vec_mut(dst, (), |v| {
+        for (i, x) in items.into_iter().enumerate() {
+            let idx = offset as usize + i;
+            if let Some(slot) = v.get_mut(idx) {
+                *slot = x;
+            }
+        }
+    });
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(handle: u64) {
     with_vec_mut(handle, (), |v| v.clear());
