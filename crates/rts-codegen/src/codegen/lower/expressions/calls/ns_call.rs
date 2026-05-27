@@ -515,6 +515,12 @@ pub(super) fn lower_global_instance_call(
                 let tv = lower_expr(ctx, &arg.expr)?;
                 values.push(to_f64(ctx, tv));
             }
+            AbiType::I32 => {
+                // Arg I32 (ex: flag `littleEndian`): coerce explicito para i32
+                // — passar i64 cru causa type mismatch no verifier Cranelift.
+                let tv = lower_expr(ctx, &arg.expr)?;
+                values.push(ctx.coerce_to_i32(tv).val);
+            }
             _ => {
                 let tv = lower_expr(ctx, &arg.expr)?;
                 values.push(ctx.coerce_to_i64(tv).val);

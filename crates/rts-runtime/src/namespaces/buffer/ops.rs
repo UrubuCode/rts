@@ -388,3 +388,68 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_NEW(buffer: u64) -> u64 {
 pub extern "C" fn __RTS_FN_GL_DATAVIEW_BYTE_OFFSET(_handle: u64) -> i64 {
     0
 }
+
+// ── DataView com flag littleEndian (overloads 3-arg get / 4-arg set) ────────
+// JS: get/set aceitam `littleEndian` opcional. Registramos membros separados
+// por aridade (sem flag = big-endian default; com flag = honra o booleano).
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT16_LE(handle: u64, offset: i64, val: i64, little_endian: i32) {
+    let be = (val as u16).to_be_bytes();
+    let bytes = if little_endian != 0 { [be[1], be[0]] } else { be };
+    write_bytes_at(handle, offset, &bytes);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT16_LE(handle: u64, offset: i64, little_endian: i32) -> i64 {
+    read_bytes_at::<2>(handle, offset)
+        .map(|b| if little_endian != 0 { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) } as i64)
+        .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_INT32_LE(handle: u64, offset: i64, val: i64, little_endian: i32) {
+    let be = (val as i32).to_be_bytes();
+    let bytes = if little_endian != 0 { [be[3], be[2], be[1], be[0]] } else { be };
+    write_bytes_at(handle, offset, &bytes);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_INT32_LE(handle: u64, offset: i64, little_endian: i32) -> i64 {
+    read_bytes_at::<4>(handle, offset)
+        .map(|b| if little_endian != 0 { i32::from_le_bytes(b) } else { i32::from_be_bytes(b) } as i64)
+        .unwrap_or(0)
+}
+
+// Floats — sempre recebem o flag (fixtures usam littleEndian explicito).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_FLOAT64(handle: u64, offset: i64, val: f64, little_endian: i32) {
+    let be = val.to_be_bytes();
+    let bytes = if little_endian != 0 {
+        let mut le = be; le.reverse(); le
+    } else { be };
+    write_bytes_at(handle, offset, &bytes);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT64(handle: u64, offset: i64, little_endian: i32) -> f64 {
+    read_bytes_at::<8>(handle, offset)
+        .map(|b| if little_endian != 0 { f64::from_le_bytes(b) } else { f64::from_be_bytes(b) })
+        .unwrap_or(0.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_FLOAT32(handle: u64, offset: i64, val: f64, little_endian: i32) {
+    let be = (val as f32).to_be_bytes();
+    let bytes = if little_endian != 0 {
+        let mut le = be; le.reverse(); le
+    } else { be };
+    write_bytes_at(handle, offset, &bytes);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT32(handle: u64, offset: i64, little_endian: i32) -> f64 {
+    read_bytes_at::<4>(handle, offset)
+        .map(|b| (if little_endian != 0 { f32::from_le_bytes(b) } else { f32::from_be_bytes(b) }) as f64)
+        .unwrap_or(0.0)
+}
