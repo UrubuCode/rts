@@ -27,6 +27,17 @@ pub const ARRAY_BUFFER_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "slice",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_ARRAY_BUFFER_SLICE",
+        args: &[AbiType::Handle, AbiType::I64, AbiType::I64],
+        returns: AbiType::Handle,
+        doc: "slice(start, end) — new ArrayBuffer with the byte range copied.",
+        ts_signature: "slice(begin?: number, end?: number): ArrayBuffer",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const ARRAY_BUFFER_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
