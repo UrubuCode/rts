@@ -1600,10 +1600,24 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             } else {
                 raw_key.clone()
             };
+            // O tipo de `#x` vem do receiver estatico quando conhecido;
+            // mas um private name e' lexicamente restrito a classe corrente
+            // (a sintaxe `#x` so' compila dentro da classe que o declara).
+            // Quando o receiver e' `unknown`/sem classe estatica (ex:
+            // `other.#x` com `other: unknown`), inferir o tipo do campo pela
+            // `current_class` — senao a leitura assume i64 e um campo
+            // `number` (f64-bits) vem com fcvt em vez de bitcast, gerando
+            // lixo (cross-runtime 373).
             let field_ty = receiver_class
                 .as_deref()
                 .and_then(|c| field_type_in_hierarchy(ctx, c, &key)
-                    .or_else(|| field_type_in_hierarchy(ctx, c, &raw_key)));
+                    .or_else(|| field_type_in_hierarchy(ctx, c, &raw_key)))
+                .or_else(|| {
+                    ctx.current_class.as_deref().and_then(|c| {
+                        field_type_in_hierarchy(ctx, c, &key)
+                            .or_else(|| field_type_in_hierarchy(ctx, c, &raw_key))
+                    })
+                });
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
     }
