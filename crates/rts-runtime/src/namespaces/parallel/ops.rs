@@ -91,10 +91,12 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE_NO_INIT(
 ) -> i64 {
     let Some(items) = snapshot_vec(vec_handle) else { return 0; };
     if fn_ptr == 0 || items.is_empty() { return 0; }
-    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // (cross-runtime #345) 3 params (acc, val, index); sem init o callback
+    // roda a partir do indice 1 (items[0] eh o acc inicial).
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
     let mut acc = items[0];
-    for &x in &items[1..] {
-        acc = f(acc, x);
+    for (i, &x) in items.iter().enumerate().skip(1) {
+        acc = f(acc, x, i as i64);
     }
     acc
 }
@@ -118,10 +120,13 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE(
     // intermediarios mortos / resultado errado pra fns nao-comutativas.
     // Reduce puro de inteiros via `reduce_pass` ainda funciona; perde so
     // o ganho de paralelismo em soma/produto.
-    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // (cross-runtime #345) callback liftado de reduce tem 3 params
+    // (acc, val, index). Passamos index como 3o arg; callbacks de 2 params
+    // ignoram o extra (calling convention).
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
     let mut acc = identity;
-    for &x in &items {
-        acc = f(acc, x);
+    for (i, &x) in items.iter().enumerate() {
+        acc = f(acc, x, i as i64);
     }
     acc
 }

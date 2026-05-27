@@ -549,11 +549,15 @@ fn lift_arrows_in_expr(
                     let lift_info: Option<(usize, usize, usize)> = match method {
                         // (arg_idx_to_lift, n_args, arrow_arity)
                         "map" | "forEach" => Some((0, 1, 1)),
-                        "reduce" if call.args.len() == 1 => Some((0, 1, 2)),
-                        "reduce" => Some((0, 2, 2)),
+                        // (cross-runtime #345) callback de reduce recebe
+                        // (acc, val, index). arrow_arity 3 suporta o 3o param;
+                        // arrows com 1/2 params seguem aceitos (lifted declara
+                        // 3, usa os referenciados). PARALLEL_REDUCE passa index.
+                        "reduce" if call.args.len() == 1 => Some((0, 1, 3)),
+                        "reduce" => Some((0, 2, 3)),
                         // (cross-runtime #808) reduceRight mesma semantica de reduce.
-                        "reduceRight" if call.args.len() == 1 => Some((0, 1, 2)),
-                        "reduceRight" => Some((0, 2, 2)),
+                        "reduceRight" if call.args.len() == 1 => Some((0, 1, 3)),
+                        "reduceRight" => Some((0, 2, 3)),
                         "filter" | "find" | "findIndex" | "some" | "every"
                         | "findLast" | "findLastIndex" => {
                             Some((0, 1, 1))
