@@ -1873,7 +1873,29 @@ pub(super) fn map_get_static_typed(
             ValTy::I32,
         )),
         Some(ValTy::Handle) => Ok(TypedVal::new(v, ValTy::Handle)),
-        Some(ValTy::Bool) => Ok(TypedVal::new(v, ValTy::Bool)),
+        Some(ValTy::Bool) => {
+            // Bool em obj literal eh armazenado como sentinel (i64::MIN =
+            // false, i64::MIN+1 = true; ver store em lower de obj literal).
+            // O resto do codegen espera ValTy::Bool == 0/1, entao
+            // decodificamos aqui. Se o valor NAO esta no range sentinel
+            // (campo flat de classe nativa, que guarda 0/1 puro), usa
+            // `v != 0` — cobre ambos os layouts com seguranca.
+            use cranelift_codegen::ir::condcodes::IntCC;
+            let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+            let min1 = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+            // is_sentinel = (v == MIN) || (v == MIN+1)
+            let eq_min = ctx.builder.ins().icmp(IntCC::Equal, v, min);
+            let eq_min1 = ctx.builder.ins().icmp(IntCC::Equal, v, min1);
+            let is_sentinel = ctx.builder.ins().bor(eq_min, eq_min1);
+            // decoded_sentinel = v - i64::MIN  (0 -> false, 1 -> true)
+            let decoded = ctx.builder.ins().isub(v, min);
+            // raw_bool = (v != 0) as i64 — fallback flat
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            let nz = ctx.builder.ins().icmp(IntCC::NotEqual, v, zero);
+            let raw_bool = ctx.builder.ins().uextend(cl::I64, nz);
+            let result = ctx.builder.ins().select(is_sentinel, decoded, raw_bool);
+            Ok(TypedVal::new(result, ValTy::Bool))
+        }
         // Campo `number` (F64): armazenado como os BITS do f64 (store
         // simetrico bitcasta f64->i64). Reinterpreta i64->f64 via bitcast.
         Some(ValTy::F64) => {
