@@ -807,7 +807,16 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
 
 fn is_direct_call_expr(expr: &swc_ecma_ast::Expr) -> bool {
     match expr {
-        swc_ecma_ast::Expr::Call(_) => true,
+        // (cross-runtime) So' eh tail-call quando o callee eh uma chamada
+        // DIRETA a fn (Ident), nao um method call. `g(n-1).concat([n])` tem
+        // callee Member (`.concat`) — o tail real eh o concat, NAO g. Sem
+        // essa checagem, o TCO aplicava return_call em g(n-1) e DESCARTAVA o
+        // .concat -> recursao retornando array.concat() dava vazio.
+        swc_ecma_ast::Expr::Call(c) => matches!(
+            &c.callee,
+            swc_ecma_ast::Callee::Expr(callee)
+                if matches!(callee.as_ref(), swc_ecma_ast::Expr::Ident(_))
+        ),
         swc_ecma_ast::Expr::Paren(p) => is_direct_call_expr(&p.expr),
         _ => false,
     }
