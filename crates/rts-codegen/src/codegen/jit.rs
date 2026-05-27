@@ -1838,6 +1838,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::buffer ────────────────────────────────────────────
     use crate::namespaces::buffer::ops as buf;
     add_fn!("__RTS_FN_NS_BUFFER_ALLOC", buf::__RTS_FN_NS_BUFFER_ALLOC);
+    // ArrayBuffer / DataView (globals, backing buffer ns)
+    add_fn!("__RTS_FN_GL_ARRAY_BUFFER_NEW", buf::__RTS_FN_GL_ARRAY_BUFFER_NEW);
+    add_fn!("__RTS_FN_GL_DATAVIEW_NEW", buf::__RTS_FN_GL_DATAVIEW_NEW);
+    add_fn!("__RTS_FN_GL_DATAVIEW_BYTE_OFFSET", buf::__RTS_FN_GL_DATAVIEW_BYTE_OFFSET);
+    add_fn!("__RTS_FN_GL_DATAVIEW_BYTE_LENGTH", buf::__RTS_FN_GL_DATAVIEW_BYTE_LENGTH);
+    add_fn!("__RTS_FN_GL_DATAVIEW_SET_UINT8", buf::__RTS_FN_GL_DATAVIEW_SET_UINT8);
+    add_fn!("__RTS_FN_GL_DATAVIEW_GET_UINT8", buf::__RTS_FN_GL_DATAVIEW_GET_UINT8);
+    add_fn!("__RTS_FN_GL_DATAVIEW_SET_UINT16", buf::__RTS_FN_GL_DATAVIEW_SET_UINT16);
+    add_fn!("__RTS_FN_GL_DATAVIEW_GET_UINT16", buf::__RTS_FN_GL_DATAVIEW_GET_UINT16);
+    add_fn!("__RTS_FN_GL_DATAVIEW_SET_INT32", buf::__RTS_FN_GL_DATAVIEW_SET_INT32);
+    add_fn!("__RTS_FN_GL_DATAVIEW_GET_INT32", buf::__RTS_FN_GL_DATAVIEW_GET_INT32);
     add_fn!(
         "__RTS_FN_NS_BUFFER_ALLOC_ZEROED",
         buf::__RTS_FN_NS_BUFFER_ALLOC_ZEROED

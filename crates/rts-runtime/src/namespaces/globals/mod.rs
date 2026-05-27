@@ -4,6 +4,7 @@
 
 pub mod abort;
 pub mod bigint;
+pub mod dataview;
 pub mod dom_exception;
 pub mod event_target;
 pub mod form_data;

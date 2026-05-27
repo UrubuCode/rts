@@ -37,6 +37,8 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::event_target::abi::EVENT_CLASS_SPEC,
     &crate::namespaces::globals::dom_exception::abi::DOM_EXCEPTION_CLASS_SPEC,
     &crate::namespaces::globals::form_data::abi::FORM_DATA_CLASS_SPEC,
+    &crate::namespaces::globals::dataview::abi::ARRAY_BUFFER_CLASS_SPEC,
+    &crate::namespaces::globals::dataview::abi::DATA_VIEW_CLASS_SPEC,
 ];
 
 pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
