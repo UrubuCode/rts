@@ -398,6 +398,16 @@ pub fn compile_program(
             let ret_trim = ret.trim();
             if classes.contains_key(ret_trim) {
                 fn_class_returns.insert(fn_decl.name.clone(), ret_trim.to_string());
+            } else if ret_trim == "this" {
+                // (cross-runtime builder) Metodo `inc(): this { return this }`:
+                // o return eh a propria classe. Extrai o owner do nome mangled
+                // `__class_<C>_<method>` e usa como ret_class. Permite o chain
+                // builder (`c.inc().inc()`) com `: this` (nao so' `: C`).
+                if let Some(owner) = extract_class_owner(&fn_decl.name) {
+                    if classes.contains_key(&owner) {
+                        fn_class_returns.insert(fn_decl.name.clone(), owner);
+                    }
+                }
             }
         }
     }
