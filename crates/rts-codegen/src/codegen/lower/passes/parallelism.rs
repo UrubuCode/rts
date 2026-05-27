@@ -82,6 +82,10 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
                                 // de strings. `const parts = s.split("-")` precisa
                                 // registrar `parts` como array p/ `parts.map(...)`.
                                 | "split"
+                                // (cross-runtime) entries/keys/values retornam
+                                // iteravel-array. `const e = arr.entries();
+                                // e.map(...)` precisa registrar `e` como array.
+                                | "entries" | "keys" | "values"
                             )
                         );
                         let obj_is_array_static = matches!(
