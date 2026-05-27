@@ -1,6 +1,10 @@
 fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     let mut program = Program::default();
 
+    // (#271) Coleta const strings top-level antes do lowering para resolver
+    // computed class keys (`[key]() {}` com `const key = "sum"`).
+    register_const_strings(source);
+
     match source {
         SwcProgram::Module(module) => {
             for item in &module.body {

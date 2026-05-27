@@ -1,3 +1,50 @@
+thread_local! {
+    // (#271) const string literais top-level: `const key = "sum"`. Usado para
+    // resolver computed class member keys `[key]() {}` para o nome real.
+    static CONST_STRING_VALUES: std::cell::RefCell<std::collections::HashMap<String, String>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn const_string_value(name: &str) -> Option<String> {
+    CONST_STRING_VALUES.with(|c| c.borrow().get(name).cloned())
+}
+
+/// (#271) Pre-scan dos items SWC top-level: coleta `const X = "literal"`
+/// (string) para resolver computed class keys. Chamado no inicio do lowering.
+fn register_const_strings(source: &SwcProgram) {
+    use swc_ecma_ast::{Decl, ModuleItem, Pat, Stmt};
+    let mut out = std::collections::HashMap::new();
+    let mut scan_stmt = |stmt: &Stmt| {
+        if let Stmt::Decl(Decl::Var(v)) = stmt {
+            for d in &v.decls {
+                if let (Pat::Ident(id), Some(init)) = (&d.name, d.init.as_deref()) {
+                    if let Expr::Lit(Lit::Str(s)) = init {
+                        out.insert(
+                            id.id.sym.to_string(),
+                            s.value.to_string_lossy().to_string(),
+                        );
+                    }
+                }
+            }
+        }
+    };
+    match source {
+        SwcProgram::Module(m) => {
+            for item in &m.body {
+                if let ModuleItem::Stmt(stmt) = item {
+                    scan_stmt(stmt);
+                }
+            }
+        }
+        SwcProgram::Script(s) => {
+            for stmt in &s.body {
+                scan_stmt(stmt);
+            }
+        }
+    }
+    CONST_STRING_VALUES.with(|c| *c.borrow_mut() = out);
+}
+
 fn pat_name(pat: &Pat, cm: &Lrc<SourceMap>) -> Option<String> {
     match pat {
         Pat::Ident(ident) => Some(ident.id.sym.to_string()),
@@ -81,6 +128,15 @@ fn prop_name_to_string(name: &PropName, cm: &Lrc<SourceMap>) -> String {
             //                  e podem colidir. Documenta-se em #153.
             if let Some(s) = computed_to_static_str(computed.expr.as_ref()) {
                 return s;
+            }
+            // (#271) `[key]` onde `key` eh uma const string literal top-level
+            // (`const key = "sum"`). Resolve via tabela de consts coletada no
+            // pre-scan — sem isso o metodo virava "key" (snippet) e
+            // `c.sum(...)` nao achava o metodo.
+            if let Expr::Ident(id) = computed.expr.as_ref() {
+                if let Some(v) = const_string_value(id.sym.as_ref()) {
+                    return v;
+                }
             }
             span_snippet(cm, computed.expr.span()).unwrap_or_default()
         }
