@@ -84,6 +84,24 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
     }
 }
 
+/// `gen.return(v)` — encerra o generator antecipadamente. Marca o cursor
+/// como esgotado (proximos `.next()` dao done:true) e devolve `{value:v,
+/// done:true}` — semantica JS. `for-of` que ja' terminou nao eh afetado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_RETURN(vec_handle: u64, value: i64) -> u64 {
+    let len = with_entry(vec_handle, |e| match e {
+        Some(Entry::Vec(v)) => Some(v.len()),
+        _ => None,
+    });
+    // Marca esgotado: cursor > len pra que NEXT devolva undefined/done.
+    if let Some(len) = len {
+        GEN_CURSORS.with(|c| {
+            c.borrow_mut().insert(vec_handle, len + 1);
+        });
+    }
+    make_result(value, true)
+}
+
 /// Aloca o objeto-resultado `{value, done}` como Map.
 fn make_result(value: i64, done: bool) -> u64 {
     let mut m: IndexMap<String, i64> = IndexMap::new();

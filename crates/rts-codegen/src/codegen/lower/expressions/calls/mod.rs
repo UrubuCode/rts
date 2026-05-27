@@ -214,6 +214,29 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                 }
+                // (generators) `<genVar>.return(v)` — encerra o generator,
+                // devolve `{value:v, done:true}` e marca esgotado. So' p/
+                // generator_vars.
+                if prop.sym.as_str() == "return" && call.args.len() == 1 {
+                    if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                        if ctx.generator_vars.contains(obj_id.sym.as_str()) {
+                            use cranelift_codegen::ir::types as cl;
+                            let recv_tv = lower_expr(ctx, &m.obj)?;
+                            let recv = ctx.coerce_to_i64(recv_tv).val;
+                            let val_tv = lower_expr(ctx, &call.args[0].expr)?;
+                            let val = ctx.coerce_to_i64(val_tv).val;
+                            let ret_fn = ctx.get_extern(
+                                "__RTS_FN_NS_GC_GENERATOR_RETURN",
+                                &[cl::I64, cl::I64],
+                                Some(cl::I64),
+                            )?;
+                            let inst = ctx.builder.ins().call(ret_fn, &[recv, val]);
+                            let h = ctx.builder.inst_results(inst)[0];
+                            ctx.declare_gc_handle(h);
+                            return Ok(TypedVal::new(h, ValTy::Handle));
+                        }
+                    }
+                }
             }
         }
         if let Expr::SuperProp(sp) = callee.as_ref() {
