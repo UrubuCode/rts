@@ -937,10 +937,10 @@
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "sync:start|sync:end|macro:timeout"
+  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
 }
 ,
 {
@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "rts": "order=immediate|micro|timeout"
 }
 ,
 {
@@ -3001,10 +3001,10 @@
 ,
 {
   "name": "82_dataview_floats",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "f64=3.141593\nf32=-1.5",
   "node": "f64=3.141593\nf32=-1.5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "f64=3.141593\nf32=-1.5"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":307,"rts_diverge":20,"bun_node_diverge":16,"errors":45,"rejected":0}}
+],"summary":{"total":388,"pass":309,"rts_diverge":19,"bun_node_diverge":16,"errors":44,"rejected":0}}
