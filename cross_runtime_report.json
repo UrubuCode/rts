@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|micro|immediate"
+  "node": "order=micro|timeout|immediate",
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -1900,7 +1900,7 @@
   "status": "rts_diverge",
   "bun": "Rex speaks\nRex barks\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue",
   "node": "Rex speaks\nRex barks\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue",
-  "rts": "0 speaks\n0 barks\ntrue\nfalse\nfalse\ntrue\ntrue"
+  "rts": "0 speaks\n0 barks\ntrue\ntrue\ntrue\nfalse\nfalse\ntrue\ntrue"
 }
 ,
 {
@@ -1980,7 +1980,7 @@
   "status": "rts_diverge",
   "bun": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
   "node": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
-  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\n0 shape\n0"
+  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\n0 shape\n0\ntrue"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":303,"rts_diverge":20,"bun_node_diverge":16,"errors":49,"rejected":0}}
+],"summary":{"total":388,"pass":303,"rts_diverge":19,"bun_node_diverge":17,"errors":49,"rejected":0}}
