@@ -963,7 +963,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             if let Some(getter_owner) = resolve_getter_owner_local(ctx, cls, prop_name) {
                 let recv_tv = lower_expr(ctx, &m.obj)?;
                 let recv_i64 = ctx.coerce_to_i64(recv_tv).val;
-                return emit_virtual_accessor_dispatch(
+                let result = emit_virtual_accessor_dispatch(
                     ctx,
                     cls,
                     &getter_owner,
@@ -971,7 +971,17 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     prop_name,
                     recv_i64,
                     &[],
-                );
+                )?;
+                // (cross-runtime) Getter cujo retorno foi inferido como I64
+                // generico (ex: `get value(): T` num `Box<string>`) pode
+                // devolver um handle de string. Marca ambiguo pra que
+                // print/template usem num_bias (snapshot detecta string handle)
+                // em vez de imprimir o handle como numero cru. Espelha o fix
+                // de lower_class_method_call_with_recv. Nao afeta aritmetica.
+                if matches!(result.ty, ValTy::I64) {
+                    ctx.var_member_call_values.insert(result.val);
+                }
+                return Ok(result);
             }
             // Global class instance getters (#359): Function.name/.length, etc.
             if let Some(spec) = crate::abi::global_class_lookup(cls) {
