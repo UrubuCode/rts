@@ -475,3 +475,79 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT32(handle: u64, offset: i64, lit
         .map(|b| (if little_endian != 0 { f32::from_le_bytes(b) } else { f32::from_be_bytes(b) }) as f64)
         .unwrap_or(0.0)
 }
+
+// ── TypedArray view sobre ArrayBuffer (#811/205) ────────────────────────────
+// `new Uint8Array(buf)` etc. retornam o proprio handle do buffer; o codegen
+// rastreia a largura/sinal do elemento por-var e chama estes helpers para
+// `view[i]` (little-endian, igual a plataforma JS). index eh em ELEMENTOS.
+
+/// Le `view[index]` de um Entry::Buffer. `elem_bytes` = 1/2/4/8; `signed`!=0
+/// estende sinal; `is_float`!=0 retorna bits f64 (4=f32->f64, 8=f64).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TA_GET_ELEM(handle: u64, index: i64, elem_bytes: i64, signed: i64, is_float: i64) -> i64 {
+    with_buffer(handle, 0, |b| {
+        if index < 0 { return 0; }
+        let off = (index as usize) * (elem_bytes as usize);
+        if off + (elem_bytes as usize) > b.len() { return 0; }
+        let bytes = &b[off..off + elem_bytes as usize];
+        if is_float != 0 {
+            return match elem_bytes {
+                4 => {
+                    let arr: [u8; 4] = bytes.try_into().unwrap();
+                    (f32::from_le_bytes(arr) as f64).to_bits() as i64
+                }
+                8 => {
+                    let arr: [u8; 8] = bytes.try_into().unwrap();
+                    f64::from_le_bytes(arr).to_bits() as i64
+                }
+                _ => 0,
+            };
+        }
+        let mut v: u64 = 0;
+        for (i, &byte) in bytes.iter().enumerate() {
+            v |= (byte as u64) << (i * 8);
+        }
+        if signed != 0 {
+            // estende sinal a partir do bit mais alto de elem_bytes.
+            let bits = (elem_bytes as u32) * 8;
+            let shift = 64 - bits;
+            return ((v << shift) as i64) >> shift;
+        }
+        v as i64
+    })
+}
+
+/// Escreve `view[index] = val` num Entry::Buffer (little-endian).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TA_SET_ELEM(handle: u64, index: i64, elem_bytes: i64, is_float: i64, val: i64) {
+    with_buffer_mut(handle, (), |b| {
+        if index < 0 { return; }
+        let off = (index as usize) * (elem_bytes as usize);
+        if off + (elem_bytes as usize) > b.len() { return; }
+        let raw: [u8; 8] = if is_float != 0 {
+            match elem_bytes {
+                4 => {
+                    let f = f64::from_bits(val as u64) as f32;
+                    let le = f.to_le_bytes();
+                    [le[0], le[1], le[2], le[3], 0, 0, 0, 0]
+                }
+                8 => f64::from_bits(val as u64).to_le_bytes(),
+                _ => [0; 8],
+            }
+        } else {
+            (val as u64).to_le_bytes()
+        };
+        for i in 0..(elem_bytes as usize) {
+            b[off + i] = raw[i];
+        }
+    });
+}
+
+/// `typedArray.length` quando o backing eh um ArrayBuffer: byteLength/elem_bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {
+    with_buffer(handle, 0, |b| {
+        if elem_bytes <= 0 { return 0; }
+        (b.len() as i64) / elem_bytes
+    })
+}

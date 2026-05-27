@@ -1846,6 +1846,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ArrayBuffer / DataView (globals, backing buffer ns)
     add_fn!("__RTS_FN_GL_ARRAY_BUFFER_NEW", buf::__RTS_FN_GL_ARRAY_BUFFER_NEW);
     add_fn!("__RTS_FN_GL_ARRAY_BUFFER_SLICE", buf::__RTS_FN_GL_ARRAY_BUFFER_SLICE);
+    add_fn!("__RTS_FN_GL_TA_GET_ELEM", buf::__RTS_FN_GL_TA_GET_ELEM);
+    add_fn!("__RTS_FN_GL_TA_SET_ELEM", buf::__RTS_FN_GL_TA_SET_ELEM);
+    add_fn!("__RTS_FN_GL_TA_LENGTH", buf::__RTS_FN_GL_TA_LENGTH);
     add_fn!("__RTS_FN_GL_DATAVIEW_NEW", buf::__RTS_FN_GL_DATAVIEW_NEW);
     add_fn!("__RTS_FN_GL_DATAVIEW_BYTE_OFFSET", buf::__RTS_FN_GL_DATAVIEW_BYTE_OFFSET);
     add_fn!("__RTS_FN_GL_DATAVIEW_BYTE_LENGTH", buf::__RTS_FN_GL_DATAVIEW_BYTE_LENGTH);
