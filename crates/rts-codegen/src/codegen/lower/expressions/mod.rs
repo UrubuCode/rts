@@ -780,6 +780,13 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         // inteiro (`a: number = 100`) ou vem de chamada de metodo
         // (`this.#k = this.#toKelvin(c)`).
         let dest_field_is_f64 = assign_target_field_is_f64(ctx, m);
+        // True quando `rhs_i64` carrega os BITS de um f64 (via bitcast), nao
+        // um inteiro logico. Usado no dispatch de setter virtual para escolher
+        // bitcast vs fcvt ao coagir para um param F64 (cross-runtime 38 vs
+        // super_field_setter, que trata `number` como i64 logico).
+        let rhs_i64_is_f64_bits = dest_field_is_f64
+            || (matches!(rhs.ty, ValTy::F64)
+                && rhs_is_non_integer_float_lit(final_rhs_expr.as_ref()));
         let rhs_i64 = if dest_field_is_f64 {
             let f = to_f64(ctx, rhs);
             ctx.builder.ins().bitcast(
@@ -814,10 +821,25 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                         .ok_or_else(|| anyhow!("setter `{setter_fn_name}` nao registrada"))?
                         .clone();
                     let param_ty = setter_abi.params.get(1).copied().unwrap_or(ValTy::I64);
-                    let rhs_tv = TypedVal::new(rhs_i64, ValTy::I64);
                     let coerced = match param_ty {
-                        ValTy::I32 => ctx.coerce_to_i32(rhs_tv).val,
-                        ValTy::F64 => to_f64(ctx, rhs_tv),
+                        ValTy::I32 => ctx.coerce_to_i32(TypedVal::new(rhs_i64, ValTy::I64)).val,
+                        // Setter espera F64. Se o RHS ja' era f64 (ou destino
+                        // f64), `rhs_i64` carrega os BITS do f64 (bitcast acima)
+                        // — reinterpretar via bitcast, nao fcvt_from_sint (que
+                        // converteria os bits como inteiro, gerando lixo —
+                        // cross-runtime 38_classes_deep). Senao (RHS inteiro
+                        // real), converter via fcvt.
+                        ValTy::F64 => {
+                            if rhs_i64_is_f64_bits {
+                                ctx.builder.ins().bitcast(
+                                    cranelift_codegen::ir::types::F64,
+                                    cranelift_codegen::ir::MemFlags::new(),
+                                    rhs_i64,
+                                )
+                            } else {
+                                to_f64(ctx, TypedVal::new(rhs_i64, ValTy::I64))
+                            }
+                        }
                         _ => rhs_i64,
                     };
                     let cls_owned = cls.clone();
