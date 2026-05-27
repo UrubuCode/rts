@@ -225,6 +225,10 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
     fn ann_str_is_array(ann: &str) -> bool {
         let t = ann.trim();
         t.ends_with("[]") || t.starts_with("Array<") || t.starts_with("ReadonlyArray<")
+            // (cross-runtime #345) TemplateStringsArray eh array de strings;
+            // `strings.map/reduce/filter` precisa ser reconhecido como
+            // array receiver pra liftar+reescrever em parallel.
+            || t == "TemplateStringsArray"
     }
     for item in &program.items {
         let Item::Function(f) = item else { continue };

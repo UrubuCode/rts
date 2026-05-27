@@ -96,6 +96,13 @@ impl ValTy {
         {
             return ValTy::Handle;
         }
+        // (cross-runtime #345) TemplateStringsArray (1o param de tagged
+        // template) eh um array de strings (readonly string[] + .raw).
+        // Representado como handle GC (Vec). Sem isto cai no fallback I64 e
+        // `strings.length` retorna 0 / `.reduce`/`for-of` falham.
+        if trimmed == "TemplateStringsArray" {
+            return ValTy::Handle;
+        }
         // \`Promise<X>\` (resultado tipico de async fn): RTS nao tem
         // Promise propria — async vira sync stripped, entao o tipo
         // efetivo eh X. Cobre \`Promise<string>\`, \`Promise<number>\`, etc.
