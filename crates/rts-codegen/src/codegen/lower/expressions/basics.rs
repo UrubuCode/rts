@@ -32,20 +32,28 @@ pub(super) fn lower_lit(ctx: &mut FnCtx, lit: &Lit) -> Result<TypedVal> {
             if let Some(&cached) = ctx.num_val_cache.get(&cache_key) {
                 let ty = if !wrote_as_float && v.fract() == 0.0 && v >= i32::MIN as f64 && v <= i32::MAX as f64 {
                     ValTy::I32
-                } else if !wrote_as_float && v.fract() == 0.0 && v.is_finite() {
+                } else if !wrote_as_float && v.fract() == 0.0 && v.is_finite()
+                    && v >= i64::MIN as f64 && v <= i64::MAX as f64
+                {
                     ValTy::I64
                 } else {
                     ValTy::F64
                 };
                 return Ok(TypedVal::new(cached, ty));
             }
+            // (cross-runtime) Literal inteiro so' vira iconst se CABE no range
+            // do tipo. `1e21` (`v.fract()==0` e finito) NAO cabe em i64 — sem
+            // o range check, `v as i64` saturava em i64::MAX (9223372036854775807)
+            // em vez de manter o valor como f64 (JS: number sempre f64).
             let tv = if !wrote_as_float
                 && v.fract() == 0.0
                 && v >= i32::MIN as f64
                 && v <= i32::MAX as f64
             {
                 TypedVal::new(ctx.builder.ins().iconst(cl::I32, v as i64), ValTy::I32)
-            } else if !wrote_as_float && v.fract() == 0.0 && v.is_finite() {
+            } else if !wrote_as_float && v.fract() == 0.0 && v.is_finite()
+                && v >= i64::MIN as f64 && v <= i64::MAX as f64
+            {
                 TypedVal::new(ctx.builder.ins().iconst(cl::I64, v as i64), ValTy::I64)
             } else {
                 TypedVal::new(ctx.builder.ins().f64const(v), ValTy::F64)
