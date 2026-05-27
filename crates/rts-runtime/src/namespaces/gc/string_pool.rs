@@ -416,6 +416,21 @@ pub extern "C" fn __RTS_FN_RT_SPREAD_INTO_VEC(dst: u64, src: u64) {
         Map(Vec<i64>),
         Empty,
     }
+    // (cross-runtime #316) Set spread (`[...set]`) itera os ELEMENTOS, que no
+    // storage interno sao as KEYS do Map<keyStr,1> — nao os values (dummy 1).
+    // Sem isto `[...new Set([1,2,3])]` virava `[1,1,1]`. Reusa a mesma
+    // conversao key->valor de MAP_VALUES (parse int, senao handle string).
+    if crate::namespaces::collections::map::handle_is_set_kind(src) {
+        let elems = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_VALUES(src);
+        let items = with_entry(elems, |entry| match entry {
+            Some(Entry::Vec(slots)) => slots.as_ref().clone(),
+            _ => Vec::new(),
+        });
+        for v in items {
+            push_vec_slot(dst, v);
+        }
+        return;
+    }
     let snap = with_entry(src, |entry| match entry {
         Some(Entry::Vec(slots)) => Snap::Vec(slots.as_ref().clone()),
         Some(Entry::String(b)) => Snap::Str(b.clone()),
