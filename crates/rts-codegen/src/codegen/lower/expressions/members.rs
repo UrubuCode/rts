@@ -1077,7 +1077,14 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
     // ex: JSON.parse) e I64+var_member_call_values — usa UNIVERSAL_LENGTH
     // que detecta tipo de Entry em runtime. Sem isso
     // `JSON.parse("[1,2,3]").length` caia no MAP_GET("length") -> 0.
+    // (cross-runtime) Var marcada local_map_vars (Map/Set anotado, `new Map/
+    // Set`, ou retorno de fn-Map): forca o caminho ambiguo p/ `.size` usar
+    // UNIVERSAL_LENGTH (detecta Entry::Map). Sem isso, `const m = mk(); m.size`
+    // caia em MAP_GET("size")=0 quando m nao era tipado Handle.
+    let recv_is_mapvar = matches!(m.obj.as_ref(), Expr::Ident(id)
+        if ctx.local_map_vars.contains(id.sym.as_str()));
     let recv_is_ambiguous = matches!(obj_tv.ty, ValTy::U64)
+        || recv_is_mapvar
         || (matches!(obj_tv.ty, ValTy::I64)
             && ctx.var_member_call_values.contains(&obj_tv.val));
     if (matches!(obj_tv.ty, ValTy::Handle) || recv_is_ambiguous) && rc_for_size.is_none() {
