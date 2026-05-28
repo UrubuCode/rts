@@ -564,6 +564,54 @@ fn for_of_iterates_string(ctx: &FnCtx, e: &swc_ecma_ast::Expr) -> bool {
                 false
             }
         }
+        // (cross-runtime) `for (const ch of h.text)` / `this.content` onde o
+        // field eh `: string`. Resolve a classe do receiver (this/ident) e
+        // checa field_class_names == "string" na hierarquia.
+        Expr::Member(m) => {
+            if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
+                if let Some(cls) = receiver_class_for_string(ctx, &m.obj) {
+                    return field_is_string(ctx, &cls, prop.sym.as_str());
+                }
+            }
+            false
+        }
         _ => false,
     }
+}
+
+/// (cross-runtime) Resolve a classe do receiver de um member access, apenas
+/// para os casos comuns: `this` (classe atual) e ident de var tipada classe.
+fn receiver_class_for_string(ctx: &FnCtx, e: &swc_ecma_ast::Expr) -> Option<String> {
+    use swc_ecma_ast::Expr;
+    match e {
+        Expr::This(_) => ctx.current_class.clone(),
+        Expr::Ident(id) => ctx
+            .local_class_ty
+            .get(id.sym.as_str())
+            .cloned()
+            .or_else(|| ctx.global_class_ty.get(id.sym.as_str()).cloned()),
+        Expr::Paren(p) => receiver_class_for_string(ctx, &p.expr),
+        _ => None,
+    }
+}
+
+/// (cross-runtime) O field `prop` da classe `cls` (ou de um ancestral) eh
+/// declarado `: string`? Consulta field_class_names subindo a hierarquia.
+fn field_is_string(ctx: &FnCtx, cls: &str, prop: &str) -> bool {
+    let mut current = Some(cls.to_string());
+    let mut depth = 0u32;
+    while let Some(name) = current {
+        if depth > 16 {
+            break;
+        }
+        let Some(meta) = ctx.classes.get(&name) else {
+            break;
+        };
+        if let Some(ty) = meta.field_class_names.get(prop) {
+            return ty.trim() == "string";
+        }
+        current = meta.super_class.clone();
+        depth += 1;
+    }
+    false
 }
