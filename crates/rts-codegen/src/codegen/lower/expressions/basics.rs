@@ -489,6 +489,14 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
     let mut acc = ctx.emit_str_handle(&cook(first))?;
 
     for (expr, quasi) in tpl.exprs.iter().zip(tpl.quasis.iter().skip(1)) {
+        // (cross-runtime #304) `${obj}` onde obj eh new C / ident tipado de
+        // classe com toString() custom: reescreve para `obj.toString()` em
+        // vez de render "[object Object]". Espelha o fix de concat.
+        let rewritten;
+        let expr: &swc_ecma_ast::Expr = match super::operators::rewrite_obj_to_string(ctx, expr) {
+            Some(rw) => { rewritten = rw; &rewritten }
+            None => expr,
+        };
         let val = lower_expr(ctx, expr)?;
         let concat = ctx.get_extern(
             "__RTS_FN_NS_GC_STRING_CONCAT",

@@ -368,7 +368,7 @@ fn try_operator_overload(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedV
 
 /// (cross-runtime #304) Se `expr` eh `new C(...)` ou ident tipado de classe
 /// registrada com `toString()`, retorna `expr.toString()` para concat.
-fn rewrite_obj_to_string(ctx: &FnCtx, expr: &Expr) -> Option<Expr> {
+pub(crate) fn rewrite_obj_to_string(ctx: &FnCtx, expr: &Expr) -> Option<Expr> {
     let class_name = match expr {
         Expr::New(n) => match n.callee.as_ref() {
             Expr::Ident(id) => Some(id.sym.to_string()),
