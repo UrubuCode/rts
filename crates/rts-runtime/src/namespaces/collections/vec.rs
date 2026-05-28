@@ -101,7 +101,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(handle: u64) -> i64 {
     let popped: Option<i64> = with_vec_mut(handle, None, |v| v.pop());
     match popped {
         Some(v) => v,
-        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+        // Vazio: undefined real (sentinel), nao handle-string. Faz `?? -1`
+        // e `=== undefined` funcionarem; template formata via TPL_COERCE_AUTO.
+        None => i64::MIN + 2,
     }
 }
 
@@ -560,7 +562,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(handle: u64) -> i64 {
     });
     match first {
         Some(v) => v,
-        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+        // Vazio: undefined real (sentinel), nao handle-string.
+        None => i64::MIN + 2,
     }
 }
 
@@ -1224,11 +1227,9 @@ mod tests {
         assert_eq!(handle_to_vec(h), vec![2, 3]);
         assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h), 2);
         assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h), 3);
-        // Vazio: retorna handle de string "undefined" (nao 0). JS spec.
-        let undef_h = __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h);
-        assert_ne!(undef_h, 0);
-        let s = crate::namespaces::gc::string_pool::read_string_handle(undef_h as u64);
-        assert_eq!(s.as_deref(), Some("undefined"));
+        // Vazio: retorna o sentinel undefined (i64::MIN+2), nao handle-string,
+        // p/ que `?? -1` e `=== undefined` funcionem no codegen.
+        assert_eq!(__RTS_FN_NS_COLLECTIONS_VEC_SHIFT(h), i64::MIN + 2);
     }
 
     #[test]

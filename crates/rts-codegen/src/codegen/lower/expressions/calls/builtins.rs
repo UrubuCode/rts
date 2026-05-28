@@ -1192,13 +1192,14 @@ pub(super) fn lower_array_builtin(
             let inst = ctx.builder.ins().call(get_fn, &[obj_h, final_idx]);
             let v = ctx.builder.inst_results(inst)[0];
             // (cross-runtime #897) OOR (idx<0 ou idx>=len apos ajuste) retorna
-            // undefined sentinel; senao retorna o valor cru (i64). Marca como
-            // ambiguo via var_member_call_values pra TPL_COERCE_AUTO formatar.
+            // undefined; senao retorna o valor cru (i64). Usa o SENTINEL
+            // undefined (i64::MIN+2), nao handle-string, p/ que `?? -1` e
+            // `=== undefined` funcionem. TPL_COERCE_AUTO formata o sentinel.
             let below = ctx.builder.ins().icmp(IntCC::SignedLessThan, final_idx, zero);
             let above = ctx.builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, final_idx, len);
             let oor = ctx.builder.ins().bor(below, above);
-            let undef_h = ctx.emit_str_handle(b"undefined")?.val;
-            let result = ctx.builder.ins().select(oor, undef_h, v);
+            let undef_s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+            let result = ctx.builder.ins().select(oor, undef_s, v);
             ctx.var_member_call_values.insert(result);
             Ok(Some(TypedVal::new(result, ValTy::I64)))
         }
