@@ -545,6 +545,10 @@ pub struct FnCtx<'m, 'fb> {
     /// Sem isso, `arr.indexOf(x)` em `let arr: number[] = [...]` cai em
     /// string builtin (`__RTS_FN_GL_STRING_INDEX_OF`) e retorna lixo.
     pub local_array_vars: std::collections::HashSet<String>,
+    /// (cross-runtime) Vars cujo valor eh string (literal, template, anotacao
+    /// `: string`). Usado por `for (const c of s)` p/ iterar os chars em vez
+    /// de tratar a string como Vec (que nao itera).
+    pub local_string_vars: std::collections::HashSet<String>,
 
     /// (generators) Vars inicializadas com chamada a uma generator fn
     /// (`const it = g()`). `it.next()` roteia para GENERATOR_NEXT (cursor
@@ -642,6 +646,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),
             local_array_vars: std::collections::HashSet::new(),
+            local_string_vars: std::collections::HashSet::new(),
             generator_vars: std::collections::HashSet::new(),
             local_ta_view: HashMap::new(),
             local_nested_obj_field_types: HashMap::new(),

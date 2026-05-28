@@ -204,6 +204,22 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         )?;
         let inst = ctx.builder.ins().call(keys_fn, &[handle]);
         handle = ctx.builder.inst_results(inst)[0];
+    } else if for_of_iterates_string(ctx, &for_of.right) {
+        // (cross-runtime) `for (const c of "abc")` / string var: itera os
+        // CHARS (codepoints). Converte a string num Vec de char-handles via
+        // VEC_NEW + SPREAD_INTO_VEC (mesmo helper do spread `[..."abc"]`).
+        // Sem isso, o for-of tratava a string como Vec (VEC_LEN=-1) e nao
+        // iterava.
+        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+        let inst_v = ctx.builder.ins().call(vec_new, &[]);
+        let char_vec = ctx.builder.inst_results(inst_v)[0];
+        let spread_fn = ctx.get_extern(
+            "__RTS_FN_RT_SPREAD_INTO_VEC",
+            &[cl::I64, cl::I64],
+            None,
+        )?;
+        ctx.builder.ins().call(spread_fn, &[char_vec, handle]);
+        handle = char_vec;
     }
 
     let len_fref = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_LEN", &[cl::I64], Some(cl::I64))?;
@@ -478,4 +494,19 @@ pub(super) fn lower_for_in(ctx: &mut FnCtx, for_in: &swc_ecma_ast::ForInStmt) ->
     ctx.builder.switch_to_block(exit);
     ctx.builder.seal_block(exit);
     Ok(false)
+}
+
+/// (cross-runtime) `for (const c of <expr>)` itera os chars quando `<expr>`
+/// eh string: literal `"..."`, template, ou var rastreada como string.
+/// Conservador — so' dispara com sinal claro de string (nao afeta
+/// arrays/Map/Set).
+fn for_of_iterates_string(ctx: &FnCtx, e: &swc_ecma_ast::Expr) -> bool {
+    use swc_ecma_ast::Expr;
+    match e {
+        Expr::Lit(swc_ecma_ast::Lit::Str(_)) => true,
+        Expr::Tpl(_) => true,
+        Expr::Paren(p) => for_of_iterates_string(ctx, &p.expr),
+        Expr::Ident(id) => ctx.local_string_vars.contains(id.sym.as_str()),
+        _ => false,
+    }
 }
