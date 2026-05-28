@@ -142,6 +142,37 @@ fn collect_fns_ret_mapset(program: &Program) -> HashSet<String> {
     out
 }
 
+/// (cross-runtime) `e` eh uma Call cujo resultado eh array? Cobre fn top-level
+/// ret-array (METHODS_RET_ARRAY), Object.keys/values/entries, Array.from/of, e
+/// metodos de instancia que retornam array (map/filter/.../fill/sort/etc).
+/// Usado pra reconhecer receiver chain `[..].fill(0).map((_,i)=>i)` no lift.
+fn expr_is_array_returning_call(e: &Expr) -> bool {
+    let Expr::Call(c) = e else { return false };
+    let Callee::Expr(ce) = &c.callee else { return false };
+    if let Expr::Ident(id) = ce.as_ref() {
+        return METHODS_RET_ARRAY.with(|s| s.borrow().contains(id.sym.as_str()));
+    }
+    let Expr::Member(mm) = ce.as_ref() else { return false };
+    let MemberProp::Ident(p) = &mm.prop else { return false };
+    let prop = p.sym.as_str();
+    if let Expr::Ident(oid) = mm.obj.as_ref() {
+        let on = oid.sym.as_str();
+        if on == "Object" && matches!(
+            prop, "keys" | "values" | "entries"
+            | "getOwnPropertyNames" | "getOwnPropertySymbols"
+        ) { return true; }
+        if on == "Array" && matches!(prop, "from" | "of") { return true; }
+    }
+    if matches!(prop,
+        "map" | "filter" | "slice" | "concat" | "flat" | "flatMap"
+        | "splice" | "toReversed" | "toSorted" | "toSpliced" | "with"
+        | "reverse" | "sort" | "fill" | "copyWithin" | "split"
+    ) {
+        return true;
+    }
+    METHODS_RET_ARRAY.with(|s| s.borrow().contains(prop))
+}
+
 fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
     let mut out = HashSet::new();
     let methods_ret_array = collect_methods_ret_array(program);
@@ -650,7 +681,11 @@ fn lift_arrows_in_expr(
                             Expr::Array(_) => true,
                             Expr::Ident(id) => ARRAY_RECEIVER_IDENTS
                                 .with(|s| s.borrow().contains(id.sym.as_str())),
-                            _ => false,
+                            // (cross-runtime) receiver eh chain de metodo array-
+                            // returning (`[0,0,0].fill(0).map((_,i)=>i)`). Sem
+                            // reconhecer, arrow 2-param usava arity=1 e o 2o param
+                            // (idx) ficava indefinido -> crash.
+                            e => expr_is_array_returning_call(e),
                         };
                         if !recv_is_array {
                             return (idx, n_args, default_arity);
