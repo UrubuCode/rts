@@ -366,6 +366,39 @@ fn try_operator_overload(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedV
     Ok(Some(result))
 }
 
+/// (cross-runtime #304) Se `expr` eh `new C(...)` ou ident tipado de classe
+/// registrada com `toString()`, retorna `expr.toString()` para concat.
+fn rewrite_obj_to_string(ctx: &FnCtx, expr: &Expr) -> Option<Expr> {
+    let class_name = match expr {
+        Expr::New(n) => match n.callee.as_ref() {
+            Expr::Ident(id) => Some(id.sym.to_string()),
+            _ => None,
+        },
+        Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        _ => None,
+    }?;
+    let has_to_string = ctx.classes.get(&class_name)
+        .is_some_and(|m| m.methods.iter().any(|m| m == "toString"))
+        || super::calls::resolve_method_owner(ctx, &class_name, "toString").is_some();
+    if !has_to_string {
+        return None;
+    }
+    Some(Expr::Call(swc_ecma_ast::CallExpr {
+        span: Default::default(),
+        ctxt: Default::default(),
+        callee: swc_ecma_ast::Callee::Expr(Box::new(Expr::Member(swc_ecma_ast::MemberExpr {
+            span: Default::default(),
+            obj: Box::new(expr.clone()),
+            prop: swc_ecma_ast::MemberProp::Ident(swc_ecma_ast::IdentName {
+                span: Default::default(),
+                sym: "toString".into(),
+            }),
+        }))),
+        args: Vec::new(),
+        type_args: None,
+    }))
+}
+
 pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     if matches!(
         bin.op,
@@ -775,6 +808,30 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
                     eq
                 };
                 return Ok(TypedVal::new(result, ValTy::Bool));
+            }
+        }
+    }
+
+    // (cross-runtime #304) `"x" + obj` / `obj + "x"` onde obj eh instancia
+    // de classe com toString() custom: reescreve o operando objeto para
+    // `obj.toString()`. So' dispara quando o OUTRO operando eh string
+    // literal/template (concat string inequivoco) — assim nao colide com
+    // operator overload (`a + b` de classe que define `add`).
+    if matches!(bin.op, BinaryOp::Add) {
+        let left_is_strlit = matches!(bin.left.as_ref(),
+            Expr::Lit(Lit::Str(_)) | Expr::Tpl(_));
+        let right_is_strlit = matches!(bin.right.as_ref(),
+            Expr::Lit(Lit::Str(_)) | Expr::Tpl(_));
+        if left_is_strlit || right_is_strlit {
+            if let Some(rw) = rewrite_obj_to_string(ctx, &bin.left) {
+                let lhs = lower_expr(ctx, &rw)?;
+                let rhs = lower_expr(ctx, &bin.right)?;
+                return lower_add(ctx, lhs, rhs);
+            }
+            if let Some(rw) = rewrite_obj_to_string(ctx, &bin.right) {
+                let lhs = lower_expr(ctx, &bin.left)?;
+                let rhs = lower_expr(ctx, &rw)?;
+                return lower_add(ctx, lhs, rhs);
             }
         }
     }
