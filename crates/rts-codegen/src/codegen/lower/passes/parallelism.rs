@@ -1694,8 +1694,10 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                                 "for_each" => "for_each_bound",
                                 "reduce" => "reduce_bound",
                                 "reduce_no_init" => "reduce_no_init_bound",
-                                // some/every/find/etc com captura: fora do
-                                // escopo inicial — mantem (cai no stub seguro).
+                                "find" => "find_bound",
+                                "find_index" => "find_index_bound",
+                                "some" => "some_bound",
+                                "every" => "every_bound",
                                 other => other,
                             };
                         }
