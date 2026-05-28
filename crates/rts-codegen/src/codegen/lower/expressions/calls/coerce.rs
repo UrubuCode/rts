@@ -161,6 +161,22 @@ pub(super) fn lower_coerce_to_number(ctx: &mut FnCtx, call: &CallExpr) -> Result
     Ok(Some(TypedVal::new(v, ValTy::F64)))
 }
 
+/// (cross-runtime #304) Resolve o nome da classe de `expr` quando eh
+/// `new C(...)` ou um ident tipado de classe registrada — usado para
+/// decidir se `String(expr)` deve chamar `expr.toString()`.
+fn string_coerce_class(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> Option<String> {
+    match expr {
+        swc_ecma_ast::Expr::New(n) => match n.callee.as_ref() {
+            swc_ecma_ast::Expr::Ident(id) => Some(id.sym.to_string()),
+            _ => None,
+        },
+        swc_ecma_ast::Expr::Ident(id) => {
+            ctx.local_class_ty.get(id.sym.as_str()).cloned()
+        }
+        _ => None,
+    }
+}
+
 pub(super) fn lower_coerce_to_string(ctx: &mut FnCtx, call: &CallExpr) -> Result<Option<TypedVal>> {
     if let Some(arg) = call.args.first() {
         if arg.spread.is_some() {
@@ -174,6 +190,37 @@ pub(super) fn lower_coerce_to_string(ctx: &mut FnCtx, call: &CallExpr) -> Result
         if let swc_ecma_ast::Expr::Ident(id) = arg.expr.as_ref() {
             if id.sym.as_str() == "undefined" {
                 return Ok(Some(ctx.emit_str_handle(b"undefined")?));
+            }
+        }
+        // (cross-runtime #304) `String(obj)` onde obj eh instancia de classe
+        // com `toString()` custom: chama o metodo em vez de devolver
+        // "[object Object]". Detecta via `new C(...)` ou ident tipado de
+        // classe registrada com toString. Espelha rewrite_to_json_call.
+        if let Some(class_name) = string_coerce_class(ctx, &arg.expr) {
+            let has_to_string = ctx.classes.get(&class_name).is_some_and(|m| {
+                m.methods.iter().any(|m| m == "toString")
+            }) || super::class_dispatch::resolve_method_owner(
+                ctx, &class_name, "toString",
+            ).is_some();
+            if has_to_string {
+                let synth = swc_ecma_ast::CallExpr {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    callee: swc_ecma_ast::Callee::Expr(Box::new(swc_ecma_ast::Expr::Member(
+                        swc_ecma_ast::MemberExpr {
+                            span: Default::default(),
+                            obj: arg.expr.clone(),
+                            prop: swc_ecma_ast::MemberProp::Ident(swc_ecma_ast::IdentName {
+                                span: Default::default(),
+                                sym: "toString".into(),
+                            }),
+                        },
+                    ))),
+                    args: Vec::new(),
+                    type_args: None,
+                };
+                let tv = super::lower_call(ctx, &synth)?;
+                return Ok(Some(tv));
             }
         }
         let tv = super::lower_expr(ctx, &arg.expr)?;
