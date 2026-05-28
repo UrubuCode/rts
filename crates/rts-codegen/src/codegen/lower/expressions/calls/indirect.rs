@@ -415,16 +415,45 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
             let src = ctx.coerce_to_i64(tv).val;
             ctx.builder.ins().call(vec_extend, &[args_vec, src]);
         } else {
-            let v = ctx.coerce_to_i64(tv).val;
+            // (issue-pai invoke/param_kinds) F64 viaja como to_bits; invoke_typed
+            // (via handle com param_kinds) le from_bits. Sem isto `apply(inc,2.5)`
+            // truncava. Args int/handle como i64 cru (param_kind reflete o tipo).
+            let v = match tv.ty {
+                ValTy::F64 => ctx.builder.ins().bitcast(
+                    cl::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    tv.val,
+                ),
+                _ => ctx.coerce_to_i64(tv).val,
+            };
             ctx.builder.ins().call(vec_push, &[args_vec, v]);
         }
+    }
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    // (issue-pai invoke/param_kinds, metade b) Callee declara retorno number
+    // (`f: (n)=>number`): usa INVOKE_AUTO_AS_F64 que NORMALIZA o retorno p/
+    // f64-bits qualquer que seja o callee (user fn f64-ret OU function
+    // expression i64-ret). Resultado eh F64 — sem bits crus no template.
+    if ret_is_f64 {
+        let invoke_f = ctx.get_extern(
+            "__RTS_FN_RT_INVOKE_AUTO_AS_F64",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(invoke_f, &[callee_val, zero, args_vec]);
+        let raw = ctx.builder.inst_results(inst)[0];
+        let f = ctx.builder.ins().bitcast(
+            cl::F64,
+            cranelift_codegen::ir::MemFlags::new(),
+            raw,
+        );
+        return Ok(TypedVal::new(f, ValTy::F64));
     }
     let invoke = ctx.get_extern(
         "__RTS_FN_RT_INVOKE_AUTO",
         &[cl::I64, cl::I64, cl::I64],
         Some(cl::I64),
     )?;
-    let zero = ctx.builder.ins().iconst(cl::I64, 0);
     let inst = ctx.builder.ins().call(invoke, &[callee_val, zero, args_vec]);
     let v = ctx.builder.inst_results(inst)[0];
     // (cross-runtime followup #1067) INVOKE_AUTO retorna i64 ambiguo
