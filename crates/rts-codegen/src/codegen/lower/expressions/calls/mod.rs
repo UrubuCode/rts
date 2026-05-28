@@ -794,7 +794,25 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 // Only when obj is NOT a plain Ident (those are handled via qualified_member_name
                 // at the outer dispatch path which has the global_class_lookup).
                 if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
-                    let recv_tv = lower_expr(ctx, &m.obj)?;
+                    let mut recv_tv = lower_expr(ctx, &m.obj)?;
+                    // (cross-runtime) `mk().get(k)`/`mk().has(k)` chain direto:
+                    // mk() retorna i64 nao-tipado-Handle, entao o receiver caia
+                    // no caminho number_builtin e crashava. Se mk eh fn em
+                    // FNS_RET_MAPSET, re-tipa o receiver como Handle p/ entrar no
+                    // bloco de map_set_builtin.
+                    if matches!(recv_tv.ty, ValTy::I64) {
+                        let recv_is_mapcall = matches!(m.obj.as_ref(),
+                            Expr::Call(ce) if matches!(&ce.callee,
+                                swc_ecma_ast::Callee::Expr(callee) if matches!(callee.as_ref(),
+                                    Expr::Ident(fid) if crate::codegen::lower::passes::parallelism::FNS_RET_MAPSET
+                                        .with(|c| c.borrow().contains(fid.sym.as_str()))
+                                )
+                            )
+                        );
+                        if recv_is_mapcall {
+                            recv_tv = TypedVal::new(recv_tv.val, ValTy::Handle);
+                        }
+                    }
                     // (#550 parte 2) (true).toString() / (false).valueOf() em literal.
                     if matches!(recv_tv.ty, ValTy::Bool) && call.args.is_empty() {
                         use cranelift_codegen::ir::condcodes::IntCC;
@@ -854,6 +872,17 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             Expr::New(n) if matches!(
                                 n.callee.as_ref(),
                                 Expr::Ident(id) if matches!(id.sym.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet")
+                            )
+                        )
+                        // (cross-runtime) `mk().get(k)` chain direto: receiver eh
+                        // call de fn que retorna Map/Set (FNS_RET_MAPSET). Sem
+                        // isto cai em string/array builtin e crasha (SIGILL).
+                        || matches!(m.obj.as_ref(),
+                            Expr::Call(ce) if matches!(&ce.callee,
+                                swc_ecma_ast::Callee::Expr(callee) if matches!(callee.as_ref(),
+                                    Expr::Ident(fid) if crate::codegen::lower::passes::parallelism::FNS_RET_MAPSET
+                                        .with(|c| c.borrow().contains(fid.sym.as_str()))
+                                )
                             )
                         );
                         if obj_is_new_map_set {
