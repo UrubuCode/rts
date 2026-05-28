@@ -209,11 +209,27 @@ pub(crate) fn compile_user_fn(
             let is_reduce_lifted = fn_decl.name.starts_with("__lifted_arr_method_reduce_");
             let is_arr_method_lifted = fn_decl.name.starts_with("__lifted_arr_method_")
                 && !is_reduce_lifted;
+            // (#195) `__lifted_cap_N`: os primeiros K params sao CAPTURAS (vars
+            // do escopo enclosing passadas via bound_args). O K real vem de
+            // LIFTED_CAPTURES. Capturas e o `val` (slot K) sao ambiguos; alem
+            // disso, capturas que sejam arrays precisam que `.length`/index/
+            // array methods despachem por tipo de Entry em runtime -> marca em
+            // local_array_vars + ambiguo. Sem isso, `keys.length` (captura
+            // array) caia em MAP_GET("length") -> 0.
+            let cap_count = if fn_decl.name.starts_with("__lifted_cap_") {
+                crate::codegen::lower::passes::parallelism::LIFTED_CAPTURES
+                    .with(|c| c.borrow().get(&fn_decl.name).map(|v| v.len()))
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            let is_cap_lifted = cap_count > 0;
             if ty == ValTy::I64 && (
                 fn_decl.name.starts_with("__hoisted_arrow_")
                 || fn_decl.name.starts_with("__lifted_arrow_")
                 || (is_arr_method_lifted && (i == 0 || i == 2))
                 || (is_reduce_lifted && (i == 0 || i == 1))
+                || (is_cap_lifted && (i < cap_count || i == cap_count))
             ) {
                 fn_ctx.var_member_call_values.insert(block_param);
                 // (#862) Tambem marca pelo nome para que reads em blocks
