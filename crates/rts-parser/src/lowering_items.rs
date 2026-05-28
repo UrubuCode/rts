@@ -563,15 +563,20 @@ fn lower_ts_enum_to_const(enum_decl: &swc_ecma_ast::TsEnumDecl) -> Option<Stmt> 
         };
 
         // Determina o valor: usa init se presente, senão auto-incremento.
+        // numeric_val: Some(n) quando o valor eh inteiro literal — habilita o
+        // reverse mapping `[n]: "name"` (JS spec para enum numerico).
+        let mut numeric_val: Option<i64> = None;
         let value_expr: Expr = if let Some(init) = &member.init {
             // Quando init é Lit::Num, atualiza o counter.
             if let Expr::Lit(Lit::Num(n)) = init.as_ref() {
                 next_numeric = n.value as i64 + 1;
+                numeric_val = Some(n.value as i64);
             }
             (**init).clone()
         } else {
             let val = next_numeric;
             next_numeric += 1;
+            numeric_val = Some(val);
             Expr::Lit(Lit::Num(Number {
                 span: Default::default(),
                 value: val as f64,
@@ -582,11 +587,29 @@ fn lower_ts_enum_to_const(enum_decl: &swc_ecma_ast::TsEnumDecl) -> Option<Stmt> 
         let prop = PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
             key: PropName::Ident(IdentName {
                 span: Default::default(),
-                sym: key_str.into(),
+                sym: key_str.clone().into(),
             }),
             value: Box::new(value_expr),
         })));
         props.push(prop);
+
+        // (cross-runtime) Reverse mapping para enum numerico: `State[0]` ->
+        // "Idle". JS gera as entradas reversas `[value]: "name"`. String enums
+        // nao tem reverse. Key numerica via PropName::Num.
+        if let Some(n) = numeric_val {
+            props.push(PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                key: PropName::Num(Number {
+                    span: Default::default(),
+                    value: n as f64,
+                    raw: Some(format!("{n}").into()),
+                }),
+                value: Box::new(Expr::Lit(Lit::Str(Str {
+                    span: Default::default(),
+                    value: key_str.clone().into(),
+                    raw: None,
+                }))),
+            }))));
+        }
     }
 
     let obj_lit = Expr::Object(ObjectLit {
