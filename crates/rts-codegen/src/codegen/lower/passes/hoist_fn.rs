@@ -51,6 +51,13 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     expr_yields_string(&b.left) || expr_yields_string(&b.right)
                 }
                 Expr::Paren(p) => expr_yields_string(&p.expr),
+                // (cross-runtime) ternary (incl. encadeado) cujos ramos
+                // produzem string: `n>=90?"A":n>=80?"B":"C"`. Sem isto, arrow
+                // hoisted sem anotacao nao infere return string e o handle
+                // sai como numero cru. Espelha inspect_return_kind (program.rs).
+                Expr::Cond(c) => {
+                    expr_yields_string(&c.cons) && expr_yields_string(&c.alt)
+                }
                 _ => false,
             }
         }

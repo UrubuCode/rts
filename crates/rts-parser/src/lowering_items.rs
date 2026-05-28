@@ -340,6 +340,15 @@ fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
                 }
                 false
             }
+            // (cross-runtime) ternary (incl. encadeado) cujos AMBOS os ramos
+            // produzem string: `n>=90?"A":n>=80?"B":"C"`. Sem isto, arrow
+            // `const f = (n) => ...ternary...` sem anotacao nao infere string
+            // e o handle sai como numero cru. Exige AMBOS (cons && alt) string
+            // para nao classificar ternary polimorfico (ex: `c ? "x" : 0`,
+            // replacers de JSON.stringify) como string — esses ficam ambiguos.
+            Expr::Cond(c) => {
+                expr_yields_string(&c.cons) && expr_yields_string(&c.alt)
+            }
             _ => false,
         }
     }
