@@ -1075,6 +1075,24 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             // ABI namespace fixou em 2 args; aqui suportamos N reduzindo
             // pairwise. Caso 1 arg: retorna `Number(arg)` (sem call).
             if (qualified == "Math.max" || qualified == "Math.min") && call.args.len() == 1 {
+                // (cross-runtime) `Math.min(...arr)` / `Math.max(...arr)`: o
+                // unico arg eh spread de um array -> reduz sobre o Vec via
+                // VEC_MIN/MAX. Sem isto, coerce_to_f64(arr_handle) virava lixo
+                // (handle interpretado como f64). Standalone passava por outro
+                // caminho; em fn caia aqui.
+                if call.args[0].spread.is_some() {
+                    let src_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let src_h = ctx.coerce_to_i64(src_tv).val;
+                    let sym = if qualified == "Math.max" {
+                        "__RTS_FN_NS_COLLECTIONS_VEC_MAX"
+                    } else {
+                        "__RTS_FN_NS_COLLECTIONS_VEC_MIN"
+                    };
+                    let f = ctx.get_extern(sym, &[cl::I64], Some(cl::F64))?;
+                    let inst = ctx.builder.ins().call(f, &[src_h]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::F64));
+                }
                 let tv = lower_expr(ctx, &call.args[0].expr)?;
                 let v = ctx.coerce_to_f64(tv).val;
                 return Ok(TypedVal::new(v, ValTy::F64));

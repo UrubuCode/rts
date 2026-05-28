@@ -43,10 +43,18 @@ pub(crate) fn expand_spread_args(program: &mut Program) {
     for item in program.items.iter_mut() {
         match item {
             Item::Function(f) => {
+                // (cross-runtime) Params da fn fazem SHADOW de consts top-level
+                // homonimas. `const arr=[...]; function f(arr){ g(...arr) }` —
+                // o `...arr` refere ao PARAM, nao a const. Sem remover, o pass
+                // expandia com os elementos da const errada.
+                let mut scoped = const_arrays.clone();
+                for p in &f.parameters {
+                    scoped.remove(&p.name);
+                }
                 for s in f.body.iter_mut() {
                     let Statement::Raw(raw) = s;
                     if let Some(stmt) = raw.stmt.as_mut() {
-                        spread_in_stmt(stmt, &const_arrays);
+                        spread_in_stmt(stmt, &scoped);
                     }
                 }
             }
@@ -54,18 +62,26 @@ pub(crate) fn expand_spread_args(program: &mut Program) {
                 for m in c.members.iter_mut() {
                     match m {
                         ClassMember::Constructor(ctor) => {
+                            let mut scoped = const_arrays.clone();
+                            for p in &ctor.parameters {
+                                scoped.remove(&p.name);
+                            }
                             for s in ctor.body.iter_mut() {
                                 let Statement::Raw(raw) = s;
                                 if let Some(stmt) = raw.stmt.as_mut() {
-                                    spread_in_stmt(stmt, &const_arrays);
+                                    spread_in_stmt(stmt, &scoped);
                                 }
                             }
                         }
                         ClassMember::Method(method) => {
+                            let mut scoped = const_arrays.clone();
+                            for p in &method.parameters {
+                                scoped.remove(&p.name);
+                            }
                             for s in method.body.iter_mut() {
                                 let Statement::Raw(raw) = s;
                                 if let Some(stmt) = raw.stmt.as_mut() {
-                                    spread_in_stmt(stmt, &const_arrays);
+                                    spread_in_stmt(stmt, &scoped);
                                 }
                             }
                         }
