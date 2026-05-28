@@ -187,6 +187,40 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_AUTO(value: i64) -> u64 {
     coerce_auto_inner(value)
 }
 
+/// (cross-runtime) `a + b` quando AMBOS operandos sao i64 ambiguos
+/// (vec_get/map_get/member-call sem tipo estatico) — decide em runtime:
+/// se qualquer um for handle de String, faz concat (JS: string + x =
+/// concat); senao soma numerica (interpreta cada um como i64 puro).
+/// Resolve `arr[0] + arr[1]` de array de strings [virava soma dos handles]
+/// sem regredir `nums[0] + nums[1]` [continua somando].
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_ADD_AUTO(lhs: i64, rhs: i64) -> i64 {
+    let ls = snapshot_entry(lhs as u64);
+    let rs = snapshot_entry(rhs as u64);
+    let lhs_is_str = matches!(ls, EntrySnap::Str(_));
+    let rhs_is_str = matches!(rs, EntrySnap::Str(_));
+    if lhs_is_str || rhs_is_str {
+        // Pelo menos um eh string -> concat (semantica JS). O lado nao-string
+        // eh stringificado: handle valido via snapshot_to_bytes; i64 puro via
+        // element_to_string [que tenta lookup e cai em integer].
+        let mut out = match &ls {
+            EntrySnap::Str(b) => b.clone(),
+            EntrySnap::None => element_to_string(lhs).into_bytes(),
+            other => snapshot_to_bytes(other),
+        };
+        let rbytes = match &rs {
+            EntrySnap::Str(b) => b.clone(),
+            EntrySnap::None => element_to_string(rhs).into_bytes(),
+            other => snapshot_to_bytes(other),
+        };
+        out.extend_from_slice(&rbytes);
+        return alloc_entry(Entry::String(out)) as i64;
+    }
+    // Nenhum eh string -> soma numerica de i64 puros (wrapping, igual ao
+    // iadd que este helper substitui).
+    lhs.wrapping_add(rhs)
+}
+
 /// (cross-runtime #335/#1056) Variante de TPL_COERCE_AUTO que prefere
 /// renderizar `value=0` como "0" em vez de "null". Usado em contextos
 /// onde o valor vem de getter/computacao/member access — caso onde

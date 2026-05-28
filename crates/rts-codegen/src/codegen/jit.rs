@@ -535,6 +535,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_TPL_COERCE_NUM_BIAS", __RTS_FN_RT_TPL_COERCE_NUM_BIAS);
     }
     {
+        use crate::namespaces::gc::string_pool::__RTS_FN_RT_ADD_AUTO;
+        add_fn!("__RTS_FN_RT_ADD_AUTO", __RTS_FN_RT_ADD_AUTO);
+    }
+    {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TPL_COERCE_VEC_SLOT;
         add_fn!("__RTS_FN_RT_TPL_COERCE_VEC_SLOT", __RTS_FN_RT_TPL_COERCE_VEC_SLOT);
     }

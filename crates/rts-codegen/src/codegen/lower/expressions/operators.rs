@@ -1732,6 +1732,36 @@ pub(super) fn to_f64(ctx: &mut FnCtx, tv: TypedVal) -> cranelift_codegen::ir::Va
 }
 
 pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
+    // (cross-runtime) AMBOS operandos sao I64 ambiguos (vec_get/map_get/
+    // member-call sem tipo estatico) e nenhum eh Handle estatico: o `+`
+    // nao sabe se sao strings ou numeros. Roteia para ADD_AUTO que decide
+    // em runtime (concat se algum for string handle, senao soma). Resolve
+    // `arr[0] + arr[1]` de array de strings sem regredir arrays numericos.
+    if !matches!(lhs.ty, ValTy::Handle) && !matches!(rhs.ty, ValTy::Handle) {
+        let lhs_ambig = matches!(lhs.ty, ValTy::I64 | ValTy::U64)
+            && (ctx.var_member_call_values.contains(&lhs.val)
+                || ctx.var_vec_slot_values.contains(&lhs.val));
+        let rhs_ambig = matches!(rhs.ty, ValTy::I64 | ValTy::U64)
+            && (ctx.var_member_call_values.contains(&rhs.val)
+                || ctx.var_vec_slot_values.contains(&rhs.val));
+        if lhs_ambig && rhs_ambig {
+            let lv = ctx.coerce_to_i64(lhs).val;
+            let rv = ctx.coerce_to_i64(rhs).val;
+            let add_auto = ctx.get_extern(
+                "__RTS_FN_RT_ADD_AUTO",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(add_auto, &[lv, rv]);
+            let result = ctx.builder.inst_results(inst)[0];
+            // Resultado pode ser handle de string (concat) ou numero (soma).
+            // Marca ambiguo + GC track pra propagar a indeterminacao adiante.
+            ctx.declare_gc_handle(result);
+            ctx.var_member_call_values.insert(result);
+            ctx.var_vec_slot_values.insert(result);
+            return Ok(TypedVal::new(result, ValTy::I64));
+        }
+    }
     if matches!(lhs.ty, ValTy::Handle) || matches!(rhs.ty, ValTy::Handle) {
         // Determine liveness of operands before coerce modifies types.
         // A Value is a "fresh" allocation when it was created by emit_str_handle
