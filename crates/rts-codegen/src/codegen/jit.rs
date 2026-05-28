@@ -2241,6 +2241,22 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_PARALLEL_EVERY_BOUND",
             parallel_ops::__RTS_FN_NS_PARALLEL_EVERY_BOUND
         );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_REDUCE_RIGHT_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE_RIGHT_BOUND
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_REDUCE_RIGHT_NO_INIT_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE_RIGHT_NO_INIT_BOUND
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FIND_LAST_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FIND_LAST_BOUND
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FIND_LAST_INDEX_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FIND_LAST_INDEX_BOUND
+        );
     }
 
     // ── namespaces::path ──────────────────────────────────────────────

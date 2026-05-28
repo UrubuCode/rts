@@ -955,6 +955,8 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 | "parallel.reduce_bound" | "parallel.reduce_no_init_bound"
                 | "parallel.find_bound" | "parallel.find_index_bound"
                 | "parallel.some_bound" | "parallel.every_bound"
+                | "parallel.reduce_right_bound" | "parallel.reduce_right_no_init_bound"
+                | "parallel.find_last_bound" | "parallel.find_last_index_bound"
             ) {
                 if let Some(tv) = lower_parallel_bound_call(ctx, &qualified, call)? {
                     return Ok(tv);
@@ -3206,8 +3208,9 @@ fn lower_parallel_bound_call(
     call: &CallExpr,
 ) -> Result<Option<TypedVal>> {
     use cranelift_codegen::ir::types as cl;
-    // reduce_bound: (arr, init, fn). reduce_no_init/map/filter/for_each: (arr, fn).
-    let is_reduce_init = qualified == "parallel.reduce_bound";
+    // reduce_bound/reduce_right_bound: (arr, init, fn). Demais: (arr, fn).
+    let is_reduce_init =
+        qualified == "parallel.reduce_bound" || qualified == "parallel.reduce_right_bound";
     let expected_args = if is_reduce_init { 3 } else { 2 };
     if call.args.len() != expected_args {
         return Ok(None);
@@ -3238,15 +3241,16 @@ fn lower_parallel_bound_call(
     let arr_tv = lower_expr(ctx, &call.args[0].expr)?;
     let arr_h = ctx.coerce_to_i64(arr_tv).val;
 
-    // reduce com init: chama REDUCE_BOUND(arr, init, fn) -> i64.
+    // reduce/reduceRight com init: chama *_REDUCE[_RIGHT]_BOUND(arr, init, fn).
     if is_reduce_init {
+        let sym = if qualified == "parallel.reduce_right_bound" {
+            "__RTS_FN_NS_PARALLEL_REDUCE_RIGHT_BOUND"
+        } else {
+            "__RTS_FN_NS_PARALLEL_REDUCE_BOUND"
+        };
         let init_tv = lower_expr(ctx, &call.args[1].expr)?;
         let init = ctx.coerce_to_i64(init_tv).val;
-        let f = ctx.get_extern(
-            "__RTS_FN_NS_PARALLEL_REDUCE_BOUND",
-            &[cl::I64, cl::I64, cl::I64],
-            Some(cl::I64),
-        )?;
+        let f = ctx.get_extern(sym, &[cl::I64, cl::I64, cl::I64], Some(cl::I64))?;
         let inst = ctx.builder.ins().call(f, &[arr_h, init, fn_handle]);
         let v = ctx.builder.inst_results(inst)[0];
         ctx.var_member_call_values.insert(v);
@@ -3268,6 +3272,13 @@ fn lower_parallel_bound_call(
         "parallel.find_index_bound" => ("__RTS_FN_NS_PARALLEL_FIND_INDEX_BOUND", 4),
         "parallel.some_bound" => ("__RTS_FN_NS_PARALLEL_SOME_BOUND", 4),
         "parallel.every_bound" => ("__RTS_FN_NS_PARALLEL_EVERY_BOUND", 4),
+        // reduceRight sem init -> ambiguo (val ou handle). findLast ambiguo;
+        // findLastIndex -> int puro.
+        "parallel.reduce_right_no_init_bound" => {
+            ("__RTS_FN_NS_PARALLEL_REDUCE_RIGHT_NO_INIT_BOUND", 2)
+        }
+        "parallel.find_last_bound" => ("__RTS_FN_NS_PARALLEL_FIND_LAST_BOUND", 2),
+        "parallel.find_last_index_bound" => ("__RTS_FN_NS_PARALLEL_FIND_LAST_INDEX_BOUND", 4),
         _ => return Ok(None),
     };
     match kind {
