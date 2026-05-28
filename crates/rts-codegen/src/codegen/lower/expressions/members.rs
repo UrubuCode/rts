@@ -12,6 +12,21 @@ use super::calls::{
 use super::lower_expr;
 use crate::codegen::lower::ctx::{FieldSlot, FnCtx, TypedVal, ValTy, is_class_flat_enabled};
 
+/// (#1275) `expr` eh um literal de float FRACIONARIO (`1.5`, `-3.5`)? So' esses
+/// precisam dos bits f64 preservados em slot de collection — F64 inteiro-valued
+/// (`3.0`, `i*10`) e int seguem i64 (destructuring/aritmetica de slot leem i64).
+/// Centraliza o gate usado em array literal, push, object literal, map.set.
+pub(crate) fn expr_is_frac_float_lit(e: &Expr) -> bool {
+    match e {
+        Expr::Lit(Lit::Num(n)) => n.value.fract() != 0.0,
+        Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
+            expr_is_frac_float_lit(&u.arg)
+        }
+        Expr::Paren(p) => expr_is_frac_float_lit(&p.expr),
+        _ => false,
+    }
+}
+
 pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> Result<TypedVal> {
     let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
     let inst = ctx.builder.ins().call(new_fn, &[]);
@@ -61,20 +76,10 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     ctx.builder.ins().call(push_fn, &[handle, s]);
                     continue;
                 }
-                // (#1275) Elemento eh literal float FRACIONARIO (`1.5`, nao
-                // `3.0` nem `i*10`)? So' esses precisam dos bits f64 preservados.
-                // F64 inteiro-valued (`i*10`, `3.0`) continua via fcvt (vale
-                // inteiro; destructuring/aritmetica que leem o slot como i64
-                // funcionam). Sem este gate, `[i*10,i*100]` quebrava o
-                // destructuring (que le i64 cru, sem reinterpretar bits).
-                let is_frac_lit = matches!(
-                    e.expr.as_ref(),
-                    Expr::Lit(Lit::Num(n)) if n.value.fract() != 0.0
-                ) || matches!(
-                    e.expr.as_ref(),
-                    Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus)
-                        && matches!(u.arg.as_ref(), Expr::Lit(Lit::Num(n)) if n.value.fract() != 0.0)
-                );
+                // (#1275) Literal float fracionario armazena bits f64 (helper
+                // centralizado). F64 inteiro-valued/int seguem i64 — sem isso
+                // `[i*10]` quebraria destructuring que le i64 cru.
+                let is_frac_lit = expr_is_frac_float_lit(&e.expr);
                 let tv = lower_expr(ctx, &e.expr)?;
                 // Bool em array vira sentinela (i64::MIN = false, MIN+1 =
                 // true). Permite inspect_slot imprimir `true`/`false` sem
@@ -319,6 +324,9 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
             }
         };
 
+        // (#1275) value float fracionario literal -> bits f64 (leitura via
+        // MAP_GET_CHAIN/template reinterpreta heuristica >2^53).
+        let val_is_frac = expr_is_frac_float_lit(&value_expr);
         let value_tv = lower_expr(ctx, &value_expr)?;
         // (#680/50) Bool em obj literal vira sentinel (i64::MIN = false,
         // i64::MIN+1 = true). Permite JSON.stringify/console.log
@@ -327,6 +335,12 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
             let b = ctx.coerce_to_i64(value_tv).val;
             let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
             ctx.builder.ins().iadd(min, b)
+        } else if matches!(value_tv.ty, ValTy::F64) && val_is_frac {
+            ctx.builder.ins().bitcast(
+                cl::I64,
+                cranelift_codegen::ir::MemFlags::new(),
+                value_tv.val,
+            )
         } else {
             ctx.coerce_to_i64(value_tv).val
         };
