@@ -105,6 +105,23 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             if matches!(init_peeled, swc_ecma_ast::Expr::Array(_)) {
                 ctx.local_array_vars.insert(name.clone());
             }
+            // (cross-runtime) `const s = "..."` / template — marca como string
+            // pra que `for (const c of s)` itere os chars. Tambem `: string`.
+            let ann_is_string = if let Pat::Ident(id) = &decl.name {
+                id.type_ann.as_ref().map(|t| matches!(
+                    t.type_ann.as_ref(),
+                    swc_ecma_ast::TsType::TsKeywordType(k)
+                        if matches!(k.kind, swc_ecma_ast::TsKeywordTypeKind::TsStringKeyword)
+                )).unwrap_or(false)
+            } else { false };
+            if ann_is_string
+                || matches!(
+                    init_peeled,
+                    swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) | swc_ecma_ast::Expr::Tpl(_)
+                )
+            {
+                ctx.local_string_vars.insert(name.clone());
+            }
             // Alias direto de array: `const es = arr` onde `arr` ja' eh
             // array conhecido. Sem isso, `es.map(arrow)` nao reconhece o
             // receiver como Vec e cai no caminho string/map_get (trap).
