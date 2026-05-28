@@ -153,7 +153,76 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_FIXED(v: f64, digits: i64) -> u64 {
         return alloc_str(if v > 0.0 { "Infinity" } else { "-Infinity" });
     }
     let d = digits.clamp(0, 100) as usize;
+    // (cross-runtime) JS toFixed arredonda half-away-from-zero sobre o VALOR
+    // DECIMAL REAL do f64 (`(2.5).toFixed(0)`=="3"). `format!("{:.0}")` do
+    // Rust usa half-to-even ("2"). Multiplicar por 10^d introduz erro que
+    // arredonda na direcao errada (2.55*10=25.5000004 -> 2.6, mas 2.55 eh
+    // 2.5499.. -> deve dar 2.5). Solucao: formata com precisao ALTA (a
+    // expansao decimal exata do f64 cabe em <=20 digitos significativos
+    // pos-ponto pra valores comuns), depois arredonda a string na casa d.
+    let neg = v.is_sign_negative() && v != 0.0;
+    let abs = v.abs();
+    if abs < 1e21 {
+        // 25 casas decimais expoem o valor real do f64 sem o ruido da
+        // multiplicacao. format! aqui ja faz half-to-even na 25a casa, mas
+        // isso nao afeta o arredondamento na casa d (muito antes).
+        let high = format!("{abs:.25}");
+        let out = round_decimal_str(&high, d);
+        // JS preserva o sinal negativo mesmo quando arredonda a zero
+        // (`(-0.001).toFixed(2)` == "-0.00").
+        let out = if neg { format!("-{out}") } else { out };
+        return alloc_str(&out);
+    }
     alloc_str(&format!("{v:.prec$}", prec = d))
+}
+
+/// Arredonda a string decimal `s` (formato "int.frac", sem sinal) para `d`
+/// casas, half-away-from-zero. `s` tem precisao suficiente (>= d+1 casas).
+fn round_decimal_str(s: &str, d: usize) -> String {
+    let (int_part, frac_part) = match s.split_once('.') {
+        Some((i, f)) => (i.to_string(), f.to_string()),
+        None => (s.to_string(), String::new()),
+    };
+    let frac_bytes: Vec<u8> = frac_part.bytes().collect();
+    // Digito decisor: o (d)-esimo da fracao (0-indexed = frac[d]).
+    let round_up = frac_bytes.get(d).map(|&b| b >= b'5').unwrap_or(false);
+    // Monta os digitos: int + primeiras d casas da fracao.
+    let mut digits: Vec<u8> = Vec::new();
+    for b in int_part.bytes() {
+        digits.push(b);
+    }
+    let int_len = digits.len();
+    for i in 0..d {
+        digits.push(*frac_bytes.get(i).unwrap_or(&b'0'));
+    }
+    if round_up {
+        // Propaga o carry da direita pra esquerda.
+        let mut i = digits.len();
+        loop {
+            if i == 0 {
+                digits.insert(0, b'1');
+                break;
+            }
+            i -= 1;
+            if digits[i] == b'9' {
+                digits[i] = b'0';
+            } else {
+                digits[i] += 1;
+                break;
+            }
+        }
+    }
+    // Recalcula int_len caso tenha havido carry-insert no inicio.
+    let new_int_len = digits.len() - d;
+    let int_s: String = String::from_utf8_lossy(&digits[..new_int_len]).into_owned();
+    let int_s = if int_s.is_empty() { "0".to_string() } else { int_s };
+    let _ = int_len;
+    if d == 0 {
+        int_s
+    } else {
+        let frac_s: String = String::from_utf8_lossy(&digits[new_int_len..]).into_owned();
+        format!("{int_s}.{frac_s}")
+    }
 }
 
 #[unsafe(no_mangle)]
