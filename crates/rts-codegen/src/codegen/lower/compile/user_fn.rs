@@ -161,6 +161,16 @@ pub(crate) fn compile_user_fn(
                         .local_class_ty
                         .insert(p.name.clone(), ann.to_string());
                 }
+                // (cross-runtime) param `: Map<...>`/`Set<...>`/Weak* marca
+                // local_map_vars p/ `.size` rotear ao UNIVERSAL_LENGTH. Sem
+                // isso `function f(m: Map<...>){ return m.size }` dava 0.
+                let base = ann.split('<').next().unwrap_or(ann).trim();
+                if matches!(
+                    base,
+                    "Map" | "Set" | "WeakMap" | "WeakSet" | "ReadonlyMap" | "ReadonlySet"
+                ) {
+                    fn_ctx.local_map_vars.insert(p.name.clone());
+                }
             }
         }
 
