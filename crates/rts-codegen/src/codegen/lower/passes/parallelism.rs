@@ -70,14 +70,24 @@ fn collect_methods_ret_array(program: &Program) -> HashSet<String> {
     }
     let mut out = HashSet::new();
     for item in &program.items {
-        if let Item::Class(c) = item {
-            for mem in &c.members {
-                if let crate::parser::ast::ClassMember::Method(method) = mem {
-                    if ret_type_is_array(method.return_type.as_deref()) {
-                        out.insert(method.name.clone());
+        match item {
+            Item::Class(c) => {
+                for mem in &c.members {
+                    if let crate::parser::ast::ClassMember::Method(method) = mem {
+                        if ret_type_is_array(method.return_type.as_deref()) {
+                            out.insert(method.name.clone());
+                        }
                     }
                 }
             }
+            // (cross-runtime) Fns top-level retornando array (`function mx():
+            // number[][]`). Permite `mx(2,3).map(...)` chain direto e via var.
+            Item::Function(f) => {
+                if ret_type_is_array(f.return_type.as_deref()) {
+                    out.insert(f.name.clone());
+                }
+            }
+            _ => {}
         }
     }
     out
@@ -99,6 +109,10 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
             Expr::Await(a) => rec(&a.arg, methods_ret_array),
             Expr::Call(c) => match &c.callee {
                 swc_ecma_ast::Callee::Expr(ce) => match ce.as_ref() {
+                    // (cross-runtime) Fn top-level retornando array
+                    // (`mx(): number[][]`). `mx(2,3).map(...)` / `const v =
+                    // mx(...)`. O nome esta no set methods_ret_array.
+                    Expr::Ident(id) if methods_ret_array.contains(id.sym.as_str()) => true,
                     Expr::Member(m) => {
                         // (cross-runtime) `inst.method()` cujo metodo de classe
                         // declara return array (`getItems(): string[]`). Sem
@@ -1492,6 +1506,11 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                     fn looks_array_call(e: &Expr) -> bool {
                         let Expr::Call(c) = e else { return false };
                         let Callee::Expr(ce) = &c.callee else { return false };
+                        // (cross-runtime) Fn top-level retornando array
+                        // (`mx(): number[][]`): `mx(2,3).map(...)` chain direto.
+                        if let Expr::Ident(id) = ce.as_ref() {
+                            return METHODS_RET_ARRAY.with(|s| s.borrow().contains(id.sym.as_str()));
+                        }
                         let Expr::Member(mm) = ce.as_ref() else { return false };
                         let MemberProp::Ident(p) = &mm.prop else { return false };
                         let prop = p.sym.as_str();
