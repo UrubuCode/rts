@@ -171,6 +171,12 @@ pub(crate) fn compile_user_fn(
                 ) {
                     fn_ctx.local_map_vars.insert(p.name.clone());
                 }
+                // (cross-runtime) param `: string` marca local_string_vars p/
+                // `for (const ch of s)` iterar os chars. Sem isso, for-of sobre
+                // param string nao iterava (so' var string top-level/local).
+                if base == "string" {
+                    fn_ctx.local_string_vars.insert(p.name.clone());
+                }
             }
         }
 
