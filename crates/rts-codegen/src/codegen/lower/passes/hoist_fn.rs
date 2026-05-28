@@ -58,6 +58,27 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 Expr::Cond(c) => {
                     expr_yields_string(&c.cons) && expr_yields_string(&c.alt)
                 }
+                // (cross-runtime) metodo string-retornante: `(s)=>s.trim()`.
+                // Mesma lista de block_returns_string (program.rs).
+                Expr::Call(c) => {
+                    if let swc_ecma_ast::Callee::Expr(ce) = &c.callee {
+                        if let Expr::Ident(id) = ce.as_ref() {
+                            if id.sym.as_str() == "String" {
+                                return true;
+                            }
+                        }
+                        if let Expr::Member(m) = ce.as_ref() {
+                            if let swc_ecma_ast::MemberProp::Ident(p) = &m.prop {
+                                return matches!(p.sym.as_str(),
+                                    "toString" | "join" | "concat" | "replace" | "replaceAll"
+                                    | "trim" | "trimStart" | "trimEnd" | "toUpperCase"
+                                    | "toLowerCase" | "slice" | "padStart" | "padEnd"
+                                    | "repeat" | "substring" | "charAt" | "at");
+                            }
+                        }
+                    }
+                    false
+                }
                 _ => false,
             }
         }

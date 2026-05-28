@@ -337,6 +337,19 @@ fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
                             return true;
                         }
                     }
+                    // (cross-runtime) metodo que retorna string inequivoca:
+                    // `(s) => s.toUpperCase()` etc. Sem isso o arrow sem
+                    // anotacao infere i64 e o handle sai como numero cru.
+                    // Mesma lista de block_returns_string (program.rs).
+                    if let Expr::Member(m) = callee.as_ref() {
+                        if let swc_ecma_ast::MemberProp::Ident(p) = &m.prop {
+                            return matches!(p.sym.as_str(),
+                                "toString" | "join" | "concat" | "replace" | "replaceAll"
+                                | "trim" | "trimStart" | "trimEnd" | "toUpperCase"
+                                | "toLowerCase" | "slice" | "padStart" | "padEnd"
+                                | "repeat" | "substring" | "charAt" | "at");
+                        }
+                    }
                 }
                 false
             }
