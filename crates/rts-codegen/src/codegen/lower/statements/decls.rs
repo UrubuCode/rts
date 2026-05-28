@@ -226,6 +226,23 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                 let mut field_types: std::collections::HashMap<String, ValTy> =
                     std::collections::HashMap::new();
                 for prop in &obj.props {
+                    // (cross-runtime) Spread `{ ...base }`: herda os tipos de
+                    // campo do objeto fonte. Sem isso, `ext.name` [campo vindo
+                    // do spread] cai em I64 default e `ext.name + ext.val`
+                    // [ambos string] vira SOMA NUMERICA dos handles em vez de
+                    // concat. Props explicitas depois do spread sobrescrevem.
+                    if let swc_ecma_ast::PropOrSpread::Spread(sp) = prop {
+                        if let swc_ecma_ast::Expr::Ident(src_id) = sp.expr.as_ref() {
+                            if let Some(src_types) =
+                                ctx.local_obj_field_types.get(src_id.sym.as_str()).cloned()
+                            {
+                                for (k, v) in src_types {
+                                    field_types.insert(k, v);
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
                         if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
                             let key = match &kv.key {
