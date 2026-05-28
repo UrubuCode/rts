@@ -146,6 +146,52 @@ fn collect_fns_ret_mapset(program: &Program) -> HashSet<String> {
 /// ret-array (METHODS_RET_ARRAY), Object.keys/values/entries, Array.from/of, e
 /// metodos de instancia que retornam array (map/filter/.../fill/sort/etc).
 /// Usado pra reconhecer receiver chain `[..].fill(0).map((_,i)=>i)` no lift.
+/// (cross-runtime) Heuristica: `e` eh um array cujos elementos sao strings?
+/// Cobre `.split(...)` chain (+ `.slice/.filter/...` sobre ele via recursao
+/// rasa), array literal de so'-strings, e Ident em STRING_ARRAY_VALUES.
+/// Usado p/ marcar slot 0 do callback de map/forEach como string handle.
+fn receiver_is_string_array(e: &Expr) -> bool {
+    match e {
+        // array literal cujos elementos (nao-vazios) sao todos string lit/tpl.
+        Expr::Array(a) => {
+            !a.elems.is_empty()
+                && a.elems.iter().flatten().all(|el| {
+                    el.spread.is_none()
+                        && matches!(
+                            el.expr.as_ref(),
+                            Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
+                        )
+                })
+        }
+        Expr::Ident(id) => {
+            STRING_ARRAY_VALUES.with(|s| s.borrow().contains_key(id.sym.as_str()))
+        }
+        // `x.split(...)` -> array de strings. `.slice/.filter/.concat/.reverse/
+        // .sort/.toReversed/.toSorted` preservam strings -> recursa no receiver.
+        Expr::Call(c) => {
+            if let Callee::Expr(ce) = &c.callee {
+                if let Expr::Member(m) = ce.as_ref() {
+                    if let MemberProp::Ident(p) = &m.prop {
+                        let prop = p.sym.as_str();
+                        if prop == "split" {
+                            return true;
+                        }
+                        if matches!(prop,
+                            "slice" | "filter" | "concat" | "reverse" | "sort"
+                            | "toReversed" | "toSorted"
+                        ) {
+                            return receiver_is_string_array(m.obj.as_ref());
+                        }
+                    }
+                }
+            }
+            false
+        }
+        Expr::Paren(p) => receiver_is_string_array(&p.expr),
+        _ => false,
+    }
+}
+
 fn expr_is_array_returning_call(e: &Expr) -> bool {
     let Expr::Call(c) = e else { return false };
     let Callee::Expr(ce) = &c.callee else { return false };
@@ -720,11 +766,20 @@ fn lift_arrows_in_expr(
                             // sem type-annotation default para I64 e member
                             // call \`c.toUpperCase()\` cai em map_get + trapz.
                             // Detecta call.args[0] como Tpl/Lit::Str.
-                            let mapper_slot0_is_string = is_array_from
+                            let mapper_slot0_is_string = (is_array_from
                                 && matches!(
                                     call.args[0].expr.as_ref(),
                                     Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
-                                );
+                                ))
+                                // (cross-runtime) `arr.map/forEach/filter` onde
+                                // arr eh array-de-strings (`.split(...)` chain,
+                                // array literal so'-strings, ou STRING_ARRAY_VALUES).
+                                // Slot 0 (elem) eh string handle — sem isto,
+                                // `(c, i) => c + i` somava handle+idx em vez de
+                                // concat. So' p/ metodos cujo slot 0 eh o elemento.
+                                || (matches!(method, "map" | "forEach" | "filter"
+                                        | "find" | "findIndex" | "some" | "every")
+                                    && receiver_is_string_array(m.obj.as_ref()));
                             // (#345) Para `arr.reduce(fn, init)` com init
                             // string literal, slot 0 (acc) eh string handle.
                             // Sem isso, o lifter assume i64 e `acc + s` vira
