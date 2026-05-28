@@ -182,6 +182,19 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
                 ctx.builder.ins().ineg(operand.val),
                 ValTy::I32,
             )),
+            // (cross-runtime #1069) Handle (string): `-"5"` faz
+            // -ToNumber("5") = -5; `-"abc"` = NaN. Sem isso `-str` negava o
+            // handle cru. Espelha o caminho de unary Plus.
+            ValTy::Handle => {
+                let coerce_fn = ctx.get_extern(
+                    "__RTS_FN_RT_TO_NUMBER",
+                    &[cl::I64],
+                    Some(cl::F64),
+                )?;
+                let inst = ctx.builder.ins().call(coerce_fn, &[operand.val]);
+                let n = ctx.builder.inst_results(inst)[0];
+                Ok(TypedVal::new(ctx.builder.ins().fneg(n), ValTy::F64))
+            }
             _ => {
                 let operand_i64 = ctx.coerce_to_i64(operand).val;
                 Ok(TypedVal::new(
