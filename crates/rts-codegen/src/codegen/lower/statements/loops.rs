@@ -180,12 +180,23 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
 
     // (#222) Map/Set iteracao via for-of:
     // - Map: converte para Vec de [k,v] entries preservando insertion order
-    // - Set: usa as proprias keys do Map subjacente (Vec de keys)
-    // Detecta classe via local_class_ty[var_name] = "Map"|"Set".
-    let iter_class: Option<String> = if let swc_ecma_ast::Expr::Ident(id) = for_of.right.as_ref() {
-        ctx.local_class_ty.get(id.sym.as_str()).cloned()
-    } else {
-        None
+    // - Set: usa MAP_VALUES (elementos reconvertidos)
+    // Detecta classe via local_class_ty[var_name] OU `new Map/Set(...)` inline.
+    let iter_class: Option<String> = match for_of.right.as_ref() {
+        swc_ecma_ast::Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
+        // (cross-runtime) `for (const x of new Set([...]))` inline (sem var).
+        swc_ecma_ast::Expr::New(ne) => {
+            if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
+                match cid.sym.as_str() {
+                    "Set" => Some("Set".to_string()),
+                    "Map" => Some("Map".to_string()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
     };
     if matches!(iter_class.as_deref(), Some("Map")) {
         let entries_fn = ctx.get_extern(
@@ -196,13 +207,18 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         let inst = ctx.builder.ins().call(entries_fn, &[handle]);
         handle = ctx.builder.inst_results(inst)[0];
     } else if matches!(iter_class.as_deref(), Some("Set")) {
-        // Set internamente eh Map<key, 1> — keys preservam ordem.
-        let keys_fn = ctx.get_extern(
-            "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
+        // Set internamente eh Map<key, 1> — os ELEMENTOS sao as keys.
+        // (cross-runtime) Usa MAP_VALUES (nao MAP_KEYS): p/ Set, MAP_VALUES
+        // reconverte cada key string de volta ao valor (parse int -> number,
+        // senao handle string). MAP_KEYS retornava as keys string CRUAS, e
+        // `for (const x of setNum) sum += x` somava o handle (lixo). Mesma
+        // conversao usada no spread de Set (#1229).
+        let vals_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
             &[cl::I64],
             Some(cl::I64),
         )?;
-        let inst = ctx.builder.ins().call(keys_fn, &[handle]);
+        let inst = ctx.builder.ins().call(vals_fn, &[handle]);
         handle = ctx.builder.inst_results(inst)[0];
     } else if for_of_iterates_string(ctx, &for_of.right) {
         // (cross-runtime) `for (const c of "abc")` / string var: itera os

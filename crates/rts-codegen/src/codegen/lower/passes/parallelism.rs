@@ -1802,6 +1802,7 @@ fn apply_reduce_pass_to_top_level(
         fn_name: String,
         op: AssocOp,
     }
+    let set_map_vars = collect_set_map_var_names_items(items);
     let mut matches: Vec<Match> = Vec::new();
     let n_items = items.len();
     for i in 0..n_items.saturating_sub(1) {
@@ -1867,6 +1868,15 @@ fn apply_reduce_pass_to_top_level(
         };
 
         if !is_pure_expr_for_parallel(&rhs_expr, &loop_var, &HashSet::new(), pure_ns) {
+            continue;
+        }
+
+        // (cross-runtime) NAO reescrever p/ parallel.reduce quando o iteravel
+        // eh Set/Map (inline `new Set(...)` OU var `const s = new Set(...)`) —
+        // parallel.reduce faz snapshot_vec que so' aceita Vec, nao Map/Set
+        // storage. Sem este gate, `for (const x of set) sum += x` virava
+        // parallel.reduce sobre o Set e dava 0.
+        if expr_is_set_or_map(for_of.right.as_ref(), &set_map_vars) {
             continue;
         }
 
@@ -1997,6 +2007,7 @@ fn apply_reduce_pass_to_body(
         fn_name: String,
         op: AssocOp,
     }
+    let set_map_vars = collect_set_map_var_names_body(body);
     let mut matches: Vec<Match> = Vec::new();
     let n = body.len();
     for i in 0..n.saturating_sub(1) {
@@ -2050,6 +2061,11 @@ fn apply_reduce_pass_to_body(
             _ => continue,
         };
         if !is_pure_expr_for_parallel(&rhs_expr, &loop_var, &HashSet::new(), pure_ns) {
+            continue;
+        }
+        // (cross-runtime) NAO reescrever reduce sobre Set/Map (snapshot_vec
+        // so' aceita Vec). Ver gate equivalente em apply_reduce_pass_to_top_level.
+        if expr_is_set_or_map(for_of.right.as_ref(), &set_map_vars) {
             continue;
         }
         let fn_name = format!("__par_reduce_{counter}");
@@ -2340,5 +2356,58 @@ fn apply_purity_pass_to_body(
     for t in &transforms {
         let Statement::Raw(raw) = &mut body[t.idx];
         raw.stmt = Some(make_par_foreach_stmt(&t.arr_expr, &t.fn_name));
+    }
+}
+
+/// (cross-runtime) `e` eh um Set/Map: `new Set/Map(...)` inline ou ident de
+/// var coletada em `set_map_vars`. Usado pra gatear reduce_pass (parallel.
+/// reduce nao funciona sobre Set/Map storage).
+fn expr_is_set_or_map(e: &Expr, set_map_vars: &HashSet<String>) -> bool {
+    match e {
+        Expr::New(ne) => matches!(
+            ne.callee.as_ref(),
+            Expr::Ident(cid) if matches!(cid.sym.as_str(), "Set" | "Map" | "WeakSet" | "WeakMap")
+        ),
+        Expr::Ident(id) => set_map_vars.contains(id.sym.as_str()),
+        Expr::Paren(p) => expr_is_set_or_map(&p.expr, set_map_vars),
+        _ => false,
+    }
+}
+
+/// Coleta nomes de vars `const/let x = new Set/Map(...)` em items top-level.
+fn collect_set_map_var_names_items(items: &[Item]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for item in items {
+        if let Item::Statement(Statement::Raw(raw)) = item {
+            if let Some(Stmt::Decl(Decl::Var(vd))) = raw.stmt.as_ref() {
+                collect_set_map_from_vardecl(vd, &mut out);
+            }
+        }
+    }
+    out
+}
+
+/// Coleta nomes de vars `const/let x = new Set/Map(...)` num body de fn.
+fn collect_set_map_var_names_body(body: &[Statement]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for Statement::Raw(raw) in body {
+        if let Some(Stmt::Decl(Decl::Var(vd))) = raw.stmt.as_ref() {
+            collect_set_map_from_vardecl(vd, &mut out);
+        }
+    }
+    out
+}
+
+fn collect_set_map_from_vardecl(vd: &swc_ecma_ast::VarDecl, out: &mut HashSet<String>) {
+    for d in &vd.decls {
+        if let (Pat::Ident(id), Some(init)) = (&d.name, d.init.as_deref()) {
+            if let Expr::New(ne) = init {
+                if let Expr::Ident(cid) = ne.callee.as_ref() {
+                    if matches!(cid.sym.as_str(), "Set" | "Map" | "WeakSet" | "WeakMap") {
+                        out.insert(id.id.sym.to_string());
+                    }
+                }
+            }
+        }
     }
 }
