@@ -479,6 +479,20 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         ctx.local_obj_field_types.insert(name.clone(), ft);
                     }
                 }
+                // (cross-runtime) `const r = mk()` onde mk eh user fn que
+                // retorna object literal: propaga os tipos de campo. Sem
+                // isso, `r.label + r.label` [string] vira soma numerica.
+                if let swc_ecma_ast::Callee::Expr(cb) = &call.callee {
+                    if let swc_ecma_ast::Expr::Ident(fid) = cb.as_ref() {
+                        if let Some(ft) =
+                            crate::codegen::lower::compile::program::fn_ret_obj_field_types(
+                                fid.sym.as_str(),
+                            )
+                        {
+                            ctx.local_obj_field_types.entry(name.clone()).or_default().extend(ft);
+                        }
+                    }
+                }
             }
             // #210 destructuring — `const __destruct_N = obj` ou
             // `const x = obj` com obj sendo var local que tem tipos

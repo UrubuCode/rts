@@ -109,6 +109,9 @@ pub fn compile_program(
     // `return someFn()` (call de fn string-yielding) retorna string — sem isso
     // o handle de string voltava como bits crus.
     register_string_ret_fns(program);
+    // (cross-runtime) registra tipos de campo do objeto literal retornado
+    // por cada user fn, pra que `const r = fn()` propague em decls.rs.
+    register_fn_ret_obj_field_types(program);
 
     // (#1071) Getters bool instalados via `Object.defineProperty(C.prototype,
     // "x", { get(){ return this._campo } })` onde `_campo` eh bool. Registra
@@ -1406,6 +1409,95 @@ thread_local! {
 /// (#270) True se a user fn `name` retorna string inequivoca.
 fn fn_returns_string(name: &str) -> bool {
     STRING_RET_FNS.with(|c| c.borrow().contains(name))
+}
+
+thread_local! {
+    // (cross-runtime) tipos de campo do objeto literal retornado por uma
+    // user fn: `function mk(): {label: string} { return {label: "x"}; }`.
+    // Consumido por decls.rs em `const r = mk()` para que `r.label`
+    // resolva ValTy::Handle e `r.label + r.label` faca concat (nao soma).
+    static FN_RET_OBJ_FIELD_TYPES: std::cell::RefCell<
+        std::collections::HashMap<String, std::collections::HashMap<String, crate::codegen::lower::ctx::ValTy>>
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// (cross-runtime) Retorna os tipos de campo do objeto literal devolvido
+/// pela user fn `name`, se houver um return de object literal detectado.
+pub(crate) fn fn_ret_obj_field_types(
+    name: &str,
+) -> Option<std::collections::HashMap<String, crate::codegen::lower::ctx::ValTy>> {
+    FN_RET_OBJ_FIELD_TYPES.with(|c| c.borrow().get(name).cloned())
+}
+
+/// Pre-pass: para cada fn top-level cujo `return` eh um object literal,
+/// coleta os tipos de campo (Str→Handle, Num→I64, Bool, Array/Object→Handle).
+fn register_fn_ret_obj_field_types(program: &Program) {
+    use crate::codegen::lower::ctx::ValTy;
+    use crate::parser::ast::Statement;
+    use swc_ecma_ast::{Expr, Stmt};
+    fn field_types_of_obj(
+        obj: &swc_ecma_ast::ObjectLit,
+    ) -> std::collections::HashMap<String, ValTy> {
+        let mut ft = std::collections::HashMap::new();
+        for prop in &obj.props {
+            if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                    let key = match &kv.key {
+                        swc_ecma_ast::PropName::Ident(id) => id.sym.as_str().to_string(),
+                        swc_ecma_ast::PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                        _ => continue,
+                    };
+                    let ty = match kv.value.as_ref() {
+                        Expr::Lit(swc_ecma_ast::Lit::Str(_)) => Some(ValTy::Handle),
+                        Expr::Lit(swc_ecma_ast::Lit::Num(_)) => Some(ValTy::I64),
+                        Expr::Lit(swc_ecma_ast::Lit::Bool(_)) => Some(ValTy::Bool),
+                        Expr::Array(_) | Expr::Object(_) => Some(ValTy::Handle),
+                        _ => None,
+                    };
+                    if let Some(t) = ty {
+                        ft.insert(key, t);
+                    }
+                }
+            }
+        }
+        ft
+    }
+    // Procura o primeiro `return {obj literal}` num swc Stmt (recursa em Block/If).
+    fn scan_stmt(s: &Stmt) -> Option<std::collections::HashMap<String, ValTy>> {
+        match s {
+            Stmt::Return(r) => {
+                let arg = r.arg.as_deref()?;
+                let peeled = match arg {
+                    Expr::Paren(p) => p.expr.as_ref(),
+                    other => other,
+                };
+                if let Expr::Object(obj) = peeled {
+                    let ft = field_types_of_obj(obj);
+                    if !ft.is_empty() {
+                        return Some(ft);
+                    }
+                }
+                None
+            }
+            Stmt::Block(b) => b.stmts.iter().find_map(scan_stmt),
+            Stmt::If(i) => scan_stmt(&i.cons)
+                .or_else(|| i.alt.as_deref().and_then(scan_stmt)),
+            _ => None,
+        }
+    }
+    let mut out = std::collections::HashMap::new();
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            let found = f.body.iter().find_map(|st| {
+                let Statement::Raw(raw) = st;
+                raw.stmt.as_ref().and_then(scan_stmt)
+            });
+            if let Some(ft) = found {
+                out.insert(f.name.clone(), ft);
+            }
+        }
+    }
+    FN_RET_OBJ_FIELD_TYPES.with(|c| *c.borrow_mut() = out);
 }
 
 /// Pre-pass: registra fns top-level cujo corpo retorna string inequivoca.
