@@ -83,6 +83,11 @@ pub extern "C" fn __RTS_FN_NS_DATE_FROM_PARTS(
     sec: i64,
     ms: i64,
 ) -> i64 {
+    // (cross-runtime) JS legacy two-digit year: em Date.UTC(y,...) e
+    // new Date(y, m, ...), anos 0..=99 sao interpretados como 1900+y
+    // (`Date.UTC(70,0,1)` == epoch de 1970, `Date.UTC(5,...)` == 1905).
+    // Anos >= 100 (e negativos) ficam literais.
+    let year = if (0..=99).contains(&year) { year + 1900 } else { year };
     pack(year, month, day, hour, min, sec, ms)
 }
 
