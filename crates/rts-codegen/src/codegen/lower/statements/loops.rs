@@ -542,6 +542,28 @@ fn for_of_iterates_string(ctx: &FnCtx, e: &swc_ecma_ast::Expr) -> bool {
         Expr::Tpl(_) => true,
         Expr::Paren(p) => for_of_iterates_string(ctx, &p.expr),
         Expr::Ident(id) => ctx.local_string_vars.contains(id.sym.as_str()),
+        // (cross-runtime) `for (const ch of a + b)` concat -> string quando
+        // algum lado eh string. So' `+` (outros ops nao produzem string).
+        Expr::Bin(b) if matches!(b.op, swc_ecma_ast::BinaryOp::Add) => {
+            for_of_iterates_string(ctx, &b.left) || for_of_iterates_string(ctx, &b.right)
+        }
+        // (cross-runtime) `for (const ch of f())` / `obj.m()` onde a fn/metodo
+        // retorna string (FNS_RET_STRING populado no array_methods_pass).
+        Expr::Call(c) => {
+            if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                match callee.as_ref() {
+                    Expr::Ident(fid) => crate::codegen::lower::passes::parallelism::FNS_RET_STRING
+                        .with(|s| s.borrow().contains(fid.sym.as_str())),
+                    Expr::Member(m) => matches!(&m.prop,
+                        swc_ecma_ast::MemberProp::Ident(p)
+                            if crate::codegen::lower::passes::parallelism::FNS_RET_STRING
+                                .with(|s| s.borrow().contains(p.sym.as_str()))),
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        }
         _ => false,
     }
 }

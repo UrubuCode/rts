@@ -48,6 +48,11 @@ thread_local! {
     /// local_map_vars, fazendo `.size` rotear ao UNIVERSAL_LENGTH.
     pub(crate) static FNS_RET_MAPSET: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 
+    /// (cross-runtime) Nomes de fns/metodos com return_type string. Populado em
+    /// collect_fns_ret_string (array_methods_pass); lido por for_of_iterates_string
+    /// (loops.rs) p/ `for (const ch of f())` iterar os chars.
+    pub(crate) static FNS_RET_STRING: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+
     /// (cross-runtime #1052) Mapa de top-level `const k = ["str1", "str2", ...]`
     /// para suas string literals. Permite codegen propagar `k[N]` em compile
     /// time, despachando `arr[k[N]](args)` como `arr.<method>(args)`.
@@ -133,6 +138,35 @@ fn collect_fns_ret_mapset(program: &Program) -> HashSet<String> {
             }
             Item::Function(f) => {
                 if ret_is_mapset(f.return_type.as_deref()) {
+                    out.insert(f.name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// (cross-runtime) Coleta nomes de fns/metodos cujo return_type eh `string`.
+/// Usado p/ `for (const ch of f())` iterar os chars (for_of_iterates_string).
+fn collect_fns_ret_string(program: &Program) -> HashSet<String> {
+    fn ret_is_string(rt: Option<&str>) -> bool {
+        rt.map(|r| r.trim() == "string").unwrap_or(false)
+    }
+    let mut out = HashSet::new();
+    for item in &program.items {
+        match item {
+            Item::Class(c) => {
+                for mem in &c.members {
+                    if let crate::parser::ast::ClassMember::Method(method) = mem {
+                        if ret_is_string(method.return_type.as_deref()) {
+                            out.insert(method.name.clone());
+                        }
+                    }
+                }
+            }
+            Item::Function(f) => {
+                if ret_is_string(f.return_type.as_deref()) {
                     out.insert(f.name.clone());
                 }
             }
@@ -1601,6 +1635,8 @@ pub(crate) fn array_methods_pass(program: &mut Program) {
     // `const m = mk()` como local_map_vars (-> `.size` via UNIVERSAL_LENGTH).
     let frm = collect_fns_ret_mapset(program);
     FNS_RET_MAPSET.with(|c| *c.borrow_mut() = frm);
+    let frs = collect_fns_ret_string(program);
+    FNS_RET_STRING.with(|c| *c.borrow_mut() = frs);
 
     // Visita top-level statements.
     let n_items = program.items.len();
