@@ -945,6 +945,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
         }
         if let Some(qualified) = qualified_member_name(callee) {
+            // (#195) parallel.{map,filter,for_each}_bound(arr, __lifted_cap_N):
+            // o callback captura vars por-valor. Reifica a fn liftada com as
+            // capturas (lidas do escopo via LIFTED_CAPTURES) em bound_args e
+            // chama a variante BOUND do runtime (que invoca via Entry::Function).
+            if matches!(
+                qualified.as_str(),
+                "parallel.map_bound" | "parallel.filter_bound" | "parallel.for_each_bound"
+            ) {
+                if let Some(tv) = lower_parallel_bound_call(ctx, &qualified, call)? {
+                    return Ok(tv);
+                }
+            }
             // Console builtin (#221, #380): console.log/info/debug → io.print,
             // console.error/warn → io.eprint. Args concatenados separados
             // por espaco. PRECISA vir antes do `lookup` generico porque
@@ -3083,6 +3095,65 @@ pub(crate) fn emit_lifted_arrow_handle_with_captures(
     let handle = ctx.builder.inst_results(inst)[0];
     ctx.declare_gc_handle(handle);
     Ok(TypedVal::new(handle, ValTy::Handle))
+}
+
+/// (#195) Lower de `parallel.{map,filter,for_each}_bound(arr, __lifted_cap_N)`.
+/// Lê as capturas registradas em LIFTED_CAPTURES, lower seus valores do
+/// escopo atual, reifica a fn liftada com bound_args via
+/// emit_lifted_arrow_handle_with_captures, e chama a variante BOUND do
+/// runtime. Retorna None se nao casar (deixa caminho generico tentar).
+fn lower_parallel_bound_call(
+    ctx: &mut FnCtx,
+    qualified: &str,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    use cranelift_codegen::ir::types as cl;
+    if call.args.len() != 2 {
+        return Ok(None);
+    }
+    // arg0 = array expr; arg1 = ident __lifted_cap_N.
+    let fn_name = match call.args[1].expr.as_ref() {
+        Expr::Ident(id) if id.sym.as_str().starts_with("__lifted_cap_") => id.sym.to_string(),
+        _ => return Ok(None),
+    };
+    let captures: Vec<String> = crate::codegen::lower::passes::parallelism::LIFTED_CAPTURES
+        .with(|c| c.borrow().get(&fn_name).cloned())
+        .unwrap_or_default();
+    if captures.is_empty() {
+        return Ok(None);
+    }
+    // Lower os valores das capturas no escopo atual.
+    let mut capture_vals: Vec<TypedVal> = Vec::with_capacity(captures.len());
+    for cap in &captures {
+        match ctx.read_local(cap) {
+            Some(tv) => capture_vals.push(tv),
+            None => return Ok(None), // captura nao resolve no escopo — bail
+        }
+    }
+    // Reifica a fn liftada com as capturas em bound_args.
+    let fn_handle = emit_lifted_arrow_handle_with_captures(ctx, &fn_name, &capture_vals)?.val;
+    // Lower o array.
+    let arr_tv = lower_expr(ctx, &call.args[0].expr)?;
+    let arr_h = ctx.coerce_to_i64(arr_tv).val;
+    // Chama a variante BOUND.
+    let (sym, returns_handle) = match qualified {
+        "parallel.map_bound" => ("__RTS_FN_NS_PARALLEL_MAP_BOUND", true),
+        "parallel.filter_bound" => ("__RTS_FN_NS_PARALLEL_FILTER_BOUND", true),
+        "parallel.for_each_bound" => ("__RTS_FN_NS_PARALLEL_FOR_EACH_BOUND", false),
+        _ => return Ok(None),
+    };
+    if returns_handle {
+        let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(f, &[arr_h, fn_handle]);
+        let v = ctx.builder.inst_results(inst)[0];
+        ctx.declare_gc_handle(v);
+        Ok(Some(TypedVal::new(v, ValTy::Handle)))
+    } else {
+        let f = ctx.get_extern(sym, &[cl::I64, cl::I64], None)?;
+        ctx.builder.ins().call(f, &[arr_h, fn_handle]);
+        let u = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+        Ok(Some(TypedVal::new(u, ValTy::I64)))
+    }
 }
 
 /// `obj.fn(...)` onde `obj` e uma var local (HashMap-like, ex: namespace

@@ -47,6 +47,14 @@ thread_local! {
     /// time, despachando `arr[k[N]](args)` como `arr.<method>(args)`.
     pub(crate) static STRING_ARRAY_VALUES: RefCell<std::collections::HashMap<String, Vec<String>>>
         = RefCell::new(std::collections::HashMap::new());
+
+    /// (#195) Mapa nome-da-fn-liftada -> lista ordenada de variaveis
+    /// capturadas (free vars que sao locais/params da fn enclosing). A fn
+    /// liftada recebe essas capturas como params INICIAIS; o call site emite
+    /// REIFY_CAPTURED com os valores capturados em bound_args e chama a
+    /// variante PARALLEL_*_BOUND. Semantica de captura por-ativacao.
+    pub(crate) static LIFTED_CAPTURES: RefCell<std::collections::HashMap<String, Vec<String>>>
+        = RefCell::new(std::collections::HashMap::new());
 }
 
 /// Coleta nomes de vars top-level `let`/`var` com init numerico/bool
@@ -1055,8 +1063,23 @@ fn try_lift_arrow_arg(
         let set = c.borrow();
         all_bound.extend(set.iter().cloned());
     });
+    // (#195) Capturas por-valor: se o body referencia vars livres (nem param
+    // nem global/user-fn), tentamos coleta-las e prefixa-las como params
+    // INICIAIS da fn liftada. O call site reifica via REIFY_CAPTURED +
+    // PARALLEL_*_BOUND, passando os valores em bound_args. Restrito ao subset
+    // seguro: nao-reduce (slot semantics diferem) e formas read-only
+    // (collect_free_captures retorna None p/ this/assign/spread/object/etc).
+    let mut captures: Vec<String> = Vec::new();
     if has_capture(&body_expr, &all_bound, user_fn_names) {
-        return None;
+        if is_reduce {
+            return None;
+        }
+        match collect_free_captures(&body_expr, &all_bound, user_fn_names) {
+            Some(caps) if !caps.is_empty() => {
+                captures = caps;
+            }
+            _ => return None,
+        }
     }
 
     let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1065,36 +1088,42 @@ fn try_lift_arrow_arg(
     // para que user_fn.rs trate ambos os slots como ambiguos. Outros
     // metodos (forEach/map/filter/etc) tem slot 1 = idx (int puro), nao
     // ambiguo (idx=0 nao deve virar "null").
-    let fn_name = if is_reduce {
+    let fn_name = if !captures.is_empty() {
+        // (#195) Nome distinto p/ o array_methods_pass reconhecer e rotear
+        // ao caminho BOUND (REIFY_CAPTURED + PARALLEL_*_BOUND).
+        format!("__lifted_cap_{}", n)
+    } else if is_reduce {
         format!("__lifted_arr_method_reduce_{}", n)
     } else {
         format!("__lifted_arr_method_{}", n)
     };
 
-    let parameters: Vec<Parameter> = param_names
+    // (#195) Capturas viram params INICIAIS (i64/handle ambiguo). bound_args
+    // sao prepended em runtime, entao a ordem aqui = [caps..., proprios...].
+    let mut all_params: Vec<(String, bool)> = Vec::new();
+    for c in &captures {
+        all_params.push((c.clone(), false)); // captura: i64/handle ambiguo
+    }
+    for (i, n) in param_names.iter().enumerate() {
+        all_params.push((n.clone(), i == 0 && slot0_is_handle));
+    }
+    let parameters: Vec<Parameter> = all_params
         .iter()
-        .enumerate()
-        .map(|(i, n)| Parameter {
-            name: n.clone(),
-            // slot 0 marcado como string quando recv eh string ou
-            // Object.entries (param eh [string, V] destructured); demais
-            // como i64 default.
-            // (#776) Para callbacks de array methods com arity=3 ABI,
-            // slot 2 (array handle) precisa ser tratado como vec handle
-            // ambiguo para que `.length` funcione (UNIVERSAL_LENGTH despacha
-            // por tipo de Entry). Marcamos como "i64" mas o user_fn.rs ja
-            // marca block_param[0] como ambiguo; estendemos pra slot 2 abaixo.
-            type_annotation: Some(if i == 0 && slot0_is_handle {
-                "string".to_string()
-            } else {
-                "i64".to_string()
-            }),
+        .map(|(nm, is_str)| Parameter {
+            name: nm.clone(),
+            type_annotation: Some(if *is_str { "string".to_string() } else { "i64".to_string() }),
             modifiers: MemberModifiers::default(),
             variadic: false,
             default: None,
             span: Span::default(),
         })
         .collect();
+
+    if !captures.is_empty() {
+        LIFTED_CAPTURES.with(|c| {
+            c.borrow_mut().insert(fn_name.clone(), captures.clone());
+        });
+    }
 
     // Heuristica: lifted arrow tem return_type=i64. Se o body e' uma Call
     // (print/console.log/user fn de retorno desconhecido), nao envolver em
@@ -1191,6 +1220,95 @@ fn is_known_global_ident(name: &str) -> bool {
         | "encodeURIComponent" | "decodeURIComponent"
         | "atob" | "btoa" | "structuredClone"
     )
+}
+
+/// (#195) Coleta os nomes de idents LIVRES (capturas) num expr — idents que
+/// nao sao params da arrow, nem user fns, nem globais conhecidos. Ordem de
+/// primeira aparicao, sem duplicatas. So' coleta de formas SEGURAS p/ captura
+/// por-valor read-only: ident, bin, unary, paren, cond, member(obj), call
+/// (callee+args), tpl, array, tsas. Retorna None se encontrar forma que NAO
+/// sabemos capturar com seguranca (this, assign/update a captura, spread,
+/// object, optchain, seq) — nesses casos o caller aborta o lift (comportamento
+/// antigo).
+fn collect_free_captures(
+    expr: &Expr,
+    params: &[String],
+    user_fn_names: &HashSet<String>,
+) -> Option<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    fn rec(
+        e: &Expr,
+        params: &[String],
+        user_fn_names: &HashSet<String>,
+        out: &mut Vec<String>,
+    ) -> bool {
+        match e {
+            Expr::Ident(i) => {
+                let n = i.sym.as_str();
+                if params.iter().any(|p| p == n)
+                    || user_fn_names.contains(n)
+                    || is_known_global_ident(n)
+                {
+                    return true;
+                }
+                if !out.iter().any(|c| c == n) {
+                    out.push(n.to_string());
+                }
+                true
+            }
+            Expr::Lit(_) => true,
+            Expr::Bin(b) => rec(&b.left, params, user_fn_names, out) && rec(&b.right, params, user_fn_names, out),
+            Expr::Unary(u) => rec(&u.arg, params, user_fn_names, out),
+            Expr::Paren(p) => rec(&p.expr, params, user_fn_names, out),
+            Expr::Cond(c) => {
+                rec(&c.test, params, user_fn_names, out)
+                    && rec(&c.cons, params, user_fn_names, out)
+                    && rec(&c.alt, params, user_fn_names, out)
+            }
+            Expr::Member(m) => {
+                if !rec(&m.obj, params, user_fn_names, out) { return false; }
+                if let swc_ecma_ast::MemberProp::Computed(c) = &m.prop {
+                    return rec(&c.expr, params, user_fn_names, out);
+                }
+                true
+            }
+            Expr::Call(c) => {
+                match &c.callee {
+                    Callee::Expr(ce) => { if !rec(ce, params, user_fn_names, out) { return false; } }
+                    _ => return false,
+                }
+                for a in &c.args {
+                    if a.spread.is_some() { return false; }
+                    if !rec(&a.expr, params, user_fn_names, out) { return false; }
+                }
+                true
+            }
+            Expr::Tpl(t) => {
+                for e in &t.exprs {
+                    if !rec(e, params, user_fn_names, out) { return false; }
+                }
+                true
+            }
+            Expr::Array(a) => {
+                for el in a.elems.iter().flatten() {
+                    if el.spread.is_some() { return false; }
+                    if !rec(&el.expr, params, user_fn_names, out) { return false; }
+                }
+                true
+            }
+            Expr::TsAs(t) => rec(&t.expr, params, user_fn_names, out),
+            Expr::TsTypeAssertion(t) => rec(&t.expr, params, user_fn_names, out),
+            Expr::TsConstAssertion(t) => rec(&t.expr, params, user_fn_names, out),
+            Expr::TsNonNull(t) => rec(&t.expr, params, user_fn_names, out),
+            // Formas nao suportadas para captura segura -> aborta.
+            _ => false,
+        }
+    }
+    if rec(expr, params, user_fn_names, &mut out) {
+        Some(out)
+    } else {
+        None
+    }
 }
 
 fn has_capture(expr: &Expr, params: &[String], user_fn_names: &HashSet<String>) -> bool {
@@ -1560,7 +1678,24 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         _ => None,
                     }};
 
-                    if let Some(par_method) = target_method {
+                    if let Some(mut par_method) = target_method {
+                        // (#195) Quando o callback eh um `__lifted_cap_*` (arrow
+                        // com captura por-valor), roteia ao caminho BOUND, que
+                        // o codegen reifica via REIFY_CAPTURED + PARALLEL_*_BOUND.
+                        let arg0_is_cap = matches!(
+                            call.args.first().map(|a| a.expr.as_ref()),
+                            Some(Expr::Ident(id)) if id.sym.as_str().starts_with("__lifted_cap_")
+                        );
+                        if arg0_is_cap {
+                            par_method = match par_method {
+                                "map" => "map_bound",
+                                "filter" => "filter_bound",
+                                "for_each" => "for_each_bound",
+                                // some/every/find/etc com captura: fora do
+                                // escopo inicial — mantem (cai no stub seguro).
+                                other => other,
+                            };
+                        }
                         let mut arr_expr = (*m.obj).clone();
                         // (cross-runtime #54) O receiver pode ser ELE PROPRIO
                         // uma chain de array methods (`arr.filter(f).map(g)`):

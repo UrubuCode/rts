@@ -2167,6 +2167,19 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_NS_PARALLEL_MAP",
             parallel_ops::__RTS_FN_NS_PARALLEL_MAP
         );
+        // (#195) Variantes BOUND: callback eh Function handle com bound_args.
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_MAP_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_MAP_BOUND
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FILTER_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FILTER_BOUND
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_FOR_EACH_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_FOR_EACH_BOUND
+        );
         add_fn!(
             "__RTS_FN_NS_PARALLEL_FOR_EACH",
             parallel_ops::__RTS_FN_NS_PARALLEL_FOR_EACH

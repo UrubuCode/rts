@@ -20,6 +20,48 @@ fn cb_truthy(v: i64) -> bool {
     crate::namespaces::gc::string_pool::__RTS_FN_RT_TRUTHY(v) != 0
 }
 
+/// (#195) Variantes BOUND: o callback eh um Entry::Function handle que pode
+/// carregar bound_args (capturas por-ativacao). Sequenciais (sem rayon) —
+/// captura geralmente nao eh hot-path e correcao > paralelismo. invoke via
+/// `invoke_array_callback` que prepende bound_args ++ [val, idx].
+use super::super::globals::function::ops::invoke_array_callback;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP_BOUND(vec_handle: u64, fn_handle: u64) -> u64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_handle == 0 { return 0; }
+    let result: Vec<i64> = items
+        .iter()
+        .enumerate()
+        .map(|(i, &x)| if x == i64::MIN + 4 { x } else { invoke_array_callback(fn_handle, &[x, i as i64]) })
+        .collect();
+    alloc_entry(Entry::Vec(Box::new(result)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_FILTER_BOUND(vec_handle: u64, fn_handle: u64) -> u64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_handle == 0 { return 0; }
+    let result: Vec<i64> = items
+        .into_iter()
+        .enumerate()
+        .filter(|&(i, x)| x != i64::MIN + 4 && cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64])))
+        .map(|(_, x)| x)
+        .collect();
+    alloc_entry(Entry::Vec(Box::new(result)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH_BOUND(vec_handle: u64, fn_handle: u64) {
+    if fn_handle == 0 { return; }
+    let Some(items) = snapshot_vec(vec_handle) else { return; };
+    items.iter().enumerate().for_each(|(i, &x)| {
+        if x != i64::MIN + 4 {
+            invoke_array_callback(fn_handle, &[x, i as i64]);
+        }
+    });
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 {
     let Some(items) = snapshot_vec(vec_handle) else {

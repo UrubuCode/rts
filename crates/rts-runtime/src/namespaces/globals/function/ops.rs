@@ -186,6 +186,27 @@ fn read_args_vec(args_handle: u64) -> Vec<i64> {
     })
 }
 
+/// (#195) Invoca um callback de array method que pode ser um Entry::Function
+/// (com bound_args de captura) OU um fn_ptr cru. `extra` sao os args reais
+/// passados pelo runtime do array method (ex: [val, idx]). Quando handle eh
+/// Function, monta `bound_args ++ extra` e usa invoke_typed (param_kinds +
+/// return_kind corretos) — semantica de captura por-ativacao. Quando eh
+/// fn_ptr cru (sem captura), chama direto via invoke_all_i64 ignorando o
+/// terceiro slot (array handle) que callbacks 1-2 param descartam.
+pub(crate) fn invoke_array_callback(handle_or_ptr: u64, extra: &[i64]) -> i64 {
+    if let Some((fn_ptr, bound, _hbt, _bt, _arrow, _htp, param_kinds, ret_kind)) =
+        read_function_data(handle_or_ptr)
+    {
+        let mut all: Vec<i64> = Vec::with_capacity(bound.len() + extra.len());
+        all.extend_from_slice(&bound);
+        all.extend_from_slice(extra);
+        unsafe { invoke_typed(fn_ptr, &all, &param_kinds, ret_kind) }
+    } else {
+        // fn_ptr cru. Callbacks de array method recebem (val, idx, arr).
+        unsafe { invoke_all_i64(handle_or_ptr, extra) }
+    }
+}
+
 /// Reifica uma user fn estatica (fn_ptr conhecido em compile time) num
 /// handle Function. Codegen emite essa call quando ve member access em
 /// ident de user fn (ex: `myFn.bind(this)` ou `myFn.name`).
