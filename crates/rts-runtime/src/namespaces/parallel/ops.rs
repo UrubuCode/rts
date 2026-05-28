@@ -252,13 +252,11 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND(vec_handle: u64, fn_ptr: u64) -> i64
     let arr = vec_handle as i64;
     match items.into_iter().enumerate().find(|&(i, x)| cb_truthy(f(x, i as i64, arr))) {
         Some((_, v)) => v,
-        None => {
-            // JS spec: find sem match retorna `undefined`. Aloca handle
-            // de string "undefined" — codegen marca .find(...) como
-            // ambiguo (var_member_call_values), template literal/console
-            // formata corretamente via TPL_COERCE_AUTO/INSPECT.
-            alloc_entry(Entry::String(b"undefined".to_vec())) as i64
-        }
+        // JS spec: find sem match retorna `undefined`. Retorna o sentinel
+        // (i64::MIN+2) em vez de handle-string "undefined", para que
+        // `?? -1` e `=== undefined` funcionem. Template/console formata o
+        // sentinel como "undefined" via TPL_COERCE_AUTO.
+        None => i64::MIN + 2,
     }
 }
 
@@ -322,7 +320,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_BOUND(vec_handle: u64, fn_handle: u6
         .find(|&(i, x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64])))
     {
         Some((_, v)) => v,
-        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+        None => i64::MIN + 2,
     }
 }
 
@@ -394,7 +392,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_LAST_BOUND(vec_handle: u64, fn_handl
         .find(|&(i, &x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64])))
     {
         Some((_, &v)) => v,
-        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+        None => i64::MIN + 2,
     }
 }
 
