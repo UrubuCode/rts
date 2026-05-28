@@ -688,8 +688,18 @@ pub(super) fn lower_map_set_builtin(
                 .args
                 .get(1)
                 .ok_or_else(|| anyhow!("Map.set requires value"))?;
+            // (#1275) value float fracionario literal -> bits f64.
+            let val_is_frac = super::super::members::expr_is_frac_float_lit(&val_arg.expr);
             let val_tv = lower_expr(ctx, &val_arg.expr)?;
-            let val_i64 = ctx.coerce_to_i64(val_tv).val;
+            let val_i64 = if matches!(val_tv.ty, ValTy::F64) && val_is_frac {
+                ctx.builder.ins().bitcast(
+                    cl::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    val_tv.val,
+                )
+            } else {
+                ctx.coerce_to_i64(val_tv).val
+            };
             let fref = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_MAP_SET",
                 &[cl::I64, cl::I64, cl::I64, cl::I64],
@@ -1124,8 +1134,20 @@ pub(super) fn lower_array_builtin(
             // (cross-runtime #150) JS: push aceita N args, todos sao
             // pushed em ordem.
             for arg in &call.args {
+                // (#1275) Literal float fracionario: armazena bits f64 (igual
+                // ao array literal) p/ que `arr.push(1.5); arr[0]` preserve 1.5.
+                // Leitura de exibicao reinterpreta via heuristica >2^53.
+                let is_frac_lit = super::super::members::expr_is_frac_float_lit(&arg.expr);
                 let tv = lower_expr(ctx, &arg.expr)?;
-                let v = ctx.coerce_to_i64(tv).val;
+                let v = if matches!(tv.ty, ValTy::F64) && is_frac_lit {
+                    ctx.builder.ins().bitcast(
+                        cl::I64,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        tv.val,
+                    )
+                } else {
+                    ctx.coerce_to_i64(tv).val
+                };
                 ctx.builder.ins().call(push_fn, &[obj_h, v]);
             }
             // JS: push retorna novo length.
