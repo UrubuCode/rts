@@ -77,6 +77,11 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         if matches!(n, "Array" | "ReadonlyArray") {
                             ctx.local_array_vars.insert(name.clone());
                         }
+                        // (cross-runtime) anotacao `: Map/Set/WeakMap/WeakSet`
+                        // marca a var p/ `.size` rotear ao UNIVERSAL_LENGTH.
+                        if matches!(n, "Map" | "Set" | "WeakMap" | "WeakSet" | "ReadonlyMap" | "ReadonlySet") {
+                            ctx.local_map_vars.insert(name.clone());
+                        }
                     }
                 }
             }
@@ -104,6 +109,27 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             // array. Marca pra preferir lower_array_builtin.
             if matches!(init_peeled, swc_ecma_ast::Expr::Array(_)) {
                 ctx.local_array_vars.insert(name.clone());
+            }
+            // (cross-runtime) `const m = new Map/Set(...)` ou `const m = f()`
+            // onde f retorna Map/Set — marca p/ `.size` rotear corretamente.
+            match init_peeled {
+                swc_ecma_ast::Expr::New(ne) => {
+                    if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
+                        if matches!(cid.sym.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
+                            ctx.local_map_vars.insert(name.clone());
+                        }
+                    }
+                }
+                swc_ecma_ast::Expr::Call(ce) => {
+                    if let swc_ecma_ast::Callee::Expr(callee) = &ce.callee {
+                        if let swc_ecma_ast::Expr::Ident(fid) = callee.as_ref() {
+                            if fn_returns_map_set(fid.sym.as_str()) {
+                                ctx.local_map_vars.insert(name.clone());
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
             // (cross-runtime) `const s = "..."` / template — marca como string
             // pra que `for (const c of s)` itere os chars. Tambem `: string`.
@@ -999,6 +1025,13 @@ fn zero_for_ty(ctx: &mut FnCtx, ty: ValTy) -> cranelift_codegen::ir::Value {
         ValTy::F64 => ctx.builder.ins().f64const(0.0),
         _ => ctx.builder.ins().iconst(cl::I64, 0),
     }
+}
+
+/// (cross-runtime) `f` eh user fn/metodo cujo return_type eh Map/Set/WeakMap/
+/// WeakSet? Consulta o set populado no array_methods_pass.
+fn fn_returns_map_set(name: &str) -> bool {
+    crate::codegen::lower::passes::parallelism::FNS_RET_MAPSET
+        .with(|c| c.borrow().contains(name))
 }
 
 /// (#811/205) Metadados do elemento de um TypedArray: (elem_bytes, signed,

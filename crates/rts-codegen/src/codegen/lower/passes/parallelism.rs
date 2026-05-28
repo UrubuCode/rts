@@ -42,6 +42,12 @@ thread_local! {
     /// `inst.method().filter()` (chain direto) como receiver array.
     static METHODS_RET_ARRAY: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 
+    /// (cross-runtime) Nomes de fns/metodos com return_type Map/Set/WeakMap/
+    /// WeakSet. Populado em collect_fns_ret_mapset (chamado no array_methods_pass);
+    /// lido por fn_returns_map_set (decls.rs) p/ marcar `const m = mk()` como
+    /// local_map_vars, fazendo `.size` rotear ao UNIVERSAL_LENGTH.
+    pub(crate) static FNS_RET_MAPSET: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+
     /// (cross-runtime #1052) Mapa de top-level `const k = ["str1", "str2", ...]`
     /// para suas string literals. Permite codegen propagar `k[N]` em compile
     /// time, despachando `arr[k[N]](args)` como `arr.<method>(args)`.
@@ -92,6 +98,41 @@ fn collect_methods_ret_array(program: &Program) -> HashSet<String> {
             // number[][]`). Permite `mx(2,3).map(...)` chain direto e via var.
             Item::Function(f) => {
                 if ret_type_is_array(f.return_type.as_deref()) {
+                    out.insert(f.name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// (cross-runtime) Coleta nomes de fns/metodos cujo return_type eh Map/Set/
+/// WeakMap/WeakSet. Usado p/ marcar `const m = mk()` como local_map_vars.
+fn collect_fns_ret_mapset(program: &Program) -> HashSet<String> {
+    fn ret_is_mapset(rt: Option<&str>) -> bool {
+        rt.map(|r| {
+            let t = r.trim();
+            t.starts_with("Map<") || t.starts_with("Set<")
+                || t.starts_with("WeakMap<") || t.starts_with("WeakSet<")
+                || t.starts_with("ReadonlyMap<") || t.starts_with("ReadonlySet<")
+                || matches!(t, "Map" | "Set" | "WeakMap" | "WeakSet")
+        }).unwrap_or(false)
+    }
+    let mut out = HashSet::new();
+    for item in &program.items {
+        match item {
+            Item::Class(c) => {
+                for mem in &c.members {
+                    if let crate::parser::ast::ClassMember::Method(method) = mem {
+                        if ret_is_mapset(method.return_type.as_deref()) {
+                            out.insert(method.name.clone());
+                        }
+                    }
+                }
+            }
+            Item::Function(f) => {
+                if ret_is_mapset(f.return_type.as_deref()) {
                     out.insert(f.name.clone());
                 }
             }
@@ -1466,6 +1507,10 @@ pub(crate) fn array_methods_pass(program: &mut Program) {
     // reconhecer `inst.method().filter()` como receiver array.
     let mra = collect_methods_ret_array(program);
     METHODS_RET_ARRAY.with(|c| *c.borrow_mut() = mra);
+    // (cross-runtime) Popula o set de fns ret-Map/Set p/ decls marcar
+    // `const m = mk()` como local_map_vars (-> `.size` via UNIVERSAL_LENGTH).
+    let frm = collect_fns_ret_mapset(program);
+    FNS_RET_MAPSET.with(|c| *c.borrow_mut() = frm);
 
     // Visita top-level statements.
     let n_items = program.items.len();
