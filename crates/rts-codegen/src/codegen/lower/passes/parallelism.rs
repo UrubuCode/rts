@@ -1613,6 +1613,13 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                                 || matches!(n.as_str(), "Boolean" | "Number" | "String")
                         })
                         .unwrap_or(false);
+                    // Callback com captura por-valor (`__lifted_cap_*`): roteia
+                    // metodos sem variante nao-bound (reduceRight/findLast/...)
+                    // ao _bound so' nesse caso.
+                    let arg0_is_cap = matches!(
+                        call.args.first().map(|a| a.expr.as_ref()),
+                        Some(Expr::Ident(id)) if id.sym.as_str().starts_with("__lifted_cap_")
+                    );
 
                     // (#1044) Gate por receiver: so' reescreve quando m.obj
                     // eh claramente array. Sem isso, `set.forEach(fn)` /
@@ -1676,6 +1683,23 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         }
                         "some" if call.args.len() == 1 && arg0_is_user_fn => Some("some"),
                         "every" if call.args.len() == 1 && arg0_is_user_fn => Some("every"),
+                        // (cross-runtime) reduceRight/findLast/findLastIndex
+                        // SO' quando o callback tem captura (`__lifted_cap_*`).
+                        // Sem captura seguem o caminho VEC_* (fn_ptr nu) que ja'
+                        // funciona; com captura roteamos ao _bound abaixo. O
+                        // nome aqui ja' eh o _bound pois nao ha variante nao-bound.
+                        "reduceRight" if call.args.len() == 2 && arg0_is_cap => {
+                            Some("reduce_right_bound")
+                        }
+                        "reduceRight" if call.args.len() == 1 && arg0_is_cap => {
+                            Some("reduce_right_no_init_bound")
+                        }
+                        "findLast" if call.args.len() == 1 && arg0_is_cap => {
+                            Some("find_last_bound")
+                        }
+                        "findLastIndex" if call.args.len() == 1 && arg0_is_cap => {
+                            Some("find_last_index_bound")
+                        }
                         _ => None,
                     }};
 
@@ -1710,7 +1734,7 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         // trapz -> SIGILL.
                         rewrite_array_methods_in_expr(&mut arr_expr, user_fn_names);
                         let fn_arg = call.args[0].expr.clone();
-                        let new_args: Vec<swc_ecma_ast::ExprOrSpread> = if par_method == "reduce" || par_method == "reduce_bound" {
+                        let new_args: Vec<swc_ecma_ast::ExprOrSpread> = if par_method == "reduce" || par_method == "reduce_bound" || par_method == "reduce_right_bound" {
                             let init_arg = call.args[1].expr.clone();
                             vec![
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: Box::new(arr_expr) },

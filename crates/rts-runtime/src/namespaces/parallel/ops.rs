@@ -351,3 +351,62 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_EVERY_BOUND(vec_handle: u64, fn_handle: u
     if items.into_iter().enumerate()
         .all(|(i, x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64]))) { 1 } else { 0 }
 }
+
+/// (cross-runtime) reduceRight BOUND com init. Callback (apos bound_args)
+/// recebe (acc, val, index). Itera da direita p/ esquerda.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE_RIGHT_BOUND(
+    vec_handle: u64,
+    identity: i64,
+    fn_handle: u64,
+) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return identity; };
+    if fn_handle == 0 { return identity; }
+    let mut acc = identity;
+    for (i, &x) in items.iter().enumerate().rev() {
+        acc = invoke_array_callback(fn_handle, &[acc, x, i as i64]);
+    }
+    acc
+}
+
+/// (cross-runtime) reduceRight BOUND sem init. items.last() eh o acc inicial;
+/// callback roda dos demais (direita->esquerda).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE_RIGHT_NO_INIT_BOUND(
+    vec_handle: u64,
+    fn_handle: u64,
+) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_handle == 0 || items.is_empty() { return 0; }
+    let mut acc = *items.last().unwrap();
+    for (i, &x) in items.iter().enumerate().rev().skip(1) {
+        acc = invoke_array_callback(fn_handle, &[acc, x, i as i64]);
+    }
+    acc
+}
+
+/// (cross-runtime) findLast BOUND — ultimo elemento que satisfaz, ou undefined.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_LAST_BOUND(vec_handle: u64, fn_handle: u64) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_handle == 0 { return 0; }
+    match items.iter().enumerate().rev()
+        .find(|&(i, &x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64])))
+    {
+        Some((_, &v)) => v,
+        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+    }
+}
+
+/// (cross-runtime) findLastIndex BOUND — index do ultimo que satisfaz, ou -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_LAST_INDEX_BOUND(vec_handle: u64, fn_handle: u64) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return -1; };
+    if fn_handle == 0 { return -1; }
+    for (i, &x) in items.iter().enumerate().rev() {
+        if cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64])) {
+            return i as i64;
+        }
+    }
+    -1
+}
