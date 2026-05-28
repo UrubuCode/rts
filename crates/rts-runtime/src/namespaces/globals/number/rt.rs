@@ -238,11 +238,90 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_PRECISION(v: f64, digits: i64) -> u64 {
     let mag = if v == 0.0 { 0i32 } else { v.abs().log10().floor() as i32 };
     if mag >= -6 && mag < sig as i32 {
         let frac = (sig as i32 - 1 - mag).max(0) as usize;
-        alloc_str(&format!("{v:.prec$}", prec = frac))
+        // (cross-runtime) half-away-from-zero sobre decimal real (mesmo
+        // motivo do toFixed); Rust format! usa half-to-even.
+        let neg = v.is_sign_negative() && v != 0.0;
+        let high = format!("{:.25}", v.abs());
+        let mut body = round_decimal_str(&high, frac);
+        // (cross-runtime) Se o arredondamento cruzou a ordem de magnitude
+        // (ex: 99.5.toPrecision(2) -> "100", 3 digitos inteiros > sig=2),
+        // o JS muda para notacao exponencial. Detecta via contagem de
+        // digitos inteiros do resultado arredondado.
+        let int_part = body.split('.').next().unwrap_or("");
+        let int_digits = int_part.trim_start_matches('0').len();
+        if int_digits > sig {
+            let s = round_exp_str(v, sig - 1);
+            return alloc_str(&js_exp_notation(&s));
+        }
+        // (cross-runtime) Se apos arredondar a parte inteira ja' consome
+        // todos os `sig` digitos significativos (ex: 9.95.toPrecision(2)
+        // -> "10.0", int=2 == sig=2), o JS descarta a fracao supérflua:
+        // resultado eh so' a parte inteira ("10"). So' aplica quando
+        // int_digits >= sig e havia fracao.
+        if int_digits >= sig && body.contains('.') {
+            body = int_part.to_string();
+        }
+        let out = if neg { format!("-{body}") } else { body };
+        alloc_str(&out)
     } else {
-        let s = format!("{v:.prec$e}", prec = sig - 1);
+        let s = round_exp_str(v, sig - 1);
         alloc_str(&js_exp_notation(&s))
     }
+}
+
+/// Formata `v` em notacao cientifica Rust (`d.dddde±E`) com `prec` casas na
+/// mantissa, arredondando half-away-from-zero sobre o valor real (em vez do
+/// half-to-even do `format!`). Devolve a string no formato de `format!("{:e}")`.
+fn round_exp_str(v: f64, prec: usize) -> String {
+    if v == 0.0 {
+        let mant = if prec == 0 { "0".to_string() } else { format!("0.{}", "0".repeat(prec)) };
+        return format!("{mant}e0");
+    }
+    let neg = v < 0.0;
+    let abs = v.abs();
+    // Representacao cientifica de alta precisao do valor REAL (sem divisao,
+    // que introduziria erro de cruzamento de magnitude). format! "{:.30e}"
+    // da "d.dd...de±E" com o expoente decimal correto.
+    let high = format!("{abs:.30e}");
+    let (mant_part, exp_part) = high.split_once('e').unwrap_or((high.as_str(), "0"));
+    let mut exp: i32 = exp_part.parse().unwrap_or(0);
+    // mant_part = "d.ddddd..." (1 digito antes do ponto). Coleta digitos.
+    let mant_digits: Vec<u8> = mant_part.bytes().filter(|b| b.is_ascii_digit()).collect();
+    // Arredonda para prec casas decimais (= prec+1 digitos significativos),
+    // half-away-from-zero, com carry.
+    let keep = prec + 1; // digitos significativos a manter
+    let mut digits: Vec<u8> = mant_digits.iter().take(keep).copied().collect();
+    while digits.len() < keep {
+        digits.push(b'0');
+    }
+    let round_up = mant_digits.get(keep).map(|&b| b >= b'5').unwrap_or(false);
+    if round_up {
+        let mut i = digits.len();
+        loop {
+            if i == 0 {
+                digits.insert(0, b'1');
+                exp += 1; // carry transbordou (ex: 9.99 -> 10.0 -> 1.0e+1)
+                digits.pop(); // mantem `keep` digitos
+                break;
+            }
+            i -= 1;
+            if digits[i] == b'9' {
+                digits[i] = b'0';
+            } else {
+                digits[i] += 1;
+                break;
+            }
+        }
+    }
+    let first = digits[0] as char;
+    let rest: String = digits[1..].iter().map(|&b| b as char).collect();
+    let mantissa = if prec == 0 {
+        first.to_string()
+    } else {
+        format!("{first}.{rest}")
+    };
+    let sign = if neg { "-" } else { "" };
+    format!("{sign}{mantissa}e{exp}")
 }
 
 #[unsafe(no_mangle)]
@@ -257,7 +336,9 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v: f64, digits: i64) -> u64 
         remove_trailing_zeros_exp(&with_js_notation)
     } else {
         let d = digits.clamp(0, 100) as usize;
-        let formatted = format!("{v:.prec$e}", prec = d);
+        // (cross-runtime) half-away-from-zero sobre decimal real (Rust
+        // format! usa half-to-even): (2.5).toExponential(0) == "3e+0".
+        let formatted = round_exp_str(v, d);
         js_exp_notation(&formatted)
     };
     alloc_str(&s)
