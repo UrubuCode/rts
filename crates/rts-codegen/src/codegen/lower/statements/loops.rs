@@ -155,6 +155,25 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                                     .unwrap_or(ValTy::I64);
                                 names.push(Some((id.sym.as_str().to_string(), ty)))
                             }
+                            // (cross-runtime) `for (const [a = 0, b = 0] of ...)`
+                            // — default no pattern. Extrai o ident interno; o
+                            // slot ausente ja' vira sentinel (0 p/ number), que
+                            // cobre o caso comum `= 0`. Default nao-trivial eh
+                            // refinamento. Sem isto, dava erro e nao iterava.
+                            Some(Pat::Assign(ap)) => {
+                                if let Pat::Ident(id) = ap.left.as_ref() {
+                                    let ty = id
+                                        .type_ann
+                                        .as_ref()
+                                        .and_then(|t| ts_type_to_val_ty(&t.type_ann))
+                                        .unwrap_or(ValTy::I64);
+                                    names.push(Some((id.sym.as_str().to_string(), ty)))
+                                } else {
+                                    return Err(anyhow!(
+                                        "for-of destructuring: default so' em ident simples"
+                                    ));
+                                }
+                            }
                             _ => {
                                 return Err(anyhow!(
                                     "for-of destructuring suporta apenas idents simples ou elision"
