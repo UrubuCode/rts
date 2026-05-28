@@ -62,6 +62,39 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH_BOUND(vec_handle: u64, fn_handle
     });
 }
 
+/// (#195) reduce com captura. Callback (apos bound_args) recebe
+/// (acc, val, index). bound_args sao prepended por invoke_array_callback.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE_BOUND(
+    vec_handle: u64,
+    identity: i64,
+    fn_handle: u64,
+) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return identity; };
+    if fn_handle == 0 { return identity; }
+    let mut acc = identity;
+    for (i, &x) in items.iter().enumerate() {
+        acc = invoke_array_callback(fn_handle, &[acc, x, i as i64]);
+    }
+    acc
+}
+
+/// (#195) reduce sem init com captura. items[0] eh o acc inicial; callback
+/// roda a partir do indice 1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_REDUCE_NO_INIT_BOUND(
+    vec_handle: u64,
+    fn_handle: u64,
+) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_handle == 0 || items.is_empty() { return 0; }
+    let mut acc = items[0];
+    for (i, &x) in items.iter().enumerate().skip(1) {
+        acc = invoke_array_callback(fn_handle, &[acc, x, i as i64]);
+    }
+    acc
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 {
     let Some(items) = snapshot_vec(vec_handle) else {

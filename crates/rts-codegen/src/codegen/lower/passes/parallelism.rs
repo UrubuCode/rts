@@ -1066,14 +1066,12 @@ fn try_lift_arrow_arg(
     // (#195) Capturas por-valor: se o body referencia vars livres (nem param
     // nem global/user-fn), tentamos coleta-las e prefixa-las como params
     // INICIAIS da fn liftada. O call site reifica via REIFY_CAPTURED +
-    // PARALLEL_*_BOUND, passando os valores em bound_args. Restrito ao subset
-    // seguro: nao-reduce (slot semantics diferem) e formas read-only
+    // PARALLEL_*_BOUND, passando os valores em bound_args. Formas read-only
     // (collect_free_captures retorna None p/ this/assign/spread/object/etc).
+    // map/filter/forEach -> __lifted_cap_N; reduce -> __lifted_cap_reduce_N
+    // (slot semantics: callback eh (caps..., acc, val, idx)).
     let mut captures: Vec<String> = Vec::new();
     if has_capture(&body_expr, &all_bound, user_fn_names) {
-        if is_reduce {
-            return None;
-        }
         match collect_free_captures(&body_expr, &all_bound, user_fn_names) {
             Some(caps) if !caps.is_empty() => {
                 captures = caps;
@@ -1088,7 +1086,10 @@ fn try_lift_arrow_arg(
     // para que user_fn.rs trate ambos os slots como ambiguos. Outros
     // metodos (forEach/map/filter/etc) tem slot 1 = idx (int puro), nao
     // ambiguo (idx=0 nao deve virar "null").
-    let fn_name = if !captures.is_empty() {
+    let fn_name = if !captures.is_empty() && is_reduce {
+        // (#195) reduce com captura: callback eh (caps..., acc, val, idx).
+        format!("__lifted_cap_reduce_{}", n)
+    } else if !captures.is_empty() {
         // (#195) Nome distinto p/ o array_methods_pass reconhecer e rotear
         // ao caminho BOUND (REIFY_CAPTURED + PARALLEL_*_BOUND).
         format!("__lifted_cap_{}", n)
@@ -1691,6 +1692,8 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                                 "map" => "map_bound",
                                 "filter" => "filter_bound",
                                 "for_each" => "for_each_bound",
+                                "reduce" => "reduce_bound",
+                                "reduce_no_init" => "reduce_no_init_bound",
                                 // some/every/find/etc com captura: fora do
                                 // escopo inicial — mantem (cai no stub seguro).
                                 other => other,
@@ -1705,7 +1708,7 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                         // trapz -> SIGILL.
                         rewrite_array_methods_in_expr(&mut arr_expr, user_fn_names);
                         let fn_arg = call.args[0].expr.clone();
-                        let new_args: Vec<swc_ecma_ast::ExprOrSpread> = if par_method == "reduce" {
+                        let new_args: Vec<swc_ecma_ast::ExprOrSpread> = if par_method == "reduce" || par_method == "reduce_bound" {
                             let init_arg = call.args[1].expr.clone();
                             vec![
                                 swc_ecma_ast::ExprOrSpread { spread: None, expr: Box::new(arr_expr) },

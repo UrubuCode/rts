@@ -2181,6 +2181,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             parallel_ops::__RTS_FN_NS_PARALLEL_FOR_EACH_BOUND
         );
         add_fn!(
+            "__RTS_FN_NS_PARALLEL_REDUCE_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE_BOUND
+        );
+        add_fn!(
+            "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT_BOUND",
+            parallel_ops::__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT_BOUND
+        );
+        add_fn!(
             "__RTS_FN_NS_PARALLEL_FOR_EACH",
             parallel_ops::__RTS_FN_NS_PARALLEL_FOR_EACH
         );

@@ -224,12 +224,21 @@ pub(crate) fn compile_user_fn(
                 0
             };
             let is_cap_lifted = cap_count > 0;
+            let is_cap_reduce = fn_decl.name.starts_with("__lifted_cap_reduce_");
+            // Para __lifted_cap_: capturas (i<K) sempre ambiguas. Apos as
+            // capturas, marca os slots de payload ambiguos: reduce -> acc(K) +
+            // val(K+1); map/filter/forEach -> val(K) e array(K+2), nao idx(K+1).
+            let cap_payload_ambiguous = is_cap_lifted && i >= cap_count && {
+                let p = i - cap_count;
+                if is_cap_reduce { p == 0 || p == 1 } else { p == 0 || p == 2 }
+            };
             if ty == ValTy::I64 && (
                 fn_decl.name.starts_with("__hoisted_arrow_")
                 || fn_decl.name.starts_with("__lifted_arrow_")
                 || (is_arr_method_lifted && (i == 0 || i == 2))
                 || (is_reduce_lifted && (i == 0 || i == 1))
-                || (is_cap_lifted && (i < cap_count || i == cap_count))
+                || (is_cap_lifted && i < cap_count)
+                || cap_payload_ambiguous
             ) {
                 fn_ctx.var_member_call_values.insert(block_param);
                 // (#862) Tambem marca pelo nome para que reads em blocks

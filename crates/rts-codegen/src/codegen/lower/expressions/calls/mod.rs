@@ -952,6 +952,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if matches!(
                 qualified.as_str(),
                 "parallel.map_bound" | "parallel.filter_bound" | "parallel.for_each_bound"
+                | "parallel.reduce_bound" | "parallel.reduce_no_init_bound"
             ) {
                 if let Some(tv) = lower_parallel_bound_call(ctx, &qualified, call)? {
                     return Ok(tv);
@@ -3108,11 +3109,15 @@ fn lower_parallel_bound_call(
     call: &CallExpr,
 ) -> Result<Option<TypedVal>> {
     use cranelift_codegen::ir::types as cl;
-    if call.args.len() != 2 {
+    // reduce_bound: (arr, init, fn). reduce_no_init/map/filter/for_each: (arr, fn).
+    let is_reduce_init = qualified == "parallel.reduce_bound";
+    let expected_args = if is_reduce_init { 3 } else { 2 };
+    if call.args.len() != expected_args {
         return Ok(None);
     }
-    // arg0 = array expr; arg1 = ident __lifted_cap_N.
-    let fn_name = match call.args[1].expr.as_ref() {
+    // O callback eh sempre o ULTIMO arg.
+    let fn_idx = expected_args - 1;
+    let fn_name = match call.args[fn_idx].expr.as_ref() {
         Expr::Ident(id) if id.sym.as_str().starts_with("__lifted_cap_") => id.sym.to_string(),
         _ => return Ok(None),
     };
@@ -3135,24 +3140,54 @@ fn lower_parallel_bound_call(
     // Lower o array.
     let arr_tv = lower_expr(ctx, &call.args[0].expr)?;
     let arr_h = ctx.coerce_to_i64(arr_tv).val;
-    // Chama a variante BOUND.
-    let (sym, returns_handle) = match qualified {
-        "parallel.map_bound" => ("__RTS_FN_NS_PARALLEL_MAP_BOUND", true),
-        "parallel.filter_bound" => ("__RTS_FN_NS_PARALLEL_FILTER_BOUND", true),
-        "parallel.for_each_bound" => ("__RTS_FN_NS_PARALLEL_FOR_EACH_BOUND", false),
+
+    // reduce com init: chama REDUCE_BOUND(arr, init, fn) -> i64.
+    if is_reduce_init {
+        let init_tv = lower_expr(ctx, &call.args[1].expr)?;
+        let init = ctx.coerce_to_i64(init_tv).val;
+        let f = ctx.get_extern(
+            "__RTS_FN_NS_PARALLEL_REDUCE_BOUND",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(f, &[arr_h, init, fn_handle]);
+        let v = ctx.builder.inst_results(inst)[0];
+        ctx.var_member_call_values.insert(v);
+        return Ok(Some(TypedVal::new(v, ValTy::I64)));
+    }
+
+    // Chama a variante BOUND (2-arg).
+    let (sym, kind) = match qualified {
+        "parallel.map_bound" => ("__RTS_FN_NS_PARALLEL_MAP_BOUND", 0u8),
+        "parallel.filter_bound" => ("__RTS_FN_NS_PARALLEL_FILTER_BOUND", 0),
+        "parallel.for_each_bound" => ("__RTS_FN_NS_PARALLEL_FOR_EACH_BOUND", 1),
+        "parallel.reduce_no_init_bound" => ("__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT_BOUND", 2),
         _ => return Ok(None),
     };
-    if returns_handle {
-        let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
-        let inst = ctx.builder.ins().call(f, &[arr_h, fn_handle]);
-        let v = ctx.builder.inst_results(inst)[0];
-        ctx.declare_gc_handle(v);
-        Ok(Some(TypedVal::new(v, ValTy::Handle)))
-    } else {
-        let f = ctx.get_extern(sym, &[cl::I64, cl::I64], None)?;
-        ctx.builder.ins().call(f, &[arr_h, fn_handle]);
-        let u = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
-        Ok(Some(TypedVal::new(u, ValTy::I64)))
+    match kind {
+        0 => {
+            // map/filter -> handle Vec.
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(f, &[arr_h, fn_handle]);
+            let v = ctx.builder.inst_results(inst)[0];
+            ctx.declare_gc_handle(v);
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
+        }
+        2 => {
+            // reduce_no_init -> i64.
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(f, &[arr_h, fn_handle]);
+            let v = ctx.builder.inst_results(inst)[0];
+            ctx.var_member_call_values.insert(v);
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        _ => {
+            // for_each -> undefined.
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], None)?;
+            ctx.builder.ins().call(f, &[arr_h, fn_handle]);
+            let u = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+            Ok(Some(TypedVal::new(u, ValTy::I64)))
+        }
     }
 }
 

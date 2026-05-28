@@ -40,6 +40,18 @@ function rolling(arr: number[], keys: number[]): string {
   return arr.map((c, i) => keys[i % keys.length]).join(",");
 }
 
+// (#195 followup) reduce com captura: callback (acc, val) capturando `base`/
+// `sep`/`mul` do escopo. Com init e sem init.
+function sumPlus(arr: number[], base: number): number {
+  return arr.reduce((acc, x) => acc + x + base, 0);
+}
+function joinSep(arr: string[], sep: string): string {
+  return arr.reduce((acc, x) => acc + sep + x, "");
+}
+function reduceMul(arr: number[], mul: number): number {
+  return arr.reduce((acc, x) => acc + x * mul);
+}
+
 const a = addK([1, 2, 3], 10);
 const b1 = makeAdder(10).join(",");
 const b2 = makeAdder(100).join(",");
@@ -47,6 +59,9 @@ const c = over([1, 5, 2, 8, 3], 3);
 const d = zipAdd([1, 2, 3], [10, 20, 30]);
 const e = scale([1, 2, 3], 5);
 const g = rolling([0, 0, 0, 0, 0], [10, 20, 30]);
+const h = sumPlus([1, 2, 3], 100);
+const i = joinSep(["a", "b", "c"], "-");
+const j = reduceMul([1, 2, 3], 10);
 
 describe("closure capture in array methods (#195)", () => {
   test("scalar capture in map", () => expect(a).toBe("11,12,13"));
@@ -56,4 +71,7 @@ describe("closure capture in array methods (#195)", () => {
   test("array capture with dynamic index", () => expect(d).toBe("11,22,33"));
   test("factor capture in map", () => expect(e).toBe("5,10,15"));
   test("array capture .length + modular index", () => expect(g).toBe("10,20,30,10,20"));
+  test("reduce with scalar capture + init", () => expect(`${h}`).toBe("306"));
+  test("reduce string concat with capture", () => expect(i).toBe("-a-b-c"));
+  test("reduce no-init with capture", () => expect(`${j}`).toBe("51"));
 });
