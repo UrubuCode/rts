@@ -9,7 +9,7 @@
 //!   `await p` retornava o handle da Promise em vez do valor resolvido
 //!   (issue #414, F3 da epic #411).
 
-use crate::parser::ast::{ClassMember, FunctionDecl, Item, Program, RawStmt, Statement};
+use crate::parser::ast::{ClassMember, FunctionDecl, Item, Parameter, Program, RawStmt, Statement};
 use crate::parser::span::Span;
 
 /// Reescreve `Expr::Await(x)` em `promise.wait(x)` em todo o programa
@@ -372,23 +372,62 @@ pub(crate) fn expand_async_functions(program: &mut Program) {
             if !f.is_async {
                 continue;
             }
-            let param_names: Vec<String> = f.parameters.iter().map(|p| p.name.clone()).collect();
             let inner_name = format!("__async_inner_{}", f.name);
 
-            // 1. Inner fn = body original (mantem parametros + body).
+            // (cross-runtime) ABI alignment: a inner eh invocada por
+            // PROMISE_CREATE/invoke_callback_full como `(i64...) -> i64`, e os
+            // args sao empacotados num Vec<i64>. Se a inner mantivesse os params
+            // tipados (f64 p/ number, StrPtr p/ string), haveria mismatch de ABI
+            // -> arg chegava 0/lixo. Solucao: inner recebe params i64-only
+            // (`__araw_<name>`) e um prelogo reintroduz o nome original com o
+            // tipo correto (number via num.f64_from_bits; outros via passthrough
+            // i64). O wrapper empacota number como num.f64_to_bits(p).
+            fn is_number_param(ann: Option<&str>) -> bool {
+                match ann.map(str::trim) {
+                    None => true, // sem anotacao -> number (default TS literal)
+                    Some(a) => matches!(a, "number" | "i64" | "i32" | "f64"),
+                }
+            }
+            let raw_params: Vec<Parameter> = f
+                .parameters
+                .iter()
+                .map(|p| Parameter {
+                    name: format!("__araw_{}", p.name),
+                    type_annotation: None, // i64-only ABI
+                    modifiers: p.modifiers.clone(),
+                    variadic: false,
+                    default: None,
+                    span: p.span,
+                })
+                .collect();
+            // Prelogo: reintroduz cada param com nome+tipo original.
+            let mut inner_body: Vec<Statement> = Vec::new();
+            for p in &f.parameters {
+                let raw = format!("__araw_{}", p.name);
+                let init = if is_number_param(p.type_annotation.as_deref()) {
+                    ns_call("num", "f64_from_bits", vec![ident_expr(&raw)])
+                } else {
+                    // string/handle: passthrough do i64 (handle).
+                    ident_expr(&raw)
+                };
+                inner_body.push(raw_stmt(const_decl(&p.name, init)));
+            }
+            inner_body.extend(f.body.clone());
+
+            // 1. Inner fn com params i64-only + prelogo de reinterpretacao.
             new_fns.push(Item::Function(FunctionDecl {
                 name: inner_name.clone(),
-                parameters: f.parameters.clone(),
+                parameters: raw_params,
                 return_type: Some("i64".to_string()),
-                body: f.body.clone(),
+                body: inner_body,
                 span: f.span,
                 is_async: false,
             }));
 
             // 2. Substitui o body de `f` por:
             //   const __args = collections.vec_new();
-            //   collections.vec_push(__args, p0);
-            //   collections.vec_push(__args, p1);
+            //   collections.vec_push(__args, num.f64_to_bits(p0)); // number
+            //   collections.vec_push(__args, p1);                  // handle
             //   ...
             //   return promise.create(__async_inner_f, __args);
             let mut new_body: Vec<Statement> = Vec::new();
@@ -396,11 +435,16 @@ pub(crate) fn expand_async_functions(program: &mut Program) {
                 "__args",
                 ns_call("collections", "vec_new", vec![]),
             )));
-            for pname in &param_names {
+            for p in &f.parameters {
+                let packed = if is_number_param(p.type_annotation.as_deref()) {
+                    ns_call("num", "f64_to_bits", vec![ident_expr(&p.name)])
+                } else {
+                    ident_expr(&p.name)
+                };
                 new_body.push(raw_stmt(expr_stmt(ns_call(
                     "collections",
                     "vec_push",
-                    vec![ident_expr("__args"), ident_expr(pname)],
+                    vec![ident_expr("__args"), packed],
                 ))));
             }
             new_body.push(raw_stmt(return_stmt(Some(ns_call(
