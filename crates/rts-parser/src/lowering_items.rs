@@ -317,12 +317,30 @@ fn extract_fn_return_type_ann(ts_type: &swc_ecma_ast::TsType) -> Option<Box<swc_
 /// retorno cuja expr eh BinExpr Add com algum operando String/Tpl.
 fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
     use swc_ecma_ast::{BinaryOp, Expr};
-    fn expr_yields_string(e: &Expr) -> bool {
+    // (cross-runtime) Coleta params anotados `string` — `(a:string,b:string)
+    // => a + b` deve inferir string. Sem isto a heuristica nao sabe o tipo
+    // dos params e o concat vira i64 (handle cru).
+    let mut str_params: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for p in &arrow.params {
+        if let swc_ecma_ast::Pat::Ident(bi) = p {
+            if let Some(ann) = &bi.type_ann {
+                if let swc_ecma_ast::TsType::TsKeywordType(k) = ann.type_ann.as_ref() {
+                    if matches!(k.kind, swc_ecma_ast::TsKeywordTypeKind::TsStringKeyword) {
+                        str_params.insert(bi.id.sym.to_string());
+                    }
+                }
+            }
+        }
+    }
+    fn expr_yields_string(e: &Expr, sp: &std::collections::HashSet<String>) -> bool {
         match e {
             Expr::Lit(swc_ecma_ast::Lit::Str(_)) => true,
             Expr::Tpl(_) => true,
+            // param anotado string.
+            Expr::Ident(id) => sp.contains(id.sym.as_str()),
             Expr::Bin(b) if b.op == BinaryOp::Add => {
-                expr_yields_string(&b.left) || expr_yields_string(&b.right)
+                expr_yields_string(&b.left, sp) || expr_yields_string(&b.right, sp)
             }
             // (cross-runtime) `s || "default"` / `s ?? "none"`: o fallback
             // string (ou lado string) garante resultado string. Espelha
@@ -332,9 +350,9 @@ fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
                 b.op,
                 BinaryOp::NullishCoalescing | BinaryOp::LogicalOr
             ) => {
-                expr_yields_string(&b.left) || expr_yields_string(&b.right)
+                expr_yields_string(&b.left, sp) || expr_yields_string(&b.right, sp)
             }
-            Expr::Paren(p) => expr_yields_string(&p.expr),
+            Expr::Paren(p) => expr_yields_string(&p.expr, sp),
             // (cross-runtime #270) `() => String(x)` em arrow body produz
             // handle string. Sem isso, return_type vira "i64" e caller
             // formata handle bruto como int. Restrito a `String(x)` direto
@@ -370,18 +388,18 @@ fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
             // para nao classificar ternary polimorfico (ex: `c ? "x" : 0`,
             // replacers de JSON.stringify) como string — esses ficam ambiguos.
             Expr::Cond(c) => {
-                expr_yields_string(&c.cons) && expr_yields_string(&c.alt)
+                expr_yields_string(&c.cons, sp) && expr_yields_string(&c.alt, sp)
             }
             _ => false,
         }
     }
     match arrow.body.as_ref() {
-        swc_ecma_ast::BlockStmtOrExpr::Expr(e) => expr_yields_string(e),
+        swc_ecma_ast::BlockStmtOrExpr::Expr(e) => expr_yields_string(e, &str_params),
         swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
             b.stmts.iter().any(|s| {
                 if let Stmt::Return(r) = s {
                     if let Some(e) = r.arg.as_deref() {
-                        return expr_yields_string(e);
+                        return expr_yields_string(e, &str_params);
                     }
                 }
                 false

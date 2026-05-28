@@ -788,6 +788,13 @@ fn fn_signature(
             {
                 sag_extended.insert(p.name.clone());
             }
+            // (cross-runtime) param escalar `string`: `(a: string, b: string)
+            // => a + b` — sem isto a heuristica nao sabe que `a`/`b` sao
+            // string e o concat infere i64 (handle cru). Registrar o param
+            // como string-yielding faz `a + b` virar Handle.
+            if trimmed == "string" {
+                sag_extended.insert(p.name.clone());
+            }
         }
     }
     let ret = match fn_decl.return_type.as_deref() {
