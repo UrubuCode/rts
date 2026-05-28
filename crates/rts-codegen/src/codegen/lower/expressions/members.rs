@@ -1081,8 +1081,19 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
     // Set`, ou retorno de fn-Map): forca o caminho ambiguo p/ `.size` usar
     // UNIVERSAL_LENGTH (detecta Entry::Map). Sem isso, `const m = mk(); m.size`
     // caia em MAP_GET("size")=0 quando m nao era tipado Handle.
-    let recv_is_mapvar = matches!(m.obj.as_ref(), Expr::Ident(id)
-        if ctx.local_map_vars.contains(id.sym.as_str()));
+    let recv_is_mapvar = match m.obj.as_ref() {
+        Expr::Ident(id) => ctx.local_map_vars.contains(id.sym.as_str()),
+        // (cross-runtime) `mk().size` chain direto: receiver eh call de fn que
+        // retorna Map/Set (registrada em FNS_RET_MAPSET). Sem isso o chain sem
+        // var intermediaria caia em MAP_GET("size")=0.
+        Expr::Call(ce) => matches!(&ce.callee,
+            swc_ecma_ast::Callee::Expr(callee) if matches!(callee.as_ref(),
+                Expr::Ident(fid) if crate::codegen::lower::passes::parallelism::FNS_RET_MAPSET
+                    .with(|c| c.borrow().contains(fid.sym.as_str()))
+            )
+        ),
+        _ => false,
+    };
     let recv_is_ambiguous = matches!(obj_tv.ty, ValTy::U64)
         || recv_is_mapvar
         || (matches!(obj_tv.ty, ValTy::I64)
