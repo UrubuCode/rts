@@ -61,6 +61,20 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     ctx.builder.ins().call(push_fn, &[handle, s]);
                     continue;
                 }
+                // (#1275) Elemento eh literal float FRACIONARIO (`1.5`, nao
+                // `3.0` nem `i*10`)? So' esses precisam dos bits f64 preservados.
+                // F64 inteiro-valued (`i*10`, `3.0`) continua via fcvt (vale
+                // inteiro; destructuring/aritmetica que leem o slot como i64
+                // funcionam). Sem este gate, `[i*10,i*100]` quebrava o
+                // destructuring (que le i64 cru, sem reinterpretar bits).
+                let is_frac_lit = matches!(
+                    e.expr.as_ref(),
+                    Expr::Lit(Lit::Num(n)) if n.value.fract() != 0.0
+                ) || matches!(
+                    e.expr.as_ref(),
+                    Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus)
+                        && matches!(u.arg.as_ref(), Expr::Lit(Lit::Num(n)) if n.value.fract() != 0.0)
+                );
                 let tv = lower_expr(ctx, &e.expr)?;
                 // Bool em array vira sentinela (i64::MIN = false, MIN+1 =
                 // true). Permite inspect_slot imprimir `true`/`false` sem
@@ -72,6 +86,15 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     // i64::MIN + b: b=0 -> MIN (false), b=1 -> MIN+1 (true)
                     let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
                     ctx.builder.ins().iadd(min, b)
+                } else if matches!(tv.ty, ValTy::F64) && is_frac_lit {
+                    // (#1275) Float fracionario literal: armazena os BITS f64.
+                    // Leitura (TPL_COERCE_VEC_SLOT/inspect_slot/join) reinterpreta
+                    // via heuristica >2^53 -> from_bits. `[1.5,2.5]` -> 1.5,2.5.
+                    ctx.builder.ins().bitcast(
+                        cl::I64,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        tv.val,
+                    )
                 } else {
                     ctx.coerce_to_i64(tv).val
                 };
