@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|micro|timeout"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
@@ -1449,10 +1449,10 @@
 ,
 {
   "name": "353_obf_xor_decode",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs",
   "node": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs",
-  "rts": "hello\nw\u007fjl|\noWFeVGARFd\nJavaScript\nhello RTS\nRTS runs"
+  "rts": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":316,"rts_diverge":16,"bun_node_diverge":16,"errors":40,"rejected":0}}
+],"summary":{"total":388,"pass":318,"rts_diverge":14,"bun_node_diverge":16,"errors":40,"rejected":0}}
