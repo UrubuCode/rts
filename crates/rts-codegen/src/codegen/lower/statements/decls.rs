@@ -829,6 +829,17 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         let (init_val, inferred_ty) = if let Some(init) = &decl.init {
             let tv = lower_expr(ctx, init)?;
             (tv.val, tv.ty)
+        } else if ann_ty.is_none() {
+            // (cross-runtime) `let u;` / `let u: any;` sem init -> undefined real
+            // (sentinel i64::MIN+2), nao 0. Faz `typeof u`, `u === undefined` e
+            // template formatarem corretamente. So' quando nao ha tipo concreto
+            // anotado (number/string mantem zero_for_ty p/ nao quebrar uso
+            // tipado posterior `let n: number; n = 5`).
+            let undef = ctx.builder.ins().iconst(
+                cranelift_codegen::ir::types::I64,
+                i64::MIN + 2,
+            );
+            (undef, ValTy::I64)
         } else {
             let ty = ann_ty.unwrap_or(ValTy::I64);
             (zero_for_ty(ctx, ty), ty)
@@ -908,6 +919,13 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         // retornando campo f64): propaga ambiguidade pra que leituras/console
         // usem INSPECT/TPL_COERCE_AUTO em runtime em vez de fcvt.
         if init_is_ambiguous_call {
+            ctx.local_ambiguous_vars.insert(name.clone());
+            ctx.var_member_call_values.insert(init_coerced);
+        }
+        // (cross-runtime) `let u;`/`let u: any;` sem init (sentinel undefined):
+        // marca ambigua p/ typeof/concat despacharem runtime (TYPEOF_HANDLE
+        // detecta MIN+2 -> "undefined"). Sem isso, typeof via ValTy I64 -> "number".
+        if decl.init.is_none() && ann_ty.is_none() {
             ctx.local_ambiguous_vars.insert(name.clone());
             ctx.var_member_call_values.insert(init_coerced);
         }
