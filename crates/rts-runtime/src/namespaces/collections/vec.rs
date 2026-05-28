@@ -447,6 +447,19 @@ fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
             }
             continue;
         }
+        // (#1275) Slot float: armazenado como bits f64 (codegen). Heuristica:
+        // valor fora do range de safe integer (>2^53) que decodifica como f64
+        // finito eh um float. Formata via format_js_number (3.0 -> "3").
+        const MAX_SAFE: i64 = (1i64 << 53) - 1;
+        if *e > MAX_SAFE || *e < -MAX_SAFE {
+            let f = f64::from_bits(*e as u64);
+            if f.is_finite() && !f.is_nan() {
+                out.extend_from_slice(
+                    crate::namespaces::gc::string_pool::format_js_number(f).as_bytes(),
+                );
+                continue;
+            }
+        }
         out.extend_from_slice(e.to_string().as_bytes());
     }
 }
