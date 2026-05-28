@@ -314,6 +314,34 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                     }
                 }
             }
+            // (cross-runtime) `new Set(<expr-nao-literal>)` — popula via runtime
+            // SET_FROM_VEC. Antes so' literal `new Set([...])` populava; com var/
+            // param (`new Set(arr)`) o Set ficava vazio. Restrito a Ident/Member/
+            // etc (var que ja' materializou o Vec) — inline Call segue follow-up.
+            if class_name == "Set" {
+                if let Some(arg) = init_arg {
+                    let arg_is_safe = matches!(
+                        arg.expr.as_ref(),
+                        Expr::Ident(_) | Expr::Member(_)
+                            | Expr::Paren(_) | Expr::TsAs(_) | Expr::TsNonNull(_)
+                    );
+                    if arg.spread.is_none()
+                        && !matches!(arg.expr.as_ref(), Expr::Array(_))
+                        && arg_is_safe
+                    {
+                        let src_tv = lower_expr(ctx, &arg.expr)?;
+                        let src_h = ctx.coerce_to_i64(src_tv).val;
+                        let from_vec = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_SET_FROM_VEC",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst_fv = ctx.builder.ins().call(from_vec, &[src_h]);
+                        let s2 = ctx.builder.inst_results(inst_fv)[0];
+                        return Ok(TypedVal::new(s2, ValTy::Handle));
+                    }
+                }
+            }
             if let Some(arg) = init_arg {
                 if let Expr::Array(arr) = arg.expr.as_ref() {
                     if class_name == "Set" {
