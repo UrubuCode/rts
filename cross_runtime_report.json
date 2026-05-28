@@ -913,10 +913,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "order=sync|qm|then|timeout"
+  "rts": "order=sync|timeout"
 }
 ,
 {
@@ -1401,10 +1401,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=immediate|micro|timeout"
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -2913,10 +2913,10 @@
 ,
 {
   "name": "345_string_template_tag",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "hello [world] the number is [42]\nno interpolation\n[1][2][3]\nline1\\nline2\ntab\\there\na|b|c\nline1\nline2\nline1\\nline2",
   "node": "hello [world] the number is [42]\nno interpolation\n[1][2][3]\nline1\\nline2\ntab\\there\na|b|c\nline1\nline2\nline1\\nline2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "281474976710690\n562949953421329\n281474976710750\nline1\\nline2\ntab\\there\na|b|c\nline1\nline2\nline1\\nline2"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":317,"rts_diverge":15,"bun_node_diverge":16,"errors":40,"rejected":0}}
+],"summary":{"total":388,"pass":317,"rts_diverge":16,"bun_node_diverge":16,"errors":39,"rejected":0}}
