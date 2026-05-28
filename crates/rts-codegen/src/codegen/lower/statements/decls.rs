@@ -411,6 +411,75 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                     ctx.local_obj_field_types.insert(name.clone(), field_types);
                 }
             }
+            // (cross-runtime) `const m = Object.assign(target, ...sources)`:
+            // coleta os tipos de campo dos args (object literais + idents ja
+            // registrados), igual ao spread. Sem isso, `m.a + m.b` [campos
+            // string vindos de Object.assign] vira soma numerica dos handles
+            // em vez de concat. Sources posteriores sobrescrevem (semantica
+            // JS de Object.assign).
+            if let swc_ecma_ast::Expr::Call(call) = init_peeled {
+                let is_object_assign = matches!(&call.callee,
+                    swc_ecma_ast::Callee::Expr(cb) if matches!(cb.as_ref(),
+                        swc_ecma_ast::Expr::Member(m)
+                            if matches!(m.obj.as_ref(),
+                                swc_ecma_ast::Expr::Ident(o) if o.sym.as_str() == "Object")
+                            && matches!(&m.prop,
+                                swc_ecma_ast::MemberProp::Ident(p) if p.sym.as_str() == "assign")));
+                if is_object_assign {
+                    let mut ft: std::collections::HashMap<String, ValTy> =
+                        std::collections::HashMap::new();
+                    for arg in &call.args {
+                        if arg.spread.is_some() {
+                            continue;
+                        }
+                        match arg.expr.as_ref() {
+                            swc_ecma_ast::Expr::Object(src_obj) => {
+                                for prop in &src_obj.props {
+                                    if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                                        if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                                            let key = match &kv.key {
+                                                swc_ecma_ast::PropName::Ident(id) =>
+                                                    id.sym.as_str().to_string(),
+                                                swc_ecma_ast::PropName::Str(s) =>
+                                                    s.value.to_string_lossy().to_string(),
+                                                _ => continue,
+                                            };
+                                            let ty = match kv.value.as_ref() {
+                                                swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Str(_)) =>
+                                                    Some(ValTy::Handle),
+                                                swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(_)) =>
+                                                    Some(ValTy::I64),
+                                                swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Bool(_)) =>
+                                                    Some(ValTy::Bool),
+                                                swc_ecma_ast::Expr::Array(_)
+                                                | swc_ecma_ast::Expr::Object(_) =>
+                                                    Some(ValTy::Handle),
+                                                _ => None,
+                                            };
+                                            if let Some(t) = ty {
+                                                ft.insert(key, t);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            swc_ecma_ast::Expr::Ident(src_id) => {
+                                if let Some(src_types) =
+                                    ctx.local_obj_field_types.get(src_id.sym.as_str()).cloned()
+                                {
+                                    for (k, v) in src_types {
+                                        ft.insert(k, v);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !ft.is_empty() {
+                        ctx.local_obj_field_types.insert(name.clone(), ft);
+                    }
+                }
+            }
             // #210 destructuring — `const __destruct_N = obj` ou
             // `const x = obj` com obj sendo var local que tem tipos
             // de campo registrados: propaga os tipos. Sem isso a leitura
