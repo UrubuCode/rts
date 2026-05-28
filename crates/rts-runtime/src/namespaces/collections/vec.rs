@@ -93,9 +93,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64) {
     }
 }
 
+/// (cross-runtime) `Math.min(...arr)` / `Math.max(...arr)`. Reduz os elementos
+/// do Vec (i64) como f64. Vec vazio -> Infinity (min) / -Infinity (max), JS spec.
+/// Retorna f64 (codegen reinterpreta).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_MIN(handle: u64) -> f64 {
+    with_vec(handle, f64::INFINITY, |v| {
+        v.iter().fold(f64::INFINITY, |acc, &x| acc.min(x as f64))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_MAX(handle: u64) -> f64 {
+    with_vec(handle, f64::NEG_INFINITY, |v| {
+        v.iter().fold(f64::NEG_INFINITY, |acc, &x| acc.max(x as f64))
+    })
+}
+
 /// Remove e retorna o ultimo valor. JS spec: undefined se vazio.
-/// Retorna handle de Entry::String("undefined") em vez de 0 — codegen
-/// marca o resultado como ambiguo para template literal formatar.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(handle: u64) -> i64 {
     let popped: Option<i64> = with_vec_mut(handle, None, |v| v.pop());
