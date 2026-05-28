@@ -1936,6 +1936,34 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
     m
 }
 
+/// (cross-runtime) `new Set(vec)` onde vec NAO eh literal (vem por param/var).
+/// Cria um Map marcado como Set e adiciona cada elemento como key (value=1).
+/// Espelha a conversao do caminho de array literal: elemento handle-string usa
+/// o conteudo; inteiro usa a representacao decimal. Dedup natural (HashMap).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
+    use crate::namespaces::gc::handles::{Entry, with_entry};
+    let elems: Vec<i64> = with_entry(src, |entry| match entry {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let m = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    __RTS_FN_NS_COLLECTIONS_MARK_AS_SET(m);
+    for raw in elems {
+        // hole sentinel: ignora.
+        if raw == i64::MIN + 4 { continue; }
+        let key_str: Option<String> = with_entry(raw as u64, |ke| match ke {
+            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+            _ => None,
+        });
+        let key = key_str.unwrap_or_else(|| raw.to_string());
+        with_map_mut(m, (), |mm| {
+            mm.insert(key, 1);
+        });
+    }
+    m
+}
+
 #[cfg(test)]
 mod object_tests {
     use super::*;
