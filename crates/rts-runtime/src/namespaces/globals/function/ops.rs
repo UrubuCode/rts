@@ -798,6 +798,70 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO_TYPED(
     invoke_auto_impl(callee, this_arg, args_handle, ov)
 }
 
+/// (issue-pai invoke/param_kinds) Invoca o callable e NORMALIZA o retorno para
+/// f64-bits, qualquer que seja o return_kind real. Resolve HOF: `apply(f, x)`
+/// onde `f: (n)=>number` — o callee pode ser user fn f64-ret (handle, retorna
+/// bits f64), OU function expression i64-ret (fn_ptr raw, retorna int). Esta fn
+/// unifica: f64-ret -> bits ja' corretos; i64-ret -> converte (i as f64) e
+/// devolve os bits. O codegen sempre bitcast o resultado p/ f64. Sem isto, o
+/// mesmo `f(x)` no body de `apply` nao saberia tratar os dois callees.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO_AS_F64(
+    callee: i64,
+    this_arg: i64,
+    args_handle: u64,
+) -> i64 {
+    // Handle Function declara param_kinds/return_kind; fn_ptr raw (function
+    // expression hoistada) eh i64-ABI sem kinds.
+    let fdata = read_function_data(callee as u64);
+    let is_handle = fdata.is_some();
+    let rk = fdata
+        .map(|(_, _, _, _, _, _, _, return_kind)| return_kind)
+        .unwrap_or(0);
+    if !is_handle {
+        // fn_ptr raw i64-ABI: o caller empacotou os args number como bits f64.
+        // Converte cada arg de bits-f64 -> i64 truncado antes de invocar, p/
+        // que a fn i64-param (function expression) receba o numero correto.
+        // Depois converte o retorno i64 -> bits f64 (normalizacao).
+        let conv = convert_f64bits_args_to_i64(args_handle);
+        let r = invoke_auto_impl(callee, this_arg, conv, None);
+        return f64_to_i64(r as f64);
+    }
+    let r = invoke_auto_impl(callee, this_arg, args_handle, None);
+    if rk == 1 {
+        // Handle f64-ret ja' retorna bits f64 — passa direto.
+        r
+    } else {
+        // Handle i64-ret/bool: converte p/ f64 e devolve os bits.
+        f64_to_i64(r as f64)
+    }
+}
+
+/// (issue-pai) Para invoke de fn_ptr raw i64-ABI: os args number vieram como
+/// bits-f64 (convencao do call site dinamico). Aloca um novo args Vec com cada
+/// elemento convertido de bits-f64 -> i64 truncado, p/ a fn i64-param ler o
+/// valor inteiro correto. Handles/sentinels (fora do range f64 finito comum)
+/// passam direto.
+fn convert_f64bits_args_to_i64(args_handle: u64) -> u64 {
+    let args = read_args_vec(args_handle);
+    let conv: Vec<i64> = args
+        .iter()
+        .map(|&a| {
+            let f = i64_to_f64(a);
+            // So' converte quando parece um number f64 finito "limpo"; handles
+            // (valores grandes/NaN bits) passam crus.
+            if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.007e15 {
+                f as i64
+            } else {
+                a
+            }
+        })
+        .collect();
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::Vec(Box::new(conv)),
+    )
+}
+
 fn invoke_auto_impl(
     callee: i64,
     this_arg: i64,

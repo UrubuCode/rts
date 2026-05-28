@@ -22,6 +22,18 @@ use super::mir_route::try_compile_via_mir;
 use super::program::UserFn;
 use super::util::{collect_var_decls, user_call_conv};
 
+/// (issue-pai invoke/param_kinds, metade b) Anotacao textual eh fn-type
+/// retornando `number`? Ex: `(n: number) => number`. Marca o param p/ que `f(n)`
+/// normalize o retorno via INVOKE_AUTO_AS_F64.
+fn ann_is_fn_returning_number(ann: &str) -> bool {
+    let t = ann.trim();
+    if let Some(idx) = t.rfind("=>") {
+        let ret = t[idx + 2..].trim().trim_end_matches(|c| c == ';' || c == ' ');
+        return ret == "number";
+    }
+    false
+}
+
 pub(crate) fn compile_user_fn(
     module: &mut dyn Module,
     extern_cache: &mut HashMap<String, cranelift_module::FuncId>,
@@ -176,6 +188,14 @@ pub(crate) fn compile_user_fn(
                 // param string nao iterava (so' var string top-level/local).
                 if base == "string" {
                     fn_ctx.local_string_vars.insert(p.name.clone());
+                }
+                // (issue-pai invoke/param_kinds, metade b) param fn-type
+                // retornando number (`f: (n: number) => number`): marca
+                // local_fn_ret_f64 p/ que `f(n)` use INVOKE_AUTO_AS_F64 e
+                // normalize o retorno como f64 (user fn f64-ret OU function
+                // expression i64-ret). Sem isto, HOF retornava bits crus.
+                if ann_is_fn_returning_number(ann) {
+                    fn_ctx.local_fn_ret_f64.insert(p.name.clone());
                 }
             }
         }

@@ -2952,6 +2952,24 @@ fn lower_js_global_call(
 /// fn_ptr nu. Quando target eh ident de user fn, reifica em handle com
 /// param_kinds/return_kind corretos pra invoke_typed reinterpretar bits
 /// f64 vs i64; senao usa coerce normal (handle ja eh i64).
+/// (issue-pai invoke/param_kinds) `expr` eh um ident de user fn NOMEADA pelo
+/// usuario (nao var local, nao fn sintetica hoistada/liftada)? So' essas tem
+/// kinds confiaveis p/ reificacao; function expressions anonimas hoistadas
+/// seguem o caminho antigo (func_addr) que ja' funcionava.
+fn arg_is_bare_user_fn(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> bool {
+    if let swc_ecma_ast::Expr::Ident(id) = expr {
+        let name = id.sym.as_str();
+        if name.starts_with("__hoisted_")
+            || name.starts_with("__lifted_")
+            || name.starts_with("__async_inner_")
+        {
+            return false;
+        }
+        return ctx.user_fns.contains_key(name) && ctx.var_ty(name).is_none();
+    }
+    false
+}
+
 fn lower_callable_target_h(
     ctx: &mut FnCtx,
     expr: &swc_ecma_ast::Expr,
@@ -3454,12 +3472,22 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
             if arg.spread.is_some() {
                 return Err(anyhow!("spread not supported"));
             }
-            let tv = lower_expr(ctx, &arg.expr)?;
-            match expected_ty {
-                ValTy::I32 => ctx.coerce_to_i32(tv).val,
-                ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64
-                | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => ctx.coerce_to_i64(tv).val,
-                ValTy::F64 => to_f64(ctx, tv),
+            // (issue-pai invoke/param_kinds, metade a) Arg que eh ident de user
+            // fn NOMEADA passado a param nao-numerico: reifica como handle
+            // Function COM param_kinds/return_kind (lower_callable_target_h) em
+            // vez de func_addr cru. Resolve HOF: `apply(inc,10)` invoca inc com
+            // a ABI certa. Function expressions hoistadas seguem o caminho antigo
+            // (arg_is_bare_user_fn as exclui).
+            if !matches!(expected_ty, ValTy::F64) && arg_is_bare_user_fn(ctx, &arg.expr) {
+                lower_callable_target_h(ctx, &arg.expr)?
+            } else {
+                let tv = lower_expr(ctx, &arg.expr)?;
+                match expected_ty {
+                    ValTy::I32 => ctx.coerce_to_i32(tv).val,
+                    ValTy::I64 | ValTy::Bool | ValTy::Handle | ValTy::U64
+                    | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => ctx.coerce_to_i64(tv).val,
+                    ValTy::F64 => to_f64(ctx, tv),
+                }
             }
         } else {
             // Param ausente — fill com undefined sentinel (ou 0.0 pra F64).
