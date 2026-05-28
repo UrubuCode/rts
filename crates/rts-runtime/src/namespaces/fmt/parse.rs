@@ -22,10 +22,60 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_I64(ptr: *const u8, len: i64) -> i64 {
 /// Retorna o f64 parsed ou NaN em caso de erro.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FMT_PARSE_F64(ptr: *const u8, len: i64) -> f64 {
-    match str_from_abi(ptr, len).and_then(|s| s.trim().parse::<f64>().ok()) {
-        Some(v) => v,
-        None => f64::NAN,
+    let Some(s) = str_from_abi(ptr, len) else {
+        return f64::NAN;
+    };
+    let trimmed = s.trim_start();
+    // Parse direto primeiro (numero puro, caso mais comum/rapido).
+    if let Ok(v) = trimmed.trim_end().parse::<f64>() {
+        return v;
     }
+    // (cross-runtime) JS parseFloat: parseia o MAIOR prefixo numerico
+    // valido e ignora o resto (`"3.14abc"` -> 3.14, `"42px"` -> 42,
+    // `"1e3xyz"` -> 1000). Varre: sinal, digitos, ponto decimal, expoente.
+    let bytes = trimmed.as_bytes();
+    let mut i = 0usize;
+    if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+        i += 1;
+    }
+    // Infinity literal (JS aceita "Infinity"/"-Infinity").
+    let rest = &trimmed[i..];
+    if rest.starts_with("Infinity") {
+        let v = f64::INFINITY;
+        return if trimmed.as_bytes().first() == Some(&b'-') { -v } else { v };
+    }
+    let mut seen_digit = false;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+        seen_digit = true;
+    }
+    if i < bytes.len() && bytes[i] == b'.' {
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+            seen_digit = true;
+        }
+    }
+    if !seen_digit {
+        return f64::NAN;
+    }
+    // Expoente: e/E seguido de sinal opcional e ao menos 1 digito.
+    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+        let mut j = i + 1;
+        if j < bytes.len() && (bytes[j] == b'+' || bytes[j] == b'-') {
+            j += 1;
+        }
+        let mut exp_digit = false;
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
+            j += 1;
+            exp_digit = true;
+        }
+        if exp_digit {
+            i = j;
+        }
+        // Sem digito de expoente: para antes do `e` (i fica no prefixo).
+    }
+    trimmed[..i].parse::<f64>().unwrap_or(f64::NAN)
 }
 
 /// (#208) `parseInt(s, radix?)` — JS spec:
