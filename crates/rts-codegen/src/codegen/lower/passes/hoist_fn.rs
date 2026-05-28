@@ -50,6 +50,14 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 Expr::Bin(b) if b.op == BinaryOp::Add => {
                     expr_yields_string(&b.left) || expr_yields_string(&b.right)
                 }
+                // (cross-runtime) `s || "default"` / `s ?? "none"`: fallback
+                // string garante resultado string. Espelha program.rs.
+                Expr::Bin(b) if matches!(
+                    b.op,
+                    BinaryOp::NullishCoalescing | BinaryOp::LogicalOr
+                ) => {
+                    expr_yields_string(&b.left) || expr_yields_string(&b.right)
+                }
                 Expr::Paren(p) => expr_yields_string(&p.expr),
                 // (cross-runtime) ternary (incl. encadeado) cujos ramos
                 // produzem string: `n>=90?"A":n>=80?"B":"C"`. Sem isto, arrow

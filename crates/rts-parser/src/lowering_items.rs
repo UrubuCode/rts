@@ -324,6 +324,16 @@ fn body_returns_string_concat(arrow: &ArrowExpr) -> bool {
             Expr::Bin(b) if b.op == BinaryOp::Add => {
                 expr_yields_string(&b.left) || expr_yields_string(&b.right)
             }
+            // (cross-runtime) `s || "default"` / `s ?? "none"`: o fallback
+            // string (ou lado string) garante resultado string. Espelha
+            // expr_yields_string de program.rs. `n || 0` (ambos numericos)
+            // nao dispara.
+            Expr::Bin(b) if matches!(
+                b.op,
+                BinaryOp::NullishCoalescing | BinaryOp::LogicalOr
+            ) => {
+                expr_yields_string(&b.left) || expr_yields_string(&b.right)
+            }
             Expr::Paren(p) => expr_yields_string(&p.expr),
             // (cross-runtime #270) `() => String(x)` em arrow body produz
             // handle string. Sem isso, return_type vira "i64" e caller
