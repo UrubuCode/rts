@@ -125,6 +125,10 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
     // `for (const [k, v] of pairs)`. No segundo caso, geramos bind temp
     // `__forof_pair_N` e capturamos os nomes pra extrair via vec_get
     // dentro do body.
+    // object_destructure_keys: Some(vec[(var_name, key)]) quando o bind eh
+    // object pattern (`for (const {a, b} of items)`). Extraido via MAP_GET por
+    // chave no body (analogo ao array pattern via vec_get por indice).
+    let mut object_destructure_keys: Option<Vec<(String, String)>> = None;
     let (bind_name, bind_ty, array_destructure_names) = match &for_of.left {
         ForHead::VarDecl(vd) => {
             if vd.decls.len() != 1 {
@@ -138,6 +142,45 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                         .and_then(|t| ts_type_to_val_ty(&t.type_ann))
                         .unwrap_or(ValTy::I64);
                     (id.sym.as_str().to_string(), ty, None)
+                }
+                // (cross-runtime) `for (const {a, b} of items)` — object pattern.
+                // Coleta (var_name, key) de cada prop. Suporta shorthand `{a}` e
+                // rename `{a: b}`. Extrai via MAP_GET no body.
+                Pat::Object(obj_pat) => {
+                    use swc_ecma_ast::ObjectPatProp;
+                    let mut keys: Vec<(String, String)> = Vec::new();
+                    for prop in &obj_pat.props {
+                        match prop {
+                            ObjectPatProp::Assign(a) => {
+                                // `{a}` ou `{a = default}` — var e key sao iguais.
+                                keys.push((a.key.id.sym.to_string(), a.key.id.sym.to_string()));
+                            }
+                            ObjectPatProp::KeyValue(kv) => {
+                                let key = match &kv.key {
+                                    swc_ecma_ast::PropName::Ident(i) => i.sym.to_string(),
+                                    swc_ecma_ast::PropName::Str(s) => {
+                                        s.value.to_string_lossy().to_string()
+                                    }
+                                    _ => return Err(anyhow!(
+                                        "for-of object destructuring: chave nao suportada"
+                                    )),
+                                };
+                                if let Pat::Ident(id) = kv.value.as_ref() {
+                                    keys.push((id.id.sym.to_string(), key));
+                                } else {
+                                    return Err(anyhow!(
+                                        "for-of object destructuring: valor deve ser ident"
+                                    ));
+                                }
+                            }
+                            ObjectPatProp::Rest(_) => return Err(anyhow!(
+                                "for-of object destructuring: rest nao suportado"
+                            )),
+                        }
+                    }
+                    object_destructure_keys = Some(keys);
+                    let tmp = format!("__forof_objpat_{:p}", &for_of.span);
+                    (tmp, ValTy::Handle, None)
                 }
                 Pat::Array(arr_pat) => {
                     // Coleta (nome, tipo) dos elementos. Aceita Ident
@@ -402,6 +445,26 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                 ctx.var_member_call_values.insert(val);
                 ctx.var_vec_slot_values.insert(val);
             }
+        }
+    }
+
+    // (cross-runtime) for-of object destructuring: cada (var, key) extrai
+    // `elem[key]` via MAP_GET. elem eh o objeto iterado (handle Map). Valor
+    // marcado ambiguo (campo pode ser string/number/handle) p/ template/uso
+    // despachar coercao runtime.
+    if let Some(keys) = &object_destructure_keys {
+        let get_fn = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        for (var_name, key) in keys {
+            let (kp, kl) = ctx.emit_str_literal(key.as_bytes())?;
+            let g = ctx.builder.ins().call(get_fn, &[elem, kp, kl]);
+            let val = ctx.builder.inst_results(g)[0];
+            ctx.declare_local(var_name, ValTy::I64, val);
+            ctx.var_member_call_values.insert(val);
+            ctx.var_vec_slot_values.insert(val);
         }
     }
 
