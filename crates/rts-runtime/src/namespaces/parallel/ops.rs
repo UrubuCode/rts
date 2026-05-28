@@ -309,3 +309,45 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_EVERY(vec_handle: u64, fn_ptr: u64) -> i6
     let arr = vec_handle as i64;
     if items.into_iter().enumerate().all(|(i, x)| cb_truthy(f(x, i as i64, arr))) { 1 } else { 0 }
 }
+
+/// (cross-runtime) Variantes BOUND de find/findIndex/some/every — predicate
+/// captura var local. fn_handle eh Entry::Function que carrega bound_args;
+/// invoke_array_callback prepende captures ++ [val, idx]. Sem isso, o ptr nu
+/// recebia o idx no slot da captura e o predicate dava lixo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_BOUND(vec_handle: u64, fn_handle: u64) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_handle == 0 { return 0; }
+    match items.into_iter().enumerate()
+        .find(|&(i, x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64])))
+    {
+        Some((_, v)) => v,
+        None => alloc_entry(Entry::String(b"undefined".to_vec())) as i64,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_FIND_INDEX_BOUND(vec_handle: u64, fn_handle: u64) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return -1; };
+    if fn_handle == 0 { return -1; }
+    items.into_iter().enumerate()
+        .position(|(i, x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64])))
+        .map(|i| i as i64)
+        .unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_SOME_BOUND(vec_handle: u64, fn_handle: u64) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 0; };
+    if fn_handle == 0 { return 0; }
+    if items.into_iter().enumerate()
+        .any(|(i, x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64]))) { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PARALLEL_EVERY_BOUND(vec_handle: u64, fn_handle: u64) -> i64 {
+    let Some(items) = snapshot_vec(vec_handle) else { return 1; };
+    if fn_handle == 0 { return 1; }
+    if items.into_iter().enumerate()
+        .all(|(i, x)| cb_truthy(invoke_array_callback(fn_handle, &[x, i as i64]))) { 1 } else { 0 }
+}

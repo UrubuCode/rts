@@ -953,6 +953,8 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 qualified.as_str(),
                 "parallel.map_bound" | "parallel.filter_bound" | "parallel.for_each_bound"
                 | "parallel.reduce_bound" | "parallel.reduce_no_init_bound"
+                | "parallel.find_bound" | "parallel.find_index_bound"
+                | "parallel.some_bound" | "parallel.every_bound"
             ) {
                 if let Some(tv) = lower_parallel_bound_call(ctx, &qualified, call)? {
                     return Ok(tv);
@@ -3257,6 +3259,15 @@ fn lower_parallel_bound_call(
         "parallel.filter_bound" => ("__RTS_FN_NS_PARALLEL_FILTER_BOUND", 0),
         "parallel.for_each_bound" => ("__RTS_FN_NS_PARALLEL_FOR_EACH_BOUND", 1),
         "parallel.reduce_no_init_bound" => ("__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT_BOUND", 2),
+        // find/findIndex/some/every -> i64. find eh ambiguo (val ou handle
+        // "undefined"); os demais sao int/bool puros (kind 2 marca ambiguo
+        // tambem, inofensivo p/ int — TPL_COERCE_AUTO formata 0/1 como num).
+        // find eh ambiguo (val ou handle "undefined"): kind 2 (marca ambiguo).
+        // findIndex -> int; some/every -> bool. kind 4 = i64 puro sem marca.
+        "parallel.find_bound" => ("__RTS_FN_NS_PARALLEL_FIND_BOUND", 2),
+        "parallel.find_index_bound" => ("__RTS_FN_NS_PARALLEL_FIND_INDEX_BOUND", 4),
+        "parallel.some_bound" => ("__RTS_FN_NS_PARALLEL_SOME_BOUND", 4),
+        "parallel.every_bound" => ("__RTS_FN_NS_PARALLEL_EVERY_BOUND", 4),
         _ => return Ok(None),
     };
     match kind {
@@ -3269,11 +3280,18 @@ fn lower_parallel_bound_call(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         2 => {
-            // reduce_no_init -> i64.
+            // reduce_no_init/find -> i64 ambiguo (val ou handle).
             let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
             let inst = ctx.builder.ins().call(f, &[arr_h, fn_handle]);
             let v = ctx.builder.inst_results(inst)[0];
             ctx.var_member_call_values.insert(v);
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        4 => {
+            // findIndex/some/every -> i64 puro (int/bool), sem marca ambigua.
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(f, &[arr_h, fn_handle]);
+            let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         _ => {
