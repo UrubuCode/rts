@@ -1404,7 +1404,7 @@
   "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": "order=timeout|immediate|micro"
+  "rts": "order=timeout|micro|immediate"
 }
 ,
 {
