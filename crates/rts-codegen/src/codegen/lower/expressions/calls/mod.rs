@@ -1990,6 +1990,51 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     } else {
                         ctx.builder.ins().iconst(cl::I64, 0)
                     };
+                    // (cross-runtime) Array.from(src, mapper) onde mapper captura
+                    // var local (`__lifted_cap_*`). O fn_ptr nu nao carrega os
+                    // bound_args -> mapper recebia o idx no slot da captura e
+                    // produzia lixo. Roteia ao caminho BOUND: gera o Vec fonte e
+                    // chama PARALLEL_MAP_BOUND(vec, fn_handle), que invoca via
+                    // invoke_array_callback (prepende bound_args ++ [val, idx]).
+                    // Para `{length:n}` o Vec fonte eh [0..n-1]; o mapper
+                    // `(_, i) => ...` le i=idx == val, equivalente.
+                    if call.args.len() == 2 {
+                        if let Expr::Ident(mid) = call.args[1].expr.as_ref() {
+                            let mname = mid.sym.as_str();
+                            if mname.starts_with("__lifted_cap_") {
+                                let caps: Vec<String> =
+                                    crate::codegen::lower::passes::parallelism::LIFTED_CAPTURES
+                                        .with(|c| c.borrow().get(mname).cloned())
+                                        .unwrap_or_default();
+                                if !caps.is_empty() {
+                                    let mut cap_vals: Vec<TypedVal> = Vec::with_capacity(caps.len());
+                                    let mut ok = true;
+                                    for cap in &caps {
+                                        match ctx.read_local(cap) {
+                                            Some(tv) => cap_vals.push(tv),
+                                            None => { ok = false; break; }
+                                        }
+                                    }
+                                    if ok {
+                                        // Vec fonte: {length:n} -> [0..n-1]; senao src.
+                                        let src_vec = build_array_from_source_vec(ctx, &first.expr)?;
+                                        let fn_handle = emit_lifted_arrow_handle_with_captures(
+                                            ctx, mname, &cap_vals,
+                                        )?.val;
+                                        let f = ctx.get_extern(
+                                            "__RTS_FN_NS_PARALLEL_MAP_BOUND",
+                                            &[cl::I64, cl::I64],
+                                            Some(cl::I64),
+                                        )?;
+                                        let inst = ctx.builder.ins().call(f, &[src_vec, fn_handle]);
+                                        let v = ctx.builder.inst_results(inst)[0];
+                                        ctx.declare_gc_handle(v);
+                                        return Ok(TypedVal::new(v, ValTy::Handle));
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Detecta `{length: N}` literal.
                     if let Expr::Object(obj_lit) = first.expr.as_ref() {
                         let mut length_lit: Option<i64> = None;
@@ -3096,6 +3141,56 @@ pub(crate) fn emit_lifted_arrow_handle_with_captures(
     let handle = ctx.builder.inst_results(inst)[0];
     ctx.declare_gc_handle(handle);
     Ok(TypedVal::new(handle, ValTy::Handle))
+}
+
+/// (cross-runtime) Gera o Vec fonte de um `Array.from(src, mapper)` para o
+/// caminho BOUND: `{length:n}` -> [0..n-1] (via ARRAY_FROM_LENGTH com fn_ptr=0);
+/// string literal/tpl -> split em chars; senao trata src como Vec handle.
+fn build_array_from_source_vec(
+    ctx: &mut FnCtx,
+    src: &Expr,
+) -> Result<cranelift_codegen::ir::Value> {
+    use cranelift_codegen::ir::types as cl;
+    // {length:N} literal -> [0..N-1].
+    if let Expr::Object(obj_lit) = src {
+        for prop in &obj_lit.props {
+            if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                    let key = match &kv.key {
+                        swc_ecma_ast::PropName::Ident(i) => Some(i.sym.as_str().to_string()),
+                        swc_ecma_ast::PropName::Str(s) => Some(s.value.to_string_lossy().to_string()),
+                        _ => None,
+                    };
+                    if key.as_deref() == Some("length") {
+                        if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = kv.value.as_ref() {
+                            let n_v = ctx.builder.ins().iconst(cl::I64, n.value as i64);
+                            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                            let f = ctx.get_extern(
+                                "__RTS_FN_GL_ARRAY_FROM_LENGTH",
+                                &[cl::I64, cl::I64],
+                                Some(cl::I64),
+                            )?;
+                            let inst = ctx.builder.ins().call(f, &[n_v, zero]);
+                            return Ok(ctx.builder.inst_results(inst)[0]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // string literal/tpl -> split em chars.
+    if matches!(src, Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)) {
+        let s_tv = lower_expr(ctx, src)?;
+        let s_h = ctx.coerce_to_handle(s_tv)?.val;
+        let empty = ctx.emit_str_handle(b"")?.val;
+        let split_fn =
+            ctx.get_extern("__RTS_FN_GL_STRING_SPLIT", &[cl::I64, cl::I64], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(split_fn, &[s_h, empty]);
+        return Ok(ctx.builder.inst_results(inst)[0]);
+    }
+    // Fallback: src eh Vec handle.
+    let src_tv = lower_expr(ctx, src)?;
+    Ok(ctx.coerce_to_i64(src_tv).val)
 }
 
 /// (#195) Lower de `parallel.{map,filter,for_each}_bound(arr, __lifted_cap_N)`.
