@@ -2500,6 +2500,16 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             }
         }
     }
+    // (#41 closures_deep) Callee eh uma expr callable nao coberta pelos casos
+    // acima — tipicamente `f(x)(y)` (call-of-call) ou `(expr)(args)`. O callee
+    // produz um fn_ptr/handle Function; despacha via lower_indirect_call.
+    if let Callee::Expr(callee) = &call.callee {
+        if matches!(callee.as_ref(),
+            Expr::Call(_) | Expr::Paren(_) | Expr::Cond(_) | Expr::Bin(_)
+        ) {
+            return lower_indirect_call(ctx, callee, call);
+        }
+    }
     Err(anyhow!("unsupported call expression form"))
 }
 
