@@ -7,7 +7,7 @@ mod ns_call;
 mod super_calls;
 
 use self::indirect::{
-    lower_indirect_call, lower_var_member_call,
+    lower_curry_call, lower_indirect_call, lower_var_member_call,
 };
 use self::new_expr::{lower_function_handle_method, lower_function_method_call};
 
@@ -2401,19 +2401,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
         }
-        // (cross-runtime #300) Call em result de outra Call ou Expr generica
-        // (ex: `Function("body")()` ou `obj.getFn()()`) — avalia callee como
-        // expressao, despacha via Function handle indirect.
+        // (cross-runtime #300 / #1281 curry) Call em result de outra Call
+        // (`add3(1)(2)(3)`, `Function("body")()`, `obj.getFn()()`). O callee-call
+        // retorna handle de arrow liftada i64-ABI (le params via fcvt_from_sint,
+        // espera INTEIRO). lower_curry_call empaca os args como inteiro p/ casar
+        // com as capturas (REIFY) — sem isso o nivel final recebia bits-f64 e
+        // corrompia (`add3(1)(2)(3)` dava 3.0000…013).
         if matches!(callee.as_ref(), Expr::Call(_)) {
-            let callee_tv = super::lower_expr(ctx, callee)?;
-            use crate::codegen::lower::ctx::ValTy as VT;
-            if matches!(callee_tv.ty, VT::Handle | VT::I64 | VT::U64) {
-                return self::indirect::emit_function_handle_indirect_call(
-                    ctx,
-                    callee_tv.val,
-                    call,
-                );
-            }
+            return self::indirect::lower_curry_call(ctx, callee, call);
         }
         if let Expr::Ident(id) = callee.as_ref() {
             let name = id.sym.as_str();
@@ -2504,8 +2499,13 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
     // acima — tipicamente `f(x)(y)` (call-of-call) ou `(expr)(args)`. O callee
     // produz um fn_ptr/handle Function; despacha via lower_indirect_call.
     if let Callee::Expr(callee) = &call.callee {
+        // (#1281 curry N-nivel) callee-call (`add3(1)(2)(3)`) retorna arrow
+        // liftada i64-ABI — empaca args como INTEIRO via lower_curry_call.
+        if matches!(callee.as_ref(), Expr::Call(_)) {
+            return lower_curry_call(ctx, callee, call);
+        }
         if matches!(callee.as_ref(),
-            Expr::Call(_) | Expr::Paren(_) | Expr::Cond(_) | Expr::Bin(_)
+            Expr::Paren(_) | Expr::Cond(_) | Expr::Bin(_)
         ) {
             return lower_indirect_call(ctx, callee, call);
         }

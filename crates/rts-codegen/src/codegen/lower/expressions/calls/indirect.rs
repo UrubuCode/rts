@@ -464,6 +464,51 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
     Ok(TypedVal::new(v, ValTy::I64))
 }
 
+/// (#1281 curry N-nivel) Callee eh ele proprio uma chamada (`add3(1)(2)(3)`):
+/// a subchamada retorna um handle de ARROW LIFTADA (i64-ABI), que le seus
+/// params number via `fcvt_from_sint` (espera INTEIRO, nao bits-f64). As
+/// capturas (bound_args) ja' chegam como inteiro (REIFY coerce_to_i64), entao
+/// os args proprios DEVEM seguir a mesma convencao — senao o nivel final
+/// recebe bits-f64 e o resultado corrompe (era `3.0000…013` em add3(1)(2)(3)).
+/// Diferente de lower_indirect_call (que empaca F64 como bits p/ callees com
+/// param_kinds=1), aqui empacotamos number como INTEIRO (coerce_to_i64). NB:
+/// fracao trunca — mesma limitacao que as capturas ja' tem (issue-pai f64).
+pub(super) fn lower_curry_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallExpr) -> Result<TypedVal> {
+    let callee = lower_expr(ctx, callee_expr)?;
+    let callee_val = ctx.coerce_to_i64(callee).val;
+
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let vec_push = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+    let vec_extend = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM", &[cl::I64, cl::I64], None)?;
+    let new_inst = ctx.builder.ins().call(vec_new, &[]);
+    let args_vec = ctx.builder.inst_results(new_inst)[0];
+    ctx.declare_gc_handle(args_vec);
+    for arg in &call.args {
+        let tv = lower_expr(ctx, &arg.expr)?;
+        if arg.spread.is_some() {
+            let src = ctx.coerce_to_i64(tv).val;
+            ctx.builder.ins().call(vec_extend, &[args_vec, src]);
+            continue;
+        }
+        // INTEIRO (coerce_to_i64): casa com a convencao i64-ABI da arrow
+        // liftada (fcvt_from_sint no body) e com as capturas (REIFY).
+        let v = ctx.coerce_to_i64(tv).val;
+        ctx.builder.ins().call(vec_push, &[args_vec, v]);
+    }
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let invoke = ctx.get_extern(
+        "__RTS_FN_RT_INVOKE_AUTO",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(invoke, &[callee_val, zero, args_vec]);
+    let v = ctx.builder.inst_results(inst)[0];
+    // I64 ambiguo (handle do proximo nivel OU number final). var_member_call
+    // p/ TPL_COERCE_AUTO no consumo. coerce_to_i64 (no-op) round-tripa handle.
+    ctx.var_member_call_values.insert(v);
+    Ok(TypedVal::new(v, ValTy::I64))
+}
+
 /// Despacha chamada via handle Function (bind/REIFY/new Function) através
 /// de __RTS_FN_GL_FUNCTION_CALL. Empacota args em Vec collections.
 pub(super) fn emit_function_handle_indirect_call(
