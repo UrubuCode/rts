@@ -19,6 +19,7 @@ use super::super::analysis::captures::extract_class_owner;
 use super::super::analysis::module_globals::collect_module_globals;
 use super::super::analysis::types::sanitize_symbol;
 use super::super::ctx::{ClassMeta, UserFnAbi, ValTy};
+use super::super::passes::args::arguments_object::expand_arguments_object;
 use super::super::passes::args::default_args::expand_default_args;
 use super::super::passes::args::rest_args::expand_rest_args;
 use super::super::passes::args::spread_args::expand_spread_args;
@@ -79,6 +80,9 @@ pub fn compile_program(
     // (`f(...[1,2,3])` → `f(1,2,3)`); rest depois empacota argumentos
     // extras conforme o callee é variadic.
     expand_spread_args(program);
+    // (#299) `arguments` vira rest param sintetico ANTES de expand_rest_args,
+    // que entao empacota todos os args do callsite no slot `arguments`.
+    expand_arguments_object(program);
     expand_rest_args(program);
 
     // (generators) Detecta user fns que sao generators: o generator_desugar

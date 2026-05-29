@@ -332,7 +332,12 @@ pub(crate) fn compile_user_fn(
             });
         let is_arrow = fn_decl.name.starts_with("__hoisted_arrow_")
             || fn_decl.name.starts_with("__lifted_arrow_");
-        if body_uses_arguments && !is_arrow {
+        // (#299) Quando `arguments` ja' eh um param (rest sintetico injetado por
+        // expand_arguments_object), o callsite ja' empacotou TODOS os args nesse
+        // slot — nao recriar a partir dos params declarados (que seriam so' os
+        // nomeados, perdendo os extras).
+        let arguments_is_param = fn_decl.parameters.iter().any(|p| p.name == "arguments");
+        if body_uses_arguments && !is_arrow && !arguments_is_param {
             // Aloca Vec<i64> com cada param (coerced a i64) — empacota todos
             // como i64 raw. \`arguments.length\` retorna handle_len, suficiente
             // pra caso comum. \`arguments[i]\` ainda nao tipado (caveat).
