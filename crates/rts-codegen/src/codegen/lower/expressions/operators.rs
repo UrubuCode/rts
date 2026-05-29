@@ -1075,6 +1075,35 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // (#306) JS strict equality nao coerce; `0 === false` deve ser false.
     // Bool e' detectavel separado de I64/F64 em ValTy mesmo backed por
     // mesmo cl_type, e Handle (string) e' distinto de numericos.
+    // (#363) AMBOS I64 ambiguos (var_member_call_values — vem de vec_get/
+    // INDEX_GET_AUTO/etc): podem ser handles de string. `a[i] === b[j]` em
+    // string indexada compararia os handles como numeros (sempre distintos p/
+    // interneds diferentes) -> false mesmo com chars iguais. STRICT_EQ_AMBIG
+    // decide em runtime (conteudo de string OU identidade de handle OU numero).
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::EqEq | BinaryOp::NotEq)
+        && matches!(lhs.ty, ValTy::I64 | ValTy::U64)
+        && matches!(rhs.ty, ValTy::I64 | ValTy::U64)
+        && ctx.var_member_call_values.contains(&lhs.val)
+        && ctx.var_member_call_values.contains(&rhs.val)
+    {
+        let lv = ctx.coerce_to_i64(lhs).val;
+        let rv = ctx.coerce_to_i64(rhs).val;
+        let fref = ctx.get_extern(
+            "__RTS_FN_RT_STRICT_EQ_AMBIG",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[lv, rv]);
+        let eq = ctx.builder.inst_results(inst)[0];
+        let result = if matches!(bin.op, BinaryOp::NotEqEq | BinaryOp::NotEq) {
+            let one = ctx.builder.ins().iconst(cl::I64, 1);
+            ctx.builder.ins().bxor(eq, one)
+        } else {
+            eq
+        };
+        return Ok(TypedVal::new(result, ValTy::Bool));
+    }
+
     if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq) {
         if !same_strict_kind(lhs.ty, rhs.ty) {
             // (#819) Se uma ponta eh I64 ambiguo (vec_get/map_get/etc),
