@@ -109,87 +109,39 @@ unsafe fn invoke_typed(
     }
 }
 
-/// Invoca `fn_ptr` (convencao Win64 fastcall, todos os params i64 -> i64) com
-/// um numero ARBITRARIO de args. As fns geradas pelo codegen (user fns
-/// address-taken, arrows liftadas) usam `default_call_conv` = Win64 fastcall,
-/// que coincide com `extern "C"` no MSVC ABI.
+/// Invoca `fn_ptr` (todos os params i64 -> i64) com aridade ate 16. As fns
+/// geradas pelo codegen (user fns address-taken, arrows liftadas) usam
+/// `default_call_conv`, que coincide com `extern "C"` da plataforma.
 ///
-/// (#1281) Antes era um `match` por aridade ate 8 (depois 16), com `_ => 0`
-/// que retornava lixo ou segfault em curry profundo (`add10(...)`). Este
-/// trampolim em asm monta os args dinamicamente — aridade N variavel, sem teto
-/// artificial. Win64: primeiros 4 args em RCX/RDX/R8/R9, resto na stack (ordem
-/// inversa de push), shadow space de 32 bytes, stack alinhada a 16 antes do
-/// `call`.
-#[cfg(all(target_arch = "x86_64", target_os = "windows"))]
-unsafe fn invoke_all_i64(fn_ptr: u64, args: &[i64]) -> i64 {
-    use std::arch::asm;
-    let n = args.len();
-    let argp = args.as_ptr();
-    let ret: i64;
-    // Bytes a reservar na stack p/ args alem dos 4 em registrador, mais o
-    // shadow space (32) exigido pelo Win64 ABI. Mantemos multiplo de 16.
-    let stack_args = n.saturating_sub(4);
-    // shadow(32) + stack_args*8, arredondado p/ 16.
-    let raw = 32 + stack_args * 8;
-    let frame = (raw + 15) & !15usize;
-    unsafe {
-        asm!(
-            // Reserva o frame (shadow + args na stack), 16-aligned.
-            "sub rsp, {frame}",
-            // Copia args[4..] para a stack: dst = rsp+32 + i*8.
-            "xor {i}, {i}",
-            "2:",
-            "cmp {i}, {sa}",
-            "jae 3f",
-            "mov {tmp}, [{argp} + 32 + {i}*8]", // args[4 + i]
-            "mov [rsp + 32 + {i}*8], {tmp}",
-            "inc {i}",
-            "jmp 2b",
-            "3:",
-            // Carrega os 4 primeiros em RCX/RDX/R8/R9 (se existirem).
-            "cmp {n}, 0", "jbe 4f", "mov rcx, [{argp}]",
-            "cmp {n}, 1", "jbe 4f", "mov rdx, [{argp} + 8]",
-            "cmp {n}, 2", "jbe 4f", "mov r8,  [{argp} + 16]",
-            "cmp {n}, 3", "jbe 4f", "mov r9,  [{argp} + 24]",
-            "4:",
-            "call {fp}",
-            "add rsp, {frame}",
-            frame = in(reg) frame,
-            sa = in(reg) stack_args,
-            n = in(reg) n,
-            argp = in(reg) argp,
-            fp = in(reg) fn_ptr,
-            i = out(reg) _,
-            tmp = out(reg) _,
-            out("rax") ret,
-            // Caller-saved (Win64) que o callee pode destruir + os de argumento.
-            out("rcx") _, out("rdx") _, out("r8") _, out("r9") _,
-            out("r10") _, out("r11") _,
-            // SSE caller-saved (callee pode usar mesmo recebendo so' i64).
-            out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
-            out("xmm4") _, out("xmm5") _,
-        );
-    }
-    ret
-}
-
-/// Fallback portavel (nao-Windows-x64): mantem o despacho por aridade. Usado em
-/// builds de teste/CI noutras plataformas; o alvo de producao eh Windows x64.
-#[cfg(not(all(target_arch = "x86_64", target_os = "windows")))]
+/// (#1281) PORTAVEL por construcao: `transmute` para `extern "C" fn(i64..) ->
+/// i64` deixa o compilador gerar a sequencia de chamada correta para a ABI de
+/// CADA alvo (Win64 / System V / AArch64) — sem asm por-plataforma (que era
+/// Win64-only e panicava >8 em Linux/Mac, #1287) nem dependencia C (libffi-sys
+/// nao compila em macOS/Windows, #1287). Teto de 16 cobre curry profundo real;
+/// acima disso, erro claro (raro — currying de 16+ niveis nao ocorre na pratica).
 unsafe fn invoke_all_i64(fn_ptr: u64, args: &[i64]) -> i64 {
     use std::mem::transmute;
+    let a = |i: usize| args.get(i).copied().unwrap_or(0);
     unsafe {
         match args.len() {
             0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
-            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
-            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2]),
-            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3]),
-            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4]),
-            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4], args[5]),
-            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4], args[5], args[6]),
-            8 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]),
-            n => panic!("invoke_all_i64 (fallback portavel): aridade {n} > 8 nao suportada nesta plataforma"),
+            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(a(0)),
+            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(a(0), a(1)),
+            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2)),
+            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3)),
+            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4)),
+            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5)),
+            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6)),
+            8 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7)),
+            9 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8)),
+            10 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9)),
+            11 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10)),
+            12 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11)),
+            13 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12)),
+            14 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12), a(13)),
+            15 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12), a(13), a(14)),
+            16 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12), a(13), a(14), a(15)),
+            n => panic!("invoke_all_i64: aridade {n} > 16 nao suportada (curry/fn extremamente profundo)"),
         }
     }
 }
