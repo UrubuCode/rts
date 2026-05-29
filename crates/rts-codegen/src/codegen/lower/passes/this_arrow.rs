@@ -1158,7 +1158,8 @@ impl LiftAcc {
                 let is_direct = matches!(&call.callee, Callee::Expr(ce) if matches!(ce.as_ref(), Expr::Ident(_)));
                 if is_direct {
                     for arg in call.args.iter_mut() {
-                        let (body_stmts, has_return_value): (Vec<Statement>, bool) = match arg.expr.as_ref() {
+                        let (own_params, prologue, body_stmts, has_return_value):
+                            (Vec<Parameter>, Vec<Stmt>, Vec<Statement>, bool) = match arg.expr.as_ref() {
                             Expr::Arrow(arrow) => {
                                 // (cross-runtime #1125) Expression-body arrows
                                 // (`() => expr`) returnam o expr — manter
@@ -1167,19 +1168,33 @@ impl LiftAcc {
                                 // returns explicitos sao tratados como void
                                 // (compat com UI callbacks pre-existentes).
                                 let has_ret = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_));
+                                // (#354 cluster A) Preserva os params PROPRIOS da
+                                // arrow (`(a,b) => a+b` passada a user fn que a
+                                // invoca). Antes `parameters: Vec::new()` descartava
+                                // a/b -> "undefined variable a". NAO mexe em captura
+                                // (so' params proprios + prologo de destructuring).
+                                let syn = format!("__lifted_arrow_{}", self.counter);
+                                let (params, prol) = Self::arrow_params_to_parameters(arrow, &syn);
                                 let stmts = arrow_body_to_stmts(arrow)
                                     .into_iter()
                                     .map(|s| Statement::Raw(
                                         RawStmt::new("<lifted>".to_string(), Span::default()).with_stmt(s),
                                     ))
                                     .collect();
-                                (stmts, has_ret)
+                                (params, prol, stmts, has_ret)
                             }
                             _ => continue,
                         };
                         let syn_name = format!("__lifted_arrow_{}", self.counter);
                         self.counter += 1;
-                        let mut body_stmts = body_stmts;
+                        let mut all_stmts: Vec<Statement> = prologue
+                            .into_iter()
+                            .map(|s| Statement::Raw(
+                                RawStmt::new("<lifted-prologue>".to_string(), Span::default()).with_stmt(s),
+                            ))
+                            .collect();
+                        all_stmts.extend(body_stmts);
+                        let mut body_stmts = all_stmts;
                         self.lift_in_body(class_name, &mut body_stmts, in_class);
                         let ret_ty = if has_return_value {
                             Some("i64".to_string())
@@ -1188,7 +1203,7 @@ impl LiftAcc {
                         };
                         self.new_fns.push(Item::Function(FunctionDecl {
                             name: syn_name.clone(),
-                            parameters: Vec::new(),
+                            parameters: own_params,
                             return_type: ret_ty,
                             body: body_stmts,
                             span: Span::default(),
