@@ -25,6 +25,21 @@ unsafe fn invoke_n(fn_ptr: u64, args: &[i64]) -> i64 {
     unsafe { invoke_typed(fn_ptr, args, &[], 0) }
 }
 
+/// (#1281 packed) Invoca um SHIM de assinatura unica `extern "C" fn(*const i64,
+/// i64) -> i64`, passando o buffer de args (todos i64; f64 viaja como bits) e o
+/// comprimento. O shim (gerado pelo codegen) desempacota e chama a fn original
+/// com as coercoes corretas embutidas em IR. Aridade ARBITRARIA, portavel (a
+/// assinatura do shim eh fixa — sem match por aridade, sem teto, sem asm).
+///
+/// O buffer `args` precisa viver durante a chamada; o shim NAO pode reter o ptr.
+unsafe fn invoke_packed(shim_ptr: u64, args: &[i64]) -> i64 {
+    use std::mem::transmute;
+    let shim = unsafe {
+        transmute::<u64, extern "C" fn(*const i64, i64) -> i64>(shim_ptr)
+    };
+    shim(args.as_ptr(), args.len() as i64)
+}
+
 /// Despacha por signature heterogênea. `param_kinds[i]` codifica:
 /// 0=i64, 1=f64, 2=bool, 3=i32. `return_kind` idem (4=void → retorna 0).
 /// Args entram como `i64` (representação carregada pelo handle Function);
@@ -175,6 +190,19 @@ fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bo
     })
 }
 
+/// (#1281 packed) Le o packed_shim de um handle Function (0 = sem shim).
+/// Funcao separada p/ nao inflar o tuple de read_function_data (8 campos,
+/// usado em muitos call sites).
+fn read_packed_shim(handle: u64) -> u64 {
+    with_entry(handle, |entry| {
+        if let Some(Entry::Function(d)) = entry {
+            d.packed_shim
+        } else {
+            0
+        }
+    })
+}
+
 fn read_args_vec(args_handle: u64) -> Vec<i64> {
     if args_handle == 0 {
         return Vec::new();
@@ -292,6 +320,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
         has_this_param: has_this_param != 0,
         param_kinds,
         return_kind: return_kind.clamp(0, 4) as u8,
+        packed_shim: 0,
         source: None,
         keep_alive: None,
         prototype_handle: 0,
@@ -348,6 +377,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
         has_this_param: has_this_param != 0,
         param_kinds,
         return_kind: return_kind.clamp(0, 4) as u8,
+        packed_shim: 0,
         source: None,
         keep_alive: None,
         prototype_handle: 0,
@@ -408,6 +438,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         has_this_param: false,
         param_kinds: Vec::new(),
         return_kind: 0,
+        packed_shim: 0,
         source: Some(format!("function anonymous({}) {{\n{}\n}}", params_str, body_str).into_boxed_str()),
         keep_alive: Some(compiled.keep_alive),
         prototype_handle: 0,
@@ -468,7 +499,12 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
     // com N > 2 args — RTS nao tem variadic na ABI, mas Math.max/min sao
     // semanticamente reduce f64. Quando param_kinds=[1,1] e return=1 e
     // args.len() > 2, foldamos via chamadas sucessivas.
-    let result = if param_kinds.len() == 2
+    // (#1281 packed) Se a fn tem shim packed, despacha por ele — aridade
+    // arbitraria, sem teto. O shim ja' embute as coercoes f64/i32 por param.
+    let packed_shim = read_packed_shim(handle);
+    let result = if packed_shim != 0 {
+        unsafe { invoke_packed(packed_shim, &typed_args) }
+    } else if param_kinds.len() == 2
         && param_kinds == vec![1u8, 1u8]
         && return_kind == 1
         && typed_args.len() > 2
@@ -574,12 +610,13 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
                 d.keep_alive.clone(),
                 d.has_bound_this,
                 d.bound_this,
+                d.packed_shim,
             ))
         } else {
             None
         }
     });
-    let Some((fn_ptr, arity, name, mut bound_args, is_arrow, has_this_param, param_kinds, return_kind, source, keep_alive, had_bound_this, prev_bound_this)) =
+    let Some((fn_ptr, arity, name, mut bound_args, is_arrow, has_this_param, param_kinds, return_kind, source, keep_alive, had_bound_this, prev_bound_this, packed_shim)) =
         original
     else {
         return 0;
@@ -619,6 +656,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
         has_this_param,
         param_kinds,
         return_kind,
+        packed_shim,
         source,
         keep_alive,
         prototype_handle: 0,
@@ -660,6 +698,7 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
             has_this_param: false,
             param_kinds: Vec::new(),
             return_kind: 0,
+            packed_shim: 0,
             source: None,
             keep_alive: None,
             prototype_handle: 0,
@@ -917,7 +956,13 @@ fn invoke_auto_impl(
             Some(ov) if return_kind == 0 => ov,
             _ => return_kind,
         };
-        let r = unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, effective_rk) };
+        // (#1281 packed) Despacha pelo shim quando presente (aridade arbitraria).
+        let packed_shim = read_packed_shim(callee as u64);
+        let r = if packed_shim != 0 {
+            unsafe { invoke_packed(packed_shim, &all_args) }
+        } else {
+            unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, effective_rk) }
+        };
         if pushed_this {
             crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
         }
