@@ -867,7 +867,30 @@ pub(super) fn lower_map_set_builtin(
             // MAP_FOR_EACH precisa disso pra invocar com a aridade correta.
             let cb_tv = if let Expr::Ident(id) = call.args[0].expr.as_ref() {
                 let name = id.sym.as_str().to_string();
-                if ctx.user_fns.contains_key(&name) {
+                // (#376) Callback liftado COM captura (`__lifted_cap_N` do
+                // parallelism pass, ou `__lifted_arrow_N` do this_arrow): reifica
+                // com bound_args via REIFY_CAPTURED. Sem isso ia por
+                // emit_hoisted_arrow_handle (sem bound_args) e a captura (`value`)
+                // colidia com o item do Set passado pelo MAP_FOR_EACH.
+                let caps_opt = crate::codegen::lower::passes::parallelism::LIFTED_CAPTURES
+                    .with(|c| c.borrow().get(&name).cloned())
+                    .or_else(|| crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(&name));
+                if let Some(caps) = caps_opt {
+                    let cap_vals: Vec<TypedVal> = caps
+                        .iter()
+                        .filter_map(|c| {
+                            if c == "__captured_this" { ctx.read_local("this") }
+                            else { ctx.read_local(c) }
+                        })
+                        .collect();
+                    if cap_vals.len() == caps.len() {
+                        super::emit_lifted_arrow_handle_with_captures(ctx, &name, &cap_vals)?
+                    } else if ctx.user_fns.contains_key(&name) {
+                        super::emit_hoisted_arrow_handle(ctx, &name, None)?
+                    } else {
+                        lower_expr(ctx, &call.args[0].expr)?
+                    }
+                } else if ctx.user_fns.contains_key(&name) {
                     super::emit_hoisted_arrow_handle(ctx, &name, None)?
                 } else {
                     lower_expr(ctx, &call.args[0].expr)?
