@@ -208,20 +208,14 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN_NS(p_handle: u64, fp: u64) -> u64 {
         return result_handle;
     }
 
-    let rt = crate::runtime::async_rt::handle();
-    rt.spawn_blocking(move || {
-        let (state, value) = promise_slot::wait_blocking(&arc);
-        if state == promise_slot::STATE_FULFILLED {
-            if fn_ptr == 0 {
-                promise_slot::resolve(&result_clone, value);
-            } else {
-                let r = unsafe { invoke_callback(fn_ptr, &bound, Some(value)) };
-                promise_slot::resolve(&result_clone, r);
-            }
-        } else {
-            promise_slot::reject(&result_clone, value);
-        }
-    });
+    // (#207) Source PENDING: enfileira como PendingThen na microtask queue
+    // (polling determinista no drain) em vez de spawn_blocking (thread nao-
+    // deterministica). Preserva ordem FIFO entre chains de Promise no mesmo
+    // task sync — `Promise.resolve().then().then()` interleaving correto.
+    // O drain re-checa o estado a cada ciclo; quando settle, executa.
+    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_then(
+        arc, fn_ptr, bound, false, result_clone,
+    );
     result_handle
 }
 
@@ -237,20 +231,11 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH_NS(p_handle: u64, fp: u64) -> u64 {
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
     let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fp);
-    let rt = crate::runtime::async_rt::handle();
-    rt.spawn_blocking(move || {
-        let (state, value) = promise_slot::wait_blocking(&arc);
-        if state == promise_slot::STATE_FULFILLED {
-            promise_slot::resolve(&result_clone, value);
-        } else {
-            if fn_ptr == 0 {
-                promise_slot::reject(&result_clone, value);
-            } else {
-                let r = unsafe { invoke_callback(fn_ptr, &bound, Some(value)) };
-                promise_slot::resolve(&result_clone, r);
-            }
-        }
-    });
+    // (#207) Determinista via microtask queue (igual ao .then). is_catch=true:
+    // o callback so' roda no rejected; fulfilled propaga o valor.
+    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_then(
+        arc, fn_ptr, bound, true, result_clone,
+    );
     result_handle
 }
 
@@ -265,19 +250,11 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY_NS(p_handle: u64, fp: u64) -> u64 
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
-    let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fp);
-    let rt = crate::runtime::async_rt::handle();
-    rt.spawn_blocking(move || {
-        let (state, value) = promise_slot::wait_blocking(&arc);
-        if fn_ptr != 0 {
-            let _ = unsafe { invoke_callback(fn_ptr, &bound, None) };
-        }
-        if state == promise_slot::STATE_FULFILLED {
-            promise_slot::resolve(&result_clone, value);
-        } else {
-            promise_slot::reject(&result_clone, value);
-        }
-    });
+    let (fn_ptr, _bound, _h, _t) = resolve_callback_ptr(fp);
+    // (#207) Determinista via microtask queue (igual ao .then/.catch).
+    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_finally(
+        arc, fn_ptr, result_clone,
+    );
     result_handle
 }
 

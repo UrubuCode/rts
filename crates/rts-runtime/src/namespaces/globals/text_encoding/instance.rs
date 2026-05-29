@@ -217,6 +217,25 @@ pub(crate) enum Microtask {
         fulfilled: bool,
         result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
     },
+    /// (#207) Promise.then sobre promise PENDING — em vez de spawn_blocking
+    /// (thread nao-deterministica), faz polling na microtask queue: a cada
+    /// drain, se a source ainda esta pending re-enfileira; quando settle,
+    /// invoca o callback e settle o result. Preserva ordem FIFO determinista
+    /// (JS spec) entre chains de Promise no mesmo task sync.
+    PendingThen {
+        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        fn_ptr: u64,
+        bound: Vec<i64>,
+        is_catch: bool,
+        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    },
+    /// (#207) promise.finally sobre source PENDING — polling determinista.
+    /// Quando settle, invoca fp() sem args e PRESERVA state/value original.
+    PendingFinally {
+        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        fn_ptr: u64,
+        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    },
 }
 thread_local! {
     static MICROTASK_QUEUE: RefCell<Vec<Microtask>> = const { RefCell::new(Vec::new()) };
@@ -272,15 +291,98 @@ pub fn enqueue_microtask_finally(
     });
 }
 
+/// (#207) Enfileira `.then`/`.catch` sobre promise PENDING como PendingThen
+/// (polling determinista no drain). Evita spawn_blocking nao-deterministico.
+pub fn enqueue_microtask_pending_then(
+    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    fn_ptr: u64,
+    bound: Vec<i64>,
+    is_catch: bool,
+    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+) {
+    MICROTASK_QUEUE.with(|q| {
+        q.borrow_mut().push(Microtask::PendingThen {
+            source, fn_ptr, bound, is_catch, result_slot,
+        })
+    });
+}
+
+/// (#207) Enfileira `.finally` sobre promise PENDING (polling determinista).
+pub fn enqueue_microtask_pending_finally(
+    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    fn_ptr: u64,
+    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+) {
+    MICROTASK_QUEUE.with(|q| {
+        q.borrow_mut().push(Microtask::PendingFinally { source, fn_ptr, result_slot })
+    });
+}
+
 /// Drena microtasks pendentes. Chamada pelo pipeline pos-main e tambem
 /// pode ser chamada pelo codegen no fim de cada task (futuro).
 pub fn drain_microtasks() {
     use crate::namespaces::gc::promise_slot;
+    // (#207) Guard contra loop infinito: se varios ciclos so' contem
+    // PendingThen cuja source nunca settla (Promise pending por I/O real que
+    // resolveria numa thread tokio), faz fallback p/ spawn_blocking nesses
+    // restantes e encerra o polling. Caso sync (chains resolviveis no drain)
+    // nunca atinge o limite.
+    let mut stall = 0u32;
+    const STALL_LIMIT: u32 = 10_000;
     loop {
         let queue: Vec<Microtask> =
             MICROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
         if queue.is_empty() {
             break;
+        }
+        // Detecta ciclo sem progresso: todos PendingThen ainda pending.
+        let all_stalled_pending = queue.iter().all(|t| match t {
+            Microtask::PendingThen { source, .. }
+            | Microtask::PendingFinally { source, .. } => {
+                promise_slot::current_state(source) == promise_slot::STATE_PENDING
+            }
+            _ => false,
+        });
+        if all_stalled_pending {
+            stall += 1;
+            if stall >= STALL_LIMIT {
+                // Fallback: resolve os PendingThen restantes via spawn_blocking
+                // (caminho thread original) p/ Promises que dependem de I/O.
+                for task in queue {
+                    if let Microtask::PendingThen { source, fn_ptr, bound, is_catch, result_slot } = task {
+                        let rt = crate::runtime::async_rt::handle();
+                        rt.spawn_blocking(move || {
+                            let (st, value) = promise_slot::wait_blocking(&source);
+                            let fulfilled = st == promise_slot::STATE_FULFILLED;
+                            let runs = if is_catch { !fulfilled } else { fulfilled };
+                            if runs && fn_ptr != 0 {
+                                let r = unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
+                                promise_slot::resolve(&result_slot, r);
+                            } else if fulfilled {
+                                promise_slot::resolve(&result_slot, value);
+                            } else {
+                                promise_slot::reject(&result_slot, value);
+                            }
+                        });
+                    } else if let Microtask::PendingFinally { source, fn_ptr, result_slot } = task {
+                        let rt = crate::runtime::async_rt::handle();
+                        rt.spawn_blocking(move || {
+                            let (st, value) = promise_slot::wait_blocking(&source);
+                            if fn_ptr != 0 {
+                                let _ = unsafe { invoke_microtask_callback(fn_ptr, &[], None) };
+                            }
+                            if st == promise_slot::STATE_FULFILLED {
+                                promise_slot::resolve(&result_slot, value);
+                            } else {
+                                promise_slot::reject(&result_slot, value);
+                            }
+                        });
+                    }
+                }
+                break;
+            }
+        } else {
+            stall = 0;
         }
         for task in queue {
             match task {
@@ -327,6 +429,61 @@ pub fn drain_microtasks() {
                         promise_slot::resolve(&result_slot, value);
                     } else {
                         promise_slot::reject(&result_slot, value);
+                    }
+                }
+                // (#207) Polling determinista de .then sobre source pending.
+                Microtask::PendingThen {
+                    source,
+                    fn_ptr,
+                    bound,
+                    is_catch,
+                    result_slot,
+                } => {
+                    let st = promise_slot::current_state(&source);
+                    if st == promise_slot::STATE_PENDING {
+                        // Ainda nao settled — re-enfileira no FIM da fila atual
+                        // p/ re-checar no proximo ciclo do drain (apos outras
+                        // microtasks avancarem o estado das chains).
+                        MICROTASK_QUEUE.with(|q| {
+                            q.borrow_mut().push(Microtask::PendingThen {
+                                source, fn_ptr, bound, is_catch, result_slot,
+                            })
+                        });
+                    } else {
+                        let value = promise_slot::current_value(&source);
+                        let fulfilled = st == promise_slot::STATE_FULFILLED;
+                        // .then: roda no fulfilled; .catch: roda no rejected.
+                        let runs = if is_catch { !fulfilled } else { fulfilled };
+                        if runs && fn_ptr != 0 {
+                            let r = unsafe {
+                                invoke_microtask_callback(fn_ptr, &bound, Some(value))
+                            };
+                            promise_slot::resolve(&result_slot, r);
+                        } else if fulfilled {
+                            promise_slot::resolve(&result_slot, value);
+                        } else {
+                            promise_slot::reject(&result_slot, value);
+                        }
+                    }
+                }
+                Microtask::PendingFinally { source, fn_ptr, result_slot } => {
+                    let st = promise_slot::current_state(&source);
+                    if st == promise_slot::STATE_PENDING {
+                        MICROTASK_QUEUE.with(|q| {
+                            q.borrow_mut().push(Microtask::PendingFinally {
+                                source, fn_ptr, result_slot,
+                            })
+                        });
+                    } else {
+                        if fn_ptr != 0 {
+                            let _ = unsafe { invoke_microtask_callback(fn_ptr, &[], None) };
+                        }
+                        let value = promise_slot::current_value(&source);
+                        if st == promise_slot::STATE_FULFILLED {
+                            promise_slot::resolve(&result_slot, value);
+                        } else {
+                            promise_slot::reject(&result_slot, value);
+                        }
                     }
                 }
             }
