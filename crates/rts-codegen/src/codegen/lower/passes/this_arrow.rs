@@ -445,7 +445,22 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
                     acc.lift_in_body(&class_name, &mut ctor.body, /*in_class=*/ true);
                 }
                 ClassMember::Method(method) if !method.modifiers.is_static => {
+                    // (#376) Popula scope_vars com os PARAMS do metodo antes do
+                    // lift, p/ que arrows aninhadas/retornadas (`return () =>
+                    // this.#x.delete(fn)`) detectem `fn` como captura-por-valor
+                    // (bound_arg) em vez de "undefined variable". Espelha o que
+                    // process_fn faz p/ top-level fns. Restaura depois.
+                    let mparams: Vec<String> =
+                        method.parameters.iter().map(|p| p.name.clone()).collect();
+                    let added: Vec<String> = mparams
+                        .iter()
+                        .filter(|n| acc.scope_vars.insert((*n).clone()))
+                        .cloned()
+                        .collect();
                     acc.lift_in_body(&class_name, &mut method.body, /*in_class=*/ true);
+                    for n in &added {
+                        acc.scope_vars.remove(n);
+                    }
                 }
                 _ => {}
             }
