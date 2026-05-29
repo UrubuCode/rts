@@ -34,7 +34,18 @@ function add4(a: number) {
 }
 print(add4(1)(2)(3)(4) + "");    // 10
 
+// (#1281) curry de 5 niveis — aridade variavel via trampolim asm Win64
+// (invoke_all_i64), sem teto de 8. Antes >8 niveis dava 0/ACCESS_VIOLATION.
+// NB: curry MUITO profundo (10+) sob pressao de muitas closures no mesmo
+// modulo tem GC coletando capturas intermediarias (handles realocados) —
+// bug de GC rooting separado, rastreado a parte.
+function add5(a: number) {
+  return (b: number) => (c: number) => (d: number) => (e: number) =>
+    a + b + c + d + e;
+}
+print(add5(10)(20)(30)(40)(50) + "");  // 150
+
 describe("call-of-call / curry (#41, #1281)", () => {
-  test("f(x)(y) e curry 2-nivel", () =>
-    expect(out).toBe("15\n7\n42\n6\n10\n"));
+  test("f(x)(y) e curry 2..5-nivel", () =>
+    expect(out).toBe("15\n7\n42\n6\n10\n150\n"));
 });
