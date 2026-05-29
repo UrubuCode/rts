@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,3,B,C"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\n1,A,2,3,B,C\nmicro1,micro2,queueMicrotask,micro3,timeout"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2049,10 +2049,10 @@
 ,
 {
   "name": "363_algorithms",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n4",
   "node": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n0"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":317,"rts_diverge":15,"bun_node_diverge":17,"errors":39,"rejected":0}}
+],"summary":{"total":388,"pass":318,"rts_diverge":16,"bun_node_diverge":16,"errors":38,"rejected":0}}
