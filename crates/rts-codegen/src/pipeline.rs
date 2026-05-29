@@ -183,6 +183,11 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     // (#286) setImmediate roda na "check phase" — antes de timers
     // setTimeout(0). Drena fila propria primeiro.
     crate::namespaces::globals::timers::instance::drain_immediates();
+    // (#207 timer ordering) Macrotasks (setTimeout delay-0) rodam na thread do
+    // main APOS microtasks — ordem JS spec (macrotask > microtask). Cada
+    // macrotask drena as microtasks que gera. Antes setTimeout spawnava thread
+    // (rodava em paralelo, fora de ordem).
+    crate::namespaces::globals::timers::instance::drain_macrotasks();
     crate::namespaces::globals::timers::instance::drain_pending_timers();
     // (#376) Aguarda async fns fire-and-forget (chamadas sem `await` no
     // top-level) settarem antes de exit. Sem isso `main()` async sem
