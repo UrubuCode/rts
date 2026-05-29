@@ -315,6 +315,22 @@ pub(crate) fn compile_user_fn(
                         );
                     }
                 }
+                // (#345) Param tipado como array (`T[]`, `Array<T>`,
+                // `ReadonlyArray<T>`, `TemplateStringsArray`) marca
+                // local_array_vars pra que `param.reduce/map/length/...`
+                // despache pelos builtins de array (Vec) em vez de string/map.
+                // Sem isto, `strings.reduce(...)` em tagged template retornava
+                // handle bruto.
+                let a = ann.trim();
+                let is_array_ann = a.ends_with("[]")
+                    || a.starts_with("Array<")
+                    || a.starts_with("ReadonlyArray<")
+                    || a == "TemplateStringsArray"
+                    || a.starts_with("Array <")
+                    || a.starts_with("readonly ");
+                if is_array_ann {
+                    fn_ctx.local_array_vars.insert(param.name.clone());
+                }
             }
         }
 

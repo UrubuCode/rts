@@ -24,6 +24,11 @@ narrow storage real.
   viva das fixtures planejadas (63 itens prioritarios + sugestoes
   futuras). Checklist marcavel conforme batches sao adicionados pelo
   codex/kiro.
+- [Plano de ataque — paridade 100%](parity-100-plan.md) — Triagem
+  multi-agente dos 52 testes que faltam (86.0% -> 100%): clusters por
+  causa-raiz compartilhada, tabela ROI (destravados/esforco), passos
+  concretos. Atacar do maior ROI ao menor; refatores pesados
+  (generators, event loop, Intl) por ultimo.
 - [Como criar um namespace](namespace-creation-guide.md) — Processo atual
   baseado em `crates/rts-abi/` (SPECS centralizado, simbolos `__RTS_FN_NS_*`,
   `AbiType`). Reflete a branch `feat/remake-namespaces`.
