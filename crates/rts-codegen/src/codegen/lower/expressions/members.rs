@@ -2032,7 +2032,10 @@ pub(super) fn map_get_static_typed(
 }
 
 pub(super) fn validate_private_scope(ctx: &FnCtx, key: &str) -> Result<()> {
-    let Some(current) = ctx.current_class.as_deref() else {
+    // (#376) Usa private_scope_class (= current_class, OU a classe dona quando
+    // numa arrow liftada de dentro de metodo de classe). Sem isso, `this.#x`
+    // numa arrow retornada de metodo era rejeitada.
+    let Some(current) = ctx.private_scope_class.as_deref() else {
         return Err(anyhow!(
             "private `{key}` so pode ser acessado dentro do corpo da classe que o declara"
         ));

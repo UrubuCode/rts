@@ -137,6 +137,12 @@ pub(crate) fn compile_user_fn(
         fn_ctx.return_ty = info.ret;
         fn_ctx.is_tail_conv = call_conv == CallConv::Tail;
         fn_ctx.current_class = current_class.clone();
+        // (#376) Escopo private: current_class quando disponivel; senao, p/ uma
+        // arrow liftada de dentro de metodo de classe, a classe dona via registry
+        // lateral. So' habilita validate_private_scope — nao muda dispatch.
+        fn_ctx.private_scope_class = current_class.clone().or_else(|| {
+            crate::codegen::lower::passes::this_arrow::lifted_arrow_class(&fn_decl.name)
+        });
         fn_ctx.current_fn_name = fn_decl.name.clone();
         fn_ctx.current_file = fn_decl.span.file
             .and_then(rts_diagnostics::source_store::path_of)
