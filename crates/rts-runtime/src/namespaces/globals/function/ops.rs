@@ -39,159 +39,92 @@ unsafe fn invoke_typed(
     param_kinds: &[u8],
     return_kind: u8,
 ) -> i64 {
-    use std::mem::transmute;
     // (cross-runtime #799) return_kind=4 (void) cai pro caminho i64 —
-    // o retorno e' descartado pelo caller e a Win64 fastcall ABI nao
-    // tem prologue diferente entre `() -> i64` e `()` para essa
-    // aridade. Sem esta normalizacao, fns void (constructors) caem
-    // no fallback invoke_all_i64 que ignora param_kinds (f64 args
-    // chegam como i64 bits → NaN no body).
+    // o retorno e' descartado pelo caller e a ABI nao tem prologo diferente
+    // entre `() -> i64` e `()` para essa aridade.
     let return_kind = if return_kind == 4 { 0 } else { return_kind };
-    // Quando param_kinds é vazio, todos os args são i64 (caminho rápido).
-    if param_kinds.is_empty() && return_kind == 0 {
+    // Caminho rapido: tudo i64, retorno i64.
+    if param_kinds.iter().all(|k| *k != 1) && return_kind != 1 {
         return unsafe { invoke_all_i64(fn_ptr, args) };
     }
-    // Caminho tipado: aridade ate 4 + (this i64) — cobre métodos de classe
-    // RTS comuns. Aumentar conforme necessário.
-    // Convenção: param_kinds[i] descreve args[i] (this incluso se for o caso).
+    // Caminho tipado generico (#1281): libffi monta a chamada respeitando
+    // param_kinds POR-POSICAO (i64 vs f64) com aridade arbitraria, abstraindo
+    // a ABI de cada plataforma (Win64/SysV/AArch64). Substituiu um `match`
+    // esparso ate aridade 4 que caia em fallback i64 (corrompia args f64
+    // nao-cobertos: `f(1.5,2.5,3.5)` truncava; 5 args f64 dava lixo).
+    unsafe { invoke_via_ffi(fn_ptr, args, param_kinds, return_kind) }
+}
+
+/// (#1281) Invocacao portavel de `fn_ptr` com aridade/tipos arbitrarios via
+/// libffi. `param_kinds[i]`: 1=f64 (passa como C double), demais=i64 (long
+/// long). `return_kind`: 1=f64 (le double, devolve os bits), demais=i64.
+/// libffi cuida da ABI (registradores GP/SSE, stack, shadow space) por
+/// plataforma — um caminho, Win64 + System V + AArch64.
+unsafe fn invoke_via_ffi(
+    fn_ptr: u64,
+    args: &[i64],
+    param_kinds: &[u8],
+    return_kind: u8,
+) -> i64 {
+    use libffi::middle::{arg, Cif, CodePtr, Type};
+
+    // Materializa cada arg no tipo certo, mantido vivo ate o fim da chamada.
+    // f64 guarda o double decodificado dos bits; i64 guarda o valor cru.
     let n = args.len();
-    // Coerções por param.
-    let a0_i64 = args.first().copied().unwrap_or(0);
-    let a1_i64 = args.get(1).copied().unwrap_or(0);
-    let a2_i64 = args.get(2).copied().unwrap_or(0);
-    let a3_i64 = args.get(3).copied().unwrap_or(0);
-    let a4_i64 = args.get(4).copied().unwrap_or(0);
+    let mut as_i64: Vec<i64> = Vec::with_capacity(n);
+    let mut as_f64: Vec<f64> = Vec::with_capacity(n);
+    for i in 0..n {
+        as_i64.push(args[i]);
+        as_f64.push(i64_to_f64(args[i]));
+    }
 
-    let a0_f64 = i64_to_f64(a0_i64);
-    let a1_f64 = i64_to_f64(a1_i64);
-    let a2_f64 = i64_to_f64(a2_i64);
-    let a3_f64 = i64_to_f64(a3_i64);
-    let _a4_f64 = i64_to_f64(a4_i64);
+    let arg_types = (0..n).map(|i| {
+        if param_kinds.get(i).copied().unwrap_or(0) == 1 {
+            Type::f64()
+        } else {
+            Type::i64()
+        }
+    });
 
-    let pk0 = param_kinds.first().copied().unwrap_or(0);
-    let pk1 = param_kinds.get(1).copied().unwrap_or(0);
-    let pk2 = param_kinds.get(2).copied().unwrap_or(0);
-    let pk3 = param_kinds.get(3).copied().unwrap_or(0);
-    let pk4 = param_kinds.get(4).copied().unwrap_or(0);
+    let ret_ty = if return_kind == 1 { Type::f64() } else { Type::i64() };
+    let cif = Cif::new(arg_types, ret_ty);
 
-    // Encode a tupla (n, pk0, pk1, ..., return_kind) num discriminador.
-    // Hot path: this (i64) + 1-3 args mistos + retorno mixed.
-    unsafe {
-        match (n, pk0, pk1, pk2, return_kind) {
-            // 0 args, retorno mixed
-            (0, _, _, _, 0) => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            (0, _, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn() -> f64>(fn_ptr)()),
-            // 1 arg
-            (1, 0, _, _, 0) => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(a0_i64),
-            (1, 0, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64) -> f64>(fn_ptr)(a0_i64)),
-            (1, 1, _, _, 0) => transmute::<u64, extern "C" fn(f64) -> i64>(fn_ptr)(a0_f64),
-            (1, 1, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(f64) -> f64>(fn_ptr)(a0_f64)),
-            // 2 args (this i64 + 1 outro)
-            (2, 0, 0, _, 0) => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(a0_i64, a1_i64),
-            (2, 0, 0, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, i64) -> f64>(fn_ptr)(a0_i64, a1_i64)),
-            (2, 0, 1, _, 0) => transmute::<u64, extern "C" fn(i64, f64) -> i64>(fn_ptr)(a0_i64, a1_f64),
-            (2, 0, 1, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64)),
-            (2, 1, 1, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(f64, f64) -> f64>(fn_ptr)(a0_f64, a1_f64)),
-            // 3 args (this + 2 outros)
-            (3, 0, 0, 0, 0) => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(a0_i64, a1_i64, a2_i64),
-            (3, 0, 1, 1, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64, a2_f64)),
-            (3, 0, 0, 1, 0) => transmute::<u64, extern "C" fn(i64, i64, f64) -> i64>(fn_ptr)(a0_i64, a1_i64, a2_f64),
-            (3, 0, 1, 0, 0) => transmute::<u64, extern "C" fn(i64, f64, i64) -> i64>(fn_ptr)(a0_i64, a1_f64, a2_i64),
-            (3, 0, 1, 1, 0) => transmute::<u64, extern "C" fn(i64, f64, f64) -> i64>(fn_ptr)(a0_i64, a1_f64, a2_f64),
-            // 4 args (this + 3 outros) — só combinações importantes
-            (4, 0, 1, 1, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64, f64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64, a2_f64, a3_f64)),
-            // Fallback: tudo i64 (perda de precisão se f64 esperado).
-            _ => {
-                let _ = (pk3, pk4, a3_i64, a4_i64);
-                invoke_all_i64(fn_ptr, args)
+    // Constroi a lista de Arg apontando para os buffers vivos acima.
+    let ffi_args: Vec<libffi::middle::Arg> = (0..n)
+        .map(|i| {
+            if param_kinds.get(i).copied().unwrap_or(0) == 1 {
+                arg(&as_f64[i])
+            } else {
+                arg(&as_i64[i])
             }
+        })
+        .collect();
+
+    let code = CodePtr(fn_ptr as *mut _);
+    unsafe {
+        if return_kind == 1 {
+            let r: f64 = cif.call(code, &ffi_args);
+            f64_to_i64(r)
+        } else {
+            cif.call(code, &ffi_args)
         }
     }
 }
 
-/// Invoca `fn_ptr` (convencao Win64 fastcall, todos os params i64 -> i64) com
-/// um numero ARBITRARIO de args. As fns geradas pelo codegen (user fns
-/// address-taken, arrows liftadas) usam `default_call_conv` = Win64 fastcall,
-/// que coincide com `extern "C"` no MSVC ABI.
+/// Invoca `fn_ptr` (todos os params i64 -> i64) com um numero ARBITRARIO de
+/// args. As fns geradas pelo codegen (user fns address-taken, arrows liftadas)
+/// usam `default_call_conv`, que coincide com `extern "C"` da plataforma.
 ///
-/// (#1281) Antes era um `match` por aridade ate 8 (depois 16), com `_ => 0`
-/// que retornava lixo ou segfault em curry profundo (`add10(...)`). Este
-/// trampolim em asm monta os args dinamicamente — aridade N variavel, sem teto
-/// artificial. Win64: primeiros 4 args em RCX/RDX/R8/R9, resto na stack (ordem
-/// inversa de push), shadow space de 32 bytes, stack alinhada a 16 antes do
-/// `call`.
-#[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+/// (#1281) Implementado via libffi — aridade N variavel, sem teto, portavel
+/// (Win64 + System V + AArch64). Antes era um `match`/asm Win64-only que dava
+/// panic acima de aridade 8 noutras plataformas (curry profundo quebrava no CI
+/// Linux/Mac). libffi abstrai a ABI de chamada de cada alvo.
 unsafe fn invoke_all_i64(fn_ptr: u64, args: &[i64]) -> i64 {
-    use std::arch::asm;
-    let n = args.len();
-    let argp = args.as_ptr();
-    let ret: i64;
-    // Bytes a reservar na stack p/ args alem dos 4 em registrador, mais o
-    // shadow space (32) exigido pelo Win64 ABI. Mantemos multiplo de 16.
-    let stack_args = n.saturating_sub(4);
-    // shadow(32) + stack_args*8, arredondado p/ 16.
-    let raw = 32 + stack_args * 8;
-    let frame = (raw + 15) & !15usize;
-    unsafe {
-        asm!(
-            // Reserva o frame (shadow + args na stack), 16-aligned.
-            "sub rsp, {frame}",
-            // Copia args[4..] para a stack: dst = rsp+32 + i*8.
-            "xor {i}, {i}",
-            "2:",
-            "cmp {i}, {sa}",
-            "jae 3f",
-            "mov {tmp}, [{argp} + 32 + {i}*8]", // args[4 + i]
-            "mov [rsp + 32 + {i}*8], {tmp}",
-            "inc {i}",
-            "jmp 2b",
-            "3:",
-            // Carrega os 4 primeiros em RCX/RDX/R8/R9 (se existirem).
-            "cmp {n}, 0", "jbe 4f", "mov rcx, [{argp}]",
-            "cmp {n}, 1", "jbe 4f", "mov rdx, [{argp} + 8]",
-            "cmp {n}, 2", "jbe 4f", "mov r8,  [{argp} + 16]",
-            "cmp {n}, 3", "jbe 4f", "mov r9,  [{argp} + 24]",
-            "4:",
-            "call {fp}",
-            "add rsp, {frame}",
-            frame = in(reg) frame,
-            sa = in(reg) stack_args,
-            n = in(reg) n,
-            argp = in(reg) argp,
-            fp = in(reg) fn_ptr,
-            i = out(reg) _,
-            tmp = out(reg) _,
-            out("rax") ret,
-            // Caller-saved (Win64) que o callee pode destruir + os de argumento.
-            out("rcx") _, out("rdx") _, out("r8") _, out("r9") _,
-            out("r10") _, out("r11") _,
-            // SSE caller-saved (callee pode usar mesmo recebendo so' i64).
-            out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
-            out("xmm4") _, out("xmm5") _,
-        );
-    }
-    ret
-}
-
-/// Fallback portavel (nao-Windows-x64): mantem o despacho por aridade. Usado em
-/// builds de teste/CI noutras plataformas; o alvo de producao eh Windows x64.
-#[cfg(not(all(target_arch = "x86_64", target_os = "windows")))]
-unsafe fn invoke_all_i64(fn_ptr: u64, args: &[i64]) -> i64 {
-    use std::mem::transmute;
-    unsafe {
-        match args.len() {
-            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
-            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
-            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2]),
-            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3]),
-            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4]),
-            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4], args[5]),
-            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4], args[5], args[6]),
-            8 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]),
-            n => panic!("invoke_all_i64 (fallback portavel): aridade {n} > 8 nao suportada nesta plataforma"),
-        }
-    }
+    use libffi::middle::{arg, Cif, CodePtr, Type};
+    let cif = Cif::new((0..args.len()).map(|_| Type::i64()), Type::i64());
+    let ffi_args: Vec<libffi::middle::Arg> = args.iter().map(arg).collect();
+    let code = CodePtr(fn_ptr as *mut _);
+    unsafe { cif.call(code, &ffi_args) }
 }
 
 #[inline]

@@ -34,3 +34,8 @@ ureq = { version = "2.12", default-features = true }
 slotmap = "1"
 rustc-hash = "1.1"
 time = { version = "0.3", features = ["local-offset"] }
+# (#1281) Invocacao dinamica de fn_ptr com aridade/tipos arbitrarios,
+# abstraindo a ABI de chamada de cada plataforma (Win64/SysV/AArch64). Usado
+# em invoke_typed/invoke_all_i64 (trampolins de curry / callbacks dinamicos)
+# no lugar de asm inline por-plataforma.
+libffi = "3.2"
