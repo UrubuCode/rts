@@ -658,6 +658,31 @@ pub(crate) fn lift_inline_arrows_in_array_methods(program: &mut Program) {
         }
     }
 
+    // (#376) Bodies de metodos/constructors de classe. Sem isto, callbacks de
+    // array/Set methods dentro de metodo (`this.subs.forEach(s => s + value)`)
+    // nao eram liftados com captura — caiam no hoist_fn sem captura -> "undefined
+    // variable value".
+    let class_indices: Vec<usize> = program.items.iter().enumerate()
+        .filter_map(|(i, it)| if matches!(it, Item::Class(_)) { Some(i) } else { None })
+        .collect();
+    for i in class_indices {
+        if let Item::Class(c) = &mut program.items[i] {
+            for mem in &mut c.members {
+                let body = match mem {
+                    crate::parser::ast::ClassMember::Method(m) => &mut m.body,
+                    crate::parser::ast::ClassMember::Constructor(ct) => &mut ct.body,
+                    _ => continue,
+                };
+                for stmt_raw in body {
+                    let Statement::Raw(raw) = stmt_raw;
+                    if let Some(stmt) = raw.stmt.as_mut() {
+                        lift_arrows_in_stmt(stmt, &mut user_fn_names, &mut new_fns, &counter);
+                    }
+                }
+            }
+        }
+    }
+
     // Prepend novas fns para que `array_methods_pass` veja-as no
     // user_fn_names snapshot inicial.
     for fn_item in new_fns.into_iter().rev() {
