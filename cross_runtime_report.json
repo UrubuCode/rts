@@ -665,10 +665,10 @@
 ,
 {
   "name": "376_private_pattern_advanced",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
   "node": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1,2,3\n0\n4\n5\n{ #Vec2_x: 4616189618054758000, #Vec2_y: 4618441417868444000 }\n{ #Vec2_x: 4618441417868444000, #Vec2_y: 4620693217682129000 }\n11\nidle\nfalse\nidle\nfalse\nfalse\nfalse\nfalse\nidle"
 }
 ,
 {
@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,B,C,2,3"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,B,2,3,C"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":319,"rts_diverge":15,"bun_node_diverge":16,"errors":38,"rejected":0}}
+],"summary":{"total":388,"pass":318,"rts_diverge":16,"bun_node_diverge":17,"errors":37,"rejected":0}}
