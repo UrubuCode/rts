@@ -31,7 +31,7 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             _ => break,
         }
     }
-    let class_name = match callee_expr {
+    let mut class_name = match callee_expr {
         Expr::Ident(id) => id.sym.as_str().to_string(),
         _ => {
             return Err(anyhow!(
@@ -39,6 +39,14 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             ));
         }
     };
+
+    // (#69) SharedArrayBuffer eh tratado como ArrayBuffer no RTS (sem memoria
+    // compartilhada entre threads via SAB — o backing eh o mesmo Buffer). Isso
+    // destrava `new SharedArrayBuffer(n)` + Int32Array view + Atomics.* sobre
+    // ela, que ja' funcionam para ArrayBuffer.
+    if class_name == "SharedArrayBuffer" && !ctx.classes.contains_key(&class_name) {
+        class_name = "ArrayBuffer".to_string();
+    }
 
     // Function global (#359): `new Function(...params, body)` — variadic.
     // Empacota todos args excerto o ultimo em string CSV de params, ultimo

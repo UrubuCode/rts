@@ -205,6 +205,7 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     if matches!(name,
         "Array" | "Object" | "Map" | "Set" | "Proxy" | "Reflect"
         | "Math" | "JSON" | "Atomics" | "Intl"
+        | "ArrayBuffer" | "SharedArrayBuffer"
     ) {
         return ctx.emit_str_handle(name.as_bytes());
     }
