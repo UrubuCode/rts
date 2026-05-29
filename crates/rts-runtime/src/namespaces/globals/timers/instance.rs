@@ -20,6 +20,44 @@ fn register_timer(handle: u64, flag: Arc<AtomicBool>) {
     timers().lock().unwrap().insert(handle, flag);
 }
 
+// (#207 timer ordering) Macrotask queue p/ setTimeout(fp, 0): em JS, timers
+// rodam na thread principal APOS todas as microtasks drenarem (macrotask >
+// microtask). spawn_blocking/thread roda em paralelo e fora de ordem. Esta
+// fila (thread-local do main) eh drenada pelo pipeline pos-main, intercalando
+// com microtasks na ordem JS spec correta.
+thread_local! {
+    static MACROTASK_QUEUE: std::cell::RefCell<Vec<(u64, Arc<AtomicBool>, u64)>>
+        = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Enfileira um setTimeout(fp, 0) como macrotask na thread do main.
+fn enqueue_macrotask(fp: u64, flag: Arc<AtomicBool>, handle: u64) {
+    MACROTASK_QUEUE.with(|q| q.borrow_mut().push((fp, flag, handle)));
+}
+
+/// (#207) Drena a fila de macrotask (setTimeout delay-0) APOS as microtasks.
+/// Cada macrotask: se nao cancelada, invoca o callback; depois as microtasks
+/// que ela gerou sao drenadas (JS spec: cada macrotask esvazia a microtask
+/// queue). Processa em ordem FIFO de registro.
+pub fn drain_macrotasks() {
+    loop {
+        let batch: Vec<(u64, Arc<AtomicBool>, u64)> =
+            MACROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
+        if batch.is_empty() {
+            break;
+        }
+        for (fp, flag, handle) in batch {
+            if !flag.load(Ordering::Relaxed) {
+                invoke_timer_cb(fp);
+            }
+            free_handle(handle);
+            cancel_timer(handle);
+            // JS spec: apos cada macrotask, drena todas as microtasks geradas.
+            crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+        }
+    }
+}
+
 fn cancel_timer(handle: u64) {
     if let Some(flag) = timers().lock().unwrap().remove(&handle) {
         flag.store(true, Ordering::Relaxed);
@@ -64,19 +102,24 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 
 
     let handle = alloc_entry(Entry::Env(vec![0]));
 
+    register_timer(handle, cancelled);
+
+    // (#207 timer ordering) delay 0: macrotask na thread do main (roda APOS
+    // microtasks drenarem — ordem JS spec). delay > 0: thread com sleep real.
+    if delay == 0 {
+        enqueue_macrotask(fp, flag, handle);
+        return handle;
+    }
+
     let flag2 = flag.clone();
     thread::spawn(move || {
-        if delay > 0 {
-            thread::sleep(Duration::from_millis(delay));
-        }
+        thread::sleep(Duration::from_millis(delay));
         if !flag2.load(Ordering::Relaxed) {
             invoke_timer_cb(fp);
         }
         free_handle(handle);
         cancel_timer(handle);
     });
-
-    register_timer(handle, cancelled);
     handle
 }
 
@@ -138,18 +181,10 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_IMMEDIATE(fp: u64) -> u64 {
     let ran = Arc::new(AtomicBool::new(false));
     let handle = alloc_entry(Entry::Env(vec![0]));
     immediate_queue().lock().unwrap().push((fp, cancelled.clone(), ran.clone()));
-
-    let flag = cancelled.clone();
-    let ran_t = ran.clone();
-    thread::spawn(move || {
-        if !flag.load(Ordering::Relaxed) && fp != 0
-            && !ran_t.swap(true, Ordering::AcqRel)
-        {
-            invoke_timer_cb(fp);
-        }
-        free_handle(handle);
-        cancel_timer(handle);
-    });
+    // (#207 timer ordering) NAO spawna thread — setImmediate enfileira e roda
+    // na "check phase" via drain_immediates (apos microtasks drenarem). O
+    // thread::spawn antigo corria em paralelo e podia rodar ANTES das
+    // microtasks (ordem errada: immediate|micro em vez de micro|immediate).
     register_timer(handle, cancelled);
     handle
 }
