@@ -1044,7 +1044,7 @@
   "status": "rts_diverge",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
   "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=0"
+  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=1"
 }
 ,
 {
