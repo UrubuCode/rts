@@ -1466,6 +1466,35 @@ fn collect_free_captures(
             Expr::TsTypeAssertion(t) => rec(&t.expr, params, user_fn_names, out),
             Expr::TsConstAssertion(t) => rec(&t.expr, params, user_fn_names, out),
             Expr::TsNonNull(t) => rec(&t.expr, params, user_fn_names, out),
+            // (#363) `new C(args)` — recursa no callee e args. Sem isto, arrow
+            // como `() => new Array(n+1)` (captura `n`) abortava a coleta e caia
+            // no hoist_fn sem captura -> "undefined variable n".
+            Expr::New(ne) => {
+                if !rec(&ne.callee, params, user_fn_names, out) { return false; }
+                if let Some(args) = &ne.args {
+                    for a in args {
+                        if a.spread.is_some() { return false; }
+                        if !rec(&a.expr, params, user_fn_names, out) { return false; }
+                    }
+                }
+                true
+            }
+            // (#363) Object literal `{k: v}` — recursa nos valores (keys
+            // computadas tambem). Cobre arrows que retornam objeto capturando.
+            Expr::Object(o) => {
+                for prop in &o.props {
+                    if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
+                        if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
+                            if !rec(&kv.value, params, user_fn_names, out) { return false; }
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                true
+            }
             // Formas nao suportadas para captura segura -> aborta.
             _ => false,
         }
@@ -1564,6 +1593,17 @@ fn has_capture(expr: &Expr, params: &[String], user_fn_names: &HashSet<String>) 
         Expr::TsTypeAssertion(t) => has_capture(&t.expr, params, user_fn_names),
         Expr::TsConstAssertion(t) => has_capture(&t.expr, params, user_fn_names),
         Expr::TsNonNull(t) => has_capture(&t.expr, params, user_fn_names),
+        // (#363) `new C(args)` — recursa no callee e args.
+        Expr::New(ne) => {
+            if has_capture(&ne.callee, params, user_fn_names) { return true; }
+            if let Some(args) = &ne.args {
+                for a in args {
+                    if a.spread.is_some() { return true; }
+                    if has_capture(&a.expr, params, user_fn_names) { return true; }
+                }
+            }
+            false
+        }
         // (#195 pragmatico) Update/Assign/Seq sao OK desde que os idents
         // tocados estejam em params (ja' coberto via recurse) ou em
         // ALLOWED_CAPTURES (top-level mut vars promovidas a global).
