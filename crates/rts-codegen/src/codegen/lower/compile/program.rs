@@ -416,6 +416,13 @@ pub fn compile_program(
                     }
                 }
             }
+        } else {
+            // (#376) Sem return_type anotado: infere a classe do corpo quando
+            // TODOS os `return` retornam `new C(...)` da MESMA classe C. Permite
+            // chain `v1.add(v2).toString()` quando `add` nao anota `: Vec2`.
+            if let Some(c) = infer_return_class_from_body(&fn_decl.body, &classes) {
+                fn_class_returns.insert(fn_decl.name.clone(), c);
+            }
         }
     }
     // Wire class return info into UserFnAbi so lhs_static_class can resolve
@@ -1806,4 +1813,82 @@ fn fn_body_declares_gen_buf(body: &[Statement]) -> bool {
         }
     }
     false
+}
+
+/// (#376) Infere a classe de retorno de uma fn/metodo SEM return_type anotado:
+/// retorna `Some(C)` quando TODOS os `return` do corpo sao `return new C(...)`
+/// da MESMA classe registrada C (e ha' ao menos um). Permite chain
+/// `v1.add(v2).toString()` quando `add` retorna `new Vec2(...)` sem anotacao.
+/// Conservador: se qualquer return diverge (outra classe, expr nao-new, ou
+/// return sem arg), retorna None.
+fn infer_return_class_from_body(
+    body: &[Statement],
+    classes: &std::collections::HashMap<String, ClassMeta>,
+) -> Option<String> {
+    use crate::parser::ast::Statement;
+    use swc_ecma_ast::{Expr, Stmt};
+
+    fn new_class_name(e: &Expr) -> Option<String> {
+        match e {
+            Expr::New(n) => {
+                if let Expr::Ident(id) = n.callee.as_ref() {
+                    Some(id.sym.to_string())
+                } else {
+                    None
+                }
+            }
+            Expr::Paren(p) => new_class_name(&p.expr),
+            Expr::TsAs(a) => new_class_name(&a.expr),
+            Expr::TsNonNull(a) => new_class_name(&a.expr),
+            _ => None,
+        }
+    }
+
+    // Coleta o nome de classe de cada `return` (None se algum diverge).
+    fn scan(stmt: &Stmt, found: &mut Vec<Option<String>>) {
+        match stmt {
+            Stmt::Return(r) => {
+                let cls = r.arg.as_deref().and_then(new_class_name);
+                found.push(cls);
+            }
+            Stmt::Block(b) => for s in &b.stmts { scan(s, found); },
+            Stmt::If(i) => {
+                scan(&i.cons, found);
+                if let Some(a) = i.alt.as_deref() { scan(a, found); }
+            }
+            Stmt::While(w) => scan(&w.body, found),
+            Stmt::DoWhile(w) => scan(&w.body, found),
+            Stmt::For(f) => scan(&f.body, found),
+            Stmt::ForOf(f) => scan(&f.body, found),
+            Stmt::ForIn(f) => scan(&f.body, found),
+            Stmt::Try(t) => {
+                for s in &t.block.stmts { scan(s, found); }
+                if let Some(h) = &t.handler { for s in &h.body.stmts { scan(s, found); } }
+                if let Some(f) = &t.finalizer { for s in &f.stmts { scan(s, found); } }
+            }
+            Stmt::Switch(sw) => for c in &sw.cases { for s in &c.cons { scan(s, found); } },
+            _ => {}
+        }
+    }
+
+    let mut found: Vec<Option<String>> = Vec::new();
+    for s in body {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = raw.stmt.as_ref() {
+            scan(stmt, &mut found);
+        }
+    }
+    if found.is_empty() {
+        return None;
+    }
+    // Todos os returns devem ser `new C` da mesma classe registrada.
+    let first = found[0].clone()?;
+    if !classes.contains_key(&first) {
+        return None;
+    }
+    if found.iter().all(|c| c.as_deref() == Some(first.as_str())) {
+        Some(first)
+    } else {
+        None
+    }
 }
