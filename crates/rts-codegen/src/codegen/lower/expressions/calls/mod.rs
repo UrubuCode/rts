@@ -2086,9 +2086,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             }
                         }
                     }
-                    // Detecta `{length: N}` literal.
+                    // Detecta `{length: <expr>}` — N literal OU expressao
+                    // dinamica (`m + 1`). (#363) Antes so' literal; expr caia no
+                    // caminho BOUND/source_vec que nao persistia handles de linha
+                    // (matriz 2D `Array.from({length:m+1}, () => new Array(n+1))`
+                    // lia 0). ARRAY_FROM_LENGTH(n, fn_ptr) aplica o mapper e
+                    // armazena os handles corretamente (mesmo path do literal).
                     if let Expr::Object(obj_lit) = first.expr.as_ref() {
-                        let mut length_lit: Option<i64> = None;
+                        let mut length_expr: Option<&Expr> = None;
                         for prop in &obj_lit.props {
                             if let swc_ecma_ast::PropOrSpread::Prop(p) = prop {
                                 if let swc_ecma_ast::Prop::KeyValue(kv) = p.as_ref() {
@@ -2098,15 +2103,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                         _ => None,
                                     };
                                     if key.as_deref() == Some("length") {
-                                        if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = kv.value.as_ref() {
-                                            length_lit = Some(n.value as i64);
-                                        }
+                                        length_expr = Some(kv.value.as_ref());
                                     }
                                 }
                             }
                         }
-                        if let Some(n_lit) = length_lit {
-                            let n = ctx.builder.ins().iconst(cl::I64, n_lit);
+                        if let Some(len_e) = length_expr {
+                            let n = if let Expr::Lit(swc_ecma_ast::Lit::Num(num)) = len_e {
+                                ctx.builder.ins().iconst(cl::I64, num.value as i64)
+                            } else {
+                                let tv = lower_expr(ctx, len_e)?;
+                                ctx.coerce_to_i64(tv).val
+                            };
                             let f = ctx.get_extern(
                                 "__RTS_FN_GL_ARRAY_FROM_LENGTH",
                                 &[cl::I64, cl::I64],
@@ -3241,17 +3249,25 @@ fn build_array_from_source_vec(
                         _ => None,
                     };
                     if key.as_deref() == Some("length") {
-                        if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = kv.value.as_ref() {
-                            let n_v = ctx.builder.ins().iconst(cl::I64, n.value as i64);
-                            let zero = ctx.builder.ins().iconst(cl::I64, 0);
-                            let f = ctx.get_extern(
-                                "__RTS_FN_GL_ARRAY_FROM_LENGTH",
-                                &[cl::I64, cl::I64],
-                                Some(cl::I64),
-                            )?;
-                            let inst = ctx.builder.ins().call(f, &[n_v, zero]);
-                            return Ok(ctx.builder.inst_results(inst)[0]);
-                        }
+                        // (#363) `{length: N}` — N literal OU expressao dinamica
+                        // (`m + 1`). Antes so' literal era tratado; expr caia no
+                        // fallback "src eh Vec handle" que lia o object literal
+                        // como handle e produzia length -1. Agora lower a expr e
+                        // gera [0..len-1] via ARRAY_FROM_LENGTH.
+                        let n_v = if let Expr::Lit(swc_ecma_ast::Lit::Num(n)) = kv.value.as_ref() {
+                            ctx.builder.ins().iconst(cl::I64, n.value as i64)
+                        } else {
+                            let tv = lower_expr(ctx, &kv.value)?;
+                            ctx.coerce_to_i64(tv).val
+                        };
+                        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_ARRAY_FROM_LENGTH",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[n_v, zero]);
+                        return Ok(ctx.builder.inst_results(inst)[0]);
                     }
                 }
             }
