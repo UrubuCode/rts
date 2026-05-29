@@ -391,6 +391,12 @@ pub struct FnCtx<'m, 'fb> {
     /// Nome da classe atualmente sendo lowered (quando dentro de um
     /// metodo ou constructor). Usado para resolver `super`.
     pub current_class: Option<String>,
+    /// (#376) Classe cujo escopo PRIVATE esta visivel nesta fn, mesmo quando
+    /// current_class eh None (arrow liftada de dentro de metodo de classe).
+    /// Usado SO' por validate_private_scope — nao afeta dispatch de membros
+    /// (que continua guiado por current_class). Evita o efeito colateral de
+    /// setar current_class numa arrow liftada (que mudaria a leitura de this.x).
+    pub private_scope_class: Option<String>,
     /// True quando a função atual é um constructor de classe
     /// (`__class_C__init`). Usado pra permitir assign em readonly fields.
     pub current_is_ctor: bool,
@@ -622,6 +628,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             global_obj_field_types,
             global_nested_obj_field_types,
             current_class: None,
+            private_scope_class: None,
             current_is_ctor: false,
             super_already_called: false,
             module_scope,

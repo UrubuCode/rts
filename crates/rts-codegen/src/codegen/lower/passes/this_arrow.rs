@@ -430,6 +430,7 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         needs_c_callconv: HashSet::new(),
         scope_vars: HashSet::new(),
         lifted_captures: HashMap::new(),
+        lifted_arrow_class: HashMap::new(),
     };
 
     // Pass 1: dentro de classes (constructors e métodos). Arrows que usam
@@ -565,11 +566,20 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
     // (#195) Publica o mapa de capturas pro codegen consumir ao materializar
     // os idents `__lifted_arrow_N` como handles Function com bound_args.
     set_lifted_captures(std::mem::take(&mut acc.lifted_captures));
+    set_lifted_arrow_class(std::mem::take(&mut acc.lifted_arrow_class));
     acc.needs_c_callconv
 }
 
 thread_local! {
     static LIFTED_ARROW_CAPTURES: std::cell::RefCell<HashMap<String, Vec<String>>> =
+        std::cell::RefCell::new(HashMap::new());
+    /// (#376) Mapa `__lifted_arrow_N -> classe dona`, quando a arrow foi liftada
+    /// de DENTRO de um metodo de classe. Canal lateral (em vez de embutir no
+    /// nome, que regride consumidores de `__lifted_arrow_`): o codegen consulta
+    /// p/ setar current_class quando extract_class_owner retorna None — assim a
+    /// validacao de private (`this.#x`) e o dispatch de membros funcionam dentro
+    /// da arrow liftada.
+    static LIFTED_ARROW_CLASS: std::cell::RefCell<HashMap<String, String>> =
         std::cell::RefCell::new(HashMap::new());
 }
 
@@ -577,6 +587,17 @@ thread_local! {
 /// pass de lift, pra o codegen reificar com REIFY_CAPTURED.
 pub(crate) fn set_lifted_captures(map: HashMap<String, Vec<String>>) {
     LIFTED_ARROW_CAPTURES.with(|c| *c.borrow_mut() = map);
+}
+
+/// (#376) Registra o mapa `__lifted_arrow_N -> classe dona`.
+pub(crate) fn set_lifted_arrow_class(map: HashMap<String, String>) {
+    LIFTED_ARROW_CLASS.with(|c| *c.borrow_mut() = map);
+}
+
+/// (#376) Consulta a classe dona de uma arrow liftada (None se a arrow nao
+/// veio de dentro de um metodo de classe).
+pub(crate) fn lifted_arrow_class(name: &str) -> Option<String> {
+    LIFTED_ARROW_CLASS.with(|c| c.borrow().get(name).cloned())
 }
 
 /// (#195) Consulta as capturas de um `__lifted_arrow_N`. None se a arrow nao
@@ -644,6 +665,9 @@ struct LiftAcc {
     /// estavel). O codegen consulta pra reificar via REIFY_CAPTURED, passando
     /// os valores das capturas como bound_args.
     lifted_captures: HashMap<String, Vec<String>>,
+    /// (#376) `__lifted_arrow_N -> classe dona` quando liftada de dentro de
+    /// metodo de classe. Canal lateral p/ o codegen recuperar current_class.
+    lifted_arrow_class: HashMap<String, String>,
 }
 
 
@@ -832,6 +856,13 @@ impl LiftAcc {
 
         let syn_name = format!("__lifted_arrow_{}", self.counter);
         self.counter += 1;
+
+        // (#376) Registra a classe dona (canal lateral, sem mudar o nome) p/ o
+        // codegen recuperar current_class na arrow liftada — habilita acesso a
+        // private (`this.#x`) e dispatch de membros de classe dentro dela.
+        if in_class && !class_name.is_empty() {
+            self.lifted_arrow_class.insert(syn_name.clone(), class_name.to_string());
+        }
 
         // (#195 parcial) Preserva os parametros proprios da arrow. Antes
         // descartados (parameters: Vec::new()), o que quebrava qualquer arrow
