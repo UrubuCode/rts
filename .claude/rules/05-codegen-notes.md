@@ -80,6 +80,40 @@ iteracoes com `optimize` entre passadas) entre lower e optimize no
   emite `f = (args) => promise.create(__async_inner_f, args)` em
   vez do wrapper sintetico antigo (~110 LOC a menos por async fn).
 
+## Assembly inline (`std::arch::asm!`) — tecnica disponivel
+
+Quando o problema exige controle de ABI/registradores que Rust
+seguro nao expressa (chamar `fn_ptr` com aridade dinamica, ler
+RSP/registradores, manipular o frame de chamada), **assembly inline
+via `std::arch::asm!` e ferramenta legitima e ja usada no projeto** —
+nao e ultimo recurso proibido. Casos vivos:
+
+- **`gc/collector.rs`** — `asm!("mov {}, rsp", ...)` captura o stack
+  pointer no scanner de raizes.
+- **`globals/function/ops.rs::invoke_all_i64`** (#1281) — trampolim
+  Win64 que monta args dinamicamente (4 em RCX/RDX/R8/R9, resto na
+  stack com shadow space 32 + alinhamento 16 antes do `call`).
+  Substituiu um `match` por-aridade com teto de 8 (resultado errado /
+  ACCESS_VIOLATION acima do teto) por **aridade N variavel** sem
+  limite artificial.
+
+Regras ao usar asm inline:
+
+- **Sempre `#[cfg(...)]` por target** + **fallback portavel**
+  (`#[cfg(not(...))]`) — nao quebrar CI/builds noutras plataformas.
+- **Listar todos os clobbers** (caller-saved GP + XMM). NB:
+  `clobber_abi("win64")` conflita com `out("rax")` explicito — use
+  uma forma ou outra.
+- **Respeitar a ABI alvo** (Win64: 4 args em registrador + shadow
+  space 32 + stack 16-aligned antes do `call`).
+- **Documentar a convencao assumida** em doc-comment.
+- Vale a regra de zero-regressao: `cargo test --release --lib` +
+  `rts.exe test` apos mudar asm.
+
+Use quando a alternativa segura seria um limite artificial ou
+impossivel (ler registradores). Para logica comum, prefira Cranelift
+IR / Rust.
+
 ## Otimizacoes pendentes / backlog
 
 Ver issues abertas #90, #96, #97 (fases 2/3). #92 autovec foi
