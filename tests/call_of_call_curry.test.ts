@@ -23,10 +23,18 @@ print(adder(3)(4) + "");         // 7
 const f = (x: number) => x * 2;
 print((f)(21) + "");             // 42
 
-// NOTA: curry de 3+ niveis (`add3(1)(2)(3)`) ainda tem residuo do elo
-// f64/invoke encadeado (3o nivel perde precisao) — follow-up.
+// (#1281) curry de 3 niveis — args inteiros agora corretos. A arrow liftada
+// eh i64-ABI (le params via fcvt_from_sint, espera inteiro); lower_curry_call
+// empaca os args como inteiro p/ casar com as capturas (REIFY). NB: capturas
+// f64 FRACIONARIAS ainda truncam (limitacao i64-ABI conhecida).
+function add3(a: number) { return (b: number) => (c: number) => a + b + c; }
+print(add3(1)(2)(3) + "");       // 6
+function add4(a: number) {
+  return (b: number) => (c: number) => (d: number) => a + b + c + d;
+}
+print(add4(1)(2)(3)(4) + "");    // 10
 
-describe("call-of-call / curry (#41)", () => {
+describe("call-of-call / curry (#41, #1281)", () => {
   test("f(x)(y) e curry 2-nivel", () =>
-    expect(out).toBe("15\n7\n42\n"));
+    expect(out).toBe("15\n7\n42\n6\n10\n"));
 });
