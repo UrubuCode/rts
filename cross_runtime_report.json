@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2092,7 +2092,7 @@
   "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally2,finally1,then2:84"
+  "rts": "log=then:42,catch:error,finally1,then2:84,finally2"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":318,"rts_diverge":15,"bun_node_diverge":16,"errors":39,"rejected":0}}
+],"summary":{"total":388,"pass":317,"rts_diverge":15,"bun_node_diverge":17,"errors":39,"rejected":0}}
