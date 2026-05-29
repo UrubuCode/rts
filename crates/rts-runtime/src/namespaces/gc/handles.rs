@@ -527,6 +527,13 @@ pub struct FunctionData {
     pub param_kinds: Vec<u8>,
     /// Tipo ABI do retorno: 0=i64, 1=f64, 2=bool, 3=i32, 4=void. 0 default.
     pub return_kind: u8,
+    /// (#1281 packed) Endereco de um shim `extern "C" fn(*const i64, len) -> i64`
+    /// que desempacota os args do buffer e chama a fn original (coercoes f64/i32
+    /// embutidas em IR). 0 = sem shim (usa o caminho legado invoke_typed por
+    /// aridade, teto 16). Quando != 0, o invoker usa invoke_packed — aridade
+    /// arbitraria, portavel, sem teto. A fn original NUNCA muda de assinatura
+    /// (chamadas diretas intactas); o shim eh uma fn sintetica separada.
+    pub packed_shim: u64,
     pub source: Option<Box<str>>,
     /// Mantem viva a JITModule de origem se a fn veio de `new Function`
     /// (compilada em runtime). Mutex existe so' por Sync — JITModule e'

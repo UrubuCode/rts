@@ -491,6 +491,7 @@ fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
         has_this_param: false,
         param_kinds: vec![0u8, 0u8], // promise_h, value (ambos i64)
         return_kind: 0,
+        packed_shim: 0,
         source: None,
         keep_alive: None,
         prototype_handle: 0,
