@@ -1696,7 +1696,12 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             let raw_key = format!("#{}", raw_name);
             validate_private_scope(ctx, &raw_key)?;
             // (cross-runtime #267) Mangle por current_class (declaring class).
-            let key = if let Some(cur) = ctx.current_class.as_deref() {
+            // (#376) Quando current_class eh None (arrow liftada de metodo),
+            // usa private_scope_class (classe dona via registry) p/ o mangling —
+            // senao a key fica `#x` (sem mangle) e nao acha o campo `#x_C`.
+            let mangle_cls = ctx.current_class.as_deref()
+                .or(ctx.private_scope_class.as_deref());
+            let key = if let Some(cur) = mangle_cls {
                 format!("#{}_{}", cur, raw_name)
             } else {
                 raw_key.clone()

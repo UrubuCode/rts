@@ -170,6 +170,18 @@ pub(crate) fn compile_user_fn(
                 .local_class_ty
                 .insert("this".to_string(), cls.to_string());
         }
+        // (#376 camada 3) `__captured_this` (param de captura do `this` numa
+        // arrow liftada de metodo de classe) tem o tipo da classe dona — registra
+        // p/ que `__captured_this.#priv` / dispatch de membros resolva a classe.
+        if fn_decl.parameters.iter().any(|p| p.name == "__captured_this") {
+            if let Some(cls) =
+                crate::codegen::lower::passes::this_arrow::lifted_arrow_class(&fn_decl.name)
+            {
+                fn_ctx
+                    .local_class_ty
+                    .insert("__captured_this".to_string(), cls);
+            }
+        }
         // Parametros tipados como classe registrada → trackear.
         for p in &fn_decl.parameters {
             if let Some(ann) = p.type_annotation.as_deref() {
