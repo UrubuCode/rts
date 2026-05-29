@@ -3321,7 +3321,9 @@ fn lower_parallel_bound_call(
     // Lower os valores das capturas no escopo atual.
     let mut capture_vals: Vec<TypedVal> = Vec::with_capacity(captures.len());
     for cap in &captures {
-        match ctx.read_local(cap) {
+        // (#376 camada 3) `__captured_this` -> `this` atual.
+        let lookup = if cap == "__captured_this" { "this" } else { cap.as_str() };
+        match ctx.read_local(lookup) {
             Some(tv) => capture_vals.push(tv),
             None => return Ok(None), // captura nao resolve no escopo — bail
         }

@@ -893,7 +893,7 @@ impl LiftAcc {
         // so'-leitura simples; mutavel/global compartilhada segue o caminho
         // antigo (promote-to-global ja' rodou e transformou em ident global,
         // que nao aparece como free var aqui).
-        let captures: Vec<String> = {
+        let mut captures: Vec<String> = {
             let mut set = std::collections::BTreeSet::new();
             collect_captured_from_arrow(arrow, &self.scope_vars, &mut set);
             set.into_iter()
@@ -906,6 +906,17 @@ impl LiftAcc {
                 })
                 .collect()
         };
+
+        // (#376 camada 3) Arrow que usa `this` E captura params: o `this` deve
+        // viajar como captura-por-valor junto com os params (REIFY_CAPTURED nao
+        // tem bound_this; o caminho __cb_this so' funciona sem captura). Reescreve
+        // `this`->`__captured_this` no body e adiciona `__captured_this` como
+        // captura INICIAL. O caller resolve seu valor lendo o `this` atual.
+        let needs_this_capture =
+            in_class && !captures.is_empty() && arrow_uses_this(arrow);
+        if needs_this_capture {
+            captures.insert(0, "__captured_this".to_string());
+        }
 
         let mut parameters: Vec<Parameter> = Vec::with_capacity(captures.len() + own_parameters.len());
         for cap in &captures {
@@ -925,6 +936,14 @@ impl LiftAcc {
 
         let mut all_stmts: Vec<Stmt> = prologue;
         all_stmts.extend(raw_stmts);
+        // (#376 camada 3) Reescreve `this` -> `__captured_this` (param de
+        // captura) quando o this viaja como bound_arg. Assim `this.v` vira
+        // `__captured_this.v` (member access em param, que ja' funciona).
+        if needs_this_capture {
+            for s in all_stmts.iter_mut() {
+                rewrite_this_to_named(s, "__captured_this");
+            }
+        }
         let mut body_stmts: Vec<Statement> = all_stmts
             .into_iter()
             .map(|s| {
@@ -1807,6 +1826,85 @@ fn arrow_body_to_stmts(arrow: &swc_ecma_ast::ArrowExpr) -> Vec<Stmt> {
 fn rewrite_this_to_under_this(mut s: Stmt) -> Stmt {
     rewrite_stmt(&mut s);
     s
+}
+
+/// (#376) Reescreve `this` -> Ident(name) num statement, recursando em
+/// sub-expressoes/sub-statements. Usado p/ transformar `this` em um param de
+/// captura (`__captured_this`) na arrow liftada. NAO desce em arrows aninhadas
+/// (elas tem seu proprio `this` lexical — rebind separado).
+fn rewrite_this_to_named(stmt: &mut Stmt, name: &str) {
+    fn re(e: &mut Expr, name: &str) {
+        use swc_ecma_ast::Expr::*;
+        if matches!(e, This(_)) {
+            *e = Expr::Ident(swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: name.into(),
+                optional: false,
+            });
+            return;
+        }
+        match e {
+            Member(m) => { re(&mut m.obj, name);
+                if let swc_ecma_ast::MemberProp::Computed(c) = &mut m.prop { re(&mut c.expr, name); } }
+            Bin(b) => { re(&mut b.left, name); re(&mut b.right, name); }
+            Unary(u) => re(&mut u.arg, name),
+            Update(u) => re(&mut u.arg, name),
+            Paren(p) => re(&mut p.expr, name),
+            Cond(c) => { re(&mut c.test, name); re(&mut c.cons, name); re(&mut c.alt, name); }
+            Assign(a) => {
+                if let swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &mut a.left {
+                    re(&mut m.obj, name);
+                }
+                re(&mut a.right, name);
+            }
+            Call(c) => {
+                if let Callee::Expr(ce) = &mut c.callee { re(ce, name); }
+                for a in &mut c.args { re(&mut a.expr, name); }
+            }
+            New(n) => { re(&mut n.callee, name);
+                if let Some(args) = n.args.as_mut() { for a in args { re(&mut a.expr, name); } } }
+            Tpl(t) => { for ex in &mut t.exprs { re(ex, name); } }
+            Array(arr) => { for el in arr.elems.iter_mut().flatten() { re(&mut el.expr, name); } }
+            Object(o) => {
+                for p in &mut o.props {
+                    if let swc_ecma_ast::PropOrSpread::Prop(pr) = p {
+                        if let swc_ecma_ast::Prop::KeyValue(kv) = pr.as_mut() { re(&mut kv.value, name); }
+                    }
+                }
+            }
+            Seq(s) => { for ex in &mut s.exprs { re(ex, name); } }
+            TsAs(t) => re(&mut t.expr, name),
+            TsNonNull(t) => re(&mut t.expr, name),
+            OptChain(o) => {
+                if let swc_ecma_ast::OptChainBase::Member(m) = o.base.as_mut() { re(&mut m.obj, name); }
+            }
+            // NAO desce em Arrow/Fn aninhados — this lexical proprio.
+            _ => {}
+        }
+    }
+    fn re_stmt(s: &mut Stmt, name: &str) {
+        use swc_ecma_ast::Stmt::*;
+        match s {
+            Expr(e) => re(&mut e.expr, name),
+            Return(r) => { if let Some(a) = r.arg.as_deref_mut() { re(a, name); } }
+            Decl(swc_ecma_ast::Decl::Var(vd)) => {
+                for d in &mut vd.decls { if let Some(i) = d.init.as_deref_mut() { re(i, name); } }
+            }
+            If(i) => { re(&mut i.test, name); re_stmt(&mut i.cons, name);
+                if let Some(a) = i.alt.as_deref_mut() { re_stmt(a, name); } }
+            Block(b) => { for s in &mut b.stmts { re_stmt(s, name); } }
+            While(w) => { re(&mut w.test, name); re_stmt(&mut w.body, name); }
+            DoWhile(w) => { re(&mut w.test, name); re_stmt(&mut w.body, name); }
+            For(f) => { if let Some(t) = f.test.as_deref_mut() { re(t, name); }
+                if let Some(u) = f.update.as_deref_mut() { re(u, name); }
+                re_stmt(&mut f.body, name); }
+            ForOf(f) => { re(&mut f.right, name); re_stmt(&mut f.body, name); }
+            ForIn(f) => { re(&mut f.right, name); re_stmt(&mut f.body, name); }
+            _ => {}
+        }
+    }
+    re_stmt(stmt, name);
 }
 
 #[allow(dead_code)]

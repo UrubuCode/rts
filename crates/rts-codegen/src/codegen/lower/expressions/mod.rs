@@ -142,7 +142,15 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
             {
                 let cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> = captures
                     .iter()
-                    .filter_map(|c| ctx.read_local(c))
+                    .filter_map(|c| {
+                        // (#376 camada 3) `__captured_this` resolve para o `this`
+                        // atual — a arrow capturou `this` por valor (bound_arg).
+                        if c == "__captured_this" {
+                            ctx.read_local("this")
+                        } else {
+                            ctx.read_local(c)
+                        }
+                    })
                     .collect();
                 // So' usa o caminho de captura quando TODAS resolvem como
                 // local em escopo (senao cai no fallback antigo).
