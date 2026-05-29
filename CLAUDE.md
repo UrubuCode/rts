@@ -808,6 +808,40 @@ incremental).
 - **Constantes como propriedades** (`math.PI` sem parens) via `MemberKind::Constant` +
   `emit_constant_load`
 
+## Assembly inline (`std::arch::asm!`) — tecnica disponivel
+
+Quando o problema exige controle de ABI/registradores que Rust seguro nao expressa
+(ex: chamar um `fn_ptr` com aridade dinamica, ler RSP/registradores, manipular o
+frame de chamada), **assembly inline via `std::arch::asm!` e uma ferramenta legitima
+e ja usada no projeto** — nao e ultimo recurso proibido. Casos vivos:
+
+- **`gc/collector.rs`** — `asm!("mov {}, rsp", ...)` para capturar o stack pointer
+  no scanner de raizes (e em `SuspendThread`/`GetThreadContext` para outras threads).
+- **`globals/function/ops.rs::invoke_all_i64`** (#1281) — trampolim Win64 que monta
+  args dinamicamente (primeiros 4 em RCX/RDX/R8/R9, resto na stack com shadow space
+  de 32 e alinhamento de 16 antes do `call`). Substituiu um `match` por-aridade com
+  teto de 8 (que dava resultado errado / ACCESS_VIOLATION acima do teto) por
+  **aridade N variavel** sem limite artificial.
+
+Regras ao usar asm inline:
+
+- **Sempre `#[cfg(...)]` por target** (`all(target_arch = "x86_64", target_os =
+  "windows")`) e **fornecer um fallback portavel** (`#[cfg(not(...))]`) para nao
+  quebrar CI/builds em outras plataformas. O alvo de producao e Windows x64, mas o
+  workspace compila/testa em outros lugares.
+- **Listar todos os clobbers explicitamente** (caller-saved GP + XMM que o callee
+  pode destruir). `clobber_abi("win64")` conflita com `out("rax")` explicito — use
+  uma forma ou outra, nao as duas.
+- **Respeitar a ABI alvo**: Win64 = 4 args em RCX/RDX/R8/R9 + shadow space de 32
+  bytes + stack 16-aligned antes do `call`.
+- **Documentar a convencao assumida** (callconv do `fn_ptr`, layout dos args) em
+  doc-comment — asm e' opaco para quem le depois.
+- Continua valendo a regra de zero-regressao: rodar `cargo test --release --lib` +
+  `target/release/rts.exe test` apos qualquer mudanca em asm.
+
+Use quando a alternativa segura seria um limite artificial (ex: match por-aridade)
+ou impossivel (ler registradores). Para logica comum, prefira Cranelift IR / Rust.
+
 ## Otimizacoes pendentes / backlog
 
 Ver issues abertas #90, #96, #97 (fases 2/3). #92 autovec foi fechada como inviavel sem
