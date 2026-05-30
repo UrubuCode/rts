@@ -1283,6 +1283,95 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return lower_ns_call(ctx, &target, call);
                 }
             }
+            // (#69) Atomics.* sobre TypedArray-view inteiro (backing
+            // (Shared)ArrayBuffer). Single-thread: cada op eh RMW nao-
+            // concorrente via ATOMICS_RMW/CAS/LOAD/STORE. O 1o arg eh a
+            // view (Ident em local_ta_view => elem_bytes/signed); demais
+            // sao index/operand i64.
+            if let Some(method) = qualified.strip_prefix("Atomics.") {
+                // Resolve (elem_bytes, signed) da view (1o arg).
+                let ta_meta = call.args.first().and_then(|a| match a.expr.as_ref() {
+                    Expr::Ident(id) => ctx
+                        .local_ta_view
+                        .get(id.sym.as_str())
+                        .map(|&(eb, sg, _fl)| (eb, sg)),
+                    _ => None,
+                });
+                if let Some((eb, sg)) = ta_meta {
+                    // Lower view handle + index.
+                    let view_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let view_h = ctx.coerce_to_i64(view_tv).val;
+                    let idx_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let idx = ctx.coerce_to_i64(idx_tv).val;
+                    let eb_v = ctx.builder.ins().iconst(cl::I64, eb);
+                    let sg_v = ctx.builder.ins().iconst(cl::I64, sg);
+                    // op codes: add=0 sub=1 and=2 or=3 xor=4 exchange=5
+                    let rmw_op = match method {
+                        "add" => Some(0i64),
+                        "sub" => Some(1),
+                        "and" => Some(2),
+                        "or" => Some(3),
+                        "xor" => Some(4),
+                        "exchange" => Some(5),
+                        _ => None,
+                    };
+                    if let Some(op) = rmw_op {
+                        let operand_tv = lower_expr(ctx, &call.args[2].expr)?;
+                        let operand = ctx.coerce_to_i64(operand_tv).val;
+                        let op_v = ctx.builder.ins().iconst(cl::I64, op);
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_ATOMICS_RMW",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx
+                            .builder
+                            .ins()
+                            .call(f, &[view_h, idx, eb_v, sg_v, op_v, operand]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::I64));
+                    }
+                    if method == "compareExchange" {
+                        let exp_tv = lower_expr(ctx, &call.args[2].expr)?;
+                        let exp = ctx.coerce_to_i64(exp_tv).val;
+                        let rep_tv = lower_expr(ctx, &call.args[3].expr)?;
+                        let rep = ctx.coerce_to_i64(rep_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_ATOMICS_CAS",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx
+                            .builder
+                            .ins()
+                            .call(f, &[view_h, idx, eb_v, sg_v, exp, rep]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::I64));
+                    }
+                    if method == "load" {
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_ATOMICS_LOAD",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[view_h, idx, eb_v, sg_v]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::I64));
+                    }
+                    if method == "store" {
+                        let val_tv = lower_expr(ctx, &call.args[2].expr)?;
+                        let val = ctx.coerce_to_i64(val_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_GL_ATOMICS_STORE",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[view_h, idx, eb_v, val]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::I64));
+                    }
+                }
+            }
             // (#266) Object globals: Object.keys, Object.values, Object.hasOwn.
             if let Some(method) = qualified.strip_prefix("Object.") {
                 // Object.keys: usa OBJECT_KEYS_AUTO que cobre Map e Vec
