@@ -342,7 +342,11 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
         // (cross-runtime #1079) Builtins sem GlobalClassSpec dedicado mas
         // referenciaveis: Array/Object/Map/Set/Proxy/... -> "function";
         // Math/JSON/Reflect/Atomics/Intl -> "object".
-        if matches!(name, "Array" | "Object" | "Map" | "Set" | "Proxy") {
+        if matches!(
+            name,
+            "Array" | "Object" | "Map" | "Set" | "Proxy"
+                | "ArrayBuffer" | "SharedArrayBuffer"
+        ) {
             return ctx.emit_str_handle(b"function");
         }
         if matches!(name, "Math" | "JSON" | "Reflect" | "Atomics" | "Intl") {
@@ -388,7 +392,10 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
                 if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
                     let n = prop.sym.as_str();
                     // Classes globais sem GlobalClassSpec dedicado -> "function"
-                    if matches!(n, "Array" | "Object" | "Map" | "Set" | "Proxy") {
+                    if matches!(n,
+                        "Array" | "Object" | "Map" | "Set" | "Proxy"
+                        | "ArrayBuffer" | "SharedArrayBuffer"
+                    ) {
                         return ctx.emit_str_handle(b"function");
                     }
                     // Classes globais (Promise/Error/Symbol/WeakMap/etc) via spec -> "function"

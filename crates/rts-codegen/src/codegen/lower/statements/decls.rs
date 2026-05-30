@@ -675,6 +675,14 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             // (sao codegen-only via collections.map_*) mas
                             // for-of precisa saber para usar MAP_ENTRIES_INSERTION.
                             ctx.local_class_ty.insert(name.clone(), cn.clone());
+                        } else if cn == "ArrayBuffer" || cn == "SharedArrayBuffer" {
+                            // (#69) ArrayBuffer/SharedArrayBuffer nao estao em
+                            // GLOBAL_CLASS_SPECS (backing eh Buffer via codegen)
+                            // mas `new Int32Array(buf)` precisa saber que buf eh
+                            // um (Shared)ArrayBuffer pra criar view-viva (TA_*_ELEM)
+                            // em vez de copiar pro Vec. SharedArrayBuffer = backing
+                            // identico a ArrayBuffer no RTS (single-thread).
+                            ctx.local_class_ty.insert(name.clone(), cn.clone());
                         } else if ctx.user_fns.contains_key(&cn) {
                             // (#proto-instance) Constructor function: `new Animal(...)` onde
                             // Animal eh user fn. Marca var como instance "ProtoInstance" pra
@@ -691,12 +699,14 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         // com (elem_bytes, signed, is_float) e o lower do new
                         // retorna o handle do buffer direto.
                         if let Some((eb, sg, fl)) = ta_elem_meta(&cn) {
+                            // (#69) SharedArrayBuffer = backing identico a
+                            // ArrayBuffer no RTS; ambos geram view-viva.
                             let arg_is_arraybuffer = ne.args.as_ref()
                                 .and_then(|a| a.first())
                                 .map(|a| matches!(a.expr.as_ref(),
                                     swc_ecma_ast::Expr::Ident(id)
                                         if ctx.local_class_ty.get(id.sym.as_str())
-                                            .map(|c| c == "ArrayBuffer").unwrap_or(false)))
+                                            .map(|c| c == "ArrayBuffer" || c == "SharedArrayBuffer").unwrap_or(false)))
                                 .unwrap_or(false);
                             if arg_is_arraybuffer {
                                 ctx.local_ta_view.insert(name.clone(), (eb, sg, fl));

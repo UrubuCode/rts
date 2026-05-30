@@ -543,6 +543,79 @@ pub extern "C" fn __RTS_FN_GL_TA_SET_ELEM(handle: u64, index: i64, elem_bytes: i
     });
 }
 
+/// (#69) Atomics.* sobre um TypedArray-view inteiro (backing
+/// (Shared)ArrayBuffer). O RTS roda single-thread, entao cada operacao eh
+/// um read-modify-write nao-concorrente — semanticamente identica ao
+/// resultado observavel de Atomics em JS sem contencao real. `op` codifica
+/// a operacao; `signed` controla extensao de sinal na leitura do valor
+/// anterior (retornado por add/sub/and/or/xor/exchange/compareExchange).
+///
+/// op: 0=add 1=sub 2=and 3=or 4=xor 5=exchange (store+ret prev)
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ATOMICS_RMW(
+    handle: u64,
+    index: i64,
+    elem_bytes: i64,
+    signed: i64,
+    op: i64,
+    operand: i64,
+) -> i64 {
+    let prev = __RTS_FN_GL_TA_GET_ELEM(handle, index, elem_bytes, signed, 0);
+    let next = match op {
+        0 => prev.wrapping_add(operand),
+        1 => prev.wrapping_sub(operand),
+        2 => prev & operand,
+        3 => prev | operand,
+        4 => prev ^ operand,
+        5 => operand, // exchange: store operand, retorna prev
+        _ => prev,
+    };
+    __RTS_FN_GL_TA_SET_ELEM(handle, index, elem_bytes, 0, next);
+    prev
+}
+
+/// (#69) Atomics.compareExchange(view, idx, expected, replacement). Se o
+/// valor atual == expected, grava replacement. Retorna SEMPRE o valor
+/// anterior (spec JS), tenha trocado ou nao.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ATOMICS_CAS(
+    handle: u64,
+    index: i64,
+    elem_bytes: i64,
+    signed: i64,
+    expected: i64,
+    replacement: i64,
+) -> i64 {
+    let prev = __RTS_FN_GL_TA_GET_ELEM(handle, index, elem_bytes, signed, 0);
+    if prev == expected {
+        __RTS_FN_GL_TA_SET_ELEM(handle, index, elem_bytes, 0, replacement);
+    }
+    prev
+}
+
+/// (#69) Atomics.load(view, idx) — leitura simples (signed-aware).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ATOMICS_LOAD(
+    handle: u64,
+    index: i64,
+    elem_bytes: i64,
+    signed: i64,
+) -> i64 {
+    __RTS_FN_GL_TA_GET_ELEM(handle, index, elem_bytes, signed, 0)
+}
+
+/// (#69) Atomics.store(view, idx, value) — grava e retorna value (spec JS).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ATOMICS_STORE(
+    handle: u64,
+    index: i64,
+    elem_bytes: i64,
+    value: i64,
+) -> i64 {
+    __RTS_FN_GL_TA_SET_ELEM(handle, index, elem_bytes, 0, value);
+    value
+}
+
 /// `typedArray.length` quando o backing eh um ArrayBuffer: byteLength/elem_bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {

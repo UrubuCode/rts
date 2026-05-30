@@ -833,12 +833,14 @@ pub(super) fn lower_new_typed_array(
                     // le/escreve `elem_bytes` bytes via TA_GET/SET_ELEM
                     // (marcado em local_ta_view no decls). Escritas sao
                     // compartilhadas entre views do mesmo buffer.
+                    // (#69) SharedArrayBuffer eh backing-identico a ArrayBuffer
+                    // no RTS; ambos viram view-viva sobre o mesmo Buffer.
                     let is_array_buffer = matches!(
                         arg.expr.as_ref(),
                         Expr::Ident(id) if ctx
                             .local_class_ty
                             .get(id.sym.as_str())
-                            .map(|c| c == "ArrayBuffer")
+                            .map(|c| c == "ArrayBuffer" || c == "SharedArrayBuffer")
                             .unwrap_or(false)
                     );
                     if is_array_buffer {
