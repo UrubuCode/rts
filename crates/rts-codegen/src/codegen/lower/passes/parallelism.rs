@@ -1415,7 +1415,16 @@ fn is_known_global_ident(name: &str) -> bool {
         | "collections" | "crypto" | "regex" | "json" | "date"
         | "Math" | "String" | "Number" | "Date" | "JSON" | "RegExp"
         | "Error" | "TypeError" | "RangeError" | "SyntaxError"
+        | "ReferenceError" | "EvalError" | "URIError" | "AggregateError"
         | "Array" | "Object" | "Boolean" | "Symbol"
+        // (#394) classes globais construtoras usadas em `x instanceof C` /
+        // `new C()` dentro de callbacks — NAO sao capturas de escopo.
+        | "Set" | "Map" | "WeakMap" | "WeakSet" | "Promise" | "Proxy"
+        | "Reflect" | "BigInt" | "ArrayBuffer" | "SharedArrayBuffer"
+        | "DataView" | "Int8Array" | "Uint8Array" | "Uint8ClampedArray"
+        | "Int16Array" | "Uint16Array" | "Int32Array" | "Uint32Array"
+        | "Float32Array" | "Float64Array" | "BigInt64Array" | "BigUint64Array"
+        | "Function" | "URL" | "URLSearchParams" | "TextEncoder" | "TextDecoder"
         | "console" | "performance" | "globalThis"
         | "undefined" | "null" | "NaN" | "Infinity"
         | "true" | "false"
