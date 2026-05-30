@@ -338,3 +338,30 @@ Os arquivos da tentativa (gc/bigint.rs com ADD/SUB/MUL/DIV/REM/POW/CMP/
 AS_INT_N128/AS_UINT_N128/TO_STRING/TO_F64 sobre i128) podem ser
 reaproveitados — a logica i128 esta correta; falta o wiring dos operadores
 + migracao do namespace existente.
+
+## #394 — 2 crashes genericos corrigidos (#1320 #1321), 3o bug isolado
+
+Investigando 394_structuredclone_complex, descobri e corrigi 2 crashes
+GENERICOS (valem alem do fixture):
+- **#1320**: `arr.filter(fn) as T[]` (cast TS sobre array method) -> SIGILL.
+  Passes de lift/rewrite nao desciam em TsAs/TsTypeAssertion/TsNonNull.
+- **#1321**: `arr.filter(v => v instanceof Set)` -> "unknown namespace member
+  parallel.filter_bound". Set/Map/Promise/typed-arrays/etc faltavam em
+  is_known_global_ident -> tratados como captura de escopo.
+
+3o bug isolado (NAO corrigido — risco alto): `m.get(k).has(v)` onde o valor
+do Map eh um Set (chained member-call sobre Map.get que retorna Set). O
+codegen emite `brif vN, block1, block2` mas **block2 nunca eh criado/selado**
+-> Cranelift verifier error `invalid block reference block2`. Repro minimo:
+  `const m = new Map([["k", new Set([1,2,3])]]); m.get("k").has(2)`
+Causa: dispatch de `.has()` sobre receiver ambiguo (Map.get result) branca
+por tipo de runtime mas deixa block2 dangling. Fix seguro exige ou
+type-propagation (Map<K,Set> value type -> dispatch SET_HAS direto) ou
+corrigir a emissao do block2 no path de chained-call — ambos arriscam
+regredir as muitas chains Map/Set que funcionam. Precisa de debug de IR
+dedicado + cuidado. 394 tambem precisa: instanceof matching inner Set +
+circular ref preservation.
+
+CONCLUSAO 394: parcialmente avancado (2 PRs de crash generico). Fechar
+exige o fix do block2 (codegen surgery arriscada) + 2 outros sub-bugs.
+Nao eh tick de loop.
