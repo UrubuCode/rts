@@ -69,6 +69,36 @@
 > melhor ROI sao **#216 Symbol-as-key** (destrava 271/272/274/299/305, ~5
 > testes) ou **anonymous typed-array views** (68 + typed-buffers). Ambas sao
 > refator medio-grande, nao cabem num tick de loop curto.
+>
+> ## #216 Symbol-as-key — CAMADA 1 entregue (PR #1314)
+>
+> `obj[symbolKey]`/`obj[varKey]` agora preserva o TIPO REAL do valor (era
+> coerce eager p/ string via TPL_COERCE_VEC_SLOT). typeof correto, funcao
+> armazenada sob symbol key eh chamavel, number mantem identidade. Isso eh
+> pre-requisito das camadas 2/3 abaixo.
+>
+> Caminho exato p/ FECHAR cada teste (camadas 2/3, ainda abertas):
+> - **274_symbol_toprimitive**: operadores de coercao precisam detectar e
+>   invocar `[Symbol.toPrimitive](hint)`:
+>   - `+obj` (unario) -> hint "number"; `String(obj)` -> hint "string";
+>     `obj + ""` (binario, default) -> hint "default".
+>   - Sites: lower_typeof/unary em basics.rs (`+`), coerce.rs (String()),
+>     operators.rs (binario `+`). Cada um, quando o operando eh um Map
+>     handle, deve checar se tem key `@@sym:<toPrimitive_handle>` e invocar
+>     via INVOKE_AUTO passando o hint string. Fallback p/ valueOf/toString
+>     (#304). NB: o method-shorthand `[Symbol.toPrimitive](h){}` JA' eh
+>     armazenado e chamavel (verificado: `m("number")` retorna 7) — falta
+>     so' o dispatch na coercao.
+> - **299_arguments_object / 272 / 305**: `arr[Symbol.iterator]` deve
+>   resolver p/ um function handle real (built-in array iterator). Hoje
+>   retorna 0 (key ausente no Vec) -> typeof "number". Precisa: quando o
+>   computed-read tem key == Symbol.iterator E o obj eh Vec/array-like,
+>   sintetizar/retornar um handle Function de iterator (cursor sobre o Vec,
+>   ja' existe ITERATOR_FROM em gc/generator.rs). typeof desse handle ->
+>   "function".
+> - **271_computed_class_members**: Symbol como chave computada em CLASS
+>   body (nao object literal) — desugar_object_methods nao cobre class;
+>   precisa do equivalente em compile/class.rs.
 
 # PLANO DE ATAQUE — RTS rumo a 100% paridade cross-runtime (52 testes)
 
