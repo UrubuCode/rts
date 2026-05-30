@@ -511,6 +511,48 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                 }
             }
+            // (#68) `view.set(srcArray, offset?)` onde view eh TypedArray-view
+            // sobre (Shared)ArrayBuffer (local_ta_view). O path generico
+            // (VEC_SET_FROM) so' escreve em Entry::Vec — sobre Buffer era no-op
+            // silencioso. Rota dedicada TA_SET_FROM escreve os elementos como
+            // `elem_bytes` bytes little-endian no buffer subjacente.
+            if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                if let MemberProp::Ident(prop) = &m.prop {
+                    if prop.sym.as_str() == "set"
+                        && matches!(
+                            call.args.first().map(|a| a.expr.as_ref()),
+                            Some(Expr::Array(_))
+                        )
+                        && call.args.iter().all(|a| a.spread.is_none())
+                    {
+                        if let Some(&(eb, _sg, fl)) =
+                            ctx.local_ta_view.get(obj_id.sym.as_str())
+                        {
+                            let recv_tv = lower_expr(ctx, &m.obj)?;
+                            let buf_h = ctx.coerce_to_i64(recv_tv).val;
+                            let src_tv = lower_expr(ctx, &call.args[0].expr)?;
+                            let src_h = ctx.coerce_to_i64(src_tv).val;
+                            let offset = if let Some(a) = call.args.get(1) {
+                                let tv = lower_expr(ctx, &a.expr)?;
+                                ctx.coerce_to_i64(tv).val
+                            } else {
+                                ctx.builder.ins().iconst(cl::I64, 0)
+                            };
+                            let eb_v = ctx.builder.ins().iconst(cl::I64, eb);
+                            let fl_v = ctx.builder.ins().iconst(cl::I64, fl);
+                            let f = ctx.get_extern(
+                                "__RTS_FN_GL_TA_SET_FROM",
+                                &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                                None,
+                            )?;
+                            ctx.builder
+                                .ins()
+                                .call(f, &[buf_h, src_h, offset, eb_v, fl_v]);
+                            return Ok(TypedVal::new(buf_h, ValTy::Handle));
+                        }
+                    }
+                }
+            }
             if let Some(qualified) = qualified_member_name(callee) {
                 // Console builtin precisa preceder o lookup (#380).
                 if let Some(tv) = lower_console_call(ctx, &qualified, call)? {

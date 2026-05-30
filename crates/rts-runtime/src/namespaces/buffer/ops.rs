@@ -616,6 +616,30 @@ pub extern "C" fn __RTS_FN_GL_ATOMICS_STORE(
     value
 }
 
+/// (#68) `view.set(srcArray, offset)` onde `view` eh uma TypedArray-view
+/// sobre (Shared)ArrayBuffer. Escreve cada elemento de `src` (Vec<i64>) como
+/// `elem_bytes` bytes little-endian no buffer, a partir de `offset` (em
+/// elementos). Reusa TA_SET_ELEM para respeitar signed/float e bounds.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TA_SET_FROM(
+    handle: u64,
+    src: u64,
+    offset: i64,
+    elem_bytes: i64,
+    is_float: i64,
+) {
+    if offset < 0 {
+        return;
+    }
+    let items: Vec<i64> = with_entry(src, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    for (i, x) in items.into_iter().enumerate() {
+        __RTS_FN_GL_TA_SET_ELEM(handle, offset + i as i64, elem_bytes, is_float, x);
+    }
+}
+
 /// `typedArray.length` quando o backing eh um ArrayBuffer: byteLength/elem_bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {
