@@ -856,8 +856,17 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         } else {
                             false
                         };
+                        // (#376) Receiver `(x ?? [])` / `(x || [])` — nullish/or
+                        // com array literal como fallback eh um array. Sem isto,
+                        // `(map.get(k) ?? []).includes(v)` caia em string_builtin
+                        // (VEC vs STRING) e retornava false. Detecta o padrao.
+                        let obj_is_coalesce_array = matches!(
+                            m.obj.as_ref(),
+                            Expr::Paren(p) if expr_is_coalesce_with_array(&p.expr)
+                        ) || expr_is_coalesce_with_array(m.obj.as_ref());
                         if matches!(m.obj.as_ref(), Expr::Array(_) | Expr::Call(_))
                             && !call_returns_string_coerce
+                            || obj_is_coalesce_array
                         {
                             if let Some(tv) = lower_array_builtin(ctx, &method_name, recv_h, call)? {
                                 return Ok(tv);
@@ -3411,6 +3420,26 @@ fn lower_parallel_bound_call(
 /// `obj.fn(...)` onde `obj` e uma var local (HashMap-like, ex: namespace
 /// TS desugared). Faz map_get(obj, "fn") -> i64 (funcptr) e
 /// call_indirect com signature i64-only.
+
+/// (#376) `(x ?? [])` ou `(x || [])` — nullish/logical-or onde um dos lados eh
+/// array literal. O resultado eh sempre um array, entao member calls (`.includes`
+/// etc) devem despachar pelos builtins de array. Cobre o caso de fallback
+/// `map.get(k) ?? []`.
+fn expr_is_coalesce_with_array(e: &Expr) -> bool {
+    if let Expr::Bin(b) = e {
+        if matches!(
+            b.op,
+            swc_ecma_ast::BinaryOp::NullishCoalescing | swc_ecma_ast::BinaryOp::LogicalOr
+        ) {
+            let side_is_array = |x: &Expr| {
+                matches!(x, Expr::Array(_))
+                    || matches!(x, Expr::Paren(p) if matches!(p.expr.as_ref(), Expr::Array(_)))
+            };
+            return side_is_array(&b.left) || side_is_array(&b.right);
+        }
+    }
+    false
+}
 
 fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<TypedVal> {
     let abi = ctx
