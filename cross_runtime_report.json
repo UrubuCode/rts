@@ -665,10 +665,10 @@
 ,
 {
   "name": "376_private_pattern_advanced",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
   "node": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
-  "rts": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\nfalse\nidle\nfalse\nfalse\nfalse\nfalse\nidle"
+  "rts": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped"
 }
 ,
 {
@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "A1,A2,A3,B1,B2,B3\ncaught:handled\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,B,C,2,3"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,3,B,C"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":319,"rts_diverge":16,"bun_node_diverge":16,"errors":37,"rejected":0}}
+],"summary":{"total":388,"pass":320,"rts_diverge":15,"bun_node_diverge":16,"errors":37,"rejected":0}}
