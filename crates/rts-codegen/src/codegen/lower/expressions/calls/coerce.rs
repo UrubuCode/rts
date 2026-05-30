@@ -224,6 +224,32 @@ pub(super) fn lower_coerce_to_string(ctx: &mut FnCtx, call: &CallExpr) -> Result
             }
         }
         let tv = super::lower_expr(ctx, &arg.expr)?;
+        use crate::codegen::lower::ctx::ValTy as _VT;
+        // (#216/94) Operando I64 AMBIGUO (arr[k]/obj[k]/map.get — pode ser
+        // handle de string/function OU number puro). Sem isso, String(arr[k])
+        // onde arr[k]==0 caia em coerce_to_handle(I64) e formatava "null".
+        // ToPrimitive(string) primeiro (objetos c/ toPrimitive), depois
+        // TPL_COERCE_NUM_BIAS (0 -> "0", nao "null"; sentinel null -> "null").
+        let is_ambig = matches!(tv.ty, _VT::I64 | _VT::U64)
+            && ctx.var_member_call_values.contains(&tv.val);
+        if is_ambig {
+            let to_prim = ctx.get_extern(
+                "__RTS_FN_RT_TO_PRIMITIVE",
+                &[cl::I64, cl::I32],
+                Some(cl::I64),
+            )?;
+            let hint = ctx.builder.ins().iconst(cl::I32, 1); // string
+            let p_inst = ctx.builder.ins().call(to_prim, &[tv.val, hint]);
+            let prim = ctx.builder.inst_results(p_inst)[0];
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_NUM_BIAS",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[prim]);
+            let v = ctx.builder.inst_results(inst)[0];
+            return Ok(Some(crate::codegen::lower::ctx::TypedVal::new(v, _VT::Handle)));
+        }
         // Handle 0 (null em RTS) tambem stringifica como "null" via
         // TPL_COERCE_AUTO. Caso geral.
         let needs_auto = matches!(tv.ty, crate::codegen::lower::ctx::ValTy::Handle | crate::codegen::lower::ctx::ValTy::U64);
