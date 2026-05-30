@@ -906,6 +906,25 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 // at the outer dispatch path which has the global_class_lookup).
                 if !matches!(m.obj.as_ref(), Expr::Ident(_)) {
                     let mut recv_tv = lower_expr(ctx, &m.obj)?;
+                    // (#394) Peel Paren/TsAs/TsNonNull do receiver p/ os checks
+                    // de chained-Call abaixo. `(m.get(k) as Set).has(v)` tem
+                    // m.obj = Paren/TsAs(Call); sem peelar, nenhum branch
+                    // Call-receiver disparava e o `.has` caia num path que
+                    // deixava block dangling -> verifier "invalid block reference".
+                    let obj_peeled: &Expr = {
+                        let mut e: &Expr = m.obj.as_ref();
+                        loop {
+                            match e {
+                                Expr::Paren(p) => e = &p.expr,
+                                Expr::TsAs(a) => e = &a.expr,
+                                Expr::TsTypeAssertion(a) => e = &a.expr,
+                                Expr::TsConstAssertion(a) => e = &a.expr,
+                                Expr::TsNonNull(n) => e = &n.expr,
+                                _ => break,
+                            }
+                        }
+                        e
+                    };
                     // (cross-runtime) `mk().get(k)`/`mk().has(k)` chain direto:
                     // mk() retorna i64 nao-tipado-Handle, entao o receiver caia
                     // no caminho number_builtin e crashava. Se mk eh fn em
@@ -1029,7 +1048,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     // recv coerido ANTES do fallback chain-Map abaixo. Sem
                     // isto, `m.get(k).join(",")` caia em MAP_GET("join") +
                     // trapz -> SIGILL. Var intermediaria ja' funcionava.
-                    if matches!(m.obj.as_ref(), Expr::Call(_))
+                    if matches!(obj_peeled, Expr::Call(_))
                         && matches!(recv_tv.ty, ValTy::I64 | ValTy::U64)
                     {
                         let is_array_method = matches!(
@@ -1050,9 +1069,35 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                     // (#480 chain) Method chain em Call result: \`c.add(5).add(3)\`.
                     // Receiver i64 (return this) que e' handle de Map. Faz map_get +
-                    // INVOKE_AUTO em qualquer Call obj.
-                    if matches!(m.obj.as_ref(), Expr::Call(_)) {
+                    // INVOKE_AUTO em qualquer Call obj. (#394) usa obj_peeled
+                    // p/ cobrir `(call as T).method()` / `(call).method()`.
+                    if matches!(obj_peeled, Expr::Call(_)) {
                         let recv_h = ctx.coerce_to_i64(recv_tv).val;
+                        // (#394) Quando o receiver call retorna uma COLECAO
+                        // (Map/Set) — ex: `m.get(k).has(v)` onde o valor do Map
+                        // eh Set — `.has`/`.get` devem despachar SET_HAS/MAP_GET
+                        // (runtime detecta o tipo do Entry), nao procurar um
+                        // method-handle no Set (=> trapz). So' intercepta quando
+                        // o callee NAO eh metodo de classe user (preserva chains
+                        // de operator/metodo `c.add(5).add(3)`): a heuristica eh
+                        // que `m.get(...)` (Map.get) retorna valor de colecao.
+                        let recv_is_map_get = matches!(obj_peeled,
+                            Expr::Call(ce) if matches!(&ce.callee,
+                                swc_ecma_ast::Callee::Expr(cb) if matches!(cb.as_ref(),
+                                    Expr::Member(mm) if matches!(&mm.prop,
+                                        MemberProp::Ident(p) if matches!(p.sym.as_str(), "get" | "at" | "pop" | "shift"))
+                                )
+                            )
+                        );
+                        if recv_is_map_get
+                            && matches!(method_name.as_str(),
+                                "has" | "get" | "set" | "add" | "delete" | "clear"
+                                | "keys" | "values" | "entries" | "forEach")
+                        {
+                            if let Some(tv) = lower_map_set_builtin(ctx, &method_name, recv_h, call)? {
+                                return Ok(tv);
+                            }
+                        }
                         let (kp, kl) = ctx.emit_str_literal(method_name.as_bytes())?;
                         let map_get = ctx.get_extern(
                             "__RTS_FN_NS_COLLECTIONS_MAP_GET",
