@@ -44,6 +44,15 @@ fn decode_symbol_key(k: &str) -> Option<u64> {
     k.strip_prefix("@@sym:").and_then(|s| s.parse::<u64>().ok())
 }
 
+/// (#216/299) True se a key `@@sym:<h>` referencia o well-known
+/// `Symbol.iterator` (handle sticky cacheado em globals/symbol/rt).
+fn key_is_well_known_iterator(k: &str) -> bool {
+    match decode_symbol_key(k) {
+        Some(h) => h == crate::namespaces::globals::symbol::rt::__RTS_FN_GL_SYMBOL_ITERATOR(),
+        None => false,
+    }
+}
+
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
         return None;
@@ -448,9 +457,21 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: u64, key_h: u64) -> 
         if let Some(n) = parse_array_index(&key) {
             return super::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(obj_h, n as i64);
         }
+        // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo
+        // (ARRAY_VALUES_ITER). typeof === "function", chamavel com this=arr.
+        if key_is_well_known_iterator(&key) {
+            return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+        }
         return 0;
     }
-    with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
+    // Map: valor armazenado vence (ex: custom [Symbol.iterator]); se ausente
+    // e a key for o iterator well-known, devolve o iterator nativo de array
+    // (Map iteravel via entries — fallback minimo).
+    let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
+    if stored == 0 && key_is_well_known_iterator(&key) {
+        return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+    }
+    stored
 }
 
 /// (cross-runtime #753) Dispatcher universal pra `obj[key] = value`:

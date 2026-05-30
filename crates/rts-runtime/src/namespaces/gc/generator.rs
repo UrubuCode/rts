@@ -125,6 +125,40 @@ fn make_result(value: i64, done: bool) -> u64 {
 // elementos restantes (cursor..len) e avança o cursor ao fim — a 2a chamada
 // retorna vazio (iterator esgotado), igual a JS.
 
+/// (#216/299) Metodo nativo `arr[Symbol.iterator]()` — recebe o array como
+/// `this` (has_this_param=true no FunctionData) e devolve um iterator sobre
+/// uma copia (mesmo backing de Iterator.from). Permite `for-of`/spread sobre
+/// o resultado e protocolo iteravel manual (`it.next()`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_VALUES_ITER(this_arr: i64) -> i64 {
+    __RTS_FN_GL_ITERATOR_FROM(this_arr as u64) as i64
+}
+
+/// (#216/299) Devolve um handle Function que, chamado com `this`=arr, produz
+/// o iterator (ARRAY_VALUES_ITER). Usado por `arr[Symbol.iterator]` — o
+/// resultado tem `typeof === "function"` e eh chamavel. So' faz sentido p/
+/// Vec/array-like; caller decide quando emitir.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_ITERATOR_FN() -> u64 {
+    use crate::namespaces::gc::handles::FunctionData;
+    alloc_entry(Entry::Function(Box::new(FunctionData {
+        fn_ptr: __RTS_FN_GL_ARRAY_VALUES_ITER as u64,
+        arity: 1,
+        name: "[Symbol.iterator]".into(),
+        bound_this: 0,
+        has_bound_this: false,
+        bound_args: Vec::new(),
+        is_arrow: false,
+        has_this_param: true,
+        param_kinds: Vec::new(),
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+    })))
+}
+
 /// `Iterator.from(vec)` — novo handle de iterator sobre uma cópia do Vec,
 /// com cursor lateral em 0.
 #[unsafe(no_mangle)]
