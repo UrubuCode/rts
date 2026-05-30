@@ -309,3 +309,32 @@ typed-array views/transfer) estao ESGOTADOS. De 320/86.0% subimos a
 332/89.5%. O caminho a 100% agora exige 3 refatores grandes (#219 BigInt,
 #207 event loop, #195 mutable closures) + os clusters de error — cada um
 uma sessao dedicada, nao um tick de loop.
+
+## #219 BigInt — tentativa de migracao handle ABORTADA (descoberta importante)
+
+Tentei a camada de `Entry::BigInt(i128)` p/ fechar 291 (JSON.stringify(bigint)
+TypeError). REVERTIDO — colisao com infra pre-existente:
+
+- Ja' existe `globals/bigint/` namespace (abi.rs + rt.rs) com
+  `__RTS_FN_GL_BIGINT_AS_INT_N`/`AS_UINT_N` operando sobre **i64** (nao handle).
+- `1n` lowera p/ i64 puro (basics.rs Lit::BigInt). Os 5 fixtures que passam
+  (102_bigint_ops, 317, 319, 118, 388) dependem dessa representacao i64 p/
+  TODA a aritmetica (`10n+5n`, `2n**8n`, asIntN/asUintN, `1n==1`).
+- Migrar p/ handle `Entry::BigInt` exige:
+  1. `1n` -> handle (feito na tentativa, mas...)
+  2. TODOS os operadores (+,-,*,/,%,**,>,<,==,===,neg) detectarem handles
+     BigInt e despacharem ops i128 — senao os 5 quebram.
+  3. Reconciliar/migrar o namespace globals/bigint i64 -> handle.
+  4. Coercao Number(bigint)/String(bigint)/template + comparacao mista 1n==1.
+  5. typeof "bigint" (feito), JSON.stringify TypeError (feito).
+  Itens 1/5 sao faceis; 2/3/4 sao o grosso e quebram os 5 se incompletos.
+
+CONCLUSAO: #219 eh um refator coordenado multi-PR (migrar globals/bigint +
+todos operadores p/ handle) que NAO cabe num tick. A representacao i64 atual
+eh load-bearing. Fazer so' a camada de marker quebra os 5 fixtures. Deixar
+p/ sessao dedicada que migre o subsistema inteiro de uma vez.
+
+Os arquivos da tentativa (gc/bigint.rs com ADD/SUB/MUL/DIV/REM/POW/CMP/
+AS_INT_N128/AS_UINT_N128/TO_STRING/TO_F64 sobre i128) podem ser
+reaproveitados — a logica i128 esta correta; falta o wiring dos operadores
++ migracao do namespace existente.
