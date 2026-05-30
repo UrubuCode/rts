@@ -927,6 +927,85 @@ pub(super) fn lower_console_call(
         return Ok(None);
     };
 
+    // (#310/#311/#312) Override runtime: se `(console as any).<method>` foi
+    // reatribuido, despacha pro handle custom via INVOKE_AUTO. Checa em
+    // runtime (GET_OVERRIDE != 0) e cai no nativo caso contrario. So' para
+    // metodos sem spread nos args (variadic empacotado em Vec).
+    if call.args.iter().all(|a| a.spread.is_none()) {
+        let (mp, ml) = ctx.emit_str_literal(method.as_bytes())?;
+        let get_ov = ctx.get_extern(
+            "__RTS_FN_RT_CONSOLE_GET_OVERRIDE",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let ov_inst = ctx.builder.ins().call(get_ov, &[mp, ml]);
+        let ov = ctx.builder.inst_results(ov_inst)[0];
+        let zero = ctx.builder.ins().iconst(cl::I64, 0);
+        let has_ov = ctx.builder.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+            ov,
+            zero,
+        );
+        let ov_block = ctx.builder.create_block();
+        let native_block = ctx.builder.create_block();
+        let merge = ctx.builder.create_block();
+        ctx.builder.append_block_param(merge, cl::I64);
+        ctx.builder.ins().brif(has_ov, ov_block, &[], native_block, &[]);
+
+        // Override block: empacota args em Vec e INVOKE_AUTO(ov, 0, vec).
+        ctx.builder.switch_to_block(ov_block);
+        ctx.builder.seal_block(ov_block);
+        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+        let vn_inst = ctx.builder.ins().call(vec_new, &[]);
+        let args_vec = ctx.builder.inst_results(vn_inst)[0];
+        let push = ctx.get_extern(
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            &[cl::I64, cl::I64],
+            None,
+        )?;
+        for arg in &call.args {
+            let tv = lower_expr(ctx, &arg.expr)?;
+            let v = ctx.coerce_to_i64(tv).val;
+            ctx.builder.ins().call(push, &[args_vec, v]);
+        }
+        let invoke = ctx.get_extern(
+            "__RTS_FN_RT_INVOKE_AUTO",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inv_inst = ctx.builder.ins().call(invoke, &[ov, zero, args_vec]);
+        let inv_ret = ctx.builder.inst_results(inv_inst)[0];
+        ctx.builder.ins().jump(merge, &[inv_ret.into()]);
+
+        // Native block: dispatch builtin original (recursao com o mesmo
+        // qualified — mas agora ja' dentro do native_block, sem re-checar
+        // override pois a recursao chega aqui de novo... evitamos recursao:
+        // movemos a logica nativa para uma fn separada).
+        ctx.builder.switch_to_block(native_block);
+        ctx.builder.seal_block(native_block);
+        let native_tv = lower_console_call_native(ctx, method, call)?;
+        let native_v = match native_tv {
+            Some(tv) => ctx.coerce_to_i64(tv).val,
+            None => ctx.builder.ins().iconst(cl::I64, i64::MIN + 2),
+        };
+        ctx.builder.ins().jump(merge, &[native_v.into()]);
+
+        ctx.builder.switch_to_block(merge);
+        ctx.builder.seal_block(merge);
+        let result = ctx.builder.block_params(merge)[0];
+        return Ok(Some(TypedVal::new(result, ValTy::I64)));
+    }
+
+    lower_console_call_native(ctx, method, call)
+}
+
+/// Dispatch nativo dos metodos de console (sem checar override runtime).
+/// Separado de lower_console_call p/ evitar recursao no path de override.
+fn lower_console_call_native(
+    ctx: &mut FnCtx,
+    method: &str,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
     let target_symbol: &str = match method {
         "log" | "info" | "debug" => "__RTS_FN_NS_IO_PRINT",
         "error" | "warn" => "__RTS_FN_NS_IO_EPRINT",
