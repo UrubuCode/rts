@@ -365,3 +365,21 @@ circular ref preservation.
 CONCLUSAO 394: parcialmente avancado (2 PRs de crash generico). Fechar
 exige o fix do block2 (codegen surgery arriscada) + 2 outros sub-bugs.
 Nao eh tick de loop.
+
+## #394 — 5 PRs de crash/dispatch generico; ultimo sub-bug eh design de Set
+
+Investigacao profunda do 394 rendeu 5 fixes GENERICOS (valem alem do fixture):
+- #1320 (as T[] cast em array method), #1321 (globais em callback),
+  #1322 (verifier error em (call).method() chains + dispatch SET_HAS),
+  #1323 (structuredClone preserva tipo Date/Map/Set).
+394 foi de SIGILL total -> roda inteiro, faltam 2 linhas.
+
+Ultimo sub-bug (NAO corrigido — design de Set): `[...set]` onde os elementos
+sao objetos/Sets aninhados perde a identidade do handle. Set armazena
+elementos como KEYS de Map<keyStr,1>; um elemento Set/objeto vira a string
+do seu handle/repr, e o spread (SPREAD_INTO_VEC via MAP_VALUES) reconstroi
+"parse int / handle string" -> NAO devolve o handle vivo do Set interno.
+Repro: `const [x] = [...new Set([1, new Set([4,5])])].filter(v=>v instanceof Set); x.add(99); x.has(99)` -> false (esperado true).
+Fix exige Set armazenar elementos OBJETO por handle (nao por key-string) —
+refator da representacao de Set, arriscado/amplo. 394 tambem precisaria de
+circular-ref deep preservation. Deixar p/ refator de Set dedicado.
