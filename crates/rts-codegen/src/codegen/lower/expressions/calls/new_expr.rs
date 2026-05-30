@@ -726,9 +726,9 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
 /// `None` quando o nome nao eh um TypedArray conhecido.
 #[derive(Clone, Copy)]
 pub(super) struct TaElem {
-    bits: u32,
-    signed: bool,
-    is_float: bool,
+    pub(super) bits: u32,
+    pub(super) signed: bool,
+    pub(super) is_float: bool,
 }
 
 pub(super) fn typed_array_kind(name: &str) -> Option<TaElem> {

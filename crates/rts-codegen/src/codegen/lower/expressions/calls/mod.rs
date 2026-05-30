@@ -571,6 +571,57 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                 }
             }
+            // (#68) `new Uint8Array(buf).set([...])` — receiver ANONIMO
+            // (view sem binding). `new TypedArray(arraybuffer-ident)` lowera
+            // pro handle do buffer (view-viva); extrai elem_bytes do nome da
+            // classe e roteia pra TA_SET_FROM. Espelha o caso Ident acima.
+            if let Expr::New(ne) = m.obj.as_ref() {
+                if let MemberProp::Ident(prop) = &m.prop {
+                    if prop.sym.as_str() == "set"
+                        && matches!(
+                            call.args.first().map(|a| a.expr.as_ref()),
+                            Some(Expr::Array(_))
+                        )
+                        && call.args.iter().all(|a| a.spread.is_none())
+                    {
+                        // (eb, signed, is_float) via typed_array_kind (bits->bytes).
+                        let ta_meta = match ne.callee.as_ref() {
+                            Expr::Ident(cid) => self::new_expr::typed_array_kind(cid.sym.as_str())
+                                .map(|e| ((e.bits / 8) as i64, e.signed as i64, e.is_float as i64)),
+                            _ => None,
+                        };
+                        // o arg do new precisa ser um (Shared)ArrayBuffer ident.
+                        let arg_is_buf = ne.args.as_ref()
+                            .and_then(|a| a.first())
+                            .map(|a| matches!(a.expr.as_ref(),
+                                Expr::Ident(id) if ctx.local_class_ty.get(id.sym.as_str())
+                                    .map(|c| c == "ArrayBuffer" || c == "SharedArrayBuffer")
+                                    .unwrap_or(false)))
+                            .unwrap_or(false);
+                        if let (Some((eb, _sg, fl)), true) = (ta_meta, arg_is_buf) {
+                            let recv_tv = lower_expr(ctx, &m.obj)?;
+                            let buf_h = ctx.coerce_to_i64(recv_tv).val;
+                            let src_tv = lower_expr(ctx, &call.args[0].expr)?;
+                            let src_h = ctx.coerce_to_i64(src_tv).val;
+                            let offset = if let Some(a) = call.args.get(1) {
+                                let tv = lower_expr(ctx, &a.expr)?;
+                                ctx.coerce_to_i64(tv).val
+                            } else {
+                                ctx.builder.ins().iconst(cl::I64, 0)
+                            };
+                            let eb_v = ctx.builder.ins().iconst(cl::I64, eb);
+                            let fl_v = ctx.builder.ins().iconst(cl::I64, fl);
+                            let f = ctx.get_extern(
+                                "__RTS_FN_GL_TA_SET_FROM",
+                                &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                                None,
+                            )?;
+                            ctx.builder.ins().call(f, &[buf_h, src_h, offset, eb_v, fl_v]);
+                            return Ok(TypedVal::new(buf_h, ValTy::Handle));
+                        }
+                    }
+                }
+            }
             if let Some(qualified) = qualified_member_name(callee) {
                 // Console builtin precisa preceder o lookup (#380).
                 if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
@@ -3044,7 +3095,34 @@ fn lower_js_global_call(
                     }
                 }
             }
-            Ok(Some(lower_ns_call(ctx, "text_encoding.structuredClone", call)?))
+            // (#68) structuredClone(buf, { transfer: [buf] }) — JS spec: o
+            // buffer fonte fica DETACHED (byteLength -> 0). Detecta o 2o arg
+            // com key `transfer` e, se o 1o arg eh um (Shared)ArrayBuffer
+            // ident, emite BUFFER_DETACH(src) APOS o clone.
+            let detach_src: Option<cranelift_codegen::ir::Value> = if call.args.len() >= 2 {
+                let has_transfer = matches!(call.args[1].expr.as_ref(),
+                    Expr::Object(o) if o.props.iter().any(|p| matches!(p,
+                        swc_ecma_ast::PropOrSpread::Prop(pp) if matches!(pp.as_ref(),
+                            swc_ecma_ast::Prop::KeyValue(kv) if matches!(&kv.key,
+                                swc_ecma_ast::PropName::Ident(id) if id.sym.as_str() == "transfer")))));
+                let src_is_buf = matches!(call.args[0].expr.as_ref(),
+                    Expr::Ident(id) if ctx.local_class_ty.get(id.sym.as_str())
+                        .map(|c| c == "ArrayBuffer" || c == "SharedArrayBuffer").unwrap_or(false));
+                if has_transfer && src_is_buf {
+                    let src_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    Some(ctx.coerce_to_i64(src_tv).val)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let cloned = lower_ns_call(ctx, "text_encoding.structuredClone", call)?;
+            if let Some(src) = detach_src {
+                let detach = ctx.get_extern("__RTS_FN_GL_BUFFER_DETACH", &[cl::I64], None)?;
+                ctx.builder.ins().call(detach, &[src]);
+            }
+            Ok(Some(cloned))
         }
         "queueMicrotask" => Ok(Some(lower_ns_call(ctx, "text_encoding.queueMicrotask", call)?)),
 

@@ -648,3 +648,11 @@ pub extern "C" fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {
         (b.len() as i64) / elem_bytes
     })
 }
+
+/// (#68) Detach de ArrayBuffer (transferencia via structuredClone
+/// `{transfer:[buf]}`). JS spec: o buffer fonte fica detached — byteLength
+/// vira 0 e views sobre ele leem 0. RTS modela truncando o Buffer a vazio.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BUFFER_DETACH(handle: u64) {
+    with_buffer_mut(handle, (), |b| b.clear());
+}
