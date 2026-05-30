@@ -255,3 +255,25 @@ Começar por **A3 (naming, destrava 376 sozinho e desbloqueia validação de pri
 ---
 
 **Sequência recomendada de execução:** quick wins H→69→345→76→374 (≈5 testes, dias), depois B1 (≈5-6 testes) e Cluster A em fatias A3→A1→A2 (≈11 testes) — isso sozinho leva de 52 faltantes para ~30. Em seguida D (console), 65, 79, 68, 394, e Blob/File do cluster C. As fundações pesadas (G, J, E, F, dynamic import, BigInt marker) ficam para o fim, com G+J sendo os bloqueadores duros de async/generators que provavelmente definem se 100% é alcançável sem refator de runtime.
+## Estado pos-sessao 2026-05-30 (continuacao): 332/372 = 89.2%
+
+12 PRs mergeados na sessao (98/69/345/349/68p/275/311/312/274/271/94/299/310 +
+fundacao #216 completa). Restam 4 diverge, TODOS fundacao pesada sem fix
+cirurgico possivel:
+
+- **291_json_bigint** — BigInt type marker (#219): BigInt vira i64 no codegen,
+  tipo apagado; JSON.stringify(bigint) deveria lancar TypeError.
+- **393_promise_microtask** — event loop / microtask queue ordenada (#207):
+  Promise.then usa spawn_blocking concorrente em vez de fila FIFO determinista.
+- **41_closures_deep** — mutable closures (#195, bloqueado por #90): closure
+  que captura var mutavel por referencia + closures-de-closures.
+- **68_arraybuffer_transfer_clone** — views ANONIMAS (`new Uint8Array(buf)` sem
+  binding, ler/escrever) + structuredClone com transfer/detach do buffer.
+
+Os 35 rts_error sao clusters grandes: async generators / for-await (#207),
+generator state machine infinito (#211/#477), Intl runtime (#225), Web Streams
++ Blob/File (WHATWG), dynamic import (#223), crypto.subtle, Proxy fase-2.
+
+Nenhum dos 4 diverge nem dos 35 error cabe num tick de loop — cada um exige
+refator de fundacao dedicado (event loop real, BigInt como tipo de 1a classe,
+env-record p/ mutable closures, anonymous-view codegen, etc).
