@@ -1657,19 +1657,15 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     )?;
                     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx_tv.val]);
                     let raw = ctx.builder.inst_results(inst)[0];
-                    // (#261/#94) Pos-MAP_GET_KH com chave dinamica (string):
-                    // value=0 eh quase sempre um numero literal (`arr[k]`
-                    // em Vec, `m.get(k)` com valor 0). Usa VEC_SLOT que
-                    // formata 0 como "0" (nao "null"). Trade-off com
-                    // `map.set(k, null)` que tambem retorna 0 — caso raro.
-                    let coerce_fn = ctx.get_extern(
-                        "__RTS_FN_RT_TPL_COERCE_VEC_SLOT",
-                        &[cl::I64],
-                        Some(cl::I64),
-                    )?;
-                    let coerced_inst = ctx.builder.ins().call(coerce_fn, &[raw]);
-                    let coerced = ctx.builder.inst_results(coerced_inst)[0];
-                    Ok(TypedVal::new(coerced, ValTy::Handle))
+                    // (#216) NAO coerce eager pra string: o valor pode ser
+                    // function/number/symbol/object. Devolve o raw como I64
+                    // AMBIGUO (var_member_call_values) — `typeof` despacha
+                    // runtime (TYPEOF_HANDLE), chamada usa o handle Function,
+                    // e concat/template ainda coerce via TPL_COERCE_AUTO.
+                    // Antes TPL_COERCE_VEC_SLOT convertia tudo p/ string,
+                    // quebrando `obj[Symbol.x]()` e `typeof obj[Symbol.x]`.
+                    ctx.var_member_call_values.insert(raw);
+                    Ok(TypedVal::new(raw, ValTy::I64))
                 }
                 _ => {
                     let idx = ctx.coerce_to_i64(idx_tv).val;

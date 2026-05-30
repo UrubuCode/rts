@@ -1,5 +1,7 @@
-// (#261 follow-up) `obj[k]` com k variavel — aplica TPL_COERCE_AUTO
-// no resultado pra que retorno seja string handle correto.
+// (#261/#216) `obj[k]` com k variavel — devolve o valor com o tipo REAL
+// (number/string/function/...), NAO coerce eager pra string. JS spec:
+// `o["age"]` eh o number 30, nao "30". A coercao p/ string acontece so'
+// no contexto de uso (concat/template via TPL_COERCE_AUTO).
 
 import { describe, test, expect } from "rts:test";
 
@@ -36,7 +38,8 @@ const fnRes = getField(o, "name");
 
 describe("computed_var_key", () => {
     test("o[k] string field", () => expect(v1).toBe("Alice"));
-    test("o[k] number field", () => expect(v2).toBe("30"));
+    // JS spec: o["age"] eh o number 30 (nao a string "30").
+    test("o[k] number field", () => expect(v2).toBe(30));
     test("o[k] tag field", () => expect(v3).toBe("admin"));
     test("template hi + o[k]", () => expect(t1).toBe("hi Alice"));
     test("template id= + o[age]", () => expect(t2).toBe("id=30"));
