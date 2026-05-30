@@ -947,7 +947,18 @@ fn inspect_return_kind(
                             }
                             // (#345) `arr.reduce(fn, "")` — initial value
                             // string implica retorno string. Detecta via 2o arg.
-                            if matches!(method, "reduce" | "reduceRight")
+                            // Inclui `reduce_bound`/`reduce_right_bound`: quando
+                            // o callback inline captura vars (ex: tagged template
+                            // tag com `...values`), lift_inline_arrows reescreve
+                            // o metodo para a variante _bound mantendo o init
+                            // string em args[1]. Sem aceitar _bound aqui, a fn
+                            // wrapper era inferida como Number (-> f64) e o handle
+                            // de string virava lixo no console.log.
+                            if matches!(
+                                method,
+                                "reduce" | "reduceRight"
+                                | "reduce_bound" | "reduce_right_bound"
+                            )
                                 && c.args.len() >= 2
                                 && matches!(
                                     c.args[1].expr.as_ref(),
