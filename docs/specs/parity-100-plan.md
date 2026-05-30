@@ -36,8 +36,39 @@
 > - **68**: stack de 4 bugs (named view set [feito], anonymous view read/set,
 >   structuredClone buffer-byte-copy, detach) — nao era PEQUENO-MEDIO.
 >
-> Proximo alvo sugerido: anonymous typed-array views (destrava 68 + ajuda
-> outros typed-buffer) OU generator desugar B1 (275/276/344/368/379).
+> Tambem fechados:
+> - **[x] 275_generator_yieldstar** (PR #1312) — `const r = yield* gen()`:
+>   yield* em init de VarDecl capturando ret_value. transform_stmt agora
+>   devolve Vec<Stmt> (inline, preserva escopo) + GENERATOR_GET_RET.
+> - **[x] 311_console_table + 312_console_dir** (PR #1313) — console.*
+>   override runtime (CONSOLE_OVERRIDES side-table). Callbacks aridade fixa.
+>
+> ## Estado final da sessao: **329 pass / 372 = 88.4%** (era 320/86.0%)
+>
+> Os 8 rts_diverge + 35 rts_error restantes sao TODOS fundacao (investigado
+> caso a caso nesta sessao — nao ha mais quick wins nem fixes cirurgicos):
+>
+> | Teste(s) | Fundacao necessaria | Issue |
+> |---|---|---|
+> | 274 symbol_toprimitive | Symbol-keyed function storage + coercao toPrimitive/valueOf/toString c/ hint | #216 + #304 |
+> | 299 arguments_object, 272, 305 | `arr[Symbol.iterator]` -> function handle real (protocolo iteravel) | #216/#222 |
+> | 271 computed_class_members | Symbol como chave computada em class body | #216 |
+> | 310 console_group | rest-param (`...args`) via INVOKE_AUTO — falta flag variadic no FunctionData + packing do overflow | follow-up #1313 |
+> | 41 closures_deep, 348/354/359/360/361/365/386 | mutable closures / closures-de-closures | #195 (bloq #90) |
+> | 393 promise_microtask, 365, 109, 392, 303 | event loop / microtask ordenada / async iteration | #207 |
+> | 68 arraybuffer_transfer | views ANONIMAS (`new Uint8Array(buf)` sem binding) + structuredClone transfer/detach | — |
+> | 291 json_bigint, 65 | BigInt type marker | #219 |
+> | 275*/276/329/344/368/379 | generator state machine (suspensao real, infinito, .return/.throw+finally) | #211/#477 |
+> | 59/71/78 intl_* | Intl runtime completo (locale data) | #225 |
+> | 64/86/88/96/101/74/75/85 | Web Streams + Blob/File runtime WHATWG | — |
+> | 100 dynamic_import | module namespace real | #223 |
+> | 79 subtle_digest | crypto.subtle | — |
+> | 354/359 obf_proxy/getter | Proxy fase-2 + closures | #218/#195 |
+>
+> Recomendacao p/ proxima sessao: escolher UMA fundacao e dedicar foco —
+> melhor ROI sao **#216 Symbol-as-key** (destrava 271/272/274/299/305, ~5
+> testes) ou **anonymous typed-array views** (68 + typed-buffers). Ambas sao
+> refator medio-grande, nao cabem num tick de loop curto.
 
 # PLANO DE ATAQUE — RTS rumo a 100% paridade cross-runtime (52 testes)
 
