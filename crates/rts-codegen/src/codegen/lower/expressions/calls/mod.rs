@@ -1343,13 +1343,15 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
                 // Object.getOwnPropertyDescriptor(obj, key) — reusa Reflect.
+                // (#98) versao _PROXY: dispara o trap quando obj for Proxy,
+                // senao cai em forward_get_own_property_descriptor.
                 if method == "getOwnPropertyDescriptor" && call.args.len() == 2 {
                     let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let obj_h = ctx.coerce_to_i64(obj_tv).val;
                     let key_tv = lower_expr(ctx, &call.args[1].expr)?;
                     let key_h = ctx.coerce_to_handle(key_tv)?.val;
                     let f = ctx.get_extern(
-                        "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR",
+                        "__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY",
                         &[cl::I64, cl::I64],
                         Some(cl::I64),
                     )?;
@@ -1491,33 +1493,23 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
                 // (#208) Object.defineProperty(obj, key, descriptor) — v0
                 // suporta apenas { value: x }.
+                // (#98) roteia via REFLECT_DEFINE_PROPERTY_PROXY: quando obj
+                // for Proxy, dispara o trap `defineProperty`; senao cai em
+                // forward_define_property (mesma semantica do antigo
+                // MAP_DEFINE_PROPERTY, extraindo value+writable+enumerable).
                 if method == "defineProperty" && call.args.len() == 3 {
                     let obj_tv = lower_expr(ctx, &call.args[0].expr)?;
                     let obj = ctx.coerce_to_i64(obj_tv).val;
                     let key_tv = lower_expr(ctx, &call.args[1].expr)?;
-                    let key_h = ctx.coerce_to_i64(key_tv).val;
+                    let key_h = ctx.coerce_to_handle(key_tv)?.val;
                     let desc_tv = lower_expr(ctx, &call.args[2].expr)?;
                     let desc = ctx.coerce_to_i64(desc_tv).val;
-                    let kp_fn = ctx.get_extern(
-                        "__RTS_FN_NS_GC_STRING_PTR",
-                        &[cl::I64],
-                        Some(cl::I64),
-                    )?;
-                    let kl_fn = ctx.get_extern(
-                        "__RTS_FN_NS_GC_STRING_LEN",
-                        &[cl::I64],
-                        Some(cl::I64),
-                    )?;
-                    let inst_p = ctx.builder.ins().call(kp_fn, &[key_h]);
-                    let kp = ctx.builder.inst_results(inst_p)[0];
-                    let inst_l = ctx.builder.ins().call(kl_fn, &[key_h]);
-                    let kl = ctx.builder.inst_results(inst_l)[0];
                     let f = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY",
-                        &[cl::I64, cl::I64, cl::I64, cl::I64],
+                        "__RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY",
+                        &[cl::I64, cl::I64, cl::I64],
                         Some(cl::I64),
                     )?;
-                    let inst = ctx.builder.ins().call(f, &[obj, kp, kl, desc]);
+                    let inst = ctx.builder.ins().call(f, &[obj, key_h, desc]);
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }

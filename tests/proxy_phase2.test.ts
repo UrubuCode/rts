@@ -77,6 +77,10 @@ const proto6 = Reflect.getPrototypeOf(p6);
 const proto6Kind: i64 = Reflect.has(proto6, "kind") ? 1 : 0;
 
 // 12. ownKeys + Object.keys
+// (#98) JS spec: Object.keys dispara [[GetOwnProperty]] por chave de
+// ownKeys pra filtrar enumeraveis. Como "only" NAO existe no target e
+// nao ha trap getOwnPropertyDescriptor, o forward retorna undefined ->
+// nao-enumeravel -> filtrada. Bun/Node retornam [] (length 0).
 const p7: any = new Proxy({ a: 1, b: 2 } as any, {
     ownKeys: (_t: any) => ["only"]
 });
@@ -87,7 +91,7 @@ describe("proxy_phase2", () => {
     test("ownKeys trap returns custom array", () => expect(k1Len).toBe(3));
     test("ownKeys forward returns target keys", () => expect(k2Len).toBe(3));
     test("ownKeys trap returns empty", () => expect(k3Len).toBe(0));
-    test("Object.keys via proxy ownKeys", () => expect(k7Len).toBe(1));
+    test("Object.keys via proxy ownKeys", () => expect(k7Len).toBe(0));
     // apply
     test("apply trap intercepts proxy()", () => expect(r1).toBe(42));
     test("apply forward calls target", () => expect(r2).toBe(100));
