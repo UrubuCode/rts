@@ -102,6 +102,15 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_RETURN(vec_handle: u64, value: i64) -
     make_result(value, true)
 }
 
+/// `__RTS_GEN_GET_RET(vec)` — devolve o ret_value (`return X`) registrado
+/// por uma generator fn finita, ou undefined se ausente. Usado por
+/// `const r = yield* gen()` (#275/#379): o desugar empurra os elementos do
+/// Vec delegado em __gen_buf e captura o ret_value em `r`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_GET_RET(vec_handle: u64) -> i64 {
+    GEN_RETS.with(|c| c.borrow().get(&vec_handle).copied()).unwrap_or(UNDEFINED)
+}
+
 /// Aloca o objeto-resultado `{value, done}` como Map.
 fn make_result(value: i64, done: bool) -> u64 {
     let mut m: IndexMap<String, i64> = IndexMap::new();

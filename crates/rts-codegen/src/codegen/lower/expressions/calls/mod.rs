@@ -188,6 +188,24 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 let h = ctx.builder.inst_results(inst)[0];
                 return Ok(TypedVal::new(h, ValTy::Handle));
             }
+            // (#275/#379) `__RTS_GEN_GET_RET(vec)` — sentinela do
+            // generator_desugar p/ `const r = yield* gen()`: devolve o
+            // ret_value (`return X`) registrado pela generator delegada.
+            if id.sym.as_str() == "__RTS_GEN_GET_RET" && call.args.len() == 1 {
+                use cranelift_codegen::ir::types as cl;
+                let vec_tv = lower_expr(ctx, &call.args[0].expr)?;
+                let vec = ctx.coerce_to_i64(vec_tv).val;
+                let get_ret = ctx.get_extern(
+                    "__RTS_FN_NS_GC_GENERATOR_GET_RET",
+                    &[cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(get_ret, &[vec]);
+                let v = ctx.builder.inst_results(inst)[0];
+                // ret_value eh ambiguo (i64/handle); marca para coercao auto.
+                ctx.var_member_call_values.insert(v);
+                return Ok(TypedVal::new(v, ValTy::I64));
+            }
         }
         // (generators) `<genVar>.next()` — protocolo de iterador finito.
         // Roteia para GENERATOR_NEXT (cursor lateral sobre o Vec retornado
