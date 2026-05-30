@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -1929,10 +1929,10 @@
 ,
 {
   "name": "349_object_descriptors",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue"
+  "rts": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\ntrue\n1\ntrue"
 }
 ,
 {
@@ -2025,10 +2025,10 @@
 ,
 {
   "name": "98_proxy_invariants",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=a\nvals=281474976710659\nlog=ownKeys|del:b|ownKeys"
+  "rts": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":320,"rts_diverge":14,"bun_node_diverge":17,"errors":37,"rejected":0}}
+],"summary":{"total":388,"pass":321,"rts_diverge":14,"bun_node_diverge":16,"errors":37,"rejected":0}}
