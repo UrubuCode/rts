@@ -5,6 +5,39 @@
 > agrupados por causa-raiz compartilhada e priorizados por ROI
 > (testes-destravados / esforco). Atualizar o checklist conforme os clusters
 > fecham. Fonte: workflow `parity-100-triage`.
+>
+> ## Progresso (sessao 2026-05-30)
+>
+> Estado real atual: **324 pass** (regenerado via cross_runtime_check.sh; o
+> report committed estava stale — varios testes ja' passavam por correcao
+> colateral, ex: 193_reflect_construct, 98_proxy_invariants).
+>
+> Fechados nesta sessao:
+> - **[x] H / 98_proxy_invariants** (PR #1306) — Object.* proxy-aware +
+>   JSON.stringify(proxy) via traps ownKeys/getOwnPropertyDescriptor/get.
+> - **[x] 69_atomics_sharedarraybuffer** (PR #1308) — Atomics.* (RMW/CAS/
+>   load/store) + SharedArrayBuffer typed-array views + typeof.
+> - **[x] 345_string_template_tag** (PR #1309) — inferencia de retorno
+>   string p/ `reduce_bound` com init string (tag fn com capture).
+> - **[x] 349_object_descriptors** (PR #1310) — fix regressao do #98:
+>   preserva `configurable` em getOwnPropertyDescriptor.
+> - **[~] 68_arraybuffer_transfer_clone** (PR #1311, PARCIAL) — view.set(arr)
+>   Buffer-aware p/ views NOMEADAS. Falta: views ANONIMAS
+>   (`new Uint8Array(buf)` sem binding) + structuredClone transfer/detach.
+>
+> Reclassificacoes apos investigacao (NAO eram quick wins como o plano supos):
+> - **76_message_channel**: precisa runtime MessageChannel completo (port1/2,
+>   onmessage, postMessage) + microtask delivery — fundacao, NAO fallback
+>   `obj.prop.method()`.
+> - **Cluster A (348/361/386/360)**: closures-de-closures + mutable capture
+>   (`acc` capturado, `() => f(n-1, acc)`) — eh #195 mutable closures
+>   (bloqueado por #90), fundacao GRANDE. 386_trampoline confirma: retorna
+>   closure que captura param mutavel.
+> - **68**: stack de 4 bugs (named view set [feito], anonymous view read/set,
+>   structuredClone buffer-byte-copy, detach) — nao era PEQUENO-MEDIO.
+>
+> Proximo alvo sugerido: anonymous typed-array views (destrava 68 + ajuda
+> outros typed-buffer) OU generator desugar B1 (275/276/344/368/379).
 
 # PLANO DE ATAQUE — RTS rumo a 100% paridade cross-runtime (52 testes)
 
