@@ -15,6 +15,26 @@ use crate::parser::ast::{
 };
 use crate::parser::span::Span;
 
+thread_local! {
+    /// (#310) Nomes de fns hoisted/lifted cujo ULTIMO param eh variadic
+    /// (`...rest`). Lido no reify p/ marcar o FunctionData como variadic,
+    /// fazendo INVOKE_AUTO empacotar os args excedentes num array.
+    static LIFTED_VARIADIC: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// (#310) Registra que `name` (fn lifted) tem rest param variadic.
+pub(crate) fn mark_lifted_variadic(name: &str) {
+    LIFTED_VARIADIC.with(|c| {
+        c.borrow_mut().insert(name.to_string());
+    });
+}
+
+/// (#310) True se `name` foi marcada variadic (rest param no fim).
+pub(crate) fn is_lifted_variadic(name: &str) -> bool {
+    LIFTED_VARIADIC.with(|c| c.borrow().contains(name))
+}
+
 pub(crate) fn hoist_fn_expressions(program: &mut Program) {
     use swc_ecma_ast::{ArrowExpr, BlockStmtOrExpr};
 
@@ -375,6 +395,11 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
             }
             _ => unreachable!(),
         };
+        // (#310) Registra variadic se o ultimo param eh rest — INVOKE_AUTO
+        // empacota os args excedentes num array ao invocar via handle.
+        if fn_decl.parameters.last().map(|p| p.variadic).unwrap_or(false) {
+            mark_lifted_variadic(&name);
+        }
         new_fns.push(Item::Function(fn_decl));
         *expr = fresh_ident(&name);
     }
