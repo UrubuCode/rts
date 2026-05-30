@@ -277,3 +277,35 @@ generator state machine infinito (#211/#477), Intl runtime (#225), Web Streams
 Nenhum dos 4 diverge nem dos 35 error cabe num tick de loop — cada um exige
 refator de fundacao dedicado (event loop real, BigInt como tipo de 1a classe,
 env-record p/ mutable closures, anonymous-view codegen, etc).
+
+## Estado pos-#1319: 332/371 = 89.5% — 3 diverge restantes (refator grande)
+
+13 PRs na sessao. #1319 fechou 68 (structuredClone transfer/detach +
+anonymous TA views). Restam SO' 3 diverge, cada um refator de fundacao que
+toca o sistema inteiro (NAO cabe num tick de loop):
+
+- **291_json_bigint** (#219) — BigInt como tipo de 1a classe. Hoje vira i64
+  no codegen (basics.rs), tipo apagado. Precisa: marker de tipo BigInt
+  propagado por todo o codegen + JSON.stringify(bigint) lancar TypeError +
+  aritmetica BigInt (nao truncar). Toca lowering de literais, operadores,
+  coercao, e o ABI. Issue #219.
+- **393_promise_microtask** (#207) — event loop real. Promise.then usa
+  spawn_blocking concorrente (thread nao-determinista) em vez de fila
+  microtask FIFO. Precisa: refator do async_rt p/ microtask queue ordenada
+  drenada no fim de cada task. Toca todo o subsistema Promise/async. Issue #207.
+- **41_closures_deep** (#195, bloq #90) — mutable closures. Closure que
+  captura var mutavel POR REFERENCIA (nao por valor) + closures-de-closures.
+  Precisa env-record refactor (vars capturadas viram heap cells
+  compartilhadas). Bloqueado por #90 (block params). Issue #195.
+
+Os 35 rts_error sao clusters grandes igualmente fundacionais: async
+generators/for-await (#207), generator state machine (#211/#477), Intl
+runtime (#225), Web Streams + Blob/File WHATWG, dynamic import (#223),
+crypto.subtle, Proxy fase-2 obfuscado (#218+#195).
+
+CONCLUSAO: os fixes cirurgicos e fundacoes medias (Symbol-as-key #216 em 3
+camadas, console override, generator yield*, Atomics, Proxy Object.*,
+typed-array views/transfer) estao ESGOTADOS. De 320/86.0% subimos a
+332/89.5%. O caminho a 100% agora exige 3 refatores grandes (#219 BigInt,
+#207 event loop, #195 mutable closures) + os clusters de error — cada um
+uma sessao dedicada, nao um tick de loop.
