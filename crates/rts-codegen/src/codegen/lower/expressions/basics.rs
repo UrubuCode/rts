@@ -209,30 +209,31 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
             // Handle string: parse numerico via NUM_COERCE.
             // I64/F64/I32: passthrough (ja sao numbers).
             match operand.ty {
-                ValTy::Handle => {
+                ValTy::Handle | ValTy::I64 | ValTy::U64 => {
+                    // (#216/274) ToNumber: primeiro ToPrimitive(obj, "number")
+                    // — se o operando for um objeto com [Symbol.toPrimitive],
+                    // invoca com hint "number". Sem o metodo, TO_PRIMITIVE
+                    // devolve o operando inalterado. Depois TO_NUMBER coage.
+                    let to_prim = ctx.get_extern(
+                        "__RTS_FN_RT_TO_PRIMITIVE",
+                        &[cl::I64, cl::I32],
+                        Some(cl::I64),
+                    )?;
+                    let hint = ctx.builder.ins().iconst(cl::I32, 0); // number
+                    let p_inst = ctx.builder.ins().call(to_prim, &[operand.val, hint]);
+                    let prim = ctx.builder.inst_results(p_inst)[0];
                     let coerce_fn = ctx.get_extern(
                         "__RTS_FN_RT_TO_NUMBER",
                         &[cl::I64],
                         Some(cl::F64),
                     )?;
-                    let inst = ctx.builder.ins().call(coerce_fn, &[operand.val]);
+                    let inst = ctx.builder.ins().call(coerce_fn, &[prim]);
                     let v = ctx.builder.inst_results(inst)[0];
                     Ok(TypedVal::new(v, ValTy::F64))
                 }
                 ValTy::Bool => {
                     // Bool i64 0/1 ja eh numero.
                     Ok(TypedVal::new(operand.val, ValTy::I64))
-                }
-                ValTy::I64 | ValTy::U64 => {
-                    // Pode ser sentinel (null/undefined). Routine via TO_NUMBER.
-                    let coerce_fn = ctx.get_extern(
-                        "__RTS_FN_RT_TO_NUMBER",
-                        &[cl::I64],
-                        Some(cl::F64),
-                    )?;
-                    let inst = ctx.builder.ins().call(coerce_fn, &[operand.val]);
-                    let v = ctx.builder.inst_results(inst)[0];
-                    Ok(TypedVal::new(v, ValTy::F64))
                 }
                 _ => Ok(operand),
             }

@@ -610,6 +610,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_SYMBOL_HAS_INSTANCE", __RTS_FN_GL_SYMBOL_HAS_INSTANCE);
         add_fn!("__RTS_FN_GL_SYMBOL_TO_PRIMITIVE", __RTS_FN_GL_SYMBOL_TO_PRIMITIVE);
         add_fn!("__RTS_FN_GL_SYMBOL_TO_STRING_TAG", __RTS_FN_GL_SYMBOL_TO_STRING_TAG);
+        add_fn!("__RTS_FN_RT_TO_PRIMITIVE", __RTS_FN_RT_TO_PRIMITIVE);
     }
 
     // Boolean class
