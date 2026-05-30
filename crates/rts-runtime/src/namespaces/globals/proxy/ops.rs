@@ -37,6 +37,12 @@ unsafe extern "C" {
     fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64;
     fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64;
     fn __RTS_FN_GL_FUNCTION_APPLY(fn_h: u64, this_arg: i64, args_handle: u64) -> i64;
+    fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
+        obj: u64,
+        key_ptr: *const u8,
+        key_len: i64,
+        descriptor: u64,
+    ) -> u64;
 }
 
 /// Construtor Proxy: aloca Entry::Proxy { target, handler }.
@@ -152,6 +158,55 @@ pub fn dispatch_own_keys(target: u64, handler: u64) -> u64 {
     let h = r as u64;
     let is_vec = with_entry(h, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec { h } else { alloc_entry(Entry::Vec(Box::new(Vec::new()))) }
+}
+
+/// (#98) `Object.keys(proxy)` — ECMA-262 OrdinaryOwnPropertyKeys filtra
+/// para own properties **enumeraveis**. Para um Proxy, isso dispara o trap
+/// `ownKeys` e, para cada chave, o trap `getOwnPropertyDescriptor` pra
+/// checar `enumerable` (mesmo trace que Bun/Node produzem).
+///
+/// Diferente de `dispatch_own_keys` (usado por `Reflect.ownKeys`, que NAO
+/// filtra), aqui filtramos. Quando nao ha trap correspondente, os
+/// `forward_*` reproduzem o comportamento default do objeto.
+pub fn dispatch_own_keys_enumerable(target: u64, handler: u64) -> u64 {
+    let all = dispatch_own_keys(target, handler);
+    // Extrai os handles de string do Vec retornado.
+    let key_handles: Vec<u64> = with_entry(all, |e| match e {
+        Some(Entry::Vec(v)) => v.iter().map(|x| *x as u64).collect(),
+        _ => Vec::new(),
+    });
+    let mut kept: Vec<i64> = Vec::with_capacity(key_handles.len());
+    for kh in key_handles {
+        // [[GetOwnProperty]]: dispara trap getOwnPropertyDescriptor.
+        let desc = dispatch_get_own_property_descriptor(target, handler, kh);
+        if desc == 0 {
+            continue;
+        }
+        // undefined => prop ausente, pula.
+        let is_undef = with_entry(desc, |e| {
+            matches!(e, Some(Entry::String(b)) if b.as_slice() == b"undefined")
+        });
+        if is_undef {
+            continue;
+        }
+        // Le `enumerable` do descriptor Map. Ausente => trata como nao
+        // enumeravel (spec: default false em descriptors retornados por
+        // getOwnPropertyDescriptor; mas para objetos comuns o forward
+        // sempre popula true/false).
+        let enumerable = with_entry(desc, |e| match e {
+            Some(Entry::Map(m)) => match m.get("enumerable") {
+                Some(x) if *x == i64::MIN => false,
+                Some(x) if *x == i64::MIN + 1 => true,
+                Some(x) => *x != 0,
+                None => false,
+            },
+            _ => false,
+        });
+        if enumerable {
+            kept.push(kh as i64);
+        }
+    }
+    alloc_entry(Entry::Vec(Box::new(kept)))
 }
 
 /// Trap `getPrototypeOf(target)`. Retorna o handle do proto.
@@ -274,53 +329,24 @@ pub fn dispatch_define_property(
 }
 
 fn forward_define_property(target: u64, key_handle: u64, descriptor: u64) -> i64 {
+    // (#98) Delega ao MAP_DEFINE_PROPERTY completo (trata value, writable,
+    // enumerable, configurable, getter/setter `__get_`/`__set_` e TypeError
+    // de redefinicao non-configurable). Antes essa fn era uma v0 que so'
+    // tratava value+writable+enumerable, regredindo accessor descriptors
+    // (`{ get(){} }`) quando Object.defineProperty passou a rotear por aqui.
     let Some(key_bytes) = with_entry(key_handle, |e| match e {
         Some(Entry::String(b)) => Some(b.clone()),
         _ => None,
     }) else {
         return 0;
     };
-    // (cross-runtime #795) Extrai value + flags (writable/enumerable) do
-    // descriptor pra preservar via non_writable_set/non_enumerable_set.
-    // Bool sentinels: i64::MIN = false, i64::MIN+1 = true; outros valores
-    // tratados como truthy/falsy via != 0.
-    let (value, writable, enumerable) = with_entry(descriptor, |e| match e {
-        Some(Entry::Map(m)) => {
-            let v = m.get("value").copied().unwrap_or(0);
-            let w = m.get("writable").map(|x| {
-                if *x == i64::MIN { false }
-                else if *x == i64::MIN + 1 { true }
-                else { *x != 0 }
-            });
-            let en = m.get("enumerable").map(|x| {
-                if *x == i64::MIN { false }
-                else if *x == i64::MIN + 1 { true }
-                else { *x != 0 }
-            });
-            (v, w, en)
-        }
-        _ => (0, None, None),
-    });
-    use crate::namespaces::gc::handles::with_entry_mut;
-    let key_str = String::from_utf8_lossy(&key_bytes).into_owned();
-    let ok = with_entry_mut(target, |e| match e {
-        Some(Entry::Map(m)) => {
-            m.insert(key_str.clone(), value);
-            true
-        }
-        _ => false,
-    });
-    if !ok { return 0; }
-    // Atualiza flag tracking conforme descriptor.
-    match writable {
-        Some(false) => crate::namespaces::collections::map::mark_non_writable(target, &key_str),
-        Some(true) => crate::namespaces::collections::map::unmark_non_writable(target, &key_str),
-        None => {} // ausente — preserva estado anterior
-    }
-    match enumerable {
-        Some(false) => crate::namespaces::collections::map::mark_non_enumerable(target, &key_str),
-        Some(true) => crate::namespaces::collections::map::unmark_non_enumerable(target, &key_str),
-        None => {}
+    unsafe {
+        __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
+            target,
+            key_bytes.as_ptr(),
+            key_bytes.len() as i64,
+            descriptor,
+        );
     }
     1
 }

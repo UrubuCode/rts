@@ -1203,9 +1203,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
 /// Object.keys auto: se handle e' Map retorna keys; se Vec retorna ["0","1",...].
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
-    // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
+    // (#218 phase2 / #98) Proxy: trap `ownKeys` + filtragem por enumeravel
+    // via trap `getOwnPropertyDescriptor` por chave (ECMA-262
+    // OrdinaryOwnPropertyKeys). Reflect.ownKeys usa dispatch_own_keys cru.
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
+        return crate::namespaces::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
     }
     // (#253) StringBox unwrap antes do dispatch.
     let unwrap: Option<u64> = with_entry(handle, |e| match e {

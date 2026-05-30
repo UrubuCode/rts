@@ -288,6 +288,63 @@ fn stringify_with_visited(
 ) -> Option<String> {
     use std::fmt::Write;
     if *circular { return None; }
+    // (#98) Proxy: JSON.stringify itera as own keys enumeraveis via trap
+    // `ownKeys` + `getOwnPropertyDescriptor`, e le cada valor via trap
+    // `get` (mesmo trace de Bun/Node). Resolvemos pra um objeto plano
+    // {key: value} e serializamos recursivamente.
+    if let Some((target, handler)) =
+        crate::namespaces::globals::proxy::ops::resolve_proxy(handle)
+    {
+        if !visited.insert(handle) {
+            *circular = true;
+            return None;
+        }
+        let keys_vec =
+            crate::namespaces::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
+        let key_strs: Vec<String> = with_entry(keys_vec, |e| match e {
+            Some(Entry::Vec(v)) => v
+                .iter()
+                .filter_map(|kh| {
+                    with_entry(*kh as u64, |ke| match ke {
+                        Some(Entry::String(b)) => {
+                            Some(String::from_utf8_lossy(b).into_owned())
+                        }
+                        _ => None,
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
+        });
+        let mut out = String::new();
+        out.push('{');
+        let mut first = true;
+        for k in key_strs {
+            let val = crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, &k);
+            if is_undefined_value(val) {
+                continue;
+            }
+            if !first {
+                out.push(',');
+            }
+            first = false;
+            out.push('"');
+            for c in k.bytes() {
+                match c {
+                    b'"' => out.push_str("\\\""),
+                    b'\\' => out.push_str("\\\\"),
+                    _ => out.push(c as char),
+                }
+            }
+            out.push_str("\":");
+            out.push_str(&stringify_value_visited(val, visited, circular));
+            if *circular {
+                return None;
+            }
+        }
+        out.push('}');
+        visited.remove(&handle);
+        return Some(out);
+    }
     // Snapshot do Entry com lock minimo: copia bytes/entries para
     // estruturas owned, depois solta o Mutex do shard. Sem isso,
     // recursao em Map/Vec self-ref toma lock duplo no mesmo shard

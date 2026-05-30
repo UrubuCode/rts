@@ -10,7 +10,7 @@
 //! arg pelo ident temporario. Roda ANTES de lift_inline_arrows_in_array_methods
 //! para que o `.map` extraido seja liftado como statement normal.
 
-use swc_ecma_ast::{Callee, Decl, Expr, Stmt, VarDecl, VarDeclKind, VarDeclarator, Pat};
+use swc_ecma_ast::{Decl, Expr, Stmt, VarDecl, VarDeclKind, VarDeclarator, Pat};
 
 use crate::parser::ast::{ClassMember, Item, Program, RawStmt, Statement};
 use crate::parser::span::Span;
