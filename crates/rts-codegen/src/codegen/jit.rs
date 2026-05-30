@@ -1886,6 +1886,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_TA_SET_ELEM", buf::__RTS_FN_GL_TA_SET_ELEM);
     add_fn!("__RTS_FN_GL_TA_LENGTH", buf::__RTS_FN_GL_TA_LENGTH);
     add_fn!("__RTS_FN_GL_TA_SET_FROM", buf::__RTS_FN_GL_TA_SET_FROM);
+    add_fn!("__RTS_FN_GL_BUFFER_DETACH", buf::__RTS_FN_GL_BUFFER_DETACH);
     add_fn!("__RTS_FN_GL_ATOMICS_RMW", buf::__RTS_FN_GL_ATOMICS_RMW);
     add_fn!("__RTS_FN_GL_ATOMICS_CAS", buf::__RTS_FN_GL_ATOMICS_CAS);
     add_fn!("__RTS_FN_GL_ATOMICS_LOAD", buf::__RTS_FN_GL_ATOMICS_LOAD);

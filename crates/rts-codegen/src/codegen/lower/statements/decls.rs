@@ -742,6 +742,21 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             // fetch() → Response
                             if fname == "fetch" {
                                 ctx.local_class_ty.insert(name.clone(), "Response".to_string());
+                            } else if fname == "structuredClone" {
+                                // (#68) structuredClone(buf) de (Shared)ArrayBuffer
+                                // devolve outro buffer (clone byte-a-byte). Propaga
+                                // ArrayBuffer p/ que `new Uint8Array(moved)` use o
+                                // path view-viva (sem isso vira Vec vazio).
+                                if let Some(a) = call.args.first() {
+                                    if let swc_ecma_ast::Expr::Ident(aid) = a.expr.as_ref() {
+                                        if ctx.local_class_ty.get(aid.sym.as_str())
+                                            .map(|c| c == "ArrayBuffer" || c == "SharedArrayBuffer")
+                                            .unwrap_or(false)
+                                        {
+                                            ctx.local_class_ty.insert(name.clone(), "ArrayBuffer".to_string());
+                                        }
+                                    }
+                                }
                             } else if let Some(cn) = ctx.fn_class_returns.get(fname) {
                                 ctx.local_class_ty.insert(name.clone(), cn.clone());
                             }
