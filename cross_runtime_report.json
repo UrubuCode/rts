@@ -804,23 +804,23 @@
   "status": "rts_diverge",
   "bun": "events=g:x|end",
   "node": "events=g:x|end",
-  "rts": "x\n\nevents="
+  "rts": "events=g:null|end"
 }
 ,
 {
   "name": "311_console_table",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "calls=2",
   "node": "calls=2",
-  "rts": "[ { a: 1 }, { a: 2 } ]\ncalls="
+  "rts": "calls=2"
 }
 ,
 {
   "name": "312_console_dir",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "calls=object:1",
   "node": "calls=object:1",
-  "rts": "{ a: { b: 1 } } { depth: 1 }\ncalls="
+  "rts": "calls=object:1"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":325,"rts_diverge":12,"bun_node_diverge":16,"errors":35,"rejected":0}}
+],"summary":{"total":388,"pass":327,"rts_diverge":10,"bun_node_diverge":16,"errors":35,"rejected":0}}
