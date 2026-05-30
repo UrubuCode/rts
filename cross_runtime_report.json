@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,2,A,B,C,3"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,3,B,C"
 }
 ,
 {
@@ -2985,10 +2985,10 @@
 ,
 {
   "name": "68_arraybuffer_transfer_clone",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
   "node": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40",
-  "rts": "orig_len=4\nmoved_len=4\nmoved="
+  "rts": "orig_len=0\nmoved_len=4\nmoved=10,20,30,40"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":330,"rts_diverge":6,"bun_node_diverge":16,"errors":36,"rejected":0}}
+],"summary":{"total":388,"pass":331,"rts_diverge":5,"bun_node_diverge":16,"errors":36,"rejected":0}}
