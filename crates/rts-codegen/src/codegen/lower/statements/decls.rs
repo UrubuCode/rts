@@ -743,17 +743,25 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                             if fname == "fetch" {
                                 ctx.local_class_ty.insert(name.clone(), "Response".to_string());
                             } else if fname == "structuredClone" {
-                                // (#68) structuredClone(buf) de (Shared)ArrayBuffer
-                                // devolve outro buffer (clone byte-a-byte). Propaga
-                                // ArrayBuffer p/ que `new Uint8Array(moved)` use o
-                                // path view-viva (sem isso vira Vec vazio).
+                                // (#68/#394) structuredClone preserva o tipo do
+                                // valor clonado. Propaga local_class_ty/local_map_vars
+                                // do arg (ident) pro receptor — sem isso o clone
+                                // (Date/RegExp/Map/Set/ArrayBuffer) chega sem tipo e
+                                // metodos (.getUTCFullYear/.has/view) mis-despacham.
                                 if let Some(a) = call.args.first() {
                                     if let swc_ecma_ast::Expr::Ident(aid) = a.expr.as_ref() {
-                                        if ctx.local_class_ty.get(aid.sym.as_str())
-                                            .map(|c| c == "ArrayBuffer" || c == "SharedArrayBuffer")
-                                            .unwrap_or(false)
-                                        {
-                                            ctx.local_class_ty.insert(name.clone(), "ArrayBuffer".to_string());
+                                        let src = aid.sym.as_str();
+                                        if let Some(src_cls) = ctx.local_class_ty.get(src).cloned() {
+                                            // SharedArrayBuffer clona como ArrayBuffer.
+                                            let cls = if src_cls == "SharedArrayBuffer" {
+                                                "ArrayBuffer".to_string()
+                                            } else {
+                                                src_cls
+                                            };
+                                            ctx.local_class_ty.insert(name.clone(), cls);
+                                        }
+                                        if ctx.local_map_vars.contains(src) {
+                                            ctx.local_map_vars.insert(name.clone());
                                         }
                                     }
                                 }
