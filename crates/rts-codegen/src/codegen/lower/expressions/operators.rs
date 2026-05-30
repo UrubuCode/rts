@@ -1899,6 +1899,26 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
             )?;
             let inst = ctx.builder.ins().call(coerce_fn, &[lhs.val]);
             ctx.builder.inst_results(inst)[0]
+        } else if matches!(lhs.ty, ValTy::Handle) {
+            // (#216/274) ToPrimitive(obj, "default") antes do concat: se for
+            // Map com [Symbol.toPrimitive], invoca com hint "default"; senao
+            // (string/outros handles) devolve inalterado.
+            let to_prim = ctx.get_extern(
+                "__RTS_FN_RT_TO_PRIMITIVE",
+                &[cl::I64, cl::I32],
+                Some(cl::I64),
+            )?;
+            let hint = ctx.builder.ins().iconst(cl::I32, 2); // default
+            let p_inst = ctx.builder.ins().call(to_prim, &[lhs.val, hint]);
+            let prim = ctx.builder.inst_results(p_inst)[0];
+            // prim pode ser numero/string; TPL_COERCE_AUTO normaliza.
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[prim]);
+            ctx.builder.inst_results(inst)[0]
         } else {
             ctx.coerce_to_handle(lhs)?.val
         };
@@ -1917,6 +1937,23 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
                 Some(cl::I64),
             )?;
             let inst = ctx.builder.ins().call(coerce_fn, &[rhs.val]);
+            ctx.builder.inst_results(inst)[0]
+        } else if matches!(rhs.ty, ValTy::Handle) {
+            // (#216/274) ToPrimitive(obj, "default") antes do concat.
+            let to_prim = ctx.get_extern(
+                "__RTS_FN_RT_TO_PRIMITIVE",
+                &[cl::I64, cl::I32],
+                Some(cl::I64),
+            )?;
+            let hint = ctx.builder.ins().iconst(cl::I32, 2); // default
+            let p_inst = ctx.builder.ins().call(to_prim, &[rhs.val, hint]);
+            let prim = ctx.builder.inst_results(p_inst)[0];
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(coerce_fn, &[prim]);
             ctx.builder.inst_results(inst)[0]
         } else {
             ctx.coerce_to_handle(rhs)?.val

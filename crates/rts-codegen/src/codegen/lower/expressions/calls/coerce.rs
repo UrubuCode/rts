@@ -228,13 +228,24 @@ pub(super) fn lower_coerce_to_string(ctx: &mut FnCtx, call: &CallExpr) -> Result
         // TPL_COERCE_AUTO. Caso geral.
         let needs_auto = matches!(tv.ty, crate::codegen::lower::ctx::ValTy::Handle | crate::codegen::lower::ctx::ValTy::U64);
         if needs_auto {
+            let val_i64 = ctx.coerce_to_i64(tv).val;
+            // (#216/274) ToString: primeiro ToPrimitive(obj, "string"). Se o
+            // obj tiver [Symbol.toPrimitive], invoca com hint "string"; senao
+            // devolve o operando inalterado. Depois TPL_COERCE_AUTO formata.
+            let to_prim = ctx.get_extern(
+                "__RTS_FN_RT_TO_PRIMITIVE",
+                &[cl::I64, cl::I32],
+                Some(cl::I64),
+            )?;
+            let hint = ctx.builder.ins().iconst(cl::I32, 1); // string
+            let p_inst = ctx.builder.ins().call(to_prim, &[val_i64, hint]);
+            let prim = ctx.builder.inst_results(p_inst)[0];
             let coerce_fn = ctx.get_extern(
                 "__RTS_FN_RT_TPL_COERCE_AUTO",
                 &[cl::I64],
                 Some(cl::I64),
             )?;
-            let val_i64 = ctx.coerce_to_i64(tv).val;
-            let inst = ctx.builder.ins().call(coerce_fn, &[val_i64]);
+            let inst = ctx.builder.ins().call(coerce_fn, &[prim]);
             let v = ctx.builder.inst_results(inst)[0];
             return Ok(Some(crate::codegen::lower::ctx::TypedVal::new(v, crate::codegen::lower::ctx::ValTy::Handle)));
         }

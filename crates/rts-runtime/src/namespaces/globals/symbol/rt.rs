@@ -148,6 +148,40 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING_TAG() -> u64 {
     well_known_handle("toStringTag")
 }
 
+unsafe extern "C" {
+    fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
+}
+
+/// (#216/274) Coercao via `[Symbol.toPrimitive](hint)`. Se `obj` for um Map
+/// que tem a key `@@sym:<toPrimitive_handle>`, invoca o metodo passando o
+/// hint string ("number"/"string"/"default") e devolve o resultado. Caso
+/// contrario devolve `obj` inalterado (caller cai no coerce default).
+///
+/// hint_code: 0 = "number", 1 = "string", 2 = "default".
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TO_PRIMITIVE(obj: i64, hint_code: i32) -> i64 {
+    let obj_h = obj as u64;
+    // So' Map pode ter [Symbol.toPrimitive]. Resolve o handle do well-known.
+    let tp_sym = __RTS_FN_GL_SYMBOL_TO_PRIMITIVE();
+    let key = format!("@@sym:{tp_sym}");
+    let method: Option<i64> = with_entry(obj_h, |e| match e {
+        Some(Entry::Map(m)) => m.get(&key).copied().filter(|v| *v != 0),
+        _ => None,
+    });
+    let Some(method) = method else {
+        return obj; // sem toPrimitive — caller usa coerce default.
+    };
+    let hint = match hint_code {
+        0 => "number",
+        1 => "string",
+        _ => "default",
+    };
+    let hint_h = alloc_entry(Entry::String(hint.as_bytes().to_vec()));
+    let args = alloc_entry(Entry::Vec(Box::new(vec![hint_h as i64])));
+    // this = obj (o metodo pode usar this.<campo>).
+    unsafe { __RTS_FN_RT_INVOKE_AUTO(method, obj, args) }
+}
+
 /// `sym.toString()` — "Symbol(description)" ou "Symbol()".
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING(sym: u64) -> u64 {
