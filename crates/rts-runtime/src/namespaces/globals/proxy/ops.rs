@@ -388,13 +388,19 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
     // writable/enumerable definidos via defineProperty.
     let writable_bool = !crate::namespaces::collections::map::is_non_writable(target, &key_str);
     let enumerable_bool = !crate::namespaces::collections::map::is_non_enumerable(target, &key_str);
+    // (#98/#1073/349) configurable rastreado via Object.defineProperty
+    // (is_non_configurable). Antes hardcodava true aqui, regredindo
+    // 349_object_descriptors quando getOwnPropertyDescriptor passou a
+    // rotear pela versao _PROXY.
+    let configurable_bool =
+        !crate::namespaces::collections::map::is_non_configurable(target, &key_str);
     let mut desc: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
     desc.insert("value".to_string(), v);
     // Bool sentinels (i64::MIN+1 = true, i64::MIN = false) pra TPL_COERCE_AUTO
     // formatar como "true"/"false" em vez de inteiros raw.
     desc.insert("writable".to_string(), if writable_bool { i64::MIN + 1 } else { i64::MIN });
     desc.insert("enumerable".to_string(), if enumerable_bool { i64::MIN + 1 } else { i64::MIN });
-    desc.insert("configurable".to_string(), i64::MIN + 1);
+    desc.insert("configurable".to_string(), if configurable_bool { i64::MIN + 1 } else { i64::MIN });
     alloc_entry(Entry::Map(Box::new(desc)))
 }
 
