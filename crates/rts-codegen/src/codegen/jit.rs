@@ -581,6 +581,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_TRUTHY", __RTS_FN_RT_TRUTHY);
     }
     {
+        use crate::namespaces::globals::console::rt::{
+            __RTS_FN_RT_CONSOLE_GET_OVERRIDE, __RTS_FN_RT_CONSOLE_SET_OVERRIDE,
+        };
+        add_fn!("__RTS_FN_RT_CONSOLE_SET_OVERRIDE", __RTS_FN_RT_CONSOLE_SET_OVERRIDE);
+        add_fn!("__RTS_FN_RT_CONSOLE_GET_OVERRIDE", __RTS_FN_RT_CONSOLE_GET_OVERRIDE);
+    }
+    {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TYPEOF_HANDLE;
         add_fn!("__RTS_FN_RT_TYPEOF_HANDLE", __RTS_FN_RT_TYPEOF_HANDLE);
     }

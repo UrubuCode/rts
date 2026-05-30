@@ -281,6 +281,31 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     _ => e,
                 }
             }
+            // (#310/#311/#312) `(console as any).<method> = fn` — grava
+            // override runtime no side-table CONSOLE_OVERRIDES. O call site
+            // de console.<method> checa o override antes do builtin nativo.
+            if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
+                if obj_id.sym.as_str() == "console" {
+                    if let MemberProp::Ident(prop) = &m.prop {
+                        use cranelift_codegen::ir::InstBuilder;
+                        use cranelift_codegen::ir::types as cl;
+                        let method = prop.sym.as_str();
+                        let (mp, ml) = ctx.emit_str_literal(method.as_bytes())?;
+                        let val_tv = lower_expr(ctx, &a.right)?;
+                        // fn handle (arrow/Function) ou 0 quando restaura o
+                        // original (capturado em `const g = console.group`,
+                        // que devolve 0 — sem handle nativo reificado).
+                        let fn_h = ctx.coerce_to_i64(val_tv).val;
+                        let set_fn = ctx.get_extern(
+                            "__RTS_FN_RT_CONSOLE_SET_OVERRIDE",
+                            &[cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(set_fn, &[mp, ml, fn_h]);
+                        return Ok(TypedVal::new(fn_h, ValTy::I64));
+                    }
+                }
+            }
             if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
                 if obj_id.sym.as_str() == "globalThis" {
                     if let MemberProp::Computed(c) = &m.prop {
