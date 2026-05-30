@@ -89,6 +89,24 @@
 > symbol.iterator, 310 console rest-param, 393 promise microtask, 41 closures,
 > 68 anonymous views) + 116 (FLAKE do event loop, passa 3/3 re-rodado).
 >
+> ## #216 CAMADA 3 entregue (PR #1317) — **331/372 = 89.0%**
+> - **[x] 299_arguments_object** (PR #1317) — `arr[Symbol.iterator]` ->
+>   handle Function nativo (ARRAY_VALUES_ITER via MAP_GET_KH well-known).
+>   typeof "function" + chamavel. 271 tambem confirmado fechado.
+>
+> Restam 5 diverge estaveis, TODOS fundacao pesada:
+> - **291_json_bigint** — BigInt type marker (#219).
+> - **310_console_group** — rest-param (`...args`) via INVOKE_AUTO: falta
+>   flag variadic no FunctionData (follow-up #1313).
+> - **393_promise_microtask** — event loop / microtask ordenada (#207).
+> - **41_closures_deep** — mutable closures (#195, bloq #90).
+> - **68_arraybuffer_transfer_clone** — views ANONIMAS + structuredClone
+>   transfer/detach.
+>
+> 272/305 (iterator protocol manual / iterator helpers) seguem rts_error —
+> precisam de `it.next()` em loop sobre iterator user (ja' segfaltava na
+> main; classe #211/#477 state machine). Fora do alcance de fix cirurgico.
+>
 > Caminho exato p/ FECHAR o restante de #216 (299/272/305):
 > - **274_symbol_toprimitive [FEITO]**: operadores de coercao detectam e
 >   invocam `[Symbol.toPrimitive](hint)`:
