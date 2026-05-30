@@ -77,9 +77,21 @@
 > armazenada sob symbol key eh chamavel, number mantem identidade. Isso eh
 > pre-requisito das camadas 2/3 abaixo.
 >
-> Caminho exato p/ FECHAR cada teste (camadas 2/3, ainda abertas):
-> - **274_symbol_toprimitive**: operadores de coercao precisam detectar e
->   invocar `[Symbol.toPrimitive](hint)`:
+> ## #216 CAMADA 2 entregue (PR #1315 + #1316)
+> - **[x] 274_symbol_toprimitive** (PR #1315) — dispatch de
+>   `[Symbol.toPrimitive](hint)` nos 3 sites de coercao (+obj/String/binario)
+>   via __RTS_FN_RT_TO_PRIMITIVE. 271_computed_class_members tambem fechou
+>   colateralmente.
+> - **[x] 94_sparse_array_enumeration** (PR #1316) — fix da regressao que a
+>   camada 1 (#1314) expos: String(arr[k]==0) dava "null". Agora NUM_BIAS.
+>
+> Estado: **329/372 = 88.4%**. Restam 6 diverge estaveis (291 bigint, 299
+> symbol.iterator, 310 console rest-param, 393 promise microtask, 41 closures,
+> 68 anonymous views) + 116 (FLAKE do event loop, passa 3/3 re-rodado).
+>
+> Caminho exato p/ FECHAR o restante de #216 (299/272/305):
+> - **274_symbol_toprimitive [FEITO]**: operadores de coercao detectam e
+>   invocam `[Symbol.toPrimitive](hint)`:
 >   - `+obj` (unario) -> hint "number"; `String(obj)` -> hint "string";
 >     `obj + ""` (binario, default) -> hint "default".
 >   - Sites: lower_typeof/unary em basics.rs (`+`), coerce.rs (String()),
