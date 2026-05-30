@@ -1042,6 +1042,18 @@ fn lift_arrows_in_expr(
         Expr::Paren(p) => {
             lift_arrows_in_expr(&mut p.expr, user_fn_names, new_fns, counter);
         }
+        // (#394) Cast TS envolvendo a call: `arr.filter(fn) as T[]`. Sem
+        // descer no TsAs/TsTypeAssertion, o arrow inline nao era liftado e o
+        // `arr.filter(inline_arrow)` cru chegava ao codegen -> SIGILL.
+        Expr::TsAs(a) => {
+            lift_arrows_in_expr(&mut a.expr, user_fn_names, new_fns, counter);
+        }
+        Expr::TsTypeAssertion(a) => {
+            lift_arrows_in_expr(&mut a.expr, user_fn_names, new_fns, counter);
+        }
+        Expr::TsNonNull(n) => {
+            lift_arrows_in_expr(&mut n.expr, user_fn_names, new_fns, counter);
+        }
         Expr::Unary(u) => {
             lift_arrows_in_expr(&mut u.arg, user_fn_names, new_fns, counter);
         }
@@ -1812,6 +1824,21 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
         }
         Expr::Paren(p) => {
             rewrite_array_methods_in_expr(&mut p.expr, user_fn_names);
+            return;
+        }
+        // (#394) Cast TS envolvendo a call: `arr.filter(fn) as T[]`. Sem
+        // descer, o `arr.filter(lifted)` cru chega ao codegen e mis-despacha
+        // (MAP_GET("filter") em Vec) -> SIGILL.
+        Expr::TsAs(a) => {
+            rewrite_array_methods_in_expr(&mut a.expr, user_fn_names);
+            return;
+        }
+        Expr::TsTypeAssertion(a) => {
+            rewrite_array_methods_in_expr(&mut a.expr, user_fn_names);
+            return;
+        }
+        Expr::TsNonNull(n) => {
+            rewrite_array_methods_in_expr(&mut n.expr, user_fn_names);
             return;
         }
         Expr::Unary(u) => {
