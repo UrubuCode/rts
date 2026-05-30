@@ -3,5 +3,6 @@
 
 pub mod arguments_object;
 pub mod default_args;
+pub mod new_collection_arg;
 pub mod rest_args;
 pub mod spread_args;
