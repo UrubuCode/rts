@@ -21,6 +21,7 @@ use super::super::analysis::types::sanitize_symbol;
 use super::super::ctx::{ClassMeta, UserFnAbi, ValTy};
 use super::super::passes::args::arguments_object::expand_arguments_object;
 use super::super::passes::args::default_args::expand_default_args;
+use super::super::passes::args::new_collection_arg::desugar_new_collection_call_arg;
 use super::super::passes::args::rest_args::expand_rest_args;
 use super::super::passes::args::spread_args::expand_spread_args;
 use super::super::passes::async_expand::{expand_async_functions, expand_await_exprs};
@@ -58,6 +59,10 @@ pub fn compile_program(
     clear_mir_cache_for_program();
 
     expand_static_fields(program);
+    // (#374) `new Map(arr.map(...))` -> extrai o call p/ var temporaria ANTES
+    // do lift de array methods, p/ que o .map seja liftado como statement
+    // normal e o Map popule via MAP_FROM_ENTRIES (caminho via-var, que funciona).
+    desugar_new_collection_call_arg(program);
     lift_inline_arrows_in_array_methods(program);
     array_methods_pass(program);
     let mut par_fn_names = reduce_pass(program);
