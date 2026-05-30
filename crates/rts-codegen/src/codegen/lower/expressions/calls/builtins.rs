@@ -968,12 +968,33 @@ pub(super) fn lower_console_call(
             let v = ctx.coerce_to_i64(tv).val;
             ctx.builder.ins().call(push, &[args_vec, v]);
         }
+        // (#310) Callback variadic (`...args`): a lifted fn espera UM param
+        // (o array de args, pos expand_rest_args). Empacota args_vec dentro
+        // de outro Vec [args_vec] e passa esse como args. Senao (aridade
+        // fixa) passa os args individuais direto.
+        let is_var_fn = ctx.get_extern(
+            "__RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let iv_inst = ctx.builder.ins().call(is_var_fn, &[mp, ml]);
+        let is_var = ctx.builder.inst_results(iv_inst)[0];
+        let is_var_b = ctx.builder.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+            is_var,
+            zero,
+        );
+        // wrapped = [args_vec]
+        let vn2 = ctx.builder.ins().call(vec_new, &[]);
+        let wrapped = ctx.builder.inst_results(vn2)[0];
+        ctx.builder.ins().call(push, &[wrapped, args_vec]);
+        let final_args = ctx.builder.ins().select(is_var_b, wrapped, args_vec);
         let invoke = ctx.get_extern(
             "__RTS_FN_RT_INVOKE_AUTO",
             &[cl::I64, cl::I64, cl::I64],
             Some(cl::I64),
         )?;
-        let inv_inst = ctx.builder.ins().call(invoke, &[ov, zero, args_vec]);
+        let inv_inst = ctx.builder.ins().call(invoke, &[ov, zero, final_args]);
         let inv_ret = ctx.builder.inst_results(inv_inst)[0];
         ctx.builder.ins().jump(merge, &[inv_ret.into()]);
 

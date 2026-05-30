@@ -291,17 +291,28 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                         use cranelift_codegen::ir::types as cl;
                         let method = prop.sym.as_str();
                         let (mp, ml) = ctx.emit_str_literal(method.as_bytes())?;
+                        // (#310) Detecta se o callback eh variadic (`...args`):
+                        // apos hoist_fn, a.right vira Ident da lifted fn.
+                        let is_variadic = match peel(a.right.as_ref()) {
+                            Expr::Ident(rid) => {
+                                crate::codegen::lower::passes::hoist_fn::is_lifted_variadic(
+                                    rid.sym.as_str(),
+                                )
+                            }
+                            _ => false,
+                        };
                         let val_tv = lower_expr(ctx, &a.right)?;
                         // fn handle (arrow/Function) ou 0 quando restaura o
                         // original (capturado em `const g = console.group`,
                         // que devolve 0 — sem handle nativo reificado).
                         let fn_h = ctx.coerce_to_i64(val_tv).val;
+                        let var_flag = ctx.builder.ins().iconst(cl::I64, is_variadic as i64);
                         let set_fn = ctx.get_extern(
                             "__RTS_FN_RT_CONSOLE_SET_OVERRIDE",
-                            &[cl::I64, cl::I64, cl::I64],
+                            &[cl::I64, cl::I64, cl::I64, cl::I64],
                             None,
                         )?;
-                        ctx.builder.ins().call(set_fn, &[mp, ml, fn_h]);
+                        ctx.builder.ins().call(set_fn, &[mp, ml, fn_h, var_flag]);
                         return Ok(TypedVal::new(fn_h, ValTy::I64));
                     }
                 }
