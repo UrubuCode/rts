@@ -1,0 +1,178 @@
+{
+  "date": "2026-06-01",
+  "summary": {
+    "total": 388,
+    "pass": 331,
+    "rts_diverge": 6,
+    "bun_node_diverge": 16,
+    "errors": 35,
+    "rejected": 0
+  },
+  "pct": 89,
+  "divergent": [
+    {
+      "name": "303_array_fromasync",
+      "status": "rts_error"
+    },
+    {
+      "name": "291_json_bigint",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "65_bigint_typed_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "271_computed_class_members",
+      "status": "rts_error"
+    },
+    {
+      "name": "79_subtle_digest",
+      "status": "rts_error"
+    },
+    {
+      "name": "393_promise_microtask",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "76_message_channel",
+      "status": "rts_error"
+    },
+    {
+      "name": "348_closure_optimization",
+      "status": "rts_error"
+    },
+    {
+      "name": "41_closures_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "109_async_generator",
+      "status": "rts_error"
+    },
+    {
+      "name": "276_generator_return_throw",
+      "status": "rts_error"
+    },
+    {
+      "name": "329_generator_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "379_yield_star",
+      "status": "rts_error"
+    },
+    {
+      "name": "59_intl_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "71_intl_segmenter",
+      "status": "rts_error"
+    },
+    {
+      "name": "78_intl_more",
+      "status": "rts_error"
+    },
+    {
+      "name": "305_iterator_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "392_async_iterator_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "100_dynamic_import",
+      "status": "rts_error"
+    },
+    {
+      "name": "344_bundler_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "394_structuredclone_complex",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "193_reflect_construct",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "354_obf_proxy_trap",
+      "status": "rts_error"
+    },
+    {
+      "name": "359_obf_getter_smuggle",
+      "status": "rts_error"
+    },
+    {
+      "name": "368_iterator_protocol",
+      "status": "rts_error"
+    },
+    {
+      "name": "361_functional_compose",
+      "status": "rts_error"
+    },
+    {
+      "name": "386_trampoline",
+      "status": "rts_error"
+    },
+    {
+      "name": "116_promise_finally",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "365_async_patterns",
+      "status": "rts_error"
+    },
+    {
+      "name": "101_textdecoder_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "64_readable_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "86_blob_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "88_compression_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "96_streams_transform",
+      "status": "rts_error"
+    },
+    {
+      "name": "272_symbol_iterator_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "273_symbol_asynciterator",
+      "status": "rts_error"
+    },
+    {
+      "name": "378_symbol_species_hasinstance",
+      "status": "rts_error"
+    },
+    {
+      "name": "360_obf_iife_scope",
+      "status": "rts_error"
+    },
+    {
+      "name": "74_blob_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "75_file_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "85_request_response",
+      "status": "rts_error"
+    }
+  ]
+}
