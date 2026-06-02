@@ -2012,11 +2012,22 @@ pub(super) fn lower_sub(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
 
 fn lower_mul(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
-    let val = match ty {
-        ValTy::F64 => ctx.builder.ins().fmul(lv, rv),
-        _ => ctx.builder.ins().imul(lv, rv),
-    };
-    Ok(TypedVal::new(val, ty))
+    match ty {
+        ValTy::F64 => Ok(TypedVal::new(ctx.builder.ins().fmul(lv, rv), ValTy::F64)),
+        // (#305) `i32 * i32` overflowa a 32 bits (`1000000 * 1000000` virava
+        // -727379968 / 1410065408 em vez de 10^12). Em JS `number` eh f64
+        // (exato ate 2^53). Promovemos a multiplicacao i32 para i64 (cobre ate
+        // ~3*10^18), evitando o overflow no caso cotidiano sem o custo de f64.
+        // add/sub/peephole `x*2^k` ficam inalterados (nao sao o gargalo de
+        // overflow rapido). Acima de i64 (raro) ainda satura — full f64 seria
+        // refator maior com risco em loops hot.
+        ValTy::I32 => {
+            let lv64 = ctx.builder.ins().sextend(cl::I64, lv);
+            let rv64 = ctx.builder.ins().sextend(cl::I64, rv);
+            Ok(TypedVal::new(ctx.builder.ins().imul(lv64, rv64), ValTy::I64))
+        }
+        _ => Ok(TypedVal::new(ctx.builder.ins().imul(lv, rv), ty)),
+    }
 }
 
 fn lower_div(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
