@@ -12,7 +12,7 @@
 //!   `parallel.for_each(arr, __par_forof_N)`.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use swc_ecma_ast::{Callee, Decl, Expr, ForHead, Lit, MemberProp, Pat, Stmt};
 
@@ -36,6 +36,14 @@ thread_local! {
     /// receiver eh claramente Array, para nao confundir com Map.forEach
     /// que tem (value, key, map).
     static ARRAY_RECEIVER_IDENTS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+
+    /// (#341/elo-f64) Mapa array-var -> classe do elemento, p/ `const ps =
+    /// [new P(...), ...]` (sem `: P[]`) ou `const ps: P[] = ...`. Permite que o
+    /// callback liftado de filter/map/etc anote o slot do elemento com a classe,
+    /// de modo que `p.campoFloat` leia f64 (sem isto, `p.age >= 18` no predicate
+    /// liftado comparava bits-i64 e contava floats truncados). Populado em
+    /// `lift_inline_arrows_in_array_methods`.
+    static ARRAY_ELEM_CLASS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 
     /// (cross-runtime) Nomes de metodos de classe com return_type array.
     /// Populado no array_methods_pass; lido por looks_array_call p/ reconhecer
@@ -431,6 +439,125 @@ fn collect_array_receiver_idents(program: &Program) -> HashSet<String> {
     out
 }
 
+/// (#341/elo-f64) Coleta `array-var -> classe-do-elemento` para vars cujo init
+/// eh `[new C(...), ...]` (todos da mesma classe user) OU anotacao `: C[]`.
+/// Permite o callback liftado anotar o slot do elemento com a classe, p/ que
+/// `p.campoFloat` leia f64 no predicate/mapper. Gate: a classe tem que existir
+/// no programa (Item::Class). Varre top-level + bodies de fns/metodos.
+fn collect_array_elem_classes(program: &Program) -> HashMap<String, String> {
+    use swc_ecma_ast::{Decl, Expr, Pat, Stmt};
+
+    let class_names: HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Class(c) => Some(c.name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut out: HashMap<String, String> = HashMap::new();
+
+    // Classe do elemento a partir de um init de array literal de `new C()`.
+    let elem_class_of_init = |init: &Expr| -> Option<String> {
+        let Expr::Array(arr) = init else { return None };
+        let mut elem_cls: Option<String> = None;
+        let mut saw_any = false;
+        for el in arr.elems.iter().flatten() {
+            if el.spread.is_some() { return None; }
+            let Expr::New(n) = el.expr.as_ref() else { return None };
+            let Expr::Ident(cid) = n.callee.as_ref() else { return None };
+            let cn = cid.sym.as_str();
+            if !class_names.contains(cn) { return None; }
+            saw_any = true;
+            match &elem_cls {
+                None => elem_cls = Some(cn.to_string()),
+                Some(prev) if prev == cn => {}
+                Some(_) => return None,
+            }
+        }
+        if saw_any { elem_cls } else { None }
+    };
+
+    let mut handle_var_decl = |vd: &swc_ecma_ast::VarDecl, out: &mut HashMap<String, String>| {
+        for d in &vd.decls {
+            let Pat::Ident(bi) = &d.name else { continue };
+            let name = bi.id.sym.to_string();
+            // Anotacao `: C[]` (elem_type eh TsTypeRef de classe conhecida).
+            if let Some(ann) = bi.type_ann.as_ref() {
+                if let swc_ecma_ast::TsType::TsArrayType(arr) = ann.type_ann.as_ref() {
+                    if let swc_ecma_ast::TsType::TsTypeRef(tref) = arr.elem_type.as_ref() {
+                        if let swc_ecma_ast::TsEntityName::Ident(cid) = &tref.type_name {
+                            let cn = cid.sym.as_str();
+                            if class_names.contains(cn) {
+                                out.insert(name.clone(), cn.to_string());
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            // Init `[new C(...), ...]`.
+            if let Some(init) = d.init.as_ref() {
+                if let Some(cn) = elem_class_of_init(init) {
+                    out.insert(name, cn);
+                }
+            }
+        }
+    };
+
+    fn walk_stmt(
+        s: &Stmt,
+        handle: &mut dyn FnMut(&swc_ecma_ast::VarDecl, &mut HashMap<String, String>),
+        out: &mut HashMap<String, String>,
+    ) {
+        match s {
+            Stmt::Decl(Decl::Var(vd)) => handle(vd, out),
+            Stmt::Block(b) => for st in &b.stmts { walk_stmt(st, handle, out); },
+            Stmt::If(i) => {
+                walk_stmt(&i.cons, handle, out);
+                if let Some(a) = i.alt.as_ref() { walk_stmt(a, handle, out); }
+            }
+            Stmt::For(f) => walk_stmt(&f.body, handle, out),
+            Stmt::ForOf(f) => walk_stmt(&f.body, handle, out),
+            Stmt::ForIn(f) => walk_stmt(&f.body, handle, out),
+            Stmt::While(w) => walk_stmt(&w.body, handle, out),
+            Stmt::DoWhile(d) => walk_stmt(&d.body, handle, out),
+            Stmt::Try(t) => {
+                for st in &t.block.stmts { walk_stmt(st, handle, out); }
+                if let Some(h) = t.handler.as_ref() {
+                    for st in &h.body.stmts { walk_stmt(st, handle, out); }
+                }
+                if let Some(f) = t.finalizer.as_ref() {
+                    for st in &f.stmts { walk_stmt(st, handle, out); }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for item in &program.items {
+        match item {
+            Item::Statement(Statement::Raw(raw)) => {
+                if let Some(s) = raw.stmt.as_ref() {
+                    walk_stmt(s, &mut handle_var_decl, &mut out);
+                }
+            }
+            Item::Function(f) => {
+                for stmt_raw in &f.body {
+                    let Statement::Raw(raw) = stmt_raw;
+                    if let Some(s) = raw.stmt.as_ref() {
+                        walk_stmt(s, &mut handle_var_decl, &mut out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    out
+}
+
 fn collect_top_level_mutable_vars(program: &Program) -> HashSet<String> {
     let mut out = HashSet::new();
     for item in &program.items {
@@ -631,6 +758,8 @@ pub(crate) fn lift_inline_arrows_in_array_methods(program: &mut Program) {
     ALLOWED_CAPTURES.with(|c| *c.borrow_mut() = top_level_mut_vars.clone());
     let array_idents: HashSet<String> = collect_array_receiver_idents(program);
     ARRAY_RECEIVER_IDENTS.with(|c| *c.borrow_mut() = array_idents);
+    let elem_classes: HashMap<String, String> = collect_array_elem_classes(program);
+    ARRAY_ELEM_CLASS.with(|c| *c.borrow_mut() = elem_classes);
 
     let mut new_fns: Vec<Item> = Vec::new();
 
@@ -982,6 +1111,27 @@ fn lift_arrows_in_expr(
                                 call.args[arg_idx].expr.as_ref(),
                                 Expr::Arrow(_)
                             );
+                            // (#341/elo-f64) Para metodos cujo slot 0 eh o
+                            // ELEMENTO (map/forEach/filter/find/...), se o
+                            // receiver eh uma array-var de classe conhecida,
+                            // anota o slot 0 com a classe — assim `p.campoFloat`
+                            // no callback liftado le f64. Nao se aplica a
+                            // reduce (slot 0 = acc).
+                            let slot0_class: Option<String> = if matches!(
+                                method,
+                                "map" | "forEach" | "filter" | "find" | "findIndex"
+                                | "some" | "every" | "findLast" | "findLastIndex"
+                            ) {
+                                if let Expr::Ident(arr_id) = m.obj.as_ref() {
+                                    ARRAY_ELEM_CLASS.with(|c| {
+                                        c.borrow().get(arr_id.sym.as_str()).cloned()
+                                    })
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
                             if try_lift_now {
                                 if let Some(fn_name) = try_lift_arrow_arg(
                                     &call.args[arg_idx].expr,
@@ -993,6 +1143,7 @@ fn lift_arrows_in_expr(
                                     recv_is_object_entries || mapper_slot0_is_string
                                         || reduce_init_is_string,
                                     method == "reduce" || method == "reduceRight",
+                                    slot0_class,
                                 ) {
                                     // Substitui arg por Ident.
                                     call.args[arg_idx].expr = Box::new(Expr::Ident(swc_ecma_ast::Ident {
@@ -1081,6 +1232,10 @@ fn try_lift_arrow_arg(
     is_void_callback: bool,
     slot0_is_handle: bool,
     is_reduce: bool,
+    // (#341/elo-f64) Quando Some(C), anota o param do ELEMENTO (slot 0) com a
+    // classe C, p/ que `p.campoFloat` no body leia f64. So' passado p/ metodos
+    // element-slot (map/filter/etc), nunca reduce.
+    slot0_class: Option<String>,
 ) -> Option<String> {
     use swc_ecma_ast::BlockStmtOrExpr;
     let arrow = match arg {
@@ -1303,18 +1458,29 @@ fn try_lift_arrow_arg(
 
     // (#195) Capturas viram params INICIAIS (i64/handle ambiguo). bound_args
     // sao prepended em runtime, entao a ordem aqui = [caps..., proprios...].
-    let mut all_params: Vec<(String, bool)> = Vec::new();
+    // O 3o campo eh a anotacao de tipo: "i64" default, "string" p/ slot0
+    // handle, ou o nome da classe p/ slot0 de array-de-objetos (#341).
+    let mut all_params: Vec<(String, String)> = Vec::new();
     for c in &captures {
-        all_params.push((c.clone(), false)); // captura: i64/handle ambiguo
+        all_params.push((c.clone(), "i64".to_string())); // captura: i64/handle ambiguo
     }
     for (i, n) in param_names.iter().enumerate() {
-        all_params.push((n.clone(), i == 0 && slot0_is_handle));
+        let ann = if i == 0 && slot0_is_handle {
+            "string".to_string()
+        } else if i == 0 {
+            // (#341) slot 0 = elemento; se eh array de classe conhecida, anota
+            // a classe p/ `p.campoFloat` ler f64. Senao i64 (default).
+            slot0_class.clone().unwrap_or_else(|| "i64".to_string())
+        } else {
+            "i64".to_string()
+        };
+        all_params.push((n.clone(), ann));
     }
     let parameters: Vec<Parameter> = all_params
         .iter()
-        .map(|(nm, is_str)| Parameter {
+        .map(|(nm, ann)| Parameter {
             name: nm.clone(),
-            type_annotation: Some(if *is_str { "string".to_string() } else { "i64".to_string() }),
+            type_annotation: Some(ann.clone()),
             modifiers: MemberModifiers::default(),
             variadic: false,
             default: None,
