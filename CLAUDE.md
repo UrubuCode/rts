@@ -573,9 +573,8 @@ de escopo de PR pequena):
 - **#223** dynamic import
 - **#301** var hoisting em fn user (top-level ja' funciona)
 - **#304** toString/valueOf em coercao implicita
-- **#305** integer overflow — multiplicacao promovida a i64 (cobre ~3e18);
-  acima disso ainda satura (f64 completo seria refator maior). add/sub i32 idem
-  pendente
+- **#305** integer overflow — mul/add/sub promovidos a i64 (cobre ~9e18);
+  acima disso ainda satura (f64 completo seria refator maior)
 - **#477** generator infinito (vec push estoura — refator state machine)
 - **#211/#219/#225** generators / BigInt / Intl (candidate-discard)
 

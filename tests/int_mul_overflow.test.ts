@@ -33,6 +33,18 @@ function area(w: number, h: number): number {
 }
 const big = area(1000000, 1000000); // 10^12
 
+// (#305 follow-up) add/sub tambem promovem i32 -> i64.
+const addLit = 2000000000 + 2000000000; // 4*10^9 (> i32::MAX)
+const c = 2000000000;
+const d = 2000000000;
+const addVar = c + d; // 4*10^9
+const subNeg = 1000000000 - 3000000000; // -2*10^9
+const mixed = (100000 * 100000) + (2000000000 + 2000000000); // 10^10 + 4*10^9
+let counter = 2000000000;
+counter = counter + 1;
+counter = counter + 1; // 2000000002
+const addSmall = 1000 + 2000; // 3000 (nao-regressao)
+
 describe("multiplicacao inteira nao overflowa em i32 (#305)", () => {
   test("literal * literal 10^12", () => expect(`${litMul}`).toBe("1000000000000"));
   test("var * var 10^10", () => expect(`${varMul}`).toBe("10000000000"));
@@ -40,4 +52,11 @@ describe("multiplicacao inteira nao overflowa em i32 (#305)", () => {
   test("acumulador em loop", () => expect(`${acc}`).toBe("20000000000"));
   test("produto pequeno continua exato", () => expect(`${small}`).toBe("1000000"));
   test("fn area 10^12", () => expect(`${big}`).toBe("1000000000000"));
+
+  test("add literal > 2^31", () => expect(`${addLit}`).toBe("4000000000"));
+  test("add var > 2^31", () => expect(`${addVar}`).toBe("4000000000"));
+  test("sub negativo > -2^31", () => expect(`${subNeg}`).toBe("-2000000000"));
+  test("mul + add aninhado", () => expect(`${mixed}`).toBe("14000000000"));
+  test("contador cruza 2^31", () => expect(`${counter}`).toBe("2000000002"));
+  test("add pequeno continua exato", () => expect(`${addSmall}`).toBe("3000"));
 });
