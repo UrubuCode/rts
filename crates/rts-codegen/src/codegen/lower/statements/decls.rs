@@ -107,8 +107,42 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             let init_peeled = peel_ts_init(init.as_ref());
             // (#208) `const a = [1,2,3]` — sem anotacao mas init e' literal
             // array. Marca pra preferir lower_array_builtin.
-            if matches!(init_peeled, swc_ecma_ast::Expr::Array(_)) {
+            if let swc_ecma_ast::Expr::Array(arr_lit) = init_peeled {
                 ctx.local_array_vars.insert(name.clone());
+                // (#341/elo-f64) `const ps = [new P(...), new P(...)]` sem
+                // anotacao `: P[]`. Infere a classe do elemento a partir dos
+                // `new ClassName()` do literal, para que o bind de for-of
+                // (`for (const p of ps)`) herde a classe e `p.campoFloat`
+                // leia f64 (sem isto, `p.age >= 18` comparava bits-i64 e
+                // contava floats truncados). So' quando TODOS os elementos sao
+                // `new C()` da MESMA classe user conhecida.
+                let mut elem_cls: Option<String> = None;
+                let mut all_same = true;
+                let mut saw_any = false;
+                for el in arr_lit.elems.iter().flatten() {
+                    if el.spread.is_some() { all_same = false; break; }
+                    if let swc_ecma_ast::Expr::New(n) = el.expr.as_ref() {
+                        if let swc_ecma_ast::Expr::Ident(cid) = n.callee.as_ref() {
+                            let cn = cid.sym.as_str();
+                            if ctx.classes.contains_key(cn) {
+                                saw_any = true;
+                                match &elem_cls {
+                                    None => elem_cls = Some(cn.to_string()),
+                                    Some(prev) if prev == cn => {}
+                                    Some(_) => { all_same = false; break; }
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    all_same = false;
+                    break;
+                }
+                if all_same && saw_any {
+                    if let Some(cn) = elem_cls {
+                        ctx.local_array_class_ty.insert(name.clone(), cn);
+                    }
+                }
             }
             // (cross-runtime) `const m = new Map/Set(...)` ou `const m = f()`
             // onde f retorna Map/Set — marca p/ `.size` rotear corretamente.
