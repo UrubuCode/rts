@@ -28,6 +28,12 @@ const mapped = arr.map((x, i) => x + i).join(","); // 10,21,32
 let feSum = 0;
 arr.forEach((x, i) => { feSum = feSum + x + i; }); // 63
 
+// reduceRight com idx (visita 2,1,0 — index = posicao ORIGINAL)
+const rrIdx = arr.reduceRight((acc, x, i) => acc + x + i, 0); // 60 + (2+1+0) = 63
+const rrIdxOnly = arr.reduceRight((acc, x, i) => acc + i, 0); // 2+1+0 = 3
+const rrNoIdx = arr.reduceRight((acc, x) => acc + x, 0); // 60 (nao-regressao)
+const rrNoInit = arr.reduceRight((acc, x) => acc + x); // 60 (nao-regressao)
+
 describe("array method callback com idx em aritmetica (#345)", () => {
   test("reduce acc+x+i", () => expect(`${r3}`).toBe("63"));
   test("reduce so idx", () => expect(`${rIdxOnly}`).toBe("3"));
@@ -36,4 +42,8 @@ describe("array method callback com idx em aritmetica (#345)", () => {
   test("reduce idx nao usado (nao-regressao)", () => expect(`${rUnused}`).toBe("60"));
   test("map x+i", () => expect(mapped).toBe("10,21,32"));
   test("forEach acumulando x+i", () => expect(`${feSum}`).toBe("63"));
+  test("reduceRight acc+x+i", () => expect(`${rrIdx}`).toBe("63"));
+  test("reduceRight so idx (2+1+0)", () => expect(`${rrIdxOnly}`).toBe("3"));
+  test("reduceRight sem idx (nao-regressao)", () => expect(`${rrNoIdx}`).toBe("60"));
+  test("reduceRight sem init (nao-regressao)", () => expect(`${rrNoInit}`).toBe("60"));
 });
