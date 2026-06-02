@@ -824,8 +824,12 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
         Some(Entry::Buffer(b)) => b.iter().map(|&x| x as i64).collect(),
         Some(Entry::Map(m)) => {
             if is_set {
-                m.keys()
-                    .filter_map(|k| k.parse::<i64>().ok())
+                // (#394) Recupera identidade do elemento via value preservado
+                // (set_element_from_pair) em vez de descartar nao-numericos.
+                m.iter()
+                    .map(|(k, &v)| {
+                        crate::namespaces::collections::map::set_element_from_pair(k, v)
+                    })
                     .collect()
             } else if is_map {
                 // JS Map: Array.from(map) retorna pares [key, value].
@@ -1026,12 +1030,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
     // (#61) Set armazena value=1 marker no Map<String,i64>; values reais
     // sao as keys. Detecta via handle_is_set_kind antes do match Map.
     let is_set = crate::namespaces::collections::map::handle_is_set_kind(handle);
-    enum Kind { Vec(Vec<i64>), MapVals(Vec<i64>), SetKeys(Vec<String>), Other }
+    enum Kind { Vec(Vec<i64>), MapVals(Vec<i64>), SetPairs(Vec<(String, i64)>), Other }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Vec(v)) => Kind::Vec((**v).clone()),
         Some(Entry::Map(m)) => {
             if is_set {
-                Kind::SetKeys(m.keys().cloned().collect())
+                Kind::SetPairs(m.iter().map(|(k, &v)| (k.clone(), v)).collect())
             } else {
                 Kind::MapVals(m.values().copied().collect())
             }
@@ -1040,16 +1044,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
     });
     let out: Vec<i64> = match kind {
         Kind::Vec(v) | Kind::MapVals(v) => v,
-        Kind::SetKeys(keys) => keys
+        // (#394) Recupera identidade do elemento via value preservado.
+        Kind::SetPairs(pairs) => pairs
             .into_iter()
-            .map(|k| {
-                // Tenta interpretar key como inteiro (Set de numeros) — JS Set
-                // mantem o tipo original. Fallback: aloca como string.
-                if let Ok(n) = k.parse::<i64>() {
-                    n
-                } else {
-                    alloc_entry(Entry::String(k.into_bytes())) as i64
-                }
+            .map(|(k, v)| {
+                crate::namespaces::collections::map::set_element_from_pair(&k, v)
             })
             .collect(),
         Kind::Other => Vec::new(),
