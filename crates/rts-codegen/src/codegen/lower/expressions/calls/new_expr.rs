@@ -353,14 +353,16 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             if let Some(arg) = init_arg {
                 if let Expr::Array(arr) = arg.expr.as_ref() {
                     if class_name == "Set" {
-                        // add(elem) para cada item. Para F64 (number), usa
-                        // STRING_FROM_F64 que preserva NaN/Infinity/-0
-                        // como keys distintas (#669/95).
-                        let from_i64 = ctx.get_extern(
-                            "__RTS_FN_NS_GC_STRING_FROM_I64",
-                            &[cl::I64],
-                            Some(cl::I64),
-                        )?;
+                        // (#394) add(elem) para cada item.
+                        // - F64 (number): STRING_FROM_F64 preserva NaN/Infinity/-0
+                        //   como keys distintas (#669/95); value = `one` (caminho
+                        //   float tem repr propria, fora deste escopo).
+                        // - resto (string/objeto/Set/int): SET_ADD deriva a KEY
+                        //   estavel (conteudo p/ string, identidade p/ objeto,
+                        //   decimal p/ int) e grava o VALOR original como value,
+                        //   de modo que values()/[...set]/for-of recuperem a
+                        //   identidade do elemento. Antes objetos viravam key
+                        //   vazia (STRING_PTR de nao-string) e colidiam todos.
                         let from_f64 = ctx.get_extern(
                             "__RTS_FN_NS_GC_STRING_FROM_F64",
                             &[cl::F64],
@@ -381,30 +383,27 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
                             &[cl::I64, cl::I64, cl::I64, cl::I64],
                             None,
                         )?;
+                        let set_add = ctx.get_extern(
+                            "__RTS_FN_NS_COLLECTIONS_SET_ADD",
+                            &[cl::I64, cl::I64],
+                            Some(cl::I64),
+                        )?;
                         let one = ctx.builder.ins().iconst(cl::I64, 1);
                         for elem in arr.elems.iter().flatten() {
                             if elem.spread.is_some() { continue; }
                             let tv = lower_expr(ctx, &elem.expr)?;
-                            let key_h = if matches!(tv.ty, ValTy::F64) {
+                            if matches!(tv.ty, ValTy::F64) {
                                 let inst_s = ctx.builder.ins().call(from_f64, &[tv.val]);
-                                ctx.builder.inst_results(inst_s)[0]
-                            } else if matches!(tv.ty, ValTy::Handle) {
-                                // (cross-runtime #316) Elemento string/handle: a
-                                // KEY do Set eh o CONTEUDO da string, nao o numero
-                                // do handle. Sem isto `new Set(["a","b","a"])` nao
-                                // deduplicava (cada "a" tinha handle distinto) e
-                                // has("a") falhava. Usa o proprio handle string.
-                                tv.val
+                                let key_h = ctx.builder.inst_results(inst_s)[0];
+                                let inst_p = ctx.builder.ins().call(str_ptr, &[key_h]);
+                                let kp = ctx.builder.inst_results(inst_p)[0];
+                                let inst_l = ctx.builder.ins().call(str_len, &[key_h]);
+                                let kl = ctx.builder.inst_results(inst_l)[0];
+                                ctx.builder.ins().call(map_set, &[h, kp, kl, one]);
                             } else {
-                                let i = ctx.coerce_to_i64(tv).val;
-                                let inst_s = ctx.builder.ins().call(from_i64, &[i]);
-                                ctx.builder.inst_results(inst_s)[0]
-                            };
-                            let inst_p = ctx.builder.ins().call(str_ptr, &[key_h]);
-                            let kp = ctx.builder.inst_results(inst_p)[0];
-                            let inst_l = ctx.builder.ins().call(str_len, &[key_h]);
-                            let kl = ctx.builder.inst_results(inst_l)[0];
-                            ctx.builder.ins().call(map_set, &[h, kp, kl, one]);
+                                let elem_raw = ctx.coerce_to_i64(tv).val;
+                                ctx.builder.ins().call(set_add, &[h, elem_raw]);
+                            }
                         }
                     } else {
                         // Map: cada elem e' [key, value].

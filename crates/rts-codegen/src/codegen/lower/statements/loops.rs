@@ -298,6 +298,19 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         )?;
         ctx.builder.ins().call(spread_fn, &[char_vec, handle]);
         handle = char_vec;
+    } else if iter_class.is_none() {
+        // (#394) Classe estatica desconhecida (ex: bind de outro for-of, como
+        // `for (const s of setOfSets) for (const n of s)`). Normaliza em
+        // runtime: Set->elementos, Map->entries, resto inalterado. So' altera
+        // handles que seriam mal-iterados (Set/Map sem classe conhecida); Vec
+        // passa direto.
+        let norm_fn = ctx.get_extern(
+            "__RTS_FN_RT_FOR_OF_NORMALIZE",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(norm_fn, &[handle]);
+        handle = ctx.builder.inst_results(inst)[0];
     }
 
     let len_fref = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_LEN", &[cl::I64], Some(cl::I64))?;

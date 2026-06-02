@@ -567,10 +567,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
     // Para Map, mantem transmute fn(i64,i64,i64) — callbacks de Map sao
     // normalmente arrows lifted (windows_fastcall) que aceitam essa sig.
     if is_set {
-        for (k, _v) in &pairs {
-            let key_for_set: i64 = k.parse::<i64>().unwrap_or_else(|_| {
-                alloc_entry(Entry::String(k.clone().into_bytes())) as i64
-            });
+        for (k, v) in &pairs {
+            // (#394) elemento via value preservado (identidade), nao parse da key.
+            let key_for_set: i64 = set_element_from_pair(k, *v);
             let args_vec = alloc_entry(Entry::Vec(Box::new(vec![key_for_set, key_for_set, handle as i64])));
             crate::namespaces::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
                 fn_ptr as i64,
@@ -934,6 +933,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
         return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
     }
+    // (#394) Set.keys() eh alias de Set.values() em JS — retorna os ELEMENTOS
+    // (com identidade preservada), nao as keys-string internas.
+    if handle_is_set_kind(handle) {
+        return __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle);
+    }
     let keys: Vec<String> = with_map(handle, Vec::new(), |m| {
         // (#208) Filtra `__proto__` e nao-enumeraveis (defineProperty) —
         // JS spec: Object.keys retorna so own enumeravel.
@@ -989,18 +993,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
     if handle_is_set_kind(handle) {
-        // Set.values() retorna os elementos (= keys do storage Map).
-        // Cada key foi armazenada como string — se parseia como int,
-        // converte de volta, senao retorna handle string.
+        // Set.values() retorna os elementos. (#394) Recupera a IDENTIDADE do
+        // elemento a partir do value preservado (set_element_from_pair); cai
+        // no parse da key apenas no fallback legado/float.
         let elems: Vec<i64> = with_map(handle, Vec::new(), |m| {
-            m.keys()
-                .filter(|k| k.as_str() != "__proto__")
-                .map(|k| match k.parse::<i64>() {
-                    Ok(n) => n,
-                    Err(_) => crate::namespaces::gc::handles::alloc_entry(
-                        crate::namespaces::gc::handles::Entry::String(k.clone().into_bytes()),
-                    ) as i64,
-                })
+            m.iter()
+                .filter(|(k, _)| k.as_str() != "__proto__")
+                .map(|(k, &v)| set_element_from_pair(k, v))
                 .collect()
         });
         return crate::namespaces::gc::handles::alloc_entry(
@@ -1088,6 +1087,26 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
 /// e `for (const [k, v] of m)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> u64 {
+    // (#394) Set.entries() em JS retorna pares [elem, elem] (cada elemento
+    // duplicado). Usa o elemento com identidade preservada, nao a key-string.
+    if handle_is_set_kind(handle) {
+        let elems: Vec<i64> = with_map(handle, Vec::new(), |m| {
+            m.iter()
+                .filter(|(k, _)| k.as_str() != "__proto__")
+                .map(|(k, &v)| set_element_from_pair(k, v))
+                .collect()
+        });
+        let mut outer: Vec<i64> = Vec::with_capacity(elems.len());
+        for e in elems {
+            let inner = crate::namespaces::gc::handles::alloc_entry(
+                crate::namespaces::gc::handles::Entry::Vec(Box::new(vec![e, e])),
+            );
+            outer.push(inner as i64);
+        }
+        return crate::namespaces::gc::handles::alloc_entry(
+            crate::namespaces::gc::handles::Entry::Vec(Box::new(outer)),
+        );
+    }
     let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
         m.iter()
             .filter(|(k, _)| k.as_str() != "__proto__")
@@ -1409,6 +1428,29 @@ pub(crate) fn handle_is_map_kind(handle: u64) -> bool {
 
 pub(crate) fn handle_is_set_kind(handle: u64) -> bool {
     set_kind_set().lock().unwrap().contains(&handle)
+}
+
+/// (#394) Recupera o ELEMENTO de um Set a partir do par (key, value) do Map
+/// interno. Os escritores (Set.add, new Set([...]), SET_FROM_VEC) gravam o
+/// VALOR original do elemento como value, preservando a identidade (handle de
+/// objeto/Set aninhado/string). A leitura prefere esse value.
+///
+/// Fallback (value sentinel legado `1` E a key nao parseia como `1`): Sets
+/// criados pelo caminho float (que mantem value=`1`) ou por estados antigos —
+/// reconstroi o elemento parseando a key (int) ou alocando string handle.
+/// Quando key=="1" o value=1 eh o numero genuino, entao usa o value direto.
+pub(crate) fn set_element_from_pair(key: &str, value: i64) -> i64 {
+    if value == 1 && key != "1" {
+        // value sentinel legado / float: reconstroi da key.
+        match key.parse::<i64>() {
+            Ok(n) => n,
+            Err(_) => crate::namespaces::gc::handles::alloc_entry(
+                crate::namespaces::gc::handles::Entry::String(key.as_bytes().to_vec()),
+            ) as i64,
+        }
+    } else {
+        value
+    }
 }
 
 /// (#316) Helper interno para estruturas que clonam (structuredClone)
@@ -1963,6 +2005,98 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
 /// Cria um Map marcado como Set e adiciona cada elemento como key (value=1).
 /// Espelha a conversao do caminho de array literal: elemento handle-string usa
 /// o conteudo; inteiro usa a representacao decimal. Dedup natural (HashMap).
+/// (#394) Deriva a KEY ESTAVEL de um elemento de Set a partir do seu valor i64
+/// cru. A key serve para dedup (has/add/delete); o VALUE armazenado preserva a
+/// identidade. Regras:
+/// - `Entry::String` -> conteudo da string (dedup por valor: `"a"` == `"a"`).
+/// - outro Entry (objeto/Map/Set/Vec/etc) -> `"\0obj#<handle>"`: dedup por
+///   IDENTIDADE (handle unico). Antes objetos viravam key vazia (STRING_PTR de
+///   nao-string = ptr nulo) e colidiam todos numa unica entrada.
+/// - sem Entry valido (numero/bool/sentinel) -> representacao decimal.
+pub(crate) fn set_stable_key(elem_raw: i64) -> String {
+    use crate::namespaces::gc::handles::{Entry, with_entry};
+    with_entry(elem_raw as u64, |e| match e {
+        Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+        Some(_) => format!("\0obj#{elem_raw}"),
+        None => elem_raw.to_string(),
+    })
+}
+
+/// (#394) `set.add(elem)` — insere preservando identidade. A KEY vem de
+/// `set_stable_key` (dedup correto p/ objetos), o VALUE eh o elemento cru
+/// (leitura recupera a identidade via `set_element_from_pair`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_ADD(set_h: u64, elem_raw: i64) -> u64 {
+    if set_h == 0 || elem_raw == i64::MIN + 4 {
+        return set_h;
+    }
+    let key = set_stable_key(elem_raw);
+    let sealed = is_map_sealed(set_h);
+    with_map_mut(set_h, (), |m| {
+        if sealed && !m.contains_key(&key) {
+            return;
+        }
+        m.insert(key, elem_raw);
+    });
+    set_h
+}
+
+/// (#394) `coll.has(arg)` unificado Map/Set. Para Set usa a key estavel
+/// derivada do elemento cru (`elem_raw`) — identidade p/ objetos. Para Map (e
+/// qualquer handle nao-Set) usa a key-string (`key_ptr`/`key_len`), preservando
+/// 100% o comportamento de `MAP_HAS`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_HAS(
+    handle: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+    elem_raw: i64,
+) -> i64 {
+    if handle_is_set_kind(handle) {
+        let key = set_stable_key(elem_raw);
+        return with_map(handle, false, |m| m.contains_key(&key)) as i64;
+    }
+    __RTS_FN_NS_COLLECTIONS_MAP_HAS(handle, key_ptr, key_len)
+}
+
+/// (#394) `coll.delete(arg)` unificado Map/Set. Mesma logica de
+/// `SET_OR_MAP_HAS`: Set por identidade (elem_raw), Map por key-string.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
+    handle: u64,
+    key_ptr: *const u8,
+    key_len: i64,
+    elem_raw: i64,
+) -> i64 {
+    if handle_is_set_kind(handle) {
+        if is_map_frozen(handle) {
+            return 0;
+        }
+        let key = set_stable_key(elem_raw);
+        return with_map_mut(handle, false, |m| m.shift_remove(&key).is_some()) as i64;
+    }
+    __RTS_FN_NS_COLLECTIONS_MAP_DELETE(handle, key_ptr, key_len)
+}
+
+/// (#394) Normaliza um iteravel de for-of quando o codegen NAO conhece a
+/// classe estatica (ex: o bind eh elemento de outro for-of, como em
+/// `for (const s of setOfSets) for (const n of s)`). Decide em runtime:
+/// - Set  -> Vec dos ELEMENTOS (MAP_VALUES, identidade preservada);
+/// - Map  -> Vec de pares [k,v] (ENTRIES_INSERTION);
+/// - resto (Vec/Buffer/string/etc) -> o proprio handle inalterado.
+/// So' eh chamado no ramo "classe desconhecida"; o caminho tipado comum
+/// (Vec anotado) nao passa por aqui.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
+    if handle_is_set_kind(handle) {
+        return __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle);
+    }
+    if handle_is_map_kind(handle) {
+        return __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle);
+    }
+    handle
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
     use crate::namespaces::gc::handles::{Entry, with_entry};
@@ -1975,13 +2109,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
     for raw in elems {
         // hole sentinel: ignora.
         if raw == i64::MIN + 4 { continue; }
-        let key_str: Option<String> = with_entry(raw as u64, |ke| match ke {
-            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-            _ => None,
-        });
-        let key = key_str.unwrap_or_else(|| raw.to_string());
+        // (#394) key estavel (identidade p/ objetos) + value = elemento cru.
+        let key = set_stable_key(raw);
         with_map_mut(m, (), |mm| {
-            mm.insert(key, 1);
+            mm.insert(key, raw);
         });
     }
     m

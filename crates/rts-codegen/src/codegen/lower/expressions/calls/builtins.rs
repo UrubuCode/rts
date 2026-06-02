@@ -666,6 +666,41 @@ pub(super) fn lower_map_set_builtin(
         Ok((p, l))
     }
 
+    // (#394) Como `arg_strptr`, mas lowera o arg UMA vez e devolve tambem o
+    // valor i64 cru do elemento (`raw`). Necessario p/ has()/delete() unificados
+    // Map/Set: Map usa (p,l) key-string, Set usa `raw` p/ a key estavel de
+    // identidade. Evita lowerar o arg duas vezes (efeitos colaterais / handles
+    // duplicados em `set.has(f())` ou `set.has({...})`).
+    fn arg_strptr_and_raw(
+        ctx: &mut FnCtx,
+        call: &CallExpr,
+        idx: usize,
+    ) -> Result<(
+        cranelift_codegen::ir::Value,
+        cranelift_codegen::ir::Value,
+        cranelift_codegen::ir::Value,
+    )> {
+        let arg = call
+            .args
+            .get(idx)
+            .ok_or_else(|| anyhow!("missing arg #{idx}"))?;
+        if arg.spread.is_some() {
+            return Err(anyhow!("spread not supported"));
+        }
+        let tv = lower_expr(ctx, &arg.expr)?;
+        let raw = ctx.coerce_to_i64(tv).val;
+        let h = ctx.coerce_to_handle(tv)?.val;
+        let ptr_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+        let len_fref =
+            ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+        let pi = ctx.builder.ins().call(ptr_fref, &[h]);
+        let p = ctx.builder.inst_results(pi)[0];
+        let li = ctx.builder.ins().call(len_fref, &[h]);
+        let l = ctx.builder.inst_results(li)[0];
+        Ok((p, l, raw))
+    }
+
     // Arity check: a heuristica so' deve disparar quando o nº de args
     // bate com a assinatura JS de Map/Set. Sem isso, qualquer obj literal
     // com chave `add`/`set`/`get`/`has`/`delete` que carregue uma fn de
@@ -710,16 +745,22 @@ pub(super) fn lower_map_set_builtin(
             Ok(Some(TypedVal::new(recv_h, ValTy::Handle)))
         }
         "add" => {
-            // Set.add(value) → map_set(h, value, 1).
-            let (kp, kl) = arg_strptr(ctx, call, 0)?;
-            let one = ctx.builder.ins().iconst(cl::I64, 1);
+            // (#394) Set.add(value) → SET_ADD(h, elemRaw). O runtime deriva a
+            // KEY estavel (set_stable_key): conteudo p/ string, "\0obj#<h>" p/
+            // objeto/Set (dedup por IDENTIDADE), decimal p/ numero. Armazena o
+            // VALOR i64 original como value, de modo que values()/[...set]/for-of
+            // recuperem a identidade do elemento (handle de objeto/Set aninhado).
+            // Antes objetos viravam key vazia e colidiam todos numa entrada.
+            let val_tv = lower_expr(ctx, &call.args[0].expr)?;
+            let elem_raw = ctx.coerce_to_i64(val_tv).val;
             let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_SET",
-                &[cl::I64, cl::I64, cl::I64, cl::I64],
-                None,
+                "__RTS_FN_NS_COLLECTIONS_SET_ADD",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
             )?;
-            ctx.builder.ins().call(fref, &[recv_h, kp, kl, one]);
-            Ok(Some(TypedVal::new(recv_h, ValTy::Handle)))
+            let inst = ctx.builder.ins().call(fref, &[recv_h, elem_raw]);
+            let h = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(h, ValTy::Handle)))
         }
         "get" => {
             let (kp, kl) = arg_strptr(ctx, call, 0)?;
@@ -744,24 +785,28 @@ pub(super) fn lower_map_set_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "has" => {
-            let (kp, kl) = arg_strptr(ctx, call, 0)?;
+            // (#394) Unificado Map/Set. Passa key-string (kp/kl) E elemento cru
+            // (elem_raw); o runtime escolhe por handle_is_set_kind: Set usa key
+            // estavel (identidade p/ objetos), Map usa key-string (inalterado).
+            let (kp, kl, elem_raw) = arg_strptr_and_raw(ctx, call, 0)?;
             let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_HAS",
-                &[cl::I64, cl::I64, cl::I64],
+                "__RTS_FN_NS_COLLECTIONS_SET_OR_MAP_HAS",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl]);
+            let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl, elem_raw]);
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
         "delete" => {
-            let (kp, kl) = arg_strptr(ctx, call, 0)?;
+            // (#394) Unificado Map/Set (ver `has`).
+            let (kp, kl, elem_raw) = arg_strptr_and_raw(ctx, call, 0)?;
             let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_DELETE",
-                &[cl::I64, cl::I64, cl::I64],
+                "__RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl]);
+            let inst = ctx.builder.ins().call(fref, &[recv_h, kp, kl, elem_raw]);
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
