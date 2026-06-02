@@ -1321,6 +1321,21 @@ impl LiftAcc {
                     continue;
                 }
 
+                // (#345) Nao re-liftar idents que JA' sao fns liftadas
+                // internamente pelo `lift_inline_arrows` (`__lifted_arr_method_*`
+                // / `__lifted_cap_*`). Essas ja' tem a signature correta do
+                // parallel.* (3 params: acc/val/idx) e devem ser chamadas
+                // DIRETO. Re-liftar criava um trampolim `__lifted_arrow_N(acc,x)`
+                // que so' passava 2 args ao target (perdendo o idx -> undefined
+                // sentinel) e ainda fazia recursao mutua tanglada. Era a causa
+                // de `reduce((acc,x,i)=>acc+x+i,0)` -> lixo (-3.26e-322).
+                if let Expr::Ident(id) = peel_ts(arg.expr.as_ref()) {
+                    let n = id.sym.as_str();
+                    if n.starts_with("__lifted_arr_method_") || n.starts_with("__lifted_cap_") {
+                        continue;
+                    }
+                }
+
                 // Decide qual variante:
                 //  (a) Arrow capturando `this` dentro de classe → trampolim
                 //      com slot global.
