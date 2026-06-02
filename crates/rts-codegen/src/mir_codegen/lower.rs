@@ -382,6 +382,17 @@ fn val(vmap: &HashMap<ValueId, Value>, vid: ValueId) -> Result<Value> {
         .ok_or_else(|| anyhow!("MIR value v{} referenced before being defined", vid))
 }
 
+/// (#305) Promove um valor inteiro a i64 (sextend se i32, passthrough se ja'
+/// i64). Usado antes de `imul` para que a multiplicacao inteira nao overflowe
+/// em 32 bits — `number` em JS eh f64 (exato ate 2^53).
+fn sextend_to_i64(builder: &mut FunctionBuilder, v: Value) -> Value {
+    if builder.func.dfg.value_type(v) == cl::I32 {
+        builder.ins().sextend(cl::I64, v)
+    } else {
+        v
+    }
+}
+
 fn lower_inst(
     builder: &mut FunctionBuilder,
     inst: &Inst,
@@ -427,11 +438,18 @@ fn lower_inst(
             bind!(dst, v);
         }
         IMul { dst, lhs, rhs } => {
-            let v = builder.ins().imul(val(vmap, *lhs)?, val(vmap, *rhs)?);
+            // (#305) `i32 * i32` overflowa a 32 bits. Em JS `number` eh f64
+            // (exato ate 2^53); promovemos a multiplicacao inteira para i64
+            // (cobre ate ~3*10^18). Espelha o fix do caminho AST (lower_mul).
+            let lv = sextend_to_i64(builder, val(vmap, *lhs)?);
+            let rv = sextend_to_i64(builder, val(vmap, *rhs)?);
+            let v = builder.ins().imul(lv, rv);
             bind!(dst, v);
         }
         IMulImm { dst, lhs, imm } => {
-            let v = builder.ins().imul_imm(val(vmap, *lhs)?, *imm);
+            // (#305) idem: promove o operando a i64 antes do imul_imm.
+            let lv = sextend_to_i64(builder, val(vmap, *lhs)?);
+            let v = builder.ins().imul_imm(lv, *imm);
             bind!(dst, v);
         }
         SDiv { dst, lhs, rhs } => {

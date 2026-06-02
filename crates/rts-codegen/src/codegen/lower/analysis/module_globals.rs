@@ -66,7 +66,25 @@ pub(crate) fn collect_module_globals(
                     .and_then(|ann| ts_type_to_val_ty(&ann.type_ann)),
                 _ => None,
             };
-            let ty = ann_ty.unwrap_or_else(|| infer_expr_ty(decl.init.as_deref()));
+            let inferred = infer_expr_ty(decl.init.as_deref());
+            // (#305) Espelha o `promote_to_f64` de lower_var_decl: var MUTAVEL
+            // (`let`/`var`) sem anotacao, inicializada com LITERAL inteiro, vira
+            // F64. Sem isto o global ficava i32/i64 e `acc = acc * 10` num loop
+            // top-level (referenciado por user fn -> vira global) truncava em 32
+            // bits (`20000000000` virava -1474836480). JS: number eh f64.
+            let is_mutable_kind = matches!(
+                var_decl.kind,
+                swc_ecma_ast::VarDeclKind::Let | swc_ecma_ast::VarDeclKind::Var
+            );
+            let init_is_int_lit = matches!(
+                decl.init.as_deref(),
+                Some(swc_ecma_ast::Expr::Lit(swc_ecma_ast::Lit::Num(_)))
+            ) && matches!(inferred, ValTy::I32 | ValTy::I64);
+            let ty = if ann_ty.is_none() && is_mutable_kind && init_is_int_lit {
+                ValTy::F64
+            } else {
+                ann_ty.unwrap_or(inferred)
+            };
 
             let symbol = format!("__rts_global_{}_{}", sanitize_symbol(&name), counter);
             counter += 1;
