@@ -891,8 +891,18 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(
 ) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     if fn_ptr == 0 { return init; }
-    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    items.into_iter().rev().fold(init, |a, b| f(a, b))
+    // (#345 follow-up) callback liftado de reduce tem 3 params (acc, val,
+    // index) — o lift do parallelism gera `__lifted_arr_method_reduce_N` com
+    // aridade 3. Sem passar o index como 3o arg, o param `i` lia lixo do
+    // registrador (`arr.reduceRight((a,x,i)=>a+x+i,0)` -> resultado errado).
+    // reduceRight visita da DIREITA p/ esquerda, mas o index eh a POSICAO
+    // ORIGINAL do elemento (JS spec): len-1, len-2, ..., 0.
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let mut acc = init;
+    for (i, x) in items.into_iter().enumerate().rev() {
+        acc = f(acc, x, i as i64);
+    }
+    acc
 }
 
 /// (cross-runtime #202) `arr.reduceRight(fn)` sem initial value. JS spec:
@@ -904,11 +914,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT(
 ) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     if fn_ptr == 0 || items.is_empty() { return 0; }
-    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let mut iter = items.into_iter().rev();
-    let mut acc = iter.next().unwrap();
-    for x in iter {
-        acc = f(acc, x);
+    // (#345 follow-up) idem REDUCE_RIGHT: callback de 3 params (acc, val,
+    // index). Sem init, o ultimo elemento (items[len-1]) vira acc inicial e o
+    // loop comeca em len-2 descendo ate 0 (index = posicao original).
+    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let last = items.len() - 1;
+    let mut acc = items[last];
+    for i in (0..last).rev() {
+        acc = f(acc, items[i], i as i64);
     }
     acc
 }
