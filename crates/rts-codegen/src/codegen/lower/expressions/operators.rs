@@ -1993,21 +1993,34 @@ pub(super) fn lower_add(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result
         return Ok(TypedVal::new(result, ValTy::Handle));
     }
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
-    let val = match ty {
-        ValTy::F64 => ctx.builder.ins().fadd(lv, rv),
-        ValTy::I32 => ctx.builder.ins().iadd(lv, rv),
-        _ => ctx.builder.ins().iadd(lv, rv),
-    };
-    Ok(TypedVal::new(val, ty))
+    match ty {
+        ValTy::F64 => Ok(TypedVal::new(ctx.builder.ins().fadd(lv, rv), ValTy::F64)),
+        // (#305) `i32 + i32` overflowa a 32 bits (`2e9 + 2e9` virava
+        // -294967296). Em JS `number` eh f64; promovemos a soma inteira para
+        // i64 (cobre ate ~9*10^18). Acumuladores de loop sem anotacao ja' viram
+        // f64 (promote_to_f64); este caso cobre i32+i32 puro (literais/vars i32).
+        ValTy::I32 => {
+            let lv64 = ctx.builder.ins().sextend(cl::I64, lv);
+            let rv64 = ctx.builder.ins().sextend(cl::I64, rv);
+            Ok(TypedVal::new(ctx.builder.ins().iadd(lv64, rv64), ValTy::I64))
+        }
+        _ => Ok(TypedVal::new(ctx.builder.ins().iadd(lv, rv), ty)),
+    }
 }
 
 pub(super) fn lower_sub(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {
     let (lv, rv, ty) = promote_numeric(ctx, lhs, rhs)?;
-    let val = match ty {
-        ValTy::F64 => ctx.builder.ins().fsub(lv, rv),
-        _ => ctx.builder.ins().isub(lv, rv),
-    };
-    Ok(TypedVal::new(val, ty))
+    match ty {
+        ValTy::F64 => Ok(TypedVal::new(ctx.builder.ins().fsub(lv, rv), ValTy::F64)),
+        // (#305) idem add: `i32 - i32` pode underflowar (ex: 0 - (-2e9) -> 2e9
+        // cabe, mas -2e9 - 2e9 = -4e9 estoura). Promove a i64.
+        ValTy::I32 => {
+            let lv64 = ctx.builder.ins().sextend(cl::I64, lv);
+            let rv64 = ctx.builder.ins().sextend(cl::I64, rv);
+            Ok(TypedVal::new(ctx.builder.ins().isub(lv64, rv64), ValTy::I64))
+        }
+        _ => Ok(TypedVal::new(ctx.builder.ins().isub(lv, rv), ty)),
+    }
 }
 
 fn lower_mul(ctx: &mut FnCtx, lhs: TypedVal, rhs: TypedVal) -> Result<TypedVal> {

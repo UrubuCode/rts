@@ -426,15 +426,25 @@ fn lower_inst(
 
         // Integer arithmetic
         IAdd { dst, lhs, rhs } => {
-            let v = builder.ins().iadd(val(vmap, *lhs)?, val(vmap, *rhs)?);
+            // (#305) `i32 + i32` overflowa a 32 bits (`2e9 + 2e9` -> -294967296).
+            // Promove a i64 (espelha lower_add do AST). sextend_to_i64 passa i64
+            // direto, entao operandos ja-i64 ou mistos seguem corretos.
+            let lv = sextend_to_i64(builder, val(vmap, *lhs)?);
+            let rv = sextend_to_i64(builder, val(vmap, *rhs)?);
+            let v = builder.ins().iadd(lv, rv);
             bind!(dst, v);
         }
         IAddImm { dst, lhs, imm } => {
-            let v = builder.ins().iadd_imm(val(vmap, *lhs)?, *imm);
+            // (#305) idem; cobre `x + N` (ex: acumulador `s = s + 100000`).
+            let lv = sextend_to_i64(builder, val(vmap, *lhs)?);
+            let v = builder.ins().iadd_imm(lv, *imm);
             bind!(dst, v);
         }
         ISub { dst, lhs, rhs } => {
-            let v = builder.ins().isub(val(vmap, *lhs)?, val(vmap, *rhs)?);
+            // (#305) idem add: promove i32 a i64 antes do isub.
+            let lv = sextend_to_i64(builder, val(vmap, *lhs)?);
+            let rv = sextend_to_i64(builder, val(vmap, *rhs)?);
+            let v = builder.ins().isub(lv, rv);
             bind!(dst, v);
         }
         IMul { dst, lhs, rhs } => {
