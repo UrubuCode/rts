@@ -428,6 +428,31 @@ pub(super) fn lower_return_stmt(
     }
 
     if let Some(arg) = &ret_stmt.arg {
+        // (#1281) `return () => ...` cuja arrow liftada NAO tem captura nem
+        // `this` escaparia como func_addr CRU (mod.rs:171) — o caller invoca
+        // via INVOKE_AUTO esperando handle e recebe ptr cru -> 0. Como o valor
+        // ESCAPA aqui (return), reifica um handle Function. Diferente do uso
+        // como callback sincrono (describe/test), que continua ptr cru porque
+        // nao passa por este caminho de return-de-arrow-sem-captura. So' atua
+        // quando o ident e' arrow liftada sem captura registrada (com captura
+        // ou `this` o lower_expr normal ja' reifica handle).
+        if let swc_ecma_ast::Expr::Ident(id) = arg.as_ref() {
+            let n = id.sym.as_str();
+            let is_lifted_arrow = (n.starts_with("__lifted_arrow_")
+                || n.starts_with("__hoisted_arrow_"))
+                && ctx.user_fns.contains_key(n)
+                && crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(n).is_none()
+                && ctx.read_local("this").is_none();
+            if is_lifted_arrow {
+                let tv = crate::codegen::lower::expressions::emit_lifted_arrow_handle_with_captures(
+                    ctx, n, &[],
+                )?;
+                ctx.emit_trace_pop()?;
+                let coerced = ctx.pass_as_handle(tv)?;
+                ctx.builder.ins().return_(&[coerced.val]);
+                return Ok(true);
+            }
+        }
         let is_direct_tail_call = is_direct_call_expr(arg);
         let prev = ctx.in_tail_position;
         ctx.in_tail_position = is_direct_tail_call;

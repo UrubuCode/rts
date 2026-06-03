@@ -16,6 +16,8 @@ use self::calls::{
     AccessorKind, emit_user_fn_addr, emit_virtual_accessor_dispatch, lower_call, lower_new,
     lower_super_prop_assign, lower_super_prop_read, resolve_setter_owner,
 };
+// (#1281) re-export p/ lower_return_stmt reificar arrow liftada que escapa.
+pub(crate) use self::calls::emit_lifted_arrow_handle_with_captures;
 use self::members::{
     assign_target_field_is_f64, class_field_uses_flat, emit_flat_field_write,
     field_is_readonly_in_hierarchy, lhs_static_class, lower_array_lit, lower_member_expr,
