@@ -89,6 +89,49 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     Some((ctor, state_fn))
 }
 
+/// (#207 async-SM) Tenta construir a state-machine de uma `async function`
+/// elegivel (corpo linear com `await` em statement/decl/assign; sem await
+/// aninhado em sub-expressao, sem loops/if com await nesta fatia). Em sucesso
+/// devolve `(constructor, state_fn)`; em qualquer construct inelegivel devolve
+/// `None` (caller cai no caminho thread-blocking de `expand_async_functions`).
+pub fn try_build_async(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
+    let body = function.body.as_ref()?;
+    SM_SPAN.with(|c| c.set(body.span));
+
+    let mut params: Vec<String> = Vec::new();
+    for p in &function.params {
+        match &p.pat {
+            Pat::Ident(id) => params.push(id.id.sym.to_string()),
+            _ => return None, // destructuring em params => inelegivel
+        }
+    }
+
+    // So' aplica a SM async se o corpo REALMENTE tem await (senao deixa o
+    // caminho atual cuidar — uma async fn sem await e' so' uma fn que devolve
+    // promise resolvida).
+    if !body.stmts.iter().any(stmt_has_await) {
+        return None;
+    }
+
+    let mut builder = SmBuilder::new();
+    builder.is_async = true;
+    for p in &params {
+        builder.intern_local(p);
+    }
+
+    let entry = builder.new_state();
+    let exit = builder.lower_seq(&body.stmts, entry)?;
+    builder.set_done(exit, None);
+
+    let state_fn_name = format!("__async_state_{}", name);
+    let nslots = builder.locals.len() as f64;
+
+    let ctor = build_async_ctor(name, &params, &state_fn_name, nslots);
+    let state_fn = build_state_fn(&state_fn_name, &builder)?;
+
+    Some((ctor, state_fn))
+}
+
 const G: &str = "__g";
 
 fn ident(s: &str) -> Ident {
@@ -160,6 +203,10 @@ enum Trans {
     /// pendente, marcando done + state=-2) e, se nada pendente, segue para
     /// `normal_next`. (#477 fatia 2)
     EndFinally { normal_next: usize },
+    /// (#207 async-SM) `await <promise>`: salva locais, SETSTATE(next) e
+    /// suspende devolvendo `ASYNC_SM_SUSPEND(__g, <promise>)`. O estado `next`
+    /// comeca lendo o valor injetado via `ASYNC_SM_AWAITED(__g)`.
+    Await { promise: Expr, next: usize },
     /// placeholder ate ser preenchido.
     Unset,
 }
@@ -174,11 +221,14 @@ struct SmBuilder {
     states: Vec<StateBlock>,
     /// Locais (params + lets) -> slot index, em ordem de criacao.
     locals: Vec<String>,
+    /// (#207) True quando construindo a SM de uma `async function` (await=
+    /// suspensao); muda os terminais (SUSPEND/RESOLVE em vez de YIELD/DONE).
+    is_async: bool,
 }
 
 impl SmBuilder {
     fn new() -> Self {
-        SmBuilder { states: Vec::new(), locals: Vec::new() }
+        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false }
     }
 
     fn intern_local(&mut self, name: &str) -> usize {
@@ -212,6 +262,9 @@ impl SmBuilder {
     fn set_end_finally(&mut self, state: usize, normal_next: usize) {
         self.states[state].trans = Trans::EndFinally { normal_next };
     }
+    fn set_await(&mut self, state: usize, promise: Expr, next: usize) {
+        self.states[state].trans = Trans::Await { promise, next };
+    }
 
     /// Lower uma sequencia de statements comecando em `cur`. Devolve o estado
     /// "depois" (que ainda nao tem transicao). `None` => construct inelegivel.
@@ -223,6 +276,13 @@ impl SmBuilder {
     }
 
     fn lower_stmt(&mut self, stmt: &Stmt, cur: usize) -> Option<usize> {
+        // (#207 async-SM) Pontos de suspensao `await` em statement/decl/assign.
+        // `await` aninhado em sub-expressao => inelegivel (fallback).
+        if self.is_async {
+            if let Some(next) = self.try_lower_await_stmt(stmt, cur)? {
+                return Some(next);
+            }
+        }
         match stmt {
             // `yield expr;`
             Stmt::Expr(es) => {
@@ -402,6 +462,126 @@ impl SmBuilder {
         }
     }
 
+    /// (#207) Tenta lower de um statement com `await`. Contrato:
+    /// - `Ok(Some(next))` => era um await elegivel, lowered (proximo estado `next`).
+    /// - `Ok(None)` => NAO contem await; segue para o match generico.
+    /// - `Err`(via `?` retornando None) => contem await em posicao inelegivel
+    ///   (sub-expressao aninhada) => aborta o build (fallback thread-blocking).
+    ///
+    /// Elegiveis fatia 1: `await x` (statement), `const/let v = await x`,
+    /// `v = await x`. O RHS do await NAO pode conter outro await aninhado.
+    fn try_lower_await_stmt(&mut self, stmt: &Stmt, cur: usize) -> Option<Option<usize>> {
+        match stmt {
+            Stmt::Expr(es) => {
+                match es.expr.as_ref() {
+                    // `await x;` (valor descartado, mas AWAITED roda p/ propagar
+                    // rejection ao error slot).
+                    Expr::Await(aw) => {
+                        if expr_has_await(&aw.arg) {
+                            return None; // await aninhado no RHS => inelegivel
+                        }
+                        let next = self.new_state();
+                        self.set_await(cur, (*aw.arg).clone(), next);
+                        // estado `next`: chama AWAITED(__g) (descarta valor).
+                        self.push_stmt(
+                            next,
+                            call_stmt(call("__RTS_ASYNC_SM_AWAITED", vec![ident_expr(G)])),
+                        );
+                        Some(Some(next))
+                    }
+                    // `v = await x;`
+                    Expr::Assign(a) => {
+                        if let Expr::Await(aw) = a.right.as_ref() {
+                            if expr_has_await(&aw.arg) {
+                                return None;
+                            }
+                            // alvo precisa ser ident simples.
+                            let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = &a.left
+                            else {
+                                return None;
+                            };
+                            let name = id.id.sym.to_string();
+                            self.intern_local(&name);
+                            let next = self.new_state();
+                            self.set_await(cur, (*aw.arg).clone(), next);
+                            // estado `next`: v = AWAITED(__g)
+                            self.push_stmt(
+                                next,
+                                assign_stmt(
+                                    &name,
+                                    call("__RTS_ASYNC_SM_AWAITED", vec![ident_expr(G)]),
+                                ),
+                            );
+                            Some(Some(next))
+                        } else if expr_has_await(es.expr.as_ref()) {
+                            None // await aninhado em assign complexo => inelegivel
+                        } else {
+                            Some(None)
+                        }
+                    }
+                    other => {
+                        if expr_has_await(other) {
+                            None // await aninhado em call/etc => inelegivel
+                        } else {
+                            Some(None)
+                        }
+                    }
+                }
+            }
+            // `const/let v = await x;`
+            Stmt::Decl(Decl::Var(vd)) => {
+                // So' trata o caso de UM declarator com init = await direto.
+                if vd.decls.len() == 1 {
+                    let d = &vd.decls[0];
+                    if let (Pat::Ident(id), Some(init)) = (&d.name, d.init.as_deref()) {
+                        if let Expr::Await(aw) = init {
+                            if expr_has_await(&aw.arg) {
+                                return None;
+                            }
+                            let name = id.id.sym.to_string();
+                            self.intern_local(&name);
+                            let next = self.new_state();
+                            self.set_await(cur, (*aw.arg).clone(), next);
+                            self.push_stmt(
+                                next,
+                                assign_stmt(
+                                    &name,
+                                    call("__RTS_ASYNC_SM_AWAITED", vec![ident_expr(G)]),
+                                ),
+                            );
+                            return Some(Some(next));
+                        }
+                    }
+                }
+                // contem await em init mas nao no formato simples => inelegivel
+                if vd.decls.iter().any(|d| d.init.as_deref().map(expr_has_await).unwrap_or(false)) {
+                    return None;
+                }
+                Some(None)
+            }
+            // `return await x;`
+            Stmt::Return(r) => {
+                if let Some(Expr::Await(aw)) = r.arg.as_deref() {
+                    if expr_has_await(&aw.arg) {
+                        return None;
+                    }
+                    let next = self.new_state();
+                    self.set_await(cur, (*aw.arg).clone(), next);
+                    // estado `next`: return AWAITED(__g)  (Done)
+                    self.set_done(next, Some(call("__RTS_ASYNC_SM_AWAITED", vec![ident_expr(G)])));
+                    return Some(Some(self.new_state()));
+                }
+                if r.arg.as_deref().map(expr_has_await).unwrap_or(false) {
+                    return None;
+                }
+                Some(None)
+            }
+            // Qualquer outro statement que contenha await => inelegivel fatia 1.
+            other if stmt_has_await(other) => None,
+            _ => Some(None),
+        }
+    }
+
     fn register_assign_target(&mut self, t: &AssignTarget) {
         if let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = t {
             self.intern_local(&id.id.sym.to_string());
@@ -444,6 +624,60 @@ fn expr_has_yield(e: &Expr) -> bool {
             .elems
             .iter()
             .any(|el| el.as_ref().map(|x| expr_has_yield(&x.expr)).unwrap_or(false)),
+        _ => false,
+    }
+}
+
+// ── Deteccao de await (#207 async-SM) ────────────────────────────────────────
+
+fn expr_has_await(e: &Expr) -> bool {
+    match e {
+        Expr::Await(_) => true,
+        Expr::Assign(a) => expr_has_await(&a.right),
+        Expr::Bin(b) => expr_has_await(&b.left) || expr_has_await(&b.right),
+        Expr::Unary(u) => expr_has_await(&u.arg),
+        Expr::Paren(p) => expr_has_await(&p.expr),
+        Expr::Cond(c) => {
+            expr_has_await(&c.test) || expr_has_await(&c.cons) || expr_has_await(&c.alt)
+        }
+        Expr::Seq(s) => s.exprs.iter().any(|x| expr_has_await(x)),
+        Expr::Call(c) => c.args.iter().any(|a| expr_has_await(&a.expr)),
+        Expr::Member(m) => expr_has_await(&m.obj),
+        Expr::Array(a) => a
+            .elems
+            .iter()
+            .any(|el| el.as_ref().map(|x| expr_has_await(&x.expr)).unwrap_or(false)),
+        _ => false,
+    }
+}
+
+fn stmt_has_await(s: &Stmt) -> bool {
+    match s {
+        Stmt::Expr(e) => expr_has_await(&e.expr),
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_await),
+        Stmt::If(i) => {
+            expr_has_await(&i.test)
+                || stmt_has_await(&i.cons)
+                || i.alt.as_deref().map(stmt_has_await).unwrap_or(false)
+        }
+        Stmt::While(w) => expr_has_await(&w.test) || stmt_has_await(&w.body),
+        Stmt::DoWhile(d) => expr_has_await(&d.test) || stmt_has_await(&d.body),
+        Stmt::For(f) => {
+            f.test.as_deref().map(expr_has_await).unwrap_or(false)
+                || f.update.as_deref().map(expr_has_await).unwrap_or(false)
+                || stmt_has_await(&f.body)
+        }
+        Stmt::ForOf(fo) => stmt_has_await(&fo.body),
+        Stmt::Decl(Decl::Var(vd)) => vd
+            .decls
+            .iter()
+            .any(|d| d.init.as_deref().map(expr_has_await).unwrap_or(false)),
+        Stmt::Return(r) => r.arg.as_deref().map(expr_has_await).unwrap_or(false),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().any(stmt_has_await)
+                || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_await)).unwrap_or(false)
+                || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_await)).unwrap_or(false)
+        }
         _ => false,
     }
 }
@@ -539,6 +773,37 @@ fn build_ctor(
     stmts.push(Stmt::Return(swc_ecma_ast::ReturnStmt {
         span: sp(),
         arg: Some(Box::new(ident_expr(G))),
+    }));
+
+    make_fn_decl(name, params, stmts, true)
+}
+
+/// (#207 async-SM) Ctor da async fn: aloca o GenState async, escreve params no
+/// frame e devolve `__RTS_ASYNC_SM_START(__g)` — que roda o corpo ate o 1o
+/// await e devolve o HANDLE da promise-resultado (preserva ABI `f(args) ->
+/// Promise`).
+fn build_async_ctor(
+    name: &str,
+    params: &[String],
+    state_fn_name: &str,
+    nslots: f64,
+) -> FnDecl {
+    let mut stmts: Vec<Stmt> = Vec::new();
+    // const __g = __RTS_ASYNC_SM_NEW(<state_fn>, nslots);
+    stmts.push(let_decl(
+        G,
+        call("__RTS_ASYNC_SM_NEW", vec![ident_expr(state_fn_name), num_expr(nslots)]),
+    ));
+    for (i, p) in params.iter().enumerate() {
+        stmts.push(call_stmt(call(
+            "__RTS_GEN_SM_FSET",
+            vec![ident_expr(G), num_expr(i as f64), ident_expr(p)],
+        )));
+    }
+    // return __RTS_ASYNC_SM_START(__g);
+    stmts.push(Stmt::Return(swc_ecma_ast::ReturnStmt {
+        span: sp(),
+        arg: Some(Box::new(call("__RTS_ASYNC_SM_START", vec![ident_expr(G)]))),
     }));
 
     make_fn_decl(name, params, stmts, true)
@@ -644,11 +909,30 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
             }
             Trans::Done(ret) => {
                 let ret_expr = ret.clone().unwrap_or_else(undef_expr);
+                let term = if builder.is_async {
+                    "__RTS_ASYNC_SM_RESOLVE"
+                } else {
+                    "__RTS_GEN_SM_DONE"
+                };
+                blk.push(Stmt::Return(swc_ecma_ast::ReturnStmt {
+                    span: sp(),
+                    arg: Some(Box::new(call(term, vec![ident_expr(G), ret_expr]))),
+                }));
+            }
+            // (#207 async-SM) `await <promise>`: salva locais, SETSTATE(next),
+            // suspende devolvendo SUSPEND(__g, <promise>). O drain retoma quando
+            // a promise settla, injetando o valor no estado `next`.
+            Trans::Await { promise, next } => {
+                blk.extend(store_all_locals(builder));
+                blk.push(call_stmt(call(
+                    "__RTS_GEN_SM_SETSTATE",
+                    vec![ident_expr(G), num_expr(*next as f64)],
+                )));
                 blk.push(Stmt::Return(swc_ecma_ast::ReturnStmt {
                     span: sp(),
                     arg: Some(Box::new(call(
-                        "__RTS_GEN_SM_DONE",
-                        vec![ident_expr(G), ret_expr],
+                        "__RTS_ASYNC_SM_SUSPEND",
+                        vec![ident_expr(G), promise.clone()],
                     ))),
                 }));
             }
@@ -674,10 +958,15 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
         }));
     }
 
-    // else final: done(undefined)
+    // else final: done(undefined) / resolve(undefined) p/ async.
+    let final_term = if builder.is_async {
+        "__RTS_ASYNC_SM_RESOLVE"
+    } else {
+        "__RTS_GEN_SM_DONE"
+    };
     let final_else = Stmt::Return(swc_ecma_ast::ReturnStmt {
         span: sp(),
-        arg: Some(Box::new(call("__RTS_GEN_SM_DONE", vec![ident_expr(G), undef_expr()]))),
+        arg: Some(Box::new(call(final_term, vec![ident_expr(G), undef_expr()]))),
     });
     let chain = match chain {
         Some(Stmt::If(mut i)) => {

@@ -236,6 +236,14 @@ pub(crate) enum Microtask {
         fn_ptr: u64,
         result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
     },
+    /// (#207 async-SM) Retomada de uma `async function` suspensa em `await`.
+    /// `source` eh a promise awaited; enquanto pending, re-enfileira; quando
+    /// settla, injeta o valor/erro no GenState `gen_handle` e roda o proximo
+    /// passo da SM. Produz o interleaving cooperativo de 393.
+    AsyncResume {
+        gen_handle: u64,
+        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    },
 }
 thread_local! {
     static MICROTASK_QUEUE: RefCell<Vec<Microtask>> = const { RefCell::new(Vec::new()) };
@@ -318,6 +326,18 @@ pub fn enqueue_microtask_pending_finally(
     });
 }
 
+/// (#207 async-SM) Enfileira a retomada de uma async fn suspensa em `await`
+/// sobre a promise `source`. Quando `source` settla, o drain injeta o valor no
+/// GenState e roda o proximo passo da SM (interleaving cooperativo do 393).
+pub fn enqueue_microtask_async_resume(
+    gen_handle: u64,
+    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+) {
+    MICROTASK_QUEUE.with(|q| {
+        q.borrow_mut().push(Microtask::AsyncResume { gen_handle, source })
+    });
+}
+
 /// Drena microtasks pendentes. Chamada pelo pipeline pos-main e tambem
 /// pode ser chamada pelo codegen no fim de cada task (futuro).
 pub fn drain_microtasks() {
@@ -338,7 +358,8 @@ pub fn drain_microtasks() {
         // Detecta ciclo sem progresso: todos PendingThen ainda pending.
         let all_stalled_pending = queue.iter().all(|t| match t {
             Microtask::PendingThen { source, .. }
-            | Microtask::PendingFinally { source, .. } => {
+            | Microtask::PendingFinally { source, .. }
+            | Microtask::AsyncResume { source, .. } => {
                 promise_slot::current_state(source) == promise_slot::STATE_PENDING
             }
             _ => false,
@@ -484,6 +505,26 @@ pub fn drain_microtasks() {
                         } else {
                             promise_slot::reject(&result_slot, value);
                         }
+                    }
+                }
+                // (#207 async-SM) Retomada de async fn suspensa em await.
+                Microtask::AsyncResume { gen_handle, source } => {
+                    let st = promise_slot::current_state(&source);
+                    if st == promise_slot::STATE_PENDING {
+                        // awaited ainda nao settlou: re-enfileira no FIM da fila
+                        // para re-checar no proximo ciclo do drain.
+                        MICROTASK_QUEUE.with(|q| {
+                            q.borrow_mut().push(Microtask::AsyncResume { gen_handle, source })
+                        });
+                    } else {
+                        let value = promise_slot::current_value(&source);
+                        let rejected = st == promise_slot::STATE_REJECTED;
+                        // Injeta valor/erro e roda o proximo passo da SM. Se o
+                        // step suspender de novo, ele re-enfileira outro
+                        // AsyncResume internamente (interleaving).
+                        crate::namespaces::gc::generator::async_sm_resume(
+                            gen_handle, value, rejected,
+                        );
                     }
                 }
             }

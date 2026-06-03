@@ -511,6 +511,21 @@ pub struct GenStateData {
     pub pending_kind: i64,
     /// Valor da completion abrupta pendente (ret value ou erro).
     pub pending_val: i64,
+    /// (#207 async-SM) Este GenState eh uma `async function` (await=suspensao
+    /// que cede a microtask queue), nao um generator (yield). Roteia
+    /// SUSPEND/RESOLVE/AWAITED em vez de YIELD/DONE.
+    pub is_async: bool,
+    /// (#207) Promise resultado da async fn (resolvida quando o corpo termina
+    /// ou rejeitada em throw). `None` ate ASYNC_SM_START alocar.
+    pub result_promise: Option<std::sync::Arc<PromiseSlot>>,
+    /// (#207) Promise que o `await` corrente esta esperando (setado por
+    /// ASYNC_SM_SUSPEND). O drain enfileira AsyncResume sobre essa source.
+    pub pending_await: Option<std::sync::Arc<PromiseSlot>>,
+    /// (#207) Valor injetado pela retomada do await (settle da pending_await).
+    pub awaited_val: i64,
+    /// (#207) True se a promise awaited rejeitou (await deve relancar via
+    /// error slot na retomada).
+    pub awaited_rejected: bool,
 }
 
 /// State enum dos algoritmos suportados em `Entry::Hasher`. Wrap em Box
