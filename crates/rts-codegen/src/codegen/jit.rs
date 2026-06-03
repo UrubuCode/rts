@@ -400,6 +400,20 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_FORMAT", __RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_FORMAT);
     }
 
+    // ── namespaces::globals::readable_stream (Web Streams) ────────────
+    {
+        use crate::namespaces::globals::readable_stream::instance::*;
+        add_fn!("__RTS_FN_GL_READABLE_STREAM_NEW", __RTS_FN_GL_READABLE_STREAM_NEW);
+        add_fn!("__RTS_FN_GL_READABLE_STREAM_GET_READER", __RTS_FN_GL_READABLE_STREAM_GET_READER);
+        add_fn!("__RTS_FN_GL_READABLE_STREAM_READER_READ", __RTS_FN_GL_READABLE_STREAM_READER_READ);
+        add_fn!("__RTS_FN_GL_READABLE_STREAM_CONTROLLER_ENQUEUE", __RTS_FN_GL_READABLE_STREAM_CONTROLLER_ENQUEUE);
+        add_fn!("__RTS_FN_GL_READABLE_STREAM_CONTROLLER_CLOSE", __RTS_FN_GL_READABLE_STREAM_CONTROLLER_CLOSE);
+        add_fn!("__RTS_FN_GL_TRANSFORM_STREAM_NEW", __RTS_FN_GL_TRANSFORM_STREAM_NEW);
+        add_fn!("__RTS_FN_GL_WRITABLE_STREAM_GET_WRITER", __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER);
+        add_fn!("__RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE", __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE);
+        add_fn!("__RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE", __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE);
+    }
+
     // ── namespaces::globals::date (Date global class) ─────────────────
     use crate::namespaces::globals::date::instance::*;
     add_fn!("__RTS_FN_GL_DATE_NEW_NOW", __RTS_FN_GL_DATE_NEW_NOW);

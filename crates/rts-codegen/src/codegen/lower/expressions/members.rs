@@ -2202,7 +2202,7 @@ pub(super) fn assign_target_field_is_f64(ctx: &FnCtx, m: &swc_ecma_ast::MemberEx
     false
 }
 
-pub(super) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
+pub(crate) fn lhs_static_class(ctx: &FnCtx, expr: &Expr) -> Option<String> {
     match expr {
         Expr::This(_) => ctx.current_class.clone(),
         Expr::Ident(id) => ctx
