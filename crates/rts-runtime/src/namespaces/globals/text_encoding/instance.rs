@@ -131,7 +131,9 @@ fn clone_handle_deep(
         Some(Entry::Map(m)) => Some(Entry::Map(m.clone())),
         Some(Entry::Json(j)) => Some(Entry::Json(j.clone())),
         Some(Entry::DateMs(ms)) => Some(Entry::DateMs(*ms)),
-        // Regex nao tem Clone — passa handle original (shared, imutavel).
+        // (#1068) RegExp: clona para um novo handle (identidade distinta do
+        // original — `structuredClone(re) === re` deve ser `false`).
+        Some(Entry::Regex(r)) => Some(Entry::Regex(r.clone())),
         _ => None,
     });
     let Some(entry) = entry_clone else { return handle; };

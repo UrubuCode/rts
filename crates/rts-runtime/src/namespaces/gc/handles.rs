@@ -34,7 +34,7 @@ const SENTINEL_INVALID: u64 = 0;
 /// caminho rapido O(n) garantido; `Fancy` (crate `fancy-regex`) eh
 /// usado quando o pattern tem features que RE2 nao suporta
 /// (lookbehind/lookahead, backreferences).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RegexEngine {
     Fast(regex::Regex),
     Fancy(fancy_regex::Regex),
@@ -289,7 +289,7 @@ fn substitute_replacement(repl: &str, caps: &EngineCaptures) -> String {
     out
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RtsRegex {
     /// Mantido para compat com callsites que assumem `regex::Regex`.
     /// Quando o pattern requer fancy-regex, este campo eh inicializado
