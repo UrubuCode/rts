@@ -213,7 +213,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 let mut argv: Vec<_> = Vec::with_capacity(call.args.len());
                 let sig: Vec<cl::Type> = vec![cl::I64; call.args.len()];
                 for (i, a) in call.args.iter().enumerate() {
-                    if i == 0 && sym == "__RTS_FN_NS_GC_GEN_SM_NEW" {
+                    if i == 0
+                        && (sym == "__RTS_FN_NS_GC_GEN_SM_NEW"
+                            || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW")
+                    {
                         if let Expr::Ident(fid) = a.expr.as_ref() {
                             let addr = emit_user_fn_addr(ctx, fid.sym.as_str())?;
                             argv.push(ctx.coerce_to_i64(addr).val);
@@ -227,7 +230,10 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 let inst = ctx.builder.ins().call(fref, &argv);
                 if ret.is_some() {
                     let r = ctx.builder.inst_results(inst)[0];
-                    let vt = if sym == "__RTS_FN_NS_GC_GEN_SM_NEW" {
+                    let vt = if sym == "__RTS_FN_NS_GC_GEN_SM_NEW"
+                        || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW"
+                        || sym == "__RTS_FN_NS_GC_ASYNC_SM_START"
+                    {
                         ValTy::Handle
                     } else {
                         // value yieldado/ret eh ambiguo i64/handle.
@@ -4213,6 +4219,12 @@ fn gen_sm_sentinel(
         ("__RTS_GEN_SM_DONE", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_DONE", Some(cl::I64))),
         ("__RTS_GEN_SM_ENTER_TRY", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", None)),
         ("__RTS_GEN_SM_END_FINALLY", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", Some(cl::I64))),
+        // (#207 async-SM) Sentinelas da state-machine de async functions.
+        ("__RTS_ASYNC_SM_NEW", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_NEW", Some(cl::I64))),
+        ("__RTS_ASYNC_SM_START", 1) => Some(("__RTS_FN_NS_GC_ASYNC_SM_START", Some(cl::I64))),
+        ("__RTS_ASYNC_SM_SUSPEND", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", Some(cl::I64))),
+        ("__RTS_ASYNC_SM_AWAITED", 1) => Some(("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", Some(cl::I64))),
+        ("__RTS_ASYNC_SM_RESOLVE", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", Some(cl::I64))),
         _ => None,
     }
 }

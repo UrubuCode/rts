@@ -202,6 +202,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_GENERATOR_THROW", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_THROW);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_IS", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_IS);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_DRAIN", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN);
+    add_fn!("__RTS_FN_NS_GC_ASYNC_SM_NEW", crate::namespaces::gc::generator::__RTS_FN_NS_GC_ASYNC_SM_NEW);
+    add_fn!("__RTS_FN_NS_GC_ASYNC_SM_START", crate::namespaces::gc::generator::__RTS_FN_NS_GC_ASYNC_SM_START);
+    add_fn!("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", crate::namespaces::gc::generator::__RTS_FN_NS_GC_ASYNC_SM_SUSPEND);
+    add_fn!("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", crate::namespaces::gc::generator::__RTS_FN_NS_GC_ASYNC_SM_AWAITED);
+    add_fn!("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_ASYNC_SM_RESOLVE);
     add_fn!("__RTS_FN_NS_GC_TAGGED_RAW_GET", crate::namespaces::gc::tagged_raw::__RTS_FN_NS_GC_TAGGED_RAW_GET);
     add_fn!("__RTS_FN_NS_GC_TAGGED_RAW_REGISTER", crate::namespaces::gc::tagged_raw::__RTS_FN_NS_GC_TAGGED_RAW_REGISTER);
     add_fn!("__RTS_FN_NS_GC_STRING_NEW", __RTS_FN_NS_GC_STRING_NEW);

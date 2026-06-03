@@ -159,6 +159,15 @@ fn lower_stmt(cm: &Lrc<SourceMap>, stmt: &Stmt, out: &mut Vec<Item>) {
     }
 }
 
+/// (#207) Flag `RTS_ASYNC_SM`: on quando `1`/`on`/`true` (default OFF na fatia
+/// 1 — caminho thread-blocking permanece o default ate o flip da fatia 3).
+fn async_sm_enabled() -> bool {
+    matches!(
+        std::env::var("RTS_ASYNC_SM").ok().as_deref(),
+        Some("1") | Some("on") | Some("true") | Some("all")
+    )
+}
+
 fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
     match decl {
         Decl::Class(class_decl) => {
@@ -183,6 +192,27 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
                     &fn_decl.function,
                 ) {
                     // Ambas as fns sinteticas retornam i64 (handle/valor).
+                    let mut sf = lower_fn_decl(cm, &state_fn);
+                    sf.return_type = Some("i64".to_string());
+                    let mut cf = lower_fn_decl(cm, &ctor);
+                    cf.return_type = Some("i64".to_string());
+                    out.push(Item::Function(sf));
+                    out.push(Item::Function(cf));
+                    return;
+                }
+            }
+            // (#207 async-SM, flag RTS_ASYNC_SM) async fn elegivel -> state-
+            // machine cooperativa (await=suspensao que cede a microtask queue).
+            // Inelegivel ou flag off => caminho thread-blocking de
+            // expand_async_functions (intacto).
+            if fn_decl.function.is_async
+                && !fn_decl.function.is_generator
+                && async_sm_enabled()
+            {
+                if let Some((ctor, state_fn)) = crate::generator_sm::try_build_async(
+                    &fn_decl.ident.sym.to_string(),
+                    &fn_decl.function,
+                ) {
                     let mut sf = lower_fn_decl(cm, &state_fn);
                     sf.return_type = Some("i64".to_string());
                     let mut cf = lower_fn_decl(cm, &ctor);

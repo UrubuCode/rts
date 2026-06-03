@@ -168,6 +168,11 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         finally_state: -1,
         pending_kind: 0,
         pending_val: UNDEFINED,
+        is_async: false,
+        result_promise: None,
+        pending_await: None,
+        awaited_val: UNDEFINED,
+        awaited_rejected: false,
     })))
 }
 
@@ -422,6 +427,159 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64 {
         }
     }
     alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+// ── Async state-machine (#207 fatia 1) ──────────────────────────────────────
+// Uma `async function` elegivel vira a MESMA state-machine de generators, mas
+// `await x` eh um ponto de suspensao que CEDE a microtask queue (em vez de
+// `yield` que devolve ao .next() do caller). O START roda o corpo ate o 1o
+// await, suspende, enfileira um AsyncResume sobre a promise awaited e devolve a
+// promise-resultado. Quando a awaited settla, o drain injeta o valor e re-step.
+// Isso produz o interleaving cooperativo (393): duas async fns concorrentes
+// alternam a cada await.
+
+/// `__RTS_GEN_SM_ASYNC_START(fn_ptr, nslots)` — aloca o GenState async (igual a
+/// GEN_SM_NEW mas com `is_async=true`). Os params sao escritos via FSET pelo
+/// ctor sintetico; depois o ctor chama ASYNC_STEP_INIT para rodar o 1o trecho.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
+    let n = if nslots < 0 { 0 } else { nslots as usize };
+    alloc_entry(Entry::GenState(Box::new(GenStateData {
+        fn_ptr,
+        state: 0,
+        frame: vec![0i64; n],
+        ret: UNDEFINED,
+        done: false,
+        finally_state: -1,
+        pending_kind: 0,
+        pending_val: UNDEFINED,
+        is_async: true,
+        result_promise: None,
+        pending_await: None,
+        awaited_val: UNDEFINED,
+        awaited_rejected: false,
+    })))
+}
+
+/// `__RTS_GEN_SM_ASYNC_START(h)` — aloca a promise-resultado pendente, guarda no
+/// GenState, roda o 1o passo (ate o 1o await ou ate terminar) e devolve o HANDLE
+/// da promise-resultado (preserva ABI `f(args) -> Promise`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_START(h: u64) -> u64 {
+    use crate::namespaces::gc::promise_slot;
+    let result = promise_slot::new_pending();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.result_promise = Some(result.clone());
+        }
+    });
+    async_sm_step(h);
+    result_handle
+}
+
+/// Roda um passo da async SM: invoca a state-fn (avanca ate o proximo await ou
+/// ate `return`). Apos retornar: se suspendeu (pending_await setado), enfileira
+/// um AsyncResume sobre a awaited; se terminou (done), settla a result_promise.
+fn async_sm_step(h: u64) {
+    use crate::namespaces::gc::promise_slot;
+    let fn_ptr = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.fn_ptr,
+        _ => 0,
+    });
+    if fn_ptr == 0 {
+        return;
+    }
+    let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let ret = state_fn(h);
+    // Le o estado pos-step.
+    let (done, pending, result) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => {
+            (g.done, g.pending_await.clone(), g.result_promise.clone())
+        }
+        _ => (true, None, None),
+    });
+    if done {
+        // Corpo terminou (RESOLVE chamado). Settla a promise-resultado: se o
+        // error slot esta setado (throw), rejeita; senao resolve com ret.
+        if let Some(rp) = result {
+            let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
+            if err != 0 {
+                crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+                promise_slot::reject(&rp, err as i64);
+            } else {
+                promise_slot::resolve(&rp, ret);
+            }
+        }
+        return;
+    }
+    // Suspendeu em await: enfileira AsyncResume sobre a promise awaited.
+    if let Some(src) = pending {
+        crate::namespaces::globals::text_encoding::instance::enqueue_microtask_async_resume(h, src);
+    }
+}
+
+/// `__RTS_GEN_SM_ASYNC_SUSPEND(h, promise_handle)` — chamado pela state-fn ao
+/// atingir `await x`. Extrai o Arc<PromiseSlot> do handle (ou cria um ja settled
+/// se o valor awaited NAO eh uma Promise) e guarda em pending_await. Devolve um
+/// valor dummy (a state-fn ja vai retornar logo apos).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_SUSPEND(h: u64, promise_handle: i64) -> i64 {
+    use crate::namespaces::gc::promise_slot;
+    // Extrai o slot da promise awaited. Se o handle nao eh PromiseAsync,
+    // trata o valor como ja-resolvido (await de nao-Promise).
+    let slot = with_entry(promise_handle as u64, |e| match e {
+        Some(Entry::PromiseAsync(p)) => Some(p.clone()),
+        _ => None,
+    });
+    let src = slot.unwrap_or_else(|| promise_slot::new_fulfilled(promise_handle));
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.pending_await = Some(src);
+        }
+    });
+    0
+}
+
+/// `__RTS_GEN_SM_ASYNC_AWAITED(h)` — devolve o valor injetado pela retomada do
+/// await. Se a promise awaited rejeitou, seta o error slot (await relanca).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_AWAITED(h: u64) -> i64 {
+    let (val, rejected) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => (g.awaited_val, g.awaited_rejected),
+        _ => (UNDEFINED, false),
+    });
+    if rejected {
+        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(val as u64);
+    }
+    val
+}
+
+/// `__RTS_GEN_SM_ASYNC_RESOLVE(h, val)` — chamado pela state-fn no `return val`
+/// (ou fim do corpo). Marca done e guarda ret; o async_sm_step settla a
+/// result_promise apos a state-fn retornar.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_RESOLVE(h: u64, val: i64) -> i64 {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.done = true;
+            g.ret = val;
+        }
+    });
+    val
+}
+
+/// Chamado pelo drain quando a promise awaited settla: injeta o valor/erro no
+/// GenState e roda o proximo passo da async SM. Publico para `instance.rs`.
+pub fn async_sm_resume(h: u64, value: i64, rejected: bool) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.awaited_val = value;
+            g.awaited_rejected = rejected;
+            g.pending_await = None;
+        }
+    });
+    async_sm_step(h);
 }
 
 /// `__RTS_GEN_SM_IS(h)` — 1 se o handle eh um generator lazy (GenState), 0 senao.
