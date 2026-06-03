@@ -46,6 +46,12 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::intl::abi::PLURAL_RULES_CLASS_SPEC,
     &crate::namespaces::globals::intl::abi::LIST_FORMAT_CLASS_SPEC,
     &crate::namespaces::globals::intl::abi::RELATIVE_TIME_FORMAT_CLASS_SPEC,
+    &crate::namespaces::globals::readable_stream::abi::READABLE_STREAM_CLASS_SPEC,
+    &crate::namespaces::globals::readable_stream::abi::READER_CLASS_SPEC,
+    &crate::namespaces::globals::readable_stream::abi::CONTROLLER_CLASS_SPEC,
+    &crate::namespaces::globals::readable_stream::abi::TRANSFORM_STREAM_CLASS_SPEC,
+    &crate::namespaces::globals::readable_stream::abi::WRITABLE_STREAM_CLASS_SPEC,
+    &crate::namespaces::globals::readable_stream::abi::WRITER_CLASS_SPEC,
 ];
 
 pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {

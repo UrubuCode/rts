@@ -23,6 +23,7 @@ pub mod json;
 pub mod json5;
 pub mod performance;
 pub mod proxy;
+pub mod readable_stream;
 pub mod reflect;
 pub mod regexp;
 pub mod string;

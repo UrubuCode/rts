@@ -911,6 +911,35 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 }
                             }
                         }
+                        // (Web Streams) `const reader = stream.getReader()` /
+                        // `const w = ts.writable.getWriter()` — propaga a classe
+                        // de retorno declarada no ts_signature do instance_method
+                        // (ex: getReader(): ReadableStreamDefaultReader). Sem isso
+                        // `reader.read()` cairia no fallback Map -> SIGILL.
+                        if let swc_ecma_ast::Expr::Member(m) = cb.as_ref() {
+                            if let swc_ecma_ast::MemberProp::Ident(mid) = &m.prop {
+                                let prop_name = mid.sym.as_str();
+                                if let Some(recv_cls) =
+                                    crate::codegen::lower::expressions::members::lhs_static_class(ctx, &m.obj)
+                                {
+                                    if let Some(spec) = crate::abi::global_class_lookup(&recv_cls) {
+                                        if let Some(member) = spec.instance_method(prop_name) {
+                                            let sig = member.ts_signature;
+                                            if let Some(colon_pos) = sig.rfind(':') {
+                                                let ret_ty = sig[colon_pos + 1..]
+                                                    .trim()
+                                                    .trim_end_matches(';')
+                                                    .trim();
+                                                if crate::abi::global_class_lookup(ret_ty).is_some() {
+                                                    ctx.local_class_ty
+                                                        .insert(name.clone(), ret_ty.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 let asserted_class = match init.as_ref() {
