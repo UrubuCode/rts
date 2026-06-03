@@ -342,7 +342,22 @@ pub(crate) fn desugar_object_methods(program: &mut Program) {
                     }
                 }
             }
-            crate::parser::ast::Item::Class(_) => {}
+            crate::parser::ast::Item::Class(class) => {
+                use crate::parser::ast::{ClassMember, Statement};
+                for member in class.members.iter_mut() {
+                    let body = match member {
+                        ClassMember::Method(m) => &mut m.body,
+                        ClassMember::Constructor(c) => &mut c.body,
+                        _ => continue,
+                    };
+                    for s in body.iter_mut() {
+                        let Statement::Raw(raw) = s;
+                        if let Some(stmt) = raw.stmt.as_mut() {
+                            visit_stmt(stmt);
+                        }
+                    }
+                }
+            }
             crate::parser::ast::Item::Statement(stmt) => {
                 let crate::parser::ast::Statement::Raw(raw) = stmt;
                 if let Some(s) = raw.stmt.as_mut() {

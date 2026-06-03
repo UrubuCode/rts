@@ -7,6 +7,7 @@
 
 pub mod args;
 pub mod async_expand;
+pub mod custom_iterator;
 pub mod destructuring;
 pub mod hoist_fn;
 pub mod object_methods;

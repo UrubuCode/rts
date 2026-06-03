@@ -25,6 +25,7 @@ use super::super::passes::args::new_collection_arg::desugar_new_collection_call_
 use super::super::passes::args::rest_args::expand_rest_args;
 use super::super::passes::args::spread_args::expand_spread_args;
 use super::super::passes::async_expand::{expand_async_functions, expand_await_exprs};
+use super::super::passes::custom_iterator::desugar_custom_iterators;
 use super::super::passes::destructuring::expand_destructuring;
 use super::super::passes::hoist_fn::hoist_fn_expressions;
 use super::super::passes::object_methods::desugar_object_methods;
@@ -68,6 +69,11 @@ pub fn compile_program(
     let mut par_fn_names = reduce_pass(program);
     par_fn_names.extend(purity_pass(program));
     let lifted_needs_c_callconv = lift_arrow_callbacks(program);
+    // (#272) Iterator protocol custom (`[Symbol.iterator]`): renomeia o metodo,
+    // promove capturas do object iterator a `this`-fields, e reescreve
+    // `for-of` sobre instancias em loop `.next()`. Roda ANTES de object_methods
+    // (que desugara o `next()` shorthand) e hoist_fn.
+    desugar_custom_iterators(program);
     desugar_object_methods(program);
     hoist_fn_expressions(program);
     expand_destructuring(program);
