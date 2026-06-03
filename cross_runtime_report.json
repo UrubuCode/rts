@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,B,C,2,3"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\n1,A,2,3,B,C\nmicro1,micro2,queueMicrotask,micro3,timeout"
 }
 ,
 {
@@ -1081,10 +1081,10 @@
 ,
 {
   "name": "108_generator_functions",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
   "node": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
-  "rts": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3"
+  "rts": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib="
 }
 ,
 {
@@ -1113,10 +1113,10 @@
 ,
 {
   "name": "329_generator_basics",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue",
   "node": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":332,"rts_diverge":5,"bun_node_diverge":16,"errors":35,"rejected":0}}
+],"summary":{"total":388,"pass":332,"rts_diverge":6,"bun_node_diverge":16,"errors":34,"rejected":0}}
