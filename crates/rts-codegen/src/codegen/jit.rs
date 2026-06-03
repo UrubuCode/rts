@@ -381,6 +381,25 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_IS_ERROR", __RTS_FN_GL_IS_ERROR);
     add_fn!("__RTS_FN_GL_IS_ERROR_NAMED", __RTS_FN_GL_IS_ERROR_NAMED);
 
+    // ── namespaces::globals::intl (Intl.* global classes) ─────────────
+    {
+        use crate::namespaces::globals::intl::instance::*;
+        add_fn!("__RTS_FN_GL_INTL_NUMBER_FORMAT_NEW", __RTS_FN_GL_INTL_NUMBER_FORMAT_NEW);
+        add_fn!("__RTS_FN_GL_INTL_NUMBER_FORMAT_FORMAT", __RTS_FN_GL_INTL_NUMBER_FORMAT_FORMAT);
+        add_fn!("__RTS_FN_GL_INTL_DATE_TIME_FORMAT_NEW", __RTS_FN_GL_INTL_DATE_TIME_FORMAT_NEW);
+        add_fn!("__RTS_FN_GL_INTL_DATE_TIME_FORMAT_FORMAT", __RTS_FN_GL_INTL_DATE_TIME_FORMAT_FORMAT);
+        add_fn!("__RTS_FN_GL_INTL_COLLATOR_NEW", __RTS_FN_GL_INTL_COLLATOR_NEW);
+        add_fn!("__RTS_FN_GL_INTL_COLLATOR_COMPARE", __RTS_FN_GL_INTL_COLLATOR_COMPARE);
+        add_fn!("__RTS_FN_GL_INTL_SEGMENTER_NEW", __RTS_FN_GL_INTL_SEGMENTER_NEW);
+        add_fn!("__RTS_FN_GL_INTL_SEGMENTER_SEGMENT", __RTS_FN_GL_INTL_SEGMENTER_SEGMENT);
+        add_fn!("__RTS_FN_GL_INTL_PLURAL_RULES_NEW", __RTS_FN_GL_INTL_PLURAL_RULES_NEW);
+        add_fn!("__RTS_FN_GL_INTL_PLURAL_RULES_SELECT", __RTS_FN_GL_INTL_PLURAL_RULES_SELECT);
+        add_fn!("__RTS_FN_GL_INTL_LIST_FORMAT_NEW", __RTS_FN_GL_INTL_LIST_FORMAT_NEW);
+        add_fn!("__RTS_FN_GL_INTL_LIST_FORMAT_FORMAT", __RTS_FN_GL_INTL_LIST_FORMAT_FORMAT);
+        add_fn!("__RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_NEW", __RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_NEW);
+        add_fn!("__RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_FORMAT", __RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_FORMAT);
+    }
+
     // ── namespaces::globals::date (Date global class) ─────────────────
     use crate::namespaces::globals::date::instance::*;
     add_fn!("__RTS_FN_GL_DATE_NEW_NOW", __RTS_FN_GL_DATE_NEW_NOW);

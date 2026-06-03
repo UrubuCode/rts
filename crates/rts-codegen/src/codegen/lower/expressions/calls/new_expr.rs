@@ -33,6 +33,25 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
     }
     let mut class_name = match callee_expr {
         Expr::Ident(id) => id.sym.as_str().to_string(),
+        // (Intl) `new Intl.NumberFormat(...)` — callee eh Member com obj=Ident.
+        // Tratamos como classe global de nome composto "Intl.NumberFormat".
+        Expr::Member(m) => {
+            if let (Expr::Ident(ns), swc_ecma_ast::MemberProp::Ident(p)) =
+                (m.obj.as_ref(), &m.prop)
+            {
+                if ns.sym.as_str() == "Intl" {
+                    format!("Intl.{}", p.sym.as_str())
+                } else {
+                    return Err(anyhow!(
+                        "`new` so suporta callee identifier (sem `new (expr)()`)"
+                    ));
+                }
+            } else {
+                return Err(anyhow!(
+                    "`new` so suporta callee identifier (sem `new (expr)()`)"
+                ));
+            }
+        }
         _ => {
             return Err(anyhow!(
                 "`new` so suporta callee identifier (sem `new (expr)()`)"

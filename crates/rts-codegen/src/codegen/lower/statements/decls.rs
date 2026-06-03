@@ -711,6 +711,21 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         swc_ecma_ast::Expr::TsInstantiation(ti) => ti.expr.as_ref(),
                         other => other,
                     };
+                    // (Intl) `const nf = new Intl.NumberFormat(...)` — callee
+                    // Member; registra a var como classe global de nome
+                    // composto "Intl.NumberFormat" pra dispatch de metodos.
+                    if let swc_ecma_ast::Expr::Member(mm) = callee_inner {
+                        if let (swc_ecma_ast::Expr::Ident(ns), swc_ecma_ast::MemberProp::Ident(p)) =
+                            (mm.obj.as_ref(), &mm.prop)
+                        {
+                            if ns.sym.as_str() == "Intl" {
+                                let cn = format!("Intl.{}", p.sym.as_str());
+                                if crate::abi::global_class_lookup(&cn).is_some() {
+                                    ctx.local_class_ty.insert(name.clone(), cn);
+                                }
+                            }
+                        }
+                    }
                     if let swc_ecma_ast::Expr::Ident(cid) = callee_inner {
                         let cn = cid.sym.as_str().to_string();
                         // (#214) Error builtin classes: registra field
