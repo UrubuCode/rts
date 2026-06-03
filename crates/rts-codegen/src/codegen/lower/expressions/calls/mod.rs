@@ -3410,7 +3410,68 @@ pub(super) fn emit_hoisted_arrow_handle(
     let is_arrow_v = ctx.builder.ins().iconst(cl::I32, 1);
     let has_this_v = ctx.builder.ins().iconst(cl::I32, 0);
 
-    let handle = if let Some(this_val) = bound_this {
+    // (A+C — #1281) Deriva param_kinds + return_kind da UserFnAbi. Quando ha
+    // algum kind!=0 (param/ret number/bool, ex arrow `(i:number)=>i+100`), o
+    // handle precisa carregar os kinds p/ invoke_typed fazer from_bits — senao
+    // o raw fn_ptr `(f64)->f64` e' invocado via invoke_all_i64 (ABI i64) e
+    // corrompe. SE todo-zero: caminho BYTE-IDENTICO ao de hoje (REIFY/REIFY_BOUND).
+    let (pks_bytes, rk_byte): (Vec<u8>, u8) = {
+        let info = ctx.user_fns.get(name);
+        let pks: Vec<u8> = info
+            .map(|f| {
+                f.params
+                    .iter()
+                    .map(|p| super::members::val_ty_to_kind(*p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let rk: u8 = info
+            .and_then(|f| f.ret)
+            .map(super::members::val_ty_to_kind)
+            .unwrap_or(0);
+        (pks, rk)
+    };
+    let has_nonzero_kind = pks_bytes.iter().any(|&k| k != 0) || rk_byte != 0;
+
+    let handle = if has_nonzero_kind {
+        // TYPED: usa REIFY_BOUND_TYPED (cobre bound_this opcional + kinds).
+        let (kinds_ptr, kinds_len) = if pks_bytes.is_empty() {
+            (
+                ctx.builder.ins().iconst(cl::I64, 0),
+                ctx.builder.ins().iconst(cl::I64, 0),
+            )
+        } else {
+            let tv = ctx.emit_str_handle(&pks_bytes)?;
+            let h = ctx.coerce_to_i64(tv).val;
+            let p = ctx.builder.ins().call(str_ptr_fn, &[h]);
+            let l = ctx.builder.ins().call(str_len_fn, &[h]);
+            (ctx.builder.inst_results(p)[0], ctx.builder.inst_results(l)[0])
+        };
+        let (bound_this_v, has_bound_v) = match bound_this {
+            Some(this_val) => (this_val, ctx.builder.ins().iconst(cl::I32, 1)),
+            None => (
+                ctx.builder.ins().iconst(cl::I64, 0),
+                ctx.builder.ins().iconst(cl::I32, 0),
+            ),
+        };
+        let return_kind_v = ctx.builder.ins().iconst(cl::I32, rk_byte as i64);
+        let reify_fn = ctx.get_extern(
+            "__RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED",
+            &[
+                cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32,
+                cl::I64, cl::I32, cl::I64, cl::I64, cl::I32,
+            ],
+            Some(cl::I64),
+        )?;
+        let inst_r = ctx.builder.ins().call(
+            reify_fn,
+            &[
+                fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v,
+                bound_this_v, has_bound_v, kinds_ptr, kinds_len, return_kind_v,
+            ],
+        );
+        ctx.builder.inst_results(inst_r)[0]
+    } else if let Some(this_val) = bound_this {
         // Captura `this` do escopo envolvente no handle — arrow de longa duração.
         let has_bound_v = ctx.builder.ins().iconst(cl::I32, 1);
         let reify_fn = ctx.get_extern(
@@ -3470,18 +3531,47 @@ pub(crate) fn emit_lifted_arrow_handle_with_captures(
     // Empacota capturas num Vec<i64> (f64 -> bits). param_kinds reflete o
     // tipo de cada capture + zeros para os params proprios (codegen ja' passa
     // valores como i64; f64 reinterpretado via param_kinds[i]=1).
+    // (A+C+D — #1281) Deriva param_kinds + return_kind da UserFnAbi da fn
+    // liftada (mesmo padrao de lower_callable_target_h:3306-3321). A fn liftada
+    // tem params = [capturas..., params proprios]; com a anotacao number/boolean
+    // preservada (this_arrow.rs PARTE A), os kinds refletem o tipo real.
+    let (pks_bytes, rk_byte): (Vec<u8>, u8) = {
+        let info = ctx.user_fns.get(name);
+        let pks: Vec<u8> = info
+            .map(|f| {
+                f.params
+                    .iter()
+                    .map(|p| super::members::val_ty_to_kind(*p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let rk: u8 = info
+            .and_then(|f| f.ret)
+            .map(super::members::val_ty_to_kind)
+            .unwrap_or(0);
+        (pks, rk)
+    };
+    // SE todo-zero (incl. ret): caminho BYTE-IDENTICO ao de hoje (curry-i64
+    // intacto). SE algum kind!=0: TYPED com kinds reais + capturas f64-bits.
+    let has_nonzero_kind = pks_bytes.iter().any(|&k| k != 0) || rk_byte != 0;
+
     let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
     let bound_h = {
         let i = ctx.builder.ins().call(vec_new, &[]);
         ctx.builder.inst_results(i)[0]
     };
     let vec_push = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
-    // A fn liftada e' i64-only (params sem anotacao de tipo viram i64). Passa
-    // cada captura coergida pra i64 — `coerce_to_i64` converte f64 numerico
-    // (40.0 -> 40) e mantem handles. param_kinds vazio = caminho rapido
-    // invoke_all_i64. (Captura f64 FRACIONARIA perde precisao — follow-up.)
-    for cv in capture_vals {
-        let raw = ctx.coerce_to_i64(*cv).val;
+    // Empacota cada captura. As capturas ocupam os PRIMEIROS slots dos params
+    // (ver lift_arrow_to_ident). Quando o slot correspondente e' kind=1 (f64),
+    // empacota como bits-f64 (bitcast) p/ o runtime fazer from_bits; senao
+    // coerce_to_i64 como hoje (handle/i64/bool i64 cru).
+    for (i, cv) in capture_vals.iter().enumerate() {
+        let raw = if has_nonzero_kind && pks_bytes.get(i).copied() == Some(1) {
+            let f = ctx.coerce_to_f64(*cv).val;
+            ctx.builder.ins().bitcast(cl::I64, cranelift_codegen::ir::MemFlags::new(), f)
+        } else {
+            ctx.coerce_to_i64(*cv).val
+        };
         ctx.builder.ins().call(vec_push, &[bound_h, raw]);
     }
     // Mantem o Vec vivo durante a reificacao.
@@ -3492,11 +3582,25 @@ pub(crate) fn emit_lifted_arrow_handle_with_captures(
         &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32, cl::I64, cl::I64, cl::I64, cl::I32],
         Some(cl::I64),
     )?;
-    let zero = ctx.builder.ins().iconst(cl::I64, 0);
-    let return_kind_v = ctx.builder.ins().iconst(cl::I32, 0);
+    let (kinds_ptr, kinds_len) = if has_nonzero_kind && !pks_bytes.is_empty() {
+        let tv = ctx.emit_str_handle(&pks_bytes)?;
+        let h = ctx.coerce_to_i64(tv).val;
+        let p = ctx.builder.ins().call(str_ptr_fn, &[h]);
+        let l = ctx.builder.ins().call(str_len_fn, &[h]);
+        (ctx.builder.inst_results(p)[0], ctx.builder.inst_results(l)[0])
+    } else {
+        (
+            ctx.builder.ins().iconst(cl::I64, 0),
+            ctx.builder.ins().iconst(cl::I64, 0),
+        )
+    };
+    let return_kind_v = ctx
+        .builder
+        .ins()
+        .iconst(cl::I32, if has_nonzero_kind { rk_byte as i64 } else { 0 });
     let inst = ctx.builder.ins().call(
         reify_fn,
-        &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v, bound_h, zero, zero, return_kind_v],
+        &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v, bound_h, kinds_ptr, kinds_len, return_kind_v],
     );
     let handle = ctx.builder.inst_results(inst)[0];
     ctx.declare_gc_handle(handle);
