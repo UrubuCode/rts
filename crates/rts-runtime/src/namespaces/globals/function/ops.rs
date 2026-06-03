@@ -54,7 +54,6 @@ unsafe fn invoke_typed(
     param_kinds: &[u8],
     return_kind: u8,
 ) -> i64 {
-    use std::mem::transmute;
     // (cross-runtime #799) return_kind=4 (void) cai pro caminho i64 —
     // o retorno e' descartado pelo caller e a Win64 fastcall ABI nao
     // tem prologue diferente entre `() -> i64` e `()` para essa
@@ -66,60 +65,84 @@ unsafe fn invoke_typed(
     if param_kinds.is_empty() && return_kind == 0 {
         return unsafe { invoke_all_i64(fn_ptr, args) };
     }
-    // Caminho tipado: aridade ate 4 + (this i64) — cobre métodos de classe
-    // RTS comuns. Aumentar conforme necessário.
-    // Convenção: param_kinds[i] descreve args[i] (this incluso se for o caso).
     let n = args.len();
-    // Coerções por param.
-    let a0_i64 = args.first().copied().unwrap_or(0);
-    let a1_i64 = args.get(1).copied().unwrap_or(0);
-    let a2_i64 = args.get(2).copied().unwrap_or(0);
-    let a3_i64 = args.get(3).copied().unwrap_or(0);
-    let a4_i64 = args.get(4).copied().unwrap_or(0);
+    // Normaliza param_kinds para so' 0 (i64) / 1 (f64). Os kinds 2 (bool) e
+    // 3 (i32) viajam como i64 na ABI Win64 — tratar como 0 e' seguro. Indices
+    // sem param_kind explicito assumem i64. `nk(i)` retorna 1 sse o param i
+    // eh f64.
+    let nk = |i: usize| -> bool { param_kinds.get(i).copied().unwrap_or(0) == 1 };
+    // return_kind normalizado: 1 = f64-ret, qualquer outro = i64-ret.
+    let rk_f64 = return_kind == 1;
 
-    let a0_f64 = i64_to_f64(a0_i64);
-    let a1_f64 = i64_to_f64(a1_i64);
-    let a2_f64 = i64_to_f64(a2_i64);
-    let a3_f64 = i64_to_f64(a3_i64);
-    let _a4_f64 = i64_to_f64(a4_i64);
-
-    let pk0 = param_kinds.first().copied().unwrap_or(0);
-    let pk1 = param_kinds.get(1).copied().unwrap_or(0);
-    let pk2 = param_kinds.get(2).copied().unwrap_or(0);
-    let pk3 = param_kinds.get(3).copied().unwrap_or(0);
-    let pk4 = param_kinds.get(4).copied().unwrap_or(0);
-
-    // Encode a tupla (n, pk0, pk1, ..., return_kind) num discriminador.
-    // Hot path: this (i64) + 1-3 args mistos + retorno mixed.
-    unsafe {
-        match (n, pk0, pk1, pk2, return_kind) {
-            // 0 args, retorno mixed
-            (0, _, _, _, 0) => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            (0, _, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn() -> f64>(fn_ptr)()),
-            // 1 arg
-            (1, 0, _, _, 0) => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(a0_i64),
-            (1, 0, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64) -> f64>(fn_ptr)(a0_i64)),
-            (1, 1, _, _, 0) => transmute::<u64, extern "C" fn(f64) -> i64>(fn_ptr)(a0_f64),
-            (1, 1, _, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(f64) -> f64>(fn_ptr)(a0_f64)),
-            // 2 args (this i64 + 1 outro)
-            (2, 0, 0, _, 0) => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(a0_i64, a1_i64),
-            (2, 0, 0, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, i64) -> f64>(fn_ptr)(a0_i64, a1_i64)),
-            (2, 0, 1, _, 0) => transmute::<u64, extern "C" fn(i64, f64) -> i64>(fn_ptr)(a0_i64, a1_f64),
-            (2, 0, 1, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64)),
-            (2, 1, 1, _, 1) => f64_to_i64(transmute::<u64, extern "C" fn(f64, f64) -> f64>(fn_ptr)(a0_f64, a1_f64)),
-            // 3 args (this + 2 outros)
-            (3, 0, 0, 0, 0) => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(a0_i64, a1_i64, a2_i64),
-            (3, 0, 1, 1, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64, a2_f64)),
-            (3, 0, 0, 1, 0) => transmute::<u64, extern "C" fn(i64, i64, f64) -> i64>(fn_ptr)(a0_i64, a1_i64, a2_f64),
-            (3, 0, 1, 0, 0) => transmute::<u64, extern "C" fn(i64, f64, i64) -> i64>(fn_ptr)(a0_i64, a1_f64, a2_i64),
-            (3, 0, 1, 1, 0) => transmute::<u64, extern "C" fn(i64, f64, f64) -> i64>(fn_ptr)(a0_i64, a1_f64, a2_f64),
-            // 4 args (this + 3 outros) — só combinações importantes
-            (4, 0, 1, 1, 1) => f64_to_i64(transmute::<u64, extern "C" fn(i64, f64, f64, f64) -> f64>(fn_ptr)(a0_i64, a1_f64, a2_f64, a3_f64)),
-            // Fallback: tudo i64 (perda de precisão se f64 esperado).
-            _ => {
-                let _ = (pk3, pk4, a3_i64, a4_i64);
-                invoke_all_i64(fn_ptr, args)
+    // Macro declarativa: gera TODOS os 2^n combos de param_kinds (cada param
+    // i64 ou f64) x 2 return_kinds, para uma dada lista de "slots" de args.
+    //
+    // `dispatch!(fn_ptr, rk_f64; [a0, a1, ...])` expande recursivamente: para
+    // cada arg `ai` (cujo bit em `nk(i)` ja' foi computado num `bool bi`),
+    // ramifica i64-vs-f64 acumulando o tipo (`$tys`) e o valor coagido
+    // (`$vals`). Quando a lista de args esgota, monta o transmute
+    // `extern "C" fn($tys...) -> R` exato e chama com `$vals...`, reempacotando
+    // o retorno conforme `rk_f64`. Cada arm chama EXATAMENTE a assinatura que
+    // casa os valores passados — sem UB.
+    macro_rules! dispatch {
+        // Passo recursivo: ainda restam args para peelar (token `rest`
+        // contem ao menos um `(bit, raw)`). Vem ANTES do caso base para
+        // resolver a ambiguidade de forma deterministica.
+        (@build $fp:expr, $rk:expr; [$($ty:ty),*]; [$($val:expr),*];
+                ($b:expr, $raw:expr) $(, ($bn:expr, $rawn:expr))*) => {{
+            if $b {
+                let f = i64_to_f64($raw);
+                dispatch!(@build $fp, $rk; [$($ty,)* f64]; [$($val,)* f];
+                          $(($bn, $rawn)),*)
+            } else {
+                let v = $raw;
+                dispatch!(@build $fp, $rk; [$($ty,)* i64]; [$($val,)* v];
+                          $(($bn, $rawn)),*)
             }
+        }};
+        // Caso base: nao restam args (nenhum token apos `;`). Monta o
+        // transmute final com a assinatura exata acumulada.
+        (@build $fp:expr, $rk:expr; [$($ty:ty),*]; [$($val:expr),*];) => {{
+            use std::mem::transmute;
+            if $rk {
+                f64_to_i64(
+                    transmute::<u64, extern "C" fn($($ty),*) -> f64>($fp)($($val),*)
+                )
+            } else {
+                transmute::<u64, extern "C" fn($($ty),*) -> i64>($fp)($($val),*)
+            }
+        }};
+        // Entrada: lista de (bit, raw) por arg. Sempre fecha com `;` para
+        // que o caso base case com lista vazia de `rest` case sem ambiguidade.
+        ($fp:expr, $rk:expr; $(($b:expr, $raw:expr)),*) => {{
+            dispatch!(@build $fp, $rk; []; []; $(($b, $raw)),*)
+        }};
+    }
+
+    let a = |i: usize| args.get(i).copied().unwrap_or(0);
+    unsafe {
+        match n {
+            0 => dispatch!(fn_ptr, rk_f64;),
+            1 => dispatch!(fn_ptr, rk_f64; (nk(0), a(0))),
+            2 => dispatch!(fn_ptr, rk_f64; (nk(0), a(0)), (nk(1), a(1))),
+            3 => dispatch!(fn_ptr, rk_f64; (nk(0), a(0)), (nk(1), a(1)), (nk(2), a(2))),
+            4 => dispatch!(fn_ptr, rk_f64;
+                (nk(0), a(0)), (nk(1), a(1)), (nk(2), a(2)), (nk(3), a(3))),
+            5 => dispatch!(fn_ptr, rk_f64;
+                (nk(0), a(0)), (nk(1), a(1)), (nk(2), a(2)), (nk(3), a(3)),
+                (nk(4), a(4))),
+            6 => dispatch!(fn_ptr, rk_f64;
+                (nk(0), a(0)), (nk(1), a(1)), (nk(2), a(2)), (nk(3), a(3)),
+                (nk(4), a(4)), (nk(5), a(5))),
+            7 => dispatch!(fn_ptr, rk_f64;
+                (nk(0), a(0)), (nk(1), a(1)), (nk(2), a(2)), (nk(3), a(3)),
+                (nk(4), a(4)), (nk(5), a(5)), (nk(6), a(6))),
+            8 => dispatch!(fn_ptr, rk_f64;
+                (nk(0), a(0)), (nk(1), a(1)), (nk(2), a(2)), (nk(3), a(3)),
+                (nk(4), a(4)), (nk(5), a(5)), (nk(6), a(6)), (nk(7), a(7))),
+            // Aridade > 8: nenhum combo tipado gerado — cai no fallback
+            // i64-cru (perda de precisao para f64, mas raro na pratica).
+            _ => invoke_all_i64(fn_ptr, args),
         }
     }
 }
