@@ -812,6 +812,20 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
 /// mapeando cada elemento. Sem fn, retorna copia rasa.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
+    // (#477) Generator lazy (state-machine): Array.from(gen()) drena o
+    // generator ate `done` num Vec (igual o for-of em map.rs). Sem isto,
+    // GenState nao casava Vec/Map/Buffer e Array.from devolvia [] (fib= vazio
+    // no 108_generator_functions). Generator finito -> Vec; infinito travaria
+    // igual a JS.
+    let src = {
+        use crate::namespaces::gc::handles::{Entry, with_entry};
+        let is_sm = with_entry(src, |e| matches!(e, Some(Entry::GenState(_))));
+        if is_sm {
+            crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(src)
+        } else {
+            src
+        }
+    };
     // Aceita Entry::Vec OU Entry::Map (Set/Map). Para Set (backing eh
     // Map<key,1>), itera keys parseando como i64. Para Map normal,
     // itera values.
