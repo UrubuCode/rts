@@ -38,6 +38,26 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                     }
                 }
             }
+            // (A — #1281) `const g = (i:number)=>i+100` — init eh ident de
+            // arrow liftada/hoistada cujo UserFnAbi.ret e' F64. Marca
+            // local_fn_ret_f64 p/ que `g(5)` use INVOKE_AUTO_AS_F64 + bitcast
+            // (senao o retorno f64 e' lido como int via fcvt_from_sint).
+            if let Some(init) = &decl.init {
+                if let swc_ecma_ast::Expr::Ident(fid) = init.as_ref() {
+                    let fname = fid.sym.as_str();
+                    if (fname.starts_with("__lifted_arrow_")
+                        || fname.starts_with("__hoisted_arrow_"))
+                        && ctx
+                            .user_fns
+                            .get(fname)
+                            .and_then(|f| f.ret)
+                            .map(|r| matches!(r, ValTy::F64))
+                            .unwrap_or(false)
+                    {
+                        ctx.local_fn_ret_f64.insert(name.clone());
+                    }
+                }
+            }
             if let Some(ann) = id.type_ann.as_ref() {
                 // (372) `f: () => number` — fn que retorna number. Marca pra
                 // que `f()` reinterprete o i64-bits do invoke como f64.

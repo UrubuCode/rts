@@ -477,6 +477,33 @@ pub(super) fn lower_curry_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallE
     let callee = lower_expr(ctx, callee_expr)?;
     let callee_val = ctx.coerce_to_i64(callee).val;
 
+    // (A+D — #1281) Decide a convencao de empacotamento dos args proprios do
+    // curry: bits-f64 (callee e' arrow liftada TYPED com param number) vs i64
+    // raw (callee e' fn_ptr i64 cru — function expression hoisted como `nested`,
+    // que captura via global e retorna func_addr). Resolve a raiz da cadeia de
+    // calls (`add3(1)(2)` -> `add3`) e consulta o registro do pass de lift.
+    let root_is_typed = {
+        let mut cur = callee_expr;
+        loop {
+            match cur {
+                Expr::Call(c) => {
+                    if let swc_ecma_ast::Callee::Expr(inner) = &c.callee {
+                        cur = inner.as_ref();
+                    } else {
+                        break false;
+                    }
+                }
+                Expr::Paren(p) => cur = p.expr.as_ref(),
+                Expr::Ident(id) => {
+                    break crate::codegen::lower::passes::this_arrow::fn_returns_typed_arrow(
+                        id.sym.as_str(),
+                    );
+                }
+                _ => break false,
+            }
+        }
+    };
+
     let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
     let vec_push = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
     let vec_extend = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM", &[cl::I64, cl::I64], None)?;
@@ -490,9 +517,37 @@ pub(super) fn lower_curry_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &CallE
             ctx.builder.ins().call(vec_extend, &[args_vec, src]);
             continue;
         }
-        // INTEIRO (coerce_to_i64): casa com a convencao i64-ABI da arrow
-        // liftada (fcvt_from_sint no body) e com as capturas (REIFY).
-        let v = ctx.coerce_to_i64(tv).val;
+        // (A+C+D — #1281) Args NUMERICOS viajam como bits-f64 (bitcast); o
+        // runtime faz from_bits quando o param_kind do callee e' 1 (arrow
+        // liftada agora reificada TYPED com params number=f64). Como o callee
+        // dinamico nao expoe kinds aqui, usamos o tipo do ARGUMENTO: F64 OU
+        // literal numerico (incl. inteiro `2`, que o param number le como f64).
+        // Handles/strings/idents-ambiguos seguem coerce_to_i64 (callee i64,
+        // le raw — curry-i64/add3(1)(2)(3) byte-identico, pois nesse caso o
+        // param e' i64/kind=0 e o arg inteiro casa).
+        //
+        // NB: add3(1)(2)(3) — os params (a,b,c) sao number, logo kind=1, e o
+        // arg inteiro literal vai como bits-f64 -> from_bits casa. curry-i64
+        // (adder com number) idem. Quando o param fosse i64 puro (sem number),
+        // o arg inteiro literal cairia em coerce_to_i64; ver match abaixo.
+        let arg_is_num_lit = matches!(
+            &*arg.expr,
+            Expr::Lit(swc_ecma_ast::Lit::Num(_))
+        ) || matches!(
+            &*arg.expr,
+            Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus)
+                && matches!(&*u.arg, Expr::Lit(swc_ecma_ast::Lit::Num(_)))
+        );
+        let v = if root_is_typed && (matches!(tv.ty, ValTy::F64) || arg_is_num_lit) {
+            let f = ctx.coerce_to_f64(tv).val;
+            ctx.builder.ins().bitcast(
+                cl::I64,
+                cranelift_codegen::ir::MemFlags::new(),
+                f,
+            )
+        } else {
+            ctx.coerce_to_i64(tv).val
+        };
         ctx.builder.ins().call(vec_push, &[args_vec, v]);
     }
     let zero = ctx.builder.ins().iconst(cl::I64, 0);

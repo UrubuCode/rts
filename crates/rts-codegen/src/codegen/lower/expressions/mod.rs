@@ -169,6 +169,23 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
                 let bound_this = ctx.coerce_to_i64(tv).val;
                 return calls::emit_hoisted_arrow_handle(ctx, name, Some(bound_this));
             }
+            // (A+C — #1281) Arrow com param/ret number/bool (kind!=0): raw fn
+            // addr `(f64)->f64` nao pode ser invocado via INVOKE_AUTO (ABI i64).
+            // Reifica como handle TYPED p/ invoke_typed fazer from_bits.
+            // Arrow todo-i64 mantem raw fn addr (byte-identico ao de hoje).
+            let has_nonzero_kind = ctx
+                .user_fns
+                .get(name)
+                .map(|f| {
+                    f.params
+                        .iter()
+                        .any(|p| members::val_ty_to_kind(*p) != 0)
+                        || f.ret.map(members::val_ty_to_kind).unwrap_or(0) != 0
+                })
+                .unwrap_or(false);
+            if has_nonzero_kind {
+                return calls::emit_hoisted_arrow_handle(ctx, name, None);
+            }
             // Fora de escopo de classe — raw fn addr como antes.
             return emit_user_fn_addr(ctx, name);
         }

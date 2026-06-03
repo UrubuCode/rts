@@ -429,6 +429,9 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
         alias_to_real,
         needs_c_callconv: HashSet::new(),
         scope_vars: HashSet::new(),
+        scope_var_types: HashMap::new(),
+        current_fn: None,
+        fn_returns_typed_arrow: HashSet::new(),
         lifted_captures: HashMap::new(),
         lifted_arrow_class: HashMap::new(),
     };
@@ -582,6 +585,7 @@ pub(crate) fn lift_arrow_callbacks(program: &mut Program) -> HashSet<String> {
     // os idents `__lifted_arrow_N` como handles Function com bound_args.
     set_lifted_captures(std::mem::take(&mut acc.lifted_captures));
     set_lifted_arrow_class(std::mem::take(&mut acc.lifted_arrow_class));
+    set_fn_returns_typed_arrow(std::mem::take(&mut acc.fn_returns_typed_arrow));
     acc.needs_c_callconv
 }
 
@@ -596,6 +600,20 @@ thread_local! {
     /// da arrow liftada.
     static LIFTED_ARROW_CLASS: std::cell::RefCell<HashMap<String, String>> =
         std::cell::RefCell::new(HashMap::new());
+    /// (A+D — #1281) user fns que retornam arrow liftada TYPED (param number).
+    static FN_RETURNS_TYPED_ARROW: std::cell::RefCell<HashSet<String>> =
+        std::cell::RefCell::new(HashSet::new());
+}
+
+/// (A+D — #1281) Registra o conjunto de fns que retornam arrow liftada TYPED.
+pub(crate) fn set_fn_returns_typed_arrow(set: HashSet<String>) {
+    FN_RETURNS_TYPED_ARROW.with(|c| *c.borrow_mut() = set);
+}
+
+/// (A+D — #1281) `f` retorna uma arrow liftada com param number (kind=1)?
+/// Consultado pelo curry call site p/ decidir bits-f64 vs i64 raw nos args.
+pub(crate) fn fn_returns_typed_arrow(name: &str) -> bool {
+    FN_RETURNS_TYPED_ARROW.with(|c| c.borrow().contains(name))
 }
 
 /// (#195) Registra o mapa `__lifted_arrow_N -> [capturas]` produzido pelo
@@ -676,6 +694,21 @@ struct LiftAcc {
     /// pra detectar capturas (free vars que sao desses, e nao user fns).
     /// Atualizado conforme desce em fns/arrows.
     scope_vars: HashSet<String>,
+    /// (A — #1281) Tipo conhecido (string da anotacao, ex: "number"/"boolean")
+    /// das vars em escopo. Usado por `lift_arrow_to_ident` p/ anotar a captura
+    /// com o mesmo tipo do param/var do escopo enclosing — sem isso a captura
+    /// f64 vira i64 (curry com captura fracionaria perde precisao). So' params
+    /// anotados number/boolean populam aqui; resto fica None.
+    scope_var_types: HashMap<String, Option<String>>,
+    /// (A+D — #1281) Nome da user fn sendo processada (p/ associar arrows
+    /// liftadas TYPED ao fn que as retorna).
+    current_fn: Option<String>,
+    /// (A+D — #1281) user fns cujo corpo retorna (direta ou via curry aninhado)
+    /// uma arrow liftada com param number (kind=1) — `adder`/`add3`/`partial`.
+    /// O curry call site empaca args como bits-f64 SO' p/ esses; fn que retorna
+    /// fn_ptr i64 cru (function expression hoisted, ex `nested`) fica de fora,
+    /// mantendo a convencao i64 raw (zero regressao do path antigo).
+    fn_returns_typed_arrow: HashSet<String>,
     /// (#195) Mapa `__lifted_arrow_N` -> nomes das vars capturadas (ordem
     /// estavel). O codegen consulta pra reificar via REIFY_CAPTURED, passando
     /// os valores das capturas como bound_args.
@@ -724,6 +757,24 @@ impl LiftAcc {
             .filter(|n| self.scope_vars.insert((*n).clone()))
             .cloned()
             .collect();
+        // (A — #1281) Registra o tipo conhecido dos params desta fn pra que a
+        // captura num arrow aninhado herde number/boolean (curry com captura
+        // f64 fracionaria). So' os tipos que mapeiam pra repr != i64.
+        let prev_var_types: Vec<(String, Option<Option<String>>)> = f
+            .parameters
+            .iter()
+            .filter_map(|p| {
+                let ty = match p.type_annotation.as_deref() {
+                    Some("number") | Some("f64") => Some("number".to_string()),
+                    Some("boolean") => Some("boolean".to_string()),
+                    _ => None,
+                };
+                ty.map(|t| {
+                    let prev = self.scope_var_types.insert(p.name.clone(), Some(t));
+                    (p.name.clone(), prev)
+                })
+            })
+            .collect();
 
         // Promove cada captura pra global e reescreve toda a fn.
         // Insere as syncs de parâmetros no topo (em ordem reversa para
@@ -760,11 +811,23 @@ impl LiftAcc {
         // Agora roda o lift normal — idents nos arrows são globais,
         // resolvem sem problema. (As capturas por-valor sao detectadas via
         // scope_vars e viram params do __lifted_arrow_N.)
+        let prev_fn = self.current_fn.replace(f.name.clone());
         self.lift_in_body("", &mut f.body, /*in_class=*/ false);
+        self.current_fn = prev_fn;
 
         // Restaura scope_vars (remove o que esta fn adicionou).
         for n in &prev_scope {
             self.scope_vars.remove(n);
+        }
+        for (name, prev) in prev_var_types {
+            match prev {
+                Some(v) => {
+                    self.scope_var_types.insert(name, v);
+                }
+                None => {
+                    self.scope_var_types.remove(&name);
+                }
+            }
         }
     }
 
@@ -777,6 +840,52 @@ impl LiftAcc {
     /// `hoist_fn::build_fn_decl`. Sem isso a arrow liftada perdia os proprios
     /// params (`(i) => values[i]` virava fn sem `i` -> "undefined variable i").
     /// Cobre rest (`...args`), destructuring (`[k,v]`/`{a}`) e filtra `this`.
+    /// (A — #1281) Mapeia a anotacao TS de um BindingIdent para o string de
+    /// tipo que o codegen reconhece em `UserFnAbi`. So' number->"number" e
+    /// boolean->"boolean" (tipos primitivos com representacao Cranelift
+    /// distinta de i64). Qualquer outro tipo (string/handle/object/ausente)
+    /// -> None, mantendo o i64 ambiguo de hoje (bail intencional). Le de
+    /// `b.type_ann` (BindingIdent.type_ann), nao de `b.id.type_ann`.
+    fn binding_keyword_type_ann(b: &swc_ecma_ast::BindingIdent) -> Option<String> {
+        let ann = b.type_ann.as_ref()?;
+        if let TsType::TsKeywordType(k) = ann.type_ann.as_ref() {
+            use swc_ecma_ast::TsKeywordTypeKind;
+            return match k.kind {
+                TsKeywordTypeKind::TsNumberKeyword => Some("number".to_string()),
+                TsKeywordTypeKind::TsBooleanKeyword => Some("boolean".to_string()),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// (A — #1281) Inferencia ESTRITA: a expr e' f64 quando e' aritmetica
+    /// (+,-,*,/) cujos operandos sao idents number (do set), literais
+    /// numericos, ou subexpressoes f64. Comparacoes/logicos -> false (bool),
+    /// arrow/call/string/object -> false. Conservadora: na duvida, false.
+    fn arrow_expr_is_f64(
+        e: &swc_ecma_ast::Expr,
+        f64_idents: &std::collections::HashSet<String>,
+    ) -> bool {
+        use swc_ecma_ast::{BinaryOp, Expr, Lit};
+        match e {
+            Expr::Ident(id) => f64_idents.contains(id.sym.as_str()),
+            Expr::Lit(Lit::Num(_)) => true,
+            Expr::Paren(p) => Self::arrow_expr_is_f64(&p.expr, f64_idents),
+            Expr::Bin(b) => match b.op {
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                    Self::arrow_expr_is_f64(&b.left, f64_idents)
+                        && Self::arrow_expr_is_f64(&b.right, f64_idents)
+                }
+                _ => false,
+            },
+            Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus | swc_ecma_ast::UnaryOp::Plus) => {
+                Self::arrow_expr_is_f64(&u.arg, f64_idents)
+            }
+            _ => false,
+        }
+    }
+
     fn arrow_params_to_parameters(
         arrow: &swc_ecma_ast::ArrowExpr,
         syn_name: &str,
@@ -837,7 +946,7 @@ impl LiftAcc {
                 }
                 parameters.push(Parameter {
                     name: n,
-                    type_annotation: None,
+                    type_annotation: Self::binding_keyword_type_ann(b),
                     modifiers: MemberModifiers::default(),
                     variadic: false,
                     default: None,
@@ -848,7 +957,7 @@ impl LiftAcc {
                 if let Pat::Ident(b) = a.left.as_ref() {
                     parameters.push(Parameter {
                         name: b.id.sym.to_string(),
-                        type_annotation: None,
+                        type_annotation: Self::binding_keyword_type_ann(b),
                         modifiers: MemberModifiers::default(),
                         variadic: false,
                         default: Some(a.right.clone()),
@@ -920,9 +1029,16 @@ impl LiftAcc {
 
         let mut parameters: Vec<Parameter> = Vec::with_capacity(captures.len() + own_parameters.len());
         for cap in &captures {
+            // (A — #1281) Herda o tipo da var capturada do escopo enclosing.
+            // `__captured_this` nunca tem tipo numerico (None).
+            let cap_ty = if cap == "__captured_this" {
+                None
+            } else {
+                self.scope_var_types.get(cap).cloned().flatten()
+            };
             parameters.push(Parameter {
                 name: cap.clone(),
-                type_annotation: None,
+                type_annotation: cap_ty,
                 modifiers: MemberModifiers::default(),
                 variadic: false,
                 default: None,
@@ -930,6 +1046,7 @@ impl LiftAcc {
             });
         }
         parameters.extend(own_parameters);
+        let has_captures = !captures.is_empty();
         if !captures.is_empty() {
             self.lifted_captures.insert(syn_name.clone(), captures);
         }
@@ -962,15 +1079,78 @@ impl LiftAcc {
             .filter_map(|p| if let Pat::Ident(id) = p { Some(id.id.sym.to_string()) } else { None })
             .filter(|n| self.scope_vars.insert(n.clone()))
             .collect();
+        // (A — #1281) Tambem registra o tipo dos params proprios pra que
+        // arrows aninhadas (curry `(a)=>(b)=>(c)=>...`) herdem number/boolean
+        // ao capturar `a`/`b`. Restaura depois.
+        let prev_inner_types: Vec<(String, Option<Option<String>>)> = arrow
+            .params
+            .iter()
+            .filter_map(|p| {
+                if let Pat::Ident(id) = p {
+                    let ty = Self::binding_keyword_type_ann(id)?;
+                    let name = id.id.sym.to_string();
+                    let prev = self.scope_var_types.insert(name.clone(), Some(ty));
+                    Some((name, prev))
+                } else {
+                    None
+                }
+            })
+            .collect();
         self.lift_in_body(class_name, &mut body_stmts, in_class);
         for n in &added_to_scope {
             self.scope_vars.remove(n);
+        }
+        for (name, prev) in prev_inner_types {
+            match prev {
+                Some(v) => {
+                    self.scope_var_types.insert(name, v);
+                }
+                None => {
+                    self.scope_var_types.remove(&name);
+                }
+            }
         }
 
         // Expression-body arrows always return a value; block-body arrows
         // with explicit `return` also do, but we can't easily detect that
         // here, so treat block-body as void (the common UI-callback case).
-        let ret_ty = if has_return_value { Some("i64".to_string()) } else { Some("void".to_string()) };
+        // (A — #1281) Quando o body e' uma expressao aritmetica f64 (algum
+        // param/captura number), o retorno e' "number" — senao o lower forca
+        // fcvt_to_sint_sat e trunca (curry_f -> 3 em vez de 3.75). Inferencia
+        // ESTRITA: so' marca number quando ha pelo menos um param number e a
+        // expr e' aritmetica f64; default mantem "i64".
+        let number_params: std::collections::HashSet<String> = parameters
+            .iter()
+            .filter(|p| p.type_annotation.as_deref() == Some("number"))
+            .map(|p| p.name.clone())
+            .collect();
+        let body_is_f64 = match arrow.body.as_ref() {
+            swc_ecma_ast::BlockStmtOrExpr::Expr(e) => {
+                !number_params.is_empty() && Self::arrow_expr_is_f64(e, &number_params)
+            }
+            _ => false,
+        };
+        let ret_ty = if !has_return_value {
+            Some("void".to_string())
+        } else if body_is_f64 {
+            Some("number".to_string())
+        } else {
+            Some("i64".to_string())
+        };
+
+        // (A+D — #1281) Se esta arrow tem param number (kind=1), o curry call
+        // site precisa empacotar args como bits-f64 quando o callee resolve a
+        // user fn que a RETORNA. Registra a fn enclosing. Cobre arrow COM
+        // captura (emit_lifted_arrow_handle_with_captures, TYPED) e SEM captura
+        // (func_addr direto p/ signature f64 — `mkInc`). function expressions
+        // (hoist_fn, ex `nested`) NAO passam por aqui, logo ficam de fora e
+        // mantem a convencao i64 raw (zero regressao).
+        let _ = has_captures;
+        if !number_params.is_empty() {
+            if let Some(fname) = &self.current_fn {
+                self.fn_returns_typed_arrow.insert(fname.clone());
+            }
+        }
 
         self.new_fns.push(Item::Function(FunctionDecl {
             name: syn_name.clone(),
