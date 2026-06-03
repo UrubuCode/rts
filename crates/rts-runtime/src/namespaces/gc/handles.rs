@@ -502,6 +502,15 @@ pub struct GenStateData {
     pub ret: i64,
     /// Generator esgotado (proximo `.next()` => `{value:undefined,done:true}`).
     pub done: bool,
+    /// (#477 fatia 2) Estado de entrada do `finally` da try-region ativa, ou
+    /// -1 se nenhuma. Setado por `ENTER_TRY`, limpo por `END_FINALLY`. Permite
+    /// `.return(v)`/`.throw(e)` redirecionarem para o finally em vez de so'
+    /// terminar — o `yield` no finally intercepta/absorve a completion abrupta.
+    pub finally_state: i64,
+    /// Tipo de completion abrupta pendente: 0=nenhuma, 1=return, 2=throw.
+    pub pending_kind: i64,
+    /// Valor da completion abrupta pendente (ret value ou erro).
+    pub pending_val: i64,
 }
 
 /// State enum dos algoritmos suportados em `Entry::Hasher`. Wrap em Box

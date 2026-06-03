@@ -62,7 +62,7 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     // precisam de lazy: corpo contem um loop (`while`/`for`) com `yield` dentro.
     // Generators lineares finitos (`yield 1; yield 2;`) continuam no eager-buffer
     // — caminho provado que ja' serve for-of/spread/.next sem regressao.
-    if !body_has_loop_with_yield(&body.stmts) {
+    if !body_needs_lazy(&body.stmts) {
         return None;
     }
 
@@ -156,6 +156,10 @@ enum Trans {
     Done(Option<Expr>),
     /// if (<test>) goto then else goto els.
     Cond { test: Expr, then_s: usize, els: usize },
+    /// Fim do bloco `finally`: chama END_FINALLY (que honra return/throw
+    /// pendente, marcando done + state=-2) e, se nada pendente, segue para
+    /// `normal_next`. (#477 fatia 2)
+    EndFinally { normal_next: usize },
     /// placeholder ate ser preenchido.
     Unset,
 }
@@ -204,6 +208,9 @@ impl SmBuilder {
     }
     fn set_cond(&mut self, state: usize, test: Expr, then_s: usize, els: usize) {
         self.states[state].trans = Trans::Cond { test, then_s, els };
+    }
+    fn set_end_finally(&mut self, state: usize, normal_next: usize) {
+        self.states[state].trans = Trans::EndFinally { normal_next };
     }
 
     /// Lower uma sequencia de statements comecando em `cur`. Devolve o estado
@@ -338,6 +345,47 @@ impl SmBuilder {
                 // codigo apos return eh inalcancavel; novo estado morto p/ seq.
                 Some(self.new_state())
             }
+            // `try { ... } finally { ... }` (#477 fatia 2)
+            Stmt::Try(t) => {
+                // catch com yield => fora de escopo desta fatia.
+                if let Some(h) = &t.handler {
+                    if h.body.stmts.iter().any(stmt_has_yield) {
+                        return None;
+                    }
+                }
+                let Some(finalizer) = &t.finalizer else {
+                    // try sem finally: so' tem sentido aqui se o body tem yield.
+                    // Achata o body como sequencia (sem semantica de catch real).
+                    if t.handler.is_some() {
+                        return None;
+                    }
+                    return self.lower_seq(&t.block.stmts, cur);
+                };
+                // Estado de entrada do finally (alvo de ENTER_TRY e da saida
+                // normal do try body). Reservamos o indice antes de lower o body
+                // para que ENTER_TRY aponte para ele.
+                let finally_entry = self.new_state();
+                // ENTER_TRY(__g, finally_entry) no estado atual, antes do body.
+                self.push_stmt(
+                    cur,
+                    call_stmt(call(
+                        "__RTS_GEN_SM_ENTER_TRY",
+                        vec![ident_expr(G), num_expr(finally_entry as f64)],
+                    )),
+                );
+                // try body: comeca num estado novo logo apos `cur`.
+                let body_entry = self.new_state();
+                self.set_goto(cur, body_entry);
+                let body_exit = self.lower_seq(&t.block.stmts, body_entry)?;
+                // saida normal do body -> finally_entry
+                self.set_goto(body_exit, finally_entry);
+                // finally body
+                let fin_exit = self.lower_seq(&finalizer.stmts, finally_entry)?;
+                // ao fim do finally: END_FINALLY; se nada pendente, segue p/ after.
+                let after = self.new_state();
+                self.set_end_finally(fin_exit, after);
+                Some(after)
+            }
             // bloco aninhado simples: achata
             Stmt::Block(b) => self.lower_seq(&b.stmts, cur),
             // `if` sem yield no corpo: mantemos verbatim (efeito colateral puro).
@@ -400,23 +448,30 @@ fn expr_has_yield(e: &Expr) -> bool {
     }
 }
 
-/// True se ha' um loop (`while`/`do-while`/`for`/`for-of`/`for-in`) com `yield`
-/// no corpo — sinal de que o generator precisa de suspensao lazy real.
-fn body_has_loop_with_yield(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(stmt_is_loop_with_yield)
+/// True se o corpo precisa de suspensao lazy real: contem um loop com `yield`
+/// (`while`/`for`/...) OU um `try`/`finally` envolvendo `yield` (#477 fatia 2).
+/// Generators lineares finitos continuam no eager-buffer.
+fn body_needs_lazy(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_needs_lazy)
 }
 
-fn stmt_is_loop_with_yield(s: &Stmt) -> bool {
+fn stmt_needs_lazy(s: &Stmt) -> bool {
     match s {
         Stmt::While(w) => stmt_has_yield(&w.body),
         Stmt::DoWhile(d) => stmt_has_yield(&d.body),
         Stmt::For(f) => stmt_has_yield(&f.body),
         Stmt::ForOf(fo) => stmt_has_yield(&fo.body),
         Stmt::ForIn(fi) => stmt_has_yield(&fi.body),
-        Stmt::Block(b) => body_has_loop_with_yield(&b.stmts),
+        // try/finally com yield em qualquer parte exige state-machine.
+        Stmt::Try(t) => {
+            t.block.stmts.iter().any(stmt_has_yield)
+                || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_yield)).unwrap_or(false)
+                || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_yield)).unwrap_or(false)
+        }
+        Stmt::Block(b) => body_needs_lazy(&b.stmts),
         Stmt::If(i) => {
-            stmt_is_loop_with_yield(&i.cons)
-                || i.alt.as_deref().map(stmt_is_loop_with_yield).unwrap_or(false)
+            stmt_needs_lazy(&i.cons)
+                || i.alt.as_deref().map(stmt_needs_lazy).unwrap_or(false)
         }
         _ => false,
     }
@@ -549,6 +604,42 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
                     test: Box::new(test.clone()),
                     cons: Box::new(then_blk),
                     alt: Some(Box::new(else_blk)),
+                }));
+            }
+            Trans::EndFinally { normal_next } => {
+                blk.extend(store_all_locals(builder));
+                // const __ef = END_FINALLY(__g);
+                blk.push(let_decl(
+                    "__ef",
+                    call("__RTS_GEN_SM_END_FINALLY", vec![ident_expr(G)]),
+                ));
+                // if (STATE(__g) === -2) { return __ef; }  -- completion honrada
+                blk.push(Stmt::If(swc_ecma_ast::IfStmt {
+                    span: sp(),
+                    test: Box::new(Expr::Bin(swc_ecma_ast::BinExpr {
+                        span: sp(),
+                        op: swc_ecma_ast::BinaryOp::EqEqEq,
+                        left: Box::new(call("__RTS_GEN_SM_STATE", vec![ident_expr(G)])),
+                        right: Box::new(num_expr(-2.0)),
+                    })),
+                    cons: Box::new(Stmt::Block(BlockStmt {
+                        span: sp(),
+                        ctxt: Default::default(),
+                        stmts: vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+                            span: sp(),
+                            arg: Some(Box::new(ident_expr("__ef"))),
+                        })],
+                    })),
+                    alt: None,
+                }));
+                // senao: segue para o estado normal apos a try/finally.
+                blk.push(call_stmt(call(
+                    "__RTS_GEN_SM_SETSTATE",
+                    vec![ident_expr(G), num_expr(*normal_next as f64)],
+                )));
+                blk.push(Stmt::Continue(swc_ecma_ast::ContinueStmt {
+                    span: sp(),
+                    label: None,
                 }));
             }
             Trans::Done(ret) => {

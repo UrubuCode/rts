@@ -111,6 +111,28 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_RETURN(vec_handle: u64, value: i64) -
     make_result(value, true)
 }
 
+/// `gen.throw(e)` — dispatcher: para generators lazy (GenState) delega a
+/// `GEN_SM_THROW` (roda finally / absorve). Para o eager-buffer (Vec) nao ha'
+/// try-region modelada; marca esgotado e propaga via error slot.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_THROW(vec_handle: u64, err: i64) -> u64 {
+    let is_sm = with_entry(vec_handle, |e| matches!(e, Some(Entry::GenState(_))));
+    if is_sm {
+        return __RTS_FN_NS_GC_GEN_SM_THROW(vec_handle, err);
+    }
+    let len = with_entry(vec_handle, |e| match e {
+        Some(Entry::Vec(v)) => Some(v.len()),
+        _ => None,
+    });
+    if let Some(len) = len {
+        GEN_CURSORS.with(|c| {
+            c.borrow_mut().insert(vec_handle, len + 1);
+        });
+    }
+    crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err as u64);
+    make_result(err, true)
+}
+
 /// `__RTS_GEN_GET_RET(vec)` — devolve o ret_value (`return X`) registrado
 /// por uma generator fn finita, ou undefined se ausente. Usado por
 /// `const r = yield* gen()` (#275/#379): o desugar empurra os elementos do
@@ -143,6 +165,9 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         frame: vec![0i64; n],
         ret: UNDEFINED,
         done: false,
+        finally_state: -1,
+        pending_kind: 0,
+        pending_val: UNDEFINED,
     })))
 }
 
@@ -239,16 +264,129 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEXT(h: u64) -> u64 {
     make_result(value, done)
 }
 
-/// `gen.return(v)` para generators lazy — encerra antecipadamente: marca done e
-/// devolve `{value:v, done:true}`.
+/// `gen.return(v)` para generators lazy (#477 fatia 2). Se ha' uma try-region
+/// ativa com `finally`, redireciona a execucao para o finally (registra a
+/// completion `return` pendente e re-invoca a fn de estado a partir do finally).
+/// O `yield` dentro do finally INTERCEPTA o return -> devolve `{value:yield,
+/// done:false}`. Sem finally ativo, encerra como antes: `{value:v, done:true}`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_RETURN(h: u64, value: i64) -> u64 {
+    gen_sm_abrupt(h, value, 1)
+}
+
+/// `gen.throw(e)` para generators lazy (#477 fatia 2). Se ha' uma try-region
+/// ativa com `finally`, redireciona para o finally (completion `throw`
+/// pendente). O `yield` no finally ABSORVE o throw -> suspende devolvendo
+/// `{value:yield, done:false}` SEM propagar a excecao. Sem finally ativo,
+/// propaga: marca done e seta o error slot (caller re-lanca).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_THROW(h: u64, err: i64) -> u64 {
+    let has_finally = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.finally_state >= 0 && !g.done,
+        _ => false,
+    });
+    if has_finally {
+        return gen_sm_abrupt(h, err, 2);
+    }
+    // Sem finally: propaga a excecao via error slot global (caller re-lanca).
     with_entry_mut(h, |e| {
         if let Some(Entry::GenState(g)) = e {
             g.done = true;
         }
     });
-    make_result(value, true)
+    crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err as u64);
+    make_result(err, true)
+}
+
+/// Logica comum de `.return`/`.throw`: redireciona para o finally se ativo,
+/// senao encerra. `kind`: 1=return, 2=throw.
+fn gen_sm_abrupt(h: u64, value: i64, kind: i64) -> u64 {
+    let (fn_ptr, finally_state, already_done) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => (g.fn_ptr, g.finally_state, g.done),
+        _ => (0u64, -1, true),
+    });
+    if already_done || finally_state < 0 || fn_ptr == 0 {
+        // Sem try-region ativa: encerra (semantica simples).
+        with_entry_mut(h, |e| {
+            if let Some(Entry::GenState(g)) = e {
+                g.done = true;
+            }
+        });
+        return make_result(value, true);
+    }
+    // Redireciona para o finally: registra a completion pendente e re-invoca.
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.pending_kind = kind;
+            g.pending_val = value;
+            g.state = finally_state;
+            g.finally_state = -1; // nao re-disparar a mesma try-region
+        }
+    });
+    let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let yielded = state_fn(h);
+    let done = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.done,
+        _ => true,
+    });
+    make_result(yielded, done)
+}
+
+/// `__RTS_GEN_SM_ENTER_TRY(h, finally_state)` — registra o estado de entrada do
+/// finally da try-region que estamos comecando. `.return`/`.throw` redirecionam
+/// para esse estado se a suspensao ocorrer dentro da try.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_ENTER_TRY(h: u64, finally_state: i64) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.finally_state = finally_state;
+        }
+    });
+}
+
+/// `__RTS_GEN_SM_END_FINALLY(h)` — chamado ao fim do bloco finally. Limpa a
+/// try-region ativa e honra a completion pendente: para `return`, retorna
+/// `DONE(pending_val)`; para `throw`, seta o error slot e marca done. Devolve o
+/// valor que a fn de estado deve retornar (e que NEXT empacotara em {value,done}).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_END_FINALLY(h: u64) -> i64 {
+    let (kind, val) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => (g.pending_kind, g.pending_val),
+        _ => (0, UNDEFINED),
+    });
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.finally_state = -1;
+            g.pending_kind = 0;
+        }
+    });
+    match kind {
+        1 => {
+            // return pendente: completion. state=-2 sinaliza ao desugar que a fn
+            // de estado deve retornar `val` imediatamente (done) sem seguir p/ o
+            // estado normal apos a try/finally.
+            with_entry_mut(h, |e| {
+                if let Some(Entry::GenState(g)) = e {
+                    g.done = true;
+                    g.ret = val;
+                    g.state = -2;
+                }
+            });
+            val
+        }
+        2 => {
+            // throw pendente nao absorvido: propaga via error slot.
+            with_entry_mut(h, |e| {
+                if let Some(Entry::GenState(g)) = e {
+                    g.done = true;
+                    g.state = -2;
+                }
+            });
+            crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(val as u64);
+            val
+        }
+        _ => UNDEFINED, // sem completion pendente: caller segue p/ estado normal.
+    }
 }
 
 /// `__RTS_GEN_SM_DRAIN(h)` — consome o generator lazy ate `done`, coletando os
