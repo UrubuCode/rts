@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,B,C,2,3"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,C,3"
 }
 ,
 {
@@ -1044,7 +1044,7 @@
   "status": "rts_diverge",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
   "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=1"
+  "rts": "counter=0:0\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=1"
 }
 ,
 {
