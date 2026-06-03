@@ -206,6 +206,40 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 ctx.var_member_call_values.insert(v);
                 return Ok(TypedVal::new(v, ValTy::I64));
             }
+            // (#477) Sentinelas da state-machine de generators. Roteiam para os
+            // simbolos runtime reais `__RTS_FN_NS_GC_GEN_SM_*`.
+            if let Some((sym, ret)) = gen_sm_sentinel(id.sym.as_str(), call.args.len()) {
+                use cranelift_codegen::ir::types as cl;
+                let mut argv: Vec<_> = Vec::with_capacity(call.args.len());
+                let sig: Vec<cl::Type> = vec![cl::I64; call.args.len()];
+                for (i, a) in call.args.iter().enumerate() {
+                    if i == 0 && sym == "__RTS_FN_NS_GC_GEN_SM_NEW" {
+                        if let Expr::Ident(fid) = a.expr.as_ref() {
+                            let addr = emit_user_fn_addr(ctx, fid.sym.as_str())?;
+                            argv.push(ctx.coerce_to_i64(addr).val);
+                            continue;
+                        }
+                    }
+                    let tv = lower_expr(ctx, &a.expr)?;
+                    argv.push(ctx.coerce_to_i64(tv).val);
+                }
+                let fref = ctx.get_extern(sym, &sig, ret)?;
+                let inst = ctx.builder.ins().call(fref, &argv);
+                if ret.is_some() {
+                    let r = ctx.builder.inst_results(inst)[0];
+                    let vt = if sym == "__RTS_FN_NS_GC_GEN_SM_NEW" {
+                        ValTy::Handle
+                    } else {
+                        // value yieldado/ret eh ambiguo i64/handle.
+                        ctx.var_member_call_values.insert(r);
+                        ValTy::I64
+                    };
+                    return Ok(TypedVal::new(r, vt));
+                } else {
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    return Ok(TypedVal::new(zero, ValTy::I64));
+                }
+            }
         }
         // (generators) `<genVar>.next()` — protocolo de iterador finito.
         // Roteia para GENERATOR_NEXT (cursor lateral sobre o Vec retornado
@@ -4137,4 +4171,24 @@ fn rewrite_to_json_call(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> Option<swc_ec
         args: Vec::new(),
         type_args: None,
     }))
+}
+
+/// (#477) Mapeia o nome-sentinela da state-machine de generators para o
+/// simbolo runtime real + tipo de retorno (None = void). Devolve None se o
+/// ident nao for uma sentinela conhecida ou a aridade nao bater.
+fn gen_sm_sentinel(
+    name: &str,
+    argc: usize,
+) -> Option<(&'static str, Option<cranelift_codegen::ir::Type>)> {
+    use cranelift_codegen::ir::types as cl;
+    match (name, argc) {
+        ("__RTS_GEN_SM_NEW", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_NEW", Some(cl::I64))),
+        ("__RTS_GEN_SM_FGET", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_FGET", Some(cl::I64))),
+        ("__RTS_GEN_SM_FSET", 3) => Some(("__RTS_FN_NS_GC_GEN_SM_FSET", None)),
+        ("__RTS_GEN_SM_STATE", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_STATE", Some(cl::I64))),
+        ("__RTS_GEN_SM_SETSTATE", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_SETSTATE", None)),
+        ("__RTS_GEN_SM_YIELD", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_YIELD", Some(cl::I64))),
+        ("__RTS_GEN_SM_DONE", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_DONE", Some(cl::I64))),
+        _ => None,
+    }
 }

@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+use crate::namespaces::gc::handles::{Entry, GenStateData, alloc_entry, with_entry, with_entry_mut};
 
 /// Sentinel `undefined` (i64::MIN+2) — convencao do codegen/INSPECT.
 const UNDEFINED: i64 = i64::MIN + 2;
@@ -51,6 +51,11 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_SET_RET(vec_handle: u64, ret: i64) ->
 /// `{value:undefined, done:true}` — caller deve rotear so' p/ generator_vars.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
+    // (#477) Se o handle eh um generator lazy (state-machine), delega.
+    let is_sm = with_entry(vec_handle, |e| matches!(e, Some(Entry::GenState(_))));
+    if is_sm {
+        return __RTS_FN_NS_GC_GEN_SM_NEXT(vec_handle);
+    }
     let len = with_entry(vec_handle, |e| match e {
         Some(Entry::Vec(v)) => Some(v.len()),
         _ => None,
@@ -89,6 +94,10 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
 /// done:true}` — semantica JS. `for-of` que ja' terminou nao eh afetado.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_RETURN(vec_handle: u64, value: i64) -> u64 {
+    let is_sm = with_entry(vec_handle, |e| matches!(e, Some(Entry::GenState(_))));
+    if is_sm {
+        return __RTS_FN_NS_GC_GEN_SM_RETURN(vec_handle, value);
+    }
     let len = with_entry(vec_handle, |e| match e {
         Some(Entry::Vec(v)) => Some(v.len()),
         _ => None,
@@ -109,6 +118,179 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_RETURN(vec_handle: u64, value: i64) -
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_GET_RET(vec_handle: u64) -> i64 {
     GEN_RETS.with(|c| c.borrow().get(&vec_handle).copied()).unwrap_or(UNDEFINED)
+}
+
+// ── Lazy state-machine (#477) ────────────────────────────────────────────────
+// Generators infinitos / com control-flow exigem suspensao real. Aqui o desugar
+// (generator_sm.rs) emite uma fn de estado `extern "C" fn(u64) -> i64` que, a
+// cada chamada, avanca do estado atual ate o proximo `yield` e SUSPENDE,
+// devolvendo o valor yieldado. Os locais vivem no `frame` do `Entry::GenState`.
+// Esta camada coexiste com o eager-buffer (Entry::Vec): generators elegiveis
+// (state-machine) usam GenState; os demais continuam no Vec.
+
+/// Marca thread-local: alguns "value" yieldados sao i64 crus (numeros), nao
+/// handles. Sentinela `done` eh comunicada pelo proprio GenState.done.
+
+/// `__RTS_GEN_SM_NEW(fn_ptr, nslots)` — aloca um generator lazy com a fn de
+/// estado `fn_ptr` e `nslots` slots de frame zerados. Os argumentos da
+/// generator fn sao escritos depois via `GEN_SM_FSET`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
+    let n = if nslots < 0 { 0 } else { nslots as usize };
+    alloc_entry(Entry::GenState(Box::new(GenStateData {
+        fn_ptr,
+        state: 0,
+        frame: vec![0i64; n],
+        ret: UNDEFINED,
+        done: false,
+    })))
+}
+
+/// `__RTS_GEN_SM_FGET(h, idx)` — le o slot `idx` do frame.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_FGET(h: u64, idx: i64) -> i64 {
+    with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.frame.get(idx as usize).copied().unwrap_or(0),
+        _ => 0,
+    })
+}
+
+/// `__RTS_GEN_SM_FSET(h, idx, val)` — escreve o slot `idx` do frame.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_FSET(h: u64, idx: i64, val: i64) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            let i = idx as usize;
+            if i < g.frame.len() {
+                g.frame[i] = val;
+            }
+        }
+    });
+}
+
+/// `__RTS_GEN_SM_STATE(h)` — le o label de retomada atual.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_STATE(h: u64) -> i64 {
+    with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.state,
+        _ => -1,
+    })
+}
+
+/// `__RTS_GEN_SM_SETSTATE(h, s)` — grava o proximo label de retomada.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_SETSTATE(h: u64, s: i64) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.state = s;
+        }
+    });
+}
+
+/// `__RTS_GEN_SM_YIELD(h, val)` — marca o generator como suspenso (nao-done) e
+/// devolve `val` (a fn de estado retorna esse valor para o NEXT). Pura
+/// passthrough; existe para deixar o ponto de suspensao explicito no desugar.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_YIELD(h: u64, val: i64) -> i64 {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.done = false;
+        }
+    });
+    val
+}
+
+/// `__RTS_GEN_SM_DONE(h, ret)` — marca o generator como terminado, registra o
+/// `return X` (ret) e devolve `ret`. A fn de estado retorna esse valor.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DONE(h: u64, ret: i64) -> i64 {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.done = true;
+            g.ret = ret;
+        }
+    });
+    ret
+}
+
+/// `gen.next()` para generators lazy (Entry::GenState). Invoca a fn de estado
+/// (que avanca ate o proximo yield), le o flag `done` e monta `{value, done}`.
+/// Se ja' terminado, devolve `{value:undefined, done:true}` sem reinvocar.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEXT(h: u64) -> u64 {
+    let (fn_ptr, already_done) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => (g.fn_ptr, g.done),
+        _ => (0u64, true),
+    });
+    if fn_ptr == 0 {
+        return make_result(UNDEFINED, true);
+    }
+    if already_done {
+        return make_result(UNDEFINED, true);
+    }
+    // A fn de estado pode chamar SM_DONE (set done=true) ou SM_YIELD (done=false)
+    // antes de retornar. Default otimista: assume suspensao (yield).
+    let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let value = state_fn(h);
+    let done = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.done,
+        _ => true,
+    });
+    make_result(value, done)
+}
+
+/// `gen.return(v)` para generators lazy — encerra antecipadamente: marca done e
+/// devolve `{value:v, done:true}`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_RETURN(h: u64, value: i64) -> u64 {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.done = true;
+        }
+    });
+    make_result(value, true)
+}
+
+/// `__RTS_GEN_SM_DRAIN(h)` — consome o generator lazy ate `done`, coletando os
+/// valores yieldados num `Entry::Vec`. Usado por for-of/spread sobre generator
+/// state-machine (finito). O valor de `return X` NAO entra (semantica iterador).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64 {
+    let fn_ptr = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.fn_ptr,
+        _ => 0,
+    });
+    let mut out: Vec<i64> = Vec::new();
+    if fn_ptr != 0 {
+        let state_fn: extern "C" fn(u64) -> i64 =
+            unsafe { std::mem::transmute(fn_ptr as usize) };
+        loop {
+            let already_done = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => g.done,
+                _ => true,
+            });
+            if already_done {
+                break;
+            }
+            let value = state_fn(h);
+            let done = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => g.done,
+                _ => true,
+            });
+            if done {
+                break;
+            }
+            out.push(value);
+        }
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// `__RTS_GEN_SM_IS(h)` — 1 se o handle eh um generator lazy (GenState), 0 senao.
+/// Permite ao codegen rotear `.next()` p/ SM_NEXT vs o cursor lateral do Vec.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_IS(h: u64) -> i64 {
+    with_entry(h, |e| matches!(e, Some(Entry::GenState(_))) as i64)
 }
 
 /// Aloca o objeto-resultado `{value, done}` como Map.
