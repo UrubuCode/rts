@@ -159,12 +159,14 @@ fn lower_stmt(cm: &Lrc<SourceMap>, stmt: &Stmt, out: &mut Vec<Item>) {
     }
 }
 
-/// (#207) Flag `RTS_ASYNC_SM`: on quando `1`/`on`/`true` (default OFF na fatia
-/// 1 — caminho thread-blocking permanece o default ate o flip da fatia 3).
+/// (#207 fatia 3) Flag `RTS_ASYNC_SM`: agora default ON (async via state-machine
+/// cooperativo). So' desliga com `0`/`off`/`false`/`none` — volta ao caminho
+/// thread-blocking de fallback. Inelegiveis (try/catch em volta de await, await
+/// aninhado) caem no fallback automaticamente, entao o flip e' seguro.
 fn async_sm_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("RTS_ASYNC_SM").ok().as_deref(),
-        Some("1") | Some("on") | Some("true") | Some("all")
+        Some("0") | Some("off") | Some("false") | Some("none")
     )
 }
 
