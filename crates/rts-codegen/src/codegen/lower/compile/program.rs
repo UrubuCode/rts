@@ -1059,6 +1059,18 @@ fn inspect_return_kind(
             // via fcvt_from_sint perdendo bits — chamada subsequente
             // `f(...)` falhava.
             Expr::Fn(_) | Expr::Arrow(_) => true,
+            // (#1281) Quando o pass de lift roda ANTES desta inferencia, o
+            // `return () => ...` ja' virou `return __lifted_arrow_N` (Ident).
+            // Sem reconhecer esses prefixos sinteticos de funcao, a fn que
+            // RETORNA uma arrow (curry/partial: `partial(f,a){ return (b)=>... }`)
+            // inferia Number/F64 e o handle da arrow voltava como f64-bits
+            // corrompido -> chamada subsequente dava 0.
+            Expr::Ident(id) => {
+                let n = id.sym.as_str();
+                n.starts_with("__lifted_arrow_")
+                    || n.starts_with("__hoisted_arrow_")
+                    || n.starts_with("__hoisted_fn_")
+            }
             Expr::Member(m) => {
                 if let swc_ecma_ast::MemberProp::Computed(_) = &m.prop {
                     if let Expr::Ident(id) = peel(m.obj.as_ref()) {
