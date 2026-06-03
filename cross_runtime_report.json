@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,C,3"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,B,C,2,3"
 }
 ,
 {
@@ -1793,10 +1793,10 @@
 ,
 {
   "name": "193_reflect_construct",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "x=10\ny=20\napply=8\nmax=9",
   "node": "x=10\ny=20\napply=8\nmax=9",
-  "rts": "x=10\ny=0\napply=8\nmax=9"
+  "rts": "x=10\ny=20\napply=8\nmax=9"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":331,"rts_diverge":6,"bun_node_diverge":16,"errors":35,"rejected":0}}
+],"summary":{"total":388,"pass":332,"rts_diverge":5,"bun_node_diverge":16,"errors":35,"rejected":0}}
