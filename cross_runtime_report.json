@@ -932,7 +932,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,3,B,C"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,C,3"
 }
 ,
 {
@@ -2609,10 +2609,10 @@
 ,
 {
   "name": "272_symbol_iterator_custom",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iter=3,4,5",
   "node": "iter=3,4,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iter=3,4,5"
 }
 ,
 {
@@ -2636,7 +2636,7 @@
   "status": "bun_node_diverge",
   "bun": "1\n2\n3\n4\n5\n10,11,12,13\n20 21 22\n3,4,5,6",
   "node": "__RUNTIME_ERROR__",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "Range,281474976710660,10,13\n0 0 0\nRange,281474976710660,3,6"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":333,"rts_diverge":6,"bun_node_diverge":16,"errors":33,"rejected":0}}
+],"summary":{"total":388,"pass":334,"rts_diverge":6,"bun_node_diverge":16,"errors":32,"rejected":0}}
