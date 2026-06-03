@@ -5,6 +5,7 @@
 //! `FrontendMode` and the lexer module.
 
 pub mod generator_desugar;
+pub mod generator_sm;
 pub mod lexer;
 
 use anyhow::{Result, anyhow};

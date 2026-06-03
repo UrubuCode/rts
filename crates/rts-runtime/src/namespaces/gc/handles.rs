@@ -475,9 +475,33 @@ pub enum Entry {
     /// of values. Headers.get junta com ", "; getSetCookie retorna a lista
     /// raw de "set-cookie" sem juntar.
     Headers(Box<indexmap::IndexMap<String, Vec<String>>>),
+    /// (#477) Lazy generator state-machine. `fn_ptr` aponta para a fn de
+    /// estado sintetizada pelo desugar (`extern "C" fn(u64) -> i64`, recebe o
+    /// proprio handle do generator e devolve o valor yieldado/return). `state`
+    /// eh o label de retomada (switch), `frame` os locais persistidos entre
+    /// suspensoes, `ret` o valor de `return X` no corpo, `done` se o generator
+    /// terminou. Diferente de `Entry::Vec` (eager-buffer): aqui o corpo SO'
+    /// avanca ate o proximo yield a cada `.next()` (lazy real, suporta
+    /// generators infinitos).
+    GenState(Box<GenStateData>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
+}
+
+/// Estado de um generator lazy (`Entry::GenState`). Ver issue #477.
+#[derive(Debug)]
+pub struct GenStateData {
+    /// Ponteiro da fn de estado: `extern "C" fn(u64) -> i64`.
+    pub fn_ptr: u64,
+    /// Label de retomada (switch sobre estado). Inicia em 0.
+    pub state: i64,
+    /// Locais persistidos entre suspensoes (slots indexados pelo desugar).
+    pub frame: Vec<i64>,
+    /// Valor de `return X` no corpo (UNDEFINED se ausente).
+    pub ret: i64,
+    /// Generator esgotado (proximo `.next()` => `{value:undefined,done:true}`).
+    pub done: bool,
 }
 
 /// State enum dos algoritmos suportados em `Entry::Hasher`. Wrap em Box
@@ -845,6 +869,17 @@ impl HandleTable {
                     }
                     if *handler != 0 {
                         children.push(*handler);
+                    }
+                }
+                // (#477) Generator frame: slots podem ser handles vivos.
+                Entry::GenState(g) => {
+                    for v in &g.frame {
+                        if *v != 0 {
+                            children.push(*v as u64);
+                        }
+                    }
+                    if g.ret != 0 {
+                        children.push(g.ret as u64);
                     }
                 }
                 _ => {}

@@ -2094,6 +2094,16 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
     if handle_is_map_kind(handle) {
         return __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle);
     }
+    // (#477) Generator lazy (state-machine): for-of consome via protocolo
+    // iterador. Drena ate `done` num Vec (finito). Para generator infinito num
+    // for-of sem break o loop nunca termina — igual a JS.
+    {
+        use crate::namespaces::gc::handles::{Entry, with_entry};
+        let is_sm = with_entry(handle, |e| matches!(e, Some(Entry::GenState(_))));
+        if is_sm {
+            return crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(handle);
+        }
+    }
     handle
 }
 

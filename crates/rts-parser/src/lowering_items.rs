@@ -175,6 +175,23 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
             }
         }
         Decl::Fn(fn_decl) => {
+            // (#477) Generator elegivel -> state-machine lazy (2 fns). Caso
+            // contrario, caminho normal (eager-buffer para generators).
+            if fn_decl.function.is_generator {
+                if let Some((ctor, state_fn)) = crate::generator_sm::try_build(
+                    &fn_decl.ident.sym.to_string(),
+                    &fn_decl.function,
+                ) {
+                    // Ambas as fns sinteticas retornam i64 (handle/valor).
+                    let mut sf = lower_fn_decl(cm, &state_fn);
+                    sf.return_type = Some("i64".to_string());
+                    let mut cf = lower_fn_decl(cm, &ctor);
+                    cf.return_type = Some("i64".to_string());
+                    out.push(Item::Function(sf));
+                    out.push(Item::Function(cf));
+                    return;
+                }
+            }
             out.push(Item::Function(lower_fn_decl(cm, fn_decl)));
         }
         Decl::TsInterface(interface_decl) => {

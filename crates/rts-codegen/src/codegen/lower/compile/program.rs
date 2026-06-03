@@ -1828,14 +1828,27 @@ fn fn_body_returns_f64_swc(stmts: &[swc_ecma_ast::Stmt]) -> bool {
 /// marcador do generator_desugar.
 fn fn_body_declares_gen_buf(body: &[Statement]) -> bool {
     use crate::parser::ast::Statement;
-    use swc_ecma_ast::{Decl, Pat, Stmt};
+    use swc_ecma_ast::{Decl, Expr, Pat, Stmt};
     for s in body {
         let Statement::Raw(raw) = s;
         let Some(Stmt::Decl(Decl::Var(v))) = raw.stmt.as_ref() else { continue };
         for d in &v.decls {
             if let Pat::Ident(id) = &d.name {
+                // eager-buffer: const __gen_buf = []
                 if id.id.sym.as_str() == "__gen_buf" {
                     return true;
+                }
+                // (#477) state-machine ctor: const __g = __RTS_GEN_SM_NEW(...)
+                if id.id.sym.as_str() == "__g" {
+                    if let Some(Expr::Call(c)) = d.init.as_deref() {
+                        if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                            if let Expr::Ident(fid) = callee.as_ref() {
+                                if fid.sym.as_str() == "__RTS_GEN_SM_NEW" {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

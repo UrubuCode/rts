@@ -187,6 +187,17 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_ARRAY_VALUES_ITER", crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_VALUES_ITER);
     add_fn!("__RTS_FN_GL_ARRAY_ITERATOR_FN", crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN);
     add_fn!("__RTS_FN_NS_GC_GENERATOR_RETURN", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_RETURN);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_NEW", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_NEW);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_FGET", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_FGET);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_FSET", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_FSET);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_STATE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_STATE);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_SETSTATE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_SETSTATE);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_YIELD", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_YIELD);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_DONE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DONE);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_NEXT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_NEXT);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_RETURN", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_RETURN);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_IS", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_IS);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_DRAIN", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN);
     add_fn!("__RTS_FN_NS_GC_TAGGED_RAW_GET", crate::namespaces::gc::tagged_raw::__RTS_FN_NS_GC_TAGGED_RAW_GET);
     add_fn!("__RTS_FN_NS_GC_TAGGED_RAW_REGISTER", crate::namespaces::gc::tagged_raw::__RTS_FN_NS_GC_TAGGED_RAW_REGISTER);
     add_fn!("__RTS_FN_NS_GC_STRING_NEW", __RTS_FN_NS_GC_STRING_NEW);

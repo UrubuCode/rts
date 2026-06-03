@@ -465,6 +465,19 @@ pub extern "C" fn __RTS_FN_RT_SPREAD_INTO_VEC(dst: u64, src: u64) {
         }
         return;
     }
+    // (#477) Generator lazy (state-machine): drena ate done num Vec, depois
+    // spread normal. Para generator infinito o spread roda pra sempre — igual JS.
+    if with_entry(src, |e| matches!(e, Some(Entry::GenState(_)))) {
+        let drained = crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(src);
+        let items = with_entry(drained, |entry| match entry {
+            Some(Entry::Vec(slots)) => slots.as_ref().clone(),
+            _ => Vec::new(),
+        });
+        for v in items {
+            push_vec_slot(dst, v);
+        }
+        return;
+    }
     let snap = with_entry(src, |entry| match entry {
         Some(Entry::Vec(slots)) => Snap::Vec(slots.as_ref().clone()),
         Some(Entry::String(b)) => Snap::Str(b.clone()),
