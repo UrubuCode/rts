@@ -324,25 +324,44 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
             }
         };
 
-        // (#1275) value float fracionario literal -> bits f64 (leitura via
-        // MAP_GET_CHAIN/template reinterpreta heuristica >2^53).
-        let val_is_frac = expr_is_frac_float_lit(&value_expr);
-        let value_tv = lower_expr(ctx, &value_expr)?;
-        // (#680/50) Bool em obj literal vira sentinel (i64::MIN = false,
-        // i64::MIN+1 = true). Permite JSON.stringify/console.log
-        // distinguir bool de int 0/1, e iterar com tipo correto.
-        let value_i64 = if matches!(value_tv.ty, ValTy::Bool) {
-            let b = ctx.coerce_to_i64(value_tv).val;
-            let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
-            ctx.builder.ins().iadd(min, b)
-        } else if matches!(value_tv.ty, ValTy::F64) && val_is_frac {
-            ctx.builder.ins().bitcast(
-                cl::I64,
-                cranelift_codegen::ir::MemFlags::new(),
-                value_tv.val,
-            )
+        // (cross-runtime #291/#219) BigInt em slot de objeto literal (`{x: 1n}`):
+        // RTS nao tem BigInt real, mas JSON.stringify de um BigInt DEVE lancar
+        // TypeError (spec JS). Tagueia o valor como handle big-number reusando o
+        // boxing existente (`bigfloat.from_i64` -> Entry::BigFixed) — sem novo
+        // simbolo ABI/d.ts. JSON.stringify detecta o BigFixed e lanca (ver
+        // json/ops.rs). Scalar `1n` fora de objeto continua i64 (sem regressao).
+        let value_i64 = if let Expr::Lit(swc_ecma_ast::Lit::BigInt(b)) = value_expr.as_ref() {
+            let v: i64 = b.value.to_string().parse().unwrap_or(i64::MAX);
+            let vc = ctx.builder.ins().iconst(cl::I64, v);
+            let prec = ctx.builder.ins().iconst(cl::I64, 0);
+            let box_fn = ctx.get_extern(
+                "__RTS_FN_NS_BIGFLOAT_FROM_I64",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let bi = ctx.builder.ins().call(box_fn, &[vc, prec]);
+            ctx.builder.inst_results(bi)[0]
         } else {
-            ctx.coerce_to_i64(value_tv).val
+            // (#1275) value float fracionario literal -> bits f64 (leitura via
+            // MAP_GET_CHAIN/template reinterpreta heuristica >2^53).
+            let val_is_frac = expr_is_frac_float_lit(&value_expr);
+            let value_tv = lower_expr(ctx, &value_expr)?;
+            // (#680/50) Bool em obj literal vira sentinel (i64::MIN = false,
+            // i64::MIN+1 = true). Permite JSON.stringify/console.log
+            // distinguir bool de int 0/1, e iterar com tipo correto.
+            if matches!(value_tv.ty, ValTy::Bool) {
+                let b = ctx.coerce_to_i64(value_tv).val;
+                let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                ctx.builder.ins().iadd(min, b)
+            } else if matches!(value_tv.ty, ValTy::F64) && val_is_frac {
+                ctx.builder.ins().bitcast(
+                    cl::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    value_tv.val,
+                )
+            } else {
+                ctx.coerce_to_i64(value_tv).val
+            }
         };
         match key_src {
             KeySrc::Static(s) => {

@@ -259,14 +259,33 @@ fn sort_ecma_keys(entries: Vec<(String, i64)>) -> Vec<(String, i64)> {
     out
 }
 
+// (cross-runtime #291) Setado quando stringify encontra um valor BigInt
+// (representado por Entry::BigFixed como tag de BigInt em slot de objeto).
+// JS spec: `JSON.stringify` de um BigInt lanca TypeError.
+thread_local! {
+    static JSON_BIGINT_HIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Serializa um handle de qualquer tipo conhecido (Map/Vec/String/Json) ou
 /// devolve "" se nao reconhecido. Valores i64 dentro de Map/Vec sao tratados
 /// como numero por padrao — nao ha como saber em runtime se i64 e' handle
 /// string/map sem corromper interpretacao numerica.
 fn stringify_any_inner(handle: u64) -> Option<String> {
+    JSON_BIGINT_HIT.with(|c| c.set(false));
     let mut visited = std::collections::HashSet::new();
     let mut circular = false;
     let r = stringify_with_visited(handle, &mut visited, &mut circular);
+    if JSON_BIGINT_HIT.with(|c| c.get()) {
+        // (#291) BigInt nao e' serializavel -> TypeError (mesmo canal de pending
+        // error que o caso circular; try/catch captura via __RTS_FN_RT_ERROR_GET).
+        let err = alloc_entry(Entry::ErrorObj {
+            message: "Do not know how to serialize a BigInt".to_owned(),
+            name: "TypeError".to_owned(),
+            cause: 0,
+        });
+        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err);
+        return None;
+    }
     if circular {
         // (#680/290) Sinaliza JSON circular como pending TypeError —
         // try/catch do TS captura via __RTS_FN_RT_ERROR_GET.
@@ -365,6 +384,12 @@ fn stringify_with_visited(
         Some(Entry::Vec(v)) => Snap::Vec(v.as_ref().clone()),
         Some(Entry::Json(j)) => Snap::Json(serde_json::to_string(j.as_ref()).unwrap_or_default()),
         Some(Entry::DateMs(ms)) => Snap::Date(*ms),
+        // (cross-runtime #291) Entry::BigFixed tagueia um BigInt em slot de
+        // objeto. JS spec: BigInt nao e' serializavel -> sinaliza TypeError.
+        Some(Entry::BigFixed(_)) => {
+            JSON_BIGINT_HIT.with(|c| c.set(true));
+            Snap::Other
+        }
         Some(_) => Snap::Other,
     });
     let mut out = String::new();
