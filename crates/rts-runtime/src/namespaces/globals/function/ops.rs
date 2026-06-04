@@ -226,6 +226,37 @@ fn read_packed_shim(handle: u64) -> u64 {
     })
 }
 
+/// (cross-runtime #195) Indice do rest param de uma fn reificada (-1 se nao
+/// variadic). Lido no invoke pra empacotar o tail antes do dispatch.
+fn read_rest_param_idx(handle: u64) -> i32 {
+    with_entry(handle, |entry| {
+        if let Some(Entry::Function(d)) = entry {
+            d.rest_param_idx
+        } else {
+            -1
+        }
+    })
+}
+
+/// (cross-runtime #195) Empacota o tail variadic. Dado `all_args` ja' montado
+/// (`bound_args ++ args_reais`) e o indice do rest param, move `all_args[idx..]`
+/// pra um `Entry::Vec` e deixa `all_args = all_args[..idx] ++ [vec_handle]` —
+/// o corpo da lambda ve o rest como UM Handle de array. Como o rest e' o ultimo
+/// param e as capturas sao prepended, `idx = arity-1` cobre capturas+fixos.
+/// Args fixos faltantes (< idx) sao completados com 0. No-op se rest_idx < 0.
+fn pack_variadic_tail(all_args: &mut Vec<i64>, rest_idx: i32) {
+    if rest_idx < 0 {
+        return;
+    }
+    let ri = rest_idx as usize;
+    while all_args.len() < ri {
+        all_args.push(0);
+    }
+    let extra: Vec<i64> = all_args.split_off(ri);
+    let vec_h = alloc_entry(Entry::Vec(Box::new(extra)));
+    all_args.push(vec_h as i64);
+}
+
 fn read_args_vec(args_handle: u64) -> Vec<i64> {
     if args_handle == 0 {
         return Vec::new();
@@ -347,6 +378,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
         source: None,
         keep_alive: None,
         prototype_handle: 0,
+        rest_param_idx: -1,
     })))
 }
 
@@ -371,6 +403,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
     param_kinds_ptr: i64,
     param_kinds_len: i64,
     return_kind: i32,
+    rest_idx: i32,
 ) -> u64 {
     let name = if name_ptr != 0 && name_len > 0 {
         unsafe {
@@ -404,6 +437,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
         source: None,
         keep_alive: None,
         prototype_handle: 0,
+        rest_param_idx: rest_idx,
     })))
 }
 
@@ -465,6 +499,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         source: Some(format!("function anonymous({}) {{\n{}\n}}", params_str, body_str).into_boxed_str()),
         keep_alive: Some(compiled.keep_alive),
         prototype_handle: 0,
+        rest_param_idx: -1,
     })))
 }
 
@@ -490,6 +525,10 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
 
     let mut all_args = bound_args;
     all_args.extend(read_args_vec(args_handle));
+    // (#195) Variadic: empacota `all_args[rest_idx..]` num array ANTES de
+    // tratar `this`/dispatch (lambdas liftadas variadic sao is_arrow → sem
+    // insercao de this, entao rest_idx mapeia direto sobre all_args).
+    pack_variadic_tail(&mut all_args, read_rest_param_idx(handle));
 
     // Arrow ignora thisArg (lexical this). Non-arrow com has_this_param
     // (método de classe compilado com `this` como primeiro parâmetro)
@@ -683,6 +722,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
         source,
         keep_alive,
         prototype_handle: 0,
+        rest_param_idx: -1,
     })))
 }
 
@@ -725,6 +765,7 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
             source: None,
             keep_alive: None,
             prototype_handle: 0,
+            rest_param_idx: -1,
         })));
         crate::namespaces::collections::map::with_map_mut(proto, (), |m| {
             m.insert("constructor".to_string(), ctor_stub as i64);
@@ -950,6 +991,8 @@ fn invoke_auto_impl(
     {
         let mut all_args = bound_args;
         all_args.extend(read_args_vec(args_handle));
+        // (#195) Variadic: empacota o tail num array handle antes do pad/dispatch.
+        pack_variadic_tail(&mut all_args, read_rest_param_idx(callee as u64));
         // (engine multi-thread passivo) Preenche args faltantes com 0
         // ate atender o numero de param_kinds. Caso: setTimeout(resolveFn, ms)
         // chama com 0 args, mas resolveFn tem param_kinds=[0,0] (promise_h

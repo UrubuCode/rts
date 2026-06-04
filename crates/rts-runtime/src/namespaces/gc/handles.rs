@@ -593,6 +593,15 @@ pub struct FunctionData {
     /// via `__RTS_FN_GL_FUNCTION_PROTOTYPE_GET`. Eh um Map handle (collections)
     /// onde callers fazem `fn.prototype.method = handle`.
     pub prototype_handle: u64,
+    /// (cross-runtime #195) Indice do parametro rest (`...args`) na lista de
+    /// params DECLARADOS (capturas + fixos + rest). -1 = nao-variadic. Quando
+    /// >= 0, o invoker (FUNCTION_CALL / INVOKE_AUTO) empacota `all_args[idx..]`
+    /// num handle de array (Entry::Vec) antes do dispatch, pra que o corpo veja
+    /// `rest` como UM Handle de array em vez de args soltos. Como as capturas
+    /// sao prepended (`all_args = bound_args ++ reais`) e o rest e' sempre o
+    /// ultimo param, `idx = arity - 1` cobre capturas+fixos automaticamente.
+    /// Setado no reify de lambdas liftadas variadic; demais construtores: -1.
+    pub rest_param_idx: i32,
 }
 
 /// Cleanup ativo de recursos do SO quando um Entry e' descartado (#279).

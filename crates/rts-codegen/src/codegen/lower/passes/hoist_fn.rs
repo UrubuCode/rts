@@ -35,6 +35,37 @@ pub(crate) fn is_lifted_variadic(name: &str) -> bool {
     LIFTED_VARIADIC.with(|c| c.borrow().contains(name))
 }
 
+thread_local! {
+    /// (cross-runtime #195) Escopo enclosing atual: params + locais da fn cujo
+    /// corpo o pass esta varrendo agora. Usado para decidir quais idents de uma
+    /// lambda liftada sao CAPTURAS (free vars desse escopo) vs globais/user-fns
+    /// (que o codegen resolve direto, sem bound_args). Como o pass NAO desce no
+    /// corpo de uma lambda ao lifta-la (re-lifta em fixed-point via work-list),
+    /// basta um unico escopo "atual" — nunca ha dois niveis ativos ao mesmo
+    /// tempo dentro de uma mesma varredura.
+    static CUR_SCOPE: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+fn set_cur_scope(s: std::collections::HashSet<String>) {
+    CUR_SCOPE.with(|c| *c.borrow_mut() = s);
+}
+
+fn cur_scope() -> std::collections::HashSet<String> {
+    CUR_SCOPE.with(|c| c.borrow().clone())
+}
+
+/// Nomes em escopo de uma fn (`Item::Function`/lambda liftada): params +
+/// locais (`let`/`const`/`var`) declarados no corpo.
+fn scope_of(params: &[Parameter], body: &[Statement]) -> std::collections::HashSet<String> {
+    let mut s = std::collections::HashSet::new();
+    for p in params {
+        s.insert(p.name.clone());
+    }
+    crate::codegen::lower::analysis::captures::collect_local_decls(body, &mut s);
+    s
+}
+
 pub(crate) fn hoist_fn_expressions(program: &mut Program) {
     use swc_ecma_ast::{ArrowExpr, BlockStmtOrExpr};
 
@@ -400,7 +431,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         };
         *counter += 1;
 
-        let fn_decl = match owned {
+        let mut fn_decl = match owned {
             Expr::Fn(fn_expr) => {
                 let func = &fn_expr.function;
                 let mut body = func.body.as_ref().map(|b| b.stmts.clone()).unwrap_or_default();
@@ -428,6 +459,60 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
             }
             _ => unreachable!(),
         };
+        // (cross-runtime #195) CAPTURA-POR-VALOR de free vars do escopo
+        // enclosing. A lambda foi liftada pra top-level; refs a params/locais
+        // do escopo de onde ela saiu viravam "undefined variable". Detecta
+        // essas free vars (estao em CUR_SCOPE e nao sao params/locais proprios),
+        // injeta-as como params INICIAIS, e registra no mapa LIFTED_ARROW_CAPTURES
+        // pro codegen reificar via REIFY_CAPTURED (bound_args = capturas; em cada
+        // invocacao `all_args = bound_args ++ args_reais`). Caminho identico ao
+        // do `this_arrow` lifter — so' que cobrindo arrows/fn-exprs em posicao
+        // de call-arg/IIFE/etc, que aquele pass nao alcanca.
+        //
+        // Lambdas variadic tambem capturam: as capturas sao prepended ANTES do
+        // `...rest`, que segue sendo o ultimo param. `expand_rest_args` calcula
+        // o indice do rest sobre os params FINAIS (= arity-1), e o invoke via
+        // handle empacota `all_args[idx..]` num array (rest_param_idx setado no
+        // reify) — entao captura + variadic coexistem sem deslocamento errado.
+        {
+            let enclosing = cur_scope();
+            if !enclosing.is_empty() {
+                let mut own: std::collections::HashSet<String> =
+                    fn_decl.parameters.iter().map(|p| p.name.clone()).collect();
+                crate::codegen::lower::analysis::captures::collect_local_decls(
+                    &fn_decl.body,
+                    &mut own,
+                );
+                own.insert(name.clone());
+                let swc_body: Vec<Stmt> = fn_decl
+                    .body
+                    .iter()
+                    .filter_map(|Statement::Raw(r)| r.stmt.clone())
+                    .collect();
+                let caps = crate::codegen::lower::analysis::captures::free_vars_in_swc_stmts(
+                    &swc_body, &enclosing, &own,
+                );
+                if !caps.is_empty() {
+                    let cap_list: Vec<String> = caps.into_iter().collect();
+                    let mut new_params: Vec<Parameter> = cap_list
+                        .iter()
+                        .map(|c| Parameter {
+                            name: c.clone(),
+                            type_annotation: None,
+                            modifiers: MemberModifiers::default(),
+                            variadic: false,
+                            default: None,
+                            span: Span::default(),
+                        })
+                        .collect();
+                    new_params.extend(std::mem::take(&mut fn_decl.parameters));
+                    fn_decl.parameters = new_params;
+                    crate::codegen::lower::passes::this_arrow::add_lifted_captures(
+                        std::iter::once((name.clone(), cap_list)),
+                    );
+                }
+            }
+        }
         // (#310) Registra variadic se o ultimo param eh rest — INVOKE_AUTO
         // empacota os args excedentes num array ao invocar via handle.
         if fn_decl.parameters.last().map(|p| p.variadic).unwrap_or(false) {
@@ -658,6 +743,9 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
     for item in to_visit_items.drain(..) {
         match item {
             Item::Function(f) => {
+                // (#195) escopo enclosing = params + locais desta fn; lambdas
+                // liftadas de dentro dela capturam esses nomes por valor.
+                set_cur_scope(scope_of(&f.parameters, &f.body));
                 for s in f.body.iter_mut() {
                     let Statement::Raw(raw) = s;
                     if let Some(stmt) = raw.stmt.as_mut() {
@@ -666,11 +754,18 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 }
             }
             Item::Statement(Statement::Raw(raw)) => {
+                // Top-level: vars sao GLOBAIS (resolvidas direto pelo codegen),
+                // nao capturas — escopo vazio.
+                set_cur_scope(std::collections::HashSet::new());
                 if let Some(stmt) = raw.stmt.as_mut() {
                     visit_stmt(stmt, &mut counter, &mut new_fns);
                 }
             }
             Item::Class(class) => {
+                // Lambdas que capturam `this`/fields de metodo de classe sao
+                // tratadas pelo `this_arrow` lifter; aqui escopo vazio evita
+                // captura duplicada/incorreta.
+                set_cur_scope(std::collections::HashSet::new());
                 for member in class.members.iter_mut() {
                     let body = match member {
                         ClassMember::Method(m) => &mut m.body,
@@ -694,6 +789,10 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
     let mut acc: Vec<Item> = Vec::new();
     while let Some(item) = work.pop() {
         if let Item::Function(mut f) = item {
+            // (#195) escopo desta lambda liftada = seus params (inclui os params
+            // de captura ja' injetados) + locais. Lambdas aninhadas dentro dela
+            // capturam esses nomes — encadeia capturas multi-nivel.
+            set_cur_scope(scope_of(&f.parameters, &f.body));
             for s in f.body.iter_mut() {
                 let Statement::Raw(raw) = s;
                 if let Some(stmt) = raw.stmt.as_mut() {

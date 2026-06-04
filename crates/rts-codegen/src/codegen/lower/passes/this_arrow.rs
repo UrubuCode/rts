@@ -622,6 +622,20 @@ pub(crate) fn set_lifted_captures(map: HashMap<String, Vec<String>>) {
     LIFTED_ARROW_CAPTURES.with(|c| *c.borrow_mut() = map);
 }
 
+/// (cross-runtime #195) Adiciona entradas ao mapa de capturas SEM limpar as
+/// existentes. `hoist_fn_expressions` roda DEPOIS de `lift_arrow_callbacks`
+/// (que ja' chamou `set_lifted_captures`), entao precisa registrar as capturas
+/// das lambdas que ele liftou (arrows/fn-exprs em call-arg/IIFE) reaproveitando
+/// o mesmo caminho REIFY_CAPTURED, sem destruir o mapa do lifter anterior.
+pub(crate) fn add_lifted_captures<I: IntoIterator<Item = (String, Vec<String>)>>(entries: I) {
+    LIFTED_ARROW_CAPTURES.with(|c| {
+        let mut m = c.borrow_mut();
+        for (k, v) in entries {
+            m.insert(k, v);
+        }
+    });
+}
+
 /// (#376) Registra o mapa `__lifted_arrow_N -> classe dona`.
 pub(crate) fn set_lifted_arrow_class(map: HashMap<String, String>) {
     LIFTED_ARROW_CLASS.with(|c| *c.borrow_mut() = map);
@@ -886,6 +900,57 @@ impl LiftAcc {
         }
     }
 
+    /// (cross-runtime #195) True se `name` aparece como CALLEE de uma call no
+    /// corpo do arrow (`name(...)`). Um param assim e' um handle de fn (i64),
+    /// nunca f64 — sem isto a inferencia de tipo de um param sem anotacao usado
+    /// como `(v,f)=>f(v)` marcava `f` como f64, e o ptr entrava no trampolim
+    /// all-i64 de parallel.*/VEC com ABI errada (param f64 em XMM) -> SIGILL.
+    fn arrow_body_calls_param(arrow: &swc_ecma_ast::ArrowExpr, name: &str) -> bool {
+        use swc_ecma_ast::{BlockStmtOrExpr, Callee};
+        fn in_expr(expr: &Expr, name: &str) -> bool {
+            match expr {
+                Expr::Call(c) => {
+                    let callee_hit = matches!(&c.callee,
+                        Callee::Expr(ce) if matches!(ce.as_ref(),
+                            Expr::Ident(id) if id.sym.as_str() == name));
+                    callee_hit
+                        || matches!(&c.callee, Callee::Expr(ce) if in_expr(ce, name))
+                        || c.args.iter().any(|a| in_expr(&a.expr, name))
+                }
+                Expr::Bin(b) => in_expr(&b.left, name) || in_expr(&b.right, name),
+                Expr::Cond(c) => {
+                    in_expr(&c.test, name) || in_expr(&c.cons, name) || in_expr(&c.alt, name)
+                }
+                Expr::Paren(p) => in_expr(&p.expr, name),
+                Expr::Member(m) => in_expr(&m.obj, name),
+                Expr::Seq(s) => s.exprs.iter().any(|x| in_expr(x, name)),
+                Expr::Unary(u) => in_expr(&u.arg, name),
+                Expr::Await(a) => in_expr(&a.arg, name),
+                Expr::Tpl(t) => t.exprs.iter().any(|x| in_expr(x, name)),
+                Expr::Array(a) => a.elems.iter().flatten().any(|el| in_expr(&el.expr, name)),
+                Expr::Assign(a) => in_expr(&a.right, name),
+                _ => false,
+            }
+        }
+        fn in_stmt(stmt: &Stmt, name: &str) -> bool {
+            match stmt {
+                Stmt::Expr(x) => in_expr(&x.expr, name),
+                Stmt::Return(r) => r.arg.as_deref().is_some_and(|a| in_expr(a, name)),
+                Stmt::If(i) => {
+                    in_expr(&i.test, name)
+                        || in_stmt(&i.cons, name)
+                        || i.alt.as_deref().is_some_and(|a| in_stmt(a, name))
+                }
+                Stmt::Block(b) => b.stmts.iter().any(|x| in_stmt(x, name)),
+                _ => false,
+            }
+        }
+        match arrow.body.as_ref() {
+            BlockStmtOrExpr::Expr(ex) => in_expr(ex, name),
+            BlockStmtOrExpr::BlockStmt(b) => b.stmts.iter().any(|x| in_stmt(x, name)),
+        }
+    }
+
     fn arrow_params_to_parameters(
         arrow: &swc_ecma_ast::ArrowExpr,
         syn_name: &str,
@@ -944,9 +1009,16 @@ impl LiftAcc {
                 if n == "this" {
                     continue;
                 }
+                let ann = Self::binding_keyword_type_ann(b).or_else(|| {
+                    if Self::arrow_body_calls_param(arrow, &n) {
+                        Some("i64".to_string())
+                    } else {
+                        None
+                    }
+                });
                 parameters.push(Parameter {
                     name: n,
-                    type_annotation: Self::binding_keyword_type_ann(b),
+                    type_annotation: ann,
                     modifiers: MemberModifiers::default(),
                     variadic: false,
                     default: None,
@@ -955,9 +1027,17 @@ impl LiftAcc {
             } else if let Pat::Assign(a) = pat {
                 // Param com default `(x = 1) => ...` — nome simples + default.
                 if let Pat::Ident(b) = a.left.as_ref() {
+                    let n = b.id.sym.to_string();
+                    let ann = Self::binding_keyword_type_ann(b).or_else(|| {
+                        if Self::arrow_body_calls_param(arrow, &n) {
+                            Some("i64".to_string())
+                        } else {
+                            None
+                        }
+                    });
                     parameters.push(Parameter {
-                        name: b.id.sym.to_string(),
-                        type_annotation: Self::binding_keyword_type_ann(b),
+                        name: n,
+                        type_annotation: ann,
                         modifiers: MemberModifiers::default(),
                         variadic: false,
                         default: Some(a.right.clone()),

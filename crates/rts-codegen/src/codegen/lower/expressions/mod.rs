@@ -160,6 +160,14 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
                     return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &cap_vals);
                 }
             }
+            // (#195) Arrow liftada VARIADIC (`...rest`), mesmo sem captura
+            // resolvida: precisa ser reificada como handle (nao raw fn-addr) pra
+            // gravar `rest_param_idx` no FunctionData — so' assim o invoke via
+            // handle empacota o tail num array. Sem isto, `(...fns) => ...`
+            // reificava como endereco cru e o rest chegava como args soltos.
+            if crate::codegen::lower::passes::args::rest_args::fn_rest_idx(name).is_some() {
+                return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &[]);
+            }
             // Se `this` é local (escopo de método de classe), captura o valor
             // atual no handle via REIFY_BOUND. Arrows armazenadas/retornadas
             // leem `this` correto mesmo após o método retornar.

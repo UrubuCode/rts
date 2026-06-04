@@ -634,6 +634,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_ITERATOR_FN() -> u64 {
         source: None,
         keep_alive: None,
         prototype_handle: 0,
+        rest_param_idx: -1,
     })))
 }
 
