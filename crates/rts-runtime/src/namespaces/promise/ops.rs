@@ -144,13 +144,37 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(handle: u64) -> i64 {
         _ => None,
     });
     let Some(arc) = slot_arc else { return 0 };
-    // (cross-runtime #56/#285) Drena microtasks antes de bloquear: o
-    // fast-path de Promise.then settled enfileira callbacks que precisam
-    // executar para o slot que estamos aguardando ser settled. Sem isso,
-    // `await Promise.resolve(x).then(f)` ficaria hang esperando o
-    // microtask drenar (que so' aconteceria no fim do __RTS_MAIN).
+    // (cross-runtime #56/#285/#393) Enquanto a Promise esta PENDING, bombeia o
+    // event loop na thread do main: microtasks (fast-path de `.then` settled e
+    // chains) + timers vencidos. setTimeout virou queue-based (sem thread por
+    // timer), entao `await new Promise(r => setTimeout(r, N))` so' resolve se
+    // alguem bombear os timers — e' o await que faz isso aqui. Promises
+    // resolvidas por threads tokio (async/promise.create/Promise.all) sao
+    // detectadas pelo re-check de estado a cada tick curto.
     if promise_slot::current_state(&arc) == promise_slot::STATE_PENDING {
+        use std::time::{Duration, Instant};
+        use crate::namespaces::globals::timers::instance as timers;
+        let cap = Instant::now() + Duration::from_secs(5);
+        // Bombeia 1x (drena chains de microtask + timers ja' vencidos).
         crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+        timers::pump_due_macrotasks();
+        // Enquanto a Promise depende de um timer futuro, avanca o tempo ate o
+        // proximo deadline e re-bombeia. Quando nao ha mais timers pendentes,
+        // sai do loop e usa wait_blocking (condvar eficiente) p/ resolucao por
+        // thread tokio — sem busy-spin.
+        while promise_slot::current_state(&arc) == promise_slot::STATE_PENDING {
+            let Some(next) = timers::next_macrotask_deadline() else { break };
+            let now = Instant::now();
+            if now >= cap {
+                break;
+            }
+            let wake = next.min(cap);
+            if wake > now {
+                std::thread::sleep((wake - now).min(Duration::from_millis(50)));
+            }
+            crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+            timers::pump_due_macrotasks();
+        }
     }
     let (state, value) = promise_slot::wait_blocking(&arc);
     // F5 (#416): se Promise rejected, propaga via slot de erro

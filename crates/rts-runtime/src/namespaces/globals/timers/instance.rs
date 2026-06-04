@@ -20,40 +20,129 @@ fn register_timer(handle: u64, flag: Arc<AtomicBool>) {
     timers().lock().unwrap().insert(handle, flag);
 }
 
-// (#207 timer ordering) Macrotask queue p/ setTimeout(fp, 0): em JS, timers
-// rodam na thread principal APOS todas as microtasks drenarem (macrotask >
-// microtask). spawn_blocking/thread roda em paralelo e fora de ordem. Esta
-// fila (thread-local do main) eh drenada pelo pipeline pos-main, intercalando
-// com microtasks na ordem JS spec correta.
+// (#207 timer ordering / cross-runtime #393) Macrotask queue para TODO
+// setTimeout (delay 0 e >0). Em JS os timers rodam na thread principal,
+// ordenados por (deadline, ordem-de-registro). Antes: delay-0 ia para esta
+// fila (FIFO) e delay>0 spawnava UMA THREAD por timer — threads paralelas
+// disparavam fora de ordem (dois setTimeout(x,10) podiam imprimir invertido).
+// Agora ambos viram entradas com `deadline` absoluto + `seq` monotonico; o
+// pump dispara em ordem (deadline, seq) deterministica. setInterval continua
+// em thread (periodico) e setImmediate na fila propria.
+struct Macrotask {
+    fp: u64,
+    flag: Arc<AtomicBool>,
+    handle: u64,
+    deadline: std::time::Instant,
+    seq: u64,
+}
 thread_local! {
-    static MACROTASK_QUEUE: std::cell::RefCell<Vec<(u64, Arc<AtomicBool>, u64)>>
+    static MACROTASK_QUEUE: std::cell::RefCell<Vec<Macrotask>>
         = const { std::cell::RefCell::new(Vec::new()) };
 }
+static MACROTASK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Enfileira um setTimeout(fp, 0) como macrotask na thread do main.
-fn enqueue_macrotask(fp: u64, flag: Arc<AtomicBool>, handle: u64) {
-    MACROTASK_QUEUE.with(|q| q.borrow_mut().push((fp, flag, handle)));
+fn next_macrotask_seq() -> u64 {
+    MACROTASK_SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
-/// (#207) Drena a fila de macrotask (setTimeout delay-0) APOS as microtasks.
-/// Cada macrotask: se nao cancelada, invoca o callback; depois as microtasks
-/// que ela gerou sao drenadas (JS spec: cada macrotask esvazia a microtask
-/// queue). Processa em ordem FIFO de registro.
-pub fn drain_macrotasks() {
+/// Enfileira um setTimeout(fp, delay) como macrotask com deadline absoluto.
+fn enqueue_macrotask(fp: u64, flag: Arc<AtomicBool>, handle: u64, delay_ms: u64) {
+    let deadline = std::time::Instant::now() + Duration::from_millis(delay_ms);
+    let seq = next_macrotask_seq();
+    MACROTASK_QUEUE.with(|q| q.borrow_mut().push(Macrotask { fp, flag, handle, deadline, seq }));
+}
+
+/// Menor deadline entre macrotasks pendentes nao-canceladas (None se vazia).
+pub fn next_macrotask_deadline() -> Option<std::time::Instant> {
+    MACROTASK_QUEUE.with(|q| {
+        q.borrow()
+            .iter()
+            .filter(|m| !m.flag.load(Ordering::Relaxed))
+            .map(|m| m.deadline)
+            .min()
+    })
+}
+
+/// Dispara TODAS as macrotasks ja' vencidas (`deadline <= now`) em ordem
+/// (deadline, seq). Cancela/remove entradas ja' canceladas. Apos cada callback
+/// drena as microtasks geradas (JS spec: cada macrotask esvazia a microtask
+/// queue). Retorna quando nenhuma macrotask esta vencida.
+pub fn pump_due_macrotasks() {
     loop {
-        let batch: Vec<(u64, Arc<AtomicBool>, u64)> =
-            MACROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
-        if batch.is_empty() {
+        let now = std::time::Instant::now();
+        let next = MACROTASK_QUEUE.with(|q| {
+            let mut q = q.borrow_mut();
+            // Descarta canceladas (clearTimeout).
+            q.retain(|m| {
+                let cancelled = m.flag.load(Ordering::Relaxed);
+                if cancelled {
+                    free_handle(m.handle);
+                }
+                !cancelled
+            });
+            // Acha a vencida com menor (deadline, seq).
+            let mut best: Option<usize> = None;
+            for (i, m) in q.iter().enumerate() {
+                if m.deadline <= now {
+                    let better = match best {
+                        None => true,
+                        Some(b) => (m.deadline, m.seq) < (q[b].deadline, q[b].seq),
+                    };
+                    if better {
+                        best = Some(i);
+                    }
+                }
+            }
+            best.map(|i| q.remove(i))
+        });
+        match next {
+            Some(m) => {
+                invoke_timer_cb(m.fp);
+                free_handle(m.handle);
+                cancel_timer(m.handle);
+                crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+            }
+            None => break,
+        }
+    }
+}
+
+/// (#207) Drena a fila de macrotask (setTimeout) APOS as microtasks. Usada
+/// pelo pipeline pos-main: dispara as vencidas e, enquanto restarem timers
+/// futuros, dorme ate o proximo deadline (cap de 5s) e repete — preservando
+/// ordem (deadline, seq).
+pub fn drain_macrotasks() {
+    let cap = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        pump_due_macrotasks();
+        let Some(next) = next_macrotask_deadline() else { break };
+        if next > cap {
             break;
         }
-        for (fp, flag, handle) in batch {
-            if !flag.load(Ordering::Relaxed) {
-                invoke_timer_cb(fp);
-            }
-            free_handle(handle);
-            cancel_timer(handle);
-            // JS spec: apos cada macrotask, drena todas as microtasks geradas.
-            crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+        let now = std::time::Instant::now();
+        if next > now {
+            thread::sleep(next - now);
+        }
+    }
+}
+
+/// (cross-runtime #393) Pump dirigido por tempo para `time.sleep_ms`: dispara
+/// microtasks/immediates/macrotasks vencidas e dorme ate o proximo deadline
+/// (ou ate `target`), repetindo — assim `setTimeout(cb,10)` dispara DENTRO de
+/// `sleep_ms(50)` (set_timeout_interval) mas em ordem deterministica.
+pub fn pump_until(target: std::time::Instant) {
+    loop {
+        crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+        drain_immediates();
+        pump_due_macrotasks();
+        let now = std::time::Instant::now();
+        if now >= target {
+            break;
+        }
+        let wake = next_macrotask_deadline().map(|d| d.min(target)).unwrap_or(target);
+        let now2 = std::time::Instant::now();
+        if wake > now2 {
+            thread::sleep(wake - now2);
         }
     }
 }
@@ -104,22 +193,12 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 
 
     register_timer(handle, cancelled);
 
-    // (#207 timer ordering) delay 0: macrotask na thread do main (roda APOS
-    // microtasks drenarem — ordem JS spec). delay > 0: thread com sleep real.
-    if delay == 0 {
-        enqueue_macrotask(fp, flag, handle);
-        return handle;
-    }
-
-    let flag2 = flag.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(delay));
-        if !flag2.load(Ordering::Relaxed) {
-            invoke_timer_cb(fp);
-        }
-        free_handle(handle);
-        cancel_timer(handle);
-    });
+    // (#207 timer ordering / cross-runtime #393) delay 0 e delay>0 entram na
+    // MESMA fila ordenada por (deadline, seq), drenada na thread do main. Sem
+    // thread-per-timer: dois setTimeout(_, 10) disparam na ordem de registro
+    // (deterministico). `time.sleep_ms` faz pump dirigido por tempo, entao um
+    // setTimeout(cb, 10) ainda dispara dentro de sleep_ms(50).
+    enqueue_macrotask(fp, flag, handle, delay);
     handle
 }
 
