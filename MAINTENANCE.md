@@ -1,9 +1,25 @@
 # MAINTENANCE.md — Path to 100% cross-runtime parity
 
-> Status: **94.4% (351/372)** cross-runtime parity.
-> 21 fixtures remain. This document explains, fixture by fixture, **what each
+> Status: **94.9% (353/372)** cross-runtime parity.
+> 19 fixtures remain. This document explains, fixture by fixture, **what each
 > needs**, **where the code lives**, and **why none can be closed incrementally
 > without violating the project's own engineering rules.**
+>
+> **Flipped (2026-06-04, "buildable external-API / quirk" pass):**
+> - `291_json_bigint` — `JSON.stringify` throws TypeError on a BigInt in an
+>   object literal (object-slot BigInt tagged via Entry::BigFixed; stringify
+>   raises through the circular-ref error channel). Commit `feat(json):`.
+> - `76_message_channel` — new `MessageChannel`/`MessagePort` global classes
+>   (entangled Entry::Map ports; `postMessage` delivers to the peer's
+>   `onmessage` synchronously). Commit `feat(message-channel):`.
+>
+> **Next buildable external-API cluster:** WHATWG Streams (`88`/`96`/`101`,
+> cluster D). The classes are additive, but all three are GATED on a single
+> deep async/codegen defect: `await writer.write(cb)` where `write` invokes a
+> JIT object-literal method breaks control flow (silent termination /
+> ILLEGAL_INSTRUCTION). That crash — not the API surface — is the real blocker;
+> root-cause it before building CompressionStream/TextEncoderStream/pipeThrough.
+> `100_dynamic_import` already matches bun/node (both error) — not a flip.
 
 This file is the honest answer to "why not just reach 100%?". Read it before
 attempting the remaining fixtures, so the scope and the rule-conflict are clear
