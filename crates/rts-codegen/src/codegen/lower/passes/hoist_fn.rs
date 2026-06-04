@@ -275,6 +275,24 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     default: None,
                     span: Span::default(),
                 });
+            } else if let Pat::Assign(a) = &p.pat {
+                // (cross-runtime #386) Default param simples `acc = 1` em fn/arrow
+                // hoisted: SWC representa como Pat::Assign{left: Ident, right}.
+                // Antes era dropado (pat_to_param_name so' trata Ident) -> param
+                // ausente -> "undefined variable acc". Preserva nome + default.
+                if let Pat::Ident(id) = a.left.as_ref() {
+                    let n = id.id.sym.to_string();
+                    if n != "this" {
+                        parameters.push(Parameter {
+                            name: n,
+                            type_annotation: None,
+                            modifiers: MemberModifiers::default(),
+                            variadic: false,
+                            default: Some(a.right.clone()),
+                            span: Span::default(),
+                        });
+                    }
+                }
             }
         }
         // Heuristica: se body tem \`return <expr>\`, declaramos retorno
@@ -385,7 +403,22 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         let fn_decl = match owned {
             Expr::Fn(fn_expr) => {
                 let func = &fn_expr.function;
-                let body = func.body.as_ref().map(|b| b.stmts.clone()).unwrap_or_default();
+                let mut body = func.body.as_ref().map(|b| b.stmts.clone()).unwrap_or_default();
+                // (cross-runtime #348/#386) Named function expression
+                // self-reference: `function f(n){ ...f(n-1)... }`. O nome `f`
+                // so' existe no escopo da propria fn expr; ao hoistar, refs
+                // internas a `f` ficam undefined. Renomeia `f` -> nome hoisted
+                // (que vira user fn top-level resolvivel).
+                if let Some(self_id) = &fn_expr.ident {
+                    let self_name = self_id.sym.to_string();
+                    if self_name != name {
+                        for s in body.iter_mut() {
+                            crate::codegen::lower::analysis::captures::rename_ident_in_stmt(
+                                s, &self_name, &name,
+                            );
+                        }
+                    }
+                }
                 build_fn_decl(&name, &func.params, body)
             }
             Expr::Arrow(arrow) => {

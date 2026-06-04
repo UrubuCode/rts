@@ -401,7 +401,7 @@ fn collect_idents_used_in_expr(
 }
 
 /// Reescreve `Ident(old)` → `Ident(new)` em um statement (recursivo).
-fn rename_ident_in_stmt(stmt: &mut Stmt, old: &str, new: &str) {
+pub(crate) fn rename_ident_in_stmt(stmt: &mut Stmt, old: &str, new: &str) {
     use swc_ecma_ast::Stmt::*;
     match stmt {
         Expr(e) => rename_ident_in_expr(&mut e.expr, old, new),
