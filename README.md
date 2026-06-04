@@ -24,21 +24,21 @@
 Compatibilidade JS spec validada contra **Bun** e **Node** em 388 fixtures TS standalone.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱] 91.4%   340/372 fixtures passam
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱] 91.4%   339/371 fixtures passam
 ```
 
 | Métrica | Valor |
 |---|---|
-| **Paridade** | **91.4%** (340/372) |
-| ✅ RTS = Bun = Node | 340 |
+| **Paridade** | **91.4%** (339/371) |
+| ✅ RTS = Bun = Node | 339 |
 | ❌ RTS diverge | 5 |
 | 💥 RTS runtime error | 27 |
 | 🛠️  **Falta corrigir** | **32** |
-| ⚠️ Bun ≠ Node (skip) | 16 |
+| ⚠️ Bun ≠ Node (skip) | 17 |
 | 🚫 Rejeitados (RTS-only) | 0 |
 | 📦 Total fixtures | 388 |
 
-_Atualizado: 2026-06-03 — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_
+_Atualizado: 2026-06-04 — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
