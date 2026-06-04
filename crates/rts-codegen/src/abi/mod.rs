@@ -39,19 +39,6 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::form_data::abi::FORM_DATA_CLASS_SPEC,
     &crate::namespaces::globals::dataview::abi::ARRAY_BUFFER_CLASS_SPEC,
     &crate::namespaces::globals::dataview::abi::DATA_VIEW_CLASS_SPEC,
-    &crate::namespaces::globals::intl::abi::NUMBER_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::intl::abi::DATE_TIME_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::intl::abi::COLLATOR_CLASS_SPEC,
-    &crate::namespaces::globals::intl::abi::SEGMENTER_CLASS_SPEC,
-    &crate::namespaces::globals::intl::abi::PLURAL_RULES_CLASS_SPEC,
-    &crate::namespaces::globals::intl::abi::LIST_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::intl::abi::RELATIVE_TIME_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::abi::READABLE_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::abi::READER_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::abi::CONTROLLER_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::abi::TRANSFORM_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::abi::WRITABLE_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::abi::WRITER_CLASS_SPEC,
 ];
 
 pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {

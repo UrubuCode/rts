@@ -2,7 +2,7 @@
 
 mod basics;
 mod calls;
-pub(crate) mod members;
+mod members;
 mod operators;
 
 use anyhow::{Result, anyhow};

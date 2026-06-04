@@ -17,30 +17,6 @@ use super::builtins::{
     lower_array_builtin, lower_map_set_builtin, lower_number_builtin, lower_string_builtin,
 };
 
-/// (Web Streams) Despacha `controller.enqueue(x)` / `controller.close()` (e o
-/// `close` do writer) por nome de metodo via GLOBAL_CLASS_SPECS, mesmo quando o
-/// receiver eh um handle sem tipo estatico de classe (param do callback). O
-/// handle de runtime (Map de controller/writer) carrega o `__stream`, entao o
-/// extern fn correto opera sobre ele. Retorna None se o metodo nao for um
-/// metodo de stream conhecido.
-fn lower_stream_method(
-    ctx: &mut FnCtx,
-    prop: &str,
-    obj_h: cranelift_codegen::ir::Value,
-    call: &CallExpr,
-) -> Result<Option<TypedVal>> {
-    // enqueue -> controller; close -> controller (writer.close compartilha nome
-    // mas o controller spec ja cobre a aridade 1 (receiver only) corretamente).
-    let spec = crate::abi::global_class_lookup("ReadableStreamDefaultController");
-    if let Some(spec) = spec {
-        if let Some(member) = spec.instance_method(prop) {
-            let tv = super::ns_call::lower_global_instance_call(ctx, member, obj_h, call)?;
-            return Ok(Some(tv));
-        }
-    }
-    Ok(None)
-}
-
 pub(super) fn lower_var_member_call(
     ctx: &mut FnCtx,
     obj_name: &str,
@@ -51,19 +27,6 @@ pub(super) fn lower_var_member_call(
         .read_local(obj_name)
         .ok_or_else(|| anyhow!("var `{obj_name}` nao encontrada"))?;
     let obj_h = ctx.coerce_to_i64(obj_tv).val;
-
-    // (Web Streams) Metodos de controller/writer chamados em handle sem tipo
-    // estatico de classe (ex: `controller.enqueue(x)` onde `controller` eh
-    // param do callback `start`). Despacha via GLOBAL_CLASS_SPECS por nome de
-    // metodo. Restrito aos nomes especificos de streams para nao colidir com
-    // builtins de array/string/map (que tratam slice/concat/etc).
-    if matches!(obj_tv.ty, ValTy::Handle | ValTy::I64 | ValTy::U64)
-        && matches!(prop, "enqueue" | "close")
-    {
-        if let Some(tv) = lower_stream_method(ctx, prop, obj_h, call)? {
-            return Ok(tv);
-        }
-    }
 
     // (#208) Boolean.prototype methods em receiver Bool.
     if matches!(obj_tv.ty, ValTy::Bool) {
