@@ -1,278 +1,257 @@
-# Workflow — convencoes, testes, debug, benchmarks
+# Workflow — conventions, tests, debug, benchmarks
 
-## Convencoes
+## Conventions
 
-- Linguagem do codigo: Rust (ingles nos identificadores)
-- Linguagem de comunicacao: portugues
-- Commits seguem conventional commits: `feat:`, `fix:`, `perf:`,
-  `refactor:`, `docs:`, `chore:`
-- Novo namespace precisa ser registrado em: `abi::SPECS` (e o
-  `rts.d.ts` gerado a partir dai)
-- O `rts.d.ts` so contem `declare module "rts"` — gerado a partir
-  de `abi::SPECS`, CI lintao committed file contra o gerador
-- Build eh via `cargo` direto — `xtask` foi removido. Projeto eh
-  workspace de 9 crates em `crates/`; rodar `cargo test --workspace`
-  cobre todos os crates em uma execucao
+- Code language: Rust (English identifiers)
+- Communication language: Portuguese
+- Commits follow conventional commits: `feat:`, `fix:`, `perf:`, `refactor:`,
+  `docs:`, `chore:`
+- A new namespace must be registered in `abi::SPECS` (and `rts.d.ts` is generated
+  from there)
+- `rts.d.ts` contains only `declare module "rts"` — generated from `abi::SPECS`,
+  CI lints the committed file against the generator
+- Build is via `cargo` directly — `xtask` was removed. The project is a workspace
+  of 10 crates in `crates/`; running `cargo test --workspace` covers all crates
+  in one run
 
-## Regras gerais de design
+## General design rules
 
-- Nao implementar APIs de alto nivel em Rust — Rust so expoe
-  primitivas raw via `"rts"`
-- Packages TS em `builtin/*` constroem APIs ergonomicas sobre o
-  `"rts"` (nesta branch: `console/`, `globals/`, `rts-types/`)
-- `rts.d.ts` so contem `declare module "rts"` — nao adicionar
-  outros modulos
-- Handles numericos (u64) para recursos runtime (buffers, sockets,
-  strings dinamicas, etc)
-- Distribuicao standalone: runtime support resolvido por objetos
-  `.o/.obj` precompilados (via `RTS_RUNTIME_OBJECTS_DIR` ou pasta
-  `runtime-objects` ao lado do `rts`); nao dependemos de download
-  externo em tempo de build
+- Don't implement high-level APIs in Rust — Rust only exposes raw primitives via
+  `"rts"`
+- TS packages in `builtin/*` build ergonomic APIs over `"rts"` (in this branch:
+  `console/`, `globals/`, `rts-types/`)
+- `rts.d.ts` contains only `declare module "rts"` — do not add other modules
+- Numeric handles (u64) for runtime resources (buffers, sockets, dynamic
+  strings, etc)
+- Standalone distribution: runtime support resolved by precompiled `.o/.obj`
+  objects (via `RTS_RUNTIME_OBJECTS_DIR` or a `runtime-objects` folder next to
+  `rts`); we do not depend on external download at build time
 
-## Progress bar em tarefas longas
+## Progress bar for long tasks
 
-Quando o usuario pede um trabalho com varias etapas (ex: novo
-namespace, feature feat:js/feat:ts, fix multi-arquivo) mostra uma
-barra de progresso ASCII a cada modificacao significativa,
-ancorando a percepcao do usuario do quanto falta.
+When the user asks for multi-step work (e.g. new namespace, feat:js/feat:ts
+feature, multi-file fix) show an ASCII progress bar on each significant change,
+anchoring the user's perception of how much is left.
 
-Formato:
+Format:
 
 ```
-[▰▰▰▱▱▱▱▱▱▱] 30% — descricao curta da etapa atual
+[▰▰▰▱▱▱▱▱▱▱] 30% — short current-step description
 ```
 
-Regras:
-- 10 segmentos: `▰` preenchido, `▱` vazio. Percentual eh o valor
-  real, nao o numero de segmentos (ex: 25% = 2 segmentos cheios +
-  50% do 3o arredondado pra cheio).
-- Atualizar a cada modificacao concreta: arquivo criado, build
-  passou, test rodou, commit feito.
-- Em caso de erro: prefixar `❌ erro:` e voltar a percentagem para
-  o ponto onde a confianca caiu. Continuar a partir dali.
-- Marco final: `[▰▰▰▰▰▰▰▰▰▰] 100% ✅ — resumo (PR #N, X/Y testes)`.
+Rules:
+- 10 segments: `▰` filled, `▱` empty. The percentage is the real value, not the
+  segment count (e.g. 25% = 2 full segments + 50% of the 3rd rounded to full).
+- Update on each concrete change: file created, build passed, test ran, commit
+  made.
+- On error: prefix `❌ erro:` and roll the percentage back to where confidence
+  dropped. Continue from there.
+- Final milestone: `[▰▰▰▰▰▰▰▰▰▰] 100% ✅ — summary (PR #N, X/Y tests)`.
 
-Exemplos de etapas tipicas (namespace novo):
-- 10% mod.rs criado
-- 25% abi.rs definido
-- 45% ops.rs implementado
-- 55% rt.rs criado
-- 70% registrado em SPECS + mod.rs + rt_all
-- 80% JIT registrado + build.rs atualizado
-- 90% build passou + fixture basico ok
-- 100% PR aberto/merged
+Typical steps (new namespace):
+- 10% mod.rs created
+- 25% abi.rs defined
+- 45% ops.rs implemented
+- 55% rt.rs created
+- 70% registered in SPECS + mod.rs + rt_all
+- 80% JIT registered + build.rs updated
+- 90% build passed + basic fixture ok
+- 100% PR opened/merged
 
-## Assumindo issues do GitHub
+## Taking GitHub issues
 
-Quando comecar a trabalhar em uma issue (ex: usuario diz "vamos
-fazer a #97"), antes de codar marca a issue como assumida via
-`gh issue edit` ou comentando — para que outros contribuintes saibam
-que ja tem alguem trabalhando.
+When you start working on an issue (e.g. the user says "let's do #97"), before
+coding mark the issue as taken via `gh issue edit` or by commenting — so other
+contributors know someone is already on it.
 
-Forma minima: comentar na issue indicando inicio de trabalho.
+Minimum form: comment on the issue indicating start of work.
 
 ```bash
 gh issue comment <num> --body "Assumindo essa issue. Trabalho em andamento."
 ```
 
-Quando possivel, atribuir a si mesmo via
-`gh issue edit <num> --add-assignee @me` (funciona se a conta
-autenticada eh collaborator do repo).
+When possible, assign yourself via `gh issue edit <num> --add-assignee @me`
+(works if the authenticated account is a collaborator of the repo).
 
-Ao terminar (PR mergeado), comentar de novo com link do PR e fechar
-quando apropriado.
+On finishing (PR merged), comment again with the PR link and close when
+appropriate.
 
-## Criatividade ao testar
+## Testing creativity
 
-Ao adicionar/modificar features, nao basta um teste happy-path.
-Seja criativo e cubra varias variacoes de codigo na pasta `tests/`:
+When adding/modifying features, a happy-path test is not enough. Be creative and
+cover several code variations in `tests/`:
 
-- Caminho normal **e** caminhos atipicos (vazio, condicional,
-  aninhado, dentro de loop, dentro de try/catch, em member call,
-  etc).
-- Combinar a feature com features adjacentes (ex: arrow + classe,
-  arrow + generics, arrow + spread).
-- Casos de borda do TS/JS — undefined, null, recursao, tail call,
-  identificadores comuns (`__rts*`, `this`, palavras reservadas).
-- Quando uma variacao falhar e estiver fora do escopo da PR atual,
-  abrir issue com o snippet minimo que reproduz e remover do teste
-  ate o follow-up.
+- Normal path **and** atypical paths (empty, conditional, nested, inside a loop,
+  inside try/catch, in a member call, etc).
+- Combine the feature with adjacent features (e.g. arrow + class, arrow +
+  generics, arrow + spread).
+- TS/JS edge cases — undefined, null, recursion, tail call, common identifiers
+  (`__rts*`, `this`, reserved words).
+- When a variation fails and is out of the current PR's scope, open an issue with
+  the minimal repro and remove it from the test until the follow-up.
 
-Os testes vivem em `tests/*.test.ts` (formato `rts:test`).
-Reaproveite o template padrao: `__rtsCapturedOutput`, `print()`
-shim, `describe()` com 1 ou mais `test()`/`expect().toBe()`.
-Multiplos `test()` por arquivo sao bem-vindos pra cobrir variacoes
-sem inflar o numero de arquivos.
+Tests live in `tests/*.test.ts` (`rts:test` format). Reuse the standard
+template: `__rtsCapturedOutput`, a `print()` shim, `describe()` with one or more
+`test()`/`expect().toBe()`. Multiple `test()` per file are welcome to cover
+variations without inflating the file count.
 
-## Como testar
+## How to test
 
 ```bash
-cargo test                                        # testes unitarios + fixtures
-cargo build --release                             # build release
-$env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts                # executar via JIT in-memory
-$env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts output  # compilar nativo (AOT)
-target/release/rts.exe apis                       # listar APIs disponiveis
+cargo test                                        # unit tests + fixtures
+cargo build --release                             # release build
+$env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts                # run via in-memory JIT
+$env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts output  # native compile (AOT)
+target/release/rts.exe apis                       # list available APIs
 ```
 
-### Debugando falhas de teste individuais
+### Debugging individual test failures
 
-**Regra:** ao investigar falhas, SEMPRE rodar o arquivo individual antes
-de rodar a suite completa — evita timeout e ruido de outros testes.
+**Rule:** when investigating failures, ALWAYS run the individual file before
+running the full suite — avoids timeout and noise from other tests.
 
 ```bash
-# rodar só o arquivo que falhou
+# run only the file that failed
 target/release/rts.exe test tests/foo.test.ts
 
-# inspecionar IR Cranelift gerado (ANTES de executar)
+# inspect generated Cranelift IR (BEFORE executing)
 target/release/rts.exe ir tests/foo.test.ts 2>&1 | head -60
 ```
 
-`rts ir` mostra o IR de cada funcao compilada. Usar para diagnosticar:
+`rts ir` shows the IR of each compiled function. Use it to diagnose:
 
-- **"unknown namespace member `X.Y`"** — X.Y nao tem handler no
-  codegen (`calls/mod.rs`) nem entry no ABI. Adicionar handler ou
-  registrar no ABI.
-- **"illegal instruction" / SIGILL** — IR invalido (tipo errado,
-  iconst fora de range, brif sem branch). Ver qual bloco antecede o
-  trap no IR.
-- **"access violation"** — load/store com ptr nulo. Conferir que
-  handles foram inicializados antes de usar.
-- **Resultado errado (sem crash)** — comparar IR com comportamento
-  esperado. Procurar iconst 0 onde nao deveria (placeholder do MIR),
-  ou cast errado.
+- **"unknown namespace member `X.Y`"** — X.Y has no handler in codegen
+  (`calls/mod.rs`) nor an ABI entry. Add a handler or register it in the ABI.
+- **"illegal instruction" / SIGILL** — invalid IR (wrong type, iconst out of
+  range, brif without branch). See which block precedes the trap in the IR.
+- **"access violation"** — load/store with a null ptr. Check that handles were
+  initialized before use.
+- **Wrong result (no crash)** — compare IR with expected behavior. Look for
+  iconst 0 where it shouldn't be (MIR placeholder), or a wrong cast.
 
-**Workflow tipico:**
+**Typical workflow:**
 
-1. `target/release/rts.exe test tests/failing.test.ts` — ver o erro
-2. `target/release/rts.exe ir tests/failing.test.ts 2>&1` — ver se
-   compila e qual IR gera
-3. Se o IR nao compila (erro de codegen): fix em `calls/mod.rs` ou
-   no crate relevante
-4. Se o IR compila mas resultado errado: analisar o IR da fn com
-   problema, comparar tipos/conversoes
-5. Rebuild (`cargo build --release`) e repetir
+1. `target/release/rts.exe test tests/failing.test.ts` — see the error
+2. `target/release/rts.exe ir tests/failing.test.ts 2>&1` — see whether it
+   compiles and what IR it generates
+3. If the IR doesn't compile (codegen error): fix in `calls/mod.rs` or the
+   relevant crate
+4. If the IR compiles but the result is wrong: analyze the IR of the problem fn,
+   compare types/conversions
+5. Rebuild (`cargo build --release`) and repeat
 
-**Nota:** binario `target/release/rts.exe` pode estar desatualizado
-se commits foram mergeados sem rebuild. Sempre `cargo build --release`
-antes de depurar falhas suspeitas (especialmente "unknown namespace
-member" que pode ser feature ja' implementada em commits recentes).
+**Note:** the `target/release/rts.exe` binary may be stale if commits were merged
+without a rebuild. Always `cargo build --release` before debugging suspected
+failures (especially "unknown namespace member", which may be a feature already
+implemented in recent commits).
 
-**Padrão obrigatório:** sempre definir `RUST_BACKTRACE=full` antes de executar
-o `rts.exe`. Sem isso, crashes mostram stack trace raso sem contexto útil.
-O crash handler (`src/crash.rs`) usa essa variável para exibir frames completos.
+**Mandatory:** always set `RUST_BACKTRACE=full` before running `rts.exe`.
+Without it crashes show a shallow stack trace with no useful context. The crash
+handler (`src/crash.rs`) uses this variable to show full frames.
 
 ```powershell
-# PowerShell — definir na sessão:
+# PowerShell — set for the session:
 $env:RUST_BACKTRACE = "full"
 ```
 
-Fixtures de codegen vivem em `tests/fixtures/*.{ts,out}`. O teste
-`codegen_fixtures` compila o `.ts` e compara stdout com o `.out`
-byte-a-byte. Para adicionar nova fixture:
+Codegen fixtures live in `tests/fixtures/*.{ts,out}`. The `codegen_fixtures`
+test compiles the `.ts` and compares stdout with the `.out` byte-for-byte. To add
+a new fixture:
 
-1. `tests/fixtures/<name>.ts` — programa
-2. `tests/fixtures/<name>.out` — saida esperada (LF, sem CRLF)
-3. `#[test] fn fixture_<name>() { run_fixture("<name>") }` em
+1. `tests/fixtures/<name>.ts` — program
+2. `tests/fixtures/<name>.out` — expected output (LF, no CRLF)
+3. `#[test] fn fixture_<name>() { run_fixture("<name>") }` in
    `tests/codegen_fixtures.rs`
 
-## Debug do codegen — `rts ir`
+## Codegen debug — `rts ir`
 
-Para inspecionar o IR Cranelift gerado de qualquer programa antes
-do define+compile, use o comando `rts ir`:
+To inspect the Cranelift IR generated for any program before define+compile, use
+`rts ir`:
 
 ```bash
 target/release/rts.exe ir file.ts 2>&1 | head -100
 ```
 
-Imprime o IR completo de cada `user fn` mais o `__RTS_MAIN`
-(top-level). Saida vai para stderr. Nao executa o programa.
+Prints the full IR of each `user fn` plus `__RTS_MAIN` (top-level). Output goes
+to stderr. Does not execute the program.
 
-**Use `-e`/`eval` para snippets** — evita criar arquivos
-temporarios soltos no projeto. Imports relativos (`./mod`) nao
-funcionam em eval (so' builtins `import { x } from "rts"`).
+**Use `-e`/`eval` for snippets** — avoids leaving temp files around the project.
+Relative imports (`./mod`) don't work in eval (only builtins `import { x } from
+"rts"`).
 
-**Quando o Claude deve usar isso:** sempre que estiver debugando
-desempenho ou suspeitando de codegen ineficiente. Ler o IR mostra
-imediatamente:
+**When Claude should use this:** whenever debugging performance or suspecting
+inefficient codegen. Reading the IR shows immediately:
 
-- loops com `load`/`store` redundantes (vars nao promovidas a
-  Cranelift Variable, sites sem cache de `gv`);
-- subexpressoes lower duplicadas (try_operator_overload /
-  try_bin_imm chamando lower_expr antes de checar se vao usar);
-- `uextend` desnecessarios em comparacoes que vao direto pro `brif`;
-- conversoes f64↔i32 em loop hot (literals como `1.0`
-  mal-classificados);
-- `global_value` repetidos para o mesmo simbolo;
-- chamadas extern (calls externas) que poderiam ser intrinsics
-  inline.
+- loops with redundant `load`/`store` (vars not promoted to Cranelift Variables,
+  sites without `gv` cache);
+- duplicated lowered subexpressions (try_operator_overload / try_bin_imm calling
+  lower_expr before checking whether they'll use it);
+- unneeded `uextend` in comparisons that go straight to `brif`;
+- f64↔i32 conversions in a hot loop (literals like `1.0` misclassified);
+- repeated `global_value` for the same symbol;
+- extern calls that could be inline intrinsics.
 
-**Padrao de uso:**
+**Usage pattern:**
 
-1. Rodar bench (RTS lento? conferir gap com Bun/Node).
-2. `rts ir file.ts 2>&1 | sed -n '/<fn-de-interesse>/,/^---/p'` —
-   isolar a fn problematica.
-3. Olhar `block` que eh header/body do hot loop. Procurar:
-   - quantos `load`/`store` por iteracao (idealmente 0 para vars
-     locais);
-   - quantos `call` (cada call extern eh caro);
-   - duplicacao de subexpressoes (mesma `fmul`/`fadd` repetida).
-4. Identificar a causa no codegen (`src/codegen/lower/`) e
-   corrigir.
-5. Re-dump pra confirmar; rodar `cargo test --release --lib` +
-   `target/release/rts.exe test` pra garantir 0 regressao.
+1. Run a bench (RTS slow? check the gap with Bun/Node).
+2. `rts ir file.ts 2>&1 | sed -n '/<fn-of-interest>/,/^---/p'` — isolate the
+   problem fn.
+3. Look at the `block` that is the hot loop's header/body. Look for:
+   - how many `load`/`store` per iteration (ideally 0 for local vars);
+   - how many `call` (each extern call is expensive);
+   - duplicated subexpressions (same `fmul`/`fadd` repeated).
+4. Identify the cause in codegen (`src/codegen/lower/`) and fix.
+5. Re-dump to confirm; run `cargo test --release --lib` + `target/release/rts.exe
+   test` to ensure no unexpected regression (intentional regression must be
+   explicit and justified).
 
-**Exemplo real (commit 4a418d1):** `x*x + y*y <= 1.0` em loop
-tinha 6× `fmul x x` + 3× `fmul y y` + 3× `fadd` no IR —
-`try_operator_overload` e `try_bin_imm` faziam lower duplicado de
-subexprs antes de saber se iam usar. Fix reduziu pra 1× cada (~6%
-mais rapido em Monte Carlo).
+**Real example (commit 4a418d1):** `x*x + y*y <= 1.0` in a loop had 6× `fmul x x`
++ 3× `fmul y y` + 3× `fadd` in the IR — `try_operator_overload` and `try_bin_imm`
+lowered subexprs twice before knowing whether they'd use them. The fix reduced it
+to 1× each (~6% faster in Monte Carlo).
 
 ## Benchmarks
 
-Benches canonicos em `bench/`:
+Canonical benches in `bench/`:
 
-- `monte_carlo_pi.ts` — estimacao de pi por Monte Carlo 10M
-  (xorshift64 inline)
-- `pi_bigfloat.ts` — pi via Machin 30 digitos usando `bigfloat`
-- `pi_machin.ts` — pi via Machin em f64 (16 digitos)
+- `monte_carlo_pi.ts` — pi estimation by Monte Carlo 10M (inline xorshift64)
+- `pi_bigfloat.ts` — pi via Machin 30 digits using `bigfloat`
+- `pi_machin.ts` — pi via Machin in f64 (16 digits)
 
-Placar atual (medianas, atualizado 2026-05-01):
+Current scoreboard (medians, updated 2026-05-01):
 
 | Bench                       | RTS JIT | RTS AOT | Bun    | Node    |
 |-----------------------------|---------|---------|--------|---------|
 | Monte Carlo 10M             | 26.8 ms | 16.9 ms | 91.8 ms| 113.9 ms|
 | Monte Carlo 10M (8 workers) | 30.3 ms | —       | 147.6 ms (Workers) | — |
 
-RTS AOT vs Bun: **5.14× mais rapido**. RTS multi-thread vs Bun
-Workers: **4.66× mais rapido**.
+RTS AOT vs Bun: **5.14× faster**. RTS multi-thread vs Bun Workers: **4.66×
+faster**.
 
-HTTP server (issue #399 + actix-web): pico **29k req/s** (78% do
-actix puro Rust em mesmo workload, 2× mais que `Bun.serve`).
+HTTP server (issue #399 + actix-web): peak **29k req/s** (78% of pure-Rust actix
+on the same workload, 2× more than `Bun.serve`).
 
-Suite completa:
+Full suite:
 
 ```bash
 powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 ```
 
-## Status do epic #226 (paridade JS/TS)
+## Status — epic #226 (JS/TS parity)
 
-Suite TS (`target/release/rts.exe test`): **457/464** (98.5% em
-2026-05-03). Lote recente de PRs (#483-#547) fechou ~10 issues
-filhas (#208, #210, #220, #221, #371-#375, #434) cobrindo ~60
-APIs JS faltantes — ver `03-features.md` para a lista por categoria.
+TS suite (`target/release/rts.exe test`): **457/464** (98.5% on 2026-05-03). A
+recent batch of PRs (#483-#547) closed ~10 child issues (#208, #210, #220, #221,
+#371-#375, #434) covering ~60 missing JS APIs — see `03-features.md` for the
+per-category list.
 
-Issues pesadas ainda abertas e fora de escopo de PR pequena
-(manter abertas, requerem refactor):
+Heavy issues still open and out of small-PR scope (keep open, require refactor):
 
-- **#195** mutable closures — env-record refactor; bloqueado por
-  #90 (block params).
-- **#207** event loop async/await real — refactor de Promise.
+- **#195** mutable closures — env-record refactor; blocked by #90 (block params).
+- **#207** real async/await event loop — Promise refactor.
 - **#213** module exports — resolver refactor.
-- **#216** Symbol como chave computada — side-channel HashMap.
-- **#217** WeakMap/WeakSet semantica fraca real + FinalizationRegistry.
-- **#218** Proxy — interceptacao em codegen.
-- **#222** Map/Set Symbol.iterator real (hoje so' stub).
+- **#216** Symbol as computed key — side-channel HashMap.
+- **#217** real weak WeakMap/WeakSet semantics + FinalizationRegistry.
+- **#218** Proxy — interception in codegen.
+- **#222** real Map/Set Symbol.iterator (today only a stub).
 - **#223** dynamic import.
-- **#211** generators / **#219** BigInt / **#225** Intl —
-  candidate-discard.
+- **#211** generators / **#219** BigInt / **#225** Intl — candidate-discard.

@@ -1,100 +1,90 @@
 # Runtime — HandleTable, tokio, GC, State
 
-## HandleTable shard-aware
+## Shard-aware HandleTable
 
-`HandleTable` esta dividido em 32 shards lock-free entre si.
-`alloc_entry` distribui round-robin por thread; `shard_for_handle`
-decodifica O(1) o shard de qualquer handle (encoded nos low bits).
-Todos os 17+ namespaces handle-based migrados pra essa API — sem
-contencao em workloads paralelos.
+`HandleTable` is split into 32 mutually lock-free shards. `alloc_entry`
+distributes round-robin by thread; `shard_for_handle` decodes O(1) the shard of
+any handle (encoded in the low bits). All 17+ handle-based namespaces migrated to
+this API — no contention in parallel workloads.
 
-## Runtime tokio compartilhado (issue #399)
+## Shared tokio runtime (issue #399)
 
-`crates/rts-runtime/src/runtime/async_rt.rs` exporta `rt()` —
-`OnceLock<tokio::runtime::Runtime>` multi-thread global. Hooks
-`on_thread_start`/`on_thread_stop` registram cada worker no
-`gc/thread_registry` para o GC scanner ver handles vivos em tasks
-tokio (sem isso o sweep coletava indevidamente sob carga
-concorrente).
+`crates/rts-runtime/src/runtime/async_rt.rs` exports `rt()` — a global
+multi-thread `OnceLock<tokio::runtime::Runtime>`. The `on_thread_start`/
+`on_thread_stop` hooks register each worker in `gc/thread_registry` so the GC
+scanner sees live handles in tokio tasks (without this the sweep collected them
+wrongly under concurrent load).
 
-Toda feature async deve reusar este runtime em vez de criar um
-proprio:
+Every async feature must reuse this runtime instead of creating its own:
 
-- `http_server::serve` chama `rt().block_on(...)`
-- `thread::spawn_async*` usa `rt().handle().spawn_blocking(...)`
-- `runtime::tokio_ctx` oferece "id u64 opaco + shard map por
-  TypeId" como bridge sync↔async generico (substitui `slots()`
-  ad-hoc do http_server)
-- `promise.create` (drysius design, #437) chama
-  `rt.spawn_blocking(...)` para invocar fn handle e settle Promise
+- `http_server::serve` calls `rt().block_on(...)`
+- `thread::spawn_async*` uses `rt().handle().spawn_blocking(...)`
+- `runtime::tokio_ctx` offers "opaque u64 id + shard map by TypeId" as a generic
+  sync↔async bridge (replaces http_server's ad-hoc `slots()`)
+- `promise.create` (drysius design, #437) calls `rt.spawn_blocking(...)` to
+  invoke the fn handle and settle the Promise
 
-Convencao: o que cruza o JIT (extern "C") eh apenas u64 opaco. Tipos
-Rust-rich (Arc<T>, Channel, JoinHandle, JITModule) ficam no shard
-map indexado por esse id — ou em handles GC com lifetime guard
+Convention: what crosses the JIT (extern "C") is only an opaque u64. Rust-rich
+types (Arc<T>, Channel, JoinHandle, JITModule) live in the shard map keyed by
+that id — or in GC handles with a lifetime guard
 (`Entry::Function::keep_alive`).
 
 ## GC stack scanner Win32
 
-`mark_stack_roots()` em `crates/rts-runtime/src/namespaces/gc/collector.rs` usa
-`GetCurrentThreadStackLimits` (API Win32 oficial) em vez de
-`gs:[0x10]` da TIB. O TIB.StackBase em alguns contextos retornava
-valor < RSP, deixando o scanner sem marcar nada e o sweep coletando
-handles vivos (bug encontrado em 2026-05-01 testando http_server
-sob carga). Mesmo caminho usado para varrer threads no
-`thread_registry` via `SuspendThread + GetThreadContext` + scan de
-registers callee-saved.
+`mark_stack_roots()` in `crates/rts-runtime/src/namespaces/gc/collector.rs` uses
+`GetCurrentThreadStackLimits` (official Win32 API) instead of the TIB's
+`gs:[0x10]`. In some contexts TIB.StackBase returned a value < RSP, leaving the
+scanner marking nothing and the sweep collecting live handles (bug found
+2026-05-01 testing http_server under load). The same path scans threads in the
+`thread_registry` via `SuspendThread + GetThreadContext` + callee-saved register
+scan.
 
-## GC — mark+sweep com Cranelift stack maps
+## GC — mark+sweep with Cranelift stack maps
 
-**Estado atual:** o crate `gc-arena = "0.5"` esta declarado no
-`Cargo.toml` mas **nao esta integrado de fato**. O sistema real eh
-mark+sweep preciso usando `UserStackMap` do Cranelift, com scanner
-conservativo via `SuspendThread + GetThreadContext` para cobrir
-todas as threads RTS registradas no `thread_registry`. Detalhes:
+**Current state:** the `gc-arena = "0.5"` crate is declared in `Cargo.toml` but
+**not actually integrated**. The real system is precise mark+sweep using
+Cranelift's `UserStackMap`, with a conservative scanner via `SuspendThread +
+GetThreadContext` to cover all RTS threads registered in `thread_registry`.
+Details:
 
-- Codegen chama `builder.declare_value_needs_stack_map(val)` para
-  cada handle
-- `jit.rs` extrai `UserStackMap` apos `define_function` e registra
-  return-PC absolutos no `stack_map_registry`
-- A cada N alocacoes (`GC_TICK_INTERVAL = 256`), `finish_cycle()`
-  roda `mark_stack_roots()` (varre stack da thread atual + stacks
-  de outras threads via SuspendThread) e `sweep_all_shards()` libera
-  o que nao foi marcado
-- `mark_stack_roots()` no Windows usa `GetCurrentThreadStackLimits`
-  (API Win32 oficial). Nao usar `gs:[0x10]` — em alguns contextos
-  retorna StackBase < RSP, deixando o scanner sem marcar nada e o
-  sweep coletando handles vivos (bug PR #400)
+- Codegen calls `builder.declare_value_needs_stack_map(val)` for each handle
+- `jit.rs` extracts `UserStackMap` after `define_function` and registers absolute
+  return-PCs in `stack_map_registry`
+- Every N allocations (`GC_TICK_INTERVAL = 256`), `finish_cycle()` runs
+  `mark_stack_roots()` (scans the current thread's stack + other threads' stacks
+  via SuspendThread) and `sweep_all_shards()` frees what was not marked
+- `mark_stack_roots()` on Windows uses `GetCurrentThreadStackLimits` (official
+  Win32 API). Do not use `gs:[0x10]` — in some contexts it returns StackBase <
+  RSP, leaving the scanner marking nothing and the sweep collecting live handles
+  (bug PR #400)
 
-**Migracao real para gc-arena** (issue #393) seria refator grande:
-todas as 25+ variantes de `Entry` precisariam derivar `Collect`,
-com `Mutation<'gc>` token cruzando o JIT — incompativel com a ABI
-extern "C" plana atual. Adiada.
+**Real migration to gc-arena** (issue #393) would be a large refactor: all 25+
+`Entry` variants would need to derive `Collect`, with a `Mutation<'gc>` token
+crossing the JIT — incompatible with the current flat extern "C" ABI. Deferred.
 
 ## Runtime vs Compile
 
-Dois caminhos de execucao compartilhando o mesmo codegen Cranelift:
+Two execution paths sharing the same Cranelift codegen:
 
-- **`rts run`**: compila direto para memoria executavel via
-  `JITModule`. Sem disco, sem linker externo. Todos os simbolos do
-  ABI sao registrados em `JITBuilder::symbol` no startup do modulo
-  JIT (`crates/rts-codegen/src/codegen/jit.rs`).
-- **`rts compile`**: aplica slicing por uso, gera apenas os objects
-  dos modulos efetivamente utilizados, produz binario final.
+- **`rts run`**: compiles directly to executable memory via `JITModule`. No disk,
+  no external linker. All ABI symbols are registered in `JITBuilder::symbol` at
+  JIT module startup (`crates/rts-codegen/src/codegen/jit.rs`).
+- **`rts compile`**: applies use-slicing, generates only the objects of the
+  effectively used modules, produces the final binary.
 
-`FnCtx.module` eh `&mut dyn Module` — `ObjectModule` e `JITModule`
-implementam o mesmo trait e passam pelo mesmo pipeline de
-`compile_program`.
+`FnCtx.module` is `&mut dyn Module` — `ObjectModule` and `JITModule` implement
+the same trait and pass through the same `compile_program` pipeline.
 
-Convencao de nomes de object: `<module>.o` (e `.m` quando houver
-metadata para cache incremental).
+Object naming convention: `<module>.o` (and `.m` when there is metadata for the
+incremental cache).
 
 ## State
 
-Estado de namespace usa `Arc<Mutex<T>>` direto quando necessario,
-ou `thread_local!` para caches por-thread. Nao ha sistema
-centralizado de state — cada namespace gerencia o seu.
+Namespace state uses `Arc<Mutex<T>>` directly when needed, or `thread_local!`
+for per-thread caches. There is no central state system — each namespace manages
+its own.
 
-### Pattern para estado compartilhado
+### Pattern for shared state
 
 ```rust
 use std::sync::{Arc, Mutex};
@@ -112,7 +102,7 @@ struct FsState {
 }
 ```
 
-### Pattern para caches thread-local
+### Pattern for thread-local caches
 
 ```rust
 use std::cell::RefCell;
@@ -126,14 +116,14 @@ pub fn reset_cache() {
 }
 ```
 
-## Sem Codigo Legacy
+## No legacy code
 
-**Regra absoluta: codigo morto eh removido imediatamente. Nunca
-comentar, nunca deixar "por precaucao".**
+**Absolute rule: dead code is removed immediately. Never comment out, never
+leave "just in case".**
 
-- Qualquer codigo que nao eh chamado por nenhum caminho vivo deve
-  ser deletado no mesmo commit que o tornou morto
-- Stubs `todo!()` / `unimplemented!()` sao aceitaveis como marcador
-  temporario de WIP; codigo comentado nao
-- Warnings de `dead_code` sao tratados como erros — o build nao
-  pode terminar com warnings
+- Any code not reached by any live path must be deleted in the same commit that
+  killed it
+- `todo!()` / `unimplemented!()` stubs are acceptable as temporary WIP markers;
+  commented code is not
+- `dead_code` warnings are treated as errors — the build cannot finish with
+  warnings

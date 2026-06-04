@@ -1,128 +1,118 @@
-# Otimizacoes de codegen + layout de artefatos + docs
+# Codegen optimizations + artifact layout + docs
 
-> Nota: paths de codegen abaixo vivem em
-> `crates/rts-codegen/src/codegen/lower/` (caminho AST autoritativo) e
-> `crates/rts-codegen/src/codegen/mir_codegen/` (camada MIR ativa por
-> default). HIR + MIR estao em producao desde Fase 3 do
-> `RTS_REFACTOR.md` (commits f7b924b/23dd4b7).
+> Note: the codegen paths below live in
+> `crates/rts-codegen/src/codegen/lower/` (authoritative AST path) and
+> `crates/rts-codegen/src/codegen/mir_codegen/` (MIR layer, default ON). HIR +
+> MIR are in production since Phase 3 of `RTS_REFACTOR.md` (commits
+> f7b924b/23dd4b7).
 
-## Camada MIR (`mir_codegen/`) — paralela ao codegen AST
+## MIR layer (`mir_codegen/`) — parallel to AST codegen
 
-`crates/rts-codegen/src/codegen/mir_codegen/` consome `MirFunc` do
-crate `rts-mir` e emite Cranelift IR via `FunctionBuilder` 1:1.
-`hint_bridge` converte `CraneliftTypeHint` em `cl::Type`; `lower.rs`
-traduz `Inst`/`Terminator`; `extern_resolver_default()` resolve
-namespaces RTS via `crate::abi::SPECS`.
+`crates/rts-codegen/src/codegen/mir_codegen/` consumes `MirFunc` from the
+`rts-mir` crate and emits Cranelift IR via `FunctionBuilder` 1:1. `hint_bridge`
+converts `CraneliftTypeHint` to `cl::Type`; `lower.rs` translates
+`Inst`/`Terminator`; `extern_resolver_default()` resolves RTS namespaces via
+`crate::abi::SPECS`.
 
-Routing hibrido em `compile_user_fn`: cada user fn tenta MIR; bail
-silencioso para AST quando bate em construct nao modelado (member em
-this/objetos, classes, async/await, address-taken fns, string em
-params/ret de user fn). Default ON; `RTS_USE_MIR=0` desliga,
-`RTS_USE_MIR=fn1,fn2,...` restringe.
+Hybrid routing in `compile_user_fn`: each user fn tries MIR; silent bail to AST
+when it hits an unmodeled construct (member on this/objects, classes,
+async/await, address-taken fns, string in user-fn params/ret). Default ON;
+`RTS_USE_MIR=0` disables, `RTS_USE_MIR=fn1,fn2,...` restricts.
 
-Optimizacoes a nivel MIR. `optimize()` roda na ordem:
-**fold → fma → cse → dce**. Mais `inline` em fixed-point (max 4
-iteracoes com `optimize` entre passadas) entre lower e optimize no
-`try_compile_via_mir`.
+MIR-level optimizations. `optimize()` runs in order: **fold → fma → cse → dce**.
+Plus `inline` in fixed-point (max 4 iterations with `optimize` between passes)
+between lower and optimize in `try_compile_via_mir`.
 
-- `passes/fold.rs` — constant folding (IAdd/ISub/IMul/SDiv/SRem/BAnd/
-  BOr/BXor de IConst→IConst) + strength reduction (mul→shl, urem→band,
-  sdiv→sshr, ops com const→`*Imm`)
-- `passes/fma.rs` — FMA fusion `a*b+c → Fma`, conservador (so funde
-  quando o `FMul` tem 1 use, evitando duplicar trabalho) (etapa 4.8)
-- `passes/cse.rs` — Common Subexpression Elimination intra-bloco
-  (etapa 4.5)
-- `passes/dce.rs` — eliminacao de codigo morto com fixed-point
-  (preserva side-effecting: Store, CallExtern, AtomicStore/Rmw/Cas,
-  Fence, DeclareGcValue)
-- `passes/inline.rs` — inlining de fns pequenas, `INLINE_BUDGET=16`,
-  elegibilidade conservadora (sem recursao); rodado em fixed-point
-  ate 4 iters via `MIR_CACHE` thread-local + pre-registro de
-  signatures HIR (etapas 4.2/4.3/4.7)
-- `passes/narrow.rs` — canonicalizacao I8/U8 (mask 0xFF) e I16/U16
-  (mask 0xFFFF) apos IAdd/ISub/IMul/INeg/IShl
-- `passes/verify.rs` — invariantes (block ids match position,
-  ValueIds em range, params count consistente)
-- Intrinsic inlining: tag `Intrinsic` na spec do namespace gera Inst
-  especializado (Sqrt, FAbs, FMin/FMax, IAbs, IMin/IMax) em vez de
-  `CallExtern`; `mir_codegen` baixa direto pra IR Cranelift nativa.
-- Atomics no `mir_codegen` (etapa 4.1): `Inst::AtomicLoad`/`AtomicStore`/
-  `AtomicRmw`/`AtomicCas`/`Fence` baixam direto pra `atomic_*` do
-  Cranelift com mapeamento `MemOrder`/`RmwOp`.
+- `passes/fold.rs` — constant folding (IAdd/ISub/IMul/SDiv/SRem/BAnd/BOr/BXor of
+  IConst→IConst) + strength reduction (mul→shl, urem→band, sdiv→sshr, ops with
+  const→`*Imm`)
+- `passes/fma.rs` — FMA fusion `a*b+c → Fma`, conservative (only fuses when the
+  `FMul` has 1 use, avoiding duplicated work) (step 4.8)
+- `passes/cse.rs` — intra-block Common Subexpression Elimination (step 4.5)
+- `passes/dce.rs` — dead-code elimination with fixed-point (preserves
+  side-effecting: Store, CallExtern, AtomicStore/Rmw/Cas, Fence, DeclareGcValue)
+- `passes/inline.rs` — inlining of small fns, `INLINE_BUDGET=16`, conservative
+  eligibility (no recursion); run in fixed-point up to 4 iters via thread-local
+  `MIR_CACHE` + pre-registration of HIR signatures (steps 4.2/4.3/4.7)
+- `passes/narrow.rs` — I8/U8 (mask 0xFF) and I16/U16 (mask 0xFFFF)
+  canonicalization after IAdd/ISub/IMul/INeg/IShl
+- `passes/verify.rs` — invariants (block ids match position, ValueIds in range,
+  consistent params count)
+- Intrinsic inlining: the `Intrinsic` tag on the namespace spec generates a
+  specialized Inst (Sqrt, FAbs, FMin/FMax, IAbs, IMin/IMax) instead of
+  `CallExtern`; `mir_codegen` lowers directly to native Cranelift IR.
+- Atomics in `mir_codegen` (step 4.1): `Inst::AtomicLoad`/`AtomicStore`/
+  `AtomicRmw`/`AtomicCas`/`Fence` lower directly to Cranelift's `atomic_*` with
+  `MemOrder`/`RmwOp` mapping.
 
-## Otimizacoes de codegen notaveis
+## Notable codegen optimizations
 
-- **Intrinsics inline** (`abi::Intrinsic`): `sqrt`, `abs_f64`,
-  `min/max_f64`, `abs_i64`, `min/max_i64`, `random_f64` — emitidos
-  como IR Cranelift direto em `lower_intrinsic`
-- **Tail call optimization**: user functions em `CallConv::Tail`;
-  `return f(x)` em posicao de tail emite `return_call` (exige
-  `preserve_frame_pointers=true` em x86-64)
-- **First-class function pointers** (#97 fase 1): `Expr::Ident`
-  resolvendo a user fn materializa `func_addr` como i64; call via
-  ident local/param faz `call_indirect` com signature provisoria
-  Tail
-- **Jump table switch**: quando todos os non-default cases sao
-  literais inteiros, usa `cranelift_frontend::Switch` (backend
-  decide `br_table` vs binary search)
-- **Imm forms**: `x + N` / `x & MASK` / `x << K` emitem
-  `iadd_imm` / `band_imm` / `ishl_imm` sem iconst intermediario
-- **MemFlags::trusted** em loads/stores de globals e RNG state
-- **f64 modulo** via libc `fmod` (antes truncava via i64 perdendo
-  a parte fracionaria)
-- **Constantes como propriedades** (`math.PI` sem parens) via
+- **Inline intrinsics** (`abi::Intrinsic`): `sqrt`, `abs_f64`, `min/max_f64`,
+  `abs_i64`, `min/max_i64`, `random_f64` — emitted as direct Cranelift IR in
+  `lower_intrinsic`
+- **Tail call optimization**: user functions in `CallConv::Tail`; `return f(x)`
+  in tail position emits `return_call` (requires `preserve_frame_pointers=true`
+  on x86-64)
+- **First-class function pointers** (#97 phase 1): `Expr::Ident` resolving to a
+  user fn materializes `func_addr` as i64; call via local/param ident does
+  `call_indirect` with a provisional Tail signature
+- **Jump table switch**: when all non-default cases are integer literals, uses
+  `cranelift_frontend::Switch` (the backend decides `br_table` vs binary search)
+- **Imm forms**: `x + N` / `x & MASK` / `x << K` emit `iadd_imm` / `band_imm` /
+  `ishl_imm` without an intermediate iconst
+- **MemFlags::trusted** on global and RNG-state loads/stores
+- **f64 modulo** via libc `fmod` (previously truncated via i64, losing the
+  fractional part)
+- **Constants as properties** (`math.PI` without parens) via
   `MemberKind::Constant` + `emit_constant_load`
-- **Function class (#359)**: trampolim `invoke_n` despacha por
-  aridade ate 8 via transmute pra `extern "C" fn(i64...) -> i64`.
-  Reify de user fn ident em handle Function so' em member access
-  (chamadas diretas continuam usando `call_indirect` rapido).
-- **expand_async_functions (#437)**: pass simplificado pos-refator
-  emite `f = (args) => promise.create(__async_inner_f, args)` em
-  vez do wrapper sintetico antigo (~110 LOC a menos por async fn).
+- **Function class (#359)**: the `invoke_n` trampoline dispatches by arity up to
+  8 via transmute to `extern "C" fn(i64...) -> i64`. Reify of a user-fn ident
+  into a Function handle only on member access (direct calls still use the fast
+  `call_indirect`).
+- **expand_async_functions (#437)**: a simplified post-refactor pass emits `f =
+  (args) => promise.create(__async_inner_f, args)` instead of the old synthetic
+  wrapper (~110 LOC less per async fn).
 
-## Assembly inline (`std::arch::asm!`) — tecnica disponivel
+## Inline assembly (`std::arch::asm!`) — available technique
 
-Quando o problema exige controle de ABI/registradores que Rust
-seguro nao expressa (chamar `fn_ptr` com aridade dinamica, ler
-RSP/registradores, manipular o frame de chamada), **assembly inline
-via `std::arch::asm!` e ferramenta legitima e ja usada no projeto** —
-nao e ultimo recurso proibido. Casos vivos:
+When the problem requires ABI/register control that safe Rust can't express
+(calling a `fn_ptr` with dynamic arity, reading RSP/registers, manipulating the
+call frame), **inline assembly via `std::arch::asm!` is a legitimate technique
+already used in the project** — not a forbidden last resort. Live cases:
 
-- **`gc/collector.rs`** — `asm!("mov {}, rsp", ...)` captura o stack
-  pointer no scanner de raizes.
-- **`globals/function/ops.rs::invoke_all_i64`** (#1281) — trampolim
-  Win64 que monta args dinamicamente (4 em RCX/RDX/R8/R9, resto na
-  stack com shadow space 32 + alinhamento 16 antes do `call`).
-  Substituiu um `match` por-aridade com teto de 8 (resultado errado /
-  ACCESS_VIOLATION acima do teto) por **aridade N variavel** sem
-  limite artificial.
+- **`gc/collector.rs`** — `asm!("mov {}, rsp", ...)` captures the stack pointer
+  in the root scanner.
+- **`globals/function/ops.rs::invoke_all_i64`** (#1281) — Win64 trampoline that
+  assembles args dynamically (4 in RCX/RDX/R8/R9, the rest on the stack with 32
+  shadow space + 16 alignment before the `call`). Replaced an arity-≤8 `match`
+  (wrong result / ACCESS_VIOLATION above the cap) with **variable arity N** with
+  no artificial limit.
 
-Regras ao usar asm inline:
+Rules when using inline asm:
 
-- **Sempre `#[cfg(...)]` por target** + **fallback portavel**
-  (`#[cfg(not(...))]`) — nao quebrar CI/builds noutras plataformas.
-- **Listar todos os clobbers** (caller-saved GP + XMM). NB:
-  `clobber_abi("win64")` conflita com `out("rax")` explicito — use
-  uma forma ou outra.
-- **Respeitar a ABI alvo** (Win64: 4 args em registrador + shadow
-  space 32 + stack 16-aligned antes do `call`).
-- **Documentar a convencao assumida** em doc-comment.
-- Vale a regra de zero-regressao: `cargo test --release --lib` +
-  `rts.exe test` apos mudar asm.
+- **Always `#[cfg(...)]` per target** + **portable fallback** (`#[cfg(not(...))]`)
+  — don't break CI/builds on other platforms.
+- **List all clobbers** (caller-saved GP + XMM). NB: `clobber_abi("win64")`
+  conflicts with explicit `out("rax")` — use one form or the other.
+- **Respect the target ABI** (Win64: 4 register args + 32 shadow space + stack
+  16-aligned before the `call`).
+- **Document the assumed convention** in a doc-comment.
+- The explicit-regression rule applies: run `cargo test --release --lib` +
+  `rts.exe test` after changing asm; any regression must be known and justified,
+  never silent.
 
-Use quando a alternativa segura seria um limite artificial ou
-impossivel (ler registradores). Para logica comum, prefira Cranelift
-IR / Rust.
+Use it when the safe alternative would be an artificial limit or impossible
+(reading registers). For common logic, prefer Cranelift IR / Rust.
 
-## Otimizacoes pendentes / backlog
+## Pending optimizations / backlog
 
-Ver issues abertas #90, #96, #97 (fases 2/3). #92 autovec foi
-fechada como inviavel sem loop vectorizer proprio (Cranelift nao
-tem um); Bun ganha em Monte Carlo >1B iter por autovec do V8.
+See open issues #90, #96, #97 (phases 2/3). #92 autovec was closed as infeasible
+without our own loop vectorizer (Cranelift has none); Bun wins on Monte Carlo >1B
+iter via V8 autovec.
 
-## Layout de Artefatos do Usuario
+## User artifact layout
 
-Alvo da Fase 1 do roadmap (em progresso):
+Phase 1 roadmap target (in progress):
 
 ```
 <project>/
@@ -132,25 +122,23 @@ Alvo da Fase 1 do roadmap (em progresso):
 
   node_modules/.rts/
     objs/
-      runtime/        — objects completos do builtin (todos os modulos)
-      compile/        — objects AOT com slicing (apenas em rts compile)
-    modules/          — modulos resolvidos e cacheados (com metadata .ometa)
+      runtime/        — full builtin objects (all modules)
+      compile/        — AOT objects with slicing (only on rts compile)
+    modules/          — resolved + cached modules (with .ometa metadata)
 
-  release/            — apenas em rts compile
-    <project_name>    — .exe / .dll / .so / .node conforme target
+  release/            — only on rts compile
+    <project_name>    — .exe / .dll / .so / .node per target
 ```
 
-## Docs e especificacoes
+## Docs and specs
 
-A pasta `docs/specs/` contem especificacoes de features, decisoes
-de design e notas tecnicas. Consultar o indice em
-`docs/specs/INDEX.md`. Direcao de alto nivel fica em
-`RTS_REFACTOR.md` na raiz (plano canonico do refator em workspace de
-crates).
+The `docs/specs/` folder holds feature specs, design decisions, and technical
+notes. See the index at `docs/specs/INDEX.md`. High-level direction lives in
+`RTS_REFACTOR.md` at the root (canonical plan for the crate-workspace refactor).
 
-Specs ativos relevantes:
-- `docs/specs/namespace-creation-guide.md` — processo atual baseado
-  em `crates/rts-abi/`
-- `docs/specs/silent-parallelism.md` — pipeline dos 3 passes
-- `docs/specs/async-promise-function.md` — sistema async/Promise/
-  Function unificado (#359 + #437)
+Relevant active specs:
+- `docs/specs/namespace-creation-guide.md` — current process based on
+  `crates/rts-abi/`
+- `docs/specs/silent-parallelism.md` — pipeline of the 3 passes
+- `docs/specs/async-promise-function.md` — unified async/Promise/Function system
+  (#359 + #437)

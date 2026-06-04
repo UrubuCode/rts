@@ -1,168 +1,125 @@
-# Regras meta — leitura obrigatoria
+# Meta rules — mandatory reading
 
-Este arquivo eh o primeiro a ser lido. Define como tratar o resto do
-sistema de regras. Apos ler este, leia os demais em ordem (`01-` ate
-`05-`) — cada um eh vinculante na mesma medida.
+This file is read first. It defines how to treat the rest of the rule system.
+After reading this, read the others in order (`01-` through `05-`) — each is
+binding to the same degree.
 
-## REGRA #0 — META-REGRA OBRIGATORIA E ABSOLUTA
+## RULE #0 — MANDATORY ABSOLUTE META-RULE
 
-**Antes de iniciar QUALQUER tarefa, voce DEVE ler todos os arquivos
-em `.claude/rules/` por inteiro e seguir TODAS as regras que eles
-definem, sem excecao, sem omissao, sem "escolher as importantes".
-Cada regra eh vinculante.**
+**Before starting ANY task, you MUST read every file in `.claude/rules/` in full
+and follow ALL rules they define — no exceptions, no omissions, no "picking the
+important ones". Every rule is binding.**
 
-### Como aplicar
+### How to apply
 
-1. Na primeira mensagem de cada sessao (e sempre que qualquer arquivo
-   em `.claude/rules/` for modificado), leia os arquivos em ordem
-   crescente do prefixo numerico antes de tocar em codigo.
-2. Cada secao marcada `## REGRA OBRIGATORIA:` eh vinculante mesmo
-   quando o contexto da tarefa parece nao exigir.
-3. Cada secao `## Convencoes`, `## Regras`, `## ABI ...`,
-   `## Estrutura ...` define convencoes que devem ser respeitadas em
-   qualquer mudanca de codigo.
-4. Se uma regra entrar em conflito com uma instrucao do usuario, peca
-   confirmacao antes de violar a regra. Nao decida sozinho.
-5. Se uma regra estiver desatualizada (o codigo nao bate mais com o
-   que esta escrito), atualize o arquivo correspondente no mesmo PR —
-   nunca deixe regra mentirosa em vigor.
+1. On the first message of each session (and whenever any file in
+   `.claude/rules/` changes), read the files in ascending numeric-prefix order
+   before touching code.
+2. Each `## MANDATORY RULE:` section is binding even when the task context seems
+   not to require it.
+3. Each `## Conventions`, `## Rules`, `## ABI ...`, `## Structure ...` section
+   defines conventions that must be respected in any code change.
+4. If a rule conflicts with a user instruction, ask for confirmation before
+   violating the rule. Do not decide alone.
+5. If a rule is stale (code no longer matches), update the corresponding file in
+   the same PR — never leave a lying rule in effect.
 
-### Mapa de leitura
+### Reading map
 
-Ler estes arquivos em ordem (caminho relativo a raiz do repo):
+Read these files in order (path relative to repo root):
 
-| Arquivo | Conteudo |
+| File | Content |
 |---|---|
-| `.claude/rules/00-meta.md` | Este arquivo — meta + RTK + local-rules + zero regressao + roadmap |
-| `.claude/rules/01-architecture.md` | Projeto + Arquitetura + ABI + Namespaces |
+| `.claude/rules/00-meta.md` | This file — meta + local-rules + regress-when-needed + roadmap |
+| `.claude/rules/01-architecture.md` | Project + Architecture + ABI + Namespaces |
 | `.claude/rules/02-runtime.md` | HandleTable + tokio + GC + State |
-| `.claude/rules/03-features.md` | Silent parallelism + async/Promise/Function + capacidades |
-| `.claude/rules/04-workflow.md` | Convencoes + progress bar + issues + testes + benchmarks |
-| `.claude/rules/05-codegen-notes.md` | Otimizacoes + backlog + layout artefatos |
+| `.claude/rules/03-features.md` | Silent parallelism + async/Promise/Function + capabilities |
+| `.claude/rules/04-workflow.md` | Conventions + progress bar + issues + tests + benchmarks |
+| `.claude/rules/05-codegen-notes.md` | Optimizations + backlog + artifact layout |
 
-### Regras meta-vinculantes (lista canonica)
+### Binding meta-rules (canonical list)
 
-- **REGRA #0** (esta) — ler todos os arquivos em ordem
-- **REGRA OBRIGATORIA: USO DO RTK** (abaixo)
-- **REQUISITO OBRIGATORIO: local-rules.md** (abaixo)
-- **REGRA OBRIGATORIA: ZERO REGRESSAO ANTES DE MERGE** (abaixo)
-- **REGRA OBRIGATORIA: SEGUIR ROADMAP-CORRECAO.md** (abaixo)
+- **RULE #0** (this) — read all files in order
+- **MANDATORY REQUIREMENT: local-rules.md** (below)
+- **MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)** (below)
+- **MANDATORY RULE: FOLLOW ROADMAP-CORRECAO.md** (below)
 
-Adicionar/remover regras meta exige atualizar esta lista no mesmo
-commit.
+Adding/removing a meta-rule requires updating this list in the same commit.
 
-## REGRA OBRIGATORIA: SEGUIR ROADMAP-CORRECAO.md
+## MANDATORY RULE: FOLLOW ROADMAP-CORRECAO.md
 
-Antes de iniciar qualquer correcao de bug de paridade cross-runtime
-(issues `💥 cross-runtime`, categorias de tracking, falhas da suite TS),
-voce **DEVE** ler o arquivo `ROADMAP-CORRECAO.md` que fica **um nivel acima
-da raiz do repo** (`../ROADMAP-CORRECAO.md`, ao lado da pasta `rts1/`).
+Before starting any cross-runtime parity bug fix (issues `💥 cross-runtime`,
+tracking categories, TS suite failures), you **MUST** read `ROADMAP-CORRECAO.md`,
+located **one level above the repo root** (`../ROADMAP-CORRECAO.md`, next to the
+`rts1/` folder).
 
-Esse arquivo define a **ordem topologica** de correcao baseada no grafo de
-dependencias entre features. A ordem nao eh arbitraria: corrigir fora de
-ordem causa o padrao "conserta um, quebra outro", porque varios testes
-compartilham a mesma fundacao.
+That file defines the **topological order** of fixes, based on the feature
+dependency graph. The order is not arbitrary: fixing out of order causes the
+"fix one, break another" pattern, because several tests share the same
+foundation.
 
-### Como aplicar
+### How to apply
 
-1. Sempre escolher a proxima tarefa do **nivel mais baixo ainda nao
-   concluido**. Nunca pular para um nivel superior antes de fechar as
-   fundacoes de que ele depende.
-2. Respeitar os blocos marcados ⚠️ no roadmap (ex: 336/387/341 sao uma
-   raiz so; cadeia 204→205→206 eh linear).
-3. Ao concluir um item (PR mergeado + suite verde), marcar `[x]` no
-   roadmap no mesmo PR.
-4. Se a analise mudar (nova dependencia descoberta), atualizar o grafo no
-   roadmap no mesmo PR — nunca deixar o roadmap desatualizado.
-5. Se o usuario pedir explicitamente para atacar um caso fora de ordem,
-   pedir confirmacao apontando a dependencia faltante antes de prosseguir.
+1. Always pick the next task from the **lowest level not yet completed**. Never
+   jump to a higher level before closing the foundations it depends on.
+2. Respect blocks marked ⚠️ in the roadmap (e.g. 336/387/341 are a single root;
+   the 204→205→206 chain is linear).
+3. On completing an item (PR merged + green suite), mark `[x]` in the roadmap in
+   the same PR.
+4. If the analysis changes (new dependency discovered), update the graph in the
+   roadmap in the same PR — never leave the roadmap stale.
+5. If the user explicitly asks to tackle a case out of order, ask for
+   confirmation pointing out the missing dependency before proceeding.
 
-## REGRA OBRIGATORIA: USO DO RTK PARA COMANDOS ESPECIFICOS
+## MANDATORY REQUIREMENT: local-rules.md
 
-### Comandos que DEVEM usar `.github/rtk.exe <execution>`:
+Before starting any task, you **MUST** check whether `local-rules.md` exists at
+the project root.
 
-| Comando | Substituicao Obrigatoria |
-|---------|-------------------------|
-| `cat`   | `.github/rtk.exe cat`    |
-| `head`  | `.github/rtk.exe head`   |
-| `tail`  | `.github/rtk.exe tail`   |
-| `grep`  | `.github/rtk.exe grep`   |
-| `find`  | `.github/rtk.exe find`   |
+**If it exists, reading it is mandatory** — not optional, do not skip, do not
+assume content, do not proceed without reading. If it does not exist, proceed
+normally.
 
-Nao use os comandos nativos diretamente (ex: `cat file.txt` → use
-`.github/rtk.exe cat file.txt`).
+When present, treat its content as additional rules set by the developer working
+on this local copy. These rules take priority over generic preferences and must
+be respected throughout the session.
 
-### Excecoes e Observacoes
+`local-rules.md` is per-developer and **must not be versioned** (already in
+`.gitignore`).
 
-- **Ferramentas nativas do Claude Code** (Read, Grep, Glob) NAO
-  passam pelo hook e NAO sao reescritas automaticamente.
-- Para obter a saida compacta do RTK nesses fluxos de trabalho, use
-  comandos shell com RTK ou chame diretamente:
-  - `.github/rtk.exe read` (em vez de Read tool)
-  - `.github/rtk.exe grep` (em vez de Grep tool)
-  - `.github/rtk.exe find` (em vez de Glob tool)
+## MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)
 
-## REQUISITO OBRIGATORIO: local-rules.md
+Regression is allowed when necessary — but it must **always be explicit and
+justified**, never silent. This replaces the old "zero regression" rule.
 
-Antes de iniciar qualquer tarefa, voce **DEVE** verificar se existe
-um arquivo `local-rules.md` na raiz do projeto.
-
-**Se existir, ler eh obrigatorio** — nao eh opcional, nao pular, nao
-assumir conteudo, nao prosseguir sem ler. Se nao existir, prossiga
-normalmente.
-
-Quando existir, trate seu conteudo como regras adicionais definidas
-pelo desenvolvedor que esta trabalhando nesta copia local. Essas
-regras tem prioridade sobre preferencias genericas e devem ser
-respeitadas durante toda a sessao.
-
-O arquivo `local-rules.md` eh pessoal de cada desenvolvedor e **nao
-deve ser versionado** (ja esta no `.gitignore`).
-
-## REGRA OBRIGATORIA: ZERO REGRESSAO ANTES DE MERGE
-
-**Toda PR — sem excecao — so pode ser merged depois de validar que
-TODOS os testes da suite atual ainda passam, junto com os testes
-novos da feature/fix.**
-
-Suite minima a rodar antes de aprovar merge:
+Minimum suite before merge:
 
 ```bash
-cargo build --release             # build limpo (zero warnings de erro)
-cargo test --release --lib        # 100% dos testes unit + integration verdes
+cargo build --release             # clean build
+cargo test --release --lib        # unit + integration
+target/release/rts.exe test       # TS suite (if PR touches runtime/codegen/GC)
 ```
 
-Se o PR mexe em codigo de runtime/codegen/GC, tambem:
+### Practical rules
 
-```bash
-target/release/rts.exe test       # suite TS via rts:test
-```
+- **Run the full suite before merge.** You MUST know exactly which tests pass and
+  which regress. "It broke and I don't know why" is never acceptable.
+- **A regression is acceptable only when** (a) it is intentional (changed
+  behavior / removed feature) or a necessary tradeoff for the change, **and**
+  (b) it is documented explicitly in the commit/PR with justification.
+- **Silent or unexplained regression still blocks merge.** Each regressing test
+  must be either updated to the new expected behavior, or listed explicitly as a
+  known regression with reason + tracking issue.
+- **A broken build blocks merge** unless explicitly justified in the same PR.
+- **Codegen fixtures (`tests/fixtures/*.ts/.out`) are part of the suite.** If
+  behavior changed on purpose, update `.out` and justify.
+- **Large multi-area PRs run the suite incrementally** during development, not
+  only at the end.
 
-### Regras praticas
+### Why this rule exists
 
-- **Build quebrado bloqueia merge.** Mesmo que "so warning".
-  Investigar antes.
-- **1 teste falhando bloqueia merge.** Nao importa se "nao tem
-  relacao com o PR". Falha eh falha.
-- **Nao ha excecao de "consertar depois".** Se a feature exige
-  refator que quebra teste, refatore + corrija o teste **no mesmo
-  PR**, com justificativa explicita no commit.
-- **Fixtures de codegen (`tests/fixtures/*.ts/.out`) sao parte da
-  suite.** Se mudou comportamento esperado, atualizar `.out` e
-  justificar.
-- **PRs grandes que tocam varias areas devem rodar a suite
-  incrementalmente** durante o desenvolvimento, nao so no fim. Se
-  quebrou no meio, parar e corrigir antes de avancar.
-
-### Por que essa regra existe
-
-Em projeto com 2 devs + IA acelerando velocidade, tentacao de
-"mergear e arrumar depois" mata o projeto em 30 dias. Cada regressao
-silenciosa acumula ate a suite virar mentira (testes verdes mas
-codigo quebrado em casos nao cobertos). Manter zero regressao eh o
-que separa projeto que cresce em qualidade do que apodrece em
-features.
-
-Disciplina aqui eh inegociavel. Se IA propoe solucao que quebra
-suite, IA esta errada — independente de quao convincente o
-argumento. Forcar outra abordagem.
+With 2 devs + AI accelerating velocity, the danger is *silent* regression piling
+up until the suite becomes a lie (green tests, broken uncovered paths). The
+discipline here is not "never break a test" — it is "never break a test without
+knowing and saying so". Explicit, justified regression is acceptable; invisible
+regression rots the project.
