@@ -19,6 +19,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::text_encoding::class_spec::TEXT_ENCODER_CLASS_SPEC,
     &crate::namespaces::globals::text_encoding::class_spec::TEXT_DECODER_CLASS_SPEC,
     &crate::namespaces::globals::fetch::class_spec::RESPONSE_CLASS_SPEC,
+    &crate::namespaces::globals::fetch::class_spec::REQUEST_CLASS_SPEC,
     &crate::namespaces::globals::fetch::class_spec::PROMISE_CLASS_SPEC,
     &crate::namespaces::globals::url::class_spec::URL_CLASS_SPEC,
     &crate::namespaces::globals::url::class_spec::URLSP_CLASS_SPEC,

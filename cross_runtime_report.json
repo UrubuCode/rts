@@ -1227,9 +1227,9 @@
   },
   {
    "name": "286_setimmediate",
-   "status": "bun_node_diverge",
+   "status": "pass",
    "bun": "order=micro|immediate|timeout",
-   "node": "order=micro|timeout|immediate",
+   "node": "order=micro|immediate|timeout",
    "rts": "order=micro|immediate|timeout"
   },
   {
@@ -2711,18 +2711,18 @@
   },
   {
    "name": "85_request_response",
-   "status": "rts_error",
+   "status": "pass",
    "bun": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
    "node": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
-   "rts": "__RUNTIME_ERROR__"
+   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
   }
  ],
  "summary": {
   "total": 388,
-  "pass": 344,
+  "pass": 346,
   "rts_diverge": 6,
-  "bun_node_diverge": 17,
-  "errors": 21,
+  "bun_node_diverge": 16,
+  "errors": 20,
   "rejected": 0
  }
 }

@@ -573,6 +573,12 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FETCH_RESPONSE_URL", __RTS_FN_GL_FETCH_RESPONSE_URL);
     add_fn!("__RTS_FN_GL_FETCH_RESPONSE_FREE", __RTS_FN_GL_FETCH_RESPONSE_FREE);
     add_fn!("__RTS_FN_GL_FETCH_RESPONSE_THEN", __RTS_FN_GL_FETCH_RESPONSE_THEN);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_NEW", __RTS_FN_GL_FETCH_RESPONSE_NEW);
+    add_fn!("__RTS_FN_GL_FETCH_RESPONSE_HEADERS", __RTS_FN_GL_FETCH_RESPONSE_HEADERS);
+    add_fn!("__RTS_FN_GL_REQUEST_NEW", __RTS_FN_GL_REQUEST_NEW);
+    add_fn!("__RTS_FN_GL_REQUEST_METHOD", __RTS_FN_GL_REQUEST_METHOD);
+    add_fn!("__RTS_FN_GL_REQUEST_URL", __RTS_FN_GL_REQUEST_URL);
+    add_fn!("__RTS_FN_GL_REQUEST_TEXT", __RTS_FN_GL_REQUEST_TEXT);
 
     // ── namespaces::globals::function (#359) ──────────────────────────
     use crate::namespaces::globals::function::ops::*;

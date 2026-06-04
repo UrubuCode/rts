@@ -572,11 +572,23 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_URL(h: u64) -> u64 {
     alloc_entry(Entry::String(url))
 }
 
-/// response.text() → string handle (RTS sync — sem Promise wrapper)
+/// response.text() → Promise<string>. Dual-mode: HttpResponse (fetch) OU
+/// Map (new Response(body, init)). Promise resolvido p/ `await res.text()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_TEXT(h: u64) -> u64 {
-    let body = with_response(h, |r| r.body.clone()).unwrap_or_default();
-    alloc_entry(Entry::String(body))
+    // (cross-runtime #85) Map-based Response guarda "body" como string handle.
+    let map_body = with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => Some(m.get("body").copied().unwrap_or(0) as u64),
+        _ => None,
+    });
+    let str_h = if let Some(bh) = map_body {
+        bh
+    } else {
+        let body = with_response(h, |r| r.body.clone()).unwrap_or_default();
+        alloc_entry(Entry::String(body))
+    };
+    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(str_h as i64);
+    alloc_entry(Entry::PromiseAsync(slot))
 }
 
 /// response.json() → JSON handle (RTS sync — sem Promise wrapper)
@@ -593,6 +605,129 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_JSON(h: u64) -> u64 {
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER(h: u64) -> u64 {
     let body = with_response(h, |r| r.body.clone()).unwrap_or_default();
     alloc_entry(Entry::Buffer(body))
+}
+
+// ── new Response / new Request (#85) — instancia Map-based ─────────────────────
+
+/// Constroi um Entry::Headers a partir de um objeto literal {name: value}.
+fn headers_from_obj(map_h: u64) -> u64 {
+    use indexmap::IndexMap;
+    let mut hm: IndexMap<String, Vec<String>> = IndexMap::new();
+    if map_h != 0 {
+        with_entry(map_h, |e| {
+            if let Some(Entry::Map(m)) = e {
+                for (k, &vh) in m.iter() {
+                    if k == "__rts_class" {
+                        continue;
+                    }
+                    let v = with_entry(vh as u64, |ve| match ve {
+                        Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+                        _ => String::new(),
+                    });
+                    hm.entry(k.to_ascii_lowercase()).or_default().push(v);
+                }
+            }
+        });
+    }
+    alloc_entry(Entry::Headers(Box::new(hm)))
+}
+
+fn opt_str_field(map_h: u64, key: &str) -> Option<u64> {
+    if map_h == 0 {
+        return None;
+    }
+    with_entry(map_h, |e| match e {
+        Some(Entry::Map(m)) => m.get(key).map(|&v| v as u64).filter(|&v| v != 0),
+        _ => None,
+    })
+}
+
+/// new Response(body, init) — body string + init.headers/status.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_NEW(
+    body_ptr: i64,
+    body_len: i64,
+    init_h: u64,
+) -> u64 {
+    use indexmap::IndexMap;
+    let body = str_from_parts(body_ptr, body_len).to_owned();
+    let body_h = alloc_entry(Entry::String(body.into_bytes())) as i64;
+    let headers_obj = opt_str_field(init_h, "headers").unwrap_or(0);
+    let headers_h = headers_from_obj(headers_obj) as i64;
+    let status = if init_h == 0 {
+        200
+    } else {
+        with_entry(init_h, |e| match e {
+            Some(Entry::Map(m)) => m.get("status").copied().unwrap_or(200),
+            _ => 200,
+        })
+    };
+    let mut m: IndexMap<String, i64> = IndexMap::new();
+    m.insert("body".to_string(), body_h);
+    m.insert("headers".to_string(), headers_h);
+    m.insert("status".to_string(), status);
+    m.insert(
+        "__rts_class".to_string(),
+        alloc_entry(Entry::String(b"Response".to_vec())) as i64,
+    );
+    alloc_entry(Entry::Map(Box::new(m)))
+}
+
+/// response.headers → Headers handle (Map-based Response).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_HEADERS(h: u64) -> u64 {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("headers").copied().unwrap_or(0) as u64,
+        _ => 0,
+    })
+}
+
+/// new Request(url, init) — url string + init.method/body.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REQUEST_NEW(url_ptr: i64, url_len: i64, init_h: u64) -> u64 {
+    use indexmap::IndexMap;
+    let url = str_from_parts(url_ptr, url_len).to_owned();
+    let url_h = alloc_entry(Entry::String(url.into_bytes())) as i64;
+    let method_h = opt_str_field(init_h, "method")
+        .unwrap_or_else(|| alloc_entry(Entry::String(b"GET".to_vec())));
+    let body_h = opt_str_field(init_h, "body")
+        .unwrap_or_else(|| alloc_entry(Entry::String(Vec::new())));
+    let mut m: IndexMap<String, i64> = IndexMap::new();
+    m.insert("url".to_string(), url_h);
+    m.insert("method".to_string(), method_h as i64);
+    m.insert("body".to_string(), body_h as i64);
+    m.insert(
+        "__rts_class".to_string(),
+        alloc_entry(Entry::String(b"Request".to_vec())) as i64,
+    );
+    alloc_entry(Entry::Map(Box::new(m)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REQUEST_METHOD(h: u64) -> u64 {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("method").copied().unwrap_or(0) as u64,
+        _ => 0,
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REQUEST_URL(h: u64) -> u64 {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("url").copied().unwrap_or(0) as u64,
+        _ => 0,
+    })
+}
+
+/// request.text() → Promise<string> (body).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_REQUEST_TEXT(h: u64) -> u64 {
+    let body_h = with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("body").copied().unwrap_or(0) as u64,
+        _ => 0,
+    });
+    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(body_h as i64);
+    alloc_entry(Entry::PromiseAsync(slot))
 }
 
 /// response.then(fn) → Promise<fn(response)> — compatibilidade com chains

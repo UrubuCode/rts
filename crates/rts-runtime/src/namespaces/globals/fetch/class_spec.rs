@@ -4,6 +4,28 @@ use crate::abi::{AbiType, GlobalClassSpec, MemberKind, NamespaceMember};
 
 pub const RESPONSE_MEMBERS: &[NamespaceMember] = &[
     NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_FETCH_RESPONSE_NEW",
+        args: &[AbiType::StrPtr, AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "new Response(body, init)",
+        ts_signature: "new Response(body?: string, init?: ResponseInit)",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "headers",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_FETCH_RESPONSE_HEADERS",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "response.headers — Headers object.",
+        ts_signature: "readonly headers: Headers",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "status",
         kind: MemberKind::InstanceMethod,
         symbol: "__RTS_FN_GL_FETCH_RESPONSE_STATUS",
@@ -108,6 +130,61 @@ pub const RESPONSE_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
     name: "Response",
     doc: "Fetch API Response — status/ok/statusText/url/text()/json()/blob()/arrayBuffer().",
     members: RESPONSE_MEMBERS,
+};
+
+// ── Request (#85) ─────────────────────────────────────────────────────────────
+
+pub const REQUEST_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_REQUEST_NEW",
+        args: &[AbiType::StrPtr, AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "new Request(url, init)",
+        ts_signature: "new Request(url: string, init?: RequestInit)",
+        intrinsic: None,
+        pure: true,
+    },
+    NamespaceMember {
+        name: "method",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_REQUEST_METHOD",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "request.method — 'GET'/'POST'/...",
+        ts_signature: "readonly method: string",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "url",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_REQUEST_URL",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "request.url",
+        ts_signature: "readonly url: string",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
+        name: "text",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_REQUEST_TEXT",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "request.text() → Promise<string> (body).",
+        ts_signature: "text(): Promise<string>",
+        intrinsic: None,
+        pure: false,
+    },
+];
+
+pub const REQUEST_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "Request",
+    doc: "Fetch API Request — method/url/text().",
+    members: REQUEST_MEMBERS,
 };
 
 // ── Promise ───────────────────────────────────────────────────────────────────
