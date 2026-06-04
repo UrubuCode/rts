@@ -117,9 +117,10 @@ pub(super) fn lower_for_stmt(ctx: &mut FnCtx, for_stmt: &swc_ecma_ast::ForStmt) 
 }
 
 pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) -> Result<bool> {
-    if for_of.is_await {
-        return Err(anyhow!("for-await-of nao suportado"));
-    }
+    // (cross-runtime #109/#379/#392) `for await` sobre um async generator eager:
+    // os valores ja' estao num Vec materializado (o body de `async function*`
+    // produz `__gen_buf`), entao iteramos como for-of normal — await de um
+    // non-Promise eh no-op. Casos lazy/Promise-yielding ficam pra #207.
 
     // (#210) for-of suporta tanto `for (const x of arr)` quanto
     // `for (const [k, v] of pairs)`. No segundo caso, geramos bind temp
