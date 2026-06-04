@@ -1128,6 +1128,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             hash::__RTS_FN_NS_CRYPTO_SHA256_BYTES
         );
         add_fn!(
+            "__RTS_FN_NS_CRYPTO_SHA256_DIGEST",
+            hash::__RTS_FN_NS_CRYPTO_SHA256_DIGEST
+        );
+        add_fn!(
             "__RTS_FN_NS_CRYPTO_HEX_ENCODE",
             encode::__RTS_FN_NS_CRYPTO_HEX_ENCODE
         );
@@ -1543,6 +1547,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG
         );
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER",

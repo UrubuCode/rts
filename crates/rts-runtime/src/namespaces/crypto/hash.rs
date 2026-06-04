@@ -189,6 +189,30 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_BYTES(ptr: i64, len: i64) -> u64 {
     intern(&to_hex(&sha256(slice)))
 }
 
+/// (cross-runtime #79) `crypto.subtle.digest("SHA-256", data)` — recebe o
+/// HANDLE do dado (Buffer de TextEncoder.encode, ou Vec de bytes) e retorna um
+/// PROMISE resolvido com um Buffer dos 32 bytes CRUS do digest (o ArrayBuffer
+/// do resultado). `await` unwrappa pro Buffer; `new Uint8Array(buffer)` le.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_DIGEST(src: u64) -> u64 {
+    use crate::namespaces::gc::handles::with_entry;
+    let bytes: Vec<u8> = with_entry(src, |entry| match entry {
+        Some(crate::namespaces::gc::handles::Entry::Buffer(b)) => b.clone(),
+        Some(crate::namespaces::gc::handles::Entry::Vec(v)) => {
+            v.iter().map(|&x| x as u8).collect()
+        }
+        _ => Vec::new(),
+    });
+    let digest = sha256(&bytes);
+    let buf_h = crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::Buffer(digest.to_vec()),
+    ) as i64;
+    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(buf_h);
+    crate::namespaces::gc::handles::alloc_entry(
+        crate::namespaces::gc::handles::Entry::PromiseAsync(slot),
+    )
+}
+
 // ── Streaming Hash API (#289) ───────────────────────────────────────
 // node:crypto.createHash(alg).update(data).digest(enc) pattern.
 // Usa o crate `sha2` direto — state machine real, sem reprocessar

@@ -802,51 +802,17 @@ pub(super) fn lower_new_typed_array(
             _ => {
                 let tv = lower_expr(ctx, &arg.expr)?;
                 if matches!(tv.ty, ValTy::I64 | ValTy::I32 | ValTy::U64 | ValTy::F64) {
-                    // `new Uint16Array(3)` — Vec de 3 zeros.
-                    let len = ctx.coerce_to_i64(tv).val;
-                    let push_fn = ctx.get_extern(
-                        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                    // `new Uint16Array(3)` — Vec de N zeros, OU (#79) quando o
+                    // arg tem tipo ambiguo (resultado de await) e na verdade eh
+                    // um handle Buffer/Vec, copia os elementos. Decisao em
+                    // runtime via VEC_FILL_TA_ARG (length vs handle vivo).
+                    let arg_val = ctx.coerce_to_i64(tv).val;
+                    let fill_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG",
                         &[cl::I64, cl::I64],
                         None,
                     )?;
-                    let zero = if elem.is_float {
-                        let z = ctx.builder.ins().f64const(0.0);
-                        ctx.builder.ins().bitcast(cl::I64, cranelift_codegen::ir::MemFlags::new(), z)
-                    } else {
-                        ctx.builder.ins().iconst(cl::I64, 0)
-                    };
-                    // Loop runtime: empurra `len` zeros. Usa um contador local
-                    // (Cranelift Variable via declare_local) no estilo dos loops
-                    // do codegen — evita block params/BlockArg.
-                    let counter = format!("__rts_ta_fill_i_{:p}", &new_expr.span);
-                    let i0 = ctx.builder.ins().iconst(cl::I64, 0);
-                    ctx.declare_local(&counter, ValTy::I64, i0);
-                    let header = ctx.builder.create_block();
-                    let body = ctx.builder.create_block();
-                    let exit = ctx.builder.create_block();
-                    ctx.builder.ins().jump(header, &[]);
-                    ctx.builder.switch_to_block(header);
-                    let i_now = ctx
-                        .read_local(&counter)
-                        .ok_or_else(|| anyhow!("ta fill counter sumiu"))?;
-                    let cond = ctx.builder.ins().icmp(
-                        cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
-                        i_now.val,
-                        len,
-                    );
-                    ctx.builder.ins().brif(cond, body, &[], exit, &[]);
-                    ctx.builder.switch_to_block(body);
-                    ctx.builder.ins().call(push_fn, &[vec_h, zero]);
-                    let i_now = ctx
-                        .read_local(&counter)
-                        .ok_or_else(|| anyhow!("ta fill counter sumiu"))?;
-                    let inext = ctx.builder.ins().iadd_imm(i_now.val, 1);
-                    ctx.write_local(&counter, inext)?;
-                    ctx.builder.ins().jump(header, &[]);
-                    ctx.builder.switch_to_block(exit);
-                    ctx.builder.seal_block(header);
-                    ctx.builder.seal_block(body);
-                    ctx.builder.seal_block(exit);
+                    ctx.builder.ins().call(fill_fn, &[vec_h, arg_val]);
                 } else if matches!(tv.ty, ValTy::Handle) {
                     let src_h = ctx.coerce_to_i64(tv).val;
                     // (#811/205) `new Uint8Array(arrayBuffer)` — VIEW VIVA: o

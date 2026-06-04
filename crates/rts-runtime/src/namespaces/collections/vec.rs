@@ -42,11 +42,45 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LEN(handle: u64) -> i64 {
 /// onde args eh Vec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM(dst: u64, src: u64) {
-    let items: Vec<i64> = with_vec(src, Vec::new(), |v| v.clone());
+    // (cross-runtime #79) src pode ser Vec OU Buffer (TextEncoder.encode,
+    // digest). Antes so' lia Vec — fonte Buffer dava Vec vazio.
+    let items: Vec<i64> = with_entry(src, |entry| match entry {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Buffer(b)) => b.iter().map(|&x| x as i64).collect(),
+        _ => Vec::new(),
+    });
     with_vec_mut(dst, (), |v| {
         for x in items {
             if v.len() >= 1_000_000 { break; }
             v.push(x);
+        }
+    });
+}
+
+/// (cross-runtime #79) `new TypedArray(arg)` quando `arg` tem tipo ambiguo
+/// (ex: resultado de `await`): decide em RUNTIME se eh um handle (Buffer/Vec ->
+/// copia elementos) ou um comprimento (-> N zeros). Resolve
+/// `new Uint8Array(await crypto.subtle.digest(...))` sem o codegen saber o tipo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG(dst: u64, arg: i64) {
+    let h = arg as u64;
+    let from_handle: Option<Vec<i64>> = with_entry(h, |e| match e {
+        Some(Entry::Buffer(b)) => Some(b.iter().map(|&x| x as i64).collect()),
+        Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
+        _ => None,
+    });
+    with_vec_mut(dst, (), |v| match from_handle {
+        Some(src) => {
+            for x in src {
+                if v.len() >= 1_000_000 { break; }
+                v.push(x);
+            }
+        }
+        None => {
+            let n = arg.max(0).min(1_000_000);
+            for _ in 0..n {
+                v.push(0);
+            }
         }
     });
 }

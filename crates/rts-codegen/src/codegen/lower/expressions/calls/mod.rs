@@ -414,6 +414,37 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
         }
+        // (cross-runtime #79) `crypto.subtle.digest("SHA-256", data)` -> Promise
+        // resolvido com Buffer dos 32 bytes do SHA-256. `data` eh handle
+        // Buffer/Vec (TextEncoder.encode). `await` unwrappa pro Buffer.
+        if let Expr::Member(outer) = callee.as_ref() {
+            if let MemberProp::Ident(prop_id) = &outer.prop {
+                if prop_id.sym.as_str() == "digest" {
+                    if let Expr::Member(mid) = outer.obj.as_ref() {
+                        if let (Expr::Ident(crypto_id), MemberProp::Ident(sub_id)) =
+                            (mid.obj.as_ref(), &mid.prop)
+                        {
+                            if crypto_id.sym.as_str() == "crypto"
+                                && sub_id.sym.as_str() == "subtle"
+                                && ctx.read_local("crypto").is_none()
+                                && call.args.len() >= 2
+                            {
+                                let data_tv = lower_expr(ctx, &call.args[1].expr)?;
+                                let data_h = ctx.coerce_to_i64(data_tv).val;
+                                let f = ctx.get_extern(
+                                    "__RTS_FN_NS_CRYPTO_SHA256_DIGEST",
+                                    &[cl::I64],
+                                    Some(cl::I64),
+                                )?;
+                                let inst = ctx.builder.ins().call(f, &[data_h]);
+                                let h = ctx.builder.inst_results(inst)[0];
+                                return Ok(TypedVal::new(h, ValTy::Handle));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // `Object.prototype.toString.call(value)` — gera "[object Type]"
         // via __RTS_FN_RT_OBJECT_TO_STRING. Tag conforme tipo estatico.
         if let Some(tv) = try_lower_object_to_string_call(ctx, callee, call)? {
