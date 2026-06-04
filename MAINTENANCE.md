@@ -117,6 +117,55 @@ refactor blocked by #90.
 > `rts-codegen/src/lib.rs: pub use rts_runtime::namespaces::*`. `src/namespaces/`
 > is a dead copy. Edit only `crates/rts-runtime`.
 
+#### Cluster A — implementation status (2026-06-04 session)
+
+Partial, regression-free progress landed toward Cluster A (TS suite 1719/1719,
+cross-runtime no fixture pass→fail). **0 fixtures flipped** — each needs several
+interlocking features below, all confirmed by a root-cause investigation this
+session. Concrete state:
+
+- **DONE (correct, regression-free):**
+  - *Capture-by-value wiring in `hoist_fn`* — lambdas lifted from call-arg/IIFE
+    positions now compute free vars vs the enclosing scope, prepend them as
+    leading params, and register in `LIFTED_ARROW_CAPTURES` (reuses
+    `REIFY_CAPTURED`). Verified: `nested(10)(5)` style closures now correct;
+    `41_closures_deep`'s `nested=15` fixed. `analysis/captures.rs`
+    (`free_vars_in_swc_stmts`), `passes/hoist_fn.rs` (CUR_SCOPE),
+    `passes/this_arrow.rs` (`add_lifted_captures`).
+  - *Callee-param → i64* — a lambda param invoked as a function (`(v,f)=>f(v)`)
+    is now forced to lower as `i64` (a fn handle), not the inferred `f64`, fixing
+    the Win64 ABI mismatch that fed an `(i64,f64)` callback into the all-i64
+    `parallel.*`/VEC trampolines. `passes/this_arrow.rs::arrow_body_calls_param`.
+  - *Variadic rest packing infra* — `FunctionData.rest_param_idx` set at reify
+    (`REIFY_CAPTURED` gained `rest_idx`), and `FUNCTION_CALL`/`invoke_auto_impl`
+    pack `all_args[idx..]` into an `Entry::Vec` via `pack_variadic_tail`. Index
+    published by `expand_rest_args` (`fn_rest_idx`).
+
+- **REMAINING BLOCKERS (the reason 361/386 still fail — each non-trivial):**
+  1. **Array-of-functions stores raw fn-addrs, not handles** —
+     `[dbl].reduce((v,f)=>f(v),3)` returns `0`, but `applyTo(dbl,3)` (direct
+     param-handle call) returns `6`. So `f(v)` on a *param* handle works (routes
+     through INVOKE_AUTO); the bug is that an **array literal `[dbl]` stores the
+     fn as a raw code-addr** (f64-ABI), so the reduce element-call lands in
+     INVOKE_AUTO's raw-addr fallback (`invoke_n`, all-i64) → ABI mismatch → 0/1.
+     Fix: array literals must store fn idents as **reified handles**
+     (`emit_lifted_arrow_handle_*` / REIFY), or INVOKE_AUTO's raw-addr fallback
+     must consult the fn's real signature. (`expressions/members.rs` array-lit
+     element store; `globals/function/ops.rs::invoke_auto_impl` raw fallback.)
+  2. **Captured-array + reduce crash** — a closure capturing an array then calling
+     `.reduce` on it crashes (ILLEGAL_INSTRUCTION). Likely the bound-reduce path
+     (`parallel.reduce_bound`) mis-handles the captured array handle.
+  3. **Variadic number-rest f64 corruption** — number args enter as f64-bits but
+     the rest array's `for-of` reads via `fcvt_from_sint` (raw int). `add(1,2,3)`
+     → 3 not 16. Independent secondary: `ADD_AUTO` (`gc/string_pool.rs:~221`)
+     lacks the f64-bits decode that `collections/vec.rs:~487` already has.
+  4. **`PARALLEL_REDUCE` is sequential** (`parallel/ops.rs:~201`) — so non-
+     associative/higher-order folds are *semantically* fine there; the only bug
+     is ABI/handle-call, not parallelism order.
+
+  Net: a working `pipe`/`compose`/`partial` needs (1)+(2)+(3) together; that is
+  the full higher-order-closure feature, not a bounded patch.
+
 ---
 
 ### Cluster B — Generators (lazy SM coverage) — 4 fixtures + 1 diverge
