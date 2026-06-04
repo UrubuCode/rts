@@ -497,6 +497,16 @@ pub fn compile_program(
                             if matches!(cn, "WeakMap" | "WeakSet" | "Map" | "Set") {
                                 global_class_ty.insert(name.clone(), cn.to_string());
                             }
+                            // (Web Streams) Globais `const s = new ReadableStream/
+                            // TransformStream(...)` referenciadas de dentro de uma
+                            // async fn precisam carregar a classe para que
+                            // `s.getReader()/getWriter()` rotem ao instance method
+                            // global (e propaguem a classe do reader/writer).
+                            if !global_class_ty.contains_key(&name)
+                                && crate::abi::global_class_lookup(cn).is_some()
+                            {
+                                global_class_ty.insert(name.clone(), cn.to_string());
+                            }
                         }
                     }
                 }

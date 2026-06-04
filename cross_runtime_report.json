@@ -961,10 +961,10 @@
 ,
 {
   "name": "76_message_channel",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "recv=pong",
   "node": "recv=pong",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -1129,26 +1129,26 @@
 ,
 {
   "name": "59_intl_basics",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
   "node": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "money=$1,234.50\ndate=10/05/2024\ncmp=0"
 }
 ,
 {
   "name": "71_intl_segmenter",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "segments=hi:true| :false|there:true",
   "node": "segments=hi:true| :false|there:true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "segments=hi:true| :false|there:true"
 }
 ,
 {
   "name": "78_intl_more",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
   "node": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday"
 }
 ,
 {
@@ -1481,10 +1481,10 @@
 ,
 {
   "name": "394_structuredclone_complex",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse"
+  "rts": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse"
 }
 ,
 {
@@ -2265,10 +2265,10 @@
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "out=a,b"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":388,"pass":335,"rts_diverge":5,"bun_node_diverge":16,"errors":32,"rejected":0}}
+],"summary":{"total":388,"pass":340,"rts_diverge":5,"bun_node_diverge":16,"errors":27,"rejected":0}}

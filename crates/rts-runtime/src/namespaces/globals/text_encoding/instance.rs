@@ -124,6 +124,25 @@ fn clone_handle_deep(
     if let Some(&existing) = visited.get(&handle) {
         return existing;
     }
+    // (#225 structuredClone) RegExp: clona recompilando source+flags num novo
+    // handle (objeto DIFERENTE, `clone !== original`). RtsRegex nao deriva
+    // Clone; extrai source/flags e recompila via REGEX_COMPILE.
+    {
+        let rx_info: Option<(String, String)> = with_entry(handle, |entry| match entry {
+            Some(Entry::Regex(rx)) => Some((rx.engine.source(), rx.flags.clone())),
+            _ => None,
+        });
+        if let Some((src, flags)) = rx_info {
+            let new_h = crate::namespaces::regex::ops::__RTS_FN_NS_REGEX_COMPILE(
+                src.as_ptr(),
+                src.len() as i64,
+                flags.as_ptr(),
+                flags.len() as i64,
+            );
+            visited.insert(handle, new_h);
+            return new_h;
+        }
+    }
     let entry_clone = with_entry(handle, |entry| match entry {
         Some(Entry::String(v)) => Some(Entry::String(v.clone())),
         Some(Entry::Buffer(v)) => Some(Entry::Buffer(v.clone())),
