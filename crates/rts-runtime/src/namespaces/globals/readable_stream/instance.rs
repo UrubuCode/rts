@@ -1,0 +1,259 @@
+//! Web Streams runtime — ReadableStream / TransformStream family.
+//!
+//! See `abi.rs` for the data model. Buffers are synchronous: the producer
+//! (`start` callback / `transform`) enqueues chunks before any `read()` runs,
+//! so `read()` can resolve a Promise immediately with the next buffered chunk.
+
+use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
+use crate::namespaces::gc::promise_slot;
+use indexmap::IndexMap;
+
+const UNDEFINED: i64 = i64::MIN + 2;
+const BOOL_FALSE: i64 = i64::MIN;
+const BOOL_TRUE: i64 = i64::MIN + 1;
+
+// ── Map helpers ─────────────────────────────────────────────────────────────
+
+fn map_get(map_h: u64, key: &str) -> i64 {
+    with_entry(map_h, |e| match e {
+        Some(Entry::Map(m)) => m.get(key).copied().unwrap_or(0),
+        _ => 0,
+    })
+}
+
+fn map_set(map_h: u64, key: &str, val: i64) {
+    with_entry_mut(map_h, |e| {
+        if let Some(Entry::Map(m)) = e {
+            m.insert(key.to_string(), val);
+        }
+    });
+}
+
+fn new_map() -> u64 {
+    alloc_entry(Entry::Map(Box::new(IndexMap::new())))
+}
+
+fn vec_push(vec_h: u64, val: i64) {
+    with_entry_mut(vec_h, |e| {
+        if let Some(Entry::Vec(v)) = e {
+            v.push(val);
+        }
+    });
+}
+
+fn vec_len(vec_h: u64) -> i64 {
+    with_entry(vec_h, |e| match e {
+        Some(Entry::Vec(v)) => v.len() as i64,
+        _ => 0,
+    })
+}
+
+fn vec_get(vec_h: u64, idx: i64) -> i64 {
+    with_entry(vec_h, |e| match e {
+        Some(Entry::Vec(v)) => v.get(idx as usize).copied().unwrap_or(UNDEFINED),
+        _ => UNDEFINED,
+    })
+}
+
+/// Resolves a callback value to its raw `extern "C"` fn pointer (+ bound args).
+///
+/// Object-literal methods (`{ start(c){...} }`) are stored either as an
+/// `Entry::Function` handle *or* as a raw `func_addr` i64 (the common case for
+/// method shorthand). Mirror `promise::resolve_callback_ptr`: when the handle
+/// is not a Function entry, treat the value itself as the raw fn pointer.
+fn fn_ptr_of(handle: i64) -> Option<(u64, Vec<i64>)> {
+    if handle == 0 {
+        return None;
+    }
+    let as_fn = with_entry(handle as u64, |e| match e {
+        Some(Entry::Function(fd)) => Some((fd.fn_ptr, fd.bound_args.clone())),
+        _ => None,
+    });
+    Some(as_fn.unwrap_or((handle as u64, Vec::new())))
+}
+
+/// Invokes an `extern "C" fn(i64...) -> i64` with the given args (arity 0..=4).
+unsafe fn invoke(fn_ptr: u64, args: &[i64]) -> i64 {
+    use std::mem::transmute;
+    unsafe {
+        match args.len() {
+            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
+            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
+            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
+            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2],
+            ),
+            _ => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(
+                args[0], args[1], args[2], args[3],
+            ),
+        }
+    }
+}
+
+/// Calls `fn_handle(extra...)` (prepending bound args). No-op if not a fn.
+fn call_fn(fn_handle: i64, extra: &[i64]) {
+    if let Some((ptr, bound)) = fn_ptr_of(fn_handle) {
+        if ptr == 0 {
+            return;
+        }
+        let mut all = bound;
+        all.extend_from_slice(extra);
+        unsafe {
+            invoke(ptr, &all);
+        }
+    }
+}
+
+/// Builds a `{value, done}` result Map (same shape as the iterator protocol).
+fn make_result(value: i64, done: bool) -> u64 {
+    let mut m: IndexMap<String, i64> = IndexMap::new();
+    m.insert("value".to_string(), value);
+    m.insert("done".to_string(), if done { BOOL_TRUE } else { BOOL_FALSE });
+    alloc_entry(Entry::Map(Box::new(m)))
+}
+
+/// Wraps a value handle in a fulfilled Promise.
+fn fulfilled_promise(value: i64) -> u64 {
+    let slot = promise_slot::new_fulfilled(value);
+    alloc_entry(Entry::PromiseAsync(slot))
+}
+
+// ── Stream allocation ─────────────────────────────────────────────────────────
+
+/// Allocates a stream Map with an empty buffer + open state.
+fn new_stream() -> u64 {
+    let buf = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let s = new_map();
+    map_set(s, "__buf", buf as i64);
+    map_set(s, "__closed", 0);
+    s
+}
+
+/// Allocates a controller bound to `stream_h`.
+fn new_controller(stream_h: u64) -> u64 {
+    let c = new_map();
+    map_set(c, "__stream", stream_h as i64);
+    c
+}
+
+fn stream_enqueue(stream_h: u64, val: i64) {
+    let buf = map_get(stream_h, "__buf") as u64;
+    if buf != 0 {
+        vec_push(buf, val);
+    }
+}
+
+fn stream_close(stream_h: u64) {
+    map_set(stream_h, "__closed", 1);
+}
+
+// ── ReadableStream ─────────────────────────────────────────────────────────────
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_NEW(opts: u64) -> u64 {
+    let stream = new_stream();
+    let controller = new_controller(stream);
+    // Invoke `start(controller)` synchronously, if provided.
+    let start = map_get(opts, "start");
+    call_fn(start, &[controller as i64]);
+    stream
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_CONTROLLER_ENQUEUE(controller: u64, chunk: i64) {
+    let stream = map_get(controller, "__stream") as u64;
+    if stream != 0 {
+        stream_enqueue(stream, chunk);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_CONTROLLER_CLOSE(controller: u64) {
+    let stream = map_get(controller, "__stream") as u64;
+    if stream != 0 {
+        stream_close(stream);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_GET_READER(stream: u64) -> u64 {
+    let r = new_map();
+    map_set(r, "__stream", stream as i64);
+    map_set(r, "__cursor", 0);
+    r
+}
+
+/// `reader.read()` -> resolved Promise of `{value, done}`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_READER_READ(reader: u64) -> u64 {
+    let stream = map_get(reader, "__stream") as u64;
+    let cursor = map_get(reader, "__cursor");
+    let buf = map_get(stream, "__buf") as u64;
+    let len = vec_len(buf);
+    let result = if cursor < len {
+        let val = vec_get(buf, cursor);
+        map_set(reader, "__cursor", cursor + 1);
+        make_result(val, false)
+    } else {
+        // No more buffered data. With the synchronous model the producer has
+        // already closed (or there is nothing left) — signal done.
+        make_result(UNDEFINED, true)
+    };
+    fulfilled_promise(result as i64)
+}
+
+// ── TransformStream ────────────────────────────────────────────────────────────
+//
+// A TransformStream shares one buffer between its writable and readable sides.
+// The `transform(chunk, controller)` callback enqueues into that buffer; the
+// readable side reads from it. `.readable` / `.writable` are stored as fields
+// pointing at the shared stream (so member access returns the right handle).
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_NEW(opts: u64) -> u64 {
+    let stream = new_stream();
+    // Store the transform callback for the writer side to invoke per chunk.
+    let transform = map_get(opts, "transform");
+    map_set(stream, "__transform", transform);
+    // readable / writable both refer to the same underlying stream.
+    let ts = new_map();
+    map_set(ts, "readable", stream as i64);
+    map_set(ts, "writable", stream as i64);
+    // Mark so codegen field access yields the correct sub-stream handles.
+    map_set(ts, "__stream", stream as i64);
+    ts
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER(stream: u64) -> u64 {
+    let w = new_map();
+    map_set(w, "__stream", stream as i64);
+    w
+}
+
+/// `writer.write(chunk)` -> resolved Promise<void>. Runs `transform(chunk, ctrl)`
+/// if the stream has a transformer; otherwise enqueues the chunk directly.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE(writer: u64, chunk: i64) -> u64 {
+    let stream = map_get(writer, "__stream") as u64;
+    if stream != 0 {
+        let transform = map_get(stream, "__transform");
+        if transform != 0 {
+            let controller = new_controller(stream);
+            call_fn(transform, &[chunk, controller as i64]);
+        } else {
+            stream_enqueue(stream, chunk);
+        }
+    }
+    fulfilled_promise(UNDEFINED)
+}
+
+/// `writer.close()` -> resolved Promise<void>. Closes the underlying stream.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE(writer: u64) -> u64 {
+    let stream = map_get(writer, "__stream") as u64;
+    if stream != 0 {
+        stream_close(stream);
+    }
+    fulfilled_promise(UNDEFINED)
+}

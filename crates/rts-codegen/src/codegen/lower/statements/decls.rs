@@ -711,6 +711,21 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         swc_ecma_ast::Expr::TsInstantiation(ti) => ti.expr.as_ref(),
                         other => other,
                     };
+                    // (Intl) `const nf = new Intl.NumberFormat(...)` — callee
+                    // Member; registra a var como classe global de nome
+                    // composto "Intl.NumberFormat" pra dispatch de metodos.
+                    if let swc_ecma_ast::Expr::Member(mm) = callee_inner {
+                        if let (swc_ecma_ast::Expr::Ident(ns), swc_ecma_ast::MemberProp::Ident(p)) =
+                            (mm.obj.as_ref(), &mm.prop)
+                        {
+                            if ns.sym.as_str() == "Intl" {
+                                let cn = format!("Intl.{}", p.sym.as_str());
+                                if crate::abi::global_class_lookup(&cn).is_some() {
+                                    ctx.local_class_ty.insert(name.clone(), cn);
+                                }
+                            }
+                        }
+                    }
                     if let swc_ecma_ast::Expr::Ident(cid) = callee_inner {
                         let cn = cid.sym.as_str().to_string();
                         // (#214) Error builtin classes: registra field
@@ -891,6 +906,35 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                             .unwrap_or(false);
                                         if ret_is_self {
                                             ctx.local_class_ty.insert(name.clone(), recv_cls);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // (Web Streams) `const reader = stream.getReader()` /
+                        // `const w = ts.writable.getWriter()` — propaga a classe
+                        // de retorno declarada no ts_signature do instance_method
+                        // (ex: getReader(): ReadableStreamDefaultReader). Sem isso
+                        // `reader.read()` cairia no fallback Map -> SIGILL.
+                        if let swc_ecma_ast::Expr::Member(m) = cb.as_ref() {
+                            if let swc_ecma_ast::MemberProp::Ident(mid) = &m.prop {
+                                let prop_name = mid.sym.as_str();
+                                if let Some(recv_cls) =
+                                    crate::codegen::lower::expressions::members::lhs_static_class(ctx, &m.obj)
+                                {
+                                    if let Some(spec) = crate::abi::global_class_lookup(&recv_cls) {
+                                        if let Some(member) = spec.instance_method(prop_name) {
+                                            let sig = member.ts_signature;
+                                            if let Some(colon_pos) = sig.rfind(':') {
+                                                let ret_ty = sig[colon_pos + 1..]
+                                                    .trim()
+                                                    .trim_end_matches(';')
+                                                    .trim();
+                                                if crate::abi::global_class_lookup(ret_ty).is_some() {
+                                                    ctx.local_class_ty
+                                                        .insert(name.clone(), ret_ty.to_string());
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1151,6 +1195,9 @@ pub(crate) fn ta_elem_meta(name: &str) -> Option<(i64, i64, i64)> {
         "Uint32Array" => Some((4, 0, 0)),
         "Float32Array" => Some((4, 0, 1)),
         "Float64Array" => Some((8, 0, 1)),
+        // (cross-runtime #65) BigInt typed arrays: 8-byte int elements.
+        "BigInt64Array" => Some((8, 1, 0)),
+        "BigUint64Array" => Some((8, 0, 0)),
         _ => None,
     }
 }

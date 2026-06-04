@@ -476,6 +476,40 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT32(handle: u64, offset: i64, lit
         .unwrap_or(0.0)
 }
 
+// ── DataView BigInt64/BigUint64 (#65) — 8-byte int, littleEndian flag ────────
+// BigInt cruza o JIT como i64 cru (mesma convencao dos literais `1n`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_BIGINT64(handle: u64, offset: i64, val: i64, little_endian: i32) {
+    let be = val.to_be_bytes();
+    let bytes = if little_endian != 0 {
+        let mut le = be; le.reverse(); le
+    } else { be };
+    write_bytes_at(handle, offset, &bytes);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_BIGINT64(handle: u64, offset: i64, little_endian: i32) -> i64 {
+    read_bytes_at::<8>(handle, offset)
+        .map(|b| if little_endian != 0 { i64::from_le_bytes(b) } else { i64::from_be_bytes(b) })
+        .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_BIGUINT64(handle: u64, offset: i64, val: i64, little_endian: i32) {
+    let be = (val as u64).to_be_bytes();
+    let bytes = if little_endian != 0 {
+        let mut le = be; le.reverse(); le
+    } else { be };
+    write_bytes_at(handle, offset, &bytes);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_BIGUINT64(handle: u64, offset: i64, little_endian: i32) -> i64 {
+    read_bytes_at::<8>(handle, offset)
+        .map(|b| if little_endian != 0 { u64::from_le_bytes(b) } else { u64::from_be_bytes(b) } as i64)
+        .unwrap_or(0)
+}
+
 // ── TypedArray view sobre ArrayBuffer (#811/205) ────────────────────────────
 // `new Uint8Array(buf)` etc. retornam o proprio handle do buffer; o codegen
 // rastreia a largura/sinal do elemento por-var e chama estes helpers para

@@ -365,11 +365,37 @@ pub(crate) fn expand_async_functions(program: &mut Program) {
     fn raw_stmt(stmt: Stmt) -> Statement {
         Statement::Raw(RawStmt::new("<async-rewrite>".to_string(), Span::default()).with_stmt(stmt))
     }
+    // (cross-runtime #109) `async function*` chega aqui com is_async=true, mas
+    // seu body ja' foi desugar-ado para o eager-buffer `__gen_buf` (produz o Vec
+    // de yields). NAO deve virar promise.create — senao a chamada retorna um
+    // Promise handle em vez do Vec, e o for-of/for-await nao itera nada.
+    fn declares_gen_buf(body: &[Statement]) -> bool {
+        use swc_ecma_ast::{Decl, Pat, Stmt};
+        for s in body {
+            let Statement::Raw(raw) = s;
+            let Some(Stmt::Decl(Decl::Var(v))) = raw.stmt.as_ref() else {
+                continue;
+            };
+            for d in &v.decls {
+                if let Pat::Ident(id) = &d.name {
+                    if id.id.sym.as_str() == "__gen_buf" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
     let _ = BlockStmt::default;
     let mut new_fns: Vec<Item> = Vec::new();
     for item in program.items.iter_mut() {
         if let Item::Function(f) = item {
             if !f.is_async {
+                continue;
+            }
+            // (cross-runtime #109) async generator eager: body ja' produz o Vec
+            // via `__gen_buf` — nao envolver em promise.create.
+            if declares_gen_buf(&f.body) {
                 continue;
             }
             let inner_name = format!("__async_inner_{}", f.name);
