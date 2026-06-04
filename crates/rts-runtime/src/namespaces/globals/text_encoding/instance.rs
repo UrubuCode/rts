@@ -250,6 +250,18 @@ pub(crate) enum Microtask {
         is_catch: bool,
         result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
     },
+    /// (cross-runtime #393/#116) `.then(onFul, onRej)` instance sobre source
+    /// PENDING — variante 2-callback do PendingThen. Quando a source settla:
+    /// fulfilled invoca `on_ful` (ou propaga value se 0), rejected invoca
+    /// `on_rej` recuperando (ou propaga reject se 0). Substitui o antigo
+    /// spawn_blocking nao-deterministico do path instance, dando interleaving
+    /// FIFO correto entre chains (`.then().then()`).
+    PendingThen2 {
+        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        on_ful: u64,
+        on_rej: u64,
+        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    },
     /// (#207) promise.finally sobre source PENDING — polling determinista.
     /// Quando settle, invoca fp() sem args e PRESERVA state/value original.
     PendingFinally {
@@ -336,6 +348,21 @@ pub fn enqueue_microtask_pending_then(
     });
 }
 
+/// (cross-runtime #393/#116) Enfileira `.then(onFul, onRej)` instance sobre
+/// source PENDING como PendingThen2 (polling determinista no drain).
+pub fn enqueue_microtask_pending_then2(
+    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    on_ful: u64,
+    on_rej: u64,
+    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+) {
+    MICROTASK_QUEUE.with(|q| {
+        q.borrow_mut().push(Microtask::PendingThen2 {
+            source, on_ful, on_rej, result_slot,
+        })
+    });
+}
+
 /// (#207) Enfileira `.finally` sobre promise PENDING (polling determinista).
 pub fn enqueue_microtask_pending_finally(
     source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
@@ -379,6 +406,7 @@ pub fn drain_microtasks() {
         // Detecta ciclo sem progresso: todos PendingThen ainda pending.
         let all_stalled_pending = queue.iter().all(|t| match t {
             Microtask::PendingThen { source, .. }
+            | Microtask::PendingThen2 { source, .. }
             | Microtask::PendingFinally { source, .. }
             | Microtask::AsyncResume { source, .. } => {
                 promise_slot::current_state(source) == promise_slot::STATE_PENDING
@@ -419,6 +447,21 @@ pub fn drain_microtasks() {
                                 promise_slot::reject(&result_slot, value);
                             }
                         });
+                    } else if let Microtask::PendingThen2 { source, on_ful, on_rej, result_slot } = task {
+                        let rt = crate::runtime::async_rt::handle();
+                        rt.spawn_blocking(move || {
+                            let (st, value) = promise_slot::wait_blocking(&source);
+                            let fulfilled = st == promise_slot::STATE_FULFILLED;
+                            let cb = if fulfilled { on_ful } else { on_rej };
+                            if cb != 0 {
+                                let r = unsafe { invoke_microtask_callback(cb, &[], Some(value)) };
+                                promise_slot::resolve(&result_slot, r);
+                            } else if fulfilled {
+                                promise_slot::resolve(&result_slot, value);
+                            } else {
+                                promise_slot::reject(&result_slot, value);
+                            }
+                        });
                     }
                 }
                 break;
@@ -426,7 +469,26 @@ pub fn drain_microtasks() {
         } else {
             stall = 0;
         }
-        for task in queue {
+        // (cross-runtime #393/#116) Snapshot do estado das sources NO INICIO
+        // do batch. JS spec: uma reaction de Promise roda no tick SEGUINTE ao
+        // settle da source. Se a source settla DURANTE este batch (uma
+        // microtask anterior resolveu o result_slot que e' source desta), a
+        // reaction tem que esperar o proximo batch — nao colapsar no mesmo
+        // tick. Sem isto, `Promise.resolve().then(a).then(b)` roda a e b no
+        // mesmo tick e quebra o interleaving FIFO entre chains paralelas.
+        // AsyncResume fica de fora (mantem comportamento que ja' passa).
+        let settled_at_start: Vec<bool> = queue
+            .iter()
+            .map(|t| match t {
+                Microtask::PendingThen { source, .. }
+                | Microtask::PendingThen2 { source, .. }
+                | Microtask::PendingFinally { source, .. } => {
+                    promise_slot::current_state(source) != promise_slot::STATE_PENDING
+                }
+                _ => true,
+            })
+            .collect();
+        for (idx, task) in queue.into_iter().enumerate() {
             match task {
                 Microtask::Bare(fp) => {
                     if fp != 0 {
@@ -482,10 +544,10 @@ pub fn drain_microtasks() {
                     result_slot,
                 } => {
                     let st = promise_slot::current_state(&source);
-                    if st == promise_slot::STATE_PENDING {
-                        // Ainda nao settled — re-enfileira no FIM da fila atual
-                        // p/ re-checar no proximo ciclo do drain (apos outras
-                        // microtasks avancarem o estado das chains).
+                    if !settled_at_start[idx] {
+                        // Source ainda nao settled no inicio do batch (ou
+                        // settlou agora, mid-batch) — re-enfileira p/ rodar no
+                        // proximo tick. Preserva ordem FIFO entre chains.
                         MICROTASK_QUEUE.with(|q| {
                             q.borrow_mut().push(Microtask::PendingThen {
                                 source, fn_ptr, bound, is_catch, result_slot,
@@ -510,7 +572,7 @@ pub fn drain_microtasks() {
                 }
                 Microtask::PendingFinally { source, fn_ptr, result_slot } => {
                     let st = promise_slot::current_state(&source);
-                    if st == promise_slot::STATE_PENDING {
+                    if !settled_at_start[idx] {
                         MICROTASK_QUEUE.with(|q| {
                             q.borrow_mut().push(Microtask::PendingFinally {
                                 source, fn_ptr, result_slot,
@@ -524,6 +586,35 @@ pub fn drain_microtasks() {
                         if st == promise_slot::STATE_FULFILLED {
                             promise_slot::resolve(&result_slot, value);
                         } else {
+                            promise_slot::reject(&result_slot, value);
+                        }
+                    }
+                }
+                // (cross-runtime #393/#116) `.then(onFul, onRej)` instance,
+                // source pending — variante 2-callback determinista.
+                Microtask::PendingThen2 { source, on_ful, on_rej, result_slot } => {
+                    if !settled_at_start[idx] {
+                        MICROTASK_QUEUE.with(|q| {
+                            q.borrow_mut().push(Microtask::PendingThen2 {
+                                source, on_ful, on_rej, result_slot,
+                            })
+                        });
+                    } else {
+                        let st = promise_slot::current_state(&source);
+                        let value = promise_slot::current_value(&source);
+                        let fulfilled = st == promise_slot::STATE_FULFILLED;
+                        let cb = if fulfilled { on_ful } else { on_rej };
+                        if cb != 0 {
+                            // .then(f) sucesso e .catch(g)/onRej recuperam:
+                            // result resolved com o retorno do callback.
+                            let r = unsafe {
+                                invoke_microtask_callback(cb, &[], Some(value))
+                            };
+                            promise_slot::resolve(&result_slot, r);
+                        } else if fulfilled {
+                            promise_slot::resolve(&result_slot, value);
+                        } else {
+                            // sem handler de rejeicao — propaga reject.
                             promise_slot::reject(&result_slot, value);
                         }
                     }

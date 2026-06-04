@@ -210,30 +210,16 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
                 }
                 return result_handle;
             }
+            // (cross-runtime #393/#116) Source PENDING: enfileira como
+            // PendingThen2 na microtask queue (polling determinista no drain)
+            // em vez de spawn_blocking (thread nao-deterministica). Preserva
+            // ordem FIFO entre chains `.then().then()` no mesmo task sync.
             let result = promise_slot::new_pending();
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));
-
-            let rt = crate::runtime::async_rt::handle();
-            rt.spawn_blocking(move || {
-                let (state, value) = promise_slot::wait_blocking(&arc);
-                if state == promise_slot::STATE_FULFILLED {
-                    if on_ful == 0 {
-                        promise_slot::resolve(&result_clone, value);
-                    } else {
-                        let r = unsafe { (std::mem::transmute::<u64, CallbackFn>(on_ful))(value) };
-                        promise_slot::resolve(&result_clone, r);
-                    }
-                } else {
-                    if on_rej == 0 {
-                        promise_slot::reject(&result_clone, value);
-                    } else {
-                        let r = unsafe { (std::mem::transmute::<u64, CallbackFn>(on_rej))(value) };
-                        // onRej recovers — resolved com o retorno
-                        promise_slot::resolve(&result_clone, r);
-                    }
-                }
-            });
+            crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_then2(
+                arc, on_ful, on_rej, result_clone,
+            );
             result_handle
         }
         PromiseKind::Sync(value) => {
@@ -296,22 +282,15 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
                 }
                 return result_handle;
             }
+            // (cross-runtime #116) Source PENDING: enfileira como
+            // PendingFinally determinista (polling no drain) em vez de
+            // spawn_blocking. Preserva ordem FIFO de microtasks entre chains.
             let result = promise_slot::new_pending();
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));
-
-            let rt = crate::runtime::async_rt::handle();
-            rt.spawn_blocking(move || {
-                let (state, value) = promise_slot::wait_blocking(&arc);
-                if fp != 0 {
-                    let _ = unsafe { (std::mem::transmute::<u64, CallbackFn0>(fp))() };
-                }
-                if state == promise_slot::STATE_FULFILLED {
-                    promise_slot::resolve(&result_clone, value);
-                } else {
-                    promise_slot::reject(&result_clone, value);
-                }
-            });
+            crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_finally(
+                arc, fp, result_clone,
+            );
             result_handle
         }
         PromiseKind::Sync(value) => {
