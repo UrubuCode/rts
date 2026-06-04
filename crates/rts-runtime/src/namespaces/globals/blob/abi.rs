@@ -47,6 +47,17 @@ pub const BLOB_MEMBERS: &[NamespaceMember] = &[
         intrinsic: None,
         pure: true,
     },
+    NamespaceMember {
+        name: "stream",
+        kind: MemberKind::InstanceMethod,
+        symbol: "__RTS_FN_GL_BLOB_STREAM",
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "blob.stream() — ReadableStream dos bytes.",
+        ts_signature: "stream(): ReadableStream",
+        intrinsic: None,
+        pure: true,
+    },
 ];
 
 pub const BLOB_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {

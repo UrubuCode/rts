@@ -490,6 +490,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_BLOB_NEW_EMPTY", __RTS_FN_GL_BLOB_NEW_EMPTY);
         add_fn!("__RTS_FN_GL_BLOB_SIZE", __RTS_FN_GL_BLOB_SIZE);
         add_fn!("__RTS_FN_GL_BLOB_TEXT", __RTS_FN_GL_BLOB_TEXT);
+        add_fn!("__RTS_FN_GL_BLOB_STREAM", __RTS_FN_GL_BLOB_STREAM);
         add_fn!("__RTS_FN_GL_FILE_NEW", __RTS_FN_GL_FILE_NEW);
         add_fn!("__RTS_FN_GL_FILE_NAME", __RTS_FN_GL_FILE_NAME);
         add_fn!("__RTS_FN_GL_FILE_LAST_MODIFIED", __RTS_FN_GL_FILE_LAST_MODIFIED);

@@ -100,6 +100,34 @@ pub extern "C" fn __RTS_FN_GL_BLOB_TEXT(h: u64) -> u64 {
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
+/// blob.stream() — ReadableStream com UM chunk (Vec dos bytes) ja' enfileirado
+/// e fechado. Mesma forma de Map que readable_stream (__buf/__closed) para
+/// `.getReader().read()` funcionar. Marcado __rts_class=ReadableStream.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BLOB_STREAM(h: u64) -> u64 {
+    let bytes = with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => {
+            let bytes_h = m.get("bytes").copied().unwrap_or(0) as u64;
+            with_entry(bytes_h, |be| match be {
+                Some(Entry::Buffer(b)) => b.clone(),
+                _ => Vec::new(),
+            })
+        }
+        _ => Vec::new(),
+    });
+    let chunk: Vec<i64> = bytes.iter().map(|&b| b as i64).collect();
+    let chunk_h = alloc_entry(Entry::Vec(Box::new(chunk))) as i64;
+    let buf_h = alloc_entry(Entry::Vec(Box::new(vec![chunk_h]))) as i64;
+    let mut m: IndexMap<String, i64> = IndexMap::new();
+    m.insert("__buf".to_string(), buf_h);
+    m.insert("__closed".to_string(), 1);
+    m.insert(
+        "__rts_class".to_string(),
+        alloc_entry(Entry::String(b"ReadableStream".to_vec())) as i64,
+    );
+    alloc_entry(Entry::Map(Box::new(m)))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FILE_NEW(
     parts: u64,

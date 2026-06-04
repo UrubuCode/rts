@@ -1291,7 +1291,7 @@ pub(super) fn lower_array_builtin(
     }
     match method {
         "push" => {
-            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
+            if call.args.is_empty() {
                 return Ok(None);
             }
             let push_fn = ctx.get_extern(
@@ -1302,6 +1302,20 @@ pub(super) fn lower_array_builtin(
             // (cross-runtime #150) JS: push aceita N args, todos sao
             // pushed em ordem.
             for arg in &call.args {
+                // (cross-runtime #86) Spread `arr.push(...src)`: estende com os
+                // elementos de src (Vec OU Buffer) via VEC_EXTEND_FROM. Cobre
+                // `parts.push(...chunk.value)` onde chunk.value vem de member/fn.
+                if arg.spread.is_some() {
+                    let extend_fn = ctx.get_extern(
+                        "__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM",
+                        &[cl::I64, cl::I64],
+                        None,
+                    )?;
+                    let src_tv = lower_expr(ctx, &arg.expr)?;
+                    let src = ctx.coerce_to_i64(src_tv).val;
+                    ctx.builder.ins().call(extend_fn, &[obj_h, src]);
+                    continue;
+                }
                 // (#1275) Literal float fracionario: armazena bits f64 (igual
                 // ao array literal) p/ que `arr.push(1.5); arr[0]` preserve 1.5.
                 // Leitura de exibicao reinterpreta via heuristica >2^53.
