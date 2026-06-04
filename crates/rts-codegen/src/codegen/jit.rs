@@ -414,6 +414,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE", __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE);
     }
 
+    {
+        use crate::namespaces::globals::message_channel::instance::*;
+        add_fn!("__RTS_FN_GL_MESSAGE_CHANNEL_NEW", __RTS_FN_GL_MESSAGE_CHANNEL_NEW);
+        add_fn!("__RTS_FN_GL_MESSAGE_CHANNEL_PORT1", __RTS_FN_GL_MESSAGE_CHANNEL_PORT1);
+        add_fn!("__RTS_FN_GL_MESSAGE_CHANNEL_PORT2", __RTS_FN_GL_MESSAGE_CHANNEL_PORT2);
+        add_fn!("__RTS_FN_GL_MESSAGE_PORT_POST_MESSAGE", __RTS_FN_GL_MESSAGE_PORT_POST_MESSAGE);
+        add_fn!("__RTS_FN_GL_MESSAGE_PORT_CLOSE", __RTS_FN_GL_MESSAGE_PORT_CLOSE);
+    }
+
     // ── namespaces::globals::date (Date global class) ─────────────────
     use crate::namespaces::globals::date::instance::*;
     add_fn!("__RTS_FN_GL_DATE_NEW_NOW", __RTS_FN_GL_DATE_NEW_NOW);
