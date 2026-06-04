@@ -483,6 +483,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_GL_FORM_DATA_VALUES", __RTS_FN_GL_FORM_DATA_VALUES);
     }
 
+    // ── namespaces::globals::blob (#74/#75) ───────────────────────────
+    {
+        use crate::namespaces::globals::blob::instance::*;
+        add_fn!("__RTS_FN_GL_BLOB_NEW", __RTS_FN_GL_BLOB_NEW);
+        add_fn!("__RTS_FN_GL_BLOB_NEW_EMPTY", __RTS_FN_GL_BLOB_NEW_EMPTY);
+        add_fn!("__RTS_FN_GL_BLOB_SIZE", __RTS_FN_GL_BLOB_SIZE);
+        add_fn!("__RTS_FN_GL_BLOB_TEXT", __RTS_FN_GL_BLOB_TEXT);
+        add_fn!("__RTS_FN_GL_FILE_NEW", __RTS_FN_GL_FILE_NEW);
+        add_fn!("__RTS_FN_GL_FILE_NAME", __RTS_FN_GL_FILE_NAME);
+        add_fn!("__RTS_FN_GL_FILE_LAST_MODIFIED", __RTS_FN_GL_FILE_LAST_MODIFIED);
+    }
+
     // ── namespaces::globals::dom_exception (#77) ──────────────────────
     {
         use crate::namespaces::globals::dom_exception::instance::*;

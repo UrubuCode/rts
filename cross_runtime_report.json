@@ -1227,9 +1227,9 @@
   },
   {
    "name": "286_setimmediate",
-   "status": "pass",
+   "status": "bun_node_diverge",
    "bun": "order=micro|immediate|timeout",
-   "node": "order=micro|immediate|timeout",
+   "node": "order=micro|timeout|immediate",
    "rts": "order=micro|immediate|timeout"
   },
   {
@@ -2697,17 +2697,17 @@
   },
   {
    "name": "74_blob_basics",
-   "status": "rts_error",
+   "status": "pass",
    "bun": "size=3\ntext=hi!",
    "node": "size=3\ntext=hi!",
-   "rts": "__RUNTIME_ERROR__"
+   "rts": "size=3\ntext=hi!"
   },
   {
    "name": "75_file_basics",
-   "status": "rts_error",
+   "status": "pass",
    "bun": "name=x.txt\nlm=1700000000000\ntext=abc",
    "node": "name=x.txt\nlm=1700000000000\ntext=abc",
-   "rts": "__RUNTIME_ERROR__"
+   "rts": "name=x.txt\nlm=1700000000000\ntext=abc"
   },
   {
    "name": "85_request_response",
@@ -2719,10 +2719,10 @@
  ],
  "summary": {
   "total": 388,
-  "pass": 343,
+  "pass": 344,
   "rts_diverge": 6,
-  "bun_node_diverge": 16,
-  "errors": 23,
+  "bun_node_diverge": 17,
+  "errors": 21,
   "rejected": 0
  }
 }
