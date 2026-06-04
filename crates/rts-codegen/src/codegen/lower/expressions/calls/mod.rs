@@ -1152,6 +1152,8 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             | "every" | "some" | "flat" | "flatMap" | "at"
                             | "fill" | "sort" | "push" | "pop" | "shift"
                             | "unshift" | "splice" | "keys" | "values" | "entries"
+                            // (#305) Iterator helpers eager: chain sobre array.
+                            | "take" | "drop" | "toArray"
                         );
                         if is_array_method {
                             let recv_h = ctx.coerce_to_i64(recv_tv).val;
@@ -2264,17 +2266,18 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     _ => {}
                 }
             }
-            // (#306) `Iterator.from(arr)` — cria iterator-wrapper (Vec + cursor
-            // lateral). `.toArray()` consome (ver lower_var_member_call).
+            // (#306/#305) `Iterator.from(arr)` — modelo EAGER: devolve o proprio
+            // array (Vec) marcado i64-ambiguo, para que a chain de helpers
+            // (`.map/.filter/.take/.drop/.reduce/.toArray`) despache como array
+            // methods (o receiver-Call dispatch em ~1144 reconhece i64+array
+            // method). take/drop/toArray sao array methods adicionados.
             if qualified == "Iterator.from" && call.args.len() == 1
                 && call.args[0].spread.is_none()
             {
                 let arg_tv = lower_expr(ctx, &call.args[0].expr)?;
                 let src_h = ctx.coerce_to_i64(arg_tv).val;
-                let f = ctx.get_extern("__RTS_FN_GL_ITERATOR_FROM", &[cl::I64], Some(cl::I64))?;
-                let inst = ctx.builder.ins().call(f, &[src_h]);
-                let v = ctx.builder.inst_results(inst)[0];
-                return Ok(TypedVal::new(v, ValTy::Handle));
+                ctx.var_member_call_values.insert(src_h);
+                return Ok(TypedVal::new(src_h, ValTy::I64));
             }
             // (#208 / #476) Array static globals: isArray, from.
             if let Some(method) = qualified.strip_prefix("Array.") {

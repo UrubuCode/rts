@@ -250,11 +250,15 @@ fn expr_is_array_returning_call(e: &Expr) -> bool {
             | "getOwnPropertyNames" | "getOwnPropertySymbols"
         ) { return true; }
         if on == "Array" && matches!(prop, "from" | "of") { return true; }
+        // (#305) `Iterator.from(arr)` no modelo eager devolve o array.
+        if on == "Iterator" && prop == "from" { return true; }
     }
     if matches!(prop,
         "map" | "filter" | "slice" | "concat" | "flat" | "flatMap"
         | "splice" | "toReversed" | "toSorted" | "toSpliced" | "with"
         | "reverse" | "sort" | "fill" | "copyWithin" | "split"
+        // (#305) Iterator helpers eager: chain array.
+        | "take" | "drop" | "toArray"
     ) {
         return true;
     }
@@ -2086,12 +2090,16 @@ fn rewrite_array_methods_in_expr(expr: &mut Expr, user_fn_names: &HashSet<String
                                 | "getOwnPropertyNames" | "getOwnPropertySymbols"
                             ) { return true; }
                             if on == "Array" && matches!(prop, "from" | "of") { return true; }
+                            // (#305) `Iterator.from(arr)` eager devolve o array.
+                            if on == "Iterator" && prop == "from" { return true; }
                         }
                         // Array instance methods que retornam array.
                         if matches!(prop,
                             "map" | "filter" | "slice" | "concat" | "flat" | "flatMap"
                             | "splice" | "toReversed" | "toSorted" | "toSpliced" | "with"
                             | "reverse" | "sort" | "fill" | "copyWithin" | "split"
+                            // (#305) Iterator helpers eager: chain array.
+                            | "take" | "drop" | "toArray"
                         ) {
                             return true;
                         }
