@@ -1062,7 +1062,17 @@ impl LiftAcc {
         arrow: &swc_ecma_ast::ArrowExpr,
         in_class: bool,
     ) -> swc_ecma_ast::Ident {
-        let has_return_value = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_));
+        // (cross-runtime closures) Expression-body arrow sempre devolve valor;
+        // arrow de corpo-BLOCO devolve valor sse houver `return <expr>`. Antes
+        // bloco era SEMPRE tratado como void -> o valor de `(x)=>{...;return e}`
+        // era descartado (return_type void, sem `-> i64` na sig). Detecta o
+        // return-com-valor pra inferir i64 e nao perder o resultado.
+        let has_return_value = match arrow.body.as_ref() {
+            swc_ecma_ast::BlockStmtOrExpr::Expr(_) => true,
+            swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => {
+                block_stmts_return_value(&block.stmts)
+            }
+        };
         let raw_stmts = arrow_body_to_stmts(arrow);
 
         let syn_name = format!("__lifted_arrow_{}", self.counter);
@@ -1993,6 +2003,49 @@ fn arrow_uses_this(arrow: &swc_ecma_ast::ArrowExpr) -> bool {
         }
     }
     found
+}
+
+/// (cross-runtime closures) Detecta se um corpo-bloco contém um `return <expr>`
+/// (com valor), descendo em control-flow (if/block/loops/try/switch) mas NÃO em
+/// fns/arrows aninhadas (que têm seu próprio `return`). Usado pra inferir que
+/// uma arrow de corpo-bloco devolve valor — senão o lift marca `void` e o
+/// resultado de `(x) => { ...; return e; }` é silenciosamente descartado.
+fn block_stmts_return_value(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_returns_value)
+}
+
+fn stmt_returns_value(stmt: &Stmt) -> bool {
+    use swc_ecma_ast::Stmt::*;
+    match stmt {
+        Return(r) => r.arg.is_some(),
+        If(i) => {
+            stmt_returns_value(&i.cons)
+                || i.alt.as_deref().map_or(false, stmt_returns_value)
+        }
+        Block(b) => block_stmts_return_value(&b.stmts),
+        While(w) => stmt_returns_value(&w.body),
+        DoWhile(w) => stmt_returns_value(&w.body),
+        For(f) => stmt_returns_value(&f.body),
+        ForOf(f) => stmt_returns_value(&f.body),
+        ForIn(f) => stmt_returns_value(&f.body),
+        Labeled(l) => stmt_returns_value(&l.body),
+        Switch(s) => s
+            .cases
+            .iter()
+            .any(|c| block_stmts_return_value(&c.cons)),
+        Try(t) => {
+            block_stmts_return_value(&t.block.stmts)
+                || t
+                    .handler
+                    .as_ref()
+                    .map_or(false, |h| block_stmts_return_value(&h.body.stmts))
+                || t
+                    .finalizer
+                    .as_ref()
+                    .map_or(false, |f| block_stmts_return_value(&f.stmts))
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn stmt_uses_this(stmt: &Stmt) -> bool {

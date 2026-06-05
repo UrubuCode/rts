@@ -643,14 +643,25 @@ pub(super) fn emit_function_handle_indirect_call(
             ),
             ValTy::I32 | ValTy::I64
             | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
-                // Literal int em TS é `number` (F64). Promove e empacota
-                // como bits para que invoke_typed leia f64 corretamente.
-                let as_f = ctx.coerce_to_f64(tv).val;
-                ctx.builder.ins().bitcast(
-                    cl::I64,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    as_f,
-                )
+                // (cross-runtime closures) Valor I64 AMBÍGUO (resultado de um
+                // call indireto/captura — já carrega bits-f64 OU handle, marcado
+                // em var_member_call_values): passa CRU. Reconverter via
+                // coerce_to_f64 trataria os bits como inteiro gigante e
+                // corromperia (`next(fn(val))` virava next(0)). O
+                // normalize_f64_bits_args no runtime mantém bits válidos e
+                // reencoda inteiros crus, então o cru funciona p/ ambos.
+                if ctx.var_member_call_values.contains(&tv.val) {
+                    ctx.coerce_to_i64(tv).val
+                } else {
+                    // Literal int em TS é `number` (F64). Promove e empacota
+                    // como bits para que invoke_typed leia f64 corretamente.
+                    let as_f = ctx.coerce_to_f64(tv).val;
+                    ctx.builder.ins().bitcast(
+                        cl::I64,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        as_f,
+                    )
+                }
             }
             ValTy::Bool | ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
         };
