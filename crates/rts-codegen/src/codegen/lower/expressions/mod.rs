@@ -359,6 +359,36 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         return lower_super_prop_assign(ctx, sp, a);
     }
 
+    // (#211/#222) `ia = x[Symbol.iterator]()` — marca `ia` como generator_var
+    // pra que `ia.next()` roteie a GENERATOR_NEXT (despacho Vec/GenState em
+    // runtime). Cobre o caso in-SM onde o desugar emite o bind como ASSIGN
+    // (decls.rs so' alcanca a forma `const ia = ...`). Sem isto, `ia.next()`
+    // num generator de zip/iterator-protocol cai no dispatch generico -> SIGILL
+    // ou loop infinito (ra.done nunca true).
+    if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) = &a.left {
+        if matches!(a.op, AssignOp::Assign) {
+            if let Expr::Call(c) = a.right.as_ref() {
+                if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                    if let Expr::Member(m) = callee.as_ref() {
+                        if let MemberProp::Computed(cp) = &m.prop {
+                            if let Expr::Member(sm) = cp.expr.as_ref() {
+                                if let (Expr::Ident(o), MemberProp::Ident(p)) =
+                                    (sm.obj.as_ref(), &sm.prop)
+                                {
+                                    if o.sym.as_str() == "Symbol"
+                                        && p.sym.as_str() == "iterator"
+                                    {
+                                        ctx.generator_vars.insert(id.id.sym.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
         // (cross-runtime #1125) `globalThis[key] = v` — Map global singleton.
         if matches!(a.op, AssignOp::Assign) {
