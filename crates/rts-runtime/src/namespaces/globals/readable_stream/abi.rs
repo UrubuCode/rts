@@ -125,6 +125,38 @@ pub const TEXT_DECODER_STREAM_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
     members: TEXT_DECODER_STREAM_MEMBERS,
 };
 
+// ── CompressionStream ───────────────────────────────────────────────────────────
+
+pub const COMPRESSION_STREAM_MEMBERS: &[NamespaceMember] = &[
+    NamespaceMember {
+        name: "new",
+        kind: MemberKind::Constructor,
+        symbol: "__RTS_FN_GL_COMPRESSION_STREAM_NEW",
+        args: &[AbiType::StrPtr],
+        returns: AbiType::Handle,
+        doc: "CompressionStream constructor (\"gzip\" | \"deflate\").",
+        ts_signature: "new CompressionStream(format: string): CompressionStream",
+        intrinsic: None,
+        pure: false,
+    },
+    getter(
+        "writable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+        "readonly writable: WritableStream",
+    ),
+    getter(
+        "readable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+        "readonly readable: ReadableStream",
+    ),
+];
+
+pub const COMPRESSION_STREAM_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "CompressionStream",
+    doc: "CompressionStream — gzip/deflate the written bytes, read back compressed.",
+    members: COMPRESSION_STREAM_MEMBERS,
+};
+
 pub const READABLE_STREAM_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
     name: "ReadableStream",
     doc: "ReadableStream (Web Streams, synchronous-buffer model).",

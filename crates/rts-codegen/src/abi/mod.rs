@@ -57,6 +57,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::readable_stream::abi::WRITER_CLASS_SPEC,
     &crate::namespaces::globals::readable_stream::abi::TEXT_ENCODER_STREAM_CLASS_SPEC,
     &crate::namespaces::globals::readable_stream::abi::TEXT_DECODER_STREAM_CLASS_SPEC,
+    &crate::namespaces::globals::readable_stream::abi::COMPRESSION_STREAM_CLASS_SPEC,
     &crate::namespaces::globals::message_channel::abi::MESSAGE_CHANNEL_CLASS_SPEC,
     &crate::namespaces::globals::message_channel::abi::MESSAGE_PORT_CLASS_SPEC,
 ];

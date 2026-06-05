@@ -184,6 +184,21 @@ fn stream_enqueue(stream_h: u64, val: i64) {
 }
 
 fn stream_close(stream_h: u64) {
+    // CompressionStream finalize: on first close, gzip/zlib the accumulated
+    // bytes and enqueue the compressed Buffer. Runs here (not only in
+    // WRITER_CLOSE) because `writer.close()` is routed to the controller/stream
+    // close path by codegen.
+    let accum = map_get(stream_h, "__accum");
+    if accum != 0 && map_get(stream_h, "__closed") == 0 {
+        let bytes = read_buffer_bytes(accum as u64);
+        let compressed = if map_get(stream_h, "__deflate") != 0 {
+            deflate_bytes(&bytes)
+        } else {
+            gzip_bytes(&bytes)
+        };
+        let out = alloc_entry(Entry::Buffer(compressed));
+        stream_enqueue(stream_h, out as i64);
+    }
     map_set(stream_h, "__closed", 1);
 }
 
@@ -338,6 +353,17 @@ pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER(stream: u64) -> u64 {
 pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE(writer: u64, chunk: i64) -> u64 {
     let stream = map_get(writer, "__stream") as u64;
     if stream != 0 {
+        let accum = map_get(stream, "__accum");
+        if accum != 0 {
+            // CompressionStream: accumulate the raw input bytes; compress on close.
+            let bytes = read_buffer_bytes(chunk as u64);
+            with_entry_mut(accum as u64, |e| {
+                if let Some(Entry::Buffer(v)) = e {
+                    v.extend_from_slice(&bytes);
+                }
+            });
+            return fulfilled_promise(UNDEFINED);
+        }
         let transform = map_get(stream, "__transform");
         if transform != 0 {
             let controller = new_controller(stream);
@@ -349,7 +375,9 @@ pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE(writer: u64, chunk: i
     fulfilled_promise(UNDEFINED)
 }
 
-/// `writer.close()` -> resolved Promise<void>. Closes the underlying stream.
+/// `writer.close()` -> resolved Promise<void>. Closes the underlying stream. For
+/// a CompressionStream, finalizes compression: gzip/zlib the accumulated bytes
+/// and enqueue the compressed Buffer for the readable side.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE(writer: u64) -> u64 {
     let stream = map_get(writer, "__stream") as u64;
@@ -357,4 +385,52 @@ pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE(writer: u64) -> u64 {
         stream_close(stream);
     }
     fulfilled_promise(UNDEFINED)
+}
+
+fn read_buffer_bytes(h: u64) -> Vec<u8> {
+    with_entry(h, |e| match e {
+        Some(Entry::Buffer(v)) | Some(Entry::String(v)) => v.clone(),
+        _ => Vec::new(),
+    })
+}
+
+fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+    use flate2::{write::GzEncoder, Compression};
+    use std::io::Write;
+    let mut e = GzEncoder::new(Vec::new(), Compression::default());
+    let _ = e.write_all(data);
+    e.finish().unwrap_or_default()
+}
+
+fn deflate_bytes(data: &[u8]) -> Vec<u8> {
+    use flate2::{write::ZlibEncoder, Compression};
+    use std::io::Write;
+    let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+    let _ = e.write_all(data);
+    e.finish().unwrap_or_default()
+}
+
+/// `new CompressionStream(format)` — a writable side that accumulates raw bytes
+/// and, on close, gzip/zlib-compresses them into the readable side.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_COMPRESSION_STREAM_NEW(fmt_ptr: u64, fmt_len: i64) -> u64 {
+    let fmt = if fmt_ptr != 0 && fmt_len > 0 {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(fmt_ptr as *const u8, fmt_len as usize)
+        };
+        std::str::from_utf8(bytes).unwrap_or("gzip").to_owned()
+    } else {
+        "gzip".to_owned()
+    };
+    let stream = new_stream();
+    let accum = alloc_entry(Entry::Buffer(Vec::new()));
+    map_set(stream, "__accum", accum as i64);
+    if fmt == "deflate" {
+        map_set(stream, "__deflate", 1);
+    }
+    let cs = new_map();
+    map_set(cs, "writable", stream as i64);
+    map_set(cs, "readable", stream as i64);
+    map_set(cs, "__stream", stream as i64);
+    cs
 }
