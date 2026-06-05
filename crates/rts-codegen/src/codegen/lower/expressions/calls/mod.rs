@@ -4087,7 +4087,19 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     };
     let callee_ret = abi.ret.unwrap_or(ValTy::I64);
     let caller_ret = ctx.return_ty.unwrap_or(ValTy::I64);
+    // (cross-runtime closures) `return_call` exige tambem que a CALLING
+    // CONVENTION do callee bata com a do caller. Uma user fn address-taken
+    // (passada como valor — ex. `sq`/`out` em `h(sq, out, 5)`) ou callback
+    // liftada usa `windows_fastcall`, nao `Tail`; tail-call cross-conv quebra o
+    // verifier ("calling convention windows_fastcall does not support tail
+    // calls"). Consulta a conv real da assinatura ja' declarada do callee.
+    let callee_is_tail = {
+        let sig_ref = ctx.builder.func.dfg.ext_funcs[fref].signature;
+        ctx.builder.func.dfg.signatures[sig_ref].call_conv
+            == cranelift_codegen::isa::CallConv::Tail
+    };
     if ctx.is_tail_conv && ctx.in_tail_position
+        && callee_is_tail
         && cl_ret_class(callee_ret) == cl_ret_class(caller_ret)
     {
         let ty = callee_ret;
