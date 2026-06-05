@@ -36,21 +36,24 @@
 > - closures (5): `348 360 361 386 365` — the #195 env-record exists and a large
 >   slice of the fn-value calling convention now works (2026-06-05): `partial`,
 >   `pipe(double,addOne)(3)`, arrays of fns, reduce over captured/unknown-type
->   arrays, and `out(sq(val))`-style nested tail calls all produce correct output.
->   `361_functional_compose` went from SIGILL to **7/8 lines correct**. The last
->   line (a transducer) and the remaining fixtures are blocked by the **dynamic
->   number-representation seam**: a captured/`any`-typed fn that returns a
->   `number` returns f64-BITS tagged as ambiguous i64; downstream it is decoded
->   correctly in some contexts (direct `return t`, string templates) but not
->   others (`return t + 1`, passing `t` to another number-param fn), because the
->   codegen can't know a captured callee's return_kind at the use site. Closing it
->   means a consistent number encoding across array literals, rest packing,
->   spread-extend, invoke_typed args AND return values — the representation
->   refactor. Each fixture then needs more on top (348 memoize-Map closure +
->   curry, 386 trampoline returned-closure recursion, 360 sibling fn-DECL closures
+>   arrays, `out(sq(val))`-style nested tail calls, and block-body arrows that
+>   `return <expr>` all produce correct output. `361_functional_compose` went from
+>   SIGILL to **7/8 lines correct**. The final blocker, traced precisely, is the
+>   **user-fn-value-as-handle** problem: a `const`-declared fn (`const sq = x=>x*x`)
+>   used as a *value* — captured into a closure or passed through a curry chain —
+>   is reified as a raw `func_addr`, not a `Function` handle carrying param_kinds.
+>   So when that captured fn is later called (`next(fn(val))` in the transducer),
+>   it hits INVOKE_AUTO's i64-ABI raw fallback and its f64 argument is dropped
+>   (`next(25)` → `next(0)`). The codegen deliberately uses raw addrs for fn
+>   *values* (fast `call_indirect`) and handles only where it must; reconciling the
+>   two — every captured/stored/passed user-fn value becomes a param_kinds handle —
+>   is the representation change, with broad blast radius (raw-addr `call_indirect`
+>   sites would need updating). Each fixture then needs more on top (348 memoize-
+>   Map closure + curry, 386 trampoline recursion, 360 sibling fn-DECL closures
 >   sharing a boxed var, 365 async). Landed groundwork this pass: arg
->   normalize_f64_bits, array-of-fns as handles, reduce_bound for unknown arrays,
->   return_call repr+conv guards, capture-by-value, arrow this-capture.
+>   normalize_f64_bits (INVOKE_AUTO/FUNCTION_CALL/array-callback), array-of-fns &
+>   named-fn-args as handles, reduce_bound for unknown arrays, block-body-return
+>   inference, return_call repr+conv guards, ambiguous-arg raw passthrough.
 > - generators (5): `344 368 379 392 273` — lazy-SM completion + #207 real async
 >   event loop (async generators / `for await`).
 > - symbol (2): `271 378` — #216 Symbol-as-computed-key + Array subclassing.
