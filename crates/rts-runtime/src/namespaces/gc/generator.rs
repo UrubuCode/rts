@@ -877,6 +877,27 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_NEXT(it: i64) -> i64 {
     }
 }
 
+/// `__RTS_SYMBOL_ITERATOR_OF(obj)` (#222) — leitura de `obj[Symbol.iterator]`
+/// ciente do tipo: devolve um handle de Function (para `typeof === "function"`)
+/// se `obj` for iteravel (Vec/String/Map), senao UNDEFINED. Sem isto, todo
+/// `obj[Symbol.iterator]` rendia uma function (mesmo para numeros), quebrando
+/// `typeof item[Symbol.iterator] === "function"` (flatten recursava em numeros).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_SYMBOL_ITERATOR_OF(obj: i64) -> i64 {
+    let h = obj as u64;
+    let iterable = with_entry(h, |e| {
+        matches!(
+            e,
+            Some(Entry::Vec(_)) | Some(Entry::String(_)) | Some(Entry::Map(_))
+        )
+    });
+    if iterable {
+        __RTS_FN_GL_ARRAY_ITERATOR_FN() as i64
+    } else {
+        UNDEFINED
+    }
+}
+
 /// `__RTS_GEN_DELEGATE_DONE(it)` — 1 se o ultimo NEXT esgotou o delegado, senao
 /// 0. Inteiro puro (nao sentinela de bool) para ser usado direto como condicao
 /// truthy no `if` da state-machine.

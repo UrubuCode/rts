@@ -1613,6 +1613,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
         MemberProp::Computed(c) => {
+            // (#222) `obj[Symbol.iterator]` (leitura) — devolve a fn de iterador
+            // se obj for iteravel, senao undefined (type-aware). Sustenta
+            // `typeof item[Symbol.iterator] === "function"` (flatten).
+            if let Expr::Member(sm) = c.expr.as_ref() {
+                if let (Expr::Ident(o), MemberProp::Ident(p)) = (sm.obj.as_ref(), &sm.prop) {
+                    if o.sym.as_str() == "Symbol" && p.sym.as_str() == "iterator" {
+                        let recv_tv = lower_expr(ctx, &m.obj)?;
+                        let recv = ctx.coerce_to_i64(recv_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_GC_SYMBOL_ITERATOR_OF",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[recv]);
+                        let h = ctx.builder.inst_results(inst)[0];
+                        ctx.declare_gc_handle(h);
+                        return Ok(TypedVal::new(h, ValTy::Handle));
+                    }
+                }
+            }
             // (#811/205) `view[i]` onde view eh TypedArray-view sobre buffer:
             // le `elem_bytes` bytes little-endian via TA_GET_ELEM.
             if let Expr::Ident(obj_id) = m.obj.as_ref() {
