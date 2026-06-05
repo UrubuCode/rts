@@ -33,27 +33,31 @@
 >   on write, compress in `stream_close`; UNIVERSAL_LENGTH now handles Buffer.
 >
 > **Remaining 15 — all deferred large epics, NOT bounded flips:**
-> - closures (5): `348 360 361 386 365` — the #195 env-record exists and a large
+> - closures (5): `348 360 361 386 365` — the #195 env-record exists and a wide
 >   slice of the fn-value calling convention now works (2026-06-05): `partial`,
 >   `pipe(double,addOne)(3)`, arrays of fns, reduce over captured/unknown-type
->   arrays, `out(sq(val))`-style nested tail calls, and block-body arrows that
->   `return <expr>` all produce correct output. `361_functional_compose` went from
->   SIGILL to **7/8 lines correct**. The final blocker, traced precisely, is the
->   **user-fn-value-as-handle** problem: a `const`-declared fn (`const sq = x=>x*x`)
->   used as a *value* — captured into a closure or passed through a curry chain —
->   is reified as a raw `func_addr`, not a `Function` handle carrying param_kinds.
->   So when that captured fn is later called (`next(fn(val))` in the transducer),
->   it hits INVOKE_AUTO's i64-ABI raw fallback and its f64 argument is dropped
->   (`next(25)` → `next(0)`). The codegen deliberately uses raw addrs for fn
->   *values* (fast `call_indirect`) and handles only where it must; reconciling the
->   two — every captured/stored/passed user-fn value becomes a param_kinds handle —
->   is the representation change, with broad blast radius (raw-addr `call_indirect`
->   sites would need updating). Each fixture then needs more on top (348 memoize-
->   Map closure + curry, 386 trampoline recursion, 360 sibling fn-DECL closures
->   sharing a boxed var, 365 async). Landed groundwork this pass: arg
->   normalize_f64_bits (INVOKE_AUTO/FUNCTION_CALL/array-callback), array-of-fns &
->   named-fn-args as handles, reduce_bound for unknown arrays, block-body-return
->   inference, return_call repr+conv guards, ambiguous-arg raw passthrough.
+>   arrays, `out(sq(val))` nested tail calls, block-body `return <expr>`, and —
+>   via a new `fn_ptr->(param_kinds,return_kind)` registry consulted by
+>   INVOKE_AUTO's raw fallback — captured **named** fns called through curry
+>   chains (`(fn)=>(next)=>(val)=>next(fn(val))` returns 125 correctly).
+>   `361_functional_compose` went SIGILL → **7/8 lines correct**. Two distinct
+>   sub-bugs remain on the final transducer line, both traced precisely:
+>   1. **Captured inline-arrow handle returns 0.** A *named* const fn used as a
+>      value is a raw func_addr (the registry recovers its ABI). An *inline* arrow
+>      `(x)=>x*x` is instead reified as a Function HANDLE; captured into a closure
+>      and called, `fn(val)` yields 0 even at one capture level
+>      (`mk((x)=>x*x)(5)` = 0 vs named `sq` = 25) — the handle path through a
+>      bound-arg capture loses the value (suspected GC keep-alive of the captured
+>      Function handle, since the raw-addr named path is unaffected).
+>   2. **Param-called-as-fn errors.** `(fn, v) => fn(v)` (fn a direct param) raises
+>      "call to undeclared user function `fn`" — the call routes to lower_user_call
+>      instead of the indirect path.
+>   Each fixture also needs more on top (348 memoize-Map + curry, 386 trampoline
+>   recursion, 360 sibling fn-DECL closures sharing a boxed var, 365 async). Landed
+>   groundwork this pass: fn_ptr->ABI registry, arg normalize_f64_bits
+>   (INVOKE_AUTO/FUNCTION_CALL/array-callback), array-of-fns & named-fn-args as
+>   handles, reduce_bound for unknown arrays, block-body-return inference,
+>   return_call repr+conv guards, ambiguous-arg raw passthrough.
 > - generators (5): `344 368 379 392 273` — lazy-SM completion + #207 real async
 >   event loop (async generators / `for await`).
 > - symbol (2): `271 378` — #216 Symbol-as-computed-key + Array subclassing.
