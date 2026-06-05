@@ -445,6 +445,14 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
         None,
     )?;
     for arg in &call.args {
+        // (cross-runtime closures) Ident de user fn nomeada passado adiante
+        // (`mk(sq)(out)`) reifica como handle COM param_kinds, nao func_addr cru
+        // — senao a fn capturada chamada perde args f64 no fallback raw.
+        if arg.spread.is_none() && super::arg_is_bare_user_fn(ctx, &arg.expr) {
+            let h = super::lower_callable_target_h(ctx, &arg.expr)?;
+            ctx.builder.ins().call(vec_push, &[args_vec, h]);
+            continue;
+        }
         let tv = lower_expr(ctx, &arg.expr)?;
         if arg.spread.is_some() {
             // (cross-runtime #1067) Spread em indirect call: extend o args
@@ -628,6 +636,16 @@ pub(super) fn emit_function_handle_indirect_call(
             let tv = lower_expr(ctx, &a.expr)?;
             let src = ctx.coerce_to_i64(tv).val;
             ctx.builder.ins().call(vec_extend_h, &[args_handle, src]);
+            continue;
+        }
+        // (cross-runtime closures) Arg que e' ident de user fn nomeada (ex.:
+        // `mk(sq)(out)` passa `out` adiante) reifica como handle Function COM
+        // param_kinds, nao func_addr cru — senao quando essa fn capturada e'
+        // chamada (`next(x)`) cai no fallback raw do INVOKE_AUTO (ABI i64) e o
+        // arg f64 se perde (`next(25)` virava next(0)).
+        if super::arg_is_bare_user_fn(ctx, &a.expr) {
+            let h = super::lower_callable_target_h(ctx, &a.expr)?;
+            ctx.builder.ins().call(vec_push, &[args_handle, h]);
             continue;
         }
         let tv = lower_expr(ctx, &a.expr)?;
