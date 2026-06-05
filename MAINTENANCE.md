@@ -314,15 +314,13 @@ session. Concrete state:
   `x[Symbol.iterator]()` routing for `.next()` (decl + assign forms)
   (9a5fd2da, c8de437a).
 
-**368 now RUNS (crash → rts_diverge) — remaining blocker is NOT a generator gap:**
-`zip` does `const ia = a[Symbol.iterator]()` then `ia.next()`. `.next()` now
-routes, but `arr[Symbol.iterator]()` returns an **empty** iterator: the computed
-member call doesn't bind `this = arr`, so `ARRAY_VALUES_ITER` runs with `this=0`
-→ `ITERATOR_FROM(0)` → empty Vec (verified: top-level `[10,20,30][Symbol
-.iterator]().next()` → `done=true value=undefined`). That is **epic #222**
-(Symbol.iterator on arrays / `this`-binding in computed-member calls), not a
-state-machine gap. `flatten` additionally needs recursive `yield*` of arbitrary
-iterables + `typeof x[Symbol.iterator] === "function"`.
+**✅ 368_iterator_protocol — FLIPPED (96.5% → 96.8%, 359→360).** The whole
+fixture now matches Node byte-for-byte. Last two blockers were #222, not SM
+gaps, and both landed this session:
+- `arr[Symbol.iterator]()` bound `this=arr` (c26a8345) → zip works.
+- `obj[Symbol.iterator]` READ is type-aware (50c5880c): returns the iterator fn
+  only for iterables, else undefined → `typeof num[Symbol.iterator]` is
+  "undefined", recursive flatten stops at primitives.
 
 - 379 blocks at `__hoisted_fn_0`: an **async generator expression**
   (`(async function*(){ yield 4 })()`) — needs #207 (async generators +
