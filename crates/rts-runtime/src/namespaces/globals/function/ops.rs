@@ -319,6 +319,13 @@ pub(crate) fn invoke_array_callback(handle_or_ptr: u64, extra: &[i64]) -> i64 {
         // os crus (já-bits passam intactos, pk!=1 idem).
         normalize_f64_bits_args(&mut all, &param_kinds);
         unsafe { invoke_typed(fn_ptr, &all, &param_kinds, ret_kind) }
+    } else if let Some((kinds, rk)) = lookup_fn_kinds(handle_or_ptr) {
+        // (cross-runtime closures) fn_ptr cru COM ABI registrada (user fn
+        // address-taken usada como callback): invoke_typed com os kinds reais +
+        // normaliza args number-cru. Cobre `arr.reduce(namedFn)` etc.
+        let mut all = extra.to_vec();
+        normalize_f64_bits_args(&mut all, &kinds);
+        unsafe { invoke_typed(handle_or_ptr, &all, &kinds, rk) }
     } else {
         // fn_ptr cru. Callbacks de array method recebem (val, idx, arr).
         unsafe { invoke_all_i64(handle_or_ptr, extra) }
@@ -775,6 +782,53 @@ fn proto_registry() -> &'static std::sync::Mutex<std::collections::HashMap<u64, 
     FN_PROTOTYPE_REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// (cross-runtime closures) Registry `fn_ptr -> (param_kinds, return_kind)`.
+/// O codegen reifica VALORES de user fn como `func_addr` cru (não handle) para
+/// preservar o `call_indirect` rápido; mas quando essa fn vira uma captura/arg
+/// dinâmico e é invocada via INVOKE_AUTO, o caminho raw não conhecia os
+/// param_kinds e tratava tudo como i64, perdendo args f64 (`next(25)`→`next(0)`).
+/// O codegen agora registra cada user fn address-taken aqui no startup; o
+/// fallback raw consulta a tabela e invoca com a ABI correta.
+static FN_KINDS_REGISTRY: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<u64, (Vec<u8>, u8)>>,
+> = std::sync::OnceLock::new();
+
+fn fn_kinds_registry(
+) -> &'static std::sync::RwLock<std::collections::HashMap<u64, (Vec<u8>, u8)>> {
+    FN_KINDS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+/// Registra a ABI (param_kinds + return_kind) de uma user fn pelo seu endereço.
+/// Emitido pelo codegen no início de `__RTS_MAIN` para cada fn address-taken.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_REGISTER_FN_KINDS(
+    fn_ptr: u64,
+    kinds_ptr: i64,
+    kinds_len: i64,
+    return_kind: i32,
+) {
+    if fn_ptr == 0 {
+        return;
+    }
+    let kinds: Vec<u8> = if kinds_ptr != 0 && kinds_len > 0 {
+        unsafe { std::slice::from_raw_parts(kinds_ptr as *const u8, kinds_len as usize) }.to_vec()
+    } else {
+        Vec::new()
+    };
+    let mut reg = fn_kinds_registry()
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
+    reg.insert(fn_ptr, (kinds, return_kind as u8));
+}
+
+/// Lookup da ABI registrada de um `fn_ptr` cru. `None` quando não registrado.
+fn lookup_fn_kinds(fn_ptr: u64) -> Option<(Vec<u8>, u8)> {
+    let reg = fn_kinds_registry()
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
+    reg.get(&fn_ptr).cloned()
+}
+
 /// (cross-runtime #336) Object.prototype singleton — Map cacheado com
 /// `constructor: {name: "Object"}`. Usado em prototype chain inspection:
 /// quando uma classe raiz (sem super) e' criada, seu proto Map recebe
@@ -1074,13 +1128,26 @@ fn invoke_auto_impl(
         return r;
     }
     // Fn ptr raw — usa invoke_typed com override (param_kinds vazio).
-    let args_v = read_args_vec(args_handle);
+    let mut args_v = read_args_vec(args_handle);
     crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
-    let rk = override_return_kind.unwrap_or(0);
-    let r = if rk == 0 {
-        unsafe { invoke_n(callee as u64, &args_v) }
+    // (cross-runtime closures) Se o codegen registrou a ABI desse fn_ptr cru
+    // (user fn address-taken capturada/passada como valor), invoca com os
+    // param_kinds/return_kind reais — normalizando args number-cru p/ bits f64.
+    // Sem isto `next(25)` numa closure virava `next(0)` (f64 arg perdido).
+    let r = if let Some((kinds, reg_rk)) = lookup_fn_kinds(callee as u64) {
+        normalize_f64_bits_args(&mut args_v, &kinds);
+        let rk = match override_return_kind {
+            Some(ov) if reg_rk == 0 => ov,
+            _ => reg_rk,
+        };
+        unsafe { invoke_typed(callee as u64, &args_v, &kinds, rk) }
     } else {
-        unsafe { invoke_typed(callee as u64, &args_v, &[], rk) }
+        let rk = override_return_kind.unwrap_or(0);
+        if rk == 0 {
+            unsafe { invoke_n(callee as u64, &args_v) }
+        } else {
+            unsafe { invoke_typed(callee as u64, &args_v, &[], rk) }
+        }
     };
     crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
     r

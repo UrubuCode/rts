@@ -549,7 +549,7 @@ fn emit_method_reify(
     Ok(TypedVal::new(fn_handle, ValTy::Handle))
 }
 
-pub(super) fn val_ty_to_kind(ty: ValTy) -> u8 {
+pub(crate) fn val_ty_to_kind(ty: ValTy) -> u8 {
     match ty {
         ValTy::I64 => 0,
         ValTy::F64 => 1,
