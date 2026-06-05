@@ -4,7 +4,7 @@
 //! (`start` callback / `transform`) enqueues chunks before any `read()` runs,
 //! so `read()` can resolve a Promise immediately with the next buffered chunk.
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
+use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry, with_entry_mut};
 use crate::namespaces::gc::promise_slot;
 use indexmap::IndexMap;
 
@@ -129,10 +129,41 @@ fn new_stream() -> u64 {
     s
 }
 
-/// Allocates a controller bound to `stream_h`.
+/// Reifies an internal controller fn (`__RTS_FN_GL_READABLE_STREAM_CONTROLLER_*`)
+/// as an `Entry::Function` bound to the controller, so a transform callback that
+/// receives the controller as an UNTYPED arg (`transform(chunk, controller)`)
+/// can call `controller.enqueue(x)` / `controller.close()` via the generic
+/// call-on-property path (the typed InstanceMethod path only fires when the
+/// receiver is statically a ReadableStreamDefaultController).
+fn reify_bound(fn_ptr: u64, recv: u64, arity: u8) -> u64 {
+    alloc_entry(Entry::Function(Box::new(FunctionData {
+        fn_ptr,
+        arity,
+        name: "".into(),
+        bound_this: 0,
+        has_bound_this: false,
+        bound_args: vec![recv as i64],
+        is_arrow: false,
+        has_this_param: false,
+        param_kinds: vec![0u8; arity as usize],
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+    })))
+}
+
+/// Allocates a controller bound to `stream_h`, with `enqueue`/`close` stored as
+/// bound fn handles so untyped `controller.enqueue(...)` calls resolve.
 fn new_controller(stream_h: u64) -> u64 {
     let c = new_map();
     map_set(c, "__stream", stream_h as i64);
+    let enq = __RTS_FN_GL_READABLE_STREAM_CONTROLLER_ENQUEUE as *const () as usize as u64;
+    let cls = __RTS_FN_GL_READABLE_STREAM_CONTROLLER_CLOSE as *const () as usize as u64;
+    map_set(c, "enqueue", reify_bound(enq, c, 2) as i64);
+    map_set(c, "close", reify_bound(cls, c, 1) as i64);
     c
 }
 
@@ -180,6 +211,10 @@ pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_GET_READER(stream: u64) -> u64 {
     let r = new_map();
     map_set(r, "__stream", stream as i64);
     map_set(r, "__cursor", 0);
+    // Bound `read` so `const reader = ...; reader.read()` works even when the
+    // const loses the static ReadableStreamDefaultReader type (generic dispatch).
+    let read = __RTS_FN_GL_READABLE_STREAM_READER_READ as *const () as usize as u64;
+    map_set(r, "read", reify_bound(read, r, 1) as i64);
     r
 }
 
@@ -224,10 +259,30 @@ pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_NEW(opts: u64) -> u64 {
     ts
 }
 
+/// `transformStream.writable` — the shared stream typed as a WritableStream so
+/// `.getWriter()` dispatches.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_WRITABLE(ts: u64) -> u64 {
+    map_get(ts, "writable") as u64
+}
+
+/// `transformStream.readable` — the shared stream typed as a ReadableStream so
+/// `.getReader()` dispatches.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_READABLE(ts: u64) -> u64 {
+    map_get(ts, "readable") as u64
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER(stream: u64) -> u64 {
     let w = new_map();
     map_set(w, "__stream", stream as i64);
+    // Bound `write`/`close` so `const writer = ...; writer.write(x)` works even
+    // when the const loses the static WritableStreamDefaultWriter type.
+    let write = __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE as *const () as usize as u64;
+    let close = __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE as *const () as usize as u64;
+    map_set(w, "write", reify_bound(write, w, 2) as i64);
+    map_set(w, "close", reify_bound(close, w, 1) as i64);
     w
 }
 

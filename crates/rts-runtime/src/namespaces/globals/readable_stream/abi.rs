@@ -118,10 +118,42 @@ pub const CONTROLLER_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
 
 // ── TransformStream ────────────────────────────────────────────────────────────
 
+const fn getter(
+    name: &'static str,
+    symbol: &'static str,
+    ts: &'static str,
+) -> NamespaceMember {
+    NamespaceMember {
+        name,
+        kind: MemberKind::InstanceGetter,
+        symbol,
+        args: &[AbiType::Handle],
+        returns: AbiType::Handle,
+        doc: "Web Streams side accessor.",
+        ts_signature: ts,
+        intrinsic: None,
+        pure: false,
+    }
+}
+
 pub const TRANSFORM_STREAM_MEMBERS: &[NamespaceMember] = &[
     ctor(
         "__RTS_FN_GL_TRANSFORM_STREAM_NEW",
         "new TransformStream(transformer?: object): TransformStream",
+    ),
+    // Typed sides so `ts.writable.getWriter()` / `ts.readable.getReader()`
+    // dispatch as InstanceMethods (a method call on an UNtyped getter result is
+    // not supported by codegen). Both return the same shared stream handle; the
+    // static type just selects the writer-vs-reader method set.
+    getter(
+        "writable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+        "readonly writable: WritableStream",
+    ),
+    getter(
+        "readable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+        "readonly readable: ReadableStream",
     ),
 ];
 
