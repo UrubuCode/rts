@@ -1,9 +1,25 @@
 # MAINTENANCE.md — Path to 100% cross-runtime parity
 
-> Status: **96.2% (358/372)** cross-runtime parity.
-> 14 fixtures remain. This document explains, fixture by fixture, **what each
+> Status: **96.5% (359/372)** cross-runtime parity.
+> 13 fixtures remain. This document explains, fixture by fixture, **what each
 > needs**, **where the code lives**, and **why none can be closed incrementally
 > without violating the project's own engineering rules.**
+>
+> **Flipped (2026-06-05, closures foundation cont.2) — 96.2% → 96.5%:**
+> - `348_closure_optimization` — memoize/partial/once/curry. Root fix: a variadic
+>   fn-EXPRESSION used as a value (`function(...args){ return fn(...args) }`
+>   returned from a HOF) was reified as a raw func_addr, so its rest_param_idx
+>   never reached FunctionData and calls passed args loose (first arg became the
+>   whole rest array). The `__hoisted_fn_` reify block now mirrors the arrow
+>   block: when the lifted fn has a rest_param_idx it reifies as a handle so the
+>   invoke packs the tail. Also fixed (this pass): arrows passed to direct fn
+>   calls (`fn((v)=>{ result=v })`) now capture their free vars — runCPS-style
+>   closures work; advanced 386 from crash to running.
+> - **386_trampoline remaining**: produces wrong output because `typeof result
+>   === "function"` is false for a returned arrow — an arrow returned from a fn
+>   (`return n<=1 ? 99 : ()=>42`) is a raw func_addr (typeof → "number"), so the
+>   trampoline never bounces. Needs returned/stored arrows to be typeof-able as
+>   functions (first-class-fn-value-as-handle — a representation change).
 >
 > **Flipped (2026-06-05, closures foundation cont.) — 96.0% → 96.2%:**
 > - `361_functional_compose` — pipe/compose/partial/curry/transduce. Root fix:
