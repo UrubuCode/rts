@@ -1,25 +1,42 @@
 # MAINTENANCE.md — Path to 100% cross-runtime parity
 
-> Status: **94.9% (353/372)** cross-runtime parity.
-> 19 fixtures remain. This document explains, fixture by fixture, **what each
+> Status: **95.7% (356/372)** cross-runtime parity.
+> 16 fixtures remain. This document explains, fixture by fixture, **what each
 > needs**, **where the code lives**, and **why none can be closed incrementally
 > without violating the project's own engineering rules.**
 >
-> **Flipped (2026-06-04, "buildable external-API / quirk" pass):**
-> - `291_json_bigint` — `JSON.stringify` throws TypeError on a BigInt in an
->   object literal (object-slot BigInt tagged via Entry::BigFixed; stringify
->   raises through the circular-ref error channel). Commit `feat(json):`.
+> **Flipped (2026-06-04, "buildable external-API / quirk" pass) — 94.3% → 95.7%:**
+> - `291_json_bigint` — `JSON.stringify` throws TypeError on an object-slot
+>   BigInt (tagged via Entry::BigFixed; raised through the circular-ref channel).
 > - `76_message_channel` — new `MessageChannel`/`MessagePort` global classes
->   (entangled Entry::Map ports; `postMessage` delivers to the peer's
->   `onmessage` synchronously). Commit `feat(message-channel):`.
+>   (entangled Entry::Map ports; synchronous `postMessage`→peer `onmessage`).
+> - `96_streams_transform` — TransformStream end-to-end. Key fix: writer/reader/
+>   controller methods stored as reified bound `Entry::Function` handles in the
+>   instance Map, so `const w = stream.writable.getWriter(); w.write(x)` resolves
+>   via generic dispatch when the const loses its static class type.
+> - `101_textdecoder_stream` — TextEncoderStream/TextDecoderStream (identity
+>   passthrough) + `pipeThrough` (shares the upstream buffer downstream).
+> - `88_compression_stream` — CompressionStream gzip/deflate (flate2); accumulate
+>   on write, compress in `stream_close`; UNIVERSAL_LENGTH now handles Buffer.
 >
-> **Next buildable external-API cluster:** WHATWG Streams (`88`/`96`/`101`,
-> cluster D). The classes are additive, but all three are GATED on a single
-> deep async/codegen defect: `await writer.write(cb)` where `write` invokes a
-> JIT object-literal method breaks control flow (silent termination /
-> ILLEGAL_INSTRUCTION). That crash — not the API surface — is the real blocker;
-> root-cause it before building CompressionStream/TextEncoderStream/pipeThrough.
-> `100_dynamic_import` already matches bun/node (both error) — not a flip.
+> **Remaining 16 — all deferred large epics, NOT bounded flips:**
+> - closures (6): `348 360 361 386 41 365` — #195 mutable-cell env-record + the
+>   f64/handle/variadic stack (array-of-fns stored as raw addrs; reduce acc
+>   f64<->i64 through the callback; captured-array reduce). Partial groundwork
+>   landed (capture-by-value, callee-param→i64, variadic rest_param_idx).
+> - generators (5): `344 368 379 392 273` — lazy-SM completion + #207 real async
+>   event loop (async generators / `for await`).
+> - symbol (2): `271 378` — #216 Symbol-as-computed-key + Array subclassing.
+> - proxy (2): `354 359` — #218. 354's runtime `dispatch_apply` exists but the
+>   call `proxiedFn(x)` is alias-resolved/direct-called past INVOKE_AUTO's proxy
+>   resolve (codegen call-routing, not a one-liner). 359 needs 3 independent
+>   object-meta fixes (descriptor-getter invoke in MAP_GET, computed
+>   constructor/toString→"function", fn.toString override).
+> - `100_dynamic_import` already matches bun/node (both error) — runner artifact,
+>   not flippable.
+>
+> The "buildable external-API / quirk" seam is exhausted. Further parity requires
+> committing to one of the large deferred refactors above.
 
 This file is the honest answer to "why not just reach 100%?". Read it before
 attempting the remaining fixtures, so the scope and the rule-conflict are clear
