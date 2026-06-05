@@ -110,6 +110,24 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
     }
 }
 
+/// (#376/#195) Resolve `__captured_this` para o valor de `this` a capturar por
+/// valor: le o local `this` (metodo de classe, this e' param real) ou — quando
+/// nao ha local (metodo de OBJETO, onde `this` vive no slot thread-local) —
+/// emite `THIS_GET()`. Assim uma arrow `() => this.v` retornada de um metodo de
+/// objeto captura o `this` corrente (o objeto), nao o this no momento da chamada.
+fn resolve_captured_this(ctx: &mut FnCtx) -> Result<TypedVal> {
+    use cranelift_codegen::ir::InstBuilder;
+    use crate::codegen::lower::ctx::ValTy;
+    if let Some(v) = ctx.read_local("this") {
+        return Ok(v);
+    }
+    let fref =
+        ctx.get_extern("__RTS_FN_RT_THIS_GET", &[], Some(cranelift_codegen::ir::types::I64))?;
+    let inst = ctx.builder.ins().call(fref, &[]);
+    let v = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(v, ValTy::I64))
+}
+
 fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     // Alias de import (`import { add as plus } from "./lib"` -> plus->add):
     // se o ident e' um alias local, troca pelo nome original do source antes
@@ -143,16 +161,19 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
             if let Some(captures) =
                 crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(name)
             {
-                let cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> = captures
-                    .iter()
-                    .filter_map(|c| {
-                        if c == "__captured_this" {
-                            ctx.read_local("this")
-                        } else {
-                            ctx.read_local(c)
-                        }
-                    })
-                    .collect();
+                let mut cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> =
+                    Vec::with_capacity(captures.len());
+                for c in &captures {
+                    let tv = if c == "__captured_this" {
+                        Some(resolve_captured_this(ctx)?)
+                    } else {
+                        ctx.read_local(c)
+                    };
+                    match tv {
+                        Some(v) => cap_vals.push(v),
+                        None => break,
+                    }
+                }
                 if cap_vals.len() == captures.len() {
                     return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &cap_vals);
                 }
@@ -169,18 +190,23 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
             if let Some(captures) =
                 crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(name)
             {
-                let cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> = captures
-                    .iter()
-                    .filter_map(|c| {
-                        // (#376 camada 3) `__captured_this` resolve para o `this`
-                        // atual — a arrow capturou `this` por valor (bound_arg).
-                        if c == "__captured_this" {
-                            ctx.read_local("this")
-                        } else {
-                            ctx.read_local(c)
-                        }
-                    })
-                    .collect();
+                let mut cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> =
+                    Vec::with_capacity(captures.len());
+                for c in &captures {
+                    // (#376 camada 3) `__captured_this` resolve para o `this`
+                    // atual — a arrow capturou `this` por valor (bound_arg). Em
+                    // metodo de OBJETO o this vive no slot thread-local, entao
+                    // resolve_captured_this emite THIS_GET() (nunca None).
+                    let tv = if c == "__captured_this" {
+                        Some(resolve_captured_this(ctx)?)
+                    } else {
+                        ctx.read_local(c)
+                    };
+                    match tv {
+                        Some(v) => cap_vals.push(v),
+                        None => break,
+                    }
+                }
                 // So' usa o caminho de captura quando TODAS resolvem como
                 // local em escopo (senao cai no fallback antigo).
                 if cap_vals.len() == captures.len() {

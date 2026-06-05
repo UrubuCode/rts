@@ -1995,7 +1995,7 @@ fn arrow_uses_this(arrow: &swc_ecma_ast::ArrowExpr) -> bool {
     found
 }
 
-fn stmt_uses_this(stmt: &Stmt) -> bool {
+pub(crate) fn stmt_uses_this(stmt: &Stmt) -> bool {
     use swc_ecma_ast::Stmt::*;
     match stmt {
         Expr(e) => expr_uses_this(&e.expr),
@@ -2114,7 +2114,7 @@ fn rewrite_this_to_under_this(mut s: Stmt) -> Stmt {
 /// sub-expressoes/sub-statements. Usado p/ transformar `this` em um param de
 /// captura (`__captured_this`) na arrow liftada. NAO desce em arrows aninhadas
 /// (elas tem seu proprio `this` lexical — rebind separado).
-fn rewrite_this_to_named(stmt: &mut Stmt, name: &str) {
+pub(crate) fn rewrite_this_to_named(stmt: &mut Stmt, name: &str) {
     fn re(e: &mut Expr, name: &str) {
         use swc_ecma_ast::Expr::*;
         if matches!(e, This(_)) {

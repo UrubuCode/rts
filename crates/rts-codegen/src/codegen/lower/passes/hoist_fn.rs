@@ -476,6 +476,23 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         // reify) — entao captura + variadic coexistem sem deslocamento errado.
         {
             let enclosing = cur_scope();
+            let swc_body: Vec<Stmt> = fn_decl
+                .body
+                .iter()
+                .filter_map(|Statement::Raw(r)| r.stmt.clone())
+                .collect();
+            // (#195/#376) Captura de `this` por valor: APENAS arrows. Uma arrow
+            // captura `this` lexicamente (o receiver no momento da criacao),
+            // entao `make(){ return () => this.v }` deve fixar o `this` corrente.
+            // Funcoes/metodos comuns (fn-expr, ex: `next()` de iterador, getters)
+            // recebem `this` DINAMICO do receiver na chamada — NUNCA capturar por
+            // valor (senao quebra 272/335/336). Independe de enclosing locals: o
+            // valor vem do slot `this` em runtime (THIS_GET no reify).
+            let uses_this = is_arrow_expr
+                && swc_body
+                    .iter()
+                    .any(crate::codegen::lower::passes::this_arrow::stmt_uses_this);
+            let mut cap_list: Vec<String> = Vec::new();
             if !enclosing.is_empty() {
                 let mut own: std::collections::HashSet<String> =
                     fn_decl.parameters.iter().map(|p| p.name.clone()).collect();
@@ -484,33 +501,42 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     &mut own,
                 );
                 own.insert(name.clone());
-                let swc_body: Vec<Stmt> = fn_decl
-                    .body
-                    .iter()
-                    .filter_map(|Statement::Raw(r)| r.stmt.clone())
-                    .collect();
                 let caps = crate::codegen::lower::analysis::captures::free_vars_in_swc_stmts(
                     &swc_body, &enclosing, &own,
                 );
-                if !caps.is_empty() {
-                    let cap_list: Vec<String> = caps.into_iter().collect();
-                    let mut new_params: Vec<Parameter> = cap_list
-                        .iter()
-                        .map(|c| Parameter {
-                            name: c.clone(),
-                            type_annotation: None,
-                            modifiers: MemberModifiers::default(),
-                            variadic: false,
-                            default: None,
-                            span: Span::default(),
-                        })
-                        .collect();
-                    new_params.extend(std::mem::take(&mut fn_decl.parameters));
-                    fn_decl.parameters = new_params;
-                    crate::codegen::lower::passes::this_arrow::add_lifted_captures(
-                        std::iter::once((name.clone(), cap_list)),
-                    );
+                cap_list = caps.into_iter().collect();
+            }
+            if uses_this {
+                // `__captured_this` SEMPRE no indice 0 (alinha com o reify, que
+                // resolve a captura 0 via read_local("this") || THIS_GET()).
+                cap_list.insert(0, "__captured_this".to_string());
+                for s in fn_decl.body.iter_mut() {
+                    let Statement::Raw(r) = s;
+                    if let Some(stmt) = r.stmt.as_mut() {
+                        crate::codegen::lower::passes::this_arrow::rewrite_this_to_named(
+                            stmt,
+                            "__captured_this",
+                        );
+                    }
                 }
+            }
+            if !cap_list.is_empty() {
+                let mut new_params: Vec<Parameter> = cap_list
+                    .iter()
+                    .map(|c| Parameter {
+                        name: c.clone(),
+                        type_annotation: None,
+                        modifiers: MemberModifiers::default(),
+                        variadic: false,
+                        default: None,
+                        span: Span::default(),
+                    })
+                    .collect();
+                new_params.extend(std::mem::take(&mut fn_decl.parameters));
+                fn_decl.parameters = new_params;
+                crate::codegen::lower::passes::this_arrow::add_lifted_captures(
+                    std::iter::once((name.clone(), cap_list)),
+                );
             }
         }
         // (#310) Registra variadic se o ultimo param eh rest — INVOKE_AUTO
