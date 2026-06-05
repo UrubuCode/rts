@@ -829,6 +829,34 @@ fn lookup_fn_kinds(fn_ptr: u64) -> Option<(Vec<u8>, u8)> {
     reg.get(&fn_ptr).cloned()
 }
 
+/// (cross-runtime closures) Invoca um `fn_ptr` CRU de user fn com `args`,
+/// consultando o registry de ABI: se registrado (param f64), normaliza os args
+/// number-cru → bits e usa invoke_typed com a ABI correta; senão cai no
+/// invoke_n (todos i64). Usado por callers que têm só o ponteiro resolvido (ex:
+/// promise.then), p/ não chamar uma fn `(f64)->f64` via ABI i64 (segfault).
+pub(crate) fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
+    // (cross-runtime closures) Se na verdade for um HANDLE Function (escapou sem
+    // resolve — ex: callback de `.then` reificado como handle quando passou a
+    // ter param `number`/f64), despacha pelo caminho de handle: prepend bound,
+    // normaliza, invoke_typed com os kinds do handle. Sem isto o invoke_n abaixo
+    // saltava para o valor do handle (0x1000...) → ACCESS_VIOLATION.
+    if let Some((real_ptr, bound, _hbt, _bt, _arrow, _htp, kinds, rk)) =
+        read_function_data(fn_ptr)
+    {
+        let mut a = bound;
+        a.extend_from_slice(args);
+        normalize_f64_bits_args(&mut a, &kinds);
+        return unsafe { invoke_typed(real_ptr, &a, &kinds, rk) };
+    }
+    if let Some((kinds, rk)) = lookup_fn_kinds(fn_ptr) {
+        let mut a = args.to_vec();
+        normalize_f64_bits_args(&mut a, &kinds);
+        unsafe { invoke_typed(fn_ptr, &a, &kinds, rk) }
+    } else {
+        unsafe { invoke_n(fn_ptr, args) }
+    }
+}
+
 /// (cross-runtime #336) Object.prototype singleton — Map cacheado com
 /// `constructor: {name: "Object"}`. Usado em prototype chain inspection:
 /// quando uma classe raiz (sem super) e' criada, seu proto Map recebe

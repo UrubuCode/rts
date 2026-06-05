@@ -300,7 +300,12 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 }
                 parameters.push(Parameter {
                     name: n,
-                    type_annotation: None,
+                    // (cross-runtime closures) Preserva a anotacao `: number` /
+                    // `: boolean` da arrow/fn-expr liftada. Antes era SEMPRE
+                    // None -> `(x:number)=>x*x` compilava como `(i64)->i64`, e
+                    // quando chamada via closure com arg f64-bits lia lixo
+                    // (x*x dava 0). Agora vira F64 e bate com a ABI de number.
+                    type_annotation: param_keyword_type_str(&p.pat),
                     modifiers: MemberModifiers::default(),
                     variadic: false,
                     default: None,
@@ -383,6 +388,30 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 pat: pat.clone(),
             })
             .collect()
+    }
+
+    /// (cross-runtime closures) Extrai a anotacao de tipo KEYWORD
+    /// (`number`/`string`/`boolean`) de um param de arrow/fn-expr liftada, como
+    /// string p/ o `type_annotation` do `Parameter`. Sem SourceMap aqui (pos
+    /// parse), le direto do `TsType` da AST. Outros tipos -> None (mantem o
+    /// comportamento untyped/i64 de antes; zero impacto fora de number/bool).
+    fn param_keyword_type_str(pat: &Pat) -> Option<String> {
+        use swc_ecma_ast::{TsKeywordTypeKind, TsType};
+        let type_ann = match pat {
+            Pat::Ident(bi) => bi.type_ann.as_ref()?,
+            Pat::Assign(a) => return param_keyword_type_str(a.left.as_ref()),
+            _ => return None,
+        };
+        if let TsType::TsKeywordType(k) = type_ann.type_ann.as_ref() {
+            let s = match k.kind {
+                TsKeywordTypeKind::TsNumberKeyword => "number",
+                TsKeywordTypeKind::TsStringKeyword => "string",
+                TsKeywordTypeKind::TsBooleanKeyword => "boolean",
+                _ => return None,
+            };
+            return Some(s.to_string());
+        }
+        None
     }
 
     fn visit_expr(expr: &mut Expr, counter: &mut u32, new_fns: &mut Vec<Item>) {

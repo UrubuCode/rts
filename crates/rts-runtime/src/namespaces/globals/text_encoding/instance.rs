@@ -644,29 +644,22 @@ pub fn drain_microtasks() {
     }
 }
 
-/// Cópia local de invoke_callback (promise/ops.rs) para evitar dep
-/// circular do módulo. Aridade ate 8 com bound_args prepended.
+/// Invoca o callback de microtask (then/catch/finally) prepended com bound_args.
+/// (cross-runtime closures) Usa o registry de ABI: callbacks com param `number`
+/// agora compilam como `(f64)->...`; invocá-los via ABI i64 crua segfaultava
+/// (`Promise.resolve(4).then((n:number)=>n+1)`). invoke_fn_ptr_with_registry usa
+/// invoke_typed com os param_kinds reais (e normaliza args number-cru), ou
+/// invoke_n quando a fn é toda-i64 (idêntico ao transmute de antes).
 unsafe fn invoke_microtask_callback(
     fn_ptr: u64,
     bound: &[i64],
     extra: Option<i64>,
 ) -> i64 {
-    use std::mem::transmute;
     let mut args: Vec<i64> = bound.to_vec();
     if let Some(v) = extra {
         args.push(v);
     }
-    unsafe {
-        match args.len() {
-            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
-            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
-            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2],
-            ),
-            _ => 0,
-        }
-    }
+    crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
 }
 
 // TextEncoder / TextDecoder constructors — stateless, token handle.

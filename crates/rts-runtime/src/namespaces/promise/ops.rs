@@ -61,40 +61,16 @@ fn resolve_callback_ptr(fp: u64) -> (u64, Vec<i64>, bool, i64) {
 /// bound_args. Retorna i64. Limite de aridade total = 8 (limite do
 /// trampolim em globals/function/ops).
 unsafe fn invoke_callback(fn_ptr: u64, bound: &[i64], extra: Option<i64>) -> i64 {
-    use std::mem::transmute;
     let mut args: Vec<i64> = bound.to_vec();
     if let Some(v) = extra {
         args.push(v);
     }
-    unsafe {
-        match args.len() {
-            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
-            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
-            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2],
-            ),
-            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3],
-            ),
-            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4],
-            ),
-            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5],
-            ),
-            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
-            ),
-            8 => transmute::<
-                u64,
-                extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64,
-            >(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
-            ),
-            _ => 0,
-        }
-    }
+    // (cross-runtime closures) Consulta o registry de ABI: callbacks com param
+    // `number` agora compilam como `(f64)->...`; invocá-los via ABI i64 crua
+    // (transmute) segfaultava. invoke_fn_ptr_with_registry usa invoke_typed com
+    // os param_kinds reais (e normaliza args number-cru), ou invoke_n quando a
+    // fn é toda-i64 (comportamento idêntico ao transmute de antes).
+    crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
 }
 
 #[unsafe(no_mangle)]

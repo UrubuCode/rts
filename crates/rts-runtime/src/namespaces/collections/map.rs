@@ -549,23 +549,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
             .collect(),
         _ => Vec::new(),
     });
-    // Resolve handle Function -> fn_ptr (ou usa ptr direto).
-    let resolved = with_entry(fn_ptr, |entry| {
-        if let Some(Entry::Function(fd)) = entry {
-            Some((fd.fn_ptr, fd.bound_args.clone()))
-        } else {
-            None
-        }
-    });
-    let (actual_ptr, bound): (u64, Vec<i64>) = resolved.unwrap_or((fn_ptr, Vec::new()));
-    let n_bound = bound.len();
     // (cross-runtime #793) Para Set, callback recebe (value, value, set) — key
     // duplica como value2 (JS spec). Set storage no RTS usa Map<keyStr, 1>;
     // o "value" da iteracao e' a key (que e' o elemento adicionado).
     let is_set = handle_is_set_kind(handle);
-    // Para Set, usa INVOKE_AUTO (suporta user fns com calling conv tail).
-    // Para Map, mantem transmute fn(i64,i64,i64) — callbacks de Map sao
-    // normalmente arrows lifted (windows_fastcall) que aceitam essa sig.
     if is_set {
         for (k, v) in &pairs {
             // (#394) elemento via value preservado (identidade), nao parse da key.
@@ -579,20 +566,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
         }
         return;
     }
+    // (cross-runtime closures) invoke_fn_ptr_with_registry resolve handle
+    // Function (prepend bound) OU ptr cru via registry, e NORMALIZA o value
+    // number-cru p/ bits f64 quando o param do callback e' number. Antes o
+    // transmute cru passava `v` como i64 a um callback `(value:number)=>...`
+    // (agora `(f64)->`) -> value lido como bits denormal ≈ 0 (Map.forEach #793).
     for (k, v) in pairs {
         let key_h = alloc_entry(Entry::String(k.into_bytes())) as i64;
-        unsafe {
-            use std::mem::transmute;
-            match n_bound {
-                0 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(actual_ptr)(
-                    v, key_h, handle as i64,
-                ),
-                1 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(actual_ptr)(
-                    bound[0], v, key_h, handle as i64,
-                ),
-                _ => 0,
-            };
-        }
+        crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(
+            fn_ptr,
+            &[v, key_h, handle as i64],
+        );
     }
 }
 
