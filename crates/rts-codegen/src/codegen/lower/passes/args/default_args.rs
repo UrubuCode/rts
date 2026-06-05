@@ -7,6 +7,51 @@ use swc_ecma_ast::{Callee, Expr, Stmt};
 
 use crate::parser::ast::{ClassMember, Item, Parameter, Program, Statement};
 
+thread_local! {
+    /// (cross-runtime closures) `fn_name -> [Option<f64 literal default>]` por
+    /// param. Lido em `main_fn` para registrar os defaults no runtime, de modo
+    /// que chamadas INDIRETAS (`fn(...args)` via handle) apliquem `acc = 1` em
+    /// vez de preencher com 0. Só literais numéricos/bool (default complexo =
+    /// None → sem default registrado, comportamento antigo de pad-0).
+    static FN_DEFAULT_LITS: std::cell::RefCell<
+        std::collections::HashMap<String, Vec<Option<f64>>>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Consulta os defaults literais (numéricos) registrados para uma user fn.
+pub(crate) fn fn_default_lits(name: &str) -> Option<Vec<Option<f64>>> {
+    FN_DEFAULT_LITS.with(|c| c.borrow().get(name).cloned())
+}
+
+/// Registra os defaults literais de uma fn pelos seus `Parameter`s finais
+/// (pós-hoist). Cobre fns liftadas (fn-expr inline `trampoline(function f(){}))`
+/// que o pass `expand_default_args` (pré-hoist, só top-level) não alcança.
+pub(crate) fn record_fn_default_lits(name: &str, params: &[Parameter]) {
+    let lits: Vec<Option<f64>> = params
+        .iter()
+        .map(|p| p.default.as_deref().and_then(default_lit_value))
+        .collect();
+    if lits.iter().any(|v| v.is_some()) {
+        FN_DEFAULT_LITS.with(|c| {
+            c.borrow_mut().insert(name.to_string(), lits);
+        });
+    }
+}
+
+/// Extrai o valor numérico de um default literal (`1`, `-2`, `true`, `0`).
+/// `None` para defaults complexos (expr, ref a param, string, etc).
+fn default_lit_value(expr: &Expr) -> Option<f64> {
+    match expr {
+        Expr::Lit(swc_ecma_ast::Lit::Num(n)) => Some(n.value),
+        Expr::Lit(swc_ecma_ast::Lit::Bool(b)) => Some(if b.value { 1.0 } else { 0.0 }),
+        Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
+            default_lit_value(&u.arg).map(|v| -v)
+        }
+        Expr::Paren(p) => default_lit_value(&p.expr),
+        _ => None,
+    }
+}
+
 /// (375) Preenche args omitidos numa chamada `super(...)` com os defaults do
 /// constructor do pai. `super(name)` com `Animal`'s `constructor(name, e=100)`
 /// vira `super(name, 100)`. Percorre o stmt procurando `Expr::Call` com callee
@@ -117,6 +162,7 @@ fn substitute_param_refs(
 
 pub(crate) fn expand_default_args(program: &mut Program) {
     use std::collections::HashMap;
+    FN_DEFAULT_LITS.with(|c| c.borrow_mut().clear());
 
     // Mapa: nome → (param_names, defaults). param_names eh usado para
     // resolver refs cruzadas (#640): default que referencia outro param
@@ -140,6 +186,18 @@ pub(crate) fn expand_default_args(program: &mut Program) {
                     let names = extract_names(&f.parameters);
                     let defaults: Vec<Option<Box<Expr>>> =
                         f.parameters.iter().map(|p| p.default.clone()).collect();
+                    // (cross-runtime closures) Guarda os defaults LITERAIS p/ o
+                    // runtime aplicar em chamadas indiretas.
+                    let lits: Vec<Option<f64>> = f
+                        .parameters
+                        .iter()
+                        .map(|p| p.default.as_deref().and_then(default_lit_value))
+                        .collect();
+                    if lits.iter().any(|v| v.is_some()) {
+                        FN_DEFAULT_LITS.with(|c| {
+                            c.borrow_mut().insert(f.name.clone(), lits);
+                        });
+                    }
                     fn_defaults.insert(f.name.clone(), (names, defaults));
                 }
             }

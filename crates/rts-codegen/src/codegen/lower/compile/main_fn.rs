@@ -166,6 +166,38 @@ pub(crate) fn compile_main(
                 };
                 let rk_v = fn_ctx.builder.ins().iconst(cl::I32, rk as i64);
                 fn_ctx.builder.ins().call(reg_fn, &[addr, kp, kl, rk_v]);
+
+                // (cross-runtime closures) Registra defaults LITERAIS (já no
+                // encoding do kind) p/ aplicar em chamadas indiretas (`fn(...a)`
+                // de trampoline/curry omite args com default). Marker i64::MIN
+                // = sem default. So' literais numéricos/bool (default complexo
+                // fica i64::MIN → pad-0 como antes).
+                if let Some(lits) =
+                    crate::codegen::lower::passes::args::default_args::fn_default_lits(name)
+                {
+                    let mut blob: Vec<u8> = Vec::with_capacity(pks.len() * 8);
+                    for i in 0..pks.len() {
+                        let enc: i64 = match lits.get(i).and_then(|o| *o) {
+                            Some(v) => {
+                                if pks[i] == 1 {
+                                    f64::to_bits(v) as i64
+                                } else {
+                                    v as i64
+                                }
+                            }
+                            None => i64::MIN, // NO_DEFAULT
+                        };
+                        blob.extend_from_slice(&enc.to_le_bytes());
+                    }
+                    let reg_def_fn = fn_ctx.get_extern(
+                        "__RTS_FN_RT_REGISTER_FN_DEFAULTS",
+                        &[cl::I64, cl::I64, cl::I64],
+                        None,
+                    )?;
+                    let (dp, _dbytes) = fn_ctx.emit_str_literal(&blob)?;
+                    let dlen = fn_ctx.builder.ins().iconst(cl::I64, pks.len() as i64);
+                    fn_ctx.builder.ins().call(reg_def_fn, &[addr, dp, dlen]);
+                }
             }
         }
 

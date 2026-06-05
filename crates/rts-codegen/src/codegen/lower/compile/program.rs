@@ -379,6 +379,13 @@ pub fn compile_program(
         let mangled: String = format!("__user_{}", fn_decl.name);
         extern_cache.insert(mangled.clone(), info.id);
         user_fns.insert(fn_decl.name.clone(), info);
+        // (cross-runtime closures) Registra defaults literais de TODAS as fns
+        // finais (incl. liftadas), p/ main_fn registrá-los no runtime e aplicar
+        // em chamadas indiretas. Cobre `trampoline(function f(n,acc=1){...})`.
+        crate::codegen::lower::passes::args::default_args::record_fn_default_lits(
+            &fn_decl.name,
+            &fn_decl.parameters,
+        );
     }
 
     // (cross-runtime #799) Pre-coleta has_this_param do AST: fn declarada

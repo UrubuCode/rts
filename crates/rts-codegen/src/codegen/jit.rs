@@ -621,6 +621,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_RT_INVOKE_AUTO_TYPED", __RTS_FN_RT_INVOKE_AUTO_TYPED);
     add_fn!("__RTS_FN_RT_INVOKE_AUTO_AS_F64", __RTS_FN_RT_INVOKE_AUTO_AS_F64);
     add_fn!("__RTS_FN_RT_REGISTER_FN_KINDS", __RTS_FN_RT_REGISTER_FN_KINDS);
+    add_fn!("__RTS_FN_RT_REGISTER_FN_DEFAULTS", __RTS_FN_RT_REGISTER_FN_DEFAULTS);
     add_fn!("__RTS_FN_RT_INSTANCEOF_PROTO", __RTS_FN_RT_INSTANCEOF_PROTO);
     {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TPL_COERCE_AUTO;

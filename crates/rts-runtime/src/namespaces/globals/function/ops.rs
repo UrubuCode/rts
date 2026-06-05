@@ -566,6 +566,12 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
 
     let mut all_args = bound_args;
     all_args.extend(read_args_vec(args_handle));
+    // (cross-runtime closures) Preenche args faltantes com os defaults da fn
+    // antes de empacotar variadic — `fn(...args)` (indireto) que omite um param
+    // com default (`acc = 1`) recebia 0. So' p/ não-variadic (param_kinds fixo).
+    if read_rest_param_idx(handle) < 0 && !param_kinds.is_empty() {
+        pad_with_defaults(&mut all_args, fn_ptr, param_kinds.len());
+    }
     // (#195) Variadic: empacota `all_args[rest_idx..]` num array ANTES de
     // tratar `this`/dispatch (lambdas liftadas variadic sao is_arrow → sem
     // insercao de this, entao rest_idx mapeia direto sobre all_args).
@@ -819,6 +825,62 @@ pub extern "C" fn __RTS_FN_RT_REGISTER_FN_KINDS(
         .write()
         .unwrap_or_else(|e| e.into_inner());
     reg.insert(fn_ptr, (kinds, return_kind as u8));
+}
+
+/// (cross-runtime closures) Registry `fn_ptr -> default values` (já no encoding
+/// do param: bits-f64 p/ number, raw p/ i64/bool). Sentinela `i64::MIN` = sem
+/// default. Permite aplicar defaults de params quando a fn é chamada
+/// INDIRETAMENTE (`fn(...args)` via handle/INVOKE_AUTO) com menos args — o
+/// preenchimento padrão é 0, que ignora `acc = 1` (trampoline/curry → acc=0).
+const NO_DEFAULT: i64 = i64::MIN;
+static FN_DEFAULTS_REGISTRY: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>>,
+> = std::sync::OnceLock::new();
+
+fn fn_defaults_registry(
+) -> &'static std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>> {
+    FN_DEFAULTS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+/// Registra os defaults (já encodados) de uma user fn pelo endereço.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_REGISTER_FN_DEFAULTS(
+    fn_ptr: u64,
+    defaults_ptr: i64,
+    defaults_len: i64,
+) {
+    if fn_ptr == 0 || defaults_ptr == 0 || defaults_len <= 0 {
+        return;
+    }
+    let defs: Vec<i64> = unsafe {
+        std::slice::from_raw_parts(defaults_ptr as *const i64, defaults_len as usize)
+    }
+    .to_vec();
+    let mut reg = fn_defaults_registry()
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
+    reg.insert(fn_ptr, defs);
+}
+
+/// Preenche `args` até `arity` usando os defaults registrados de `fn_ptr`
+/// (ou 0 quando não há default). No-op se já tem args suficientes.
+fn pad_with_defaults(args: &mut Vec<i64>, fn_ptr: u64, arity: usize) {
+    if args.len() >= arity {
+        return;
+    }
+    let defs = {
+        let reg = fn_defaults_registry().read().unwrap_or_else(|e| e.into_inner());
+        reg.get(&fn_ptr).cloned()
+    };
+    while args.len() < arity {
+        let i = args.len();
+        let v = defs
+            .as_ref()
+            .and_then(|d| d.get(i).copied())
+            .filter(|&v| v != NO_DEFAULT)
+            .unwrap_or(0);
+        args.push(v);
+    }
 }
 
 /// Lookup da ABI registrada de um `fn_ptr` cru. `None` quando não registrado.
@@ -1111,13 +1173,11 @@ fn invoke_auto_impl(
         all_args.extend(read_args_vec(args_handle));
         // (#195) Variadic: empacota o tail num array handle antes do pad/dispatch.
         pack_variadic_tail(&mut all_args, read_rest_param_idx(callee as u64));
-        // (engine multi-thread passivo) Preenche args faltantes com 0
-        // ate atender o numero de param_kinds. Caso: setTimeout(resolveFn, ms)
-        // chama com 0 args, mas resolveFn tem param_kinds=[0,0] (promise_h
-        // + value). Sem preencher, o trampolim lê lixo do stack como value.
-        while all_args.len() < param_kinds.len() {
-            all_args.push(0);
-        }
+        // (cross-runtime closures) Preenche args faltantes com os DEFAULTS
+        // registrados da fn (ou 0 quando não há) até atender param_kinds. Antes
+        // era sempre 0, ignorando `acc = 1` em call indireto (`fn(...args)` de
+        // trampoline/curry → acc=0). pad_with_defaults usa o registry por fn_ptr.
+        pad_with_defaults(&mut all_args, fn_ptr, param_kinds.len());
         let pushed_this = if !is_arrow && has_this_param {
             let effective = if has_bound_this { bound_this } else { this_arg };
             all_args.insert(0, effective);
