@@ -285,21 +285,32 @@ session. Concrete state:
   `gc/generator.rs`): real suspend/resume, but only for a subset of control
   flow.
 
-**Tested this session (component by component on 368):**
-- `[...g()]` finite spread → **works**;
-- `it.return(99)` → **works**;
-- `while(true) yield` + `.next()` (naturals/take) → **fails**: SM bails because
-  params with defaults (`function* naturals(start = 1)`) are `Pat::Assign`, which
-  `generator_sm::try_build` rejects (`_ => return None`) → falls to eager →
-  infinite buffer → abort;
-- `try { const v = yield ... } catch` (`.throw`) → **fails**: SM rejects
-  try-with-yield + value-passing → "unsupported expression: yield".
+**SM lazy-path progress (campaign #211/#477):**
+- `[...g()]` finite spread → **works**; `it.return(99)` → **works**.
+- ✅ `while(true) yield n++` (mutated local in yield value) — was `1,1,1`,
+  now `1,2,3` (commit 06b37d98: compute yield value before `store_all_locals`,
+  so the side effect lands in the frame).
+- ✅ default params (`function* naturals(start = 1)`) — accepted in the SM, the
+  default is preserved on the ctor signature for `expand_default_args`
+  (d8eac3fe); infinite-with-default no longer OOMs in the eager buffer.
+- ✅ lazy `yield*` delegation (d49eb9f5): `yield* gen/array/string` re-yields one
+  value at a time via runtime `__RTS_GEN_DELEGATE_{START,NEXT,DONE}` (iterator
+  state keyed by handle, survives suspend). `outer(){ yield 1; yield* inner();
+  yield* [..]; yield* "abc" }` → correct. SM now also **bails to eager** on a
+  verbatim `if` containing `return` (was emitting a bare `return;` that fails the
+  i64 state-fn verifier).
 
-**Why it can't be incremental.** Bounded SM fixes exist (default params;
-bare-`return` in a verbatim `if` causes the "terminator before end of block"
-verifier error in `__gen_state_zip`; value-passing) — but **no single one
-flips a fixture**, because each fixture combines several SM gaps **and** crosses
-into other epics:
+**Still failing — remaining SM gaps:**
+- `g.next()` on a generator-typed **param/local** (take/zip) → SIGILL: `.next()`
+  only routes to `GENERATOR_NEXT` for statically-known `generator_vars`, not
+  params. `GENERATOR_NEXT` already dispatches GenState-vs-Vec at runtime, so the
+  fix is gating param `.next()` by `Iterator`/`Generator` annotation.
+- value-passing `const v = yield X` then `g.next(42)` → v should be 42 — eager
+  drops it (v=undefined) and the SM bails; needs a "sent" frame slot.
+- `.throw(e)` running an enclosing `try/catch` (safeGen).
+
+**Why it's still not incremental.** Each remaining fixture combines several SM
+gaps **and** crosses into other epics:
 - `Symbol.iterator`/`Symbol.asyncIterator` on arrays/objects → **#216 / #222**
   (Symbol-as-computed-key, real Map/Set iterator);
 - async generators + `for await` → **#207** (real async event loop), which the
