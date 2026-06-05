@@ -3675,7 +3675,7 @@ pub(crate) fn emit_lifted_arrow_handle_with_captures(
 
     let reify_fn = ctx.get_extern(
         "__RTS_FN_GL_FUNCTION_REIFY_CAPTURED",
-        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32, cl::I64, cl::I64, cl::I64, cl::I32],
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32, cl::I64, cl::I64, cl::I64, cl::I32, cl::I32],
         Some(cl::I64),
     )?;
     let (kinds_ptr, kinds_len) = if has_nonzero_kind && !pks_bytes.is_empty() {
@@ -3694,9 +3694,17 @@ pub(crate) fn emit_lifted_arrow_handle_with_captures(
         .builder
         .ins()
         .iconst(cl::I32, if has_nonzero_kind { rk_byte as i64 } else { 0 });
+    // (#195) rest_param_idx: indice do `...rest` (after capturas prepended) ou
+    // -1. expand_rest_args ja' calculou sobre os params finais.
+    let rest_idx_v = {
+        let ri = crate::codegen::lower::passes::args::rest_args::fn_rest_idx(name)
+            .map(|i| i as i64)
+            .unwrap_or(-1);
+        ctx.builder.ins().iconst(cl::I32, ri)
+    };
     let inst = ctx.builder.ins().call(
         reify_fn,
-        &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v, bound_h, kinds_ptr, kinds_len, return_kind_v],
+        &[fn_addr, arity_v, n_ptr, n_len, is_arrow_v, has_this_v, bound_h, kinds_ptr, kinds_len, return_kind_v, rest_idx_v],
     );
     let handle = ctx.builder.inst_results(inst)[0];
     ctx.declare_gc_handle(handle);

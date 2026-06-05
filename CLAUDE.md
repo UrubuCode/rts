@@ -28,6 +28,9 @@ This is the first and most important rule. It governs all others.
 - **MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)**
 - **MANDATORY RULE: FOLLOW `../ROADMAP-CORRECAO.md`** (topological order for
   cross-runtime bug fixes; detailed in `.claude/rules/00-meta.md`)
+- **CROSS-RUNTIME PUSH MODE (parity ≥ 90%)** — while active, the process
+  constraints above are suspended to push parity to 100%; the honesty + build
+  floor never lift
 
 Keep this list in sync with the sections below.
 
@@ -77,6 +80,42 @@ piling up until the suite becomes a lie (green tests, broken uncovered paths).
 The discipline here is not "never break a test" — it is "never break a test
 without knowing and saying so". Explicit, justified regression is fine;
 invisible regression rots the project.
+
+## CROSS-RUNTIME PUSH MODE (parity ≥ 90%) — process constraints suspended
+
+**Active when** cross-runtime parity ≥ 90% (currently 94.3%, badge in
+`README.md`). The goal flips to reaching **100%**, and the *process* constraints
+below are SUSPENDED so change can land at any cost — except the honesty + build
+floor, which never lifts. When parity drops back below 90%, this mode
+deactivates and the suspended rules resume automatically.
+
+### Suspended while active
+- **Roadmap topological order** (`FOLLOW ../ROADMAP-CORRECAO.md`) — pick any
+  fixture / feature / epic in any order.
+- **Ask-before-regression** — regressions may land without per-change
+  confirmation. Still *logged* in the commit/PR body; net parity across a work
+  session must not drop.
+- **Small-PR scope** — large multi-crate refactors and the deferred epics
+  (#195 mutable closures, #207 async event loop, #216/#222 Symbol, #218 Proxy,
+  #219 BigInt, #223 dynamic import) are now in scope.
+- **Ceremony** — progress-bar / read-everything ritual is optional.
+
+### Never suspended (honesty + build floor)
+- **The parity number stays real.** No deleting, disabling, skipping,
+  hardcoding, or input-special-casing a fixture to inflate parity. A fixture
+  counts as passing only when the runtime genuinely produces the correct output
+  through the same code path any other input would take.
+- **No crashing / hanging code committed as "pass".** ACCESS_VIOLATION /
+  Cranelift verifier error / stack overflow / infinite loop on a fixture means
+  it did **not** pass.
+- **Build must compile.** A broken build still blocks merge.
+
+### Rationale
+Per `MAINTENANCE.md`, the remaining fixtures need full feature completion, not
+bounded patches — a half-feature crashes rather than producing a wrong-but-closer
+output, so there is no "regress X to pass Y" trade to police. The process
+ceremony slows that work without guarding the only real risk (faking the
+metric); the honesty floor guards that directly.
 
 ## Project
 

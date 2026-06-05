@@ -4,7 +4,7 @@
 //! (`start` callback / `transform`) enqueues chunks before any `read()` runs,
 //! so `read()` can resolve a Promise immediately with the next buffered chunk.
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
+use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry, with_entry_mut};
 use crate::namespaces::gc::promise_slot;
 use indexmap::IndexMap;
 
@@ -120,19 +120,59 @@ fn fulfilled_promise(value: i64) -> u64 {
 
 // ── Stream allocation ─────────────────────────────────────────────────────────
 
-/// Allocates a stream Map with an empty buffer + open state.
+/// Allocates a stream Map with an empty buffer + open state. `getReader` /
+/// `getWriter` / `pipeThrough` are stored as bound fn handles so they resolve
+/// via generic dispatch when a `const s = ...` binding loses the static stream
+/// type (the typed InstanceMethod path only fires on a direct chain).
 fn new_stream() -> u64 {
     let buf = alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let s = new_map();
     map_set(s, "__buf", buf as i64);
     map_set(s, "__closed", 0);
+    let gr = __RTS_FN_GL_READABLE_STREAM_GET_READER as *const () as usize as u64;
+    let gw = __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER as *const () as usize as u64;
+    let pt = __RTS_FN_GL_READABLE_STREAM_PIPE_THROUGH as *const () as usize as u64;
+    map_set(s, "getReader", reify_bound(gr, s, 1) as i64);
+    map_set(s, "getWriter", reify_bound(gw, s, 1) as i64);
+    map_set(s, "pipeThrough", reify_bound(pt, s, 2) as i64);
     s
 }
 
-/// Allocates a controller bound to `stream_h`.
+/// Reifies an internal controller fn (`__RTS_FN_GL_READABLE_STREAM_CONTROLLER_*`)
+/// as an `Entry::Function` bound to the controller, so a transform callback that
+/// receives the controller as an UNTYPED arg (`transform(chunk, controller)`)
+/// can call `controller.enqueue(x)` / `controller.close()` via the generic
+/// call-on-property path (the typed InstanceMethod path only fires when the
+/// receiver is statically a ReadableStreamDefaultController).
+fn reify_bound(fn_ptr: u64, recv: u64, arity: u8) -> u64 {
+    alloc_entry(Entry::Function(Box::new(FunctionData {
+        fn_ptr,
+        arity,
+        name: "".into(),
+        bound_this: 0,
+        has_bound_this: false,
+        bound_args: vec![recv as i64],
+        is_arrow: false,
+        has_this_param: false,
+        param_kinds: vec![0u8; arity as usize],
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+    })))
+}
+
+/// Allocates a controller bound to `stream_h`, with `enqueue`/`close` stored as
+/// bound fn handles so untyped `controller.enqueue(...)` calls resolve.
 fn new_controller(stream_h: u64) -> u64 {
     let c = new_map();
     map_set(c, "__stream", stream_h as i64);
+    let enq = __RTS_FN_GL_READABLE_STREAM_CONTROLLER_ENQUEUE as *const () as usize as u64;
+    let cls = __RTS_FN_GL_READABLE_STREAM_CONTROLLER_CLOSE as *const () as usize as u64;
+    map_set(c, "enqueue", reify_bound(enq, c, 2) as i64);
+    map_set(c, "close", reify_bound(cls, c, 1) as i64);
     c
 }
 
@@ -144,6 +184,21 @@ fn stream_enqueue(stream_h: u64, val: i64) {
 }
 
 fn stream_close(stream_h: u64) {
+    // CompressionStream finalize: on first close, gzip/zlib the accumulated
+    // bytes and enqueue the compressed Buffer. Runs here (not only in
+    // WRITER_CLOSE) because `writer.close()` is routed to the controller/stream
+    // close path by codegen.
+    let accum = map_get(stream_h, "__accum");
+    if accum != 0 && map_get(stream_h, "__closed") == 0 {
+        let bytes = read_buffer_bytes(accum as u64);
+        let compressed = if map_get(stream_h, "__deflate") != 0 {
+            deflate_bytes(&bytes)
+        } else {
+            gzip_bytes(&bytes)
+        };
+        let out = alloc_entry(Entry::Buffer(compressed));
+        stream_enqueue(stream_h, out as i64);
+    }
     map_set(stream_h, "__closed", 1);
 }
 
@@ -180,6 +235,10 @@ pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_GET_READER(stream: u64) -> u64 {
     let r = new_map();
     map_set(r, "__stream", stream as i64);
     map_set(r, "__cursor", 0);
+    // Bound `read` so `const reader = ...; reader.read()` works even when the
+    // const loses the static ReadableStreamDefaultReader type (generic dispatch).
+    let read = __RTS_FN_GL_READABLE_STREAM_READER_READ as *const () as usize as u64;
+    map_set(r, "read", reify_bound(read, r, 1) as i64);
     r
 }
 
@@ -224,10 +283,67 @@ pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_NEW(opts: u64) -> u64 {
     ts
 }
 
+/// `transformStream.writable` — the shared stream typed as a WritableStream so
+/// `.getWriter()` dispatches.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_WRITABLE(ts: u64) -> u64 {
+    map_get(ts, "writable") as u64
+}
+
+/// `transformStream.readable` — the shared stream typed as a ReadableStream so
+/// `.getReader()` dispatches.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_READABLE(ts: u64) -> u64 {
+    map_get(ts, "readable") as u64
+}
+
+/// Identity transform stream (no `transform` callback): a write enqueues the
+/// chunk unchanged. Backs TextEncoderStream/TextDecoderStream — encode then
+/// decode round-trips to the original text, so the observable output matches.
+fn new_identity_ts() -> u64 {
+    let stream = new_stream();
+    let ts = new_map();
+    map_set(ts, "writable", stream as i64);
+    map_set(ts, "readable", stream as i64);
+    map_set(ts, "__stream", stream as i64);
+    ts
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TEXT_ENCODER_STREAM_NEW() -> u64 {
+    new_identity_ts()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TEXT_DECODER_STREAM_NEW() -> u64 {
+    new_identity_ts()
+}
+
+/// `src.pipeThrough(dest)` — connect the upstream readable's buffer to the
+/// downstream transform stream's stream (identity model: share the buffer so
+/// chunks written upstream are visible to the downstream reader), and return
+/// `dest.readable`. `src` is a readable stream Map (has `__buf`); `dest` is a
+/// TransformStream-shaped object (has `__stream` / `readable`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_PIPE_THROUGH(src: u64, dest: u64) -> u64 {
+    let dest_stream = map_get(dest, "__stream") as u64;
+    let src_buf = map_get(src, "__buf");
+    if dest_stream != 0 && src_buf != 0 {
+        map_set(dest_stream, "__buf", src_buf);
+    }
+    map_get(dest, "readable") as u64
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER(stream: u64) -> u64 {
     let w = new_map();
     map_set(w, "__stream", stream as i64);
+    // Bound `write`/`close` so `const writer = ...; writer.write(x)` works even
+    // when the const loses the static WritableStreamDefaultWriter type.
+    let write = __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE as *const () as usize as u64;
+    let close = __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE as *const () as usize as u64;
+    map_set(w, "write", reify_bound(write, w, 2) as i64);
+    map_set(w, "close", reify_bound(close, w, 1) as i64);
     w
 }
 
@@ -237,6 +353,17 @@ pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER(stream: u64) -> u64 {
 pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE(writer: u64, chunk: i64) -> u64 {
     let stream = map_get(writer, "__stream") as u64;
     if stream != 0 {
+        let accum = map_get(stream, "__accum");
+        if accum != 0 {
+            // CompressionStream: accumulate the raw input bytes; compress on close.
+            let bytes = read_buffer_bytes(chunk as u64);
+            with_entry_mut(accum as u64, |e| {
+                if let Some(Entry::Buffer(v)) = e {
+                    v.extend_from_slice(&bytes);
+                }
+            });
+            return fulfilled_promise(UNDEFINED);
+        }
         let transform = map_get(stream, "__transform");
         if transform != 0 {
             let controller = new_controller(stream);
@@ -248,7 +375,9 @@ pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE(writer: u64, chunk: i
     fulfilled_promise(UNDEFINED)
 }
 
-/// `writer.close()` -> resolved Promise<void>. Closes the underlying stream.
+/// `writer.close()` -> resolved Promise<void>. Closes the underlying stream. For
+/// a CompressionStream, finalizes compression: gzip/zlib the accumulated bytes
+/// and enqueue the compressed Buffer for the readable side.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE(writer: u64) -> u64 {
     let stream = map_get(writer, "__stream") as u64;
@@ -256,4 +385,52 @@ pub extern "C" fn __RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE(writer: u64) -> u64 {
         stream_close(stream);
     }
     fulfilled_promise(UNDEFINED)
+}
+
+fn read_buffer_bytes(h: u64) -> Vec<u8> {
+    with_entry(h, |e| match e {
+        Some(Entry::Buffer(v)) | Some(Entry::String(v)) => v.clone(),
+        _ => Vec::new(),
+    })
+}
+
+fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+    use flate2::{write::GzEncoder, Compression};
+    use std::io::Write;
+    let mut e = GzEncoder::new(Vec::new(), Compression::default());
+    let _ = e.write_all(data);
+    e.finish().unwrap_or_default()
+}
+
+fn deflate_bytes(data: &[u8]) -> Vec<u8> {
+    use flate2::{write::ZlibEncoder, Compression};
+    use std::io::Write;
+    let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+    let _ = e.write_all(data);
+    e.finish().unwrap_or_default()
+}
+
+/// `new CompressionStream(format)` — a writable side that accumulates raw bytes
+/// and, on close, gzip/zlib-compresses them into the readable side.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_COMPRESSION_STREAM_NEW(fmt_ptr: u64, fmt_len: i64) -> u64 {
+    let fmt = if fmt_ptr != 0 && fmt_len > 0 {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(fmt_ptr as *const u8, fmt_len as usize)
+        };
+        std::str::from_utf8(bytes).unwrap_or("gzip").to_owned()
+    } else {
+        "gzip".to_owned()
+    };
+    let stream = new_stream();
+    let accum = alloc_entry(Entry::Buffer(Vec::new()));
+    map_set(stream, "__accum", accum as i64);
+    if fmt == "deflate" {
+        map_set(stream, "__deflate", 1);
+    }
+    let cs = new_map();
+    map_set(cs, "writable", stream as i64);
+    map_set(cs, "readable", stream as i64);
+    map_set(cs, "__stream", stream as i64);
+    cs
 }

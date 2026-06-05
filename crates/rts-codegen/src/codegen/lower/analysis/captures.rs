@@ -85,6 +85,23 @@ pub(crate) fn collect_captures_in_body(
     captured
 }
 
+/// (cross-runtime #195) Free vars de um corpo SWC cru: idents usados que
+/// pertencem a `enclosing` e nao a `shadowed` (params/locais proprios da
+/// lambda). Reaproveita o mesmo scanner de `collect_captures_in_body`, mas
+/// sobre o corpo da PROPRIA lambda (nao varrendo por arrows aninhados — estes
+/// sao re-liftados em fixed-point pelo proprio `hoist_fn`).
+pub(crate) fn free_vars_in_swc_stmts(
+    stmts: &[Stmt],
+    enclosing: &std::collections::HashSet<String>,
+    shadowed: &std::collections::HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for s in stmts {
+        collect_idents_used_in_stmt(s, enclosing, shadowed, &mut out);
+    }
+    out
+}
+
 fn scan_stmt_for_arrows(
     stmt: &Stmt,
     locals: &std::collections::HashSet<String>,
@@ -389,6 +406,28 @@ fn collect_idents_used_in_expr(
                     })]
                 }
             };
+            for s in &stmts {
+                collect_decls_in_stmt(s, &mut nested_shadowed);
+            }
+            for s in &stmts {
+                collect_idents_used_in_stmt(s, enclosing, &nested_shadowed, captured);
+            }
+        }
+        // (cross-runtime #195) fn-expressions aninhadas tambem capturam: o
+        // free var pode ser usado so' dentro de um `function(){...}` interno.
+        Expr::Fn(fn_expr) => {
+            let mut nested_shadowed = shadowed.clone();
+            for p in &fn_expr.function.params {
+                if let Pat::Ident(id) = &p.pat {
+                    nested_shadowed.insert(id.id.sym.to_string());
+                }
+            }
+            let stmts: Vec<Stmt> = fn_expr
+                .function
+                .body
+                .as_ref()
+                .map(|b| b.stmts.clone())
+                .unwrap_or_default();
             for s in &stmts {
                 collect_decls_in_stmt(s, &mut nested_shadowed);
             }

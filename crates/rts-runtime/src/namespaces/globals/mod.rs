@@ -22,6 +22,7 @@ pub mod headers;
 pub mod intl;
 pub mod json;
 pub mod json5;
+pub mod message_channel;
 pub mod performance;
 pub mod proxy;
 pub mod readable_stream;

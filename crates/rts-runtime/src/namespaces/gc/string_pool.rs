@@ -530,6 +530,8 @@ pub extern "C" fn __RTS_FN_RT_UNIVERSAL_LENGTH(handle: u64) -> i64 {
         Some(Entry::Vec(slots)) => slots.len() as i64,
         Some(Entry::Map(map)) => map.len() as i64,
         Some(Entry::String(b)) => b.len() as i64,
+        // (cross-runtime #88) Uint8Array / Buffer `.length` = byte count.
+        Some(Entry::Buffer(b)) => b.len() as i64,
         Some(Entry::Json(v)) => match v.as_ref() {
             serde_json::Value::Array(a) => a.len() as i64,
             serde_json::Value::Object(o) => o.len() as i64,

@@ -10,6 +10,22 @@ use swc_ecma_ast::{Callee, Expr, Stmt};
 
 use crate::parser::ast::{ClassMember, Item, Program, Statement};
 
+thread_local! {
+    /// (cross-runtime #195) Publica `fn_name -> indice do rest param` calculado
+    /// por `expand_rest_args` (sobre os params FINAIS, ja' com capturas
+    /// prepended pelos lifters). O codegen le isso ao reificar uma lambda
+    /// liftada variadic como handle, pra gravar `rest_param_idx` no FunctionData
+    /// — o invoke entao empacota o tail num array. Cobre this_arrow E hoist_fn
+    /// uniformemente (ambos produzem Item::Function antes deste pass).
+    static FN_REST_IDX: std::cell::RefCell<std::collections::HashMap<String, usize>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// (cross-runtime #195) Indice do rest param de uma fn (None = nao-variadic).
+pub(crate) fn fn_rest_idx(name: &str) -> Option<usize> {
+    FN_REST_IDX.with(|c| c.borrow().get(name).copied())
+}
+
 pub(crate) fn expand_rest_args(program: &mut Program) {
     use std::collections::HashMap;
 
@@ -37,6 +53,11 @@ pub(crate) fn expand_rest_args(program: &mut Program) {
             _ => {}
         }
     }
+
+    // (#195) Publica os indices de rest pro codegen reificar lambdas liftadas
+    // variadic com `rest_param_idx` setado (mesmo as sem args variadic no
+    // callsite — o invoke via handle precisa empacotar o tail).
+    FN_REST_IDX.with(|c| *c.borrow_mut() = fn_rest.clone());
 
     if fn_rest.is_empty() && method_rest.is_empty() {
         return;
