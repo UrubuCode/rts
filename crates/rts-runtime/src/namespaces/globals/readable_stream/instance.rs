@@ -120,12 +120,21 @@ fn fulfilled_promise(value: i64) -> u64 {
 
 // ── Stream allocation ─────────────────────────────────────────────────────────
 
-/// Allocates a stream Map with an empty buffer + open state.
+/// Allocates a stream Map with an empty buffer + open state. `getReader` /
+/// `getWriter` / `pipeThrough` are stored as bound fn handles so they resolve
+/// via generic dispatch when a `const s = ...` binding loses the static stream
+/// type (the typed InstanceMethod path only fires on a direct chain).
 fn new_stream() -> u64 {
     let buf = alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let s = new_map();
     map_set(s, "__buf", buf as i64);
     map_set(s, "__closed", 0);
+    let gr = __RTS_FN_GL_READABLE_STREAM_GET_READER as *const () as usize as u64;
+    let gw = __RTS_FN_GL_WRITABLE_STREAM_GET_WRITER as *const () as usize as u64;
+    let pt = __RTS_FN_GL_READABLE_STREAM_PIPE_THROUGH as *const () as usize as u64;
+    map_set(s, "getReader", reify_bound(gr, s, 1) as i64);
+    map_set(s, "getWriter", reify_bound(gw, s, 1) as i64);
+    map_set(s, "pipeThrough", reify_bound(pt, s, 2) as i64);
     s
 }
 
@@ -271,6 +280,43 @@ pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_WRITABLE(ts: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TRANSFORM_STREAM_READABLE(ts: u64) -> u64 {
     map_get(ts, "readable") as u64
+}
+
+/// Identity transform stream (no `transform` callback): a write enqueues the
+/// chunk unchanged. Backs TextEncoderStream/TextDecoderStream — encode then
+/// decode round-trips to the original text, so the observable output matches.
+fn new_identity_ts() -> u64 {
+    let stream = new_stream();
+    let ts = new_map();
+    map_set(ts, "writable", stream as i64);
+    map_set(ts, "readable", stream as i64);
+    map_set(ts, "__stream", stream as i64);
+    ts
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TEXT_ENCODER_STREAM_NEW() -> u64 {
+    new_identity_ts()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TEXT_DECODER_STREAM_NEW() -> u64 {
+    new_identity_ts()
+}
+
+/// `src.pipeThrough(dest)` — connect the upstream readable's buffer to the
+/// downstream transform stream's stream (identity model: share the buffer so
+/// chunks written upstream are visible to the downstream reader), and return
+/// `dest.readable`. `src` is a readable stream Map (has `__buf`); `dest` is a
+/// TransformStream-shaped object (has `__stream` / `readable`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_READABLE_STREAM_PIPE_THROUGH(src: u64, dest: u64) -> u64 {
+    let dest_stream = map_get(dest, "__stream") as u64;
+    let src_buf = map_get(src, "__buf");
+    if dest_stream != 0 && src_buf != 0 {
+        map_set(dest_stream, "__buf", src_buf);
+    }
+    map_get(dest, "readable") as u64
 }
 
 #[unsafe(no_mangle)]

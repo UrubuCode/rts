@@ -65,7 +65,65 @@ pub const READABLE_STREAM_MEMBERS: &[NamespaceMember] = &[
         AbiType::Handle,
         "getReader(): ReadableStreamDefaultReader",
     ),
+    method(
+        "pipeThrough",
+        "__RTS_FN_GL_READABLE_STREAM_PIPE_THROUGH",
+        &[AbiType::Handle, AbiType::Handle],
+        AbiType::Handle,
+        "pipeThrough(t: { writable: WritableStream; readable: ReadableStream }): ReadableStream",
+    ),
 ];
+
+// ── TextEncoderStream / TextDecoderStream ───────────────────────────────────────
+// Modeled as identity passthrough streams (encode-then-decode round-trips to the
+// original text). `.writable`/`.readable` reuse the TransformStream side getters
+// (same Map shape). pipeThrough shares the upstream buffer downstream.
+
+pub const TEXT_ENCODER_STREAM_MEMBERS: &[NamespaceMember] = &[
+    ctor(
+        "__RTS_FN_GL_TEXT_ENCODER_STREAM_NEW",
+        "new TextEncoderStream(): TextEncoderStream",
+    ),
+    getter(
+        "writable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+        "readonly writable: WritableStream",
+    ),
+    getter(
+        "readable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+        "readonly readable: ReadableStream",
+    ),
+];
+
+pub const TEXT_ENCODER_STREAM_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "TextEncoderStream",
+    doc: "TextEncoderStream (identity passthrough model).",
+    members: TEXT_ENCODER_STREAM_MEMBERS,
+};
+
+pub const TEXT_DECODER_STREAM_MEMBERS: &[NamespaceMember] = &[
+    ctor(
+        "__RTS_FN_GL_TEXT_DECODER_STREAM_NEW",
+        "new TextDecoderStream(): TextDecoderStream",
+    ),
+    getter(
+        "writable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+        "readonly writable: WritableStream",
+    ),
+    getter(
+        "readable",
+        "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+        "readonly readable: ReadableStream",
+    ),
+];
+
+pub const TEXT_DECODER_STREAM_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
+    name: "TextDecoderStream",
+    doc: "TextDecoderStream (identity passthrough model).",
+    members: TEXT_DECODER_STREAM_MEMBERS,
+};
 
 pub const READABLE_STREAM_CLASS_SPEC: GlobalClassSpec = GlobalClassSpec {
     name: "ReadableStream",
