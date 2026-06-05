@@ -675,3 +675,129 @@ pub extern "C" fn __RTS_FN_GL_ITERATOR_TO_ARRAY(it_handle: u64) -> u64 {
     };
     alloc_entry(Entry::Vec(Box::new(rest)))
 }
+
+// ── yield* lazy delegation (#477/#211) ───────────────────────────────────────
+// `yield* SRC` na state-machine: em vez de materializar SRC inteiro (eager,
+// estoura em delegado infinito), iteramos SRC um valor por vez e RE-YIELDAMOS
+// cada um, suspendendo entre eles. O estado do iterador delegado vive
+// runtime-side (keyed pelo handle): para um GenState eh o proprio `.done`; para
+// um Vec eh o cursor em GEN_CURSORS. So' o HANDLE entra no frame do generator
+// externo, entao a delegacao sobrevive a suspensao/retomada do externo.
+
+thread_local! {
+    /// Done-flag do ultimo DELEGATE_NEXT por handle de iterador delegado.
+    static DELEGATE_DONE: RefCell<HashMap<u64, bool>> = RefCell::new(HashMap::new());
+}
+
+fn set_delegate_done(h: u64, d: bool) {
+    DELEGATE_DONE.with(|c| {
+        c.borrow_mut().insert(h, d);
+    });
+}
+
+/// `__RTS_GEN_DELEGATE_START(src)` — normaliza a fonte de um `yield*` num handle
+/// de iterador. Generator (GenState) -> ele mesmo (ja' eh iterador). Array (Vec)
+/// -> uma copia com cursor (ITERATOR_FROM). String -> Vec de chars (1 handle por
+/// caractere). Outro -> passthrough (assume iterador).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_START(src: i64) -> i64 {
+    let h = src as u64;
+    let kind = with_entry(h, |e| match e {
+        Some(Entry::GenState(_)) => 1u8,
+        Some(Entry::Vec(_)) => 2,
+        Some(Entry::String(_)) => 3,
+        _ => 0,
+    });
+    match kind {
+        1 => src, // generator: ja' eh iterador
+        2 => __RTS_FN_GL_ITERATOR_FROM(h) as i64,
+        3 => {
+            // String iteravel: cada char vira um handle de String de 1 char.
+            let s: String = with_entry(h, |e| match e {
+                Some(Entry::String(bytes)) => String::from_utf8_lossy(bytes).into_owned(),
+                _ => String::new(),
+            });
+            let chars: Vec<i64> = s
+                .chars()
+                .map(|c| alloc_entry(Entry::String(c.to_string().into_bytes())) as i64)
+                .collect();
+            let vh = alloc_entry(Entry::Vec(Box::new(chars)));
+            GEN_CURSORS.with(|c| {
+                c.borrow_mut().insert(vh, 0);
+            });
+            vh as i64
+        }
+        _ => src,
+    }
+}
+
+/// `__RTS_GEN_DELEGATE_NEXT(it)` — avanca o iterador delegado um passo. Devolve o
+/// valor produzido (ou UNDEFINED se esgotou); o flag done fica acessivel via
+/// `__RTS_GEN_DELEGATE_DONE(it)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_NEXT(it: i64) -> i64 {
+    let h = it as u64;
+    let kind = with_entry(h, |e| match e {
+        Some(Entry::GenState(_)) => 1u8,
+        Some(Entry::Vec(_)) => 2,
+        _ => 0,
+    });
+    match kind {
+        1 => {
+            let (fn_ptr, done0) = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => (g.fn_ptr, g.done),
+                _ => (0u64, true),
+            });
+            if fn_ptr == 0 || done0 {
+                set_delegate_done(h, true);
+                return UNDEFINED;
+            }
+            let state_fn: extern "C" fn(u64) -> i64 =
+                unsafe { std::mem::transmute(fn_ptr as usize) };
+            let v = state_fn(h);
+            let done = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => g.done,
+                _ => true,
+            });
+            set_delegate_done(h, done);
+            if done { UNDEFINED } else { v }
+        }
+        2 => {
+            let len = with_entry(h, |e| match e {
+                Some(Entry::Vec(v)) => v.len(),
+                _ => 0,
+            });
+            let cursor = GEN_CURSORS.with(|c| *c.borrow_mut().entry(h).or_insert(0));
+            if cursor < len {
+                let val = with_entry(h, |e| match e {
+                    Some(Entry::Vec(v)) => v.get(cursor).copied().unwrap_or(UNDEFINED),
+                    _ => UNDEFINED,
+                });
+                GEN_CURSORS.with(|c| {
+                    if let Some(cur) = c.borrow_mut().get_mut(&h) {
+                        *cur += 1;
+                    }
+                });
+                set_delegate_done(h, false);
+                val
+            } else {
+                set_delegate_done(h, true);
+                UNDEFINED
+            }
+        }
+        _ => {
+            set_delegate_done(h, true);
+            UNDEFINED
+        }
+    }
+}
+
+/// `__RTS_GEN_DELEGATE_DONE(it)` — 1 se o ultimo NEXT esgotou o delegado, senao
+/// 0. Inteiro puro (nao sentinela de bool) para ser usado direto como condicao
+/// truthy no `if` da state-machine.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_DONE(it: i64) -> i64 {
+    let h = it as u64;
+    let done = DELEGATE_DONE.with(|c| c.borrow().get(&h).copied().unwrap_or(false));
+    if done { 1 } else { 0 }
+}

@@ -4326,6 +4326,10 @@ fn gen_sm_sentinel(
         ("__RTS_GEN_SM_DONE", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_DONE", Some(cl::I64))),
         ("__RTS_GEN_SM_ENTER_TRY", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", None)),
         ("__RTS_GEN_SM_END_FINALLY", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", Some(cl::I64))),
+        // (#477/#211) yield* lazy delegation: itera a fonte 1 valor por vez.
+        ("__RTS_GEN_DELEGATE_START", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_START", Some(cl::I64))),
+        ("__RTS_GEN_DELEGATE_NEXT", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", Some(cl::I64))),
+        ("__RTS_GEN_DELEGATE_DONE", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", Some(cl::I64))),
         // (#207 async-SM) Sentinelas da state-machine de async functions.
         ("__RTS_ASYNC_SM_NEW", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_NEW", Some(cl::I64))),
         ("__RTS_ASYNC_SM_START", 1) => Some(("__RTS_FN_NS_GC_ASYNC_SM_START", Some(cl::I64))),

@@ -238,11 +238,13 @@ struct SmBuilder {
     /// (#207) True quando construindo a SM de uma `async function` (await=
     /// suspensao); muda os terminais (SUSPEND/RESOLVE em vez de YIELD/DONE).
     is_async: bool,
+    /// Contador de temporarios sinteticos unicos (yield* delegation).
+    tmp_counter: usize,
 }
 
 impl SmBuilder {
     fn new() -> Self {
-        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false }
+        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false, tmp_counter: 0 }
     }
 
     fn intern_local(&mut self, name: &str) -> usize {
@@ -302,7 +304,45 @@ impl SmBuilder {
             Stmt::Expr(es) => {
                 if let Expr::Yield(y) = es.expr.as_ref() {
                     if y.delegate {
-                        return None; // yield* => inelegivel nesta fatia
+                        // `yield* SRC;` (posicao de statement). Delegacao lazy:
+                        // normaliza SRC num iterador e re-yielda cada valor,
+                        // suspendendo entre eles. O estado do iterador delegado
+                        // vive runtime-side (keyed pelo handle), entao so' o
+                        // handle precisa entrar no frame.
+                        let src = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
+                        let uid = self.tmp_counter;
+                        self.tmp_counter += 1;
+                        let dlg = format!("__dlg_{}", uid);
+                        let dval = format!("__dlv_{}", uid);
+                        self.intern_local(&dlg);
+                        self.intern_local(&dval);
+                        // cur: __dlg = DELEGATE_START(src)
+                        self.push_stmt(
+                            cur,
+                            assign_stmt(&dlg, call("__RTS_GEN_DELEGATE_START", vec![src])),
+                        );
+                        let header = self.new_state();
+                        self.set_goto(cur, header);
+                        let body = self.new_state();
+                        let after = self.new_state();
+                        // header: __dlv = DELEGATE_NEXT(__dlg);
+                        //         if (DELEGATE_DONE(__dlg)) goto after else goto body
+                        self.push_stmt(
+                            header,
+                            assign_stmt(
+                                &dval,
+                                call("__RTS_GEN_DELEGATE_NEXT", vec![ident_expr(&dlg)]),
+                            ),
+                        );
+                        self.set_cond(
+                            header,
+                            call("__RTS_GEN_DELEGATE_DONE", vec![ident_expr(&dlg)]),
+                            after,
+                            body,
+                        );
+                        // body: yield __dlv; volta ao header
+                        self.set_yield(body, ident_expr(&dval), header);
+                        return Some(after);
                     }
                     let value = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
                     let next = self.new_state();
@@ -468,6 +508,16 @@ impl SmBuilder {
                     || expr_has_yield(&i.test)
                 {
                     return None; // if com yield => inelegivel nesta fatia
+                }
+                // Um `return` dentro do if (mesmo sem yield) NAO pode ir verbatim:
+                // o `return;`/`return X;` cru nao casa com a assinatura i64 da fn
+                // de estado (verifier error). Sem um lowering proprio do
+                // if-com-return, bail para o eager-buffer — nunca emitir IR
+                // invalido.
+                if stmt_has_return(&i.cons)
+                    || i.alt.as_deref().map(stmt_has_return).unwrap_or(false)
+                {
+                    return None;
                 }
                 self.push_stmt(cur, stmt.clone());
                 Some(cur)
@@ -703,7 +753,48 @@ fn body_needs_lazy(stmts: &[Stmt]) -> bool {
     stmts.iter().any(stmt_needs_lazy)
 }
 
+/// True se o stmt contem um `yield*` (delegate) em qualquer profundidade. A
+/// delegacao pode apontar para uma fonte lazy/infinita, entao exige a SM (o
+/// eager-buffer materializaria a fonte inteira).
+fn stmt_has_yield_star(s: &Stmt) -> bool {
+    fn expr_has_ys(e: &Expr) -> bool {
+        match e {
+            Expr::Yield(y) => y.delegate || y.arg.as_deref().map(expr_has_ys).unwrap_or(false),
+            Expr::Assign(a) => expr_has_ys(&a.right),
+            Expr::Bin(b) => expr_has_ys(&b.left) || expr_has_ys(&b.right),
+            Expr::Unary(u) => expr_has_ys(&u.arg),
+            Expr::Paren(p) => expr_has_ys(&p.expr),
+            Expr::Cond(c) => expr_has_ys(&c.test) || expr_has_ys(&c.cons) || expr_has_ys(&c.alt),
+            Expr::Seq(s) => s.exprs.iter().any(|x| expr_has_ys(x)),
+            Expr::Call(c) => c.args.iter().any(|a| expr_has_ys(&a.expr)),
+            _ => false,
+        }
+    }
+    match s {
+        Stmt::Expr(e) => expr_has_ys(&e.expr),
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_yield_star),
+        Stmt::If(i) => {
+            stmt_has_yield_star(&i.cons)
+                || i.alt.as_deref().map(stmt_has_yield_star).unwrap_or(false)
+        }
+        Stmt::While(w) => stmt_has_yield_star(&w.body),
+        Stmt::DoWhile(d) => stmt_has_yield_star(&d.body),
+        Stmt::For(f) => stmt_has_yield_star(&f.body),
+        Stmt::ForOf(fo) => stmt_has_yield_star(&fo.body),
+        Stmt::ForIn(fi) => stmt_has_yield_star(&fi.body),
+        Stmt::Decl(Decl::Var(vd)) => vd
+            .decls
+            .iter()
+            .any(|d| d.init.as_deref().map(expr_has_ys).unwrap_or(false)),
+        _ => false,
+    }
+}
+
 fn stmt_needs_lazy(s: &Stmt) -> bool {
+    // `yield*` (delegate) sempre exige SM (fonte potencialmente lazy/infinita).
+    if stmt_has_yield_star(s) {
+        return true;
+    }
     match s {
         Stmt::While(w) => stmt_has_yield(&w.body),
         Stmt::DoWhile(d) => stmt_has_yield(&d.body),
@@ -721,6 +812,31 @@ fn stmt_needs_lazy(s: &Stmt) -> bool {
             stmt_needs_lazy(&i.cons)
                 || i.alt.as_deref().map(stmt_needs_lazy).unwrap_or(false)
         }
+        _ => false,
+    }
+}
+
+/// True se o stmt contem um `return` em qualquer profundidade (sem descer em
+/// fns/arrows aninhadas, que tem seu proprio return).
+fn stmt_has_return(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(_) => true,
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_return),
+        Stmt::If(i) => {
+            stmt_has_return(&i.cons) || i.alt.as_deref().map(stmt_has_return).unwrap_or(false)
+        }
+        Stmt::While(w) => stmt_has_return(&w.body),
+        Stmt::DoWhile(d) => stmt_has_return(&d.body),
+        Stmt::For(f) => stmt_has_return(&f.body),
+        Stmt::ForOf(fo) => stmt_has_return(&fo.body),
+        Stmt::ForIn(fi) => stmt_has_return(&fi.body),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().any(stmt_has_return)
+                || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_return)).unwrap_or(false)
+                || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_return)).unwrap_or(false)
+        }
+        Stmt::Labeled(l) => stmt_has_return(&l.body),
+        Stmt::Switch(sw) => sw.cases.iter().any(|c| c.cons.iter().any(stmt_has_return)),
         _ => false,
     }
 }
