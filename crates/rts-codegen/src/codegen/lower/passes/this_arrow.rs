@@ -799,6 +799,13 @@ impl LiftAcc {
             if by_value.contains(var) {
                 continue;
             }
+            // (#195) Pula vars que o box_captures ja' transformou em celula — a
+            // celula e' o env-record; promover a global colidiria (a decl
+            // `let v = __cell_new(..)` viraria `v = ..` e o hoist_fn deixaria de
+            // captura-la por valor).
+            if super::box_captures::is_boxed(var) {
+                continue;
+            }
             let global = format!("__cb_local_{}_{}", sanitize_for_symbol(&f.name), var);
             self.new_globals.push(global.clone());
             if param_names.contains(var) {

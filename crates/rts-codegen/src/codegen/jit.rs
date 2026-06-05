@@ -232,6 +232,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         __RTS_FN_NS_GC_STRING_FROM_F64
     );
     add_fn!("__RTS_FN_NS_GC_STRING_CONCAT", __RTS_FN_NS_GC_STRING_CONCAT);
+    // (#195 mutable closures) heap cells for captured-mutated locals.
+    add_fn!("__RTS_FN_RT_CELL_NEW", __RTS_FN_RT_CELL_NEW);
+    add_fn!("__RTS_FN_RT_CELL_GET", __RTS_FN_RT_CELL_GET);
+    add_fn!("__RTS_FN_RT_CELL_SET", __RTS_FN_RT_CELL_SET);
     add_fn!(
         "__RTS_FN_NS_GC_STRING_FROM_STATIC",
         __RTS_FN_NS_GC_STRING_FROM_STATIC

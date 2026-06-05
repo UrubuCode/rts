@@ -134,7 +134,34 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         // Quando aparecem em posição de valor (não call), reificamos como
         // Function handle com is_arrow=1 para que INVOKE_AUTO não faça
         // THIS_PUSH — arrow não tem own this.
-        if name.starts_with("__hoisted_arrow_") || name.starts_with("__lifted_arrow_") {
+        // (#195) Lifted fn-EXPR (`function(){...}` retornado, p/ closures
+        // mutaveis via celula) que captura free vars: reifica com bound_args.
+        // SEM captura cai no caminho normal (raw fn addr) — NAO no fallback de
+        // `this` dos arrows (que reificava com bound_this errado, quebrando
+        // metodos de objeto liftados como next() de iteradores custom).
+        if name.starts_with("__hoisted_fn_") {
+            if let Some(captures) =
+                crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(name)
+            {
+                let cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> = captures
+                    .iter()
+                    .filter_map(|c| {
+                        if c == "__captured_this" {
+                            ctx.read_local("this")
+                        } else {
+                            ctx.read_local(c)
+                        }
+                    })
+                    .collect();
+                if cap_vals.len() == captures.len() {
+                    return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &cap_vals);
+                }
+            }
+            return emit_user_fn_addr(ctx, name);
+        }
+        if name.starts_with("__hoisted_arrow_")
+            || name.starts_with("__lifted_arrow_")
+        {
             // (#195) Arrow que captura variaveis livres por valor: reifica via
             // REIFY_CAPTURED passando os valores das capturas como bound_args.
             // Isso da captura-por-ativacao correta (curry/recursao), ao

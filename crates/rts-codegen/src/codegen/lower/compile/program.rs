@@ -60,6 +60,10 @@ pub fn compile_program(
     clear_mir_cache_for_program();
 
     expand_static_fields(program);
+    // (#195 mutable closures) Caixa (boxing) de locais capturados-E-mutados em
+    // celulas heap ANTES de qualquer lift de arrow — assim a closure captura o
+    // HANDLE da celula por valor e as escritas sao compartilhadas (env-record).
+    crate::codegen::lower::passes::box_captures::box_mutable_captures(program);
     // (#374) `new Map(arr.map(...))` -> extrai o call p/ var temporaria ANTES
     // do lift de array methods, p/ que o .map seja liftado como statement
     // normal e o Map popule via MAP_FROM_ENTRIES (caminho via-var, que funciona).

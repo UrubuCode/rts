@@ -173,6 +173,42 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // generator_desugar no `return`. Registra o ret_value (devolvido pelo
         // `.next()` ao esgotar) e retorna o Vec `buf`.
         if let Expr::Ident(id) = callee.as_ref() {
+            // (#195 mutable closures) cell intrinsics emitted by the
+            // box_mutable_captures pass. A captured-AND-mutated local lives in a
+            // heap cell; reads/writes go through these so capturers share state.
+            match id.sym.as_str() {
+                "__cell_new" if call.args.len() == 1 => {
+                    use cranelift_codegen::ir::types as cl;
+                    let init_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let init = ctx.coerce_to_i64(init_tv).val;
+                    let f = ctx.get_extern("__RTS_FN_RT_CELL_NEW", &[cl::I64], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(f, &[init]);
+                    let h = ctx.builder.inst_results(inst)[0];
+                    ctx.declare_gc_handle(h);
+                    return Ok(TypedVal::new(h, ValTy::Handle));
+                }
+                "__cell_get" if call.args.len() == 1 => {
+                    use cranelift_codegen::ir::types as cl;
+                    let cell_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let cell = ctx.coerce_to_i64(cell_tv).val;
+                    let f = ctx.get_extern("__RTS_FN_RT_CELL_GET", &[cl::I64], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(f, &[cell]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::I64));
+                }
+                "__cell_set" if call.args.len() == 2 => {
+                    use cranelift_codegen::ir::types as cl;
+                    let cell_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let cell = ctx.coerce_to_i64(cell_tv).val;
+                    let val_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let val = ctx.coerce_to_i64(val_tv).val;
+                    let f = ctx.get_extern("__RTS_FN_RT_CELL_SET", &[cl::I64, cl::I64], None)?;
+                    ctx.builder.ins().call(f, &[cell, val]);
+                    // Assignment expression evaluates to the assigned value.
+                    return Ok(TypedVal::new(val, ValTy::I64));
+                }
+                _ => {}
+            }
             if id.sym.as_str() == "__RTS_GEN_FINISH" && call.args.len() == 2 {
                 use cranelift_codegen::ir::types as cl;
                 let buf_tv = lower_expr(ctx, &call.args[0].expr)?;

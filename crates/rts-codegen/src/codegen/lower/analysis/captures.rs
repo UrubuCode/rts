@@ -85,6 +85,18 @@ pub(crate) fn collect_captures_in_body(
     captured
 }
 
+/// (#195 mutable closures) Idents pertencentes a `locals` que aparecem dentro
+/// de arrows/fn-exprs ANINHADAS num `Stmt` — i.e. capturados por uma closure
+/// interna. Usado pelo `box_captures` para decidir o que precisa virar celula.
+pub(crate) fn free_vars_of_nested_closures(
+    stmt: &Stmt,
+    locals: &std::collections::HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    scan_stmt_for_arrows(stmt, locals, &mut out);
+    out
+}
+
 /// (cross-runtime #195) Free vars de um corpo SWC cru: idents usados que
 /// pertencem a `enclosing` e nao a `shadowed` (params/locais proprios da
 /// lambda). Reaproveita o mesmo scanner de `collect_captures_in_body`, mas
