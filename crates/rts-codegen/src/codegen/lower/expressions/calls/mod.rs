@@ -2841,6 +2841,34 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // callee como expressao, depois faz indirect call via FUNCTION_APPLY.
         if let Expr::Member(m) = callee.as_ref() {
             if let MemberProp::Computed(c) = &m.prop {
+                // (#211/#222) `arr[Symbol.iterator]()` — emite ARRAY_VALUES_ITER
+                // direto com `this=arr`. Sem isto cai no indirect call via
+                // FUNCTION_APPLY, que NAO liga `this`, e ARRAY_VALUES_ITER roda
+                // com this=0 -> ITERATOR_FROM(0) -> iterator vazio (zip/iterator
+                // protocol rendia 0 elementos).
+                let key_is_symbol_iterator = matches!(
+                    c.expr.as_ref(),
+                    Expr::Member(sm)
+                        if matches!(
+                            (sm.obj.as_ref(), &sm.prop),
+                            (Expr::Ident(o), MemberProp::Ident(p))
+                                if o.sym.as_str() == "Symbol" && p.sym.as_str() == "iterator"
+                        )
+                );
+                if key_is_symbol_iterator && call.args.is_empty() {
+                    use cranelift_codegen::ir::types as cl;
+                    let recv_tv = lower_expr(ctx, &m.obj)?;
+                    let recv = ctx.coerce_to_i64(recv_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_GL_ARRAY_VALUES_ITER",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[recv]);
+                    let h = ctx.builder.inst_results(inst)[0];
+                    ctx.declare_gc_handle(h);
+                    return Ok(TypedVal::new(h, ValTy::Handle));
+                }
                 // (cross-runtime #1052) `arr[<methodName>](args)` quando a key
                 // resolve estaticamente para string method name (push/slice/etc):
                 // reescreve como `arr.<method>(args)` em compile time para
