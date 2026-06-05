@@ -4072,8 +4072,25 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     // o frame atual sera substituido, sem retorno ao caller pra fazer
     // pop. (Antes Daniel emitia push aqui, fazendo loopTco(500000)
     // overflow desnecessariamente.)
-    if ctx.is_tail_conv && ctx.in_tail_position {
-        let ty = abi.ret.unwrap_or(ValTy::I64);
+    // (cross-runtime #348) `return_call` exige que a assinatura de RETORNO do
+    // callee bata com a do caller (mesma repr Cranelift) — senao o verifier
+    // rejeita ("result 0 has type f64, must match i64"). Acontece quando um
+    // forwarder `(...a) => fn(...a)` (caller inferido i64) chama em tail uma
+    // fn variadic cujo retorno virou f64 (elementos do rest array). Quando
+    // divergem, cai no call normal abaixo + coercao no `return` do caller.
+    let cl_ret_class = |t: ValTy| -> u8 {
+        match t {
+            ValTy::F64 => 2,
+            ValTy::I32 => 1,
+            _ => 0,
+        }
+    };
+    let callee_ret = abi.ret.unwrap_or(ValTy::I64);
+    let caller_ret = ctx.return_ty.unwrap_or(ValTy::I64);
+    if ctx.is_tail_conv && ctx.in_tail_position
+        && cl_ret_class(callee_ret) == cl_ret_class(caller_ret)
+    {
+        let ty = callee_ret;
         ctx.builder.ins().return_call(fref, &values);
         let cont = ctx.builder.create_block();
         ctx.builder.switch_to_block(cont);
