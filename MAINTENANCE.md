@@ -15,11 +15,16 @@
 >   invoke packs the tail. Also fixed (this pass): arrows passed to direct fn
 >   calls (`fn((v)=>{ result=v })`) now capture their free vars — runCPS-style
 >   closures work; advanced 386 from crash to running.
-> - **386_trampoline remaining**: produces wrong output because `typeof result
->   === "function"` is false for a returned arrow — an arrow returned from a fn
->   (`return n<=1 ? 99 : ()=>42`) is a raw func_addr (typeof → "number"), so the
->   trampoline never bounces. Needs returned/stored arrows to be typeof-able as
->   functions (first-class-fn-value-as-handle — a representation change).
+> - **386_trampoline → 8/11 lines correct** (was a crash). factorial/fib/sum/
+>   curry all right now, via: (a) default params applied on indirect calls (a
+>   fn_ptr→default-values registry; the trampoline's `fn(...args)` omits the
+>   `acc=1` arg and was padding 0); (b) the call-arg-arrow capture fix. The
+>   last 3 lines (the CPS section) print booleans as `1/0` instead of
+>   `true/false`: a bool loses its tag crossing a fn boundary (`id(true)`→"1"),
+>   because params/returns are i64 and `true`=1. Tagging bools as sentinels
+>   through boundaries was TRIED and REVERTED — it breaks 83 TS tests (sentinels
+>   aren't decoded in every context, and `bool===1` comparisons break). Needs a
+>   real bool-type-tracking refactor, not a sentinel hack.
 >
 > **Flipped (2026-06-05, closures foundation cont.) — 96.0% → 96.2%:**
 > - `361_functional_compose` — pipe/compose/partial/curry/transduce. Root fix:
