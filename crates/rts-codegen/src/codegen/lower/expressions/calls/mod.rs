@@ -3379,7 +3379,7 @@ fn lower_js_global_call(
 /// usuario (nao var local, nao fn sintetica hoistada/liftada)? So' essas tem
 /// kinds confiaveis p/ reificacao; function expressions anonimas hoistadas
 /// seguem o caminho antigo (func_addr) que ja' funcionava.
-fn arg_is_bare_user_fn(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> bool {
+pub(in crate::codegen::lower::expressions) fn arg_is_bare_user_fn(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> bool {
     if let swc_ecma_ast::Expr::Ident(id) = expr {
         let name = id.sym.as_str();
         if name.starts_with("__hoisted_")
@@ -3393,7 +3393,7 @@ fn arg_is_bare_user_fn(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> bool {
     false
 }
 
-fn lower_callable_target_h(
+pub(in crate::codegen::lower::expressions) fn lower_callable_target_h(
     ctx: &mut FnCtx,
     expr: &swc_ecma_ast::Expr,
 ) -> Result<cranelift_codegen::ir::Value> {

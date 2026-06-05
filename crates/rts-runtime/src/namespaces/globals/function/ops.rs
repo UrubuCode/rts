@@ -194,6 +194,36 @@ fn f64_to_i64(v: f64) -> i64 {
     v.to_bits() as i64
 }
 
+/// (cross-runtime closures — function-value calling convention) Normaliza args
+/// `number` para a convenção do `invoke_typed`: um param f64 (`param_kinds[i]==1`)
+/// espera os BITS de um f64. Args que entram via INVOKE_AUTO/FUNCTION_CALL a
+/// partir de arrays/literais/captura (ex.: `fns.reduce((v,f)=>f(v), x)`, ou
+/// `(...a)=>fn(...a)`) podem chegar como INTEIRO CRU (um elemento de `[1,2,3]`
+/// é o i64 `1`, não `f64::to_bits(1.0)`). Sem isto o `invoke_typed` faz
+/// `from_bits(1)` ≈ 0 e a função recebe lixo (`partial(add,10)(1,2)` → 3).
+///
+/// Heurística que NÃO toca o caminho que já funciona: reinterpretar o i64 como
+/// bits-f64 de um número "normal" dá um valor finito numa faixa sã; um inteiro
+/// cru pequeno (1, 2, 42, …) reinterpreta para denormal/≈0 (fora da faixa). Só
+/// reencoda quando o valor NÃO parece bits-f64 válidos — então args já
+/// codificados como bits (grandes) passam intactos. Aplica-se apenas a `pk==1`,
+/// logo handles/inteiros i64 (`pk==0`) nunca são alterados.
+fn normalize_f64_bits_args(args: &mut [i64], param_kinds: &[u8]) {
+    for (i, a) in args.iter_mut().enumerate() {
+        if param_kinds.get(i).copied().unwrap_or(0) != 1 {
+            continue;
+        }
+        let as_bits = f64::from_bits(*a as u64);
+        let looks_like_f64_bits = as_bits == 0.0
+            || (as_bits.is_finite() && as_bits.abs() >= 1e-200 && as_bits.abs() < 1e200);
+        if !looks_like_f64_bits {
+            // Parece inteiro cru → reencoda como bits f64 (o valor que o
+            // invoke_typed vai `from_bits` de volta).
+            *a = f64::to_bits(*a as f64) as i64;
+        }
+    }
+}
+
 fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bool, Vec<u8>, u8)> {
     with_entry(handle, |entry| {
         if let Some(Entry::Function(data)) = entry {
@@ -554,8 +584,10 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
 
     // Args ja' vem encoded corretamente do codegen (numbers como f64 bits
     // via bitcast). Reflect.apply faz conversao int->f64 antes de chamar
-    // FUNCTION_CALL.
-    let typed_args = all_args.clone();
+    // FUNCTION_CALL. (cross-runtime closures) Mas args vindos de array/captura/
+    // spread podem chegar como inteiro cru — reencoda p/ bits nos params f64.
+    let mut typed_args = all_args.clone();
+    normalize_f64_bits_args(&mut typed_args, &param_kinds);
     // (cross-runtime #799) Variadic fold: callee binario f64 (ex:
     // `Math.max(a,b)`) chamado via `Reflect.apply(Math.max, null, [...n])`
     // com N > 2 args — RTS nao tem variadic na ABI, mas Math.max/min sao
@@ -1022,6 +1054,9 @@ fn invoke_auto_impl(
             Some(ov) if return_kind == 0 => ov,
             _ => return_kind,
         };
+        // (cross-runtime closures) Reencoda args number-cru → bits f64 quando o
+        // param é f64 (caminho INVOKE_AUTO/captura/spread que empacota i64 cru).
+        normalize_f64_bits_args(&mut all_args, &param_kinds);
         // (#1281 packed) Despacha pelo shim quando presente (aridade arbitraria).
         let packed_shim = read_packed_shim(callee as u64);
         let r = if packed_shim != 0 {

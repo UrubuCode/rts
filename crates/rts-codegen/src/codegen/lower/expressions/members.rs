@@ -76,6 +76,17 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     ctx.builder.ins().call(push_fn, &[handle, s]);
                     continue;
                 }
+                // (cross-runtime closures) Elemento que e' ident de user fn
+                // nomeada (`[double, square]`, ou rest `[...fns]` de pipe/
+                // compose) reifica como handle Function COM param_kinds — nao
+                // como func_addr cru. Sem isto `fns[i](x)` cai no fallback raw
+                // do INVOKE_AUTO (sem param_kinds → args number nao normalizam,
+                // f64-param le from_bits de inteiro cru ≈ 0).
+                if super::calls::arg_is_bare_user_fn(ctx, &e.expr) {
+                    let hv = super::calls::lower_callable_target_h(ctx, &e.expr)?;
+                    ctx.builder.ins().call(push_fn, &[handle, hv]);
+                    continue;
+                }
                 // (#1275) Literal float fracionario armazena bits f64 (helper
                 // centralizado). F64 inteiro-valued/int seguem i64 — sem isso
                 // `[i*10]` quebraria destructuring que le i64 cru.
