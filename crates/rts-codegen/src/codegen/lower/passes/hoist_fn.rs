@@ -479,6 +479,19 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                         }
                     }
                 }
+                // (#211/#273/#344) Generator fn-EXPRESSION (incl. async-generator
+                // object methods `async *[key](){...}` e fn-exprs passadas como
+                // arg/IIFE): aplica o mesmo desugar eager (`__gen_buf`) das
+                // declarations top-level. Sem isto o `yield` cru chega ao codegen
+                // ("unsupported expression: yield in __hoisted_fn_N").
+                if func.is_generator {
+                    let blk = swc_ecma_ast::BlockStmt {
+                        span: func.body.as_ref().map(|b| b.span).unwrap_or_default(),
+                        ctxt: Default::default(),
+                        stmts: body,
+                    };
+                    body = crate::parser::generator_desugar::desugar_generator_body(&blk).stmts;
+                }
                 build_fn_decl(&name, &func.params, body)
             }
             Expr::Arrow(arrow) => {
