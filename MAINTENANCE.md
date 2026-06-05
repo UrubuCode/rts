@@ -33,22 +33,24 @@
 >   on write, compress in `stream_close`; UNIVERSAL_LENGTH now handles Buffer.
 >
 > **Remaining 15 — all deferred large epics, NOT bounded flips:**
-> - closures (5): `348 360 361 386 365` — the #195 env-record now exists, but the
->   functional-composition cluster (pipe/compose/partial/curry/trampoline) is
->   blocked by a **function-value calling-convention representation mismatch**,
->   not a single bug. Diagnosed 2026-06-05: `fn(...args)` through an indirect/
->   captured callee packs the spread elements into the args Vec as raw i64
->   (array-literal/rest-packing encoding), but `invoke_typed` reads number params
->   via `f64::from_bits` per the callee's `param_kinds`, so the values arrive as
->   denormal≈0 (`partial(add,10)(1,2)` → 3 not 13). The working direct path
->   (`add(...a)`) only succeeds because `lower_callable_target_h` reifies a handle
->   carrying `param_kinds`; a captured/stored fn value is a raw addr with none.
->   Fixing it means one consistent number-encoding across array literals, rest
->   packing, spread-extend and invoke_typed — a calling-convention refactor. Each
->   fixture then needs more on top (348 memoize-Map closure + curry, 386
->   trampoline returned-closure recursion, 360 sibling fn-DECL closures sharing a
->   boxed var, 365 async). Landed groundwork: capture-by-value, arrow this-
->   capture, callee-param→i64, variadic rest_param_idx, return_call repr guard.
+> - closures (5): `348 360 361 386 365` — the #195 env-record exists and a large
+>   slice of the fn-value calling convention now works (2026-06-05): `partial`,
+>   `pipe(double,addOne)(3)`, arrays of fns, reduce over captured/unknown-type
+>   arrays, and `out(sq(val))`-style nested tail calls all produce correct output.
+>   `361_functional_compose` went from SIGILL to **7/8 lines correct**. The last
+>   line (a transducer) and the remaining fixtures are blocked by the **dynamic
+>   number-representation seam**: a captured/`any`-typed fn that returns a
+>   `number` returns f64-BITS tagged as ambiguous i64; downstream it is decoded
+>   correctly in some contexts (direct `return t`, string templates) but not
+>   others (`return t + 1`, passing `t` to another number-param fn), because the
+>   codegen can't know a captured callee's return_kind at the use site. Closing it
+>   means a consistent number encoding across array literals, rest packing,
+>   spread-extend, invoke_typed args AND return values — the representation
+>   refactor. Each fixture then needs more on top (348 memoize-Map closure +
+>   curry, 386 trampoline returned-closure recursion, 360 sibling fn-DECL closures
+>   sharing a boxed var, 365 async). Landed groundwork this pass: arg
+>   normalize_f64_bits, array-of-fns as handles, reduce_bound for unknown arrays,
+>   return_call repr+conv guards, capture-by-value, arrow this-capture.
 > - generators (5): `344 368 379 392 273` — lazy-SM completion + #207 real async
 >   event loop (async generators / `for await`).
 > - symbol (2): `271 378` — #216 Symbol-as-computed-key + Array subclassing.
