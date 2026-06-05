@@ -1500,8 +1500,8 @@ impl LiftAcc {
                 let is_direct = matches!(&call.callee, Callee::Expr(ce) if matches!(ce.as_ref(), Expr::Ident(_)));
                 if is_direct {
                     for arg in call.args.iter_mut() {
-                        let (own_params, prologue, body_stmts, has_return_value):
-                            (Vec<Parameter>, Vec<Stmt>, Vec<Statement>, bool) = match arg.expr.as_ref() {
+                        let (own_params, prologue, body_stmts, has_return_value, captures):
+                            (Vec<Parameter>, Vec<Stmt>, Vec<Statement>, bool, Vec<String>) = match arg.expr.as_ref() {
                             Expr::Arrow(arrow) => {
                                 // (cross-runtime #1125) Expression-body arrows
                                 // (`() => expr`) returnam o expr — manter
@@ -1509,21 +1509,35 @@ impl LiftAcc {
                                 // valor de volta. Block-body arrows com
                                 // returns explicitos sao tratados como void
                                 // (compat com UI callbacks pre-existentes).
-                                let has_ret = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_));
+                                let has_ret = matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::Expr(_))
+                                    || matches!(arrow.body.as_ref(), swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) if block_stmts_return_value(&b.stmts));
                                 // (#354 cluster A) Preserva os params PROPRIOS da
                                 // arrow (`(a,b) => a+b` passada a user fn que a
-                                // invoca). Antes `parameters: Vec::new()` descartava
-                                // a/b -> "undefined variable a". NAO mexe em captura
-                                // (so' params proprios + prologo de destructuring).
+                                // invoca).
                                 let syn = format!("__lifted_arrow_{}", self.counter);
                                 let (params, prol) = Self::arrow_params_to_parameters(arrow, &syn);
+                                // (cross-runtime closures) Captura free vars do
+                                // escopo (ex: célula de box_captures) — antes era
+                                // descartado, então `fn((v)=>{ result=v })` virava
+                                // "undefined variable result" (runCPS/trampoline).
+                                let caps: Vec<String> = {
+                                    let mut set = std::collections::BTreeSet::new();
+                                    collect_captured_from_arrow(arrow, &self.scope_vars, &mut set);
+                                    set.into_iter()
+                                        .filter(|n| {
+                                            !self.user_fn_names.contains(n)
+                                                && !n.starts_with("__cb_")
+                                                && !n.starts_with("__rts_")
+                                        })
+                                        .collect()
+                                };
                                 let stmts = arrow_body_to_stmts(arrow)
                                     .into_iter()
                                     .map(|s| Statement::Raw(
                                         RawStmt::new("<lifted>".to_string(), Span::default()).with_stmt(s),
                                     ))
                                     .collect();
-                                (params, prol, stmts, has_ret)
+                                (params, prol, stmts, has_ret, caps)
                             }
                             _ => continue,
                         };
@@ -1543,9 +1557,33 @@ impl LiftAcc {
                         } else {
                             Some("void".to_string())
                         };
+                        // (cross-runtime closures) Prepend as capturas como params
+                        // INICIAIS e registra p/ o reify (REIFY_CAPTURED passa os
+                        // valores como bound_args). Sem captura: params = só os
+                        // próprios (byte-idêntico ao de antes).
+                        let mut parameters: Vec<Parameter> =
+                            Vec::with_capacity(captures.len() + own_params.len());
+                        for cap in &captures {
+                            parameters.push(Parameter {
+                                name: cap.clone(),
+                                type_annotation: self
+                                    .scope_var_types
+                                    .get(cap)
+                                    .cloned()
+                                    .flatten(),
+                                modifiers: MemberModifiers::default(),
+                                variadic: false,
+                                default: None,
+                                span: Span::default(),
+                            });
+                        }
+                        parameters.extend(own_params);
+                        if !captures.is_empty() {
+                            self.lifted_captures.insert(syn_name.clone(), captures.clone());
+                        }
                         self.new_fns.push(Item::Function(FunctionDecl {
                             name: syn_name.clone(),
-                            parameters: own_params,
+                            parameters,
                             return_type: ret_ty,
                             body: body_stmts,
                             span: Span::default(),
