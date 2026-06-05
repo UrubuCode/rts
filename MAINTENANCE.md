@@ -300,14 +300,18 @@ session. Concrete state:
   verbatim `if` containing `return` (was emitting a bare `return;` that fails the
   i64 state-fn verifier).
 
-**Still failing — remaining SM gaps:**
-- `g.next()` on a generator-typed **param/local** (take/zip) → SIGILL: `.next()`
-  only routes to `GENERATOR_NEXT` for statically-known `generator_vars`, not
-  params. `GENERATOR_NEXT` already dispatches GenState-vs-Vec at runtime, so the
-  fix is gating param `.next()` by `Iterator`/`Generator` annotation.
-- value-passing `const v = yield X` then `g.next(42)` → v should be 42 — eager
-  drops it (v=undefined) and the SM bails; needs a "sent" frame slot.
-- `.throw(e)` running an enclosing `try/catch` (safeGen).
+- ✅ `g.next()` on a generator/iterator-typed **param** (take/zip) — routes to
+  `GENERATOR_NEXT` (runtime GenState/Vec dispatch) when the param is annotated
+  `Iterator<…>`/`Generator<…>` (a734cc6f). `take(nats(), 5)` over an infinite
+  lazy generator → `1,2,3,4,5`. 368 now passes naturals/take/zip/flatten.
+
+**Still failing — remaining SM gaps (no longer crashing immediately):**
+- 368 blocks at `safeGen`: needs **value-passing** (`const v = yield X` then
+  `g.next(42)` → v=42; eager drops it, SM bails) **and** `try/catch`-with-yield
+  **and** `.throw(e)` running the enclosing catch. Three interacting features.
+- 379 blocks at `__hoisted_fn_0`: an **async generator expression**
+  (`(async function*(){ yield 4 })()`) — needs #207 (async generators +
+  `for await`).
 
 **Why it's still not incremental.** Each remaining fixture combines several SM
 gaps **and** crosses into other epics:
