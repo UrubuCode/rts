@@ -1,9 +1,22 @@
 # MAINTENANCE.md — Path to 100% cross-runtime parity
 
-> Status: **95.7% (356/372)** cross-runtime parity.
-> 16 fixtures remain. This document explains, fixture by fixture, **what each
+> Status: **96.0% (357/372)** cross-runtime parity.
+> 15 fixtures remain. This document explains, fixture by fixture, **what each
 > needs**, **where the code lives**, and **why none can be closed incrementally
 > without violating the project's own engineering rules.**
+>
+> **Flipped (2026-06-05, closures foundation) — 95.7% → 96.0%:**
+> - `41_closures_deep` — needed the closure stack to land together:
+>   (1) mutable-closure boxing (#195 env-record): captured-AND-mutated locals
+>   move to a heap cell (`__cell_new/get/set`); the cell handle is captured by
+>   value so sibling closures share one cell (`makeCounter` counters work);
+>   (2) arrow lexical `this`-capture in object methods: a returned arrow
+>   `make(){ return () => this.v }` fixes the receiver at creation via
+>   `__captured_this` — hoist_fn detects `this` only in lifted ARROW bodies
+>   (fn-exprs/methods keep the dynamic receiver), the reify resolves it via the
+>   local `this` or `THIS_GET()`; (3) `return_call` verifier guard so a variadic
+>   forwarder `(...a) => f(...a)` whose return repr differs from the callee's
+>   falls back to a normal call+coerce instead of a malformed tail-call.
 >
 > **Flipped (2026-06-04, "buildable external-API / quirk" pass) — 94.3% → 95.7%:**
 > - `291_json_bigint` — `JSON.stringify` throws TypeError on an object-slot
@@ -19,11 +32,23 @@
 > - `88_compression_stream` — CompressionStream gzip/deflate (flate2); accumulate
 >   on write, compress in `stream_close`; UNIVERSAL_LENGTH now handles Buffer.
 >
-> **Remaining 16 — all deferred large epics, NOT bounded flips:**
-> - closures (6): `348 360 361 386 41 365` — #195 mutable-cell env-record + the
->   f64/handle/variadic stack (array-of-fns stored as raw addrs; reduce acc
->   f64<->i64 through the callback; captured-array reduce). Partial groundwork
->   landed (capture-by-value, callee-param→i64, variadic rest_param_idx).
+> **Remaining 15 — all deferred large epics, NOT bounded flips:**
+> - closures (5): `348 360 361 386 365` — the #195 env-record now exists, but the
+>   functional-composition cluster (pipe/compose/partial/curry/trampoline) is
+>   blocked by a **function-value calling-convention representation mismatch**,
+>   not a single bug. Diagnosed 2026-06-05: `fn(...args)` through an indirect/
+>   captured callee packs the spread elements into the args Vec as raw i64
+>   (array-literal/rest-packing encoding), but `invoke_typed` reads number params
+>   via `f64::from_bits` per the callee's `param_kinds`, so the values arrive as
+>   denormal≈0 (`partial(add,10)(1,2)` → 3 not 13). The working direct path
+>   (`add(...a)`) only succeeds because `lower_callable_target_h` reifies a handle
+>   carrying `param_kinds`; a captured/stored fn value is a raw addr with none.
+>   Fixing it means one consistent number-encoding across array literals, rest
+>   packing, spread-extend and invoke_typed — a calling-convention refactor. Each
+>   fixture then needs more on top (348 memoize-Map closure + curry, 386
+>   trampoline returned-closure recursion, 360 sibling fn-DECL closures sharing a
+>   boxed var, 365 async). Landed groundwork: capture-by-value, arrow this-
+>   capture, callee-param→i64, variadic rest_param_idx, return_call repr guard.
 > - generators (5): `344 368 379 392 273` — lazy-SM completion + #207 real async
 >   event loop (async generators / `for await`).
 > - symbol (2): `271 378` — #216 Symbol-as-computed-key + Array subclassing.
