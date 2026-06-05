@@ -616,13 +616,29 @@ impl SmBuilder {
                 }
                 // Um `return` dentro do if (mesmo sem yield) NAO pode ir verbatim:
                 // o `return;`/`return X;` cru nao casa com a assinatura i64 da fn
-                // de estado (verifier error). Sem um lowering proprio do
-                // if-com-return, bail para o eager-buffer — nunca emitir IR
-                // invalido.
-                if stmt_has_return(&i.cons)
-                    || i.alt.as_deref().map(stmt_has_return).unwrap_or(false)
-                {
-                    return None;
+                // de estado (verifier error). Lower em estados ramificados:
+                // Cond(test, then, else) e o `return` no then vira DONE.
+                let has_return = stmt_has_return(&i.cons)
+                    || i.alt.as_deref().map(stmt_has_return).unwrap_or(false);
+                if has_return {
+                    if expr_has_yield(&i.test) {
+                        return None;
+                    }
+                    let then_entry = self.new_state();
+                    let after = self.new_state();
+                    let else_entry = if i.alt.is_some() {
+                        self.new_state()
+                    } else {
+                        after
+                    };
+                    self.set_cond(cur, (*i.test).clone(), then_entry, else_entry);
+                    let then_exit = self.lower_stmt(&i.cons, then_entry)?;
+                    self.set_goto(then_exit, after);
+                    if let Some(alt) = i.alt.as_deref() {
+                        let else_exit = self.lower_stmt(alt, else_entry)?;
+                        self.set_goto(else_exit, after);
+                    }
+                    return Some(after);
                 }
                 self.push_stmt(cur, stmt.clone());
                 Some(cur)
