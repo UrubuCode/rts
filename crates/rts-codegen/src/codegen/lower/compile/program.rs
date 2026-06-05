@@ -79,6 +79,10 @@ pub fn compile_program(
     // (que desugara o `next()` shorthand) e hoist_fn.
     desugar_custom_iterators(program);
     desugar_object_methods(program);
+    // (#273) Object literal com [Symbol.asyncIterator]/[Symbol.iterator]: reescreve
+    // `for await/of (x of obj)` -> for-of sobre `obj[Symbol.<key>]()`. Roda DEPOIS
+    // de object_methods (que converte o metodo num KeyValue) e ANTES de hoist_fn.
+    crate::codegen::lower::passes::custom_iterator::desugar_object_symbol_iterators(program);
     hoist_fn_expressions(program);
     expand_destructuring(program);
     expand_default_args(program);
