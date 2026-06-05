@@ -142,14 +142,19 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: u64, fn_ptr: u64) {
     let Some(items) = snapshot_vec(vec_handle) else {
         return;
     };
-    // SAFETY: fn_ptr is `extern "C" fn(i64, i64, i64) -> i64`. Callbacks
-    // de array methods (#776) recebem (val, idx, array_handle); lifted
-    // callbacks com menos params ignoram args extras (calling convention).
-    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // (cross-runtime closures) Invoca via invoke_array_callback (registry-aware):
+    // callbacks com param `number` compilam como `(f64)->`, e o transmute cru
+    // `(i64,i64,i64)` lia os args dos registradores errados (int vs xmm) →
+    // garbage/segfault (`forEach((code:number,i)=>{...})`). invoke_array_callback
+    // consulta o registry de ABI e usa invoke_typed com os kinds corretos; fns
+    // toda-i64 (não registradas) caem no invoke_all_i64 (idêntico ao transmute).
     let arr = vec_handle as i64;
     items.iter().enumerate().for_each(|(i, &x)| {
         if x != i64::MIN + 4 {
-            f(x, i as i64, arr);
+            crate::namespaces::globals::function::ops::invoke_array_callback(
+                fn_ptr,
+                &[x, i as i64, arr],
+            );
         }
     });
 }
