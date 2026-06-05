@@ -4339,6 +4339,9 @@ fn gen_sm_sentinel(
         ("__RTS_GEN_SM_YIELD", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_YIELD", Some(cl::I64))),
         ("__RTS_GEN_SM_DONE", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_DONE", Some(cl::I64))),
         ("__RTS_GEN_SM_ENTER_TRY", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", None)),
+        ("__RTS_GEN_SM_ENTER_TRY_CATCH", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH", None)),
+        ("__RTS_GEN_SM_EXIT_TRY_CATCH", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH", None)),
+        ("__RTS_GEN_SM_CAUGHT", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_CAUGHT", Some(cl::I64))),
         ("__RTS_GEN_SM_END_FINALLY", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", Some(cl::I64))),
         // (#477/#211) yield* lazy delegation: itera a fonte 1 valor por vez.
         ("__RTS_GEN_SM_SENT", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_SENT", Some(cl::I64))),

@@ -510,9 +510,65 @@ impl SmBuilder {
             }
             // `try { ... } finally { ... }` (#477 fatia 2)
             Stmt::Try(t) => {
-                // catch com yield => fora de escopo desta fatia.
+                // (#211 try/catch com yield) `try { ...yields... } catch (e) {
+                // ...yields... }` SEM finally: `.throw(e)` suspenso na try salta
+                // para o catch com `e` ligado. Combina try/catch + finally =>
+                // fora desta fatia (bail).
                 if let Some(h) = &t.handler {
-                    if h.body.stmts.iter().any(stmt_has_yield) {
+                    let catch_has_yield = h.body.stmts.iter().any(stmt_has_yield);
+                    if catch_has_yield && t.finalizer.is_none() {
+                        // param do catch: ident simples (ou ausente).
+                        let catch_param = match h.param.as_ref() {
+                            Some(swc_ecma_ast::Pat::Ident(id)) => {
+                                Some(id.id.sym.to_string())
+                            }
+                            Some(_) => return None, // destructuring catch => bail
+                            None => None,
+                        };
+                        if let Some(name) = &catch_param {
+                            self.intern_local(name);
+                        }
+                        // Reserva o estado de entrada do catch ANTES do body para
+                        // que ENTER_TRY_CATCH aponte para ele.
+                        let catch_entry = self.new_state();
+                        let after = self.new_state();
+                        // cur: ENTER_TRY_CATCH(__g, catch_entry); goto body.
+                        self.push_stmt(
+                            cur,
+                            call_stmt(call(
+                                "__RTS_GEN_SM_ENTER_TRY_CATCH",
+                                vec![ident_expr(G), num_expr(catch_entry as f64)],
+                            )),
+                        );
+                        let body_entry = self.new_state();
+                        self.set_goto(cur, body_entry);
+                        let body_exit = self.lower_seq(&t.block.stmts, body_entry)?;
+                        // saida normal do body (sem excecao): limpa o catch e segue.
+                        self.push_stmt(
+                            body_exit,
+                            call_stmt(call(
+                                "__RTS_GEN_SM_EXIT_TRY_CATCH",
+                                vec![ident_expr(G)],
+                            )),
+                        );
+                        self.set_goto(body_exit, after);
+                        // catch_entry: e = CAUGHT(__g); corpo do catch.
+                        if let Some(name) = &catch_param {
+                            self.push_stmt(
+                                catch_entry,
+                                assign_stmt(
+                                    name,
+                                    call("__RTS_GEN_SM_CAUGHT", vec![ident_expr(G)]),
+                                ),
+                            );
+                        }
+                        let catch_exit = self.lower_seq(&h.body.stmts, catch_entry)?;
+                        self.set_goto(catch_exit, after);
+                        return Some(after);
+                    }
+                    // catch com yield + finally, ou catch sem yield mas com
+                    // finally tratado abaixo: catch-com-yield restante => bail.
+                    if catch_has_yield {
                         return None;
                     }
                 }

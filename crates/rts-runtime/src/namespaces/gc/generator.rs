@@ -174,6 +174,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         awaited_val: UNDEFINED,
         awaited_rejected: false,
         sent: UNDEFINED,
+        catch_state: -1,
     })))
 }
 
@@ -312,6 +313,29 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_RETURN(h: u64, value: i64) -> u64 {
 /// propaga: marca done e seta o error slot (caller re-lanca).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_THROW(h: u64, err: i64) -> u64 {
+    // (#211 try/catch) Se ha' um catch ativo, salta para ele com `err` em
+    // pending_val (lido via CAUGHT) e re-invoca. O catch absorve a excecao.
+    let (fn_ptr, catch_state, done0) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => (g.fn_ptr, g.catch_state, g.done),
+        _ => (0u64, -1, true),
+    });
+    if catch_state >= 0 && !done0 && fn_ptr != 0 {
+        with_entry_mut(h, |e| {
+            if let Some(Entry::GenState(g)) = e {
+                g.pending_val = err;
+                g.state = catch_state;
+                g.catch_state = -1; // throw dentro do catch propaga (nao re-loop)
+            }
+        });
+        let state_fn: extern "C" fn(u64) -> i64 =
+            unsafe { std::mem::transmute(fn_ptr as usize) };
+        let yielded = state_fn(h);
+        let done = with_entry(h, |e| match e {
+            Some(Entry::GenState(g)) => g.done,
+            _ => true,
+        });
+        return make_result(yielded, done);
+    }
     let has_finally = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.finally_state >= 0 && !g.done,
         _ => false,
@@ -373,6 +397,39 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_ENTER_TRY(h: u64, finally_state: i64) {
             g.finally_state = finally_state;
         }
     });
+}
+
+/// `__RTS_GEN_SM_ENTER_TRY_CATCH(h, catch_state)` (#211) — registra o estado de
+/// entrada do `catch`. `.throw(e)` suspenso dentro da try salta para ele.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH(h: u64, catch_state: i64) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.catch_state = catch_state;
+        }
+    });
+}
+
+/// `__RTS_GEN_SM_EXIT_TRY_CATCH(h)` (#211) — limpa o catch ativo (saida normal
+/// do try body, sem excecao). Um `.throw` posterior nao roteia mais p/ esse
+/// catch.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH(h: u64) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.catch_state = -1;
+        }
+    });
+}
+
+/// `__RTS_GEN_SM_CAUGHT(h)` (#211) — valor da excecao capturada (a binding do
+/// `catch (e)`). Lido no inicio do estado do catch.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_CAUGHT(h: u64) -> i64 {
+    with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.pending_val,
+        _ => UNDEFINED,
+    })
 }
 
 /// `__RTS_GEN_SM_END_FINALLY(h)` — chamado ao fim do bloco finally. Limpa a
@@ -485,6 +542,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         awaited_val: UNDEFINED,
         awaited_rejected: false,
         sent: UNDEFINED,
+        catch_state: -1,
     })))
 }
 

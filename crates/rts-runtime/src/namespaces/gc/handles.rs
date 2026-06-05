@@ -530,6 +530,11 @@ pub struct GenStateData {
     /// como resultado do `yield` na retomada (`const x = yield ...` -> x = v).
     /// UNDEFINED quando `.next()` chamado sem argumento.
     pub sent: i64,
+    /// (#211 try/catch) Estado de entrada do `catch` da try-region ativa, ou -1.
+    /// Setado por ENTER_TRY_CATCH, limpo por EXIT_TRY_CATCH (saida normal do
+    /// body) e ao despachar o throw. `.throw(e)` suspenso dentro da try salta
+    /// para esse estado com `e` em `pending_val` (lido via CAUGHT).
+    pub catch_state: i64,
 }
 
 /// State enum dos algoritmos suportados em `Entry::Hasher`. Wrap em Box
