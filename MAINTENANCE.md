@@ -305,10 +305,25 @@ session. Concrete state:
   `Iterator<…>`/`Generator<…>` (a734cc6f). `take(nats(), 5)` over an infinite
   lazy generator → `1,2,3,4,5`. 368 now passes naturals/take/zip/flatten.
 
-**Still failing — remaining SM gaps (no longer crashing immediately):**
-- 368 blocks at `safeGen`: needs **value-passing** (`const v = yield X` then
-  `g.next(42)` → v=42; eager drops it, SM bails) **and** `try/catch`-with-yield
-  **and** `.throw(e)` running the enclosing catch. Three interacting features.
+- ✅ **value-passing** (`const v = yield X` + `gen.next(v)`) — `sent` frame slot,
+  GENERATOR_NEXT_SENT, SM lowers to `yield X; v = SENT(g)` (d6f1928a).
+- ✅ **try/catch-with-yield + `.throw()` into catch** — `catch_state` + CAUGHT,
+  GEN_SM_THROW jumps to the catch on a suspended throw (d78ab7d5). safeGen
+  `first`/`caught:oops` works in isolation.
+- ✅ **if-with-return lowering** in the SM (branch states, no eager bail) +
+  `x[Symbol.iterator]()` routing for `.next()` (decl + assign forms)
+  (9a5fd2da, c8de437a).
+
+**368 now RUNS (crash → rts_diverge) — remaining blocker is NOT a generator gap:**
+`zip` does `const ia = a[Symbol.iterator]()` then `ia.next()`. `.next()` now
+routes, but `arr[Symbol.iterator]()` returns an **empty** iterator: the computed
+member call doesn't bind `this = arr`, so `ARRAY_VALUES_ITER` runs with `this=0`
+→ `ITERATOR_FROM(0)` → empty Vec (verified: top-level `[10,20,30][Symbol
+.iterator]().next()` → `done=true value=undefined`). That is **epic #222**
+(Symbol.iterator on arrays / `this`-binding in computed-member calls), not a
+state-machine gap. `flatten` additionally needs recursive `yield*` of arbitrary
+iterables + `typeof x[Symbol.iterator] === "function"`.
+
 - 379 blocks at `__hoisted_fn_0`: an **async generator expression**
   (`(async function*(){ yield 4 })()`) — needs #207 (async generators +
   `for await`).
