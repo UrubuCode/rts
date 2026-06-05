@@ -48,12 +48,26 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     // span_snippet no raw_statement).
     SM_SPAN.with(|c| c.set(body.span));
 
-    // Coleta nomes de parametros (apenas idents simples; destructuring =>
-    // inelegivel nesta fatia).
+    // Coleta nomes de parametros. Idents simples + DEFAULTS (`x = 1`): o nome
+    // entra como slot; o default fica preservado no `Param` do constructor para
+    // que `expand_default_args` o aplique downstream (sem ele, `function*
+    // g(start=1)` caia no eager-buffer e materializava infinito -> OOM).
+    // Destructuring em params => inelegivel.
     let mut params: Vec<String> = Vec::new();
+    let mut ctor_params: Vec<Param> = Vec::new();
     for p in &function.params {
         match &p.pat {
-            Pat::Ident(id) => params.push(id.id.sym.to_string()),
+            Pat::Ident(id) => {
+                params.push(id.id.sym.to_string());
+                ctor_params.push(p.clone());
+            }
+            Pat::Assign(asn) => match asn.left.as_ref() {
+                Pat::Ident(id) => {
+                    params.push(id.id.sym.to_string());
+                    ctor_params.push(p.clone());
+                }
+                _ => return None, // default sobre destructuring => inelegivel
+            },
             _ => return None,
         }
     }
@@ -82,7 +96,7 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     let nslots = builder.locals.len() as f64;
 
     // ── Constructor: g(params) { aloca GenState, escreve params, retorna h } ──
-    let ctor = build_ctor(name, &params, &state_fn_name, nslots, &builder);
+    let ctor = build_ctor(name, &params, &ctor_params, &state_fn_name, nslots);
     // ── State fn: __gen_state_<name>(__g) { switch sobre estado } ─────────────
     let state_fn = build_state_fn(&state_fn_name, &builder)?;
 
@@ -748,10 +762,10 @@ fn param_ident(name: &str) -> Param {
 
 fn build_ctor(
     name: &str,
-    params: &[String],
+    param_names: &[String],
+    ctor_params: &[Param],
     state_fn_name: &str,
     nslots: f64,
-    _builder: &SmBuilder,
 ) -> FnDecl {
     let mut stmts: Vec<Stmt> = Vec::new();
     // const __g = __RTS_GEN_SM_NEW(<state_fn>, nslots);
@@ -762,8 +776,9 @@ fn build_ctor(
             vec![ident_expr(state_fn_name), num_expr(nslots)],
         ),
     ));
-    // escreve params nos slots 0..n
-    for (i, p) in params.iter().enumerate() {
+    // escreve params nos slots 0..n (pelo NOME — o default ja' foi aplicado
+    // ao binding pelo expand_default_args sobre a assinatura do ctor).
+    for (i, p) in param_names.iter().enumerate() {
         stmts.push(call_stmt(call(
             "__RTS_GEN_SM_FSET",
             vec![ident_expr(G), num_expr(i as f64), ident_expr(p)],
@@ -775,7 +790,8 @@ fn build_ctor(
         arg: Some(Box::new(ident_expr(G))),
     }));
 
-    make_fn_decl(name, params, stmts, true)
+    // Assinatura do ctor preserva os Param originais (com defaults).
+    make_fn_decl_params(name, ctor_params.to_vec(), stmts)
 }
 
 /// (#207 async-SM) Ctor da async fn: aloca o GenState async, escreve params no
@@ -1041,6 +1057,26 @@ fn store_all_locals(builder: &SmBuilder) -> Vec<Stmt> {
             ))
         })
         .collect()
+}
+
+/// Variante que recebe os `Param` swc originais (preserva defaults na
+/// assinatura — usado pelo constructor do generator).
+fn make_fn_decl_params(name: &str, params: Vec<Param>, stmts: Vec<Stmt>) -> FnDecl {
+    FnDecl {
+        ident: ident(name),
+        declare: false,
+        function: Box::new(Function {
+            params,
+            decorators: Vec::new(),
+            span: sp(),
+            ctxt: Default::default(),
+            body: Some(BlockStmt { span: sp(), ctxt: Default::default(), stmts }),
+            is_generator: false,
+            is_async: false,
+            type_params: None,
+            return_type: None,
+        }),
+    }
 }
 
 fn make_fn_decl(name: &str, params: &[String], stmts: Vec<Stmt>, _is_ctor: bool) -> FnDecl {
