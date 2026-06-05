@@ -831,19 +831,24 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
         // transicao
         match &st.trans {
             Trans::Yield { value, next } => {
-                // salva todos os locais no frame
+                // Computa o VALOR do yield ANTES de persistir os locais: a expr
+                // pode mutar um local (`yield n++`), e esse efeito tem de entrar
+                // no frame salvo — senao a retomada recarrega o valor pre-mutacao
+                // (bug: `while(true) yield n++` rendia 1,1,1 em vez de 1,2,3).
+                blk.push(let_decl("__gen_yv", value.clone()));
+                // salva todos os locais no frame (apos os efeitos do valor)
                 blk.extend(store_all_locals(builder));
                 // SETSTATE(__g, next)
                 blk.push(call_stmt(call(
                     "__RTS_GEN_SM_SETSTATE",
                     vec![ident_expr(G), num_expr(*next as f64)],
                 )));
-                // return __RTS_GEN_SM_YIELD(__g, value)
+                // return __RTS_GEN_SM_YIELD(__g, __gen_yv)
                 blk.push(Stmt::Return(swc_ecma_ast::ReturnStmt {
                     span: sp(),
                     arg: Some(Box::new(call(
                         "__RTS_GEN_SM_YIELD",
-                        vec![ident_expr(G), value.clone()],
+                        vec![ident_expr(G), ident_expr("__gen_yv")],
                     ))),
                 }));
             }
