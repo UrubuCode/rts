@@ -181,6 +181,15 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
                     return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &cap_vals);
                 }
             }
+            // (cross-runtime closures) fn-EXPR VARIADIC (`function(...rest){...}`)
+            // retornada/armazenada como valor: precisa ser handle (nao raw addr)
+            // p/ gravar rest_param_idx no FunctionData — so' assim o invoke via
+            // handle empacota o tail num array. Sem isto `(...args)=>...` em
+            // forma de fn-expr (trampoline/curry) recebia os args soltos: o
+            // primeiro virava o array-rest e os demais sumiam (mul(2,3,4)->0).
+            if crate::codegen::lower::passes::args::rest_args::fn_rest_idx(name).is_some() {
+                return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &[]);
+            }
             return emit_user_fn_addr(ctx, name);
         }
         if name.starts_with("__hoisted_arrow_")
