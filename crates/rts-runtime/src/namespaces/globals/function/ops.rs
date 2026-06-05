@@ -314,6 +314,10 @@ pub(crate) fn invoke_array_callback(handle_or_ptr: u64, extra: &[i64]) -> i64 {
         let mut all: Vec<i64> = Vec::with_capacity(bound.len() + extra.len());
         all.extend_from_slice(&bound);
         all.extend_from_slice(extra);
+        // (cross-runtime closures) extra = [acc/val, idx, arr] vem como inteiro
+        // CRU; um callback com param `number` (pk==1) espera bits f64. Reencoda
+        // os crus (já-bits passam intactos, pk!=1 idem).
+        normalize_f64_bits_args(&mut all, &param_kinds);
         unsafe { invoke_typed(fn_ptr, &all, &param_kinds, ret_kind) }
     } else {
         // fn_ptr cru. Callbacks de array method recebem (val, idx, arr).

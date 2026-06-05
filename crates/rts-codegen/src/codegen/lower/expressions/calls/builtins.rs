@@ -1848,6 +1848,47 @@ pub(super) fn lower_array_builtin(
             }
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
+        "reduce" => {
+            // (cross-runtime closures) `arr.reduce(fn [, init])` sobre um array
+            // de tipo desconhecido/capturado (ex.: rest array `...fns` capturado
+            // numa arrow retornada — `pipe`/`compose`/`reduce` de closures). O
+            // array_methods_pass nao alcanca essa posicao aninhada, entao sem
+            // isto cai no map_get("reduce")=0 -> trapz -> SIGILL. Reifica o
+            // callback como handle COM param_kinds e usa o REDUCE_BOUND runtime
+            // (mesmo do caminho parallel), que invoca via FUNCTION_CALL
+            // (normaliza args number). So' intercepta o fallback de handle
+            // desconhecido; arrays de tipo estatico seguem o pass paralelo.
+            if !matches!(call.args.len(), 1 | 2) || call.args.iter().any(|a| a.spread.is_some()) {
+                return Ok(None);
+            }
+            // Callback precisa ser reificavel como callable (ident de user fn /
+            // arrow liftada / var handle). Bail (None) p/ outras formas.
+            let fn_handle = match super::lower_callable_target_h(ctx, &call.args[0].expr) {
+                Ok(h) => h,
+                Err(_) => return Ok(None),
+            };
+            let v = if call.args.len() == 2 {
+                let init_tv = lower_expr(ctx, &call.args[1].expr)?;
+                let init = ctx.coerce_to_i64(init_tv).val;
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_PARALLEL_REDUCE_BOUND",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, init, fn_handle]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT_BOUND",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, fn_handle]);
+                ctx.builder.inst_results(inst)[0]
+            };
+            ctx.var_member_call_values.insert(v);
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
         "reduceRight" => {
             // (cross-runtime #202) reduceRight aceita (fn) ou (fn, init).
             if !matches!(call.args.len(), 1 | 2) || call.args.iter().any(|a| a.spread.is_some()) {
