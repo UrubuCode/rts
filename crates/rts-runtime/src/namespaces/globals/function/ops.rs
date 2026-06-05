@@ -912,6 +912,10 @@ pub(crate) fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
     }
     if let Some((kinds, rk)) = lookup_fn_kinds(fn_ptr) {
         let mut a = args.to_vec();
+        // (cross-runtime closures) Preenche params omitidos com os defaults
+        // registrados ANTES de normalizar — `fn(...args)` indireto a uma fn com
+        // `acc = 1` recebia acc=0 (trampoline/curry com fn-expr inline raw).
+        pad_with_defaults(&mut a, fn_ptr, kinds.len());
         normalize_f64_bits_args(&mut a, &kinds);
         unsafe { invoke_typed(fn_ptr, &a, &kinds, rk) }
     } else {
@@ -1223,6 +1227,7 @@ fn invoke_auto_impl(
     // param_kinds/return_kind reais — normalizando args number-cru p/ bits f64.
     // Sem isto `next(25)` numa closure virava `next(0)` (f64 arg perdido).
     let r = if let Some((kinds, reg_rk)) = lookup_fn_kinds(callee as u64) {
+        pad_with_defaults(&mut args_v, callee as u64, kinds.len());
         normalize_f64_bits_args(&mut args_v, &kinds);
         let rk = match override_return_kind {
             Some(ov) if reg_rk == 0 => ov,
