@@ -1,9 +1,20 @@
 # MAINTENANCE.md — Path to 100% cross-runtime parity
 
-> Status: **96.0% (357/372)** cross-runtime parity.
-> 15 fixtures remain. This document explains, fixture by fixture, **what each
+> Status: **96.2% (358/372)** cross-runtime parity.
+> 14 fixtures remain. This document explains, fixture by fixture, **what each
 > needs**, **where the code lives**, and **why none can be closed incrementally
 > without violating the project's own engineering rules.**
+>
+> **Flipped (2026-06-05, closures foundation cont.) — 96.0% → 96.2%:**
+> - `361_functional_compose` — pipe/compose/partial/curry/transduce. Root fix:
+>   hoist_fn was dropping the `:number` annotation on lifted-arrow params, so
+>   inline `(x:number)=>x*x` compiled `(i64)->i64` and lost f64 args once
+>   captured. Preserving the annotation cascaded into every callback path that
+>   invoked a fn via a raw i64-ABI transmute (promise .then, Map.forEach) — all
+>   rerouted through a registry-aware invoker (resolves Function handle / raw
+>   addr via the fn_ptr->ABI registry + normalizes raw-int number args to f64
+>   bits). Other closure fixtures advanced too: 348 0→8/11 lines (curry/variadic
+>   spread remains), 386/360 still hit capture-analysis gaps.
 >
 > **Flipped (2026-06-05, closures foundation) — 95.7% → 96.0%:**
 > - `41_closures_deep` — needed the closure stack to land together:
