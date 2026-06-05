@@ -526,6 +526,10 @@ pub struct GenStateData {
     /// (#207) True se a promise awaited rejeitou (await deve relancar via
     /// error slot na retomada).
     pub awaited_rejected: bool,
+    /// (#211 value-passing) Valor passado em `gen.next(v)`, injetado de volta
+    /// como resultado do `yield` na retomada (`const x = yield ...` -> x = v).
+    /// UNDEFINED quando `.next()` chamado sem argumento.
+    pub sent: i64,
 }
 
 /// State enum dos algoritmos suportados em `Entry::Hasher`. Wrap em Box

@@ -349,6 +349,30 @@ impl SmBuilder {
                     self.set_yield(cur, value, next);
                     return Some(next);
                 }
+                // (#211 value-passing) `v = yield E;` (target ident simples,
+                // yield nao-delegate): suspende e le SENT na retomada.
+                if let Expr::Assign(a) = es.expr.as_ref() {
+                    if let Expr::Yield(y) = a.right.as_ref() {
+                        if !y.delegate {
+                            if let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = &a.left {
+                                let name = id.id.sym.to_string();
+                                self.intern_local(&name);
+                                let value =
+                                    y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
+                                let next = self.new_state();
+                                self.set_yield(cur, value, next);
+                                self.push_stmt(
+                                    next,
+                                    assign_stmt(
+                                        &name,
+                                        call("__RTS_GEN_SM_SENT", vec![ident_expr(G)]),
+                                    ),
+                                );
+                                return Some(next);
+                            }
+                        }
+                    }
+                }
                 // assignment / call comum: registra qualquer ident-target como local
                 if let Expr::Assign(a) = es.expr.as_ref() {
                     if expr_has_yield(&a.right) {
@@ -361,6 +385,31 @@ impl SmBuilder {
                 }
                 self.push_stmt(cur, stmt.clone());
                 Some(cur)
+            }
+            // (#211 value-passing) `const/let v = yield E;` (1 declarator, yield
+            // simples): suspende com E e, na retomada, le o valor passado em
+            // `gen.next(v)` via SENT. `yield*` em init segue inelegivel (eager).
+            Stmt::Decl(Decl::Var(vd))
+                if vd.decls.len() == 1
+                    && matches!(&vd.decls[0].name, Pat::Ident(_))
+                    && matches!(
+                        vd.decls[0].init.as_deref(),
+                        Some(Expr::Yield(y)) if !y.delegate
+                    ) =>
+            {
+                let Pat::Ident(id) = &vd.decls[0].name else { unreachable!() };
+                let name = id.id.sym.to_string();
+                let Some(Expr::Yield(y)) = vd.decls[0].init.as_deref() else { unreachable!() };
+                self.intern_local(&name);
+                let value = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
+                let next = self.new_state();
+                self.set_yield(cur, value, next);
+                // estado `next`: name = SENT(__g)
+                self.push_stmt(
+                    next,
+                    assign_stmt(&name, call("__RTS_GEN_SM_SENT", vec![ident_expr(G)])),
+                );
+                Some(next)
             }
             // `let/const x = init;`
             Stmt::Decl(Decl::Var(vd)) => {
@@ -790,9 +839,43 @@ fn stmt_has_yield_star(s: &Stmt) -> bool {
     }
 }
 
+/// True se o stmt usa o VALOR de um `yield` (`const v = yield E` / `v = yield
+/// E`) — value-passing exige suspensao real (o valor vem de um `next(v)`
+/// posterior); o eager-buffer nao consegue (roda ate o fim, v=undefined).
+fn stmt_has_value_yield(s: &Stmt) -> bool {
+    match s {
+        Stmt::Decl(Decl::Var(vd)) => vd.decls.iter().any(|d| {
+            matches!(d.init.as_deref(), Some(Expr::Yield(y)) if !y.delegate)
+        }),
+        Stmt::Expr(e) => matches!(
+            e.expr.as_ref(),
+            Expr::Assign(a) if matches!(a.right.as_ref(), Expr::Yield(y) if !y.delegate)
+        ),
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_value_yield),
+        Stmt::If(i) => {
+            stmt_has_value_yield(&i.cons)
+                || i.alt.as_deref().map(stmt_has_value_yield).unwrap_or(false)
+        }
+        Stmt::While(w) => stmt_has_value_yield(&w.body),
+        Stmt::DoWhile(d) => stmt_has_value_yield(&d.body),
+        Stmt::For(f) => stmt_has_value_yield(&f.body),
+        Stmt::ForOf(fo) => stmt_has_value_yield(&fo.body),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().any(stmt_has_value_yield)
+                || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_value_yield)).unwrap_or(false)
+                || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_value_yield)).unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
 fn stmt_needs_lazy(s: &Stmt) -> bool {
     // `yield*` (delegate) sempre exige SM (fonte potencialmente lazy/infinita).
     if stmt_has_yield_star(s) {
+        return true;
+    }
+    // value-passing `const v = yield E` exige SM (suspende, le SENT na retomada).
+    if stmt_has_value_yield(s) {
         return true;
     }
     match s {

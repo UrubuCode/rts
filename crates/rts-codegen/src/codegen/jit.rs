@@ -187,6 +187,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_ARRAY_VALUES_ITER", crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_VALUES_ITER);
     add_fn!("__RTS_FN_GL_ARRAY_ITERATOR_FN", crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN);
     add_fn!("__RTS_FN_NS_GC_GENERATOR_RETURN", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_RETURN);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_SENT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_SENT);
+    add_fn!("__RTS_FN_NS_GC_GENERATOR_NEXT_SENT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_NEXT_SENT);
     add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_START", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_START);
     add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_NEXT);
     add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_DONE);

@@ -290,19 +290,33 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // conflito com objetos que tem `.next()` proprio.
         if let Expr::Member(m) = callee.as_ref() {
             if let MemberProp::Ident(prop) = &m.prop {
-                if prop.sym.as_str() == "next" && call.args.is_empty() {
+                if prop.sym.as_str() == "next" && call.args.len() <= 1 {
                     if let Expr::Ident(obj_id) = m.obj.as_ref() {
                         if ctx.generator_vars.contains(obj_id.sym.as_str()) {
                             use cranelift_codegen::ir::types as cl;
                             let recv_tv = lower_expr(ctx, &m.obj)?;
                             let recv = ctx.coerce_to_i64(recv_tv).val;
-                            let next_fn = ctx.get_extern(
-                                "__RTS_FN_NS_GC_GENERATOR_NEXT",
-                                &[cl::I64],
-                                Some(cl::I64),
-                            )?;
-                            let inst = ctx.builder.ins().call(next_fn, &[recv]);
-                            let h = ctx.builder.inst_results(inst)[0];
+                            // (#211 value-passing) `g.next(v)`: injeta `v` como
+                            // `sent` e avanca (NEXT_SENT). Sem arg: NEXT puro.
+                            let h = if let Some(arg) = call.args.first() {
+                                let arg_tv = lower_expr(ctx, &arg.expr)?;
+                                let arg_v = ctx.coerce_to_i64(arg_tv).val;
+                                let next_fn = ctx.get_extern(
+                                    "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT",
+                                    &[cl::I64, cl::I64],
+                                    Some(cl::I64),
+                                )?;
+                                let inst = ctx.builder.ins().call(next_fn, &[recv, arg_v]);
+                                ctx.builder.inst_results(inst)[0]
+                            } else {
+                                let next_fn = ctx.get_extern(
+                                    "__RTS_FN_NS_GC_GENERATOR_NEXT",
+                                    &[cl::I64],
+                                    Some(cl::I64),
+                                )?;
+                                let inst = ctx.builder.ins().call(next_fn, &[recv]);
+                                ctx.builder.inst_results(inst)[0]
+                            };
                             ctx.declare_gc_handle(h);
                             return Ok(TypedVal::new(h, ValTy::Handle));
                         }
@@ -4327,6 +4341,7 @@ fn gen_sm_sentinel(
         ("__RTS_GEN_SM_ENTER_TRY", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", None)),
         ("__RTS_GEN_SM_END_FINALLY", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", Some(cl::I64))),
         // (#477/#211) yield* lazy delegation: itera a fonte 1 valor por vez.
+        ("__RTS_GEN_SM_SENT", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_SENT", Some(cl::I64))),
         ("__RTS_GEN_DELEGATE_START", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_START", Some(cl::I64))),
         ("__RTS_GEN_DELEGATE_NEXT", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", Some(cl::I64))),
         ("__RTS_GEN_DELEGATE_DONE", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", Some(cl::I64))),

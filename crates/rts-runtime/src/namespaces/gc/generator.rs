@@ -173,6 +173,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         pending_await: None,
         awaited_val: UNDEFINED,
         awaited_rejected: false,
+        sent: UNDEFINED,
     })))
 }
 
@@ -241,6 +242,31 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DONE(h: u64, ret: i64) -> i64 {
         }
     });
     ret
+}
+
+/// `__RTS_GEN_SM_SENT(h)` — valor passado no ultimo `gen.next(v)` (#211
+/// value-passing). Lido pela state-machine na retomada: `const x = yield E`
+/// vira `yield E; x = SENT(g)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_SENT(h: u64) -> i64 {
+    with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.sent,
+        _ => UNDEFINED,
+    })
+}
+
+/// `gen.next(v)` com argumento (#211 value-passing): injeta `v` como o valor
+/// `sent` do generator e avanca. Para a primeira chamada (antes do 1o yield) o
+/// valor eh ignorado pela maquina (nao ha' estado pos-yield que o leia), igual
+/// a' spec JS.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT_SENT(h: u64, arg: i64) -> u64 {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.sent = arg;
+        }
+    });
+    __RTS_FN_NS_GC_GENERATOR_NEXT(h)
 }
 
 /// `gen.next()` para generators lazy (Entry::GenState). Invoca a fn de estado
@@ -458,6 +484,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         pending_await: None,
         awaited_val: UNDEFINED,
         awaited_rejected: false,
+        sent: UNDEFINED,
     })))
 }
 
