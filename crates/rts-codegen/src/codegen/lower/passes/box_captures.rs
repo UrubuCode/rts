@@ -55,25 +55,37 @@ pub(crate) fn box_mutable_captures(program: &mut Program) {
     BOXED_VARS.with(|c| c.borrow_mut().clear());
     for item in program.items.iter_mut() {
         match item {
-            Item::Function(f) => process_body(&mut f.body),
+            Item::Function(f) => {
+                let params: HashSet<String> =
+                    f.parameters.iter().map(|p| p.name.clone()).collect();
+                process_body(&mut f.body, &params);
+            }
             Item::Statement(Statement::Raw(raw)) => {
                 if let Some(stmt) = raw.stmt.as_mut() {
                     let mut one = vec![std::mem::replace(
                         stmt,
                         Stmt::Empty(swc_ecma_ast::EmptyStmt { span: Default::default() }),
                     )];
-                    process_stmt_scope(&mut one);
+                    process_stmt_scope(&mut one, &HashSet::new());
                     *stmt = one.pop().unwrap();
                 }
             }
             Item::Class(class) => {
                 for member in class.members.iter_mut() {
-                    let body = match member {
-                        ClassMember::Method(m) => &mut m.body,
-                        ClassMember::Constructor(c) => &mut c.body,
+                    let (body, params) = match member {
+                        ClassMember::Method(m) => {
+                            let ps: HashSet<String> =
+                                m.parameters.iter().map(|p| p.name.clone()).collect();
+                            (&mut m.body, ps)
+                        }
+                        ClassMember::Constructor(c) => {
+                            let ps: HashSet<String> =
+                                c.parameters.iter().map(|p| p.name.clone()).collect();
+                            (&mut c.body, ps)
+                        }
                         _ => continue,
                     };
-                    process_body(body);
+                    process_body(body, &params);
                 }
             }
             _ => {}
@@ -82,7 +94,7 @@ pub(crate) fn box_mutable_captures(program: &mut Program) {
 }
 
 /// Process a `Vec<Statement>` (the RTS wrapper) body.
-fn process_body(body: &mut [Statement]) {
+fn process_body(body: &mut [Statement], params: &HashSet<String>) {
     let mut stmts: Vec<Stmt> = Vec::with_capacity(body.len());
     for s in body.iter() {
         let Statement::Raw(raw) = s;
@@ -92,7 +104,7 @@ fn process_body(body: &mut [Statement]) {
             stmts.push(Stmt::Empty(swc_ecma_ast::EmptyStmt { span: Default::default() }));
         }
     }
-    process_stmt_scope(&mut stmts);
+    process_stmt_scope(&mut stmts, params);
     for (i, s) in body.iter_mut().enumerate() {
         let Statement::Raw(raw) = s;
         raw.stmt = Some(stmts[i].clone());
@@ -110,8 +122,13 @@ fn process_body(body: &mut [Statement]) {
 /// Guarda anti-regressao: NAO converte se `f` eh referenciada por um statement
 /// ANTERIOR no mesmo escopo (forward reference — fn-decls sao hoisted; converter
 /// p/ fn-expr quebraria a visibilidade antecipada).
-fn convert_nested_fn_decls(stmts: &mut Vec<Stmt>) {
-    let scope_locals = collect_scope_locals(stmts);
+fn convert_nested_fn_decls(stmts: &mut Vec<Stmt>, enclosing_params: &HashSet<String>) {
+    // (cross-runtime #344) Inclui os PARAMS do escopo enclosing nos "scope
+    // locals" — assim uma fn-decl aninhada que captura um PARAM (ex. `step` de
+    // __awaiter capturando `resolve`, o param do Promise executor) eh detectada
+    // como closure e convertida. Sem isto so' capturas de let/const eram vistas.
+    let mut scope_locals = collect_scope_locals(stmts);
+    scope_locals.extend(enclosing_params.iter().cloned());
     let n = stmts.len();
     for i in 0..n {
         let (name, captures) = match &stmts[i] {
@@ -289,10 +306,10 @@ fn stmt_references_ident(stmt: &Stmt, name: &str) -> bool {
 }
 
 /// Analyze one function/scope's statements and box captured-mutated locals.
-fn process_stmt_scope(stmts: &mut Vec<Stmt>) {
+fn process_stmt_scope(stmts: &mut Vec<Stmt>, enclosing_params: &HashSet<String>) {
     // (#195) Converte fn-decls aninhadas capturantes em fn-exprs ANTES de tudo,
     // para reusar a maquinaria de captura existente.
-    convert_nested_fn_decls(stmts);
+    convert_nested_fn_decls(stmts, enclosing_params);
     // First, recurse into nested functions/arrows so inner scopes box their own
     // locals before we analyze this scope (a closure can declare its own
     // captured-mutated locals).
@@ -338,13 +355,33 @@ fn recurse_into_nested_fns(stmt: &mut Stmt) {
     visit_exprs_in_stmt(stmt, &mut |e| {
         match e {
             Expr::Arrow(arrow) => {
+                // (cross-runtime #344) passa os params da arrow como escopo
+                // enclosing p/ que fn-decls aninhadas que os capturam virem
+                // closures.
+                let params: HashSet<String> = arrow
+                    .params
+                    .iter()
+                    .filter_map(|p| match p {
+                        Pat::Ident(id) => Some(id.id.sym.to_string()),
+                        _ => None,
+                    })
+                    .collect();
                 if let swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) = arrow.body.as_mut() {
-                    process_stmt_scope(&mut b.stmts);
+                    process_stmt_scope(&mut b.stmts, &params);
                 }
             }
             Expr::Fn(fnx) => {
+                let params: HashSet<String> = fnx
+                    .function
+                    .params
+                    .iter()
+                    .filter_map(|p| match &p.pat {
+                        Pat::Ident(id) => Some(id.id.sym.to_string()),
+                        _ => None,
+                    })
+                    .collect();
                 if let Some(b) = fnx.function.body.as_mut() {
-                    process_stmt_scope(&mut b.stmts);
+                    process_stmt_scope(&mut b.stmts, &params);
                 }
             }
             _ => {}
