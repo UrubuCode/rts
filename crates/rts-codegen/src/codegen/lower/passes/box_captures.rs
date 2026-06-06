@@ -99,8 +99,200 @@ fn process_body(body: &mut [Statement]) {
     }
 }
 
+/// (#195) Converte declaracoes de funcao ANINHADAS (`function f(){...}` dentro
+/// do corpo de outra fn/arrow/IIFE) em fn-EXPRESSIONS (`const f = function
+/// f(){...}`), para que box_captures + os lifters (hoist_fn/this_arrow) tratem
+/// suas capturas de variaveis do escopo enclosing (incl. params) — caso do
+/// module-pattern (`function _get(){ return _private }`) e do `step` de
+/// `__awaiter` capturando `resolve`. Sem isto a ref a `_private`/`resolve`
+/// dentro da fn-decl aninhada virava "undefined variable".
+///
+/// Guarda anti-regressao: NAO converte se `f` eh referenciada por um statement
+/// ANTERIOR no mesmo escopo (forward reference — fn-decls sao hoisted; converter
+/// p/ fn-expr quebraria a visibilidade antecipada).
+fn convert_nested_fn_decls(stmts: &mut Vec<Stmt>) {
+    let scope_locals = collect_scope_locals(stmts);
+    let n = stmts.len();
+    for i in 0..n {
+        let (name, captures) = match &stmts[i] {
+            Stmt::Decl(Decl::Fn(fd)) => {
+                let nm = fd.ident.sym.to_string();
+                (nm.clone(), fn_decl_captures_scope_local(fd, &scope_locals, &nm))
+            }
+            _ => continue,
+        };
+        // So' converte fn-decls que CAPTURAM um local do escopo enclosing — o
+        // unico caso que precisa virar closure. Construtores (`function F(){
+        // this.x=1 }`, usados com `new F()`) referenciam `this`, nao locais do
+        // escopo, entao NAO sao convertidos (preserva `new F()`/`F.prototype`).
+        if !captures {
+            continue;
+        }
+        let mut forward_ref = false;
+        for j in 0..i {
+            if stmt_references_ident(&stmts[j], &name) {
+                forward_ref = true;
+                break;
+            }
+        }
+        if forward_ref {
+            continue;
+        }
+        // Guarda extra: nao converte se usada com `new` ou `.prototype` (uso
+        // como construtor) em qualquer statement do escopo.
+        if stmts.iter().any(|s| stmt_uses_as_constructor(s, &name)) {
+            continue;
+        }
+        if let Stmt::Decl(Decl::Fn(fd)) = &mut stmts[i] {
+            let ident = fd.ident.clone();
+            let function = std::mem::replace(
+                &mut fd.function,
+                Box::new(swc_ecma_ast::Function {
+                    params: Vec::new(),
+                    decorators: Vec::new(),
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    body: None,
+                    is_generator: false,
+                    is_async: false,
+                    type_params: None,
+                    return_type: None,
+                }),
+            );
+            let fnexpr = Expr::Fn(swc_ecma_ast::FnExpr {
+                ident: Some(ident.clone()),
+                function,
+            });
+            stmts[i] = Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
+                span: Default::default(),
+                ctxt: Default::default(),
+                kind: swc_ecma_ast::VarDeclKind::Const,
+                declare: false,
+                decls: vec![swc_ecma_ast::VarDeclarator {
+                    span: Default::default(),
+                    name: Pat::Ident(ident.into()),
+                    init: Some(Box::new(fnexpr)),
+                    definite: false,
+                }],
+            })));
+        }
+    }
+}
+
+/// True se o corpo da fn-decl referencia algum local do escopo enclosing
+/// (`scope_locals`) que NAO seja seu proprio nome nem um param/local proprio —
+/// i.e. captura por closure.
+fn fn_decl_captures_scope_local(
+    fd: &swc_ecma_ast::FnDecl,
+    scope_locals: &HashSet<String>,
+    own_name: &str,
+) -> bool {
+    let mut own: HashSet<String> = HashSet::new();
+    own.insert(own_name.to_string());
+    for p in &fd.function.params {
+        collect_pat_names(&p.pat, &mut own);
+    }
+    if let Some(body) = fd.function.body.as_ref() {
+        for s in &body.stmts {
+            collect_decl_names_shallow(s, &mut own);
+        }
+        let mut captured = false;
+        for s in &body.stmts {
+            visit_exprs_in_stmt_ref(s, &mut |e| {
+                if let Expr::Ident(id) = e {
+                    let n = id.sym.as_str();
+                    if scope_locals.contains(n) && !own.contains(n) {
+                        captured = true;
+                    }
+                }
+            });
+            if captured {
+                break;
+            }
+        }
+        captured
+    } else {
+        false
+    }
+}
+
+fn collect_pat_names(pat: &Pat, out: &mut HashSet<String>) {
+    if let Pat::Ident(id) = pat {
+        out.insert(id.id.sym.to_string());
+    }
+}
+
+fn collect_decl_names_shallow(stmt: &Stmt, out: &mut HashSet<String>) {
+    if let Stmt::Decl(Decl::Var(v)) = stmt {
+        for d in &v.decls {
+            collect_pat_names(&d.name, out);
+        }
+    }
+    if let Stmt::Decl(Decl::Fn(fd)) = stmt {
+        out.insert(fd.ident.sym.to_string());
+    }
+}
+
+/// True se `name` eh usada como construtor — `new name(...)` ou
+/// `name.prototype` — em qualquer expressao do statement.
+fn stmt_uses_as_constructor(stmt: &Stmt, name: &str) -> bool {
+    let mut found = false;
+    visit_exprs_in_stmt_ref(stmt, &mut |e| {
+        match e {
+            Expr::New(n) => {
+                if let Expr::Ident(id) = n.callee.as_ref() {
+                    if id.sym.as_str() == name {
+                        found = true;
+                    }
+                }
+                // `new (X as any)()` — peel.
+                let mut c = n.callee.as_ref();
+                loop {
+                    match c {
+                        Expr::Paren(p) => c = &p.expr,
+                        Expr::TsAs(a) => c = &a.expr,
+                        Expr::TsNonNull(a) => c = &a.expr,
+                        Expr::Ident(id) if id.sym.as_str() == name => {
+                            found = true;
+                            break;
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            Expr::Member(m) => {
+                if let (Expr::Ident(id), swc_ecma_ast::MemberProp::Ident(p)) =
+                    (m.obj.as_ref(), &m.prop)
+                {
+                    if id.sym.as_str() == name && p.sym.as_str() == "prototype" {
+                        found = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    });
+    found
+}
+
+/// True se o statement referencia o ident `name` (em qualquer expressao).
+fn stmt_references_ident(stmt: &Stmt, name: &str) -> bool {
+    let mut found = false;
+    visit_exprs_in_stmt_ref(stmt, &mut |e| {
+        if let Expr::Ident(id) = e {
+            if id.sym.as_str() == name {
+                found = true;
+            }
+        }
+    });
+    found
+}
+
 /// Analyze one function/scope's statements and box captured-mutated locals.
 fn process_stmt_scope(stmts: &mut Vec<Stmt>) {
+    // (#195) Converte fn-decls aninhadas capturantes em fn-exprs ANTES de tudo,
+    // para reusar a maquinaria de captura existente.
+    convert_nested_fn_decls(stmts);
     // First, recurse into nested functions/arrows so inner scopes box their own
     // locals before we analyze this scope (a closure can declare its own
     // captured-mutated locals).
