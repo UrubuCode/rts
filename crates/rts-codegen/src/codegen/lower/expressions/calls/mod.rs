@@ -768,6 +768,28 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
             if let Some(qualified) = qualified_member_name(callee) {
+                // (cross-runtime #218/#354) `t.apply(...)` / `.call` / `.bind`
+                // onde `t` eh um LOCAL/param (valor de fn — handle Function,
+                // Proxy, ou func_addr cru) e NAO um namespace/classe/global/
+                // user-fn. Roteia via FUNCTION_APPLY_TYPED/BIND (detectam o tipo
+                // em runtime). Sem isto, `t.apply` cai no MAP_GET("apply")+trapz
+                // generico -> TRAP (ILLEGAL_INSTRUCTION). Precisa preceder os
+                // builtins/lookup pq `t.apply` tem qualified name "t.apply".
+                if let Some((obj_name, meth)) = qualified.split_once('.') {
+                    if matches!(meth, "apply" | "call" | "bind")
+                        && ctx.read_local(obj_name).is_some()
+                        && !ctx.user_fns.contains_key(obj_name)
+                        && crate::abi::global_class_lookup(obj_name).is_none()
+                    {
+                        if let Expr::Member(mem) = callee.as_ref() {
+                            if let Some(tv) =
+                                lower_function_handle_method(ctx, &mem.obj, meth, call)?
+                            {
+                                return Ok(tv);
+                            }
+                        }
+                    }
+                }
                 // Console builtin precisa preceder o lookup (#380).
                 if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
                     return Ok(tv);

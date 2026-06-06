@@ -558,6 +558,23 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
             args_handle,
         );
     }
+    // (cross-runtime #218/#354) `handle` pode ser um func_addr CRU (arrow/fn
+    // passada como VALOR a um param any/function e invocada via .apply/.call —
+    // ex. o `target` de um Proxy apply-trap: `apply(t,th,a){ t.apply(th,a) }`).
+    // O codegen registra cada user fn address-taken (com >=1 param f64) em
+    // FN_KINDS_REGISTRY pelo fn_ptr. Consulta-se ANTES de read_function_data
+    // (handle valido nunca colide com um fn_ptr). Sem isto devolvia 0.
+    {
+        let kinds = {
+            let reg = fn_kinds_registry().read().unwrap_or_else(|e| e.into_inner());
+            reg.get(&handle).cloned()
+        };
+        if let Some((param_kinds, return_kind)) = kinds {
+            let mut args = read_args_vec(args_handle);
+            normalize_f64_bits_args(&mut args, &param_kinds);
+            return unsafe { invoke_typed(handle, &args, &param_kinds, return_kind) };
+        }
+    }
     let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind) =
         match read_function_data(handle) {
             Some(d) => d,
@@ -679,7 +696,20 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
         .map(|(i, &v)| {
             let pk = param_kinds.get(i + offset).copied().unwrap_or(last_kind);
             if pk == 1 {
-                f64_to_i64(v as f64)
+                // (cross-runtime #354) heuristica igual a normalize_f64_bits_args:
+                // se `v` JA' parece bits f64 (o call site empacotou o number como
+                // bits — ex. args de um Proxy `apply` forward), deixa; senao
+                // reencoda o int cru -> bits f64. Antes era sempre
+                // `f64_to_i64(v as f64)`, que DUPLO-convertia args ja'-bits
+                // (f64bits(2.0) tratado como int 4617e15 -> satura i64::MAX).
+                let as_f = f64::from_bits(v as u64);
+                let looks_bits = as_f == 0.0
+                    || (as_f.is_finite() && as_f.abs() >= 1e-200 && as_f.abs() < 1e200);
+                if looks_bits {
+                    v
+                } else {
+                    f64_to_i64(v as f64)
+                }
             } else {
                 v
             }
