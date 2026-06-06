@@ -935,6 +935,38 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (#207 async try/catch) `await x` foi reescrito pra
+                // `promise.wait(x)`. Se a Promise awaited rejeitar, PROMISE_WAIT
+                // seta o error slot thread-local. Dentro de um `try` com catch,
+                // isso deve saltar pro catch IMEDIATAMENTE (semantica de `throw`)
+                // em vez de continuar executando o try-body. Emite o check + brif
+                // pro catch logo apos a call (espelha lower_throw_stmt, mas
+                // condicional pq `await` produz um valor usado adiante).
+                if qualified == "promise.wait" && !ctx.catch_target_stack.is_empty()
+                {
+                    let tv = lower_ns_call(ctx, &qualified, call)?;
+                    let get_fref =
+                        ctx.get_extern("__RTS_FN_RT_ERROR_GET", &[], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(get_fref, &[]);
+                    let err = ctx.builder.inst_results(inst)[0];
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    let is_err = ctx.builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                        err,
+                        zero,
+                    );
+                    let cont = ctx.builder.create_block();
+                    let cb = {
+                        let (catch_blk, targeted) =
+                            ctx.catch_target_stack.last_mut().unwrap();
+                        *targeted = true;
+                        *catch_blk
+                    };
+                    ctx.builder.ins().brif(is_err, cb, &[], cont, &[]);
+                    ctx.builder.switch_to_block(cont);
+                    ctx.builder.seal_block(cont);
+                    return Ok(tv);
+                }
                 if lookup(&qualified).is_some() {
                     return lower_ns_call(ctx, &qualified, call);
                 }
