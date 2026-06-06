@@ -112,13 +112,25 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 
     let arr = vec_handle as i64;
     // (cross-runtime #52) JS spec: map preserva holes (slot vazio
     // permanece vazio no resultado, callback nao eh invocado).
-    let result: Vec<i64> = pool().install(|| {
-        items
-            .par_iter()
-            .enumerate()
-            .map(|(i, &x)| if x == i64::MIN + 4 { x } else { f(x, i as i64, arr) })
-            .collect()
-    });
+    let map_hole = |i: usize, x: i64| if x == i64::MIN + 4 { x } else { f(x, i as i64, arr) };
+    // (cross-runtime #365) Dentro de async fn (corpo roda em tokio
+    // spawn_blocking apos um `await`), instalar no pool rayon e chamar o
+    // fn_ptr JIT em workers rayon nao-registrados na GC thread_registry
+    // crasha (ILLEGAL_INSTRUCTION). Detecta contexto tokio e roda sequencial
+    // na thread chamadora (correta, ja registrada). Codigo sync mantem rayon.
+    let result: Vec<i64> = if crate::runtime::async_rt::in_async_worker()
+        || tokio::runtime::Handle::try_current().is_ok()
+    {
+        items.iter().enumerate().map(|(i, &x)| map_hole(i, x)).collect()
+    } else {
+        pool().install(|| {
+            items
+                .par_iter()
+                .enumerate()
+                .map(|(i, &x)| map_hole(i, x))
+                .collect()
+        })
+    };
     alloc_entry(Entry::Vec(Box::new(result)))
 }
 

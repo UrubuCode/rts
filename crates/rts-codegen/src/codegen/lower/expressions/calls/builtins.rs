@@ -1290,6 +1290,38 @@ pub(super) fn lower_array_builtin(
         return Ok(Some(TypedVal::new(v, ty)));
     }
     match method {
+        // (cross-runtime #365) `.map(cb)` fallback quando o array_methods_pass
+        // NAO reescreveu pra `parallel.map` — caso tipico: corpo de async fn
+        // ja' convertido em state machine pelo `generator_sm` no parser, cujo
+        // switch interno os passes de codegen nao varrem. Sem este arm, `.map`
+        // cai no INVOKE generico (reify+call) e crasha (ILLEGAL_INSTRUCTION).
+        // Emite `parallel.map(vec, fn_ptr)` direto — mesmo resultado da
+        // reescrita. Callback eh Ident (user fn ou arrow ja' liftada pra
+        // top-level `__lifted_arr_method_N`).
+        "map" if call.args.len() == 1 && call.args[0].spread.is_none() => {
+            let cb = &call.args[0].expr;
+            let fn_ptr = if let Expr::Ident(id) = cb.as_ref() {
+                if ctx.user_fns.contains_key(id.sym.as_ref())
+                    && ctx.var_ty(id.sym.as_ref()).is_none()
+                {
+                    emit_user_fn_addr(ctx, id.sym.as_ref())?.val
+                } else {
+                    let tv = lower_expr(ctx, cb)?;
+                    ctx.coerce_to_i64(tv).val
+                }
+            } else {
+                let tv = lower_expr(ctx, cb)?;
+                ctx.coerce_to_i64(tv).val
+            };
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_PARALLEL_MAP",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
         "push" => {
             if call.args.is_empty() {
                 return Ok(None);

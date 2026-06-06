@@ -576,7 +576,14 @@ fn async_sm_step(h: u64) {
         return;
     }
     let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let ret = state_fn(h);
+    // (cross-runtime #365) o corpo da async fn roda aqui; marca a thread como
+    // async-worker pra que `parallel.map` use o caminho sequencial. Instalar
+    // no pool rayon de dentro do corpo async crasha (workers nao registrados
+    // na GC thread_registry chamando fn_ptr JIT).
+    let ret = {
+        let _aw = crate::runtime::async_rt::AsyncWorkerGuard::enter();
+        state_fn(h)
+    };
     // Le o estado pos-step.
     let (done, pending, result) = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => {

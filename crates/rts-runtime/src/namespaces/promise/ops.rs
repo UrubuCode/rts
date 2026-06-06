@@ -652,6 +652,9 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: u64, args_vec_handle: u6
     PENDING_PROMISE_TASKS.fetch_add(1, Ordering::AcqRel);
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
+        // (cross-runtime #365) marca thread como async-worker: parallel.map
+        // dentro do corpo roda sequencial (rayon-em-spawn_blocking crasha).
+        let _aw = crate::runtime::async_rt::AsyncWorkerGuard::enter();
         // Combina bound (de bind) + extra_args do caller.
         let mut all: Vec<i64> = bound;
         all.extend(extra_args);
