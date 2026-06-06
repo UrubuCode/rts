@@ -94,19 +94,29 @@ pub(super) fn lower_for_stmt(ctx: &mut FnCtx, for_stmt: &swc_ecma_ast::ForStmt) 
     ctx.builder.switch_to_block(body);
     ctx.loop_stack
         .push((exit, update_block, ctx.pending_label.take()));
-    lower_stmt(ctx, &for_stmt.body)?;
+    // `body_terminated`: o corpo terminou com return/throw incondicional.
+    // `is_unreachable()` mede ALCANCABILIDADE, nao terminacao — apos um `return`
+    // no fim do corpo o bloco continua "alcancavel" mas ja' esta' fechado, e o
+    // `jump(update_block)` viraria instrucao APOS o terminador (verifier error:
+    // "terminator before end of block"). Usa o bool de lower_stmt.
+    let body_terminated = lower_stmt(ctx, &for_stmt.body)?;
     ctx.loop_stack.pop();
-    if !ctx.builder.is_unreachable() {
+    if !body_terminated && !ctx.builder.is_unreachable() {
         ctx.builder.ins().jump(update_block, &[]);
     }
     ctx.builder.seal_block(body);
 
     ctx.builder.switch_to_block(update_block);
-    if let Some(update) = &for_stmt.update {
-        lower_expr(ctx, update)?;
-    }
+    // Se o corpo sempre termina e nao ha' `continue`, update_block fica sem
+    // predecessores (morto). Nao emite update/jump num bloco morto — Cranelift
+    // o elimina; emitir deixaria instrucoes sem terminador valido.
     if !ctx.builder.is_unreachable() {
-        ctx.builder.ins().jump(header, &[]);
+        if let Some(update) = &for_stmt.update {
+            lower_expr(ctx, update)?;
+        }
+        if !ctx.builder.is_unreachable() {
+            ctx.builder.ins().jump(header, &[]);
+        }
     }
     ctx.builder.seal_block(update_block);
     ctx.builder.seal_block(header);
