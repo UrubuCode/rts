@@ -433,10 +433,10 @@
 ,
 {
   "name": "291_json_bigint",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "err=TypeError",
   "node": "err=TypeError",
-  "rts": "err="
+  "rts": "err=TypeError"
 }
 ,
 {
@@ -961,10 +961,10 @@
 ,
 {
   "name": "76_message_channel",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "recv=pong",
   "node": "recv=pong",
-  "rts": ""
+  "rts": "recv=pong"
 }
 ,
 {
@@ -1401,9 +1401,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -1945,10 +1945,10 @@
 ,
 {
   "name": "359_obf_getter_smuggle",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
   "node": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0\n0\nnumber\nnumber\n42\n1\nundefined\n2\n94034187149639\n42"
 }
 ,
 {
@@ -2257,10 +2257,10 @@
 ,
 {
   "name": "101_textdecoder_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=caf|é",
   "node": "out=caf|é",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "out=caf|é"
 }
 ,
 {
@@ -2281,18 +2281,18 @@
 ,
 {
   "name": "88_compression_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "gzip=28",
   "node": "gzip=28",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "gzip=28"
 }
 ,
 {
   "name": "96_streams_transform",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=AB,CD",
   "node": "out=AB,CD",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "out=AB,CD"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":388,"pass":350,"rts_diverge":4,"bun_node_diverge":17,"errors":17,"rejected":0}}
+],"summary":{"total":388,"pass":356,"rts_diverge":3,"bun_node_diverge":16,"errors":13,"rejected":0}}
