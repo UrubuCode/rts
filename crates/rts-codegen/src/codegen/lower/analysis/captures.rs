@@ -219,6 +219,45 @@ fn scan_expr_for_arrows(
             scan_expr_for_arrows(&c.cons, locals, captured);
             scan_expr_for_arrows(&c.alt, locals, captured);
         }
+        // (cross-runtime #365) `await <expr>` — sem isto um arrow dentro de
+        // `await retry(() => { count++ }, n)` ficava invisivel pra deteccao de
+        // captura, e `count` nao era boxed → mutacao perdida ao cruzar a
+        // chamada async (captura snapshotada por valor).
+        Expr::Await(a) => scan_expr_for_arrows(&a.arg, locals, captured),
+        Expr::New(n) => {
+            scan_expr_for_arrows(&n.callee, locals, captured);
+            if let Some(args) = &n.args {
+                for a in args {
+                    scan_expr_for_arrows(&a.expr, locals, captured);
+                }
+            }
+        }
+        Expr::Seq(s) => {
+            for e in &s.exprs {
+                scan_expr_for_arrows(e, locals, captured);
+            }
+        }
+        Expr::Tpl(t) => {
+            for e in &t.exprs {
+                scan_expr_for_arrows(e, locals, captured);
+            }
+        }
+        Expr::Array(a) => {
+            for el in a.elems.iter().flatten() {
+                scan_expr_for_arrows(&el.expr, locals, captured);
+            }
+        }
+        Expr::Object(o) => {
+            for p in &o.props {
+                if let swc_ecma_ast::PropOrSpread::Prop(prop) = p {
+                    if let swc_ecma_ast::Prop::KeyValue(kv) = prop.as_ref() {
+                        scan_expr_for_arrows(&kv.value, locals, captured);
+                    }
+                }
+            }
+        }
+        Expr::TsAs(a) => scan_expr_for_arrows(&a.expr, locals, captured),
+        Expr::TsNonNull(n) => scan_expr_for_arrows(&n.expr, locals, captured),
         _ => {}
     }
 }
