@@ -609,10 +609,10 @@
 ,
 {
   "name": "271_computed_class_members",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sum=5\niter=1,2\nsym=ok",
   "node": "sum=5\niter=1,2\nsym=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sum=5\niter=1,2\nsym=ok"
 }
 ,
 {
@@ -929,10 +929,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -988,7 +988,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9"
+  "rts": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=5"
 }
 ,
 {
@@ -1025,10 +1025,10 @@
 ,
 {
   "name": "348_closure_optimization",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24",
   "node": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24"
 }
 ,
 {
@@ -1041,10 +1041,10 @@
 ,
 {
   "name": "41_closures_deep",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
   "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "counter=0:0\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=1"
+  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8"
 }
 ,
 {
@@ -1121,10 +1121,10 @@
 ,
 {
   "name": "379_yield_star",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "node": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5"
 }
 ,
 {
@@ -1169,10 +1169,10 @@
 ,
 {
   "name": "392_async_iterator_advanced",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "content-1,content-2,content-3,content-4,content-5,err:page 3 failed\n4,16,36,64\n0\n0\n0\n0\n281474976710781,281474976710783,281474976710817"
+  "rts": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c"
 }
 ,
 {
@@ -1377,10 +1377,10 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_error",
-  "bun": "__RUNTIME_ERROR__",
-  "node": "__RUNTIME_ERROR__",
-  "rts": "__RUNTIME_ERROR__"
+  "status": "pass",
+  "bun": "named=7\ndefault=default(x)\nsame=true\ncount=42",
+  "node": "named=7\ndefault=default(x)\nsame=true\ncount=42",
+  "rts": "named=7\ndefault=default(x)\nsame=true\ncount=42"
 }
 ,
 {
@@ -1441,10 +1441,10 @@
 ,
 {
   "name": "344_bundler_helpers",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "99 2\n2 3\n1,2,3,4\nhello from derived\ntrue\nawaiter result: 7",
   "node": "99 2\n2 3\n1,2,3,4\nhello from derived\ntrue\nawaiter result: 7",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "99 2\n2 3\n1,2,3,4\nhello from derived\ntrue\nawaiter result: 7"
 }
 ,
 {
@@ -1937,26 +1937,26 @@
 ,
 {
   "name": "354_obf_proxy_trap",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "255\ntest\n5\n20\nadd(2,3)|mul(4,5)",
   "node": "255\ntest\n5\n20\nadd(2,3)|mul(4,5)",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "255\ntest\n5\n20\nadd(2,3)|mul(4,5)"
 }
 ,
 {
   "name": "359_obf_getter_smuggle",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
   "node": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
-  "rts": "0\n0\nnumber\nnumber\n42\n1\nundefined\n2\n94034187149639\n42"
+  "rts": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42"
 }
 ,
 {
   "name": "368_iterator_protocol",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "node": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue"
 }
 ,
 {
@@ -2033,10 +2033,10 @@
 ,
 {
   "name": "361_functional_compose",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36",
   "node": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36"
 }
 ,
 {
@@ -2081,10 +2081,10 @@
 ,
 {
   "name": "386_trampoline",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue",
   "node": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue"
 }
 ,
 {
@@ -2129,10 +2129,10 @@
 ,
 {
   "name": "365_async_patterns",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
   "node": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast"
 }
 ,
 {
@@ -2617,10 +2617,10 @@
 ,
 {
   "name": "273_symbol_asynciterator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iter=2,4,6",
   "node": "iter=2,4,6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iter=2,4,6"
 }
 ,
 {
@@ -2644,15 +2644,15 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "NaN\n[object Object]\n[object Object]0.01\n1\n2\n[object Object]\nNaN\n(3,4)\nfalse"
+  "rts": "9.99\n9.99 USD\n[object Object]0.01\n1\n2\n[object Object]\nNaN\n(3,4)\nfalse"
 }
 ,
 {
   "name": "378_symbol_species_hasinstance",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue",
   "node": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue"
 }
 ,
 {
@@ -2929,10 +2929,10 @@
 ,
 {
   "name": "360_obf_iife_scope",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge",
   "node": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge"
 }
 ,
 {
@@ -3103,4 +3103,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":388,"pass":356,"rts_diverge":3,"bun_node_diverge":16,"errors":13,"rejected":0}}
+],"summary":{"total":388,"pass":371,"rts_diverge":1,"bun_node_diverge":16,"errors":0,"rejected":0}}
