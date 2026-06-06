@@ -469,6 +469,19 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
                     cranelift_codegen::ir::MemFlags::new(),
                     tv.val,
                 ),
+                // (cross-runtime #386) Bool atravessando callback indireto
+                // (`k(true)` em CPS/trampoline) precisa virar SENTINEL
+                // (true=i64::MIN+1, false=i64::MIN) para que o valor preserve a
+                // identidade boolean ate' o consumo (console.log/INSPECT decodam
+                // o sentinel -> "true"/"false"). Sem isto a bool viaja como 0/1
+                // cru e imprime "0"/"1". O callback de CPS so' repassa o valor
+                // (`result=v; return v`), nao faz aritmetica — seguro.
+                ValTy::Bool => {
+                    let raw = ctx.coerce_to_i64(tv).val;
+                    let t = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+                    let f = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                    ctx.builder.ins().select(raw, t, f)
+                }
                 _ => ctx.coerce_to_i64(tv).val,
             };
             ctx.builder.ins().call(vec_push, &[args_vec, v]);
@@ -681,7 +694,15 @@ pub(super) fn emit_function_handle_indirect_call(
                     )
                 }
             }
-            ValTy::Bool | ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
+            // (cross-runtime #386) Bool via handle Function (bind/REIFY) tambem
+            // viaja como sentinel — mesma razao do path lower_indirect_call.
+            ValTy::Bool => {
+                let raw = ctx.coerce_to_i64(tv).val;
+                let t = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+                let f = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                ctx.builder.ins().select(raw, t, f)
+            }
+            ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
         };
         ctx.builder.ins().call(vec_push, &[args_handle, v]);
     }
