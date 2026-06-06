@@ -127,6 +127,17 @@ pub fn try_build_async(name: &str, function: &Function) -> Option<(FnDecl, FnDec
         return None;
     }
 
+    // (cross-runtime #365) BAIL se o corpo tem um local capturado por uma
+    // closure aninhada E mutado. A SM async re-invoca a state-fn a cada resume
+    // com um frame NOVO; a captura por endereco do local (mecanismo do
+    // foundation de closures) fica stale apos o suspend, e a mutacao feita pela
+    // closure nao chega de volta ao frame retomado (bug: `attempts++` numa arrow
+    // chamada apos um await rendia attempts=0). O caminho nao-SM (promise.wait
+    // sincrono, sem re-invocacao de frame) preserva a captura corretamente.
+    if body_has_captured_mutated_local(&body.stmts) {
+        return None;
+    }
+
     let mut builder = SmBuilder::new();
     builder.is_async = true;
     for p in &params {
@@ -833,6 +844,309 @@ fn expr_has_await(e: &Expr) -> bool {
             .iter()
             .any(|el| el.as_ref().map(|x| expr_has_await(&x.expr)).unwrap_or(false)),
         _ => false,
+    }
+}
+
+// ── (cross-runtime #365) captura-mutada por closure ──────────────────────────
+// Detecta um `let` local do corpo que e' (a) referenciado dentro de uma closure
+// aninhada (arrow/fn-expr) E (b) alvo de mutacao (++/--/assign) em qualquer
+// lugar. Incompletude tende a "nao detectar" (mais conservador: usa a SM) — um
+// falso-negativo nao regride (so' nao corrige); um falso-positivo (bail) cai no
+// caminho nao-SM, coberto pela suite.
+fn body_has_captured_mutated_local(stmts: &[Stmt]) -> bool {
+    use std::collections::HashSet;
+    let mut lets: HashSet<String> = HashSet::new();
+    for s in stmts {
+        collect_let_names(s, &mut lets);
+    }
+    if lets.is_empty() {
+        return false;
+    }
+    let mut captured: HashSet<String> = HashSet::new();
+    let mut mutated: HashSet<String> = HashSet::new();
+    for s in stmts {
+        scan_caps_muts_stmt(s, false, &lets, &mut captured, &mut mutated);
+    }
+    lets.iter().any(|n| captured.contains(n) && mutated.contains(n))
+}
+
+/// Nomes de `let`/`const` declarados neste escopo (desce em control-flow, NAO em
+/// corpos de closure — esses sao escopos proprios).
+fn collect_let_names(s: &Stmt, out: &mut std::collections::HashSet<String>) {
+    match s {
+        Stmt::Decl(Decl::Var(v)) => {
+            for d in &v.decls {
+                if let Pat::Ident(id) = &d.name {
+                    out.insert(id.id.sym.to_string());
+                }
+            }
+        }
+        Stmt::If(i) => {
+            collect_let_names(&i.cons, out);
+            if let Some(a) = i.alt.as_deref() {
+                collect_let_names(a, out);
+            }
+        }
+        Stmt::Block(b) => b.stmts.iter().for_each(|s| collect_let_names(s, out)),
+        Stmt::While(w) => collect_let_names(&w.body, out),
+        Stmt::DoWhile(w) => collect_let_names(&w.body, out),
+        Stmt::For(f) => {
+            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_ref() {
+                for d in &vd.decls {
+                    if let Pat::Ident(id) = &d.name {
+                        out.insert(id.id.sym.to_string());
+                    }
+                }
+            }
+            collect_let_names(&f.body, out);
+        }
+        Stmt::ForOf(f) => collect_let_names(&f.body, out),
+        Stmt::ForIn(f) => collect_let_names(&f.body, out),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().for_each(|s| collect_let_names(s, out));
+            if let Some(h) = &t.handler {
+                h.body.stmts.iter().for_each(|s| collect_let_names(s, out));
+            }
+            if let Some(fin) = &t.finalizer {
+                fin.stmts.iter().for_each(|s| collect_let_names(s, out));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_caps_muts_stmt(
+    s: &Stmt,
+    in_closure: bool,
+    lets: &std::collections::HashSet<String>,
+    cap: &mut std::collections::HashSet<String>,
+    mutd: &mut std::collections::HashSet<String>,
+) {
+    match s {
+        Stmt::Expr(e) => scan_caps_muts_expr(&e.expr, in_closure, lets, cap, mutd),
+        Stmt::Return(r) => {
+            if let Some(a) = r.arg.as_deref() {
+                scan_caps_muts_expr(a, in_closure, lets, cap, mutd);
+            }
+        }
+        Stmt::Decl(Decl::Var(v)) => {
+            for d in &v.decls {
+                if let Some(e) = d.init.as_deref() {
+                    scan_caps_muts_expr(e, in_closure, lets, cap, mutd);
+                }
+            }
+        }
+        Stmt::If(i) => {
+            scan_caps_muts_expr(&i.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&i.cons, in_closure, lets, cap, mutd);
+            if let Some(a) = i.alt.as_deref() {
+                scan_caps_muts_stmt(a, in_closure, lets, cap, mutd);
+            }
+        }
+        Stmt::Block(b) => b
+            .stmts
+            .iter()
+            .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd)),
+        Stmt::While(w) => {
+            scan_caps_muts_expr(&w.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&w.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::DoWhile(w) => {
+            scan_caps_muts_expr(&w.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&w.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::For(f) => {
+            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_ref() {
+                for d in &vd.decls {
+                    if let Some(e) = d.init.as_deref() {
+                        scan_caps_muts_expr(e, in_closure, lets, cap, mutd);
+                    }
+                }
+            } else if let Some(swc_ecma_ast::VarDeclOrExpr::Expr(e)) = f.init.as_ref() {
+                scan_caps_muts_expr(e, in_closure, lets, cap, mutd);
+            }
+            if let Some(t) = f.test.as_deref() {
+                scan_caps_muts_expr(t, in_closure, lets, cap, mutd);
+            }
+            if let Some(u) = f.update.as_deref() {
+                scan_caps_muts_expr(u, in_closure, lets, cap, mutd);
+            }
+            scan_caps_muts_stmt(&f.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::ForOf(f) => {
+            scan_caps_muts_expr(&f.right, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&f.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::ForIn(f) => {
+            scan_caps_muts_expr(&f.right, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&f.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::Try(t) => {
+            t.block
+                .stmts
+                .iter()
+                .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            if let Some(h) = &t.handler {
+                h.body
+                    .stmts
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            }
+            if let Some(fin) = &t.finalizer {
+                fin.stmts
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            }
+        }
+        Stmt::Throw(t) => scan_caps_muts_expr(&t.arg, in_closure, lets, cap, mutd),
+        Stmt::Switch(sw) => {
+            scan_caps_muts_expr(&sw.discriminant, in_closure, lets, cap, mutd);
+            for c in &sw.cases {
+                if let Some(t) = &c.test {
+                    scan_caps_muts_expr(t, in_closure, lets, cap, mutd);
+                }
+                c.cons
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_caps_muts_expr(
+    e: &Expr,
+    in_closure: bool,
+    lets: &std::collections::HashSet<String>,
+    cap: &mut std::collections::HashSet<String>,
+    mutd: &mut std::collections::HashSet<String>,
+) {
+    match e {
+        Expr::Ident(id) => {
+            if in_closure {
+                let n = id.sym.to_string();
+                if lets.contains(&n) {
+                    cap.insert(n);
+                }
+            }
+        }
+        Expr::Update(u) => {
+            if let Expr::Ident(id) = u.arg.as_ref() {
+                let n = id.sym.to_string();
+                if lets.contains(&n) {
+                    mutd.insert(n);
+                }
+            }
+            scan_caps_muts_expr(&u.arg, in_closure, lets, cap, mutd);
+        }
+        Expr::Assign(a) => {
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Ident(id),
+            ) = &a.left
+            {
+                let n = id.id.sym.to_string();
+                if lets.contains(&n) {
+                    mutd.insert(n);
+                }
+            }
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(m),
+            ) = &a.left
+            {
+                scan_caps_muts_expr(&m.obj, in_closure, lets, cap, mutd);
+            }
+            scan_caps_muts_expr(&a.right, in_closure, lets, cap, mutd);
+        }
+        Expr::Arrow(arrow) => match arrow.body.as_ref() {
+            swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => b
+                .stmts
+                .iter()
+                .for_each(|s| scan_caps_muts_stmt(s, true, lets, cap, mutd)),
+            swc_ecma_ast::BlockStmtOrExpr::Expr(ex) => {
+                scan_caps_muts_expr(ex, true, lets, cap, mutd)
+            }
+        },
+        Expr::Fn(fnx) => {
+            if let Some(b) = &fnx.function.body {
+                b.stmts
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, true, lets, cap, mutd));
+            }
+        }
+        Expr::Call(c) => {
+            if let Callee::Expr(ce) = &c.callee {
+                scan_caps_muts_expr(ce, in_closure, lets, cap, mutd);
+            }
+            for a in &c.args {
+                scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::New(n) => {
+            scan_caps_muts_expr(&n.callee, in_closure, lets, cap, mutd);
+            if let Some(args) = &n.args {
+                for a in args {
+                    scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd);
+                }
+            }
+        }
+        Expr::Member(m) => {
+            scan_caps_muts_expr(&m.obj, in_closure, lets, cap, mutd);
+            if let swc_ecma_ast::MemberProp::Computed(c) = &m.prop {
+                scan_caps_muts_expr(&c.expr, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::Bin(b) => {
+            scan_caps_muts_expr(&b.left, in_closure, lets, cap, mutd);
+            scan_caps_muts_expr(&b.right, in_closure, lets, cap, mutd);
+        }
+        Expr::Unary(u) => scan_caps_muts_expr(&u.arg, in_closure, lets, cap, mutd),
+        Expr::Paren(p) => scan_caps_muts_expr(&p.expr, in_closure, lets, cap, mutd),
+        Expr::Await(a) => scan_caps_muts_expr(&a.arg, in_closure, lets, cap, mutd),
+        Expr::Yield(y) => {
+            if let Some(arg) = &y.arg {
+                scan_caps_muts_expr(arg, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::Cond(c) => {
+            scan_caps_muts_expr(&c.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_expr(&c.cons, in_closure, lets, cap, mutd);
+            scan_caps_muts_expr(&c.alt, in_closure, lets, cap, mutd);
+        }
+        Expr::Seq(s) => s
+            .exprs
+            .iter()
+            .for_each(|x| scan_caps_muts_expr(x, in_closure, lets, cap, mutd)),
+        Expr::Tpl(t) => t
+            .exprs
+            .iter()
+            .for_each(|x| scan_caps_muts_expr(x, in_closure, lets, cap, mutd)),
+        Expr::Array(a) => {
+            for el in a.elems.iter().flatten() {
+                scan_caps_muts_expr(&el.expr, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::Object(o) => {
+            for p in &o.props {
+                if let swc_ecma_ast::PropOrSpread::Prop(prop) = p {
+                    if let swc_ecma_ast::Prop::KeyValue(kv) = prop.as_ref() {
+                        scan_caps_muts_expr(&kv.value, in_closure, lets, cap, mutd);
+                    }
+                }
+            }
+        }
+        Expr::TsAs(a) => scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd),
+        Expr::TsNonNull(a) => scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd),
+        Expr::OptChain(o) => {
+            if let swc_ecma_ast::OptChainBase::Member(m) = o.base.as_ref() {
+                scan_caps_muts_expr(&m.obj, in_closure, lets, cap, mutd);
+            } else if let swc_ecma_ast::OptChainBase::Call(c) = o.base.as_ref() {
+                scan_caps_muts_expr(&c.callee, in_closure, lets, cap, mutd);
+                for a in &c.args {
+                    scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
