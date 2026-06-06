@@ -158,6 +158,17 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "allSettled",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_PROMISE_ALL_SETTLED",
+        args: &[AbiType::U64],
+        returns: AbiType::Handle,
+        doc: "Promise.allSettled(promises): aguarda TODAS settle (nunca rejeita). Resolve com Vec de objetos {status, value} | {status, reason}. Equivalente a `Promise.allSettled` JS.",
+        ts_signature: "allSettled(promises: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "any",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_PROMISE_ANY",

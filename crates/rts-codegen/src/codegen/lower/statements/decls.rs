@@ -886,8 +886,33 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                             | "allSettled" | "any"
                                         )
                                     {
-                                        ctx.local_class_ty
-                                            .insert(name.clone(), "Promise".to_string());
+                                        // (#207) `await Promise.{all,allSettled,any,race}(...)`
+                                        // desembrulha Promise<Array> -> o resultado eh um
+                                        // ARRAY. Marca como local_array_var p/ `.map`/
+                                        // `.forEach`/etc rotearem ao builtin de array (sem
+                                        // isso `r.map(...)` despachava como metodo de Promise
+                                        // -> crash). Sem await, `const p = Promise.X(...)`
+                                        // continua sendo Promise (p/ `.then`).
+                                        fn init_has_await(e: &swc_ecma_ast::Expr) -> bool {
+                                            match e {
+                                                swc_ecma_ast::Expr::Await(_) => true,
+                                                swc_ecma_ast::Expr::Paren(p) => {
+                                                    init_has_await(&p.expr)
+                                                }
+                                                _ => false,
+                                            }
+                                        }
+                                        if init_has_await(init.as_ref())
+                                            && matches!(
+                                                mid.sym.as_str(),
+                                                "all" | "allSettled" | "any" | "race"
+                                            )
+                                        {
+                                            ctx.local_array_vars.insert(name.clone());
+                                        } else {
+                                            ctx.local_class_ty
+                                                .insert(name.clone(), "Promise".to_string());
+                                        }
                                     }
                                 }
                                 // Class.staticMethod(...) → propaga ret_class.
