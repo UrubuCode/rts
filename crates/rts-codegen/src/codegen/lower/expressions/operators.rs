@@ -548,7 +548,30 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
                 return Ok(TypedVal::new(v, ValTy::Bool));
             }
         }
-        let key_tv = lower_expr(ctx, &bin.left)?;
+        // (cross-runtime #378) `Symbol.X in obj` — use the stable "Symbol.X"
+        // string key (class methods + object computed-symbol props are stored
+        // under it), instead of lowering the symbol value to a number.
+        let symbol_key: Option<String> = if let Expr::Member(mm) = bin.left.as_ref() {
+            if let (Expr::Ident(o), swc_ecma_ast::MemberProp::Ident(p)) =
+                (mm.obj.as_ref(), &mm.prop)
+            {
+                if o.sym.as_str() == "Symbol" {
+                    Some(format!("Symbol.{}", p.sym.as_str()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let key_tv = if symbol_key.is_some() {
+            // Defer — build the handle below from the string key.
+            TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64)
+        } else {
+            lower_expr(ctx, &bin.left)?
+        };
         let obj_tv = lower_expr(ctx, &bin.right)?;
         // (#83) Aceita tambem I64/U64 — em callbacks de array methods o
         // param vem como I64 raw carregando handle. Sem isso `"key" in y`
@@ -560,7 +583,11 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         ) {
             // Coerce key para handle: string literals/handles passam direto,
             // numbers viram string handle via gc.string_from_i64/f64.
-            let key_h = ctx.coerce_to_handle(key_tv)?.val;
+            let key_h = if let Some(sk) = &symbol_key {
+                ctx.emit_str_handle(sk.as_bytes())?.val
+            } else {
+                ctx.coerce_to_handle(key_tv)?.val
+            };
             let obj_h = obj_tv.val;
             let fref = ctx.get_extern(
                 "__RTS_FN_NS_COLLECTIONS_OBJ_HAS",

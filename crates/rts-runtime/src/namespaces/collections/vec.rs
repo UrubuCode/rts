@@ -682,6 +682,32 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(handle: u64, arg: i6
     });
     if let Some(items) = as_vec {
         with_vec_mut(handle, (), |v| v.extend(items));
+        return handle;
+    }
+    // (cross-runtime #378) Array-like object with [Symbol.isConcatSpreadable] =
+    // true (truthy bool sentinel): spread its 0..length indexed elements, per
+    // Array.prototype.concat. `{0:4,1:5,length:2,[Symbol.isConcatSpreadable]:true}`
+    // → 4,5.
+    let spread: Option<Vec<i64>> = with_entry(arg_h, |entry| match entry {
+        Some(Entry::Map(m)) => {
+            let spreadable = matches!(
+                m.get("Symbol.isConcatSpreadable").copied(),
+                Some(v) if v == i64::MIN + 1
+            );
+            if !spreadable {
+                return None;
+            }
+            let len = m.get("length").copied().unwrap_or(0).max(0);
+            let mut items = Vec::with_capacity(len as usize);
+            for i in 0..len {
+                items.push(m.get(&i.to_string()).copied().unwrap_or(0));
+            }
+            Some(items)
+        }
+        _ => None,
+    });
+    if let Some(items) = spread {
+        with_vec_mut(handle, (), |v| v.extend(items));
     } else {
         with_vec_mut(handle, (), |v| v.push(arg));
     }

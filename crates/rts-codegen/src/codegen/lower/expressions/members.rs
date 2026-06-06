@@ -225,6 +225,28 @@ fn emit_map_extend(
     Ok(())
 }
 
+/// (cross-runtime #378/#216) If `e` is a well-known symbol member like
+/// `Symbol.iterator` / `Symbol.isConcatSpreadable`, returns its stable string
+/// key `"Symbol.<name>"`. None otherwise.
+fn symbol_member_key(e: &Expr) -> Option<String> {
+    if let Expr::Member(m) = e {
+        if let (Expr::Ident(o), swc_ecma_ast::MemberProp::Ident(p)) = (m.obj.as_ref(), &m.prop) {
+            if o.sym.as_str() == "Symbol" {
+                let name = p.sym.as_str();
+                // Only DATA well-known symbols (plain stored flags) route to the
+                // "Symbol.<name>" string key. METHOD symbols (iterator/
+                // asyncIterator/toPrimitive/hasInstance) keep their existing
+                // object-Symbol-method storage/read path — moving them here
+                // would desync the readers (regresses 273/274).
+                if matches!(name, "isConcatSpreadable" | "species" | "toStringTag" | "unscopables") {
+                    return Some(format!("Symbol.{name}"));
+                }
+            }
+        }
+    }
+    None
+}
+
 pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -> Result<TypedVal> {
     use swc_ecma_ast::{Prop, PropName, PropOrSpread};
 
@@ -270,6 +292,12 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
                         // Caso comum: literal string dentro do []
                         if let Expr::Lit(swc_ecma_ast::Lit::Str(s)) = c.expr.as_ref() {
                             KeySrc::Static(s.value.to_string_lossy().to_string())
+                        } else if let Some(sk) = symbol_member_key(c.expr.as_ref()) {
+                            // (cross-runtime #378/#216) `[Symbol.iterator]` /
+                            // `[Symbol.isConcatSpreadable]` etc — store under the
+                            // stable "Symbol.<name>" string key (same convention
+                            // as class computed methods).
+                            KeySrc::Static(sk)
                         } else {
                             KeySrc::Computed(c.expr.clone())
                         }
