@@ -80,3 +80,35 @@ pub fn handle() -> tokio::runtime::Handle {
 pub fn in_tokio_thread() -> bool {
     tokio::runtime::Handle::try_current().is_ok()
 }
+
+thread_local! {
+    /// (cross-runtime #365) Marca quando a thread atual esta executando o
+    /// corpo de uma async fn (via `promise.create` em `spawn_blocking`).
+    /// Threads de `spawn_blocking` NAO tem contexto tokio (`try_current`
+    /// retorna Err), entao `in_tokio_thread()` nao basta. `parallel.map`
+    /// consulta esta flag pra rodar sequencial em vez de instalar no pool
+    /// rayon — chamar o fn_ptr JIT em workers rayon nao-registrados na GC
+    /// thread_registry crasha (ILLEGAL_INSTRUCTION).
+    static IN_ASYNC_WORKER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII guard: marca a thread como async-worker enquanto vivo (reentrante).
+pub struct AsyncWorkerGuard(());
+
+impl AsyncWorkerGuard {
+    pub fn enter() -> Self {
+        IN_ASYNC_WORKER.with(|c| c.set(c.get() + 1));
+        AsyncWorkerGuard(())
+    }
+}
+
+impl Drop for AsyncWorkerGuard {
+    fn drop(&mut self) {
+        IN_ASYNC_WORKER.with(|c| c.set(c.get().saturating_sub(1)));
+    }
+}
+
+/// True se a thread atual executa o corpo de uma async fn.
+pub fn in_async_worker() -> bool {
+    IN_ASYNC_WORKER.with(|c| c.get() > 0)
+}

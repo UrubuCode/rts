@@ -56,6 +56,24 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
     if is_sm {
         return __RTS_FN_NS_GC_GEN_SM_NEXT(vec_handle);
     }
+    // (cross-runtime #344) The `.next()` routing was broadened to ambiguous
+    // handle locals, so it also reaches plain-object custom iterators
+    // (`const it = { next() {...} }`, a Map handle with an own `next` member).
+    // Class-instance iterators are excluded upstream (local_class_ty), and their
+    // method lives on the prototype, not the instance Map — so an own `next`
+    // member here means a user iterator object. Invoke its method with
+    // `this` = the object and return its `{value, done}` directly.
+    let custom_next = with_entry(vec_handle, |e| match e {
+        Some(Entry::Map(m)) => m.get("next").copied().filter(|&v| v != 0),
+        _ => None,
+    });
+    if let Some(next_fn) = custom_next {
+        return crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_CALL(
+            next_fn as u64,
+            vec_handle as i64,
+            0,
+        ) as u64;
+    }
     let len = with_entry(vec_handle, |e| match e {
         Some(Entry::Vec(v)) => Some(v.len()),
         _ => None,
@@ -173,6 +191,10 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         pending_await: None,
         awaited_val: UNDEFINED,
         awaited_rejected: false,
+        sent: UNDEFINED,
+        catch_state: -1,
+        is_async_gen: false,
+        next_promise: None,
     })))
 }
 
@@ -243,11 +265,42 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DONE(h: u64, ret: i64) -> i64 {
     ret
 }
 
+/// `__RTS_GEN_SM_SENT(h)` — valor passado no ultimo `gen.next(v)` (#211
+/// value-passing). Lido pela state-machine na retomada: `const x = yield E`
+/// vira `yield E; x = SENT(g)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_SENT(h: u64) -> i64 {
+    with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.sent,
+        _ => UNDEFINED,
+    })
+}
+
+/// `gen.next(v)` com argumento (#211 value-passing): injeta `v` como o valor
+/// `sent` do generator e avanca. Para a primeira chamada (antes do 1o yield) o
+/// valor eh ignorado pela maquina (nao ha' estado pos-yield que o leia), igual
+/// a' spec JS.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT_SENT(h: u64, arg: i64) -> u64 {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.sent = arg;
+        }
+    });
+    __RTS_FN_NS_GC_GENERATOR_NEXT(h)
+}
+
 /// `gen.next()` para generators lazy (Entry::GenState). Invoca a fn de estado
 /// (que avanca ate o proximo yield), le o flag `done` e monta `{value, done}`.
 /// Se ja' terminado, devolve `{value:undefined, done:true}` sem reinvocar.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEXT(h: u64) -> u64 {
+    // (cross-runtime #392) async generator: `.next()` devolve Promise<{value,
+    // done}>; `await it.next()` desempacota e o for-await aguarda. Sync gen segue.
+    let is_agen = with_entry(h, |e| matches!(e, Some(Entry::GenState(g)) if g.is_async_gen));
+    if is_agen {
+        return __RTS_FN_NS_GC_AGEN_NEXT(h);
+    }
     let (fn_ptr, already_done) = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => (g.fn_ptr, g.done),
         _ => (0u64, true),
@@ -286,6 +339,29 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_RETURN(h: u64, value: i64) -> u64 {
 /// propaga: marca done e seta o error slot (caller re-lanca).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_THROW(h: u64, err: i64) -> u64 {
+    // (#211 try/catch) Se ha' um catch ativo, salta para ele com `err` em
+    // pending_val (lido via CAUGHT) e re-invoca. O catch absorve a excecao.
+    let (fn_ptr, catch_state, done0) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => (g.fn_ptr, g.catch_state, g.done),
+        _ => (0u64, -1, true),
+    });
+    if catch_state >= 0 && !done0 && fn_ptr != 0 {
+        with_entry_mut(h, |e| {
+            if let Some(Entry::GenState(g)) = e {
+                g.pending_val = err;
+                g.state = catch_state;
+                g.catch_state = -1; // throw dentro do catch propaga (nao re-loop)
+            }
+        });
+        let state_fn: extern "C" fn(u64) -> i64 =
+            unsafe { std::mem::transmute(fn_ptr as usize) };
+        let yielded = state_fn(h);
+        let done = with_entry(h, |e| match e {
+            Some(Entry::GenState(g)) => g.done,
+            _ => true,
+        });
+        return make_result(yielded, done);
+    }
     let has_finally = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.finally_state >= 0 && !g.done,
         _ => false,
@@ -349,6 +425,39 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_ENTER_TRY(h: u64, finally_state: i64) {
     });
 }
 
+/// `__RTS_GEN_SM_ENTER_TRY_CATCH(h, catch_state)` (#211) — registra o estado de
+/// entrada do `catch`. `.throw(e)` suspenso dentro da try salta para ele.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH(h: u64, catch_state: i64) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.catch_state = catch_state;
+        }
+    });
+}
+
+/// `__RTS_GEN_SM_EXIT_TRY_CATCH(h)` (#211) — limpa o catch ativo (saida normal
+/// do try body, sem excecao). Um `.throw` posterior nao roteia mais p/ esse
+/// catch.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH(h: u64) {
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.catch_state = -1;
+        }
+    });
+}
+
+/// `__RTS_GEN_SM_CAUGHT(h)` (#211) — valor da excecao capturada (a binding do
+/// `catch (e)`). Lido no inicio do estado do catch.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_CAUGHT(h: u64) -> i64 {
+    with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.pending_val,
+        _ => UNDEFINED,
+    })
+}
+
 /// `__RTS_GEN_SM_END_FINALLY(h)` — chamado ao fim do bloco finally. Limpa a
 /// try-region ativa e honra a completion pendente: para `return`, retorna
 /// `DONE(pending_val)`; para `throw`, seta o error slot e marca done. Devolve o
@@ -399,6 +508,43 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_END_FINALLY(h: u64) -> i64 {
 /// state-machine (finito). O valor de `return X` NAO entra (semantica iterador).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64 {
+    // (cross-runtime #392) async generator: drena via AGEN_NEXT (que bombeia
+    // alem dos awaits internos e devolve Promise<{value,done}> ja' resolvida).
+    // Coleta os valores yieldados num Vec; se o corpo lancar, AGEN_NEXT rejeita
+    // -> PROMISE_WAIT seta o error slot -> paramos (o for-of itera o que ja' foi
+    // coletado e o try/catch ao redor pega a excecao no fall-through). Sem isto
+    // a drena chamaria a state-fn crua e empurraria os dummies dos awaits (0).
+    let is_agen = with_entry(h, |e| matches!(e, Some(Entry::GenState(g)) if g.is_async_gen));
+    if is_agen {
+        let mut out: Vec<i64> = Vec::new();
+        loop {
+            let done = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => g.done,
+                _ => true,
+            });
+            if done {
+                break;
+            }
+            let p = __RTS_FN_NS_GC_AGEN_NEXT(h);
+            let result_map = crate::namespaces::promise::ops::__RTS_FN_NS_PROMISE_WAIT(p);
+            // Throw dentro do corpo: AGEN_NEXT rejeitou -> error slot setado.
+            if crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET() != 0 {
+                break;
+            }
+            let (val, dn) = with_entry(result_map as u64, |e| match e {
+                Some(Entry::Map(m)) => (
+                    m.get("value").copied().unwrap_or(UNDEFINED),
+                    m.get("done").copied() == Some(BOOL_TRUE),
+                ),
+                _ => (UNDEFINED, true),
+            });
+            if dn {
+                break;
+            }
+            out.push(val);
+        }
+        return alloc_entry(Entry::Vec(Box::new(out)));
+    }
     let fn_ptr = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.fn_ptr,
         _ => 0,
@@ -458,7 +604,138 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         pending_await: None,
         awaited_val: UNDEFINED,
         awaited_rejected: false,
+        sent: UNDEFINED,
+        catch_state: -1,
+        is_async_gen: false,
+        next_promise: None,
     })))
+}
+
+/// (cross-runtime #392) `__RTS_AGEN_NEW(fn_ptr, nslots)` — aloca um async
+/// generator lazy: yield (gera valores) + await (suspende). Lazy: nao roda nada
+/// ate o 1o `.next()`. `is_async=true` habilita SUSPEND/AWAITED; `is_async_gen`
+/// roteia o driver `agen_step`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEW(fn_ptr: u64, nslots: i64) -> u64 {
+    let n = if nslots < 0 { 0 } else { nslots as usize };
+    alloc_entry(Entry::GenState(Box::new(GenStateData {
+        fn_ptr,
+        state: 0,
+        frame: vec![0i64; n],
+        ret: UNDEFINED,
+        done: false,
+        finally_state: -1,
+        pending_kind: 0,
+        pending_val: UNDEFINED,
+        is_async: true,
+        result_promise: None,
+        pending_await: None,
+        awaited_val: UNDEFINED,
+        awaited_rejected: false,
+        sent: UNDEFINED,
+        catch_state: -1,
+        is_async_gen: true,
+        next_promise: None,
+    })))
+}
+
+/// (cross-runtime #392) `gen.next()` de um async generator: devolve uma
+/// `Promise<{value,done}>` JA' RESOLVIDA. Dispara o driver e, se o corpo
+/// suspende num `await` interno, BOMBEIA o event loop (microtasks/timers) ate a
+/// next_promise settle — mesmo padrao do `promise.wait`. Isso evita o deadlock
+/// onde o caller (`await it.next()`) e o await interno do gen dependem do mesmo
+/// drain: aqui o drain roda inline antes de retornar.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEXT(h: u64) -> u64 {
+    use crate::namespaces::gc::promise_slot;
+    let result = promise_slot::new_pending();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+    let already_done = with_entry_mut(h, |e| match e {
+        Some(Entry::GenState(g)) => {
+            g.next_promise = Some(result.clone());
+            g.done
+        }
+        _ => true,
+    });
+    if already_done {
+        let r = make_result(UNDEFINED, true);
+        promise_slot::resolve(&result, r as i64);
+        return result_handle;
+    }
+    agen_step(h);
+    // Bombeia ate a next_promise settle (gen suspendeu em await interno).
+    if promise_slot::current_state(&result) == promise_slot::STATE_PENDING {
+        use std::time::{Duration, Instant};
+        use crate::namespaces::globals::timers::instance as timers;
+        let cap = Instant::now() + Duration::from_secs(5);
+        while promise_slot::current_state(&result) == promise_slot::STATE_PENDING {
+            crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+            timers::pump_due_macrotasks();
+            if promise_slot::current_state(&result) != promise_slot::STATE_PENDING {
+                break;
+            }
+            let now = Instant::now();
+            if now >= cap {
+                break;
+            }
+            if let Some(next) = timers::next_macrotask_deadline() {
+                let wake = next.min(cap);
+                if wake > now {
+                    std::thread::sleep((wake - now).min(Duration::from_millis(20)));
+                }
+            } else {
+                // Sem timers pendentes: pequena cedencia pra tasks tokio
+                // (Promise.resolve/all resolvidas por threads) settarem.
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+    result_handle
+}
+
+/// Driver do async generator: invoca a state-fn (avanca ate o proximo yield,
+/// await, ou done). Suspendeu em await => enfileira retomada (next_promise fica
+/// pendente). Alcancou yield/done => resolve a next_promise com {value,done}
+/// (ou rejeita se o corpo lancou).
+fn agen_step(h: u64) {
+    use crate::namespaces::gc::promise_slot;
+    let fn_ptr = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.fn_ptr,
+        _ => 0,
+    });
+    if fn_ptr == 0 {
+        return;
+    }
+    let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let rv = {
+        let _aw = crate::runtime::async_rt::AsyncWorkerGuard::enter();
+        state_fn(h)
+    };
+    let (done, pending, np) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => {
+            (g.done, g.pending_await.clone(), g.next_promise.clone())
+        }
+        _ => (true, None, None),
+    });
+    if let Some(src) = pending {
+        crate::namespaces::globals::text_encoding::instance::enqueue_microtask_async_resume(h, src);
+        return;
+    }
+    if let Some(np) = np {
+        let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
+        if err != 0 {
+            crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+            promise_slot::reject(&np, err as i64);
+        } else {
+            let res = make_result(rv, done);
+            promise_slot::resolve(&np, res as i64);
+        }
+        with_entry_mut(h, |e| {
+            if let Some(Entry::GenState(g)) = e {
+                g.next_promise = None;
+            }
+        });
+    }
 }
 
 /// `__RTS_GEN_SM_ASYNC_START(h)` — aloca a promise-resultado pendente, guarda no
@@ -483,6 +760,13 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_START(h: u64) -> u64 {
 /// um AsyncResume sobre a awaited; se terminou (done), settla a result_promise.
 fn async_sm_step(h: u64) {
     use crate::namespaces::gc::promise_slot;
+    // (cross-runtime #392) async generator: driver proprio (resolve a Promise do
+    // .next() corrente a cada yield, nao apenas no done).
+    let is_agen = with_entry(h, |e| matches!(e, Some(Entry::GenState(g)) if g.is_async_gen));
+    if is_agen {
+        agen_step(h);
+        return;
+    }
     let fn_ptr = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.fn_ptr,
         _ => 0,
@@ -491,7 +775,14 @@ fn async_sm_step(h: u64) {
         return;
     }
     let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    let ret = state_fn(h);
+    // (cross-runtime #365) o corpo da async fn roda aqui; marca a thread como
+    // async-worker pra que `parallel.map` use o caminho sequencial. Instalar
+    // no pool rayon de dentro do corpo async crasha (workers nao registrados
+    // na GC thread_registry chamando fn_ptr JIT).
+    let ret = {
+        let _aw = crate::runtime::async_rt::AsyncWorkerGuard::enter();
+        state_fn(h)
+    };
     // Le o estado pos-step.
     let (done, pending, result) = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => {
@@ -674,4 +965,151 @@ pub extern "C" fn __RTS_FN_GL_ITERATOR_TO_ARRAY(it_handle: u64) -> u64 {
         Vec::new()
     };
     alloc_entry(Entry::Vec(Box::new(rest)))
+}
+
+// ── yield* lazy delegation (#477/#211) ───────────────────────────────────────
+// `yield* SRC` na state-machine: em vez de materializar SRC inteiro (eager,
+// estoura em delegado infinito), iteramos SRC um valor por vez e RE-YIELDAMOS
+// cada um, suspendendo entre eles. O estado do iterador delegado vive
+// runtime-side (keyed pelo handle): para um GenState eh o proprio `.done`; para
+// um Vec eh o cursor em GEN_CURSORS. So' o HANDLE entra no frame do generator
+// externo, entao a delegacao sobrevive a suspensao/retomada do externo.
+
+thread_local! {
+    /// Done-flag do ultimo DELEGATE_NEXT por handle de iterador delegado.
+    static DELEGATE_DONE: RefCell<HashMap<u64, bool>> = RefCell::new(HashMap::new());
+}
+
+fn set_delegate_done(h: u64, d: bool) {
+    DELEGATE_DONE.with(|c| {
+        c.borrow_mut().insert(h, d);
+    });
+}
+
+/// `__RTS_GEN_DELEGATE_START(src)` — normaliza a fonte de um `yield*` num handle
+/// de iterador. Generator (GenState) -> ele mesmo (ja' eh iterador). Array (Vec)
+/// -> uma copia com cursor (ITERATOR_FROM). String -> Vec de chars (1 handle por
+/// caractere). Outro -> passthrough (assume iterador).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_START(src: i64) -> i64 {
+    let h = src as u64;
+    let kind = with_entry(h, |e| match e {
+        Some(Entry::GenState(_)) => 1u8,
+        Some(Entry::Vec(_)) => 2,
+        Some(Entry::String(_)) => 3,
+        _ => 0,
+    });
+    match kind {
+        1 => src, // generator: ja' eh iterador
+        2 => __RTS_FN_GL_ITERATOR_FROM(h) as i64,
+        3 => {
+            // String iteravel: cada char vira um handle de String de 1 char.
+            let s: String = with_entry(h, |e| match e {
+                Some(Entry::String(bytes)) => String::from_utf8_lossy(bytes).into_owned(),
+                _ => String::new(),
+            });
+            let chars: Vec<i64> = s
+                .chars()
+                .map(|c| alloc_entry(Entry::String(c.to_string().into_bytes())) as i64)
+                .collect();
+            let vh = alloc_entry(Entry::Vec(Box::new(chars)));
+            GEN_CURSORS.with(|c| {
+                c.borrow_mut().insert(vh, 0);
+            });
+            vh as i64
+        }
+        _ => src,
+    }
+}
+
+/// `__RTS_GEN_DELEGATE_NEXT(it)` — avanca o iterador delegado um passo. Devolve o
+/// valor produzido (ou UNDEFINED se esgotou); o flag done fica acessivel via
+/// `__RTS_GEN_DELEGATE_DONE(it)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_NEXT(it: i64) -> i64 {
+    let h = it as u64;
+    let kind = with_entry(h, |e| match e {
+        Some(Entry::GenState(_)) => 1u8,
+        Some(Entry::Vec(_)) => 2,
+        _ => 0,
+    });
+    match kind {
+        1 => {
+            let (fn_ptr, done0) = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => (g.fn_ptr, g.done),
+                _ => (0u64, true),
+            });
+            if fn_ptr == 0 || done0 {
+                set_delegate_done(h, true);
+                return UNDEFINED;
+            }
+            let state_fn: extern "C" fn(u64) -> i64 =
+                unsafe { std::mem::transmute(fn_ptr as usize) };
+            let v = state_fn(h);
+            let done = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => g.done,
+                _ => true,
+            });
+            set_delegate_done(h, done);
+            if done { UNDEFINED } else { v }
+        }
+        2 => {
+            let len = with_entry(h, |e| match e {
+                Some(Entry::Vec(v)) => v.len(),
+                _ => 0,
+            });
+            let cursor = GEN_CURSORS.with(|c| *c.borrow_mut().entry(h).or_insert(0));
+            if cursor < len {
+                let val = with_entry(h, |e| match e {
+                    Some(Entry::Vec(v)) => v.get(cursor).copied().unwrap_or(UNDEFINED),
+                    _ => UNDEFINED,
+                });
+                GEN_CURSORS.with(|c| {
+                    if let Some(cur) = c.borrow_mut().get_mut(&h) {
+                        *cur += 1;
+                    }
+                });
+                set_delegate_done(h, false);
+                val
+            } else {
+                set_delegate_done(h, true);
+                UNDEFINED
+            }
+        }
+        _ => {
+            set_delegate_done(h, true);
+            UNDEFINED
+        }
+    }
+}
+
+/// `__RTS_SYMBOL_ITERATOR_OF(obj)` (#222) — leitura de `obj[Symbol.iterator]`
+/// ciente do tipo: devolve um handle de Function (para `typeof === "function"`)
+/// se `obj` for iteravel (Vec/String/Map), senao UNDEFINED. Sem isto, todo
+/// `obj[Symbol.iterator]` rendia uma function (mesmo para numeros), quebrando
+/// `typeof item[Symbol.iterator] === "function"` (flatten recursava em numeros).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_SYMBOL_ITERATOR_OF(obj: i64) -> i64 {
+    let h = obj as u64;
+    let iterable = with_entry(h, |e| {
+        matches!(
+            e,
+            Some(Entry::Vec(_)) | Some(Entry::String(_)) | Some(Entry::Map(_))
+        )
+    });
+    if iterable {
+        __RTS_FN_GL_ARRAY_ITERATOR_FN() as i64
+    } else {
+        UNDEFINED
+    }
+}
+
+/// `__RTS_GEN_DELEGATE_DONE(it)` — 1 se o ultimo NEXT esgotou o delegado, senao
+/// 0. Inteiro puro (nao sentinela de bool) para ser usado direto como condicao
+/// truthy no `if` da state-machine.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_DONE(it: i64) -> i64 {
+    let h = it as u64;
+    let done = DELEGATE_DONE.with(|c| c.borrow().get(&h).copied().unwrap_or(false));
+    if done { 1 } else { 0 }
 }

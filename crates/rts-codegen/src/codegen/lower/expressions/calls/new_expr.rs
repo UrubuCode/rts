@@ -17,6 +17,22 @@ use super::emit_user_fn_addr;
 use crate::codegen::lower::compile::class::class_init_name;
 use super::lower_call;
 
+/// (cross-runtime #378) True if `class_name` is a user class whose `extends`
+/// chain reaches the builtin `Array`.
+pub(crate) fn class_extends_array(ctx: &FnCtx, class_name: &str) -> bool {
+    let mut cur = class_name.to_string();
+    let mut depth = 0;
+    while depth < 32 {
+        match ctx.classes.get(&cur).and_then(|m| m.super_class.clone()) {
+            Some(s) if s == "Array" => return true,
+            Some(s) => cur = s,
+            None => return false,
+        }
+        depth += 1;
+    }
+    false
+}
+
 pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedVal> {
     // (#264) Peel TsAs/Paren etc para suportar `new (Animal as any)(...)`.
     let mut callee_expr: &Expr = new_expr.callee.as_ref();
@@ -612,6 +628,60 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         return Ok(TypedVal::new(inst_h, ValTy::Handle));
     }
 
+    // (cross-runtime #344) `new <local>()` where the local holds a function
+    // VALUE (a closure bound to a const — e.g. tsc __extends's captured `Ctor`,
+    // which captures an outer param so it became a closure, not a named user
+    // fn). Allocate the instance, install its prototype, invoke the function
+    // handle with `this` via the thread-local slot, return the instance.
+    if !ctx.classes.contains_key(&class_name)
+        && !ctx.user_fns.contains_key(&class_name)
+    {
+        if let Some(fn_tv) = ctx.read_local(&class_name) {
+            let fn_h = ctx.coerce_to_i64(fn_tv).val;
+            let map_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+            let mi = ctx.builder.ins().call(map_new, &[]);
+            let inst_h = ctx.builder.inst_results(mi)[0];
+            // __proto__ = fn.prototype (FUNCTION_PROTOTYPE_GET lazily allocs).
+            let proto_get =
+                ctx.get_extern("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET", &[cl::I64], Some(cl::I64))?;
+            let pi = ctx.builder.ins().call(proto_get, &[fn_h]);
+            let proto_h = ctx.builder.inst_results(pi)[0];
+            let map_set = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                None,
+            )?;
+            let (pk, pl) = ctx.emit_str_literal(b"__proto__")?;
+            ctx.builder.ins().call(map_set, &[inst_h, pk, pl, proto_h]);
+            // Push `this`, build args, invoke the handle (INVOKE_AUTO detects
+            // Function handle vs raw addr; bound captures travel via the handle).
+            let push_fn = ctx.get_extern("__RTS_FN_RT_THIS_PUSH", &[cl::I64], None)?;
+            ctx.builder.ins().call(push_fn, &[inst_h]);
+            let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+            let ai = ctx.builder.ins().call(vec_new, &[]);
+            let args_h = ctx.builder.inst_results(ai)[0];
+            let vec_push =
+                ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+            for a in new_expr.args.as_ref().map(|v| v.as_slice()).unwrap_or(&[]) {
+                if a.spread.is_some() {
+                    return Err(anyhow!("spread em `new <fn-value>` nao suportado"));
+                }
+                let tv = lower_expr(ctx, &a.expr)?;
+                let v = ctx.coerce_to_i64(tv).val;
+                ctx.builder.ins().call(vec_push, &[args_h, v]);
+            }
+            let invoke = ctx.get_extern(
+                "__RTS_FN_RT_INVOKE_AUTO",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            ctx.builder.ins().call(invoke, &[fn_h, inst_h, args_h]);
+            let pop_fn = ctx.get_extern("__RTS_FN_RT_THIS_POP", &[], None)?;
+            ctx.builder.ins().call(pop_fn, &[]);
+            return Ok(TypedVal::new(inst_h, ValTy::Handle));
+        }
+    }
+
     let meta = ctx
         .classes
         .get(&class_name)
@@ -621,6 +691,39 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         return Err(anyhow!(
             "classe abstract `{class_name}` nao pode ser instanciada via `new`"
         ));
+    }
+
+    // (cross-runtime #378) Array subclass (`class PowerArray extends Array`):
+    // the instance is backed by a Vec carrying the elements — `new
+    // PowerArray(1,2,3,4)` is `[1,2,3,4]`. Class identity for `pa.method()` /
+    // `pa instanceof PowerArray` comes from codegen's static type
+    // (local_class_ty), and a derived array (`pa.map(...)`) is a plain
+    // unregistered Vec, so Symbol.species naturally yields a plain Array.
+    // (Only the no-explicit-constructor case; args become the elements.)
+    if class_extends_array(ctx, &class_name) {
+        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(vec_new, &[]);
+        let vec_h = ctx.builder.inst_results(inst)[0];
+        let vec_push =
+            ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+        let user_args = new_expr.args.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
+        for a in user_args {
+            if a.spread.is_some() {
+                return Err(anyhow!("spread em `new` de subclasse de Array nao suportado"));
+            }
+            let tv = lower_expr(ctx, &a.expr)?;
+            let v = match tv.ty {
+                ValTy::Bool => ctx.coerce_to_handle(tv)?.val,
+                ValTy::F64 => ctx.builder.ins().bitcast(
+                    cl::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    tv.val,
+                ),
+                _ => ctx.coerce_to_i64(tv).val,
+            };
+            ctx.builder.ins().call(vec_push, &[vec_h, v]);
+        }
+        return Ok(TypedVal::new(vec_h, ValTy::Handle));
     }
 
     // Dual-path #147 passos 5-7: classes opt-in alocam via `gc.instance_*`
@@ -1138,14 +1241,17 @@ pub(super) fn lower_function_method_call(
     // 3. Despacha por metodo.
     match method {
         "toString" => {
-            // Dispatch runtime — TO_STRING_HANDLE inspeciona Entry
-            // (Symbol/Function/String/Vec/Map) e formata corretamente.
-            let to_str_fn = ctx.get_extern(
-                "__RTS_FN_RT_TO_STRING_HANDLE",
-                &[cl::I64],
+            // (cross-runtime #359) Custom `toString` own-property override:
+            // FUNCTION_TO_STRING_DYN(name, fn_handle) invokes an installed
+            // override (set via `(f as any).toString = ...`) or falls back to
+            // the native TO_STRING_HANDLE formatting.
+            let (np, nl) = ctx.emit_str_literal(fn_name.as_bytes())?;
+            let dyn_fn = ctx.get_extern(
+                "__RTS_FN_RT_FUNCTION_TO_STRING_DYN",
+                &[cl::I64, cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(to_str_fn, &[fn_handle]);
+            let inst = ctx.builder.ins().call(dyn_fn, &[np, nl, fn_handle]);
             let r = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(r, ValTy::Handle)))
         }

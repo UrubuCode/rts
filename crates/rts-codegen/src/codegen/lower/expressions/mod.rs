@@ -13,11 +13,14 @@ use super::ctx::{FnCtx, TypedVal, ValTy};
 use super::compile::class::class_setter_name;
 
 use self::calls::{
-    AccessorKind, emit_user_fn_addr, emit_virtual_accessor_dispatch, lower_call, lower_new,
+    AccessorKind, emit_virtual_accessor_dispatch, lower_call, lower_new,
     lower_super_prop_assign, lower_super_prop_read, resolve_setter_owner,
 };
 // (#1281) re-export p/ lower_return_stmt reificar arrow liftada que escapa.
 pub(crate) use self::calls::emit_lifted_arrow_handle_with_captures;
+// (cross-runtime closures) re-export p/ main_fn registrar ABI das user fns.
+pub(crate) use self::calls::emit_user_fn_addr;
+pub(crate) use self::members::val_ty_to_kind;
 use self::members::{
     assign_target_field_is_f64, class_field_uses_flat, emit_flat_field_write,
     field_is_readonly_in_hierarchy, lhs_static_class, lower_array_lit, lower_member_expr,
@@ -110,6 +113,50 @@ pub fn lower_expr(ctx: &mut FnCtx, expr: &Expr) -> Result<TypedVal> {
     }
 }
 
+/// (#376/#195) Resolve `__captured_this` para o valor de `this` a capturar por
+/// valor: le o local `this` (metodo de classe, this e' param real) ou — quando
+/// nao ha local (metodo de OBJETO, onde `this` vive no slot thread-local) —
+/// emite `THIS_GET()`. Assim uma arrow `() => this.v` retornada de um metodo de
+/// objeto captura o `this` corrente (o objeto), nao o this no momento da chamada.
+fn resolve_captured_this(ctx: &mut FnCtx) -> Result<TypedVal> {
+    use cranelift_codegen::ir::InstBuilder;
+    use crate::codegen::lower::ctx::ValTy;
+    if let Some(v) = ctx.read_local("this") {
+        return Ok(v);
+    }
+    let fref =
+        ctx.get_extern("__RTS_FN_RT_THIS_GET", &[], Some(cranelift_codegen::ir::types::I64))?;
+    let inst = ctx.builder.ins().call(fref, &[]);
+    let v = ctx.builder.inst_results(inst)[0];
+    Ok(TypedVal::new(v, ValTy::I64))
+}
+
+/// (cross-runtime #344) Resolves the runtime value to bind for a lifted-closure
+/// capture `c`. A capture is normally an enclosing local (`read_local`). But a
+/// nested function declaration captured by an inner closure is hoisted to a
+/// top-level user fn, so it is no longer a local — `read_local` returns None.
+/// Previously that aborted the whole capture path, shifting the callback's real
+/// arguments into the capture slots (a recursive `.then(v => step(v + 1))` got
+/// `v = undefined` because the resolved value landed in the `step` slot). When
+/// the capture names a top-level user fn, bind its address so the param holds a
+/// callable value and the real args line up.
+fn resolve_capture_value(ctx: &mut FnCtx, c: &str) -> Result<Option<TypedVal>> {
+    if let Some(v) = ctx.read_local(c) {
+        return Ok(Some(v));
+    }
+    if ctx.user_fns.contains_key(c) {
+        // Reify the captured fn exactly as a value-position ident would be: this
+        // binds ITS OWN captures into the handle, so a later `captured_fn(arg)`
+        // lines `arg` up AFTER the bound captures. A raw fn-addr would instead
+        // drop `arg` into the captured fn's first capture slot (the recursive
+        // `step(99)` reached `step` as `undefined` because `99` landed in
+        // `step`'s own `resolve` capture). Self-capture is impossible — hoist_fn
+        // excludes a fn's own name from its capture list — so no infinite recursion.
+        return Ok(Some(lower_ident_expr(ctx, c)?));
+    }
+    Ok(None)
+}
+
 fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     // Alias de import (`import { add as plus } from "./lib"` -> plus->add):
     // se o ident e' um alias local, troca pelo nome original do source antes
@@ -134,7 +181,46 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         // Quando aparecem em posição de valor (não call), reificamos como
         // Function handle com is_arrow=1 para que INVOKE_AUTO não faça
         // THIS_PUSH — arrow não tem own this.
-        if name.starts_with("__hoisted_arrow_") || name.starts_with("__lifted_arrow_") {
+        // (#195) Lifted fn-EXPR (`function(){...}` retornado, p/ closures
+        // mutaveis via celula) que captura free vars: reifica com bound_args.
+        // SEM captura cai no caminho normal (raw fn addr) — NAO no fallback de
+        // `this` dos arrows (que reificava com bound_this errado, quebrando
+        // metodos de objeto liftados como next() de iteradores custom).
+        if name.starts_with("__hoisted_fn_") {
+            if let Some(captures) =
+                crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(name)
+            {
+                let mut cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> =
+                    Vec::with_capacity(captures.len());
+                for c in &captures {
+                    let tv = if c == "__captured_this" {
+                        Some(resolve_captured_this(ctx)?)
+                    } else {
+                        resolve_capture_value(ctx, c)?
+                    };
+                    match tv {
+                        Some(v) => cap_vals.push(v),
+                        None => break,
+                    }
+                }
+                if cap_vals.len() == captures.len() {
+                    return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &cap_vals);
+                }
+            }
+            // (cross-runtime closures) fn-EXPR VARIADIC (`function(...rest){...}`)
+            // retornada/armazenada como valor: precisa ser handle (nao raw addr)
+            // p/ gravar rest_param_idx no FunctionData — so' assim o invoke via
+            // handle empacota o tail num array. Sem isto `(...args)=>...` em
+            // forma de fn-expr (trampoline/curry) recebia os args soltos: o
+            // primeiro virava o array-rest e os demais sumiam (mul(2,3,4)->0).
+            if crate::codegen::lower::passes::args::rest_args::fn_rest_idx(name).is_some() {
+                return calls::emit_lifted_arrow_handle_with_captures(ctx, name, &[]);
+            }
+            return emit_user_fn_addr(ctx, name);
+        }
+        if name.starts_with("__hoisted_arrow_")
+            || name.starts_with("__lifted_arrow_")
+        {
             // (#195) Arrow que captura variaveis livres por valor: reifica via
             // REIFY_CAPTURED passando os valores das capturas como bound_args.
             // Isso da captura-por-ativacao correta (curry/recursao), ao
@@ -142,18 +228,23 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
             if let Some(captures) =
                 crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(name)
             {
-                let cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> = captures
-                    .iter()
-                    .filter_map(|c| {
-                        // (#376 camada 3) `__captured_this` resolve para o `this`
-                        // atual — a arrow capturou `this` por valor (bound_arg).
-                        if c == "__captured_this" {
-                            ctx.read_local("this")
-                        } else {
-                            ctx.read_local(c)
-                        }
-                    })
-                    .collect();
+                let mut cap_vals: Vec<crate::codegen::lower::ctx::TypedVal> =
+                    Vec::with_capacity(captures.len());
+                for c in &captures {
+                    // (#376 camada 3) `__captured_this` resolve para o `this`
+                    // atual — a arrow capturou `this` por valor (bound_arg). Em
+                    // metodo de OBJETO o this vive no slot thread-local, entao
+                    // resolve_captured_this emite THIS_GET() (nunca None).
+                    let tv = if c == "__captured_this" {
+                        Some(resolve_captured_this(ctx)?)
+                    } else {
+                        resolve_capture_value(ctx, c)?
+                    };
+                    match tv {
+                        Some(v) => cap_vals.push(v),
+                        None => break,
+                    }
+                }
                 // So' usa o caminho de captura quando TODAS resolvem como
                 // local em escopo (senao cai no fallback antigo).
                 if cap_vals.len() == captures.len() {
@@ -222,6 +313,22 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
             return Ok(TypedVal::new(sentinel, ValTy::I64));
         }
         _ => {}
+    }
+    // (#360) `globalThis` em posicao de VALOR -> handle do Map singleton. Assim
+    // `const g = globalThis; g.x = v` ou um param ligado a globalThis
+    // (`(function(_root){ _root._lib = ... })(globalThis)`) gravam/leem no mesmo
+    // Map que `globalThis.x`. (Leituras `globalThis.X` e `globalThis[k]` sao
+    // interceptadas antes, entao identidade de builtins nao eh afetada.)
+    if name == "globalThis" {
+        use cranelift_codegen::ir::InstBuilder;
+        let gt_fn = ctx.get_extern(
+            "__RTS_FN_RT_GLOBAL_THIS_MAP",
+            &[],
+            Some(cranelift_codegen::ir::types::I64),
+        )?;
+        let inst = ctx.builder.ins().call(gt_fn, &[]);
+        let h = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(h, ValTy::Handle));
     }
     // (cross-runtime #304/#310) Global JS classes/namespaces (Promise, Date,
     // Error, console, etc.) referenciadas como valor — retorna handle
@@ -294,6 +401,48 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         return lower_super_prop_assign(ctx, sp, a);
     }
 
+    // (#211/#222) `ia = x[Symbol.iterator]()` — marca `ia` como generator_var
+    // pra que `ia.next()` roteie a GENERATOR_NEXT (despacho Vec/GenState em
+    // runtime). Cobre o caso in-SM onde o desugar emite o bind como ASSIGN
+    // (decls.rs so' alcanca a forma `const ia = ...`). Sem isto, `ia.next()`
+    // num generator de zip/iterator-protocol cai no dispatch generico -> SIGILL
+    // ou loop infinito (ra.done nunca true).
+    if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Ident(id)) = &a.left {
+        if matches!(a.op, AssignOp::Assign) {
+            if let Expr::Call(c) = a.right.as_ref() {
+                if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                    // (cross-runtime #392) `it = g()` onde `g` eh generator fn
+                    // (sync OU async gen). Cobre o bind in-SM (async fn -> state
+                    // machine emite `const it = g()` como ASSIGN ao slot, nao
+                    // decl). Sem isto `it.next()` cai no dispatch generico (async
+                    // gen: promise que nunca settla -> hang).
+                    if let Expr::Ident(fid) = callee.as_ref() {
+                        if crate::codegen::lower::compile::program::is_generator_fn(
+                            fid.sym.as_str(),
+                        ) {
+                            ctx.generator_vars.insert(id.id.sym.to_string());
+                        }
+                    }
+                    if let Expr::Member(m) = callee.as_ref() {
+                        if let MemberProp::Computed(cp) = &m.prop {
+                            if let Expr::Member(sm) = cp.expr.as_ref() {
+                                if let (Expr::Ident(o), MemberProp::Ident(p)) =
+                                    (sm.obj.as_ref(), &sm.prop)
+                                {
+                                    if o.sym.as_str() == "Symbol"
+                                        && p.sym.as_str() == "iterator"
+                                    {
+                                        ctx.generator_vars.insert(id.id.sym.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if let AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(m)) = &a.left {
         // (cross-runtime #1125) `globalThis[key] = v` — Map global singleton.
         if matches!(a.op, AssignOp::Assign) {
@@ -344,24 +493,71 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     }
                 }
             }
+            // (cross-runtime #359) `(f as any).<prop> = value` where `f` is a
+            // user function — install a custom own-property on the function.
+            // Functions are objects in JS; RTS stores the prop in a name-keyed
+            // side-table that `f.toString()` consults. Only for bare user-fn
+            // idents (not typed vars / handles), to avoid hijacking ordinary
+            // object field assignment.
+            if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
+                let nm = obj_id.sym.as_str();
+                if ctx.user_fns.contains_key(nm) && ctx.var_ty(nm).is_none() {
+                    if let MemberProp::Ident(prop) = &m.prop {
+                        // `prototype`/`name`/`length` are real function own
+                        // properties with dedicated machinery (proto chains,
+                        // FUNCTION_PROTOTYPE_SET) — never hijack those.
+                        if matches!(prop.sym.as_str(), "prototype" | "name" | "length") {
+                            // fall through to the existing handling below
+                        } else {
+                        use cranelift_codegen::ir::types as cl;
+                        use cranelift_codegen::ir::InstBuilder;
+                        let (np, nl) = ctx.emit_str_literal(nm.as_bytes())?;
+                        let (pp, pl) = ctx.emit_str_literal(prop.sym.as_bytes())?;
+                        let val_tv = lower_expr(ctx, &a.right)?;
+                        let val = ctx.coerce_to_i64(val_tv).val;
+                        let set_fn = ctx.get_extern(
+                            "__RTS_FN_RT_FUNCTION_SET_PROP",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(set_fn, &[np, nl, pp, pl, val]);
+                        return Ok(TypedVal::new(val, ValTy::I64));
+                        }
+                    }
+                }
+            }
             if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
                 if obj_id.sym.as_str() == "globalThis" {
-                    if let MemberProp::Computed(c) = &m.prop {
-                        use cranelift_codegen::ir::InstBuilder;
-                        use cranelift_codegen::ir::types as cl;
-                        let key_tv = lower_expr(ctx, &c.expr)?;
-                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                    use cranelift_codegen::ir::InstBuilder;
+                    use cranelift_codegen::ir::types as cl;
+                    // Chave: computed (`globalThis[k]`) ou ident (`globalThis.x`).
+                    // (#360) O ident-case faltava — `globalThis.foo = v` nao
+                    // persistia (read checa o Map singleton mas write nao
+                    // gravava nele) -> read devolvia 0.
+                    let key: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> =
+                        match &m.prop {
+                            MemberProp::Computed(c) => {
+                                let key_tv = lower_expr(ctx, &c.expr)?;
+                                let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                                let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                                let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                                let p_inst = ctx.builder.ins().call(str_ptr, &[key_h]);
+                                let kp = ctx.builder.inst_results(p_inst)[0];
+                                let l_inst = ctx.builder.ins().call(str_len, &[key_h]);
+                                let kl = ctx.builder.inst_results(l_inst)[0];
+                                Some((kp, kl))
+                            }
+                            MemberProp::Ident(prop) => {
+                                Some(ctx.emit_str_literal(prop.sym.as_bytes())?)
+                            }
+                            _ => None,
+                        };
+                    if let Some((kp, kl)) = key {
                         let val_tv = lower_expr(ctx, &a.right)?;
                         let val = ctx.coerce_to_i64(val_tv).val;
                         let gt_fn = ctx.get_extern("__RTS_FN_RT_GLOBAL_THIS_MAP", &[], Some(cl::I64))?;
                         let gt_inst = ctx.builder.ins().call(gt_fn, &[]);
                         let gt = ctx.builder.inst_results(gt_inst)[0];
-                        let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
-                        let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
-                        let p_inst = ctx.builder.ins().call(str_ptr, &[key_h]);
-                        let kp = ctx.builder.inst_results(p_inst)[0];
-                        let l_inst = ctx.builder.ins().call(str_len, &[key_h]);
-                        let kl = ctx.builder.inst_results(l_inst)[0];
                         let set_fn = ctx.get_extern(
                             "__RTS_FN_NS_COLLECTIONS_MAP_SET",
                             &[cl::I64, cl::I64, cl::I64, cl::I64],
@@ -655,6 +851,27 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                                 None,
                             )?;
                             ctx.builder.ins().call(set_proto, &[fn_handle, rhs_h]);
+                            return Ok(TypedVal::new(rhs_h, ValTy::Handle));
+                        }
+                        // (cross-runtime #344) `d.prototype = X` where d is a
+                        // local/param holding a function value (tsc __extends).
+                        // PROTOTYPE_SET keys by the handle's fn_ptr, so it links
+                        // with `new d()` / `d.prototype` reads of the same fn.
+                        if !ctx.user_fns.contains_key(name)
+                            && !ctx.classes.contains_key(name)
+                            && ctx.read_local(name).is_some()
+                        {
+                            use cranelift_codegen::ir::types as cl;
+                            let recv_tv = lower_expr(ctx, obj_e)?;
+                            let recv = ctx.coerce_to_i64(recv_tv).val;
+                            let rhs_tv = lower_expr(ctx, &a.right)?;
+                            let rhs_h = ctx.coerce_to_i64(rhs_tv).val;
+                            let set_proto = ctx.get_extern(
+                                "__RTS_FN_GL_FUNCTION_PROTOTYPE_SET",
+                                &[cl::I64, cl::I64],
+                                None,
+                            )?;
+                            ctx.builder.ins().call(set_proto, &[recv, rhs_h]);
                             return Ok(TypedVal::new(rhs_h, ValTy::Handle));
                         }
                     }

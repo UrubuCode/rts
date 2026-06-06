@@ -94,19 +94,29 @@ pub(super) fn lower_for_stmt(ctx: &mut FnCtx, for_stmt: &swc_ecma_ast::ForStmt) 
     ctx.builder.switch_to_block(body);
     ctx.loop_stack
         .push((exit, update_block, ctx.pending_label.take()));
-    lower_stmt(ctx, &for_stmt.body)?;
+    // `body_terminated`: o corpo terminou com return/throw incondicional.
+    // `is_unreachable()` mede ALCANCABILIDADE, nao terminacao — apos um `return`
+    // no fim do corpo o bloco continua "alcancavel" mas ja' esta' fechado, e o
+    // `jump(update_block)` viraria instrucao APOS o terminador (verifier error:
+    // "terminator before end of block"). Usa o bool de lower_stmt.
+    let body_terminated = lower_stmt(ctx, &for_stmt.body)?;
     ctx.loop_stack.pop();
-    if !ctx.builder.is_unreachable() {
+    if !body_terminated && !ctx.builder.is_unreachable() {
         ctx.builder.ins().jump(update_block, &[]);
     }
     ctx.builder.seal_block(body);
 
     ctx.builder.switch_to_block(update_block);
-    if let Some(update) = &for_stmt.update {
-        lower_expr(ctx, update)?;
-    }
+    // Se o corpo sempre termina e nao ha' `continue`, update_block fica sem
+    // predecessores (morto). Nao emite update/jump num bloco morto — Cranelift
+    // o elimina; emitir deixaria instrucoes sem terminador valido.
     if !ctx.builder.is_unreachable() {
-        ctx.builder.ins().jump(header, &[]);
+        if let Some(update) = &for_stmt.update {
+            lower_expr(ctx, update)?;
+        }
+        if !ctx.builder.is_unreachable() {
+            ctx.builder.ins().jump(header, &[]);
+        }
     }
     ctx.builder.seal_block(update_block);
     ctx.builder.seal_block(header);
@@ -364,7 +374,20 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         .read_local(&counter_name)
         .ok_or_else(|| anyhow!("for-of counter sumiu"))?;
     let inst = ctx.builder.ins().call(get_fref, &[handle, i_now.val]);
-    let elem = ctx.builder.inst_results(inst)[0];
+    let mut elem = ctx.builder.inst_results(inst)[0];
+    // (cross-runtime #392) `for await (const v of arr)`: aguarda CADA elemento.
+    // AWAIT_VALUE faz passthrough de non-Promises (valores ja' resolvidos de um
+    // async gen drain) e wait+valor de Promises (array de Promises). JS spec:
+    // for-await aguarda cada valor produzido pelo iterador.
+    if for_of.is_await {
+        let await_fn = ctx.get_extern(
+            "__RTS_FN_NS_PROMISE_AWAIT_VALUE",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let ai = ctx.builder.ins().call(await_fn, &[elem]);
+        elem = ctx.builder.inst_results(ai)[0];
+    }
     ctx.write_local(&bind_name, elem)?;
 
     // (cross-runtime #222) Bind simples de for-of sem tipo Handle estatico:

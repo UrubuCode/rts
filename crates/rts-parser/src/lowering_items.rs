@@ -1,5 +1,74 @@
+/// (cross-runtime #344) Hoists anonymous/named generator function *expressions*
+/// (`function*() {}`) appearing at top level into named top-level function
+/// declarations (`__genexpr_N`), rewriting the expression site to an identifier.
+/// The named-decl path is the only one that builds a lazy state-machine
+/// generator (Entry::GenState) supporting `g.next(v)` value-passing; a bare
+/// fn-expr generator would otherwise fall to the eager buffer and lose the
+/// resumption value. `visit_mut_function` is a no-op so we never descend into a
+/// function body — only generators that capture nothing (true top-level) are
+/// hoisted, avoiding broken captures.
+#[derive(Default)]
+struct GenExprHoister {
+    hoisted: Vec<swc_ecma_ast::FnDecl>,
+    counter: usize,
+}
+
+impl swc_ecma_visit::VisitMut for GenExprHoister {
+    fn visit_mut_function(&mut self, _f: &mut SwcFunction) {
+        // no-op: do not descend into function bodies (avoid capturing hoists)
+    }
+
+    fn visit_mut_expr(&mut self, e: &mut Expr) {
+        use swc_ecma_visit::VisitMutWith;
+        e.visit_mut_children_with(self);
+        if let Expr::Fn(fe) = e {
+            if fe.function.is_generator {
+                let name = format!("__genexpr_{}", self.counter);
+                self.counter += 1;
+                let ident = swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: name.as_str().into(),
+                    optional: false,
+                };
+                self.hoisted.push(swc_ecma_ast::FnDecl {
+                    ident: ident.clone(),
+                    declare: false,
+                    function: fe.function.clone(),
+                });
+                *e = Expr::Ident(ident);
+            }
+        }
+    }
+}
+
 fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     let mut program = Program::default();
+
+    // (cross-runtime #344) Hoist top-level generator fn-exprs to named decls so
+    // they take the lazy state-machine path (value-passing `g.next(v)`).
+    let mut owned = source.clone();
+    {
+        use swc_ecma_visit::VisitMutWith;
+        let mut hoister = GenExprHoister::default();
+        owned.visit_mut_with(&mut hoister);
+        if !hoister.hoisted.is_empty() {
+            match &mut owned {
+                SwcProgram::Module(m) => {
+                    for (i, fd) in hoister.hoisted.into_iter().enumerate() {
+                        m.body
+                            .insert(i, ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fd))));
+                    }
+                }
+                SwcProgram::Script(s) => {
+                    for (i, fd) in hoister.hoisted.into_iter().enumerate() {
+                        s.body.insert(i, Stmt::Decl(Decl::Fn(fd)));
+                    }
+                }
+            }
+        }
+    }
+    let source = &owned;
 
     // (#271) Coleta const strings top-level antes do lowering para resolver
     // computed class keys (`[key]() {}` com `const key = "sum"`).
@@ -186,6 +255,27 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
             }
         }
         Decl::Fn(fn_decl) => {
+            // (cross-runtime #392) `async function*` -> async generator lazy SM
+            // (yield + await combinados). `.next()` devolve Promise<{value,done}>.
+            // ANTES do generator sync e do eager-buffer (que nao fazem await/
+            // .next()/throw lazy). Inelegivel => cai nos caminhos abaixo.
+            if fn_decl.function.is_generator
+                && fn_decl.function.is_async
+                && async_sm_enabled()
+            {
+                if let Some((ctor, state_fn)) = crate::generator_sm::try_build_async_gen(
+                    &fn_decl.ident.sym.to_string(),
+                    &fn_decl.function,
+                ) {
+                    let mut sf = lower_fn_decl(cm, &state_fn);
+                    sf.return_type = Some("i64".to_string());
+                    let mut cf = lower_fn_decl(cm, &ctor);
+                    cf.return_type = Some("i64".to_string());
+                    out.push(Item::Function(sf));
+                    out.push(Item::Function(cf));
+                    return;
+                }
+            }
             // (#477) Generator elegivel -> state-machine lazy (2 fns). Caso
             // contrario, caminho normal (eager-buffer para generators).
             if fn_decl.function.is_generator {

@@ -61,40 +61,16 @@ fn resolve_callback_ptr(fp: u64) -> (u64, Vec<i64>, bool, i64) {
 /// bound_args. Retorna i64. Limite de aridade total = 8 (limite do
 /// trampolim em globals/function/ops).
 unsafe fn invoke_callback(fn_ptr: u64, bound: &[i64], extra: Option<i64>) -> i64 {
-    use std::mem::transmute;
     let mut args: Vec<i64> = bound.to_vec();
     if let Some(v) = extra {
         args.push(v);
     }
-    unsafe {
-        match args.len() {
-            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
-            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
-            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2],
-            ),
-            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3],
-            ),
-            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4],
-            ),
-            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5],
-            ),
-            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
-            ),
-            8 => transmute::<
-                u64,
-                extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64,
-            >(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
-            ),
-            _ => 0,
-        }
-    }
+    // (cross-runtime closures) Consulta o registry de ABI: callbacks com param
+    // `number` agora compilam como `(f64)->...`; invocá-los via ABI i64 crua
+    // (transmute) segfaultava. invoke_fn_ptr_with_registry usa invoke_typed com
+    // os param_kinds reais (e normaliza args number-cru), ou invoke_n quando a
+    // fn é toda-i64 (comportamento idêntico ao transmute de antes).
+    crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
 }
 
 #[unsafe(no_mangle)]
@@ -132,6 +108,22 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_REJECT(handle: u64, error: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_STATE(handle: u64) -> i64 {
     with_slot(handle, -1, |slot| promise_slot::current_state(slot) as i64)
+}
+
+/// (cross-runtime #392) `await <value>` com passthrough: se `handle` eh uma
+/// Promise, bloqueia ate settle e devolve o valor (igual PROMISE_WAIT, propaga
+/// reject via error slot); senao devolve o proprio handle inalterado. Usado pelo
+/// `for await (const v of arr)` para aguardar CADA elemento (array de Promises),
+/// sem quebrar o caso non-Promise (valores ja' resolvidos de async gen drain).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
+    use crate::namespaces::gc::handles::{Entry, with_entry};
+    let is_promise = with_entry(handle, |e| matches!(e, Some(Entry::PromiseAsync(_))));
+    if is_promise {
+        __RTS_FN_NS_PROMISE_WAIT(handle)
+    } else {
+        handle as i64
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -408,6 +400,20 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
         Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
         _ => None,
     });
+    // (cross-runtime #392) async generator handle: drena via GEN_SM_DRAIN (que
+    // bombeia os awaits internos e coleta os yields num Vec). Suporta agora
+    // `Array.fromAsync(asyncGen())`.
+    let snapshot = snapshot.or_else(|| {
+        let is_gen = with_entry(iterable, |e| matches!(e, Some(Entry::GenState(_))));
+        if !is_gen {
+            return None;
+        }
+        let vec_h = crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(iterable);
+        with_entry(vec_h, |e| match e {
+            Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
+            _ => None,
+        })
+    });
     let Some(items) = snapshot else {
         // Async iterable / outros tipos — retorna Promise rejected.
         let result = promise_slot::new_pending();
@@ -676,6 +682,9 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: u64, args_vec_handle: u6
     PENDING_PROMISE_TASKS.fetch_add(1, Ordering::AcqRel);
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
+        // (cross-runtime #365) marca thread como async-worker: parallel.map
+        // dentro do corpo roda sequencial (rayon-em-spawn_blocking crasha).
+        let _aw = crate::runtime::async_rt::AsyncWorkerGuard::enter();
         // Combina bound (de bind) + extra_args do caller.
         let mut all: Vec<i64> = bound;
         all.extend(extra_args);

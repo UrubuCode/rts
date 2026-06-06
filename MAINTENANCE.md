@@ -1,9 +1,54 @@
 # MAINTENANCE.md — Path to 100% cross-runtime parity
 
-> Status: **95.7% (356/372)** cross-runtime parity.
-> 16 fixtures remain. This document explains, fixture by fixture, **what each
+> Status: **96.5% (359/372)** cross-runtime parity.
+> 13 fixtures remain. This document explains, fixture by fixture, **what each
 > needs**, **where the code lives**, and **why none can be closed incrementally
 > without violating the project's own engineering rules.**
+>
+> **Flipped (2026-06-05, closures foundation cont.2) — 96.2% → 96.5%:**
+> - `348_closure_optimization` — memoize/partial/once/curry. Root fix: a variadic
+>   fn-EXPRESSION used as a value (`function(...args){ return fn(...args) }`
+>   returned from a HOF) was reified as a raw func_addr, so its rest_param_idx
+>   never reached FunctionData and calls passed args loose (first arg became the
+>   whole rest array). The `__hoisted_fn_` reify block now mirrors the arrow
+>   block: when the lifted fn has a rest_param_idx it reifies as a handle so the
+>   invoke packs the tail. Also fixed (this pass): arrows passed to direct fn
+>   calls (`fn((v)=>{ result=v })`) now capture their free vars — runCPS-style
+>   closures work; advanced 386 from crash to running.
+> - **386_trampoline → 8/11 lines correct** (was a crash). factorial/fib/sum/
+>   curry all right now, via: (a) default params applied on indirect calls (a
+>   fn_ptr→default-values registry; the trampoline's `fn(...args)` omits the
+>   `acc=1` arg and was padding 0); (b) the call-arg-arrow capture fix. The
+>   last 3 lines (the CPS section) print booleans as `1/0` instead of
+>   `true/false`: a bool loses its tag crossing a fn boundary (`id(true)`→"1"),
+>   because params/returns are i64 and `true`=1. Tagging bools as sentinels
+>   through boundaries was TRIED and REVERTED — it breaks 83 TS tests (sentinels
+>   aren't decoded in every context, and `bool===1` comparisons break). Needs a
+>   real bool-type-tracking refactor, not a sentinel hack.
+>
+> **Flipped (2026-06-05, closures foundation cont.) — 96.0% → 96.2%:**
+> - `361_functional_compose` — pipe/compose/partial/curry/transduce. Root fix:
+>   hoist_fn was dropping the `:number` annotation on lifted-arrow params, so
+>   inline `(x:number)=>x*x` compiled `(i64)->i64` and lost f64 args once
+>   captured. Preserving the annotation cascaded into every callback path that
+>   invoked a fn via a raw i64-ABI transmute (promise .then, Map.forEach) — all
+>   rerouted through a registry-aware invoker (resolves Function handle / raw
+>   addr via the fn_ptr->ABI registry + normalizes raw-int number args to f64
+>   bits). Other closure fixtures advanced too: 348 0→8/11 lines (curry/variadic
+>   spread remains), 386/360 still hit capture-analysis gaps.
+>
+> **Flipped (2026-06-05, closures foundation) — 95.7% → 96.0%:**
+> - `41_closures_deep` — needed the closure stack to land together:
+>   (1) mutable-closure boxing (#195 env-record): captured-AND-mutated locals
+>   move to a heap cell (`__cell_new/get/set`); the cell handle is captured by
+>   value so sibling closures share one cell (`makeCounter` counters work);
+>   (2) arrow lexical `this`-capture in object methods: a returned arrow
+>   `make(){ return () => this.v }` fixes the receiver at creation via
+>   `__captured_this` — hoist_fn detects `this` only in lifted ARROW bodies
+>   (fn-exprs/methods keep the dynamic receiver), the reify resolves it via the
+>   local `this` or `THIS_GET()`; (3) `return_call` verifier guard so a variadic
+>   forwarder `(...a) => f(...a)` whose return repr differs from the callee's
+>   falls back to a normal call+coerce instead of a malformed tail-call.
 >
 > **Flipped (2026-06-04, "buildable external-API / quirk" pass) — 94.3% → 95.7%:**
 > - `291_json_bigint` — `JSON.stringify` throws TypeError on an object-slot
@@ -19,11 +64,32 @@
 > - `88_compression_stream` — CompressionStream gzip/deflate (flate2); accumulate
 >   on write, compress in `stream_close`; UNIVERSAL_LENGTH now handles Buffer.
 >
-> **Remaining 16 — all deferred large epics, NOT bounded flips:**
-> - closures (6): `348 360 361 386 41 365` — #195 mutable-cell env-record + the
->   f64/handle/variadic stack (array-of-fns stored as raw addrs; reduce acc
->   f64<->i64 through the callback; captured-array reduce). Partial groundwork
->   landed (capture-by-value, callee-param→i64, variadic rest_param_idx).
+> **Remaining 15 — all deferred large epics, NOT bounded flips:**
+> - closures (5): `348 360 361 386 365` — the #195 env-record exists and a wide
+>   slice of the fn-value calling convention now works (2026-06-05): `partial`,
+>   `pipe(double,addOne)(3)`, arrays of fns, reduce over captured/unknown-type
+>   arrays, `out(sq(val))` nested tail calls, block-body `return <expr>`, and —
+>   via a new `fn_ptr->(param_kinds,return_kind)` registry consulted by
+>   INVOKE_AUTO's raw fallback — captured **named** fns called through curry
+>   chains (`(fn)=>(next)=>(val)=>next(fn(val))` returns 125 correctly).
+>   `361_functional_compose` went SIGILL → **7/8 lines correct**. Two distinct
+>   sub-bugs remain on the final transducer line, both traced precisely:
+>   1. **Captured inline-arrow handle returns 0.** A *named* const fn used as a
+>      value is a raw func_addr (the registry recovers its ABI). An *inline* arrow
+>      `(x)=>x*x` is instead reified as a Function HANDLE; captured into a closure
+>      and called, `fn(val)` yields 0 even at one capture level
+>      (`mk((x)=>x*x)(5)` = 0 vs named `sq` = 25) — the handle path through a
+>      bound-arg capture loses the value (suspected GC keep-alive of the captured
+>      Function handle, since the raw-addr named path is unaffected).
+>   2. **Param-called-as-fn errors.** `(fn, v) => fn(v)` (fn a direct param) raises
+>      "call to undeclared user function `fn`" — the call routes to lower_user_call
+>      instead of the indirect path.
+>   Each fixture also needs more on top (348 memoize-Map + curry, 386 trampoline
+>   recursion, 360 sibling fn-DECL closures sharing a boxed var, 365 async). Landed
+>   groundwork this pass: fn_ptr->ABI registry, arg normalize_f64_bits
+>   (INVOKE_AUTO/FUNCTION_CALL/array-callback), array-of-fns & named-fn-args as
+>   handles, reduce_bound for unknown arrays, block-body-return inference,
+>   return_call repr+conv guards, ambiguous-arg raw passthrough.
 > - generators (5): `344 368 379 392 273` — lazy-SM completion + #207 real async
 >   event loop (async generators / `for await`).
 > - symbol (2): `271 378` — #216 Symbol-as-computed-key + Array subclassing.
@@ -219,21 +285,49 @@ session. Concrete state:
   `gc/generator.rs`): real suspend/resume, but only for a subset of control
   flow.
 
-**Tested this session (component by component on 368):**
-- `[...g()]` finite spread → **works**;
-- `it.return(99)` → **works**;
-- `while(true) yield` + `.next()` (naturals/take) → **fails**: SM bails because
-  params with defaults (`function* naturals(start = 1)`) are `Pat::Assign`, which
-  `generator_sm::try_build` rejects (`_ => return None`) → falls to eager →
-  infinite buffer → abort;
-- `try { const v = yield ... } catch` (`.throw`) → **fails**: SM rejects
-  try-with-yield + value-passing → "unsupported expression: yield".
+**SM lazy-path progress (campaign #211/#477):**
+- `[...g()]` finite spread → **works**; `it.return(99)` → **works**.
+- ✅ `while(true) yield n++` (mutated local in yield value) — was `1,1,1`,
+  now `1,2,3` (commit 06b37d98: compute yield value before `store_all_locals`,
+  so the side effect lands in the frame).
+- ✅ default params (`function* naturals(start = 1)`) — accepted in the SM, the
+  default is preserved on the ctor signature for `expand_default_args`
+  (d8eac3fe); infinite-with-default no longer OOMs in the eager buffer.
+- ✅ lazy `yield*` delegation (d49eb9f5): `yield* gen/array/string` re-yields one
+  value at a time via runtime `__RTS_GEN_DELEGATE_{START,NEXT,DONE}` (iterator
+  state keyed by handle, survives suspend). `outer(){ yield 1; yield* inner();
+  yield* [..]; yield* "abc" }` → correct. SM now also **bails to eager** on a
+  verbatim `if` containing `return` (was emitting a bare `return;` that fails the
+  i64 state-fn verifier).
 
-**Why it can't be incremental.** Bounded SM fixes exist (default params;
-bare-`return` in a verbatim `if` causes the "terminator before end of block"
-verifier error in `__gen_state_zip`; value-passing) — but **no single one
-flips a fixture**, because each fixture combines several SM gaps **and** crosses
-into other epics:
+- ✅ `g.next()` on a generator/iterator-typed **param** (take/zip) — routes to
+  `GENERATOR_NEXT` (runtime GenState/Vec dispatch) when the param is annotated
+  `Iterator<…>`/`Generator<…>` (a734cc6f). `take(nats(), 5)` over an infinite
+  lazy generator → `1,2,3,4,5`. 368 now passes naturals/take/zip/flatten.
+
+- ✅ **value-passing** (`const v = yield X` + `gen.next(v)`) — `sent` frame slot,
+  GENERATOR_NEXT_SENT, SM lowers to `yield X; v = SENT(g)` (d6f1928a).
+- ✅ **try/catch-with-yield + `.throw()` into catch** — `catch_state` + CAUGHT,
+  GEN_SM_THROW jumps to the catch on a suspended throw (d78ab7d5). safeGen
+  `first`/`caught:oops` works in isolation.
+- ✅ **if-with-return lowering** in the SM (branch states, no eager bail) +
+  `x[Symbol.iterator]()` routing for `.next()` (decl + assign forms)
+  (9a5fd2da, c8de437a).
+
+**✅ 368_iterator_protocol — FLIPPED (96.5% → 96.8%, 359→360).** The whole
+fixture now matches Node byte-for-byte. Last two blockers were #222, not SM
+gaps, and both landed this session:
+- `arr[Symbol.iterator]()` bound `this=arr` (c26a8345) → zip works.
+- `obj[Symbol.iterator]` READ is type-aware (50c5880c): returns the iterator fn
+  only for iterables, else undefined → `typeof num[Symbol.iterator]` is
+  "undefined", recursive flatten stops at primitives.
+
+- 379 blocks at `__hoisted_fn_0`: an **async generator expression**
+  (`(async function*(){ yield 4 })()`) — needs #207 (async generators +
+  `for await`).
+
+**Why it's still not incremental.** Each remaining fixture combines several SM
+gaps **and** crosses into other epics:
 - `Symbol.iterator`/`Symbol.asyncIterator` on arrays/objects → **#216 / #222**
   (Symbol-as-computed-key, real Map/Set iterator);
 - async generators + `for await` → **#207** (real async event loop), which the

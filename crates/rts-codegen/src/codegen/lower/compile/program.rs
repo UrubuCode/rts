@@ -60,6 +60,13 @@ pub fn compile_program(
     clear_mir_cache_for_program();
 
     expand_static_fields(program);
+    // (#195 mutable closures) Caixa (boxing) de locais capturados-E-mutados em
+    // celulas heap ANTES de qualquer lift de arrow — assim a closure captura o
+    // HANDLE da celula por valor e as escritas sao compartilhadas (env-record).
+    crate::codegen::lower::passes::box_captures::box_mutable_captures(program);
+    // (cross-runtime #359) `arr.forEach(cb)` com cb que MUTA estado externo ->
+    // for-of sequencial inline (captura por referencia). ANTES do lift de arrows.
+    crate::codegen::lower::passes::parallelism::desugar_mutating_foreach(program);
     // (#374) `new Map(arr.map(...))` -> extrai o call p/ var temporaria ANTES
     // do lift de array methods, p/ que o .map seja liftado como statement
     // normal e o Map popule via MAP_FROM_ENTRIES (caminho via-var, que funciona).
@@ -75,6 +82,10 @@ pub fn compile_program(
     // (que desugara o `next()` shorthand) e hoist_fn.
     desugar_custom_iterators(program);
     desugar_object_methods(program);
+    // (#273) Object literal com [Symbol.asyncIterator]/[Symbol.iterator]: reescreve
+    // `for await/of (x of obj)` -> for-of sobre `obj[Symbol.<key>]()`. Roda DEPOIS
+    // de object_methods (que converte o metodo num KeyValue) e ANTES de hoist_fn.
+    crate::codegen::lower::passes::custom_iterator::desugar_object_symbol_iterators(program);
     hoist_fn_expressions(program);
     expand_destructuring(program);
     expand_default_args(program);
@@ -375,6 +386,13 @@ pub fn compile_program(
         let mangled: String = format!("__user_{}", fn_decl.name);
         extern_cache.insert(mangled.clone(), info.id);
         user_fns.insert(fn_decl.name.clone(), info);
+        // (cross-runtime closures) Registra defaults literais de TODAS as fns
+        // finais (incl. liftadas), p/ main_fn registrá-los no runtime e aplicar
+        // em chamadas indiretas. Cobre `trampoline(function f(n,acc=1){...})`.
+        crate::codegen::lower::passes::args::default_args::record_fn_default_lits(
+            &fn_decl.name,
+            &fn_decl.parameters,
+        );
     }
 
     // (cross-runtime #799) Pre-coleta has_this_param do AST: fn declarada
@@ -1859,7 +1877,9 @@ fn fn_body_declares_gen_buf(body: &[Statement]) -> bool {
                     if let Some(Expr::Call(c)) = d.init.as_deref() {
                         if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
                             if let Expr::Ident(fid) = callee.as_ref() {
-                                if fid.sym.as_str() == "__RTS_GEN_SM_NEW" {
+                                if fid.sym.as_str() == "__RTS_GEN_SM_NEW"
+                                    || fid.sym.as_str() == "__RTS_AGEN_NEW"
+                                {
                                     return true;
                                 }
                             }

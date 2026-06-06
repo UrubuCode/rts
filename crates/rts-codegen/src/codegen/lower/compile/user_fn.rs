@@ -349,6 +349,21 @@ pub(crate) fn compile_user_fn(
                 if is_array_ann {
                     fn_ctx.local_array_vars.insert(param.name.clone());
                 }
+                // (#211/#477) Param tipado como iterador/generator: `.next()`
+                // sobre ele roteia para GENERATOR_NEXT (que despacha GenState vs
+                // Vec em runtime). Sem isto, `take(iter: Iterator<T>)` chamando
+                // `iter.next()` caia no dispatch de membro generico -> SIGILL.
+                // Gate por anotacao (nao toca objetos `.next()` de usuario sem
+                // o tipo declarado).
+                if a.starts_with("Iterator<")
+                    || a == "Iterator"
+                    || a.starts_with("IterableIterator<")
+                    || a.starts_with("Generator<")
+                    || a == "Generator"
+                    || a.starts_with("IterableIterator")
+                {
+                    fn_ctx.generator_vars.insert(param.name.clone());
+                }
             }
         }
 

@@ -187,7 +187,18 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_ARRAY_VALUES_ITER", crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_VALUES_ITER);
     add_fn!("__RTS_FN_GL_ARRAY_ITERATOR_FN", crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN);
     add_fn!("__RTS_FN_NS_GC_GENERATOR_RETURN", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_RETURN);
+    add_fn!("__RTS_FN_NS_GC_SYMBOL_ITERATOR_OF", crate::namespaces::gc::generator::__RTS_FN_NS_GC_SYMBOL_ITERATOR_OF);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_SENT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_SENT);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH);
+    add_fn!("__RTS_FN_NS_GC_GEN_SM_CAUGHT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_CAUGHT);
+    add_fn!("__RTS_FN_NS_GC_GENERATOR_NEXT_SENT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GENERATOR_NEXT_SENT);
+    add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_START", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_START);
+    add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_NEXT);
+    add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_DONE);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_NEW", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_NEW);
+    add_fn!("__RTS_FN_NS_GC_AGEN_NEW", crate::namespaces::gc::generator::__RTS_FN_NS_GC_AGEN_NEW);
+    add_fn!("__RTS_FN_NS_GC_AGEN_NEXT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_AGEN_NEXT);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_FGET", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_FGET);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_FSET", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_FSET);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_STATE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_STATE);
@@ -232,6 +243,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         __RTS_FN_NS_GC_STRING_FROM_F64
     );
     add_fn!("__RTS_FN_NS_GC_STRING_CONCAT", __RTS_FN_NS_GC_STRING_CONCAT);
+    // (#195 mutable closures) heap cells for captured-mutated locals.
+    add_fn!("__RTS_FN_RT_CELL_NEW", __RTS_FN_RT_CELL_NEW);
+    add_fn!("__RTS_FN_RT_CELL_GET", __RTS_FN_RT_CELL_GET);
+    add_fn!("__RTS_FN_RT_CELL_SET", __RTS_FN_RT_CELL_SET);
     add_fn!(
         "__RTS_FN_NS_GC_STRING_FROM_STATIC",
         __RTS_FN_NS_GC_STRING_FROM_STATIC
@@ -610,12 +625,23 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FUNCTION_NAME", __RTS_FN_GL_FUNCTION_NAME);
     add_fn!("__RTS_FN_GL_FUNCTION_LENGTH", __RTS_FN_GL_FUNCTION_LENGTH);
     add_fn!("__RTS_FN_GL_FUNCTION_TO_STRING", __RTS_FN_GL_FUNCTION_TO_STRING);
+    {
+        use crate::namespaces::globals::function::props::{
+            __RTS_FN_RT_FUNCTION_GET_PROP, __RTS_FN_RT_FUNCTION_SET_PROP,
+            __RTS_FN_RT_FUNCTION_TO_STRING_DYN,
+        };
+        add_fn!("__RTS_FN_RT_FUNCTION_SET_PROP", __RTS_FN_RT_FUNCTION_SET_PROP);
+        add_fn!("__RTS_FN_RT_FUNCTION_GET_PROP", __RTS_FN_RT_FUNCTION_GET_PROP);
+        add_fn!("__RTS_FN_RT_FUNCTION_TO_STRING_DYN", __RTS_FN_RT_FUNCTION_TO_STRING_DYN);
+    }
     add_fn!("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET", __RTS_FN_GL_FUNCTION_PROTOTYPE_GET);
     add_fn!("__RTS_FN_GL_FUNCTION_PROTOTYPE_SET", __RTS_FN_GL_FUNCTION_PROTOTYPE_SET);
     add_fn!("__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE", __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE);
     add_fn!("__RTS_FN_RT_INVOKE_AUTO", __RTS_FN_RT_INVOKE_AUTO);
     add_fn!("__RTS_FN_RT_INVOKE_AUTO_TYPED", __RTS_FN_RT_INVOKE_AUTO_TYPED);
     add_fn!("__RTS_FN_RT_INVOKE_AUTO_AS_F64", __RTS_FN_RT_INVOKE_AUTO_AS_F64);
+    add_fn!("__RTS_FN_RT_REGISTER_FN_KINDS", __RTS_FN_RT_REGISTER_FN_KINDS);
+    add_fn!("__RTS_FN_RT_REGISTER_FN_DEFAULTS", __RTS_FN_RT_REGISTER_FN_DEFAULTS);
     add_fn!("__RTS_FN_RT_INSTANCEOF_PROTO", __RTS_FN_RT_INSTANCEOF_PROTO);
     {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TPL_COERCE_AUTO;
@@ -679,8 +705,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC", __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC);
     }
     {
-        use crate::namespaces::gc::string_pool::__RTS_FN_RT_TYPEOF_HANDLE;
+        use crate::namespaces::gc::string_pool::{
+            __RTS_FN_RT_TYPEOF_HANDLE, __RTS_FN_RT_TYPEOF_MEMBER_FALLBACK,
+        };
         add_fn!("__RTS_FN_RT_TYPEOF_HANDLE", __RTS_FN_RT_TYPEOF_HANDLE);
+        add_fn!("__RTS_FN_RT_TYPEOF_MEMBER_FALLBACK", __RTS_FN_RT_TYPEOF_MEMBER_FALLBACK);
     }
     {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE;
@@ -1284,6 +1313,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROMISE_REJECT", pr::__RTS_FN_NS_PROMISE_REJECT);
         add_fn!("__RTS_FN_NS_PROMISE_STATE", pr::__RTS_FN_NS_PROMISE_STATE);
         add_fn!("__RTS_FN_NS_PROMISE_WAIT", pr::__RTS_FN_NS_PROMISE_WAIT);
+        add_fn!("__RTS_FN_NS_PROMISE_AWAIT_VALUE", pr::__RTS_FN_NS_PROMISE_AWAIT_VALUE);
         add_fn!("__RTS_FN_NS_PROMISE_TRY_VALUE", pr::__RTS_FN_NS_PROMISE_TRY_VALUE);
         add_fn!("__RTS_FN_NS_PROMISE_TAKE_ERROR", pr::__RTS_FN_NS_PROMISE_TAKE_ERROR);
         add_fn!("__RTS_FN_NS_PROMISE_THEN_NS", pr::__RTS_FN_NS_PROMISE_THEN_NS);
@@ -2775,6 +2805,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         use crate::namespaces::runtime::eval_jit::*;
         add_fn!("__RTS_FN_NS_RUNTIME_EVAL", runtime_eval_src_jit);
         add_fn!("__RTS_FN_NS_RUNTIME_EVAL_FILE", runtime_eval_file_jit);
+        add_fn!("__RTS_FN_NS_RUNTIME_IMPORT_MODULE", runtime_import_module_jit);
+        add_fn!("__RTS_FN_NS_RUNTIME_SET_MODULE_EXPORTS", runtime_set_module_exports_jit);
     }
 
     // ── namespaces::test ─────────────────────────────────────────────

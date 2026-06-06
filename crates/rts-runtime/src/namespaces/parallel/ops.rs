@@ -112,13 +112,25 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_MAP(vec_handle: u64, fn_ptr: u64) -> u64 
     let arr = vec_handle as i64;
     // (cross-runtime #52) JS spec: map preserva holes (slot vazio
     // permanece vazio no resultado, callback nao eh invocado).
-    let result: Vec<i64> = pool().install(|| {
-        items
-            .par_iter()
-            .enumerate()
-            .map(|(i, &x)| if x == i64::MIN + 4 { x } else { f(x, i as i64, arr) })
-            .collect()
-    });
+    let map_hole = |i: usize, x: i64| if x == i64::MIN + 4 { x } else { f(x, i as i64, arr) };
+    // (cross-runtime #365) Dentro de async fn (corpo roda em tokio
+    // spawn_blocking apos um `await`), instalar no pool rayon e chamar o
+    // fn_ptr JIT em workers rayon nao-registrados na GC thread_registry
+    // crasha (ILLEGAL_INSTRUCTION). Detecta contexto tokio e roda sequencial
+    // na thread chamadora (correta, ja registrada). Codigo sync mantem rayon.
+    let result: Vec<i64> = if crate::runtime::async_rt::in_async_worker()
+        || tokio::runtime::Handle::try_current().is_ok()
+    {
+        items.iter().enumerate().map(|(i, &x)| map_hole(i, x)).collect()
+    } else {
+        pool().install(|| {
+            items
+                .par_iter()
+                .enumerate()
+                .map(|(i, &x)| map_hole(i, x))
+                .collect()
+        })
+    };
     alloc_entry(Entry::Vec(Box::new(result)))
 }
 
@@ -142,14 +154,19 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: u64, fn_ptr: u64) {
     let Some(items) = snapshot_vec(vec_handle) else {
         return;
     };
-    // SAFETY: fn_ptr is `extern "C" fn(i64, i64, i64) -> i64`. Callbacks
-    // de array methods (#776) recebem (val, idx, array_handle); lifted
-    // callbacks com menos params ignoram args extras (calling convention).
-    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // (cross-runtime closures) Invoca via invoke_array_callback (registry-aware):
+    // callbacks com param `number` compilam como `(f64)->`, e o transmute cru
+    // `(i64,i64,i64)` lia os args dos registradores errados (int vs xmm) →
+    // garbage/segfault (`forEach((code:number,i)=>{...})`). invoke_array_callback
+    // consulta o registry de ABI e usa invoke_typed com os kinds corretos; fns
+    // toda-i64 (não registradas) caem no invoke_all_i64 (idêntico ao transmute).
     let arr = vec_handle as i64;
     items.iter().enumerate().for_each(|(i, &x)| {
         if x != i64::MIN + 4 {
-            f(x, i as i64, arr);
+            crate::namespaces::globals::function::ops::invoke_array_callback(
+                fn_ptr,
+                &[x, i as i64, arr],
+            );
         }
     });
 }

@@ -15,3 +15,4 @@
 
 pub mod abi;
 pub mod ops;
+pub mod props;

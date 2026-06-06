@@ -76,6 +76,17 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     ctx.builder.ins().call(push_fn, &[handle, s]);
                     continue;
                 }
+                // (cross-runtime closures) Elemento que e' ident de user fn
+                // nomeada (`[double, square]`, ou rest `[...fns]` de pipe/
+                // compose) reifica como handle Function COM param_kinds — nao
+                // como func_addr cru. Sem isto `fns[i](x)` cai no fallback raw
+                // do INVOKE_AUTO (sem param_kinds → args number nao normalizam,
+                // f64-param le from_bits de inteiro cru ≈ 0).
+                if super::calls::arg_is_bare_user_fn(ctx, &e.expr) {
+                    let hv = super::calls::lower_callable_target_h(ctx, &e.expr)?;
+                    ctx.builder.ins().call(push_fn, &[handle, hv]);
+                    continue;
+                }
                 // (#1275) Literal float fracionario armazena bits f64 (helper
                 // centralizado). F64 inteiro-valued/int seguem i64 — sem isso
                 // `[i*10]` quebraria destructuring que le i64 cru.
@@ -214,6 +225,28 @@ fn emit_map_extend(
     Ok(())
 }
 
+/// (cross-runtime #378/#216) If `e` is a well-known symbol member like
+/// `Symbol.iterator` / `Symbol.isConcatSpreadable`, returns its stable string
+/// key `"Symbol.<name>"`. None otherwise.
+fn symbol_member_key(e: &Expr) -> Option<String> {
+    if let Expr::Member(m) = e {
+        if let (Expr::Ident(o), swc_ecma_ast::MemberProp::Ident(p)) = (m.obj.as_ref(), &m.prop) {
+            if o.sym.as_str() == "Symbol" {
+                let name = p.sym.as_str();
+                // Only DATA well-known symbols (plain stored flags) route to the
+                // "Symbol.<name>" string key. METHOD symbols (iterator/
+                // asyncIterator/toPrimitive/hasInstance) keep their existing
+                // object-Symbol-method storage/read path — moving them here
+                // would desync the readers (regresses 273/274).
+                if matches!(name, "isConcatSpreadable" | "species" | "toStringTag" | "unscopables") {
+                    return Some(format!("Symbol.{name}"));
+                }
+            }
+        }
+    }
+    None
+}
+
 pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -> Result<TypedVal> {
     use swc_ecma_ast::{Prop, PropName, PropOrSpread};
 
@@ -259,6 +292,12 @@ pub(super) fn lower_object_lit(ctx: &mut FnCtx, obj: &swc_ecma_ast::ObjectLit) -
                         // Caso comum: literal string dentro do []
                         if let Expr::Lit(swc_ecma_ast::Lit::Str(s)) = c.expr.as_ref() {
                             KeySrc::Static(s.value.to_string_lossy().to_string())
+                        } else if let Some(sk) = symbol_member_key(c.expr.as_ref()) {
+                            // (cross-runtime #378/#216) `[Symbol.iterator]` /
+                            // `[Symbol.isConcatSpreadable]` etc — store under the
+                            // stable "Symbol.<name>" string key (same convention
+                            // as class computed methods).
+                            KeySrc::Static(sk)
                         } else {
                             KeySrc::Computed(c.expr.clone())
                         }
@@ -538,7 +577,7 @@ fn emit_method_reify(
     Ok(TypedVal::new(fn_handle, ValTy::Handle))
 }
 
-pub(super) fn val_ty_to_kind(ty: ValTy) -> u8 {
+pub(crate) fn val_ty_to_kind(ty: ValTy) -> u8 {
     match ty {
         ValTy::I64 => 0,
         ValTy::F64 => 1,
@@ -1006,6 +1045,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     if ctx.user_fns.contains_key(&init_fn) {
                         return lower_user_fn_getter(ctx, &init_fn, "prototype");
                     }
+                }
+                // (cross-runtime #344) `d.prototype` where `d` is a local/param
+                // holding a function value (passed as arg — e.g. tsc __extends's
+                // `function __extends(d, b) { ... d.prototype = new Ctor(); }`).
+                // Reify the runtime value and read its prototype like a named fn.
+                if prop_name == "prototype"
+                    && !ctx.user_fns.contains_key(obj_name)
+                    && !ctx.classes.contains_key(obj_name)
+                    && ctx.read_local(obj_name).is_some()
+                {
+                    let recv_tv = lower_expr(ctx, obj_e)?;
+                    let recv = ctx.coerce_to_i64(recv_tv).val;
+                    let getter = ctx.get_extern(
+                        "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(getter, &[recv]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
                 }
             }
         }
@@ -1602,6 +1661,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             map_get_static_typed(ctx, obj_handle, key.as_bytes(), field_ty)
         }
         MemberProp::Computed(c) => {
+            // (#222) `obj[Symbol.iterator]` (leitura) — devolve a fn de iterador
+            // se obj for iteravel, senao undefined (type-aware). Sustenta
+            // `typeof item[Symbol.iterator] === "function"` (flatten).
+            if let Expr::Member(sm) = c.expr.as_ref() {
+                if let (Expr::Ident(o), MemberProp::Ident(p)) = (sm.obj.as_ref(), &sm.prop) {
+                    if o.sym.as_str() == "Symbol" && p.sym.as_str() == "iterator" {
+                        let recv_tv = lower_expr(ctx, &m.obj)?;
+                        let recv = ctx.coerce_to_i64(recv_tv).val;
+                        let f = ctx.get_extern(
+                            "__RTS_FN_NS_GC_SYMBOL_ITERATOR_OF",
+                            &[cl::I64],
+                            Some(cl::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[recv]);
+                        let h = ctx.builder.inst_results(inst)[0];
+                        ctx.declare_gc_handle(h);
+                        return Ok(TypedVal::new(h, ValTy::Handle));
+                    }
+                }
+            }
             // (#811/205) `view[i]` onde view eh TypedArray-view sobre buffer:
             // le `elem_bytes` bytes little-endian via TA_GET_ELEM.
             if let Expr::Ident(obj_id) = m.obj.as_ref() {

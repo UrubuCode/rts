@@ -620,6 +620,41 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
     alloc_entry(Entry::String(kind.as_bytes().to_vec()))
 }
 
+/// (cross-runtime #359) `typeof obj[key]` fallback. The codegen lowers the
+/// member access to `value`; when it resolves to nothing (absent own property —
+/// `0` / undefined / null / hole) AND `key` names a method that every object
+/// inherits from `Object.prototype`, JS reports `"function"`. Otherwise defers
+/// to the normal `TYPEOF_HANDLE(value)` so arrays / present keys keep correct
+/// results (`typeof arr[0]` -> "number").
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TYPEOF_MEMBER_FALLBACK(
+    value: i64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> u64 {
+    let absent = value == 0
+        || value == i64::MIN + 2
+        || value == i64::MIN + 3
+        || value == i64::MIN + 4;
+    if absent && key_len > 0 && !key_ptr.is_null() {
+        let key = unsafe { std::slice::from_raw_parts(key_ptr, key_len as usize) };
+        let is_proto = matches!(
+            key,
+            b"constructor"
+                | b"toString"
+                | b"valueOf"
+                | b"hasOwnProperty"
+                | b"isPrototypeOf"
+                | b"propertyIsEnumerable"
+                | b"toLocaleString"
+        );
+        if is_proto {
+            return alloc_entry(Entry::String(b"function".to_vec()));
+        }
+    }
+    __RTS_FN_RT_TYPEOF_HANDLE(value as u64)
+}
+
 /// `<handle>.toString()` runtime dispatch baseado no tipo da Entry.
 /// Cobre casos que o codegen nao despacha estaticamente:
 /// - Entry::Symbol -> "Symbol(desc)" / "Symbol()"
@@ -1128,4 +1163,41 @@ fn inspect_slot(raw: i64, depth: usize) -> String {
         return format_js_number(raw as f64);
     }
     inspect_handle(h, depth)
+}
+
+// ── Mutable-closure cells (#195) ────────────────────────────────────────────────
+//
+// A "cell" is a 1-slot mutable heap box (reusing `Entry::Vec` with one element)
+// that backs a captured-AND-mutated local. The cell HANDLE is captured by value
+// into closures (the existing REIFY_CAPTURED machinery), so every closure that
+// captured the variable reads/writes the SAME cell — mutations are shared, the
+// classic env-record semantics. Reads/writes go through CELL_GET / CELL_SET; the
+// declaration becomes CELL_NEW(init). The stored value is the raw i64 the
+// codegen uses for that variable (int / handle / f64-bits), round-tripped
+// verbatim.
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_CELL_NEW(value: i64) -> u64 {
+    alloc_entry(Entry::Vec(Box::new(vec![value])))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_CELL_GET(cell: u64) -> i64 {
+    with_entry(cell, |e| match e {
+        Some(Entry::Vec(v)) => v.first().copied().unwrap_or(0),
+        _ => 0,
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_CELL_SET(cell: u64, value: i64) {
+    with_entry_mut(cell, |e| {
+        if let Some(Entry::Vec(v)) = e {
+            if v.is_empty() {
+                v.push(value);
+            } else {
+                v[0] = value;
+            }
+        }
+    });
 }

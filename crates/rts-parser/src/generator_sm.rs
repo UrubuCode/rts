@@ -48,12 +48,26 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     // span_snippet no raw_statement).
     SM_SPAN.with(|c| c.set(body.span));
 
-    // Coleta nomes de parametros (apenas idents simples; destructuring =>
-    // inelegivel nesta fatia).
+    // Coleta nomes de parametros. Idents simples + DEFAULTS (`x = 1`): o nome
+    // entra como slot; o default fica preservado no `Param` do constructor para
+    // que `expand_default_args` o aplique downstream (sem ele, `function*
+    // g(start=1)` caia no eager-buffer e materializava infinito -> OOM).
+    // Destructuring em params => inelegivel.
     let mut params: Vec<String> = Vec::new();
+    let mut ctor_params: Vec<Param> = Vec::new();
     for p in &function.params {
         match &p.pat {
-            Pat::Ident(id) => params.push(id.id.sym.to_string()),
+            Pat::Ident(id) => {
+                params.push(id.id.sym.to_string());
+                ctor_params.push(p.clone());
+            }
+            Pat::Assign(asn) => match asn.left.as_ref() {
+                Pat::Ident(id) => {
+                    params.push(id.id.sym.to_string());
+                    ctor_params.push(p.clone());
+                }
+                _ => return None, // default sobre destructuring => inelegivel
+            },
             _ => return None,
         }
     }
@@ -82,8 +96,56 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     let nslots = builder.locals.len() as f64;
 
     // ── Constructor: g(params) { aloca GenState, escreve params, retorna h } ──
-    let ctor = build_ctor(name, &params, &state_fn_name, nslots, &builder);
+    let ctor = build_ctor(name, &params, &ctor_params, &state_fn_name, nslots, "__RTS_GEN_SM_NEW");
     // ── State fn: __gen_state_<name>(__g) { switch sobre estado } ─────────────
+    let state_fn = build_state_fn(&state_fn_name, &builder)?;
+
+    Some((ctor, state_fn))
+}
+
+/// (cross-runtime #392) `async function*` — async generator lazy. Combina o SM de
+/// generator (yield) com o de async fn (await): `is_async=true` faz lower_stmt
+/// tratar await como suspensao; o yield gera valores. Ctor usa `__RTS_AGEN_NEW`;
+/// `.next()` devolve Promise<{value,done}>. SEM gate `body_needs_lazy` (async gens
+/// precisam do SM mesmo finitos — eager nao faz .next()/await/throw lazy).
+pub fn try_build_async_gen(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
+    let body = function.body.as_ref()?;
+    SM_SPAN.with(|c| c.set(body.span));
+
+    let mut params: Vec<String> = Vec::new();
+    let mut ctor_params: Vec<Param> = Vec::new();
+    for p in &function.params {
+        match &p.pat {
+            Pat::Ident(id) => {
+                params.push(id.id.sym.to_string());
+                ctor_params.push(p.clone());
+            }
+            Pat::Assign(asn) => match asn.left.as_ref() {
+                Pat::Ident(id) => {
+                    params.push(id.id.sym.to_string());
+                    ctor_params.push(p.clone());
+                }
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+
+    let mut builder = SmBuilder::new();
+    builder.is_async = true;
+    builder.is_async_gen = true;
+    for p in &params {
+        builder.intern_local(p);
+    }
+
+    let entry = builder.new_state();
+    let exit = builder.lower_seq(&body.stmts, entry)?;
+    builder.set_done(exit, None);
+
+    let state_fn_name = format!("__agen_state_{}", name);
+    let nslots = builder.locals.len() as f64;
+
+    let ctor = build_ctor(name, &params, &ctor_params, &state_fn_name, nslots, "__RTS_AGEN_NEW");
     let state_fn = build_state_fn(&state_fn_name, &builder)?;
 
     Some((ctor, state_fn))
@@ -110,6 +172,17 @@ pub fn try_build_async(name: &str, function: &Function) -> Option<(FnDecl, FnDec
     // caminho atual cuidar — uma async fn sem await e' so' uma fn que devolve
     // promise resolvida).
     if !body.stmts.iter().any(stmt_has_await) {
+        return None;
+    }
+
+    // (cross-runtime #365) BAIL se o corpo tem um local capturado por uma
+    // closure aninhada E mutado. A SM async re-invoca a state-fn a cada resume
+    // com um frame NOVO; a captura por endereco do local (mecanismo do
+    // foundation de closures) fica stale apos o suspend, e a mutacao feita pela
+    // closure nao chega de volta ao frame retomado (bug: `attempts++` numa arrow
+    // chamada apos um await rendia attempts=0). O caminho nao-SM (promise.wait
+    // sincrono, sem re-invocacao de frame) preserva a captura corretamente.
+    if body_has_captured_mutated_local(&body.stmts) {
         return None;
     }
 
@@ -224,11 +297,17 @@ struct SmBuilder {
     /// (#207) True quando construindo a SM de uma `async function` (await=
     /// suspensao); muda os terminais (SUSPEND/RESOLVE em vez de YIELD/DONE).
     is_async: bool,
+    /// (cross-runtime #392) async generator (`async function*`): is_async tambem
+    /// true, mas o terminal Done usa GEN_SM_DONE (gera {value,done:true}) e os
+    /// loops com await internos sao permitidos (gate em try_lower_await_stmt).
+    is_async_gen: bool,
+    /// Contador de temporarios sinteticos unicos (yield* delegation).
+    tmp_counter: usize,
 }
 
 impl SmBuilder {
     fn new() -> Self {
-        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false }
+        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false, is_async_gen: false, tmp_counter: 0 }
     }
 
     fn intern_local(&mut self, name: &str) -> usize {
@@ -288,12 +367,74 @@ impl SmBuilder {
             Stmt::Expr(es) => {
                 if let Expr::Yield(y) = es.expr.as_ref() {
                     if y.delegate {
-                        return None; // yield* => inelegivel nesta fatia
+                        // `yield* SRC;` (posicao de statement). Delegacao lazy:
+                        // normaliza SRC num iterador e re-yielda cada valor,
+                        // suspendendo entre eles. O estado do iterador delegado
+                        // vive runtime-side (keyed pelo handle), entao so' o
+                        // handle precisa entrar no frame.
+                        let src = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
+                        let uid = self.tmp_counter;
+                        self.tmp_counter += 1;
+                        let dlg = format!("__dlg_{}", uid);
+                        let dval = format!("__dlv_{}", uid);
+                        self.intern_local(&dlg);
+                        self.intern_local(&dval);
+                        // cur: __dlg = DELEGATE_START(src)
+                        self.push_stmt(
+                            cur,
+                            assign_stmt(&dlg, call("__RTS_GEN_DELEGATE_START", vec![src])),
+                        );
+                        let header = self.new_state();
+                        self.set_goto(cur, header);
+                        let body = self.new_state();
+                        let after = self.new_state();
+                        // header: __dlv = DELEGATE_NEXT(__dlg);
+                        //         if (DELEGATE_DONE(__dlg)) goto after else goto body
+                        self.push_stmt(
+                            header,
+                            assign_stmt(
+                                &dval,
+                                call("__RTS_GEN_DELEGATE_NEXT", vec![ident_expr(&dlg)]),
+                            ),
+                        );
+                        self.set_cond(
+                            header,
+                            call("__RTS_GEN_DELEGATE_DONE", vec![ident_expr(&dlg)]),
+                            after,
+                            body,
+                        );
+                        // body: yield __dlv; volta ao header
+                        self.set_yield(body, ident_expr(&dval), header);
+                        return Some(after);
                     }
                     let value = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
                     let next = self.new_state();
                     self.set_yield(cur, value, next);
                     return Some(next);
+                }
+                // (#211 value-passing) `v = yield E;` (target ident simples,
+                // yield nao-delegate): suspende e le SENT na retomada.
+                if let Expr::Assign(a) = es.expr.as_ref() {
+                    if let Expr::Yield(y) = a.right.as_ref() {
+                        if !y.delegate {
+                            if let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = &a.left {
+                                let name = id.id.sym.to_string();
+                                self.intern_local(&name);
+                                let value =
+                                    y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
+                                let next = self.new_state();
+                                self.set_yield(cur, value, next);
+                                self.push_stmt(
+                                    next,
+                                    assign_stmt(
+                                        &name,
+                                        call("__RTS_GEN_SM_SENT", vec![ident_expr(G)]),
+                                    ),
+                                );
+                                return Some(next);
+                            }
+                        }
+                    }
                 }
                 // assignment / call comum: registra qualquer ident-target como local
                 if let Expr::Assign(a) = es.expr.as_ref() {
@@ -307,6 +448,31 @@ impl SmBuilder {
                 }
                 self.push_stmt(cur, stmt.clone());
                 Some(cur)
+            }
+            // (#211 value-passing) `const/let v = yield E;` (1 declarator, yield
+            // simples): suspende com E e, na retomada, le o valor passado em
+            // `gen.next(v)` via SENT. `yield*` em init segue inelegivel (eager).
+            Stmt::Decl(Decl::Var(vd))
+                if vd.decls.len() == 1
+                    && matches!(&vd.decls[0].name, Pat::Ident(_))
+                    && matches!(
+                        vd.decls[0].init.as_deref(),
+                        Some(Expr::Yield(y)) if !y.delegate
+                    ) =>
+            {
+                let Pat::Ident(id) = &vd.decls[0].name else { unreachable!() };
+                let name = id.id.sym.to_string();
+                let Some(Expr::Yield(y)) = vd.decls[0].init.as_deref() else { unreachable!() };
+                self.intern_local(&name);
+                let value = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
+                let next = self.new_state();
+                self.set_yield(cur, value, next);
+                // estado `next`: name = SENT(__g)
+                self.push_stmt(
+                    next,
+                    assign_stmt(&name, call("__RTS_GEN_SM_SENT", vec![ident_expr(G)])),
+                );
+                Some(next)
             }
             // `let/const x = init;`
             Stmt::Decl(Decl::Var(vd)) => {
@@ -407,9 +573,65 @@ impl SmBuilder {
             }
             // `try { ... } finally { ... }` (#477 fatia 2)
             Stmt::Try(t) => {
-                // catch com yield => fora de escopo desta fatia.
+                // (#211 try/catch com yield) `try { ...yields... } catch (e) {
+                // ...yields... }` SEM finally: `.throw(e)` suspenso na try salta
+                // para o catch com `e` ligado. Combina try/catch + finally =>
+                // fora desta fatia (bail).
                 if let Some(h) = &t.handler {
-                    if h.body.stmts.iter().any(stmt_has_yield) {
+                    let catch_has_yield = h.body.stmts.iter().any(stmt_has_yield);
+                    if catch_has_yield && t.finalizer.is_none() {
+                        // param do catch: ident simples (ou ausente).
+                        let catch_param = match h.param.as_ref() {
+                            Some(swc_ecma_ast::Pat::Ident(id)) => {
+                                Some(id.id.sym.to_string())
+                            }
+                            Some(_) => return None, // destructuring catch => bail
+                            None => None,
+                        };
+                        if let Some(name) = &catch_param {
+                            self.intern_local(name);
+                        }
+                        // Reserva o estado de entrada do catch ANTES do body para
+                        // que ENTER_TRY_CATCH aponte para ele.
+                        let catch_entry = self.new_state();
+                        let after = self.new_state();
+                        // cur: ENTER_TRY_CATCH(__g, catch_entry); goto body.
+                        self.push_stmt(
+                            cur,
+                            call_stmt(call(
+                                "__RTS_GEN_SM_ENTER_TRY_CATCH",
+                                vec![ident_expr(G), num_expr(catch_entry as f64)],
+                            )),
+                        );
+                        let body_entry = self.new_state();
+                        self.set_goto(cur, body_entry);
+                        let body_exit = self.lower_seq(&t.block.stmts, body_entry)?;
+                        // saida normal do body (sem excecao): limpa o catch e segue.
+                        self.push_stmt(
+                            body_exit,
+                            call_stmt(call(
+                                "__RTS_GEN_SM_EXIT_TRY_CATCH",
+                                vec![ident_expr(G)],
+                            )),
+                        );
+                        self.set_goto(body_exit, after);
+                        // catch_entry: e = CAUGHT(__g); corpo do catch.
+                        if let Some(name) = &catch_param {
+                            self.push_stmt(
+                                catch_entry,
+                                assign_stmt(
+                                    name,
+                                    call("__RTS_GEN_SM_CAUGHT", vec![ident_expr(G)]),
+                                ),
+                            );
+                        }
+                        let catch_exit = self.lower_seq(&h.body.stmts, catch_entry)?;
+                        self.set_goto(catch_exit, after);
+                        return Some(after);
+                    }
+                    // catch com yield + finally, ou catch sem yield mas com
+                    // finally tratado abaixo: catch-com-yield restante => bail.
+                    if catch_has_yield {
                         return None;
                     }
                 }
@@ -454,6 +676,32 @@ impl SmBuilder {
                     || expr_has_yield(&i.test)
                 {
                     return None; // if com yield => inelegivel nesta fatia
+                }
+                // Um `return` dentro do if (mesmo sem yield) NAO pode ir verbatim:
+                // o `return;`/`return X;` cru nao casa com a assinatura i64 da fn
+                // de estado (verifier error). Lower em estados ramificados:
+                // Cond(test, then, else) e o `return` no then vira DONE.
+                let has_return = stmt_has_return(&i.cons)
+                    || i.alt.as_deref().map(stmt_has_return).unwrap_or(false);
+                if has_return {
+                    if expr_has_yield(&i.test) {
+                        return None;
+                    }
+                    let then_entry = self.new_state();
+                    let after = self.new_state();
+                    let else_entry = if i.alt.is_some() {
+                        self.new_state()
+                    } else {
+                        after
+                    };
+                    self.set_cond(cur, (*i.test).clone(), then_entry, else_entry);
+                    let then_exit = self.lower_stmt(&i.cons, then_entry)?;
+                    self.set_goto(then_exit, after);
+                    if let Some(alt) = i.alt.as_deref() {
+                        let else_exit = self.lower_stmt(alt, else_entry)?;
+                        self.set_goto(else_exit, after);
+                    }
+                    return Some(after);
                 }
                 self.push_stmt(cur, stmt.clone());
                 Some(cur)
@@ -576,6 +824,14 @@ impl SmBuilder {
                 }
                 Some(None)
             }
+            // (cross-runtime #392) SO' para async generators: loops com await no
+            // corpo sao lowerados pelo arm estrutural (For/While/DoWhile), que
+            // processa o corpo state-by-state (cada await interno vira suspensao
+            // via este mesmo try_lower_await_stmt). Gate em `is_async_gen` pra
+            // NAO mudar o caminho de async functions puras (regrediu 365/303/64).
+            Stmt::For(_) | Stmt::While(_) | Stmt::DoWhile(_) if self.is_async_gen => {
+                Some(None)
+            }
             // Qualquer outro statement que contenha await => inelegivel fatia 1.
             other if stmt_has_await(other) => None,
             _ => Some(None),
@@ -651,6 +907,309 @@ fn expr_has_await(e: &Expr) -> bool {
     }
 }
 
+// ── (cross-runtime #365) captura-mutada por closure ──────────────────────────
+// Detecta um `let` local do corpo que e' (a) referenciado dentro de uma closure
+// aninhada (arrow/fn-expr) E (b) alvo de mutacao (++/--/assign) em qualquer
+// lugar. Incompletude tende a "nao detectar" (mais conservador: usa a SM) — um
+// falso-negativo nao regride (so' nao corrige); um falso-positivo (bail) cai no
+// caminho nao-SM, coberto pela suite.
+fn body_has_captured_mutated_local(stmts: &[Stmt]) -> bool {
+    use std::collections::HashSet;
+    let mut lets: HashSet<String> = HashSet::new();
+    for s in stmts {
+        collect_let_names(s, &mut lets);
+    }
+    if lets.is_empty() {
+        return false;
+    }
+    let mut captured: HashSet<String> = HashSet::new();
+    let mut mutated: HashSet<String> = HashSet::new();
+    for s in stmts {
+        scan_caps_muts_stmt(s, false, &lets, &mut captured, &mut mutated);
+    }
+    lets.iter().any(|n| captured.contains(n) && mutated.contains(n))
+}
+
+/// Nomes de `let`/`const` declarados neste escopo (desce em control-flow, NAO em
+/// corpos de closure — esses sao escopos proprios).
+fn collect_let_names(s: &Stmt, out: &mut std::collections::HashSet<String>) {
+    match s {
+        Stmt::Decl(Decl::Var(v)) => {
+            for d in &v.decls {
+                if let Pat::Ident(id) = &d.name {
+                    out.insert(id.id.sym.to_string());
+                }
+            }
+        }
+        Stmt::If(i) => {
+            collect_let_names(&i.cons, out);
+            if let Some(a) = i.alt.as_deref() {
+                collect_let_names(a, out);
+            }
+        }
+        Stmt::Block(b) => b.stmts.iter().for_each(|s| collect_let_names(s, out)),
+        Stmt::While(w) => collect_let_names(&w.body, out),
+        Stmt::DoWhile(w) => collect_let_names(&w.body, out),
+        Stmt::For(f) => {
+            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_ref() {
+                for d in &vd.decls {
+                    if let Pat::Ident(id) = &d.name {
+                        out.insert(id.id.sym.to_string());
+                    }
+                }
+            }
+            collect_let_names(&f.body, out);
+        }
+        Stmt::ForOf(f) => collect_let_names(&f.body, out),
+        Stmt::ForIn(f) => collect_let_names(&f.body, out),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().for_each(|s| collect_let_names(s, out));
+            if let Some(h) = &t.handler {
+                h.body.stmts.iter().for_each(|s| collect_let_names(s, out));
+            }
+            if let Some(fin) = &t.finalizer {
+                fin.stmts.iter().for_each(|s| collect_let_names(s, out));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_caps_muts_stmt(
+    s: &Stmt,
+    in_closure: bool,
+    lets: &std::collections::HashSet<String>,
+    cap: &mut std::collections::HashSet<String>,
+    mutd: &mut std::collections::HashSet<String>,
+) {
+    match s {
+        Stmt::Expr(e) => scan_caps_muts_expr(&e.expr, in_closure, lets, cap, mutd),
+        Stmt::Return(r) => {
+            if let Some(a) = r.arg.as_deref() {
+                scan_caps_muts_expr(a, in_closure, lets, cap, mutd);
+            }
+        }
+        Stmt::Decl(Decl::Var(v)) => {
+            for d in &v.decls {
+                if let Some(e) = d.init.as_deref() {
+                    scan_caps_muts_expr(e, in_closure, lets, cap, mutd);
+                }
+            }
+        }
+        Stmt::If(i) => {
+            scan_caps_muts_expr(&i.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&i.cons, in_closure, lets, cap, mutd);
+            if let Some(a) = i.alt.as_deref() {
+                scan_caps_muts_stmt(a, in_closure, lets, cap, mutd);
+            }
+        }
+        Stmt::Block(b) => b
+            .stmts
+            .iter()
+            .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd)),
+        Stmt::While(w) => {
+            scan_caps_muts_expr(&w.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&w.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::DoWhile(w) => {
+            scan_caps_muts_expr(&w.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&w.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::For(f) => {
+            if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_ref() {
+                for d in &vd.decls {
+                    if let Some(e) = d.init.as_deref() {
+                        scan_caps_muts_expr(e, in_closure, lets, cap, mutd);
+                    }
+                }
+            } else if let Some(swc_ecma_ast::VarDeclOrExpr::Expr(e)) = f.init.as_ref() {
+                scan_caps_muts_expr(e, in_closure, lets, cap, mutd);
+            }
+            if let Some(t) = f.test.as_deref() {
+                scan_caps_muts_expr(t, in_closure, lets, cap, mutd);
+            }
+            if let Some(u) = f.update.as_deref() {
+                scan_caps_muts_expr(u, in_closure, lets, cap, mutd);
+            }
+            scan_caps_muts_stmt(&f.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::ForOf(f) => {
+            scan_caps_muts_expr(&f.right, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&f.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::ForIn(f) => {
+            scan_caps_muts_expr(&f.right, in_closure, lets, cap, mutd);
+            scan_caps_muts_stmt(&f.body, in_closure, lets, cap, mutd);
+        }
+        Stmt::Try(t) => {
+            t.block
+                .stmts
+                .iter()
+                .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            if let Some(h) = &t.handler {
+                h.body
+                    .stmts
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            }
+            if let Some(fin) = &t.finalizer {
+                fin.stmts
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            }
+        }
+        Stmt::Throw(t) => scan_caps_muts_expr(&t.arg, in_closure, lets, cap, mutd),
+        Stmt::Switch(sw) => {
+            scan_caps_muts_expr(&sw.discriminant, in_closure, lets, cap, mutd);
+            for c in &sw.cases {
+                if let Some(t) = &c.test {
+                    scan_caps_muts_expr(t, in_closure, lets, cap, mutd);
+                }
+                c.cons
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, in_closure, lets, cap, mutd));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_caps_muts_expr(
+    e: &Expr,
+    in_closure: bool,
+    lets: &std::collections::HashSet<String>,
+    cap: &mut std::collections::HashSet<String>,
+    mutd: &mut std::collections::HashSet<String>,
+) {
+    match e {
+        Expr::Ident(id) => {
+            if in_closure {
+                let n = id.sym.to_string();
+                if lets.contains(&n) {
+                    cap.insert(n);
+                }
+            }
+        }
+        Expr::Update(u) => {
+            if let Expr::Ident(id) = u.arg.as_ref() {
+                let n = id.sym.to_string();
+                if lets.contains(&n) {
+                    mutd.insert(n);
+                }
+            }
+            scan_caps_muts_expr(&u.arg, in_closure, lets, cap, mutd);
+        }
+        Expr::Assign(a) => {
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Ident(id),
+            ) = &a.left
+            {
+                let n = id.id.sym.to_string();
+                if lets.contains(&n) {
+                    mutd.insert(n);
+                }
+            }
+            if let swc_ecma_ast::AssignTarget::Simple(
+                swc_ecma_ast::SimpleAssignTarget::Member(m),
+            ) = &a.left
+            {
+                scan_caps_muts_expr(&m.obj, in_closure, lets, cap, mutd);
+            }
+            scan_caps_muts_expr(&a.right, in_closure, lets, cap, mutd);
+        }
+        Expr::Arrow(arrow) => match arrow.body.as_ref() {
+            swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => b
+                .stmts
+                .iter()
+                .for_each(|s| scan_caps_muts_stmt(s, true, lets, cap, mutd)),
+            swc_ecma_ast::BlockStmtOrExpr::Expr(ex) => {
+                scan_caps_muts_expr(ex, true, lets, cap, mutd)
+            }
+        },
+        Expr::Fn(fnx) => {
+            if let Some(b) = &fnx.function.body {
+                b.stmts
+                    .iter()
+                    .for_each(|s| scan_caps_muts_stmt(s, true, lets, cap, mutd));
+            }
+        }
+        Expr::Call(c) => {
+            if let Callee::Expr(ce) = &c.callee {
+                scan_caps_muts_expr(ce, in_closure, lets, cap, mutd);
+            }
+            for a in &c.args {
+                scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::New(n) => {
+            scan_caps_muts_expr(&n.callee, in_closure, lets, cap, mutd);
+            if let Some(args) = &n.args {
+                for a in args {
+                    scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd);
+                }
+            }
+        }
+        Expr::Member(m) => {
+            scan_caps_muts_expr(&m.obj, in_closure, lets, cap, mutd);
+            if let swc_ecma_ast::MemberProp::Computed(c) = &m.prop {
+                scan_caps_muts_expr(&c.expr, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::Bin(b) => {
+            scan_caps_muts_expr(&b.left, in_closure, lets, cap, mutd);
+            scan_caps_muts_expr(&b.right, in_closure, lets, cap, mutd);
+        }
+        Expr::Unary(u) => scan_caps_muts_expr(&u.arg, in_closure, lets, cap, mutd),
+        Expr::Paren(p) => scan_caps_muts_expr(&p.expr, in_closure, lets, cap, mutd),
+        Expr::Await(a) => scan_caps_muts_expr(&a.arg, in_closure, lets, cap, mutd),
+        Expr::Yield(y) => {
+            if let Some(arg) = &y.arg {
+                scan_caps_muts_expr(arg, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::Cond(c) => {
+            scan_caps_muts_expr(&c.test, in_closure, lets, cap, mutd);
+            scan_caps_muts_expr(&c.cons, in_closure, lets, cap, mutd);
+            scan_caps_muts_expr(&c.alt, in_closure, lets, cap, mutd);
+        }
+        Expr::Seq(s) => s
+            .exprs
+            .iter()
+            .for_each(|x| scan_caps_muts_expr(x, in_closure, lets, cap, mutd)),
+        Expr::Tpl(t) => t
+            .exprs
+            .iter()
+            .for_each(|x| scan_caps_muts_expr(x, in_closure, lets, cap, mutd)),
+        Expr::Array(a) => {
+            for el in a.elems.iter().flatten() {
+                scan_caps_muts_expr(&el.expr, in_closure, lets, cap, mutd);
+            }
+        }
+        Expr::Object(o) => {
+            for p in &o.props {
+                if let swc_ecma_ast::PropOrSpread::Prop(prop) = p {
+                    if let swc_ecma_ast::Prop::KeyValue(kv) = prop.as_ref() {
+                        scan_caps_muts_expr(&kv.value, in_closure, lets, cap, mutd);
+                    }
+                }
+            }
+        }
+        Expr::TsAs(a) => scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd),
+        Expr::TsNonNull(a) => scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd),
+        Expr::OptChain(o) => {
+            if let swc_ecma_ast::OptChainBase::Member(m) = o.base.as_ref() {
+                scan_caps_muts_expr(&m.obj, in_closure, lets, cap, mutd);
+            } else if let swc_ecma_ast::OptChainBase::Call(c) = o.base.as_ref() {
+                scan_caps_muts_expr(&c.callee, in_closure, lets, cap, mutd);
+                for a in &c.args {
+                    scan_caps_muts_expr(&a.expr, in_closure, lets, cap, mutd);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn stmt_has_await(s: &Stmt) -> bool {
     match s {
         Stmt::Expr(e) => expr_has_await(&e.expr),
@@ -689,7 +1248,82 @@ fn body_needs_lazy(stmts: &[Stmt]) -> bool {
     stmts.iter().any(stmt_needs_lazy)
 }
 
+/// True se o stmt contem um `yield*` (delegate) em qualquer profundidade. A
+/// delegacao pode apontar para uma fonte lazy/infinita, entao exige a SM (o
+/// eager-buffer materializaria a fonte inteira).
+fn stmt_has_yield_star(s: &Stmt) -> bool {
+    fn expr_has_ys(e: &Expr) -> bool {
+        match e {
+            Expr::Yield(y) => y.delegate || y.arg.as_deref().map(expr_has_ys).unwrap_or(false),
+            Expr::Assign(a) => expr_has_ys(&a.right),
+            Expr::Bin(b) => expr_has_ys(&b.left) || expr_has_ys(&b.right),
+            Expr::Unary(u) => expr_has_ys(&u.arg),
+            Expr::Paren(p) => expr_has_ys(&p.expr),
+            Expr::Cond(c) => expr_has_ys(&c.test) || expr_has_ys(&c.cons) || expr_has_ys(&c.alt),
+            Expr::Seq(s) => s.exprs.iter().any(|x| expr_has_ys(x)),
+            Expr::Call(c) => c.args.iter().any(|a| expr_has_ys(&a.expr)),
+            _ => false,
+        }
+    }
+    match s {
+        Stmt::Expr(e) => expr_has_ys(&e.expr),
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_yield_star),
+        Stmt::If(i) => {
+            stmt_has_yield_star(&i.cons)
+                || i.alt.as_deref().map(stmt_has_yield_star).unwrap_or(false)
+        }
+        Stmt::While(w) => stmt_has_yield_star(&w.body),
+        Stmt::DoWhile(d) => stmt_has_yield_star(&d.body),
+        Stmt::For(f) => stmt_has_yield_star(&f.body),
+        Stmt::ForOf(fo) => stmt_has_yield_star(&fo.body),
+        Stmt::ForIn(fi) => stmt_has_yield_star(&fi.body),
+        Stmt::Decl(Decl::Var(vd)) => vd
+            .decls
+            .iter()
+            .any(|d| d.init.as_deref().map(expr_has_ys).unwrap_or(false)),
+        _ => false,
+    }
+}
+
+/// True se o stmt usa o VALOR de um `yield` (`const v = yield E` / `v = yield
+/// E`) — value-passing exige suspensao real (o valor vem de um `next(v)`
+/// posterior); o eager-buffer nao consegue (roda ate o fim, v=undefined).
+fn stmt_has_value_yield(s: &Stmt) -> bool {
+    match s {
+        Stmt::Decl(Decl::Var(vd)) => vd.decls.iter().any(|d| {
+            matches!(d.init.as_deref(), Some(Expr::Yield(y)) if !y.delegate)
+        }),
+        Stmt::Expr(e) => matches!(
+            e.expr.as_ref(),
+            Expr::Assign(a) if matches!(a.right.as_ref(), Expr::Yield(y) if !y.delegate)
+        ),
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_value_yield),
+        Stmt::If(i) => {
+            stmt_has_value_yield(&i.cons)
+                || i.alt.as_deref().map(stmt_has_value_yield).unwrap_or(false)
+        }
+        Stmt::While(w) => stmt_has_value_yield(&w.body),
+        Stmt::DoWhile(d) => stmt_has_value_yield(&d.body),
+        Stmt::For(f) => stmt_has_value_yield(&f.body),
+        Stmt::ForOf(fo) => stmt_has_value_yield(&fo.body),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().any(stmt_has_value_yield)
+                || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_value_yield)).unwrap_or(false)
+                || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_value_yield)).unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
 fn stmt_needs_lazy(s: &Stmt) -> bool {
+    // `yield*` (delegate) sempre exige SM (fonte potencialmente lazy/infinita).
+    if stmt_has_yield_star(s) {
+        return true;
+    }
+    // value-passing `const v = yield E` exige SM (suspende, le SENT na retomada).
+    if stmt_has_value_yield(s) {
+        return true;
+    }
     match s {
         Stmt::While(w) => stmt_has_yield(&w.body),
         Stmt::DoWhile(d) => stmt_has_yield(&d.body),
@@ -707,6 +1341,31 @@ fn stmt_needs_lazy(s: &Stmt) -> bool {
             stmt_needs_lazy(&i.cons)
                 || i.alt.as_deref().map(stmt_needs_lazy).unwrap_or(false)
         }
+        _ => false,
+    }
+}
+
+/// True se o stmt contem um `return` em qualquer profundidade (sem descer em
+/// fns/arrows aninhadas, que tem seu proprio return).
+fn stmt_has_return(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(_) => true,
+        Stmt::Block(b) => b.stmts.iter().any(stmt_has_return),
+        Stmt::If(i) => {
+            stmt_has_return(&i.cons) || i.alt.as_deref().map(stmt_has_return).unwrap_or(false)
+        }
+        Stmt::While(w) => stmt_has_return(&w.body),
+        Stmt::DoWhile(d) => stmt_has_return(&d.body),
+        Stmt::For(f) => stmt_has_return(&f.body),
+        Stmt::ForOf(fo) => stmt_has_return(&fo.body),
+        Stmt::ForIn(fi) => stmt_has_return(&fi.body),
+        Stmt::Try(t) => {
+            t.block.stmts.iter().any(stmt_has_return)
+                || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_return)).unwrap_or(false)
+                || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_return)).unwrap_or(false)
+        }
+        Stmt::Labeled(l) => stmt_has_return(&l.body),
+        Stmt::Switch(sw) => sw.cases.iter().any(|c| c.cons.iter().any(stmt_has_return)),
         _ => false,
     }
 }
@@ -748,22 +1407,22 @@ fn param_ident(name: &str) -> Param {
 
 fn build_ctor(
     name: &str,
-    params: &[String],
+    param_names: &[String],
+    ctor_params: &[Param],
     state_fn_name: &str,
     nslots: f64,
-    _builder: &SmBuilder,
+    new_fn: &str,
 ) -> FnDecl {
     let mut stmts: Vec<Stmt> = Vec::new();
-    // const __g = __RTS_GEN_SM_NEW(<state_fn>, nslots);
+    // const __g = <new_fn>(<state_fn>, nslots);  (sync: __RTS_GEN_SM_NEW;
+    // async gen: __RTS_AGEN_NEW)
     stmts.push(let_decl(
         G,
-        call(
-            "__RTS_GEN_SM_NEW",
-            vec![ident_expr(state_fn_name), num_expr(nslots)],
-        ),
+        call(new_fn, vec![ident_expr(state_fn_name), num_expr(nslots)]),
     ));
-    // escreve params nos slots 0..n
-    for (i, p) in params.iter().enumerate() {
+    // escreve params nos slots 0..n (pelo NOME — o default ja' foi aplicado
+    // ao binding pelo expand_default_args sobre a assinatura do ctor).
+    for (i, p) in param_names.iter().enumerate() {
         stmts.push(call_stmt(call(
             "__RTS_GEN_SM_FSET",
             vec![ident_expr(G), num_expr(i as f64), ident_expr(p)],
@@ -775,7 +1434,8 @@ fn build_ctor(
         arg: Some(Box::new(ident_expr(G))),
     }));
 
-    make_fn_decl(name, params, stmts, true)
+    // Assinatura do ctor preserva os Param originais (com defaults).
+    make_fn_decl_params(name, ctor_params.to_vec(), stmts)
 }
 
 /// (#207 async-SM) Ctor da async fn: aloca o GenState async, escreve params no
@@ -831,19 +1491,24 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
         // transicao
         match &st.trans {
             Trans::Yield { value, next } => {
-                // salva todos os locais no frame
+                // Computa o VALOR do yield ANTES de persistir os locais: a expr
+                // pode mutar um local (`yield n++`), e esse efeito tem de entrar
+                // no frame salvo — senao a retomada recarrega o valor pre-mutacao
+                // (bug: `while(true) yield n++` rendia 1,1,1 em vez de 1,2,3).
+                blk.push(let_decl("__gen_yv", value.clone()));
+                // salva todos os locais no frame (apos os efeitos do valor)
                 blk.extend(store_all_locals(builder));
                 // SETSTATE(__g, next)
                 blk.push(call_stmt(call(
                     "__RTS_GEN_SM_SETSTATE",
                     vec![ident_expr(G), num_expr(*next as f64)],
                 )));
-                // return __RTS_GEN_SM_YIELD(__g, value)
+                // return __RTS_GEN_SM_YIELD(__g, __gen_yv)
                 blk.push(Stmt::Return(swc_ecma_ast::ReturnStmt {
                     span: sp(),
                     arg: Some(Box::new(call(
                         "__RTS_GEN_SM_YIELD",
-                        vec![ident_expr(G), value.clone()],
+                        vec![ident_expr(G), ident_expr("__gen_yv")],
                     ))),
                 }));
             }
@@ -909,7 +1574,9 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
             }
             Trans::Done(ret) => {
                 let ret_expr = ret.clone().unwrap_or_else(undef_expr);
-                let term = if builder.is_async {
+                // async gen (is_async_gen): Done usa GEN_SM_DONE (.next resolve
+                // {value:ret,done:true}); async fn pura: ASYNC_SM_RESOLVE.
+                let term = if builder.is_async && !builder.is_async_gen {
                     "__RTS_ASYNC_SM_RESOLVE"
                 } else {
                     "__RTS_GEN_SM_DONE"
@@ -959,7 +1626,7 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
     }
 
     // else final: done(undefined) / resolve(undefined) p/ async.
-    let final_term = if builder.is_async {
+    let final_term = if builder.is_async && !builder.is_async_gen {
         "__RTS_ASYNC_SM_RESOLVE"
     } else {
         "__RTS_GEN_SM_DONE"
@@ -1036,6 +1703,26 @@ fn store_all_locals(builder: &SmBuilder) -> Vec<Stmt> {
             ))
         })
         .collect()
+}
+
+/// Variante que recebe os `Param` swc originais (preserva defaults na
+/// assinatura — usado pelo constructor do generator).
+fn make_fn_decl_params(name: &str, params: Vec<Param>, stmts: Vec<Stmt>) -> FnDecl {
+    FnDecl {
+        ident: ident(name),
+        declare: false,
+        function: Box::new(Function {
+            params,
+            decorators: Vec::new(),
+            span: sp(),
+            ctxt: Default::default(),
+            body: Some(BlockStmt { span: sp(), ctxt: Default::default(), stmts }),
+            is_generator: false,
+            is_async: false,
+            type_params: None,
+            return_type: None,
+        }),
+    }
 }
 
 fn make_fn_decl(name: &str, params: &[String], stmts: Vec<Stmt>, _is_ctor: bool) -> FnDecl {

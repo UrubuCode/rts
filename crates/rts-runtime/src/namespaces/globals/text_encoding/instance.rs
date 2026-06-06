@@ -221,6 +221,7 @@ type CallbackFn = unsafe extern "C" fn(i64) -> i64;
 /// - `SettledThen { ... }`: Promise.then com promise ja' settled — invoca
 ///   fp(value), settle o result slot com retorno (ou propaga rejection).
 use std::cell::RefCell;
+#[derive(Clone)]
 pub(crate) enum Microtask {
     Bare(u64),
     SettledThen {
@@ -280,6 +281,13 @@ pub(crate) enum Microtask {
 }
 thread_local! {
     static MICROTASK_QUEUE: RefCell<Vec<Microtask>> = const { RefCell::new(Vec::new()) };
+    /// (cross-runtime #344/#393) The batch currently being processed by
+    /// `drain_microtasks` — moved out of MICROTASK_QUEUE for iteration. Kept here
+    /// (not just a local) so `mark_microtask_roots` marks handles held by the
+    /// IN-FLIGHT microtask while its callback allocates (and may trigger a GC
+    /// tick). Without this the executing task's handles (e.g. a generator being
+    /// driven) get swept mid-callback → use-after-free / infinite loops.
+    static MICROTASK_INFLIGHT: RefCell<Vec<Microtask>> = const { RefCell::new(Vec::new()) };
 }
 
 #[unsafe(no_mangle)]
@@ -388,6 +396,75 @@ pub fn enqueue_microtask_async_resume(
 
 /// Drena microtasks pendentes. Chamada pelo pipeline pos-main e tambem
 /// pode ser chamada pelo codegen no fim de cada task (futuro).
+/// (cross-runtime #344/#393) GC root marking for the microtask queue. Handles
+/// captured by queued microtasks (callback closures' bound args, settled values,
+/// promise-slot values, the async-resume GenState) live ONLY in this heap queue
+/// — not on any scanned stack — so a GC tick during synchronous code (e.g. the
+/// many allocations before an `await`/`.then` drains) would sweep them, leaving
+/// the async drive operating on freed handles (e.g. a generator that never
+/// reports `done` → infinite microtask loop). `finish_cycle` calls this before
+/// sweeping so everything reachable from a pending microtask survives.
+/// `mark_handle` is transitive, so marking a closure handle covers its captures.
+pub fn mark_microtask_roots() {
+    use crate::namespaces::gc::handles::mark_handle;
+    use crate::namespaces::gc::promise_slot;
+    let mark_slot =
+        |s: &std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>| {
+            mark_handle(promise_slot::current_value(s) as u64);
+        };
+    let mut mark_task = |t: &Microtask| {
+            match t {
+                Microtask::Bare(fp) => mark_handle(*fp),
+                Microtask::SettledThen { fn_ptr, bound, value, result_slot, .. } => {
+                    mark_handle(*fn_ptr);
+                    for b in bound {
+                        mark_handle(*b as u64);
+                    }
+                    mark_handle(*value as u64);
+                    mark_slot(result_slot);
+                }
+                Microtask::SettledFinally { fn_ptr, value, result_slot, .. } => {
+                    mark_handle(*fn_ptr);
+                    mark_handle(*value as u64);
+                    mark_slot(result_slot);
+                }
+                Microtask::PendingThen { source, fn_ptr, bound, result_slot, .. } => {
+                    mark_slot(source);
+                    mark_handle(*fn_ptr);
+                    for b in bound {
+                        mark_handle(*b as u64);
+                    }
+                    mark_slot(result_slot);
+                }
+                Microtask::PendingThen2 { source, on_ful, on_rej, result_slot } => {
+                    mark_slot(source);
+                    mark_handle(*on_ful);
+                    mark_handle(*on_rej);
+                    mark_slot(result_slot);
+                }
+                Microtask::PendingFinally { source, fn_ptr, result_slot } => {
+                    mark_slot(source);
+                    mark_handle(*fn_ptr);
+                    mark_slot(result_slot);
+                }
+                Microtask::AsyncResume { gen_handle, source } => {
+                    mark_handle(*gen_handle);
+                    mark_slot(source);
+                }
+            }
+    };
+    MICROTASK_QUEUE.with(|q| {
+        for t in q.borrow().iter() {
+            mark_task(t);
+        }
+    });
+    MICROTASK_INFLIGHT.with(|q| {
+        for t in q.borrow().iter() {
+            mark_task(t);
+        }
+    });
+}
+
 pub fn drain_microtasks() {
     use crate::namespaces::gc::promise_slot;
     // (#207) Guard contra loop infinito: se varios ciclos so' contem
@@ -488,6 +565,9 @@ pub fn drain_microtasks() {
                 _ => true,
             })
             .collect();
+        // (cross-runtime #344/#393) Keep the in-flight batch markable while its
+        // callbacks run (they allocate → may GC). Cleared after the batch.
+        MICROTASK_INFLIGHT.with(|f| *f.borrow_mut() = queue.clone());
         for (idx, task) in queue.into_iter().enumerate() {
             match task {
                 Microtask::Bare(fp) => {
@@ -641,32 +721,27 @@ pub fn drain_microtasks() {
                 }
             }
         }
+        // (cross-runtime #344/#393) Batch done — drop the in-flight roots.
+        MICROTASK_INFLIGHT.with(|f| f.borrow_mut().clear());
     }
 }
 
-/// Cópia local de invoke_callback (promise/ops.rs) para evitar dep
-/// circular do módulo. Aridade ate 8 com bound_args prepended.
+/// Invoca o callback de microtask (then/catch/finally) prepended com bound_args.
+/// (cross-runtime closures) Usa o registry de ABI: callbacks com param `number`
+/// agora compilam como `(f64)->...`; invocá-los via ABI i64 crua segfaultava
+/// (`Promise.resolve(4).then((n:number)=>n+1)`). invoke_fn_ptr_with_registry usa
+/// invoke_typed com os param_kinds reais (e normaliza args number-cru), ou
+/// invoke_n quando a fn é toda-i64 (idêntico ao transmute de antes).
 unsafe fn invoke_microtask_callback(
     fn_ptr: u64,
     bound: &[i64],
     extra: Option<i64>,
 ) -> i64 {
-    use std::mem::transmute;
     let mut args: Vec<i64> = bound.to_vec();
     if let Some(v) = extra {
         args.push(v);
     }
-    unsafe {
-        match args.len() {
-            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
-            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
-            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2],
-            ),
-            _ => 0,
-        }
-    }
+    crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
 }
 
 // TextEncoder / TextDecoder constructors — stateless, token handle.

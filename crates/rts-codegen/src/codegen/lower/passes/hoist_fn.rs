@@ -300,7 +300,12 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 }
                 parameters.push(Parameter {
                     name: n,
-                    type_annotation: None,
+                    // (cross-runtime closures) Preserva a anotacao `: number` /
+                    // `: boolean` da arrow/fn-expr liftada. Antes era SEMPRE
+                    // None -> `(x:number)=>x*x` compilava como `(i64)->i64`, e
+                    // quando chamada via closure com arg f64-bits lia lixo
+                    // (x*x dava 0). Agora vira F64 e bate com a ABI de number.
+                    type_annotation: param_keyword_type_str(&p.pat),
                     modifiers: MemberModifiers::default(),
                     variadic: false,
                     default: None,
@@ -385,6 +390,30 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
             .collect()
     }
 
+    /// (cross-runtime closures) Extrai a anotacao de tipo KEYWORD
+    /// (`number`/`string`/`boolean`) de um param de arrow/fn-expr liftada, como
+    /// string p/ o `type_annotation` do `Parameter`. Sem SourceMap aqui (pos
+    /// parse), le direto do `TsType` da AST. Outros tipos -> None (mantem o
+    /// comportamento untyped/i64 de antes; zero impacto fora de number/bool).
+    fn param_keyword_type_str(pat: &Pat) -> Option<String> {
+        use swc_ecma_ast::{TsKeywordTypeKind, TsType};
+        let type_ann = match pat {
+            Pat::Ident(bi) => bi.type_ann.as_ref()?,
+            Pat::Assign(a) => return param_keyword_type_str(a.left.as_ref()),
+            _ => return None,
+        };
+        if let TsType::TsKeywordType(k) = type_ann.type_ann.as_ref() {
+            let s = match k.kind {
+                TsKeywordTypeKind::TsNumberKeyword => "number",
+                TsKeywordTypeKind::TsStringKeyword => "string",
+                TsKeywordTypeKind::TsBooleanKeyword => "boolean",
+                _ => return None,
+            };
+            return Some(s.to_string());
+        }
+        None
+    }
+
     fn visit_expr(expr: &mut Expr, counter: &mut u32, new_fns: &mut Vec<Item>) {
         // Pre-order: primeiro visitamos sub-exprs (para que Fn/Arrow
         // aninhadas tambem sejam hoisted) e depois substituimos a
@@ -450,6 +479,19 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                         }
                     }
                 }
+                // (#211/#273/#344) Generator fn-EXPRESSION (incl. async-generator
+                // object methods `async *[key](){...}` e fn-exprs passadas como
+                // arg/IIFE): aplica o mesmo desugar eager (`__gen_buf`) das
+                // declarations top-level. Sem isto o `yield` cru chega ao codegen
+                // ("unsupported expression: yield in __hoisted_fn_N").
+                if func.is_generator {
+                    let blk = swc_ecma_ast::BlockStmt {
+                        span: func.body.as_ref().map(|b| b.span).unwrap_or_default(),
+                        ctxt: Default::default(),
+                        stmts: body,
+                    };
+                    body = crate::parser::generator_desugar::desugar_generator_body(&blk).stmts;
+                }
                 build_fn_decl(&name, &func.params, body)
             }
             Expr::Arrow(arrow) => {
@@ -476,6 +518,23 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
         // reify) — entao captura + variadic coexistem sem deslocamento errado.
         {
             let enclosing = cur_scope();
+            let swc_body: Vec<Stmt> = fn_decl
+                .body
+                .iter()
+                .filter_map(|Statement::Raw(r)| r.stmt.clone())
+                .collect();
+            // (#195/#376) Captura de `this` por valor: APENAS arrows. Uma arrow
+            // captura `this` lexicamente (o receiver no momento da criacao),
+            // entao `make(){ return () => this.v }` deve fixar o `this` corrente.
+            // Funcoes/metodos comuns (fn-expr, ex: `next()` de iterador, getters)
+            // recebem `this` DINAMICO do receiver na chamada — NUNCA capturar por
+            // valor (senao quebra 272/335/336). Independe de enclosing locals: o
+            // valor vem do slot `this` em runtime (THIS_GET no reify).
+            let uses_this = is_arrow_expr
+                && swc_body
+                    .iter()
+                    .any(crate::codegen::lower::passes::this_arrow::stmt_uses_this);
+            let mut cap_list: Vec<String> = Vec::new();
             if !enclosing.is_empty() {
                 let mut own: std::collections::HashSet<String> =
                     fn_decl.parameters.iter().map(|p| p.name.clone()).collect();
@@ -484,33 +543,42 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     &mut own,
                 );
                 own.insert(name.clone());
-                let swc_body: Vec<Stmt> = fn_decl
-                    .body
-                    .iter()
-                    .filter_map(|Statement::Raw(r)| r.stmt.clone())
-                    .collect();
                 let caps = crate::codegen::lower::analysis::captures::free_vars_in_swc_stmts(
                     &swc_body, &enclosing, &own,
                 );
-                if !caps.is_empty() {
-                    let cap_list: Vec<String> = caps.into_iter().collect();
-                    let mut new_params: Vec<Parameter> = cap_list
-                        .iter()
-                        .map(|c| Parameter {
-                            name: c.clone(),
-                            type_annotation: None,
-                            modifiers: MemberModifiers::default(),
-                            variadic: false,
-                            default: None,
-                            span: Span::default(),
-                        })
-                        .collect();
-                    new_params.extend(std::mem::take(&mut fn_decl.parameters));
-                    fn_decl.parameters = new_params;
-                    crate::codegen::lower::passes::this_arrow::add_lifted_captures(
-                        std::iter::once((name.clone(), cap_list)),
-                    );
+                cap_list = caps.into_iter().collect();
+            }
+            if uses_this {
+                // `__captured_this` SEMPRE no indice 0 (alinha com o reify, que
+                // resolve a captura 0 via read_local("this") || THIS_GET()).
+                cap_list.insert(0, "__captured_this".to_string());
+                for s in fn_decl.body.iter_mut() {
+                    let Statement::Raw(r) = s;
+                    if let Some(stmt) = r.stmt.as_mut() {
+                        crate::codegen::lower::passes::this_arrow::rewrite_this_to_named(
+                            stmt,
+                            "__captured_this",
+                        );
+                    }
                 }
+            }
+            if !cap_list.is_empty() {
+                let mut new_params: Vec<Parameter> = cap_list
+                    .iter()
+                    .map(|c| Parameter {
+                        name: c.clone(),
+                        type_annotation: None,
+                        modifiers: MemberModifiers::default(),
+                        variadic: false,
+                        default: None,
+                        span: Span::default(),
+                    })
+                    .collect();
+                new_params.extend(std::mem::take(&mut fn_decl.parameters));
+                fn_decl.parameters = new_params;
+                crate::codegen::lower::passes::this_arrow::add_lifted_captures(
+                    std::iter::once((name.clone(), cap_list)),
+                );
             }
         }
         // (#310) Registra variadic se o ultimo param eh rest — INVOKE_AUTO
@@ -696,11 +764,37 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 if let Some(u) = f.update.as_mut() {
                     visit_expr(u.as_mut(), counter, new_fns);
                 }
+                // (cross-runtime #359) loop-init var entra no cur_scope p/ que
+                // closures no corpo (ex. getter de defineProperty num loop)
+                // capturem-no por valor. Sem isto -> "undefined variable".
+                let saved = cur_scope();
+                let mut sc = saved.clone();
+                if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_ref() {
+                    for d in &vd.decls {
+                        if let Pat::Ident(id) = &d.name {
+                            sc.insert(id.id.sym.to_string());
+                        }
+                    }
+                }
+                set_cur_scope(sc);
                 visit_stmt(f.body.as_mut(), counter, new_fns);
+                set_cur_scope(saved);
             }
             Stmt::ForOf(f) => {
                 visit_expr(f.right.as_mut(), counter, new_fns);
+                // (cross-runtime #359) o bind do for-of entra no cur_scope.
+                let saved = cur_scope();
+                let mut sc = saved.clone();
+                if let swc_ecma_ast::ForHead::VarDecl(vd) = &f.left {
+                    for d in &vd.decls {
+                        if let Pat::Ident(id) = &d.name {
+                            sc.insert(id.id.sym.to_string());
+                        }
+                    }
+                }
+                set_cur_scope(sc);
                 visit_stmt(f.body.as_mut(), counter, new_fns);
+                set_cur_scope(saved);
             }
             Stmt::ForIn(f) => {
                 visit_expr(f.right.as_mut(), counter, new_fns);

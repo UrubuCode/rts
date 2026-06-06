@@ -445,6 +445,14 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
         None,
     )?;
     for arg in &call.args {
+        // (cross-runtime closures) Ident de user fn nomeada passado adiante
+        // (`mk(sq)(out)`) reifica como handle COM param_kinds, nao func_addr cru
+        // — senao a fn capturada chamada perde args f64 no fallback raw.
+        if arg.spread.is_none() && super::arg_is_bare_user_fn(ctx, &arg.expr) {
+            let h = super::lower_callable_target_h(ctx, &arg.expr)?;
+            ctx.builder.ins().call(vec_push, &[args_vec, h]);
+            continue;
+        }
         let tv = lower_expr(ctx, &arg.expr)?;
         if arg.spread.is_some() {
             // (cross-runtime #1067) Spread em indirect call: extend o args
@@ -461,6 +469,19 @@ pub(super) fn lower_indirect_call(ctx: &mut FnCtx, callee_expr: &Expr, call: &Ca
                     cranelift_codegen::ir::MemFlags::new(),
                     tv.val,
                 ),
+                // (cross-runtime #386) Bool atravessando callback indireto
+                // (`k(true)` em CPS/trampoline) precisa virar SENTINEL
+                // (true=i64::MIN+1, false=i64::MIN) para que o valor preserve a
+                // identidade boolean ate' o consumo (console.log/INSPECT decodam
+                // o sentinel -> "true"/"false"). Sem isto a bool viaja como 0/1
+                // cru e imprime "0"/"1". O callback de CPS so' repassa o valor
+                // (`result=v; return v`), nao faz aritmetica — seguro.
+                ValTy::Bool => {
+                    let raw = ctx.coerce_to_i64(tv).val;
+                    let t = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+                    let f = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                    ctx.builder.ins().select(raw, t, f)
+                }
                 _ => ctx.coerce_to_i64(tv).val,
             };
             ctx.builder.ins().call(vec_push, &[args_vec, v]);
@@ -630,6 +651,16 @@ pub(super) fn emit_function_handle_indirect_call(
             ctx.builder.ins().call(vec_extend_h, &[args_handle, src]);
             continue;
         }
+        // (cross-runtime closures) Arg que e' ident de user fn nomeada (ex.:
+        // `mk(sq)(out)` passa `out` adiante) reifica como handle Function COM
+        // param_kinds, nao func_addr cru — senao quando essa fn capturada e'
+        // chamada (`next(x)`) cai no fallback raw do INVOKE_AUTO (ABI i64) e o
+        // arg f64 se perde (`next(25)` virava next(0)).
+        if super::arg_is_bare_user_fn(ctx, &a.expr) {
+            let h = super::lower_callable_target_h(ctx, &a.expr)?;
+            ctx.builder.ins().call(vec_push, &[args_handle, h]);
+            continue;
+        }
         let tv = lower_expr(ctx, &a.expr)?;
         // Args numéricos são empacotados como `f64::to_bits` (i64) para
         // preservar precisão na travessia do Vec<i64>. O invoke_typed em
@@ -643,16 +674,35 @@ pub(super) fn emit_function_handle_indirect_call(
             ),
             ValTy::I32 | ValTy::I64
             | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
-                // Literal int em TS é `number` (F64). Promove e empacota
-                // como bits para que invoke_typed leia f64 corretamente.
-                let as_f = ctx.coerce_to_f64(tv).val;
-                ctx.builder.ins().bitcast(
-                    cl::I64,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    as_f,
-                )
+                // (cross-runtime closures) Valor I64 AMBÍGUO (resultado de um
+                // call indireto/captura — já carrega bits-f64 OU handle, marcado
+                // em var_member_call_values): passa CRU. Reconverter via
+                // coerce_to_f64 trataria os bits como inteiro gigante e
+                // corromperia (`next(fn(val))` virava next(0)). O
+                // normalize_f64_bits_args no runtime mantém bits válidos e
+                // reencoda inteiros crus, então o cru funciona p/ ambos.
+                if ctx.var_member_call_values.contains(&tv.val) {
+                    ctx.coerce_to_i64(tv).val
+                } else {
+                    // Literal int em TS é `number` (F64). Promove e empacota
+                    // como bits para que invoke_typed leia f64 corretamente.
+                    let as_f = ctx.coerce_to_f64(tv).val;
+                    ctx.builder.ins().bitcast(
+                        cl::I64,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        as_f,
+                    )
+                }
             }
-            ValTy::Bool | ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
+            // (cross-runtime #386) Bool via handle Function (bind/REIFY) tambem
+            // viaja como sentinel — mesma razao do path lower_indirect_call.
+            ValTy::Bool => {
+                let raw = ctx.coerce_to_i64(tv).val;
+                let t = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+                let f = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                ctx.builder.ins().select(raw, t, f)
+            }
+            ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
         };
         ctx.builder.ins().call(vec_push, &[args_handle, v]);
     }

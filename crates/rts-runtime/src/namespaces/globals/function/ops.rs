@@ -194,6 +194,36 @@ fn f64_to_i64(v: f64) -> i64 {
     v.to_bits() as i64
 }
 
+/// (cross-runtime closures — function-value calling convention) Normaliza args
+/// `number` para a convenção do `invoke_typed`: um param f64 (`param_kinds[i]==1`)
+/// espera os BITS de um f64. Args que entram via INVOKE_AUTO/FUNCTION_CALL a
+/// partir de arrays/literais/captura (ex.: `fns.reduce((v,f)=>f(v), x)`, ou
+/// `(...a)=>fn(...a)`) podem chegar como INTEIRO CRU (um elemento de `[1,2,3]`
+/// é o i64 `1`, não `f64::to_bits(1.0)`). Sem isto o `invoke_typed` faz
+/// `from_bits(1)` ≈ 0 e a função recebe lixo (`partial(add,10)(1,2)` → 3).
+///
+/// Heurística que NÃO toca o caminho que já funciona: reinterpretar o i64 como
+/// bits-f64 de um número "normal" dá um valor finito numa faixa sã; um inteiro
+/// cru pequeno (1, 2, 42, …) reinterpreta para denormal/≈0 (fora da faixa). Só
+/// reencoda quando o valor NÃO parece bits-f64 válidos — então args já
+/// codificados como bits (grandes) passam intactos. Aplica-se apenas a `pk==1`,
+/// logo handles/inteiros i64 (`pk==0`) nunca são alterados.
+fn normalize_f64_bits_args(args: &mut [i64], param_kinds: &[u8]) {
+    for (i, a) in args.iter_mut().enumerate() {
+        if param_kinds.get(i).copied().unwrap_or(0) != 1 {
+            continue;
+        }
+        let as_bits = f64::from_bits(*a as u64);
+        let looks_like_f64_bits = as_bits == 0.0
+            || (as_bits.is_finite() && as_bits.abs() >= 1e-200 && as_bits.abs() < 1e200);
+        if !looks_like_f64_bits {
+            // Parece inteiro cru → reencoda como bits f64 (o valor que o
+            // invoke_typed vai `from_bits` de volta).
+            *a = f64::to_bits(*a as f64) as i64;
+        }
+    }
+}
+
 fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bool, Vec<u8>, u8)> {
     with_entry(handle, |entry| {
         if let Some(Entry::Function(data)) = entry {
@@ -284,7 +314,18 @@ pub(crate) fn invoke_array_callback(handle_or_ptr: u64, extra: &[i64]) -> i64 {
         let mut all: Vec<i64> = Vec::with_capacity(bound.len() + extra.len());
         all.extend_from_slice(&bound);
         all.extend_from_slice(extra);
+        // (cross-runtime closures) extra = [acc/val, idx, arr] vem como inteiro
+        // CRU; um callback com param `number` (pk==1) espera bits f64. Reencoda
+        // os crus (já-bits passam intactos, pk!=1 idem).
+        normalize_f64_bits_args(&mut all, &param_kinds);
         unsafe { invoke_typed(fn_ptr, &all, &param_kinds, ret_kind) }
+    } else if let Some((kinds, rk)) = lookup_fn_kinds(handle_or_ptr) {
+        // (cross-runtime closures) fn_ptr cru COM ABI registrada (user fn
+        // address-taken usada como callback): invoke_typed com os kinds reais +
+        // normaliza args number-cru. Cobre `arr.reduce(namedFn)` etc.
+        let mut all = extra.to_vec();
+        normalize_f64_bits_args(&mut all, &kinds);
+        unsafe { invoke_typed(handle_or_ptr, &all, &kinds, rk) }
     } else {
         // fn_ptr cru. Callbacks de array method recebem (val, idx, arr).
         unsafe { invoke_all_i64(handle_or_ptr, extra) }
@@ -517,14 +558,55 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
             args_handle,
         );
     }
+    // (cross-runtime #218/#354) `handle` pode ser um func_addr CRU (arrow/fn
+    // passada como VALOR a um param any/function e invocada via .apply/.call —
+    // ex. o `target` de um Proxy apply-trap: `apply(t,th,a){ t.apply(th,a) }`).
+    // O codegen registra cada user fn address-taken (com >=1 param f64) em
+    // FN_KINDS_REGISTRY pelo fn_ptr. Consulta-se ANTES de read_function_data
+    // (handle valido nunca colide com um fn_ptr). Sem isto devolvia 0.
+    {
+        let kinds = {
+            let reg = fn_kinds_registry().read().unwrap_or_else(|e| e.into_inner());
+            reg.get(&handle).cloned()
+        };
+        if let Some((param_kinds, return_kind)) = kinds {
+            let mut args = read_args_vec(args_handle);
+            normalize_f64_bits_args(&mut args, &param_kinds);
+            return unsafe { invoke_typed(handle, &args, &param_kinds, return_kind) };
+        }
+    }
     let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind) =
         match read_function_data(handle) {
             Some(d) => d,
-            None => return 0,
+            None => {
+                // (cross-runtime #344) `handle` is not a Function entry. If it is
+                // a VALID GC handle of some other kind (Map/Vec/...), it is not
+                // callable → 0. Otherwise it is a RAW func_addr (a fn-value passed
+                // through `any` and invoked via `.call`/`.apply` — e.g. a 0-arg or
+                // non-f64-param fn that isn't in FN_KINDS_REGISTRY). Invoke it
+                // directly, mirroring INVOKE_AUTO's raw-fn_ptr fallback. Without
+                // this, `f.call(null)` on such a param returned 0 instead of
+                // invoking f.
+                let is_valid_handle = with_entry(handle, |e| e.is_some());
+                if is_valid_handle {
+                    return 0;
+                }
+                let args = read_args_vec(args_handle);
+                crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
+                let r = unsafe { invoke_n(handle, &args) };
+                crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+                return r;
+            }
         };
 
     let mut all_args = bound_args;
     all_args.extend(read_args_vec(args_handle));
+    // (cross-runtime closures) Preenche args faltantes com os defaults da fn
+    // antes de empacotar variadic — `fn(...args)` (indireto) que omite um param
+    // com default (`acc = 1`) recebia 0. So' p/ não-variadic (param_kinds fixo).
+    if read_rest_param_idx(handle) < 0 && !param_kinds.is_empty() {
+        pad_with_defaults(&mut all_args, fn_ptr, param_kinds.len());
+    }
     // (#195) Variadic: empacota `all_args[rest_idx..]` num array ANTES de
     // tratar `this`/dispatch (lambdas liftadas variadic sao is_arrow → sem
     // insercao de this, entao rest_idx mapeia direto sobre all_args).
@@ -554,8 +636,10 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
 
     // Args ja' vem encoded corretamente do codegen (numbers como f64 bits
     // via bitcast). Reflect.apply faz conversao int->f64 antes de chamar
-    // FUNCTION_CALL.
-    let typed_args = all_args.clone();
+    // FUNCTION_CALL. (cross-runtime closures) Mas args vindos de array/captura/
+    // spread podem chegar como inteiro cru — reencoda p/ bits nos params f64.
+    let mut typed_args = all_args.clone();
+    normalize_f64_bits_args(&mut typed_args, &param_kinds);
     // (cross-runtime #799) Variadic fold: callee binario f64 (ex:
     // `Math.max(a,b)`) chamado via `Reflect.apply(Math.max, null, [...n])`
     // com N > 2 args — RTS nao tem variadic na ABI, mas Math.max/min sao
@@ -630,7 +714,20 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
         .map(|(i, &v)| {
             let pk = param_kinds.get(i + offset).copied().unwrap_or(last_kind);
             if pk == 1 {
-                f64_to_i64(v as f64)
+                // (cross-runtime #354) heuristica igual a normalize_f64_bits_args:
+                // se `v` JA' parece bits f64 (o call site empacotou o number como
+                // bits — ex. args de um Proxy `apply` forward), deixa; senao
+                // reencoda o int cru -> bits f64. Antes era sempre
+                // `f64_to_i64(v as f64)`, que DUPLO-convertia args ja'-bits
+                // (f64bits(2.0) tratado como int 4617e15 -> satura i64::MAX).
+                let as_f = f64::from_bits(v as u64);
+                let looks_bits = as_f == 0.0
+                    || (as_f.is_finite() && as_f.abs() >= 1e-200 && as_f.abs() < 1e200);
+                if looks_bits {
+                    v
+                } else {
+                    f64_to_i64(v as f64)
+                }
             } else {
                 v
             }
@@ -739,6 +836,141 @@ fn proto_registry() -> &'static std::sync::Mutex<std::collections::HashMap<u64, 
     FN_PROTOTYPE_REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// (cross-runtime closures) Registry `fn_ptr -> (param_kinds, return_kind)`.
+/// O codegen reifica VALORES de user fn como `func_addr` cru (não handle) para
+/// preservar o `call_indirect` rápido; mas quando essa fn vira uma captura/arg
+/// dinâmico e é invocada via INVOKE_AUTO, o caminho raw não conhecia os
+/// param_kinds e tratava tudo como i64, perdendo args f64 (`next(25)`→`next(0)`).
+/// O codegen agora registra cada user fn address-taken aqui no startup; o
+/// fallback raw consulta a tabela e invoca com a ABI correta.
+static FN_KINDS_REGISTRY: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<u64, (Vec<u8>, u8)>>,
+> = std::sync::OnceLock::new();
+
+fn fn_kinds_registry(
+) -> &'static std::sync::RwLock<std::collections::HashMap<u64, (Vec<u8>, u8)>> {
+    FN_KINDS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+/// Registra a ABI (param_kinds + return_kind) de uma user fn pelo seu endereço.
+/// Emitido pelo codegen no início de `__RTS_MAIN` para cada fn address-taken.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_REGISTER_FN_KINDS(
+    fn_ptr: u64,
+    kinds_ptr: i64,
+    kinds_len: i64,
+    return_kind: i32,
+) {
+    if fn_ptr == 0 {
+        return;
+    }
+    let kinds: Vec<u8> = if kinds_ptr != 0 && kinds_len > 0 {
+        unsafe { std::slice::from_raw_parts(kinds_ptr as *const u8, kinds_len as usize) }.to_vec()
+    } else {
+        Vec::new()
+    };
+    let mut reg = fn_kinds_registry()
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
+    reg.insert(fn_ptr, (kinds, return_kind as u8));
+}
+
+/// (cross-runtime closures) Registry `fn_ptr -> default values` (já no encoding
+/// do param: bits-f64 p/ number, raw p/ i64/bool). Sentinela `i64::MIN` = sem
+/// default. Permite aplicar defaults de params quando a fn é chamada
+/// INDIRETAMENTE (`fn(...args)` via handle/INVOKE_AUTO) com menos args — o
+/// preenchimento padrão é 0, que ignora `acc = 1` (trampoline/curry → acc=0).
+const NO_DEFAULT: i64 = i64::MIN;
+static FN_DEFAULTS_REGISTRY: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>>,
+> = std::sync::OnceLock::new();
+
+fn fn_defaults_registry(
+) -> &'static std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>> {
+    FN_DEFAULTS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+/// Registra os defaults (já encodados) de uma user fn pelo endereço.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_REGISTER_FN_DEFAULTS(
+    fn_ptr: u64,
+    defaults_ptr: i64,
+    defaults_len: i64,
+) {
+    if fn_ptr == 0 || defaults_ptr == 0 || defaults_len <= 0 {
+        return;
+    }
+    let defs: Vec<i64> = unsafe {
+        std::slice::from_raw_parts(defaults_ptr as *const i64, defaults_len as usize)
+    }
+    .to_vec();
+    let mut reg = fn_defaults_registry()
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
+    reg.insert(fn_ptr, defs);
+}
+
+/// Preenche `args` até `arity` usando os defaults registrados de `fn_ptr`
+/// (ou 0 quando não há default). No-op se já tem args suficientes.
+fn pad_with_defaults(args: &mut Vec<i64>, fn_ptr: u64, arity: usize) {
+    if args.len() >= arity {
+        return;
+    }
+    let defs = {
+        let reg = fn_defaults_registry().read().unwrap_or_else(|e| e.into_inner());
+        reg.get(&fn_ptr).cloned()
+    };
+    while args.len() < arity {
+        let i = args.len();
+        let v = defs
+            .as_ref()
+            .and_then(|d| d.get(i).copied())
+            .filter(|&v| v != NO_DEFAULT)
+            .unwrap_or(0);
+        args.push(v);
+    }
+}
+
+/// Lookup da ABI registrada de um `fn_ptr` cru. `None` quando não registrado.
+fn lookup_fn_kinds(fn_ptr: u64) -> Option<(Vec<u8>, u8)> {
+    let reg = fn_kinds_registry()
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
+    reg.get(&fn_ptr).cloned()
+}
+
+/// (cross-runtime closures) Invoca um `fn_ptr` CRU de user fn com `args`,
+/// consultando o registry de ABI: se registrado (param f64), normaliza os args
+/// number-cru → bits e usa invoke_typed com a ABI correta; senão cai no
+/// invoke_n (todos i64). Usado por callers que têm só o ponteiro resolvido (ex:
+/// promise.then), p/ não chamar uma fn `(f64)->f64` via ABI i64 (segfault).
+pub(crate) fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
+    // (cross-runtime closures) Se na verdade for um HANDLE Function (escapou sem
+    // resolve — ex: callback de `.then` reificado como handle quando passou a
+    // ter param `number`/f64), despacha pelo caminho de handle: prepend bound,
+    // normaliza, invoke_typed com os kinds do handle. Sem isto o invoke_n abaixo
+    // saltava para o valor do handle (0x1000...) → ACCESS_VIOLATION.
+    if let Some((real_ptr, bound, _hbt, _bt, _arrow, _htp, kinds, rk)) =
+        read_function_data(fn_ptr)
+    {
+        let mut a = bound;
+        a.extend_from_slice(args);
+        normalize_f64_bits_args(&mut a, &kinds);
+        return unsafe { invoke_typed(real_ptr, &a, &kinds, rk) };
+    }
+    if let Some((kinds, rk)) = lookup_fn_kinds(fn_ptr) {
+        let mut a = args.to_vec();
+        // (cross-runtime closures) Preenche params omitidos com os defaults
+        // registrados ANTES de normalizar — `fn(...args)` indireto a uma fn com
+        // `acc = 1` recebia acc=0 (trampoline/curry com fn-expr inline raw).
+        pad_with_defaults(&mut a, fn_ptr, kinds.len());
+        normalize_f64_bits_args(&mut a, &kinds);
+        unsafe { invoke_typed(fn_ptr, &a, &kinds, rk) }
+    } else {
+        unsafe { invoke_n(fn_ptr, args) }
+    }
+}
+
 /// (cross-runtime #336) Object.prototype singleton — Map cacheado com
 /// `constructor: {name: "Object"}`. Usado em prototype chain inspection:
 /// quando uma classe raiz (sem super) e' criada, seu proto Map recebe
@@ -789,10 +1021,10 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
             None
         }
     });
-    let fn_ptr = match fn_ptr {
-        Some(p) => p,
-        None => return 0,
-    };
+    // (cross-runtime #344) A closure / address-taken fn may reach here as a raw
+    // func_addr (not a reified Entry::Function handle). Key the prototype
+    // registry by the address itself so GET/SET on the same value round-trip.
+    let fn_ptr = fn_ptr.unwrap_or(handle);
     // Caminho rapido: ja existe.
     {
         let registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
@@ -993,13 +1225,11 @@ fn invoke_auto_impl(
         all_args.extend(read_args_vec(args_handle));
         // (#195) Variadic: empacota o tail num array handle antes do pad/dispatch.
         pack_variadic_tail(&mut all_args, read_rest_param_idx(callee as u64));
-        // (engine multi-thread passivo) Preenche args faltantes com 0
-        // ate atender o numero de param_kinds. Caso: setTimeout(resolveFn, ms)
-        // chama com 0 args, mas resolveFn tem param_kinds=[0,0] (promise_h
-        // + value). Sem preencher, o trampolim lê lixo do stack como value.
-        while all_args.len() < param_kinds.len() {
-            all_args.push(0);
-        }
+        // (cross-runtime closures) Preenche args faltantes com os DEFAULTS
+        // registrados da fn (ou 0 quando não há) até atender param_kinds. Antes
+        // era sempre 0, ignorando `acc = 1` em call indireto (`fn(...args)` de
+        // trampoline/curry → acc=0). pad_with_defaults usa o registry por fn_ptr.
+        pad_with_defaults(&mut all_args, fn_ptr, param_kinds.len());
         let pushed_this = if !is_arrow && has_this_param {
             let effective = if has_bound_this { bound_this } else { this_arg };
             all_args.insert(0, effective);
@@ -1022,6 +1252,9 @@ fn invoke_auto_impl(
             Some(ov) if return_kind == 0 => ov,
             _ => return_kind,
         };
+        // (cross-runtime closures) Reencoda args number-cru → bits f64 quando o
+        // param é f64 (caminho INVOKE_AUTO/captura/spread que empacota i64 cru).
+        normalize_f64_bits_args(&mut all_args, &param_kinds);
         // (#1281 packed) Despacha pelo shim quando presente (aridade arbitraria).
         let packed_shim = read_packed_shim(callee as u64);
         let r = if packed_shim != 0 {
@@ -1035,13 +1268,27 @@ fn invoke_auto_impl(
         return r;
     }
     // Fn ptr raw — usa invoke_typed com override (param_kinds vazio).
-    let args_v = read_args_vec(args_handle);
+    let mut args_v = read_args_vec(args_handle);
     crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
-    let rk = override_return_kind.unwrap_or(0);
-    let r = if rk == 0 {
-        unsafe { invoke_n(callee as u64, &args_v) }
+    // (cross-runtime closures) Se o codegen registrou a ABI desse fn_ptr cru
+    // (user fn address-taken capturada/passada como valor), invoca com os
+    // param_kinds/return_kind reais — normalizando args number-cru p/ bits f64.
+    // Sem isto `next(25)` numa closure virava `next(0)` (f64 arg perdido).
+    let r = if let Some((kinds, reg_rk)) = lookup_fn_kinds(callee as u64) {
+        pad_with_defaults(&mut args_v, callee as u64, kinds.len());
+        normalize_f64_bits_args(&mut args_v, &kinds);
+        let rk = match override_return_kind {
+            Some(ov) if reg_rk == 0 => ov,
+            _ => reg_rk,
+        };
+        unsafe { invoke_typed(callee as u64, &args_v, &kinds, rk) }
     } else {
-        unsafe { invoke_typed(callee as u64, &args_v, &[], rk) }
+        let rk = override_return_kind.unwrap_or(0);
+        if rk == 0 {
+            unsafe { invoke_n(callee as u64, &args_v) }
+        } else {
+            unsafe { invoke_typed(callee as u64, &args_v, &[], rk) }
+        }
     };
     crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
     r
@@ -1059,7 +1306,9 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_SET(handle: u64, new_proto: u64
             None
         }
     });
-    let Some(fn_ptr) = fn_ptr else { return };
+    // (cross-runtime #344) Raw func_addr (closure / address-taken fn): key by the
+    // address itself, matching FUNCTION_PROTOTYPE_GET's fallback.
+    let fn_ptr = fn_ptr.unwrap_or(handle);
     let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
     registry.insert(fn_ptr, new_proto);
     drop(registry);

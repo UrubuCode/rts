@@ -85,6 +85,18 @@ pub(crate) fn collect_captures_in_body(
     captured
 }
 
+/// (#195 mutable closures) Idents pertencentes a `locals` que aparecem dentro
+/// de arrows/fn-exprs ANINHADAS num `Stmt` — i.e. capturados por uma closure
+/// interna. Usado pelo `box_captures` para decidir o que precisa virar celula.
+pub(crate) fn free_vars_of_nested_closures(
+    stmt: &Stmt,
+    locals: &std::collections::HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    scan_stmt_for_arrows(stmt, locals, &mut out);
+    out
+}
+
 /// (cross-runtime #195) Free vars de um corpo SWC cru: idents usados que
 /// pertencem a `enclosing` e nao a `shadowed` (params/locais proprios da
 /// lambda). Reaproveita o mesmo scanner de `collect_captures_in_body`, mas
@@ -207,6 +219,45 @@ fn scan_expr_for_arrows(
             scan_expr_for_arrows(&c.cons, locals, captured);
             scan_expr_for_arrows(&c.alt, locals, captured);
         }
+        // (cross-runtime #365) `await <expr>` — sem isto um arrow dentro de
+        // `await retry(() => { count++ }, n)` ficava invisivel pra deteccao de
+        // captura, e `count` nao era boxed → mutacao perdida ao cruzar a
+        // chamada async (captura snapshotada por valor).
+        Expr::Await(a) => scan_expr_for_arrows(&a.arg, locals, captured),
+        Expr::New(n) => {
+            scan_expr_for_arrows(&n.callee, locals, captured);
+            if let Some(args) = &n.args {
+                for a in args {
+                    scan_expr_for_arrows(&a.expr, locals, captured);
+                }
+            }
+        }
+        Expr::Seq(s) => {
+            for e in &s.exprs {
+                scan_expr_for_arrows(e, locals, captured);
+            }
+        }
+        Expr::Tpl(t) => {
+            for e in &t.exprs {
+                scan_expr_for_arrows(e, locals, captured);
+            }
+        }
+        Expr::Array(a) => {
+            for el in a.elems.iter().flatten() {
+                scan_expr_for_arrows(&el.expr, locals, captured);
+            }
+        }
+        Expr::Object(o) => {
+            for p in &o.props {
+                if let swc_ecma_ast::PropOrSpread::Prop(prop) = p {
+                    if let swc_ecma_ast::Prop::KeyValue(kv) = prop.as_ref() {
+                        scan_expr_for_arrows(&kv.value, locals, captured);
+                    }
+                }
+            }
+        }
+        Expr::TsAs(a) => scan_expr_for_arrows(&a.expr, locals, captured),
+        Expr::TsNonNull(n) => scan_expr_for_arrows(&n.expr, locals, captured),
         _ => {}
     }
 }

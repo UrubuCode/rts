@@ -171,6 +171,14 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
         }
     }
 
+    // (cross-runtime #378) `+obj` on a class instance with [Symbol.toPrimitive]:
+    // call it with hint "number" and coerce the result to a number.
+    if matches!(u.op, UnaryOp::Plus) {
+        if let Some(tv) = try_class_to_primitive(ctx, &u.arg, "number")? {
+            return Ok(TypedVal::new(ctx.coerce_to_f64(tv).val, ValTy::F64));
+        }
+    }
+
     let operand = lower_expr(ctx, &u.arg)?;
     match u.op {
         UnaryOp::Minus => match operand.ty {
@@ -317,6 +325,50 @@ pub(super) fn lower_unary(ctx: &mut FnCtx, u: &swc_ecma_ast::UnaryExpr) -> Resul
     }
 }
 
+/// (cross-runtime #378) If `expr` is a class instance whose class defines a
+/// `[Symbol.toPrimitive]` instance method, calls it with the given hint
+/// ("number"/"string"/"default") and returns the result. `None` otherwise — the
+/// caller then uses its normal coercion path.
+pub(super) fn try_class_to_primitive(
+    ctx: &mut FnCtx,
+    expr: &Expr,
+    hint: &str,
+) -> Result<Option<TypedVal>> {
+    let cls = match crate::codegen::lower::expressions::members::lhs_static_class(ctx, expr) {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+    let has = ctx
+        .classes
+        .get(&cls)
+        .map(|m| m.methods.iter().any(|x| x == "Symbol.toPrimitive"))
+        .unwrap_or(false);
+    if !has {
+        return Ok(None);
+    }
+    let recv_tv = lower_expr(ctx, expr)?;
+    let recv = ctx.coerce_to_i64(recv_tv).val;
+    let hint_expr = Expr::Lit(Lit::Str(swc_ecma_ast::Str {
+        span: Default::default(),
+        value: hint.into(),
+        raw: None,
+    }));
+    let synth = swc_ecma_ast::CallExpr {
+        span: Default::default(),
+        ctxt: Default::default(),
+        callee: swc_ecma_ast::Callee::Expr(Box::new(expr.clone())),
+        args: vec![swc_ecma_ast::ExprOrSpread {
+            spread: None,
+            expr: Box::new(hint_expr),
+        }],
+        type_args: None,
+    };
+    let tv = crate::codegen::lower::expressions::calls::lower_class_method_call_with_recv(
+        ctx, &cls, "Symbol.toPrimitive", recv, &synth,
+    )?;
+    Ok(Some(tv))
+}
+
 fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     // Resolucao AST-level cobre os casos JS antes de tentar lowering:
     // - undeclaredVar -> "undefined" (sem ReferenceError)
@@ -460,6 +512,38 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
                 }
             }
         }
+        // (cross-runtime #359) `typeof obj[key]` with a computed string key
+        // (`obj["constructor"]` / `obj[_k]`): a key naming an Object.prototype
+        // method reports "function" even when absent as an own property.
+        // TYPEOF_MEMBER_FALLBACK applies that only when the access resolved to
+        // nothing, so `typeof arr[i]` and present keys keep correct typeof.
+        if let swc_ecma_ast::MemberProp::Computed(cp) = &m.prop {
+            if matches!(cp.expr.as_ref(), Expr::Ident(_) | Expr::Lit(Lit::Str(_))) {
+                use cranelift_codegen::ir::InstBuilder;
+                let val_tv = lower_expr(ctx, operand)?;
+                let v = ctx.coerce_to_i64(val_tv).val;
+                let key_tv = lower_expr(ctx, &cp.expr)?;
+                let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                let kp_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                let kl_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let kp = {
+                    let i = ctx.builder.ins().call(kp_fn, &[key_h]);
+                    ctx.builder.inst_results(i)[0]
+                };
+                let kl = {
+                    let i = ctx.builder.ins().call(kl_fn, &[key_h]);
+                    ctx.builder.inst_results(i)[0]
+                };
+                let helper = ctx.get_extern(
+                    "__RTS_FN_RT_TYPEOF_MEMBER_FALLBACK",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(helper, &[v, kp, kl]);
+                let r = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(r, ValTy::Handle));
+            }
+        }
     }
     let tv = lower_expr(ctx, operand)?;
     // Handle pode ser string OU symbol/function/object/etc. Em vez de
@@ -510,6 +594,40 @@ pub(super) fn lower_tpl(ctx: &mut FnCtx, tpl: &Tpl) -> Result<TypedVal> {
     let mut acc = ctx.emit_str_handle(&cook(first))?;
 
     for (expr, quasi) in tpl.exprs.iter().zip(tpl.quasis.iter().skip(1)) {
+        // (cross-runtime #378) `${obj}` where obj's class defines
+        // [Symbol.toPrimitive]: call it with hint "string" (takes precedence
+        // over toString) and concat the result.
+        if let Some(tv) = try_class_to_primitive(ctx, expr, "string")? {
+            // The result is i64-ambiguous (the method may return a string
+            // handle or a number depending on hint) — TPL_COERCE_AUTO detects
+            // a string handle at runtime, else stringifies the number.
+            let val_i64 = ctx.coerce_to_i64(tv).val;
+            let coerce_fn = ctx.get_extern(
+                "__RTS_FN_RT_TPL_COERCE_AUTO",
+                &[cl::I64],
+                Some(cl::I64),
+            )?;
+            let ci = ctx.builder.ins().call(coerce_fn, &[val_i64]);
+            let rhs = ctx.builder.inst_results(ci)[0];
+            let concat = ctx.get_extern(
+                "__RTS_FN_NS_GC_STRING_CONCAT",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(concat, &[acc.val, rhs]);
+            let r = ctx.builder.inst_results(inst)[0];
+            ctx.register_temp_handle(r);
+            acc = TypedVal::new(r, ValTy::Handle);
+            let bytes = cook(quasi);
+            if !bytes.is_empty() {
+                let qh = ctx.emit_str_handle(&bytes)?;
+                let inst = ctx.builder.ins().call(concat, &[acc.val, qh.val]);
+                let r = ctx.builder.inst_results(inst)[0];
+                ctx.register_temp_handle(r);
+                acc = TypedVal::new(r, ValTy::Handle);
+            }
+            continue;
+        }
         // (cross-runtime #304) `${obj}` onde obj eh new C / ident tipado de
         // classe com toString() custom: reescreve para `obj.toString()` em
         // vez de render "[object Object]". Espelha o fix de concat.

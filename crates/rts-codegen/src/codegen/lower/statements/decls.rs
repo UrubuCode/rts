@@ -35,6 +35,19 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                 ctx.generator_vars.insert(name.clone());
                             }
                         }
+                        // (#211/#222) `const ia = x[Symbol.iterator]()` — o
+                        // resultado eh um iterator handle (ARRAY_VALUES_ITER ->
+                        // Vec+cursor). Marca `ia` como generator_var pra que
+                        // `ia.next()` roteie a GENERATOR_NEXT (que despacha
+                        // Vec/GenState em runtime). Sem isto, `ia.next()` cai no
+                        // dispatch de membro generico -> SIGILL (zip/iterators).
+                        if let swc_ecma_ast::Expr::Member(m) = callee.as_ref() {
+                            if let swc_ecma_ast::MemberProp::Computed(cp) = &m.prop {
+                                if expr_is_symbol_iterator(&cp.expr) {
+                                    ctx.generator_vars.insert(name.clone());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -873,8 +886,33 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                                             | "allSettled" | "any"
                                         )
                                     {
-                                        ctx.local_class_ty
-                                            .insert(name.clone(), "Promise".to_string());
+                                        // (#207) `await Promise.{all,allSettled,any,race}(...)`
+                                        // desembrulha Promise<Array> -> o resultado eh um
+                                        // ARRAY. Marca como local_array_var p/ `.map`/
+                                        // `.forEach`/etc rotearem ao builtin de array (sem
+                                        // isso `r.map(...)` despachava como metodo de Promise
+                                        // -> crash). Sem await, `const p = Promise.X(...)`
+                                        // continua sendo Promise (p/ `.then`).
+                                        fn init_has_await(e: &swc_ecma_ast::Expr) -> bool {
+                                            match e {
+                                                swc_ecma_ast::Expr::Await(_) => true,
+                                                swc_ecma_ast::Expr::Paren(p) => {
+                                                    init_has_await(&p.expr)
+                                                }
+                                                _ => false,
+                                            }
+                                        }
+                                        if init_has_await(init.as_ref())
+                                            && matches!(
+                                                mid.sym.as_str(),
+                                                "all" | "allSettled" | "any" | "race"
+                                            )
+                                        {
+                                            ctx.local_array_vars.insert(name.clone());
+                                        } else {
+                                            ctx.local_class_ty
+                                                .insert(name.clone(), "Promise".to_string());
+                                        }
                                     }
                                 }
                                 // Class.staticMethod(...) → propaga ret_class.
@@ -1166,6 +1204,19 @@ pub(super) fn class_name_from_annotation(ty: &swc_ecma_ast::TsType) -> Option<St
         }
     }
     None
+}
+
+/// (#211/#222) A expr eh `Symbol.iterator` (chave computada de um acessor de
+/// iterador, ex: `arr[Symbol.iterator]()`)?
+fn expr_is_symbol_iterator(e: &swc_ecma_ast::Expr) -> bool {
+    if let swc_ecma_ast::Expr::Member(m) = e {
+        if let (swc_ecma_ast::Expr::Ident(obj), swc_ecma_ast::MemberProp::Ident(prop)) =
+            (m.obj.as_ref(), &m.prop)
+        {
+            return obj.sym.as_str() == "Symbol" && prop.sym.as_str() == "iterator";
+        }
+    }
+    false
 }
 
 fn zero_for_ty(ctx: &mut FnCtx, ty: ValTy) -> cranelift_codegen::ir::Value {

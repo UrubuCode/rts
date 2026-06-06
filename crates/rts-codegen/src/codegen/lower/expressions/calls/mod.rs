@@ -173,6 +173,42 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // generator_desugar no `return`. Registra o ret_value (devolvido pelo
         // `.next()` ao esgotar) e retorna o Vec `buf`.
         if let Expr::Ident(id) = callee.as_ref() {
+            // (#195 mutable closures) cell intrinsics emitted by the
+            // box_mutable_captures pass. A captured-AND-mutated local lives in a
+            // heap cell; reads/writes go through these so capturers share state.
+            match id.sym.as_str() {
+                "__cell_new" if call.args.len() == 1 => {
+                    use cranelift_codegen::ir::types as cl;
+                    let init_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let init = ctx.coerce_to_i64(init_tv).val;
+                    let f = ctx.get_extern("__RTS_FN_RT_CELL_NEW", &[cl::I64], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(f, &[init]);
+                    let h = ctx.builder.inst_results(inst)[0];
+                    ctx.declare_gc_handle(h);
+                    return Ok(TypedVal::new(h, ValTy::Handle));
+                }
+                "__cell_get" if call.args.len() == 1 => {
+                    use cranelift_codegen::ir::types as cl;
+                    let cell_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let cell = ctx.coerce_to_i64(cell_tv).val;
+                    let f = ctx.get_extern("__RTS_FN_RT_CELL_GET", &[cl::I64], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(f, &[cell]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::I64));
+                }
+                "__cell_set" if call.args.len() == 2 => {
+                    use cranelift_codegen::ir::types as cl;
+                    let cell_tv = lower_expr(ctx, &call.args[0].expr)?;
+                    let cell = ctx.coerce_to_i64(cell_tv).val;
+                    let val_tv = lower_expr(ctx, &call.args[1].expr)?;
+                    let val = ctx.coerce_to_i64(val_tv).val;
+                    let f = ctx.get_extern("__RTS_FN_RT_CELL_SET", &[cl::I64, cl::I64], None)?;
+                    ctx.builder.ins().call(f, &[cell, val]);
+                    // Assignment expression evaluates to the assigned value.
+                    return Ok(TypedVal::new(val, ValTy::I64));
+                }
+                _ => {}
+            }
             if id.sym.as_str() == "__RTS_GEN_FINISH" && call.args.len() == 2 {
                 use cranelift_codegen::ir::types as cl;
                 let buf_tv = lower_expr(ctx, &call.args[0].expr)?;
@@ -215,7 +251,8 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 for (i, a) in call.args.iter().enumerate() {
                     if i == 0
                         && (sym == "__RTS_FN_NS_GC_GEN_SM_NEW"
-                            || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW")
+                            || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW"
+                            || sym == "__RTS_FN_NS_GC_AGEN_NEW")
                     {
                         if let Expr::Ident(fid) = a.expr.as_ref() {
                             let addr = emit_user_fn_addr(ctx, fid.sym.as_str())?;
@@ -233,6 +270,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let vt = if sym == "__RTS_FN_NS_GC_GEN_SM_NEW"
                         || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW"
                         || sym == "__RTS_FN_NS_GC_ASYNC_SM_START"
+                        || sym == "__RTS_FN_NS_GC_AGEN_NEW"
                     {
                         ValTy::Handle
                     } else {
@@ -254,19 +292,57 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // conflito com objetos que tem `.next()` proprio.
         if let Expr::Member(m) = callee.as_ref() {
             if let MemberProp::Ident(prop) = &m.prop {
-                if prop.sym.as_str() == "next" && call.args.is_empty() {
+                if prop.sym.as_str() == "next" && call.args.len() <= 1 {
                     if let Expr::Ident(obj_id) = m.obj.as_ref() {
-                        if ctx.generator_vars.contains(obj_id.sym.as_str()) {
+                        let nm = obj_id.sym.as_str();
+                        // (cross-runtime #344) Route `.next()` to GENERATOR_NEXT
+                        // not only for vars marked `generator_vars` (`const it =
+                        // g()`) but also for ambiguous handle-typed locals/globals
+                        // whose value can be a generator obtained indirectly
+                        // (`g = generator.call(this)`, a promoted-to-global capture
+                        // typed F64, etc.). GENERATOR_NEXT runtime-detects
+                        // GenState/Vec/Map-custom-iterator, so over-routing a plain
+                        // object iterator is handled there. Class instances (own
+                        // `.next` method) are excluded — they keep the method path.
+                        let ambiguous = {
+                            let ty = ctx
+                                .read_local_info(nm)
+                                .map(|l| l.ty)
+                                .or_else(|| ctx.globals.get(nm).map(|g| g.ty));
+                            matches!(
+                                ty,
+                                None | Some(ValTy::I64)
+                                    | Some(ValTy::U64)
+                                    | Some(ValTy::Handle)
+                                    | Some(ValTy::F64)
+                            ) && !ctx.local_array_vars.contains(nm)
+                                && ctx.local_class_ty.get(nm).is_none()
+                        };
+                        if ctx.generator_vars.contains(nm) || ambiguous {
                             use cranelift_codegen::ir::types as cl;
                             let recv_tv = lower_expr(ctx, &m.obj)?;
                             let recv = ctx.coerce_to_i64(recv_tv).val;
-                            let next_fn = ctx.get_extern(
-                                "__RTS_FN_NS_GC_GENERATOR_NEXT",
-                                &[cl::I64],
-                                Some(cl::I64),
-                            )?;
-                            let inst = ctx.builder.ins().call(next_fn, &[recv]);
-                            let h = ctx.builder.inst_results(inst)[0];
+                            // (#211 value-passing) `g.next(v)`: injeta `v` como
+                            // `sent` e avanca (NEXT_SENT). Sem arg: NEXT puro.
+                            let h = if let Some(arg) = call.args.first() {
+                                let arg_tv = lower_expr(ctx, &arg.expr)?;
+                                let arg_v = ctx.coerce_to_i64(arg_tv).val;
+                                let next_fn = ctx.get_extern(
+                                    "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT",
+                                    &[cl::I64, cl::I64],
+                                    Some(cl::I64),
+                                )?;
+                                let inst = ctx.builder.ins().call(next_fn, &[recv, arg_v]);
+                                ctx.builder.inst_results(inst)[0]
+                            } else {
+                                let next_fn = ctx.get_extern(
+                                    "__RTS_FN_NS_GC_GENERATOR_NEXT",
+                                    &[cl::I64],
+                                    Some(cl::I64),
+                                )?;
+                                let inst = ctx.builder.ins().call(next_fn, &[recv]);
+                                ctx.builder.inst_results(inst)[0]
+                            };
                             ctx.declare_gc_handle(h);
                             return Ok(TypedVal::new(h, ValTy::Handle));
                         }
@@ -716,6 +792,28 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
             if let Some(qualified) = qualified_member_name(callee) {
+                // (cross-runtime #218/#354) `t.apply(...)` / `.call` / `.bind`
+                // onde `t` eh um LOCAL/param (valor de fn — handle Function,
+                // Proxy, ou func_addr cru) e NAO um namespace/classe/global/
+                // user-fn. Roteia via FUNCTION_APPLY_TYPED/BIND (detectam o tipo
+                // em runtime). Sem isto, `t.apply` cai no MAP_GET("apply")+trapz
+                // generico -> TRAP (ILLEGAL_INSTRUCTION). Precisa preceder os
+                // builtins/lookup pq `t.apply` tem qualified name "t.apply".
+                if let Some((obj_name, meth)) = qualified.split_once('.') {
+                    if matches!(meth, "apply" | "call" | "bind")
+                        && ctx.read_local(obj_name).is_some()
+                        && !ctx.user_fns.contains_key(obj_name)
+                        && crate::abi::global_class_lookup(obj_name).is_none()
+                    {
+                        if let Expr::Member(mem) = callee.as_ref() {
+                            if let Some(tv) =
+                                lower_function_handle_method(ctx, &mem.obj, meth, call)?
+                            {
+                                return Ok(tv);
+                            }
+                        }
+                    }
+                }
                 // Console builtin precisa preceder o lookup (#380).
                 if let Some(tv) = lower_console_call(ctx, &qualified, call)? {
                     return Ok(tv);
@@ -885,6 +983,38 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let v = ctx.builder.inst_results(inst)[0];
                     return Ok(TypedVal::new(v, ValTy::Handle));
                 }
+                // (#207 async try/catch) `await x` foi reescrito pra
+                // `promise.wait(x)`. Se a Promise awaited rejeitar, PROMISE_WAIT
+                // seta o error slot thread-local. Dentro de um `try` com catch,
+                // isso deve saltar pro catch IMEDIATAMENTE (semantica de `throw`)
+                // em vez de continuar executando o try-body. Emite o check + brif
+                // pro catch logo apos a call (espelha lower_throw_stmt, mas
+                // condicional pq `await` produz um valor usado adiante).
+                if qualified == "promise.wait" && !ctx.catch_target_stack.is_empty()
+                {
+                    let tv = lower_ns_call(ctx, &qualified, call)?;
+                    let get_fref =
+                        ctx.get_extern("__RTS_FN_RT_ERROR_GET", &[], Some(cl::I64))?;
+                    let inst = ctx.builder.ins().call(get_fref, &[]);
+                    let err = ctx.builder.inst_results(inst)[0];
+                    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+                    let is_err = ctx.builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                        err,
+                        zero,
+                    );
+                    let cont = ctx.builder.create_block();
+                    let cb = {
+                        let (catch_blk, targeted) =
+                            ctx.catch_target_stack.last_mut().unwrap();
+                        *targeted = true;
+                        *catch_blk
+                    };
+                    ctx.builder.ins().brif(is_err, cb, &[], cont, &[]);
+                    ctx.builder.switch_to_block(cont);
+                    ctx.builder.seal_block(cont);
+                    return Ok(tv);
+                }
                 if lookup(&qualified).is_some() {
                     return lower_ns_call(ctx, &qualified, call);
                 }
@@ -961,6 +1091,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             return Ok(tv);
                         }
                     }
+                    // (cross-runtime #378) Array-subclass instance: a method NOT
+                    // defined on the subclass (reduce/map/join/filter/...) routes
+                    // to the Array builtin on the backing Vec. Covers both
+                    // `this.reduce(...)` inside a method and `pa.map(...)`
+                    // externally.
+                    if self::new_expr::class_extends_array(ctx, &class_name)
+                        && resolve_method_owner(ctx, &class_name, &method_name).is_none()
+                    {
+                        let recv_tv = lower_expr(ctx, &m.obj)?;
+                        let recv = ctx.coerce_to_i64(recv_tv).val;
+                        if let Some(tv) = lower_array_builtin(ctx, &method_name, recv, call)? {
+                            return Ok(tv);
+                        }
+                    }
                     // Global class instance methods (e.g. Date.getFullYear())
                     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
                         // Overload por aridade: prefere o membro cujo numero de
@@ -990,6 +1134,35 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                 ctx.coerce_to_i64(recv_tv).val
                             };
                             return lower_global_instance_call(ctx, member, recv_raw, call);
+                        }
+                    }
+                }
+                // (cross-runtime #359) `(<userFn> as any).call/apply/bind/toString(...)`
+                // — the `as any` cast makes m.obj a TsAs (not Ident), so without
+                // this it falls into the generic numeric/string method block
+                // below and mishandles the function (`.toString()` → garbage
+                // handle). Peel the cast and route bare user-fn idents to the
+                // dedicated function-method path, identical to uncast `f.toString()`.
+                if matches!(method_name.as_str(), "call" | "apply" | "bind" | "toString") {
+                    let mut oe: &Expr = m.obj.as_ref();
+                    loop {
+                        match oe {
+                            Expr::Paren(p) => oe = &p.expr,
+                            Expr::TsAs(a) => oe = &a.expr,
+                            Expr::TsTypeAssertion(a) => oe = &a.expr,
+                            Expr::TsConstAssertion(a) => oe = &a.expr,
+                            Expr::TsNonNull(n) => oe = &n.expr,
+                            _ => break,
+                        }
+                    }
+                    if let Expr::Ident(id) = oe {
+                        let nm = id.sym.as_str();
+                        if ctx.user_fns.contains_key(nm) && ctx.var_ty(nm).is_none() {
+                            if let Some(tv) =
+                                self::new_expr::lower_function_method_call(ctx, nm, &method_name, call)?
+                            {
+                                return Ok(tv);
+                            }
                         }
                     }
                 }
@@ -2360,6 +2533,60 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     if first.spread.is_some() {
                         return Err(anyhow!("spread not supported in Array.from"));
                     }
+                    // (#216/#271) `Array.from(c)` onde `c` eh instancia de classe
+                    // iteravel (`[Symbol.iterator]`): drena via
+                    // `c.__rts_sym_iterator()` (que devolve um iterator/Vec).
+                    // Reescreve para `Array.from(c.__rts_sym_iterator())`.
+                    // Peel `c as any`/`(c)`/`c!` no source.
+                    fn peel_src(e: &Expr) -> &Expr {
+                        match e {
+                            Expr::TsAs(a) => peel_src(&a.expr),
+                            Expr::TsConstAssertion(a) => peel_src(&a.expr),
+                            Expr::TsNonNull(a) => peel_src(&a.expr),
+                            Expr::Paren(p) => peel_src(&p.expr),
+                            _ => e,
+                        }
+                    }
+                    if let Expr::Ident(src_id) = peel_src(first.expr.as_ref()) {
+                        let is_iter_inst = ctx
+                            .local_class_ty
+                            .get(src_id.sym.as_str())
+                            .map(|cls| {
+                                crate::codegen::lower::passes::custom_iterator::is_iter_class(cls)
+                            })
+                            .unwrap_or(false);
+                        if is_iter_inst {
+                            let it_call = Expr::Call(swc_ecma_ast::CallExpr {
+                                span: call.span,
+                                ctxt: call.ctxt,
+                                callee: Callee::Expr(Box::new(Expr::Member(
+                                    swc_ecma_ast::MemberExpr {
+                                        span: call.span,
+                                        obj: Box::new(Expr::Ident(src_id.clone())),
+                                        prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                                            span: call.span,
+                                            sym: "__rts_sym_iterator".into(),
+                                        }),
+                                    },
+                                ))),
+                                args: Vec::new(),
+                                type_args: None,
+                            });
+                            let mut new_args = call.args.clone();
+                            new_args[0] = swc_ecma_ast::ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(it_call),
+                            };
+                            let synth = swc_ecma_ast::CallExpr {
+                                span: call.span,
+                                ctxt: call.ctxt,
+                                callee: call.callee.clone(),
+                                args: new_args,
+                                type_args: None,
+                            };
+                            return super::lower_call(ctx, &synth);
+                        }
+                    }
                     // Resolve mapper fn_ptr (0 se ausente).
                     let fn_ptr = if call.args.len() == 2 {
                         let arg = &call.args[1];
@@ -2791,6 +3018,34 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         // callee como expressao, depois faz indirect call via FUNCTION_APPLY.
         if let Expr::Member(m) = callee.as_ref() {
             if let MemberProp::Computed(c) = &m.prop {
+                // (#211/#222) `arr[Symbol.iterator]()` — emite ARRAY_VALUES_ITER
+                // direto com `this=arr`. Sem isto cai no indirect call via
+                // FUNCTION_APPLY, que NAO liga `this`, e ARRAY_VALUES_ITER roda
+                // com this=0 -> ITERATOR_FROM(0) -> iterator vazio (zip/iterator
+                // protocol rendia 0 elementos).
+                let key_is_symbol_iterator = matches!(
+                    c.expr.as_ref(),
+                    Expr::Member(sm)
+                        if matches!(
+                            (sm.obj.as_ref(), &sm.prop),
+                            (Expr::Ident(o), MemberProp::Ident(p))
+                                if o.sym.as_str() == "Symbol" && p.sym.as_str() == "iterator"
+                        )
+                );
+                if key_is_symbol_iterator && call.args.is_empty() {
+                    use cranelift_codegen::ir::types as cl;
+                    let recv_tv = lower_expr(ctx, &m.obj)?;
+                    let recv = ctx.coerce_to_i64(recv_tv).val;
+                    let f = ctx.get_extern(
+                        "__RTS_FN_GL_ARRAY_VALUES_ITER",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(f, &[recv]);
+                    let h = ctx.builder.inst_results(inst)[0];
+                    ctx.declare_gc_handle(h);
+                    return Ok(TypedVal::new(h, ValTy::Handle));
+                }
                 // (cross-runtime #1052) `arr[<methodName>](args)` quando a key
                 // resolve estaticamente para string method name (push/slice/etc):
                 // reescreve como `arr.<method>(args)` em compile time para
@@ -2841,6 +3096,32 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         return super::lower_call(ctx, &synth_call);
                     }
                 }
+                // (#216) `obj[X]()` onde X eh `const X = "k"` / `Symbol.for(..)`
+                // / `Symbol.iterator` -> despacha como metodo `obj.<canonical>()`.
+                // Cobre `c[reg]()` (271). A chave canonica casa com o nome do
+                // metodo resolvido em prop_name_to_string.
+                if let Expr::Ident(key_id) = c.expr.as_ref() {
+                    if let Some(canon) =
+                        crate::parser::const_string_value(key_id.sym.as_str())
+                    {
+                        let synth_callee = Expr::Member(swc_ecma_ast::MemberExpr {
+                            span: m.span,
+                            obj: m.obj.clone(),
+                            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                                span: m.span,
+                                sym: canon.into(),
+                            }),
+                        });
+                        let synth_call = swc_ecma_ast::CallExpr {
+                            span: call.span,
+                            ctxt: call.ctxt,
+                            callee: Callee::Expr(Box::new(synth_callee)),
+                            args: call.args.clone(),
+                            type_args: None,
+                        };
+                        return super::lower_call(ctx, &synth_call);
+                    }
+                }
                 return lower_indirect_call(ctx, callee, call);
             }
         }
@@ -2877,14 +3158,18 @@ fn lower_dynamic_import(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         .first()
         .ok_or_else(|| anyhow!("import() requires exactly one argument"))?;
 
-    lower_ns_call(ctx, "runtime.eval_file", &CallExpr {
+    // `import(path)` returns a handle to the module's exports namespace object
+    // (collected in-process by runtime_import_module_jit). Member access
+    // (`mod.named`, `mod.default(...)`, `mod.state.count`) then resolves via the
+    // generic object/map dispatch on the Handle.
+    lower_ns_call(ctx, "runtime.import_module", &CallExpr {
         span: call.span,
         callee: call.callee.clone(),
         args: vec![path_arg.clone()],
         type_args: None,
         ctxt: Default::default(),
     })
-    .map(|tv| crate::codegen::lower::ctx::TypedVal { val: tv.val, ty: ValTy::I64 })
+    .map(|tv| crate::codegen::lower::ctx::TypedVal { val: tv.val, ty: ValTy::Handle })
 }
 
 /// Globais JS funcionais: \`isNaN\`, \`isFinite\`, \`Number\`, \`String\`, \`Boolean\`.
@@ -3343,7 +3628,7 @@ fn lower_js_global_call(
 /// usuario (nao var local, nao fn sintetica hoistada/liftada)? So' essas tem
 /// kinds confiaveis p/ reificacao; function expressions anonimas hoistadas
 /// seguem o caminho antigo (func_addr) que ja' funcionava.
-fn arg_is_bare_user_fn(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> bool {
+pub(in crate::codegen::lower::expressions) fn arg_is_bare_user_fn(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> bool {
     if let swc_ecma_ast::Expr::Ident(id) = expr {
         let name = id.sym.as_str();
         if name.starts_with("__hoisted_")
@@ -3357,7 +3642,7 @@ fn arg_is_bare_user_fn(ctx: &FnCtx, expr: &swc_ecma_ast::Expr) -> bool {
     false
 }
 
-fn lower_callable_target_h(
+pub(in crate::codegen::lower::expressions) fn lower_callable_target_h(
     ctx: &mut FnCtx,
     expr: &swc_ecma_ast::Expr,
 ) -> Result<cranelift_codegen::ir::Value> {
@@ -3913,7 +4198,7 @@ fn expr_is_coalesce_with_array(e: &Expr) -> bool {
     false
 }
 
-fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<TypedVal> {
+pub(crate) fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<TypedVal> {
     let abi = ctx
         .user_fns
         .get(name)
@@ -4036,8 +4321,37 @@ fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<Typed
     // o frame atual sera substituido, sem retorno ao caller pra fazer
     // pop. (Antes Daniel emitia push aqui, fazendo loopTco(500000)
     // overflow desnecessariamente.)
-    if ctx.is_tail_conv && ctx.in_tail_position {
-        let ty = abi.ret.unwrap_or(ValTy::I64);
+    // (cross-runtime #348) `return_call` exige que a assinatura de RETORNO do
+    // callee bata com a do caller (mesma repr Cranelift) — senao o verifier
+    // rejeita ("result 0 has type f64, must match i64"). Acontece quando um
+    // forwarder `(...a) => fn(...a)` (caller inferido i64) chama em tail uma
+    // fn variadic cujo retorno virou f64 (elementos do rest array). Quando
+    // divergem, cai no call normal abaixo + coercao no `return` do caller.
+    let cl_ret_class = |t: ValTy| -> u8 {
+        match t {
+            ValTy::F64 => 2,
+            ValTy::I32 => 1,
+            _ => 0,
+        }
+    };
+    let callee_ret = abi.ret.unwrap_or(ValTy::I64);
+    let caller_ret = ctx.return_ty.unwrap_or(ValTy::I64);
+    // (cross-runtime closures) `return_call` exige tambem que a CALLING
+    // CONVENTION do callee bata com a do caller. Uma user fn address-taken
+    // (passada como valor — ex. `sq`/`out` em `h(sq, out, 5)`) ou callback
+    // liftada usa `windows_fastcall`, nao `Tail`; tail-call cross-conv quebra o
+    // verifier ("calling convention windows_fastcall does not support tail
+    // calls"). Consulta a conv real da assinatura ja' declarada do callee.
+    let callee_is_tail = {
+        let sig_ref = ctx.builder.func.dfg.ext_funcs[fref].signature;
+        ctx.builder.func.dfg.signatures[sig_ref].call_conv
+            == cranelift_codegen::isa::CallConv::Tail
+    };
+    if ctx.is_tail_conv && ctx.in_tail_position
+        && callee_is_tail
+        && cl_ret_class(callee_ret) == cl_ret_class(caller_ret)
+    {
+        let ty = callee_ret;
         ctx.builder.ins().return_call(fref, &values);
         let cont = ctx.builder.create_block();
         ctx.builder.switch_to_block(cont);
@@ -4260,13 +4574,23 @@ fn gen_sm_sentinel(
         ("__RTS_GEN_SM_YIELD", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_YIELD", Some(cl::I64))),
         ("__RTS_GEN_SM_DONE", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_DONE", Some(cl::I64))),
         ("__RTS_GEN_SM_ENTER_TRY", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", None)),
+        ("__RTS_GEN_SM_ENTER_TRY_CATCH", 2) => Some(("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH", None)),
+        ("__RTS_GEN_SM_EXIT_TRY_CATCH", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH", None)),
+        ("__RTS_GEN_SM_CAUGHT", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_CAUGHT", Some(cl::I64))),
         ("__RTS_GEN_SM_END_FINALLY", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", Some(cl::I64))),
+        // (#477/#211) yield* lazy delegation: itera a fonte 1 valor por vez.
+        ("__RTS_GEN_SM_SENT", 1) => Some(("__RTS_FN_NS_GC_GEN_SM_SENT", Some(cl::I64))),
+        ("__RTS_GEN_DELEGATE_START", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_START", Some(cl::I64))),
+        ("__RTS_GEN_DELEGATE_NEXT", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", Some(cl::I64))),
+        ("__RTS_GEN_DELEGATE_DONE", 1) => Some(("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", Some(cl::I64))),
         // (#207 async-SM) Sentinelas da state-machine de async functions.
         ("__RTS_ASYNC_SM_NEW", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_NEW", Some(cl::I64))),
         ("__RTS_ASYNC_SM_START", 1) => Some(("__RTS_FN_NS_GC_ASYNC_SM_START", Some(cl::I64))),
         ("__RTS_ASYNC_SM_SUSPEND", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", Some(cl::I64))),
         ("__RTS_ASYNC_SM_AWAITED", 1) => Some(("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", Some(cl::I64))),
         ("__RTS_ASYNC_SM_RESOLVE", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", Some(cl::I64))),
+        // (cross-runtime #392) async generator: ctor lazy.
+        ("__RTS_AGEN_NEW", 2) => Some(("__RTS_FN_NS_GC_AGEN_NEW", Some(cl::I64))),
         _ => None,
     }
 }

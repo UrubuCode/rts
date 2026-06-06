@@ -1290,6 +1290,38 @@ pub(super) fn lower_array_builtin(
         return Ok(Some(TypedVal::new(v, ty)));
     }
     match method {
+        // (cross-runtime #365) `.map(cb)` fallback quando o array_methods_pass
+        // NAO reescreveu pra `parallel.map` — caso tipico: corpo de async fn
+        // ja' convertido em state machine pelo `generator_sm` no parser, cujo
+        // switch interno os passes de codegen nao varrem. Sem este arm, `.map`
+        // cai no INVOKE generico (reify+call) e crasha (ILLEGAL_INSTRUCTION).
+        // Emite `parallel.map(vec, fn_ptr)` direto — mesmo resultado da
+        // reescrita. Callback eh Ident (user fn ou arrow ja' liftada pra
+        // top-level `__lifted_arr_method_N`).
+        "map" if call.args.len() == 1 && call.args[0].spread.is_none() => {
+            let cb = &call.args[0].expr;
+            let fn_ptr = if let Expr::Ident(id) = cb.as_ref() {
+                if ctx.user_fns.contains_key(id.sym.as_ref())
+                    && ctx.var_ty(id.sym.as_ref()).is_none()
+                {
+                    emit_user_fn_addr(ctx, id.sym.as_ref())?.val
+                } else {
+                    let tv = lower_expr(ctx, cb)?;
+                    ctx.coerce_to_i64(tv).val
+                }
+            } else {
+                let tv = lower_expr(ctx, cb)?;
+                ctx.coerce_to_i64(tv).val
+            };
+            let f = ctx.get_extern(
+                "__RTS_FN_NS_PARALLEL_MAP",
+                &[cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(f, &[obj_h, fn_ptr]);
+            let v = ctx.builder.inst_results(inst)[0];
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
         "push" => {
             if call.args.is_empty() {
                 return Ok(None);
@@ -1846,6 +1878,47 @@ pub(super) fn lower_array_builtin(
             if method == "findLast" {
                 ctx.var_member_call_values.insert(v);
             }
+            Ok(Some(TypedVal::new(v, ValTy::I64)))
+        }
+        "reduce" => {
+            // (cross-runtime closures) `arr.reduce(fn [, init])` sobre um array
+            // de tipo desconhecido/capturado (ex.: rest array `...fns` capturado
+            // numa arrow retornada — `pipe`/`compose`/`reduce` de closures). O
+            // array_methods_pass nao alcanca essa posicao aninhada, entao sem
+            // isto cai no map_get("reduce")=0 -> trapz -> SIGILL. Reifica o
+            // callback como handle COM param_kinds e usa o REDUCE_BOUND runtime
+            // (mesmo do caminho parallel), que invoca via FUNCTION_CALL
+            // (normaliza args number). So' intercepta o fallback de handle
+            // desconhecido; arrays de tipo estatico seguem o pass paralelo.
+            if !matches!(call.args.len(), 1 | 2) || call.args.iter().any(|a| a.spread.is_some()) {
+                return Ok(None);
+            }
+            // Callback precisa ser reificavel como callable (ident de user fn /
+            // arrow liftada / var handle). Bail (None) p/ outras formas.
+            let fn_handle = match super::lower_callable_target_h(ctx, &call.args[0].expr) {
+                Ok(h) => h,
+                Err(_) => return Ok(None),
+            };
+            let v = if call.args.len() == 2 {
+                let init_tv = lower_expr(ctx, &call.args[1].expr)?;
+                let init = ctx.coerce_to_i64(init_tv).val;
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_PARALLEL_REDUCE_BOUND",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, init, fn_handle]);
+                ctx.builder.inst_results(inst)[0]
+            } else {
+                let f = ctx.get_extern(
+                    "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT_BOUND",
+                    &[cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(f, &[obj_h, fn_handle]);
+                ctx.builder.inst_results(inst)[0]
+            };
+            ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         "reduceRight" => {

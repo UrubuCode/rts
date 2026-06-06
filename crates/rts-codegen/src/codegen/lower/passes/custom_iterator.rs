@@ -42,6 +42,179 @@ use crate::parser::ast::{ClassMember, Item, Program, Statement};
 const SYM_ITER_SRC: &str = "Symbol.iterator";
 const SYM_ITER_DST: &str = "__rts_sym_iterator";
 
+thread_local! {
+    /// (#216/#271) Classes com `[Symbol.iterator]` (renomeado p/
+    /// `__rts_sym_iterator`). Consultado pelo codegen de `Array.from`/spread.
+    static ITER_CLASSES: std::cell::RefCell<HashSet<String>> =
+        std::cell::RefCell::new(HashSet::new());
+}
+
+/// (#216/#271) True se `class_name` tem um `[Symbol.iterator]` (iteravel custom).
+pub(crate) fn is_iter_class(class_name: &str) -> bool {
+    ITER_CLASSES.with(|c| c.borrow().contains(class_name))
+}
+
+/// (#273) `for await/of (const n of obj)` onde `obj` eh um object literal com
+/// metodo `[Symbol.asyncIterator]`/`[Symbol.iterator]` (apos object_methods, um
+/// KeyValue de chave computada): reescreve o iteravel para
+/// `obj[Symbol.<key>]()` (o metodo devolve um Vec via __gen_buf), tornando o
+/// for-of plano sobre o Vec. `is_await` vira false (await de non-Promise = no-op).
+pub(crate) fn desugar_object_symbol_iterators(program: &mut Program) {
+    use std::collections::HashMap;
+    let mut iter_objs: HashMap<String, String> = HashMap::new();
+    for item in program.items.iter_mut() {
+        walk_stmts_in_item(item, &mut |s| collect_obj_iter_decl(s, &mut iter_objs));
+    }
+    if iter_objs.is_empty() {
+        return;
+    }
+    for item in program.items.iter_mut() {
+        walk_stmts_in_item(item, &mut |s| {
+            if let Stmt::ForOf(f) = s {
+                // Peel `asyncIter as any` / `(x)` / `x!` no iteravel.
+                fn peel(e: &Expr) -> &Expr {
+                    match e {
+                        Expr::TsAs(a) => peel(&a.expr),
+                        Expr::TsConstAssertion(a) => peel(&a.expr),
+                        Expr::TsNonNull(a) => peel(&a.expr),
+                        Expr::Paren(p) => peel(&p.expr),
+                        _ => e,
+                    }
+                }
+                if let Expr::Ident(id) = peel(f.right.as_ref()) {
+                    if let Some(key) = iter_objs.get(id.sym.as_str()) {
+                        f.right = Box::new(build_symbol_iter_call(id.sym.as_ref(), key));
+                        f.is_await = false;
+                    }
+                }
+            }
+        });
+    }
+}
+
+fn collect_obj_iter_decl(stmt: &Stmt, out: &mut std::collections::HashMap<String, String>) {
+    if let Stmt::Decl(swc_ecma_ast::Decl::Var(vd)) = stmt {
+        for d in &vd.decls {
+            if let (swc_ecma_ast::Pat::Ident(id), Some(init)) = (&d.name, d.init.as_deref()) {
+                if let Some(key) = object_symbol_iterator_key(init) {
+                    out.insert(id.id.sym.to_string(), key);
+                }
+            }
+        }
+    }
+}
+
+/// Devolve "asyncIterator"/"iterator" se o object literal tem um metodo/prop com
+/// chave computada `Symbol.asyncIterator`/`Symbol.iterator`.
+fn object_symbol_iterator_key(e: &Expr) -> Option<String> {
+    let Expr::Object(obj) = e else { return None };
+    for p in &obj.props {
+        if let swc_ecma_ast::PropOrSpread::Prop(prop) = p {
+            let key = match prop.as_ref() {
+                swc_ecma_ast::Prop::KeyValue(kv) => Some(&kv.key),
+                swc_ecma_ast::Prop::Method(m) => Some(&m.key),
+                _ => None,
+            };
+            if let Some(swc_ecma_ast::PropName::Computed(c)) = key {
+                if let Expr::Member(m) = c.expr.as_ref() {
+                    if let (Expr::Ident(o), swc_ecma_ast::MemberProp::Ident(pr)) =
+                        (m.obj.as_ref(), &m.prop)
+                    {
+                        if o.sym.as_str() == "Symbol" {
+                            match pr.sym.as_str() {
+                                "asyncIterator" => return Some("asyncIterator".into()),
+                                "iterator" => return Some("iterator".into()),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Constroi `obj[Symbol.<key>]()`.
+fn build_symbol_iter_call(obj: &str, key: &str) -> Expr {
+    let sp = swc_common::DUMMY_SP;
+    let symbol_member = Expr::Member(swc_ecma_ast::MemberExpr {
+        span: sp,
+        obj: Box::new(Expr::Ident(swc_ecma_ast::Ident::new("Symbol".into(), sp, Default::default()))),
+        prop: swc_ecma_ast::MemberProp::Ident(swc_ecma_ast::IdentName::new(key.into(), sp)),
+    });
+    let computed = Expr::Member(swc_ecma_ast::MemberExpr {
+        span: sp,
+        obj: Box::new(Expr::Ident(swc_ecma_ast::Ident::new(obj.into(), sp, Default::default()))),
+        prop: swc_ecma_ast::MemberProp::Computed(swc_ecma_ast::ComputedPropName {
+            span: sp,
+            expr: Box::new(symbol_member),
+        }),
+    });
+    Expr::Call(swc_ecma_ast::CallExpr {
+        span: sp,
+        ctxt: Default::default(),
+        callee: swc_ecma_ast::Callee::Expr(Box::new(computed)),
+        args: Vec::new(),
+        type_args: None,
+    })
+}
+
+/// Walk recursivo sobre todos os statements de um Item (top-level stmt + corpos
+/// de fn/metodo), aplicando `f`. Usado pelos passes de iterator de objeto.
+fn walk_stmts_in_item(item: &mut Item, f: &mut impl FnMut(&mut Stmt)) {
+    match item {
+        Item::Statement(Statement::Raw(raw)) => {
+            if let Some(stmt) = raw.stmt.as_mut() {
+                walk_stmt_rec(stmt, f);
+            }
+        }
+        Item::Function(fd) => {
+            for s in fd.body.iter_mut() {
+                let Statement::Raw(raw) = s;
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    walk_stmt_rec(stmt, f);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn walk_stmt_rec(stmt: &mut Stmt, f: &mut impl FnMut(&mut Stmt)) {
+    f(stmt);
+    match stmt {
+        Stmt::Block(b) => b.stmts.iter_mut().for_each(|s| walk_stmt_rec(s, f)),
+        Stmt::If(i) => {
+            walk_stmt_rec(&mut i.cons, f);
+            if let Some(a) = i.alt.as_mut() {
+                walk_stmt_rec(a, f);
+            }
+        }
+        Stmt::While(w) => walk_stmt_rec(&mut w.body, f),
+        Stmt::DoWhile(w) => walk_stmt_rec(&mut w.body, f),
+        Stmt::For(fo) => walk_stmt_rec(&mut fo.body, f),
+        Stmt::ForIn(fo) => walk_stmt_rec(&mut fo.body, f),
+        Stmt::ForOf(fo) => walk_stmt_rec(&mut fo.body, f),
+        Stmt::Try(t) => {
+            t.block.stmts.iter_mut().for_each(|s| walk_stmt_rec(s, f));
+            if let Some(h) = t.handler.as_mut() {
+                h.body.stmts.iter_mut().for_each(|s| walk_stmt_rec(s, f));
+            }
+            if let Some(fin) = t.finalizer.as_mut() {
+                fin.stmts.iter_mut().for_each(|s| walk_stmt_rec(s, f));
+            }
+        }
+        Stmt::Labeled(l) => walk_stmt_rec(&mut l.body, f),
+        Stmt::Switch(s) => {
+            for c in s.cases.iter_mut() {
+                c.cons.iter_mut().for_each(|st| walk_stmt_rec(st, f));
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn desugar_custom_iterators(program: &mut Program) {
     // 1) Coleta classes que tem [Symbol.iterator] + renomeia o metodo.
     let mut iter_classes: HashSet<String> = HashSet::new();
@@ -69,6 +242,10 @@ pub(crate) fn desugar_custom_iterators(program: &mut Program) {
             }
         }
     }
+
+    // (#216/#271) Registra as classes iteraveis pra que `Array.from(c)` /
+    // spread `[...c]` detectem e drenem via `c.__rts_sym_iterator()`.
+    ITER_CLASSES.with(|c| *c.borrow_mut() = iter_classes.clone());
 
     if iter_classes.is_empty() {
         return;
