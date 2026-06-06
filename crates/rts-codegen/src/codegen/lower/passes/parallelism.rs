@@ -2886,3 +2886,293 @@ fn collect_set_map_from_vardecl(vd: &swc_ecma_ast::VarDecl, out: &mut HashSet<St
         }
     }
 }
+
+// (cross-runtime #359) Desugar `arr.forEach(inlineArrow)` into a SEQUENTIAL
+// for-of loop when the callback body MUTATES outer state (assignment/update).
+// The body runs INLINE in the enclosing scope, so it captures by reference and
+// `o.x=v` / `o[k]=v` / `count++` propagate. Without this the arrow was lifted and
+// the captured object became a COPY (accessed as a global), losing the mutation.
+// Conscious downgrade: loses silent parallelism for these callbacks, gains
+// correctness. Runs BEFORE lift_inline so the arrow is never lifted.
+pub(crate) fn desugar_mutating_foreach(program: &mut crate::parser::ast::Program) {
+    use crate::parser::ast::{ClassMember, Item, Statement};
+    // (cross-runtime #359) Coleta nomes de vars Map/Set — `Map/Set.forEach` tem
+    // semantica DIFERENTE (callback (value,key,map); for-of itera entries/values),
+    // entao NAO podem ser reescritos para for-of-de-array. So' desugaramos
+    // forEach sobre ARRAYS.
+    let mut mapset: HashSet<String> = HashSet::new();
+    for item in &program.items {
+        if let Item::Statement(Statement::Raw(raw)) = item {
+            if let Some(Stmt::Decl(Decl::Var(vd))) = raw.stmt.as_ref() {
+                collect_set_map_from_vardecl(vd, &mut mapset);
+            }
+        }
+        if let Item::Function(f) = item {
+            for s in &f.body {
+                let Statement::Raw(raw) = s;
+                if let Some(Stmt::Decl(Decl::Var(vd))) = raw.stmt.as_ref() {
+                    collect_set_map_from_vardecl(vd, &mut mapset);
+                }
+            }
+        }
+    }
+    let counter = std::sync::atomic::AtomicU32::new(0);
+    for item in program.items.iter_mut() {
+        match item {
+            Item::Function(f) => {
+                for s in f.body.iter_mut() {
+                    let Statement::Raw(raw) = s;
+                    if let Some(stmt) = raw.stmt.as_mut() {
+                        rewrite_foreach_in_stmt(stmt, &counter, &mapset);
+                    }
+                }
+            }
+            Item::Statement(Statement::Raw(raw)) => {
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    rewrite_foreach_in_stmt(stmt, &counter, &mapset);
+                }
+            }
+            Item::Class(c) => {
+                for mem in c.members.iter_mut() {
+                    let body = match mem {
+                        ClassMember::Method(m) => &mut m.body,
+                        ClassMember::Constructor(ct) => &mut ct.body,
+                        _ => continue,
+                    };
+                    for s in body.iter_mut() {
+                        let Statement::Raw(raw) = s;
+                        if let Some(stmt) = raw.stmt.as_mut() {
+                            rewrite_foreach_in_stmt(stmt, &counter, &mapset);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn stmts_have_assign(stmts: &[Stmt]) -> bool {
+    // Nomes de metodos que MUTAM o receiver/objeto — se o callback chama um
+    // destes, ele muta estado externo capturado e precisa rodar inline.
+    fn is_mutating_call(c: &swc_ecma_ast::CallExpr) -> bool {
+        if let Callee::Expr(callee) = &c.callee {
+            if let Expr::Member(m) = callee.as_ref() {
+                if let MemberProp::Ident(p) = &m.prop {
+                    // `Object.defineProperty/assign/setPrototypeOf(...)`.
+                    if let Expr::Ident(o) = m.obj.as_ref() {
+                        if o.sym.as_str() == "Object"
+                            && matches!(
+                                p.sym.as_str(),
+                                "defineProperty" | "defineProperties" | "assign" | "setPrototypeOf"
+                            )
+                        {
+                            return true;
+                        }
+                    }
+                    // metodos mutadores de array/Map/Set sobre qualquer receiver.
+                    if matches!(
+                        p.sym.as_str(),
+                        "push" | "pop" | "shift" | "unshift" | "splice" | "sort" | "reverse"
+                            | "fill" | "copyWithin" | "set" | "add" | "delete" | "clear"
+                    ) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+    fn expr_has(e: &Expr) -> bool {
+        match e {
+            Expr::Assign(_) | Expr::Update(_) => true,
+            Expr::Paren(p) => expr_has(&p.expr),
+            Expr::Bin(b) => expr_has(&b.left) || expr_has(&b.right),
+            Expr::Cond(c) => expr_has(&c.test) || expr_has(&c.cons) || expr_has(&c.alt),
+            Expr::Seq(s) => s.exprs.iter().any(|e| expr_has(e)),
+            Expr::Call(c) => is_mutating_call(c) || c.args.iter().any(|a| expr_has(&a.expr)),
+            _ => false,
+        }
+    }
+    fn stmt_has(s: &Stmt) -> bool {
+        match s {
+            Stmt::Expr(e) => expr_has(&e.expr),
+            Stmt::Block(b) => b.stmts.iter().any(stmt_has),
+            Stmt::If(i) => {
+                stmt_has(&i.cons)
+                    || i.alt.as_deref().map(stmt_has).unwrap_or(false)
+                    || expr_has(&i.test)
+            }
+            Stmt::For(f) => stmt_has(&f.body),
+            Stmt::ForOf(f) => stmt_has(&f.body),
+            Stmt::While(w) => stmt_has(&w.body),
+            Stmt::DoWhile(d) => stmt_has(&d.body),
+            Stmt::Decl(Decl::Var(v)) => v
+                .decls
+                .iter()
+                .any(|d| d.init.as_deref().map(expr_has).unwrap_or(false)),
+            _ => false,
+        }
+    }
+    stmts.iter().any(stmt_has)
+}
+
+fn rewrite_foreach_in_stmt(
+    stmt: &mut Stmt,
+    counter: &std::sync::atomic::AtomicU32,
+    mapset: &HashSet<String>,
+) {
+    use std::sync::atomic::Ordering;
+    use swc_ecma_ast::{
+        AssignExpr, AssignOp, AssignTarget, BinExpr, BinaryOp, BindingIdent, BlockStmt,
+        BlockStmtOrExpr, ExprStmt, ForHead, ForOfStmt, Ident, Number, SimpleAssignTarget, VarDecl,
+        VarDeclKind, VarDeclarator,
+    };
+    for child in child_stmts_mut(stmt) {
+        rewrite_foreach_in_stmt(child, counter, mapset);
+    }
+    let Stmt::Expr(es) = stmt else { return };
+    let Expr::Call(call) = es.expr.as_ref() else { return };
+    let Callee::Expr(callee) = &call.callee else { return };
+    let Expr::Member(m) = callee.as_ref() else { return };
+    let MemberProp::Ident(prop) = &m.prop else { return };
+    if prop.sym.as_str() != "forEach" || call.args.len() != 1 || call.args[0].spread.is_some() {
+        return;
+    }
+    // (cross-runtime #359) So' desugara forEach sobre ARRAYS. Exclui receivers
+    // que sao Map/Set: var Map/Set conhecida, `new Map/Set(...)`, ou um call
+    // `.keys()/.values()/.entries()` (resultado iteravel de colecao). Map/Set
+    // .forEach tem callback (value,key,map) e nao itera como for-of-de-array.
+    let recv_is_collection = match m.obj.as_ref() {
+        Expr::Ident(id) => mapset.contains(id.sym.as_str()),
+        Expr::New(ne) => matches!(
+            ne.callee.as_ref(),
+            Expr::Ident(c) if matches!(c.sym.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet")
+        ),
+        Expr::Call(c) => matches!(&c.callee, Callee::Expr(ce)
+            if matches!(ce.as_ref(), Expr::Member(mm)
+                if matches!(&mm.prop, MemberProp::Ident(p)
+                    if matches!(p.sym.as_str(), "keys" | "values" | "entries")))),
+        _ => false,
+    };
+    if recv_is_collection {
+        return;
+    }
+    let Expr::Arrow(arrow) = call.args[0].expr.as_ref() else { return };
+    if arrow.is_async || arrow.params.is_empty() || arrow.params.len() > 3 {
+        return;
+    }
+    let mut pnames: Vec<String> = Vec::new();
+    for p in &arrow.params {
+        let Pat::Ident(bi) = p else { return };
+        pnames.push(bi.id.sym.to_string());
+    }
+    let body_stmts: Vec<Stmt> = match arrow.body.as_ref() {
+        BlockStmtOrExpr::BlockStmt(b) => b.stmts.clone(),
+        BlockStmtOrExpr::Expr(e) => vec![Stmt::Expr(ExprStmt {
+            span: Default::default(),
+            expr: e.clone(),
+        })],
+    };
+    if !stmts_have_assign(&body_stmts) {
+        return;
+    }
+    let n = counter.fetch_add(1, Ordering::Relaxed);
+    let arr_name = format!("__fe_arr_{}", n);
+    let idx_name = format!("__fe_idx_{}", n);
+    let arr_expr = m.obj.clone();
+    let ident = |s: &str| Ident::new(s.into(), Default::default(), Default::default());
+    let ident_expr = |s: &str| Box::new(Expr::Ident(ident(s)));
+    let let_decl = |name: &str, init: Box<Expr>, kind: VarDeclKind| {
+        Stmt::Decl(Decl::Var(Box::new(VarDecl {
+            span: Default::default(),
+            ctxt: Default::default(),
+            kind,
+            declare: false,
+            decls: vec![VarDeclarator {
+                span: Default::default(),
+                name: Pat::Ident(BindingIdent {
+                    id: ident(name),
+                    type_ann: None,
+                }),
+                init: Some(init),
+                definite: false,
+            }],
+        })))
+    };
+
+    let mut outer: Vec<Stmt> = Vec::new();
+    outer.push(let_decl(&arr_name, arr_expr, VarDeclKind::Const));
+    outer.push(let_decl(
+        &idx_name,
+        Box::new(Expr::Lit(Lit::Num(Number {
+            span: Default::default(),
+            value: 0.0,
+            raw: None,
+        }))),
+        VarDeclKind::Let,
+    ));
+
+    let mut loop_body: Vec<Stmt> = Vec::new();
+    if pnames.len() >= 2 {
+        loop_body.push(let_decl(&pnames[1], ident_expr(&idx_name), VarDeclKind::Const));
+    }
+    if pnames.len() >= 3 {
+        loop_body.push(let_decl(&pnames[2], ident_expr(&arr_name), VarDeclKind::Const));
+    }
+    loop_body.extend(body_stmts);
+    loop_body.push(Stmt::Expr(ExprStmt {
+        span: Default::default(),
+        expr: Box::new(Expr::Assign(AssignExpr {
+            span: Default::default(),
+            op: AssignOp::Assign,
+            left: AssignTarget::Simple(SimpleAssignTarget::Ident(BindingIdent {
+                id: ident(&idx_name),
+                type_ann: None,
+            })),
+            right: Box::new(Expr::Bin(BinExpr {
+                span: Default::default(),
+                op: BinaryOp::Add,
+                left: ident_expr(&idx_name),
+                right: Box::new(Expr::Lit(Lit::Num(Number {
+                    span: Default::default(),
+                    value: 1.0,
+                    raw: None,
+                }))),
+            })),
+        })),
+    }));
+
+    let forof = Stmt::ForOf(ForOfStmt {
+        span: Default::default(),
+        is_await: false,
+        left: ForHead::VarDecl(Box::new(VarDecl {
+            span: Default::default(),
+            ctxt: Default::default(),
+            kind: VarDeclKind::Const,
+            declare: false,
+            decls: vec![VarDeclarator {
+                span: Default::default(),
+                name: Pat::Ident(BindingIdent {
+                    id: ident(&pnames[0]),
+                    type_ann: None,
+                }),
+                init: None,
+                definite: false,
+            }],
+        })),
+        right: ident_expr(&arr_name),
+        body: Box::new(Stmt::Block(BlockStmt {
+            span: Default::default(),
+            ctxt: Default::default(),
+            stmts: loop_body,
+        })),
+    });
+    outer.push(forof);
+
+    *stmt = Stmt::Block(BlockStmt {
+        span: Default::default(),
+        ctxt: Default::default(),
+        stmts: outer,
+    });
+}

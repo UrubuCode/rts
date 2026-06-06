@@ -764,11 +764,37 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                 if let Some(u) = f.update.as_mut() {
                     visit_expr(u.as_mut(), counter, new_fns);
                 }
+                // (cross-runtime #359) loop-init var entra no cur_scope p/ que
+                // closures no corpo (ex. getter de defineProperty num loop)
+                // capturem-no por valor. Sem isto -> "undefined variable".
+                let saved = cur_scope();
+                let mut sc = saved.clone();
+                if let Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) = f.init.as_ref() {
+                    for d in &vd.decls {
+                        if let Pat::Ident(id) = &d.name {
+                            sc.insert(id.id.sym.to_string());
+                        }
+                    }
+                }
+                set_cur_scope(sc);
                 visit_stmt(f.body.as_mut(), counter, new_fns);
+                set_cur_scope(saved);
             }
             Stmt::ForOf(f) => {
                 visit_expr(f.right.as_mut(), counter, new_fns);
+                // (cross-runtime #359) o bind do for-of entra no cur_scope.
+                let saved = cur_scope();
+                let mut sc = saved.clone();
+                if let swc_ecma_ast::ForHead::VarDecl(vd) = &f.left {
+                    for d in &vd.decls {
+                        if let Pat::Ident(id) = &d.name {
+                            sc.insert(id.id.sym.to_string());
+                        }
+                    }
+                }
+                set_cur_scope(sc);
                 visit_stmt(f.body.as_mut(), counter, new_fns);
+                set_cur_scope(saved);
             }
             Stmt::ForIn(f) => {
                 visit_expr(f.right.as_mut(), counter, new_fns);
