@@ -1003,10 +1003,10 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
             None
         }
     });
-    let fn_ptr = match fn_ptr {
-        Some(p) => p,
-        None => return 0,
-    };
+    // (cross-runtime #344) A closure / address-taken fn may reach here as a raw
+    // func_addr (not a reified Entry::Function handle). Key the prototype
+    // registry by the address itself so GET/SET on the same value round-trip.
+    let fn_ptr = fn_ptr.unwrap_or(handle);
     // Caminho rapido: ja existe.
     {
         let registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
@@ -1288,7 +1288,9 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_SET(handle: u64, new_proto: u64
             None
         }
     });
-    let Some(fn_ptr) = fn_ptr else { return };
+    // (cross-runtime #344) Raw func_addr (closure / address-taken fn): key by the
+    // address itself, matching FUNCTION_PROTOTYPE_GET's fallback.
+    let fn_ptr = fn_ptr.unwrap_or(handle);
     let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
     registry.insert(fn_ptr, new_proto);
     drop(registry);
