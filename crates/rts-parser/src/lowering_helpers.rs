@@ -5,8 +5,67 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-fn const_string_value(name: &str) -> Option<String> {
+/// (#216/#271) Resolve um ident de const para sua chave canonica de membro
+/// computed (string literal ou symbol bem-conhecido/`Symbol.for`/`Symbol()`),
+/// se conhecida. Publico para o codegen resolver `obj[X]` / `obj[X]()`.
+pub fn const_string_value(name: &str) -> Option<String> {
     CONST_STRING_VALUES.with(|c| c.borrow().get(name).cloned())
+}
+
+/// (#216) Se `init` eh um valor de Symbol bem-conhecido ou `Symbol.for/Symbol()`,
+/// devolve a chave canonica que representa esse symbol como nome de membro.
+/// `var_name` desambigua `Symbol()` anonimos.
+fn symbol_const_canonical(init: &Expr, var_name: &str) -> Option<String> {
+    match init {
+        // `Symbol.iterator`, `Symbol.asyncIterator`, etc. (member de Symbol).
+        Expr::Member(m) => {
+            if let (Expr::Ident(o), swc_ecma_ast::MemberProp::Ident(p)) =
+                (m.obj.as_ref(), &m.prop)
+            {
+                if o.sym.as_str() == "Symbol" {
+                    return match p.sym.as_str() {
+                        "iterator" => Some("Symbol.iterator".to_string()),
+                        "asyncIterator" => Some("Symbol.asyncIterator".to_string()),
+                        other => Some(format!("Symbol.{other}")),
+                    };
+                }
+            }
+            None
+        }
+        // `Symbol.for("k")` -> chave por valor; `Symbol("k")` -> unico por var.
+        Expr::Call(c) => {
+            let callee = match &c.callee {
+                swc_ecma_ast::Callee::Expr(e) => e.as_ref(),
+                _ => return None,
+            };
+            match callee {
+                // Symbol.for("k")
+                Expr::Member(m) => {
+                    if let (Expr::Ident(o), swc_ecma_ast::MemberProp::Ident(p)) =
+                        (m.obj.as_ref(), &m.prop)
+                    {
+                        if o.sym.as_str() == "Symbol" && p.sym.as_str() == "for" {
+                            if let Some(arg) = c.args.first() {
+                                if let Expr::Lit(Lit::Str(s)) = arg.expr.as_ref() {
+                                    return Some(format!(
+                                        "@@symfor:{}",
+                                        s.value.to_string_lossy()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    None
+                }
+                // Symbol("k") / Symbol()
+                Expr::Ident(id) if id.sym.as_str() == "Symbol" => {
+                    Some(format!("@@sym:{var_name}"))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// (#271) Pre-scan dos items SWC top-level: coleta `const X = "literal"`
@@ -23,6 +82,15 @@ fn register_const_strings(source: &SwcProgram) {
                             id.id.sym.to_string(),
                             s.value.to_string_lossy().to_string(),
                         );
+                    }
+                    // (#216) `const X = Symbol.iterator` / `Symbol.for("k")` /
+                    // `Symbol("k")` — resolve a uma chave canonica usada tanto
+                    // na DEFINICAO `[X]() {}` quanto na CHAMADA `obj[X]()`. Para
+                    // Symbol.iterator/asyncIterator usa o nome textual (que o
+                    // custom_iterator/asyncIterator ja' reconhece); para
+                    // Symbol.for/Symbol() usa uma string sintetica deterministica.
+                    if let Some(canon) = symbol_const_canonical(init, id.id.sym.as_ref()) {
+                        out.insert(id.id.sym.to_string(), canon);
                     }
                 }
             }

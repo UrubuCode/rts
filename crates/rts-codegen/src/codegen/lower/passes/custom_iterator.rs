@@ -42,6 +42,18 @@ use crate::parser::ast::{ClassMember, Item, Program, Statement};
 const SYM_ITER_SRC: &str = "Symbol.iterator";
 const SYM_ITER_DST: &str = "__rts_sym_iterator";
 
+thread_local! {
+    /// (#216/#271) Classes com `[Symbol.iterator]` (renomeado p/
+    /// `__rts_sym_iterator`). Consultado pelo codegen de `Array.from`/spread.
+    static ITER_CLASSES: std::cell::RefCell<HashSet<String>> =
+        std::cell::RefCell::new(HashSet::new());
+}
+
+/// (#216/#271) True se `class_name` tem um `[Symbol.iterator]` (iteravel custom).
+pub(crate) fn is_iter_class(class_name: &str) -> bool {
+    ITER_CLASSES.with(|c| c.borrow().contains(class_name))
+}
+
 /// (#273) `for await/of (const n of obj)` onde `obj` eh um object literal com
 /// metodo `[Symbol.asyncIterator]`/`[Symbol.iterator]` (apos object_methods, um
 /// KeyValue de chave computada): reescreve o iteravel para
@@ -230,6 +242,10 @@ pub(crate) fn desugar_custom_iterators(program: &mut Program) {
             }
         }
     }
+
+    // (#216/#271) Registra as classes iteraveis pra que `Array.from(c)` /
+    // spread `[...c]` detectem e drenem via `c.__rts_sym_iterator()`.
+    ITER_CLASSES.with(|c| *c.borrow_mut() = iter_classes.clone());
 
     if iter_classes.is_empty() {
         return;

@@ -2410,6 +2410,60 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     if first.spread.is_some() {
                         return Err(anyhow!("spread not supported in Array.from"));
                     }
+                    // (#216/#271) `Array.from(c)` onde `c` eh instancia de classe
+                    // iteravel (`[Symbol.iterator]`): drena via
+                    // `c.__rts_sym_iterator()` (que devolve um iterator/Vec).
+                    // Reescreve para `Array.from(c.__rts_sym_iterator())`.
+                    // Peel `c as any`/`(c)`/`c!` no source.
+                    fn peel_src(e: &Expr) -> &Expr {
+                        match e {
+                            Expr::TsAs(a) => peel_src(&a.expr),
+                            Expr::TsConstAssertion(a) => peel_src(&a.expr),
+                            Expr::TsNonNull(a) => peel_src(&a.expr),
+                            Expr::Paren(p) => peel_src(&p.expr),
+                            _ => e,
+                        }
+                    }
+                    if let Expr::Ident(src_id) = peel_src(first.expr.as_ref()) {
+                        let is_iter_inst = ctx
+                            .local_class_ty
+                            .get(src_id.sym.as_str())
+                            .map(|cls| {
+                                crate::codegen::lower::passes::custom_iterator::is_iter_class(cls)
+                            })
+                            .unwrap_or(false);
+                        if is_iter_inst {
+                            let it_call = Expr::Call(swc_ecma_ast::CallExpr {
+                                span: call.span,
+                                ctxt: call.ctxt,
+                                callee: Callee::Expr(Box::new(Expr::Member(
+                                    swc_ecma_ast::MemberExpr {
+                                        span: call.span,
+                                        obj: Box::new(Expr::Ident(src_id.clone())),
+                                        prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                                            span: call.span,
+                                            sym: "__rts_sym_iterator".into(),
+                                        }),
+                                    },
+                                ))),
+                                args: Vec::new(),
+                                type_args: None,
+                            });
+                            let mut new_args = call.args.clone();
+                            new_args[0] = swc_ecma_ast::ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(it_call),
+                            };
+                            let synth = swc_ecma_ast::CallExpr {
+                                span: call.span,
+                                ctxt: call.ctxt,
+                                callee: call.callee.clone(),
+                                args: new_args,
+                                type_args: None,
+                            };
+                            return super::lower_call(ctx, &synth);
+                        }
+                    }
                     // Resolve mapper fn_ptr (0 se ausente).
                     let fn_ptr = if call.args.len() == 2 {
                         let arg = &call.args[1];
@@ -2907,6 +2961,32 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             prop: MemberProp::Ident(swc_ecma_ast::IdentName {
                                 span: m.span,
                                 sym: method.into(),
+                            }),
+                        });
+                        let synth_call = swc_ecma_ast::CallExpr {
+                            span: call.span,
+                            ctxt: call.ctxt,
+                            callee: Callee::Expr(Box::new(synth_callee)),
+                            args: call.args.clone(),
+                            type_args: None,
+                        };
+                        return super::lower_call(ctx, &synth_call);
+                    }
+                }
+                // (#216) `obj[X]()` onde X eh `const X = "k"` / `Symbol.for(..)`
+                // / `Symbol.iterator` -> despacha como metodo `obj.<canonical>()`.
+                // Cobre `c[reg]()` (271). A chave canonica casa com o nome do
+                // metodo resolvido em prop_name_to_string.
+                if let Expr::Ident(key_id) = c.expr.as_ref() {
+                    if let Some(canon) =
+                        crate::parser::const_string_value(key_id.sym.as_str())
+                    {
+                        let synth_callee = Expr::Member(swc_ecma_ast::MemberExpr {
+                            span: m.span,
+                            obj: m.obj.clone(),
+                            prop: MemberProp::Ident(swc_ecma_ast::IdentName {
+                                span: m.span,
+                                sym: canon.into(),
                             }),
                         });
                         let synth_call = swc_ecma_ast::CallExpr {
