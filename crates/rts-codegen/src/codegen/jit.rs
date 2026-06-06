@@ -2793,6 +2793,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         use crate::namespaces::runtime::eval_jit::*;
         add_fn!("__RTS_FN_NS_RUNTIME_EVAL", runtime_eval_src_jit);
         add_fn!("__RTS_FN_NS_RUNTIME_EVAL_FILE", runtime_eval_file_jit);
+        add_fn!("__RTS_FN_NS_RUNTIME_IMPORT_MODULE", runtime_import_module_jit);
+        add_fn!("__RTS_FN_NS_RUNTIME_SET_MODULE_EXPORTS", runtime_set_module_exports_jit);
     }
 
     // ── namespaces::test ─────────────────────────────────────────────

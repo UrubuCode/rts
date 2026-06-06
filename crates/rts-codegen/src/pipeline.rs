@@ -153,6 +153,9 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
         }
     };
 
+    if let Some(dir) = input.parent() {
+        crate::eval_jit::set_entry_dir(dir.to_path_buf());
+    }
     mark("loading module graph");
     let graph = crate::module::ModuleGraph::load(input, options)
         .with_context(|| format!("failed to load module graph for {}", input.display()))?;
@@ -244,6 +247,9 @@ pub fn run_jit_inline(source: &str, options: CompileOptions) -> Result<(i32, Vec
 }
 
 pub fn run_jit(input: &Path, options: CompileOptions) -> Result<(i32, Vec<String>)> {
+    if let Some(dir) = input.parent() {
+        crate::eval_jit::set_entry_dir(dir.to_path_buf());
+    }
     let source = std::fs::read_to_string(input)
         .with_context(|| format!("failed to read {}", input.display()))?;
     let mut program = parser::parse_source_with_mode(&source, options.frontend_mode)

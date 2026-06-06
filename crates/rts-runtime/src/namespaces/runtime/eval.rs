@@ -36,6 +36,18 @@ pub extern "C" fn __RTS_FN_NS_RUNTIME_EVAL_FILE(ptr: i64, len: i64) -> i64 {
     spawn_rts_run(std::path::Path::new(path))
 }
 
+/// AOT stub for dynamic `import(path)`. Full in-process module-namespace
+/// collection is JIT-only (shadowed by `runtime_import_module_jit`); under AOT
+/// there is no in-process compiler, so this returns a null handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_RUNTIME_IMPORT_MODULE(_ptr: i64, _len: i64) -> u64 {
+    0
+}
+
+/// AOT stub: no in-process importer to receive the exports handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_RUNTIME_SET_MODULE_EXPORTS(_ns: u64) {}
+
 fn spawn_rts_run(path: &std::path::Path) -> i64 {
     let rts = find_rts_binary();
     match std::process::Command::new(&rts).arg("run").arg(path).status() {

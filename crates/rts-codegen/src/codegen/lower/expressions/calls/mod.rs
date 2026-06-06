@@ -3091,14 +3091,18 @@ fn lower_dynamic_import(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
         .first()
         .ok_or_else(|| anyhow!("import() requires exactly one argument"))?;
 
-    lower_ns_call(ctx, "runtime.eval_file", &CallExpr {
+    // `import(path)` returns a handle to the module's exports namespace object
+    // (collected in-process by runtime_import_module_jit). Member access
+    // (`mod.named`, `mod.default(...)`, `mod.state.count`) then resolves via the
+    // generic object/map dispatch on the Handle.
+    lower_ns_call(ctx, "runtime.import_module", &CallExpr {
         span: call.span,
         callee: call.callee.clone(),
         args: vec![path_arg.clone()],
         type_args: None,
         ctxt: Default::default(),
     })
-    .map(|tv| crate::codegen::lower::ctx::TypedVal { val: tv.val, ty: ValTy::I64 })
+    .map(|tv| crate::codegen::lower::ctx::TypedVal { val: tv.val, ty: ValTy::Handle })
 }
 
 /// Globais JS funcionais: \`isNaN\`, \`isFinite\`, \`Number\`, \`String\`, \`Boolean\`.
