@@ -114,8 +114,16 @@ pub(crate) fn collect_module_globals(
             // filter non-handle numeric values, so this is safe — without it a
             // GC tick sweeps a handle stored in an i64-typed global (344's
             // __awaiter generator was collected mid-drive → infinite loop).
+            //
+            // (cross-runtime #344 cont.) Also register F64 globals: a
+            // promoted-to-global capture is emitted as `let g = 0.0` (Number
+            // literal init), so collect_module_globals infers F64 — yet at
+            // runtime it holds a generator handle. A real f64 bit-pattern almost
+            // never has gen != 0 AND decodes to a live handle, so the scanner's
+            // gen-check + mark_handle validity filter still reject genuine
+            // floats; cost is only an occasional harmless false-positive mark.
             // Bool excluded (0/1, never a handle).
-            if matches!(ty, ValTy::Handle | ValTy::I64 | ValTy::U64) {
+            if matches!(ty, ValTy::Handle | ValTy::I64 | ValTy::U64 | ValTy::F64) {
                 use cranelift_module::DataId;
                 let _ = DataId::from_u32; // garante o tipo
                 crate::namespaces::gc::global_roots::push_pending_data_id(

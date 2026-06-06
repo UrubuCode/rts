@@ -294,7 +294,31 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if let MemberProp::Ident(prop) = &m.prop {
                 if prop.sym.as_str() == "next" && call.args.len() <= 1 {
                     if let Expr::Ident(obj_id) = m.obj.as_ref() {
-                        if ctx.generator_vars.contains(obj_id.sym.as_str()) {
+                        let nm = obj_id.sym.as_str();
+                        // (cross-runtime #344) Route `.next()` to GENERATOR_NEXT
+                        // not only for vars marked `generator_vars` (`const it =
+                        // g()`) but also for ambiguous handle-typed locals/globals
+                        // whose value can be a generator obtained indirectly
+                        // (`g = generator.call(this)`, a promoted-to-global capture
+                        // typed F64, etc.). GENERATOR_NEXT runtime-detects
+                        // GenState/Vec/Map-custom-iterator, so over-routing a plain
+                        // object iterator is handled there. Class instances (own
+                        // `.next` method) are excluded — they keep the method path.
+                        let ambiguous = {
+                            let ty = ctx
+                                .read_local_info(nm)
+                                .map(|l| l.ty)
+                                .or_else(|| ctx.globals.get(nm).map(|g| g.ty));
+                            matches!(
+                                ty,
+                                None | Some(ValTy::I64)
+                                    | Some(ValTy::U64)
+                                    | Some(ValTy::Handle)
+                                    | Some(ValTy::F64)
+                            ) && !ctx.local_array_vars.contains(nm)
+                                && ctx.local_class_ty.get(nm).is_none()
+                        };
+                        if ctx.generator_vars.contains(nm) || ambiguous {
                             use cranelift_codegen::ir::types as cl;
                             let recv_tv = lower_expr(ctx, &m.obj)?;
                             let recv = ctx.coerce_to_i64(recv_tv).val;

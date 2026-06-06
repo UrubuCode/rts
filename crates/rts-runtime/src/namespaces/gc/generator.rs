@@ -56,6 +56,24 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
     if is_sm {
         return __RTS_FN_NS_GC_GEN_SM_NEXT(vec_handle);
     }
+    // (cross-runtime #344) The `.next()` routing was broadened to ambiguous
+    // handle locals, so it also reaches plain-object custom iterators
+    // (`const it = { next() {...} }`, a Map handle with an own `next` member).
+    // Class-instance iterators are excluded upstream (local_class_ty), and their
+    // method lives on the prototype, not the instance Map — so an own `next`
+    // member here means a user iterator object. Invoke its method with
+    // `this` = the object and return its `{value, done}` directly.
+    let custom_next = with_entry(vec_handle, |e| match e {
+        Some(Entry::Map(m)) => m.get("next").copied().filter(|&v| v != 0),
+        _ => None,
+    });
+    if let Some(next_fn) = custom_next {
+        return crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_CALL(
+            next_fn as u64,
+            vec_handle as i64,
+            0,
+        ) as u64;
+    }
     let len = with_entry(vec_handle, |e| match e {
         Some(Entry::Vec(v)) => Some(v.len()),
         _ => None,

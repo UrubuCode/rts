@@ -131,6 +131,32 @@ fn resolve_captured_this(ctx: &mut FnCtx) -> Result<TypedVal> {
     Ok(TypedVal::new(v, ValTy::I64))
 }
 
+/// (cross-runtime #344) Resolves the runtime value to bind for a lifted-closure
+/// capture `c`. A capture is normally an enclosing local (`read_local`). But a
+/// nested function declaration captured by an inner closure is hoisted to a
+/// top-level user fn, so it is no longer a local — `read_local` returns None.
+/// Previously that aborted the whole capture path, shifting the callback's real
+/// arguments into the capture slots (a recursive `.then(v => step(v + 1))` got
+/// `v = undefined` because the resolved value landed in the `step` slot). When
+/// the capture names a top-level user fn, bind its address so the param holds a
+/// callable value and the real args line up.
+fn resolve_capture_value(ctx: &mut FnCtx, c: &str) -> Result<Option<TypedVal>> {
+    if let Some(v) = ctx.read_local(c) {
+        return Ok(Some(v));
+    }
+    if ctx.user_fns.contains_key(c) {
+        // Reify the captured fn exactly as a value-position ident would be: this
+        // binds ITS OWN captures into the handle, so a later `captured_fn(arg)`
+        // lines `arg` up AFTER the bound captures. A raw fn-addr would instead
+        // drop `arg` into the captured fn's first capture slot (the recursive
+        // `step(99)` reached `step` as `undefined` because `99` landed in
+        // `step`'s own `resolve` capture). Self-capture is impossible — hoist_fn
+        // excludes a fn's own name from its capture list — so no infinite recursion.
+        return Ok(Some(lower_ident_expr(ctx, c)?));
+    }
+    Ok(None)
+}
+
 fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     // Alias de import (`import { add as plus } from "./lib"` -> plus->add):
     // se o ident e' um alias local, troca pelo nome original do source antes
@@ -170,7 +196,7 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
                     let tv = if c == "__captured_this" {
                         Some(resolve_captured_this(ctx)?)
                     } else {
-                        ctx.read_local(c)
+                        resolve_capture_value(ctx, c)?
                     };
                     match tv {
                         Some(v) => cap_vals.push(v),
@@ -212,7 +238,7 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
                     let tv = if c == "__captured_this" {
                         Some(resolve_captured_this(ctx)?)
                     } else {
-                        ctx.read_local(c)
+                        resolve_capture_value(ctx, c)?
                     };
                     match tv {
                         Some(v) => cap_vals.push(v),
