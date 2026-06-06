@@ -130,6 +130,16 @@ fn convert_nested_fn_decls(stmts: &mut Vec<Stmt>, enclosing_params: &HashSet<Str
     let mut scope_locals = collect_scope_locals(stmts);
     scope_locals.extend(enclosing_params.iter().cloned());
     let n = stmts.len();
+    // Plan the conversions first (reading the ORIGINAL stmts for forward-ref and
+    // nested-closure checks), then apply them — a `split` conversion inserts an
+    // extra statement and would otherwise shift the indices the loop reads.
+    // `split = true` when `name` is referenced from inside a nested closure: then
+    // the fn must become a MUTABLE binding (`let f; f = function...`) so
+    // box_captures sees it as mutated+captured and boxes it into a shared cell.
+    // The cell breaks the definition cycle of a recursive/sibling closure
+    // (`function step(){ ...then(v => step(v+1)) }`): without it the inner arrow
+    // direct-calls the global, dropping its arg into step's own capture slot.
+    let mut plan: Vec<(usize, bool)> = Vec::new();
     for i in 0..n {
         let (name, captures) = match &stmts[i] {
             Stmt::Decl(Decl::Fn(fd)) => {
@@ -155,33 +165,77 @@ fn convert_nested_fn_decls(stmts: &mut Vec<Stmt>, enclosing_params: &HashSet<Str
         if forward_ref {
             continue;
         }
-        // (cross-runtime #344) A CAPTURING nested fn-decl used as a constructor
-        // (`function Ctor(){ this.x = capturedParam }` + `new Ctor()`) MUST
-        // become a closure so the capture resolves — `new <local-fn-value>()`
-        // and `<local>.prototype` now handle the converted form (new_expr.rs /
-        // mod.rs). The old guard left it a fn-decl → "undefined variable" on the
-        // captured name. (Non-capturing fn-decls never reach here — the
-        // `!captures` check above skips them, so named constructors are intact.)
-        if let Stmt::Decl(Decl::Fn(fd)) = &mut stmts[i] {
-            let ident = fd.ident.clone();
-            let function = std::mem::replace(
-                &mut fd.function,
-                Box::new(swc_ecma_ast::Function {
-                    params: Vec::new(),
-                    decorators: Vec::new(),
+        let split = referenced_in_nested_closure(stmts, &name);
+        plan.push((i, split));
+    }
+    // Apply highest-index first so an insert at i+1 never invalidates a lower,
+    // not-yet-applied index.
+    for (i, split) in plan.into_iter().rev() {
+        let Stmt::Decl(Decl::Fn(fd)) = &mut stmts[i] else {
+            continue;
+        };
+        let ident = fd.ident.clone();
+        let function = std::mem::replace(
+            &mut fd.function,
+            Box::new(swc_ecma_ast::Function {
+                params: Vec::new(),
+                decorators: Vec::new(),
+                span: Default::default(),
+                ctxt: Default::default(),
+                body: None,
+                is_generator: false,
+                is_async: false,
+                type_params: None,
+                return_type: None,
+            }),
+        );
+        let fnexpr = Expr::Fn(swc_ecma_ast::FnExpr {
+            // Anonymous for the boxed (split) form: a named fn-expr makes hoist_fn
+            // rename inner `step` refs (including the `cell_get(step)` the box
+            // rewrite produces) to the hoisted top-level name, breaking the cell
+            // read (call through a stale/null handle). The const form keeps the
+            // name for in-body self-recursion.
+            ident: if split { None } else { Some(ident.clone()) },
+            function,
+        });
+        if split {
+            // `let <name>;`  (mutable, no init)
+            stmts[i] = Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
+                span: Default::default(),
+                ctxt: Default::default(),
+                kind: swc_ecma_ast::VarDeclKind::Let,
+                declare: false,
+                decls: vec![swc_ecma_ast::VarDeclarator {
                     span: Default::default(),
-                    ctxt: Default::default(),
-                    body: None,
-                    is_generator: false,
-                    is_async: false,
-                    type_params: None,
-                    return_type: None,
+                    name: Pat::Ident(ident.clone().into()),
+                    init: None,
+                    definite: false,
+                }],
+            })));
+            // `<name> = function <name>(){...};`  (the assignment box_captures
+            // counts as a mutation → boxes the captured binding into a cell)
+            let assign = Expr::Assign(swc_ecma_ast::AssignExpr {
+                span: Default::default(),
+                op: swc_ecma_ast::AssignOp::Assign,
+                left: swc_ecma_ast::AssignTarget::Simple(
+                    swc_ecma_ast::SimpleAssignTarget::Ident(ident.into()),
+                ),
+                right: Box::new(fnexpr),
+            });
+            stmts.insert(
+                i + 1,
+                Stmt::Expr(swc_ecma_ast::ExprStmt {
+                    span: Default::default(),
+                    expr: Box::new(assign),
                 }),
             );
-            let fnexpr = Expr::Fn(swc_ecma_ast::FnExpr {
-                ident: Some(ident.clone()),
-                function,
-            });
+        } else {
+            // (cross-runtime #344) A CAPTURING nested fn-decl used as a constructor
+            // (`function Ctor(){ this.x = capturedParam }` + `new Ctor()`) MUST
+            // become a closure so the capture resolves — `new <local-fn-value>()`
+            // and `<local>.prototype` now handle the converted form (new_expr.rs /
+            // mod.rs). Const single-binding form: not referenced from any nested
+            // closure, so no cell is needed.
             stmts[i] = Stmt::Decl(Decl::Var(Box::new(swc_ecma_ast::VarDecl {
                 span: Default::default(),
                 ctxt: Default::default(),
@@ -196,6 +250,58 @@ fn convert_nested_fn_decls(stmts: &mut Vec<Stmt>, enclosing_params: &HashSet<Str
             })));
         }
     }
+}
+
+/// True when `name` is referenced from inside a nested closure (arrow / fn-expr)
+/// within `stmts` — the case where a converted nested fn-decl must become a
+/// boxed (cell) binding so a recursive/sibling closure shares the same handle.
+/// Recurses into nested fn-DECLARATION bodies too (`visit_exprs_in_stmt_ref`
+/// stops at fn-decl bodies), because the referencing closure commonly lives
+/// inside the very fn being converted (`function step(){ ...then(v=>step(v+1)) }`).
+fn referenced_in_nested_closure(stmts: &[Stmt], name: &str) -> bool {
+    fn closure_body_refs(e: &Expr, name: &str) -> bool {
+        match e {
+            Expr::Arrow(a) => match a.body.as_ref() {
+                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(b) => {
+                    b.stmts.iter().any(|st| stmt_references_ident(st, name))
+                }
+                swc_ecma_ast::BlockStmtOrExpr::Expr(ex) => {
+                    let dummy = Stmt::Expr(swc_ecma_ast::ExprStmt {
+                        span: Default::default(),
+                        expr: ex.clone(),
+                    });
+                    stmt_references_ident(&dummy, name)
+                }
+            },
+            Expr::Fn(fnx) => fnx
+                .function
+                .body
+                .as_ref()
+                .map(|b| b.stmts.iter().any(|st| stmt_references_ident(st, name)))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+    let mut found = false;
+    for s in stmts {
+        visit_exprs_in_stmt_ref(s, &mut |e| {
+            if !found && closure_body_refs(e, name) {
+                found = true;
+            }
+        });
+        if found {
+            break;
+        }
+        if let Stmt::Decl(Decl::Fn(fd)) = s {
+            if let Some(b) = fd.function.body.as_ref() {
+                if referenced_in_nested_closure(&b.stmts, name) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+    found
 }
 
 /// True se o corpo da fn-decl referencia algum local do escopo enclosing
