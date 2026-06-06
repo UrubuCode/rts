@@ -4160,7 +4160,7 @@ fn expr_is_coalesce_with_array(e: &Expr) -> bool {
     false
 }
 
-fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<TypedVal> {
+pub(crate) fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> Result<TypedVal> {
     let abi = ctx
         .user_fns
         .get(name)

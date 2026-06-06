@@ -2176,6 +2176,34 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         _ => return Err(anyhow!("instanceof RHS must be a class identifier")),
     };
 
+    // (cross-runtime #378) Symbol.hasInstance: when the RHS class defines a
+    // static `[Symbol.hasInstance](v)` method, `x instanceof C` is `C[Symbol.
+    // hasInstance](x)` (overrides the default prototype/tag check entirely).
+    let has_instance = ctx
+        .classes
+        .get(&class_name)
+        .map(|meta| meta.static_methods.iter().any(|m| m == "Symbol.hasInstance"))
+        .unwrap_or(false);
+    if has_instance {
+        let fn_name = crate::codegen::lower::compile::class::class_static_method_name(
+            &class_name,
+            "Symbol.hasInstance",
+        );
+        let call = swc_ecma_ast::CallExpr {
+            span: bin.span,
+            ctxt: Default::default(),
+            callee: swc_ecma_ast::Callee::Expr(bin.right.clone()),
+            args: vec![swc_ecma_ast::ExprOrSpread {
+                spread: None,
+                expr: bin.left.clone(),
+            }],
+            type_args: None,
+        };
+        let tv = super::calls::lower_user_call(ctx, &fn_name, &call)?;
+        let v = ctx.coerce_to_i64(tv).val;
+        return Ok(TypedVal::new(v, ValTy::Bool));
+    }
+
     // Global classes: dispatch para runtime check via Entry tipo do handle.
     // Array → Entry::Vec; Object → Map ou qualquer; Date → DateMs;
     // RegExp → Regex; Map → Map; Set → Map (set usa Map storage); Error*
