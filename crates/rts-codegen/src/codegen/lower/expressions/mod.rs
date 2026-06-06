@@ -827,6 +827,27 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                             ctx.builder.ins().call(set_proto, &[fn_handle, rhs_h]);
                             return Ok(TypedVal::new(rhs_h, ValTy::Handle));
                         }
+                        // (cross-runtime #344) `d.prototype = X` where d is a
+                        // local/param holding a function value (tsc __extends).
+                        // PROTOTYPE_SET keys by the handle's fn_ptr, so it links
+                        // with `new d()` / `d.prototype` reads of the same fn.
+                        if !ctx.user_fns.contains_key(name)
+                            && !ctx.classes.contains_key(name)
+                            && ctx.read_local(name).is_some()
+                        {
+                            use cranelift_codegen::ir::types as cl;
+                            let recv_tv = lower_expr(ctx, obj_e)?;
+                            let recv = ctx.coerce_to_i64(recv_tv).val;
+                            let rhs_tv = lower_expr(ctx, &a.right)?;
+                            let rhs_h = ctx.coerce_to_i64(rhs_tv).val;
+                            let set_proto = ctx.get_extern(
+                                "__RTS_FN_GL_FUNCTION_PROTOTYPE_SET",
+                                &[cl::I64, cl::I64],
+                                None,
+                            )?;
+                            ctx.builder.ins().call(set_proto, &[recv, rhs_h]);
+                            return Ok(TypedVal::new(rhs_h, ValTy::Handle));
+                        }
                     }
                 }
             }

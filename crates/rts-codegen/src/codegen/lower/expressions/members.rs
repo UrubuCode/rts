@@ -1046,6 +1046,26 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         return lower_user_fn_getter(ctx, &init_fn, "prototype");
                     }
                 }
+                // (cross-runtime #344) `d.prototype` where `d` is a local/param
+                // holding a function value (passed as arg — e.g. tsc __extends's
+                // `function __extends(d, b) { ... d.prototype = new Ctor(); }`).
+                // Reify the runtime value and read its prototype like a named fn.
+                if prop_name == "prototype"
+                    && !ctx.user_fns.contains_key(obj_name)
+                    && !ctx.classes.contains_key(obj_name)
+                    && ctx.read_local(obj_name).is_some()
+                {
+                    let recv_tv = lower_expr(ctx, obj_e)?;
+                    let recv = ctx.coerce_to_i64(recv_tv).val;
+                    let getter = ctx.get_extern(
+                        "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
+                        &[cl::I64],
+                        Some(cl::I64),
+                    )?;
+                    let inst = ctx.builder.ins().call(getter, &[recv]);
+                    let v = ctx.builder.inst_results(inst)[0];
+                    return Ok(TypedVal::new(v, ValTy::Handle));
+                }
             }
         }
     }

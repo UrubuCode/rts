@@ -155,11 +155,13 @@ fn convert_nested_fn_decls(stmts: &mut Vec<Stmt>, enclosing_params: &HashSet<Str
         if forward_ref {
             continue;
         }
-        // Guarda extra: nao converte se usada com `new` ou `.prototype` (uso
-        // como construtor) em qualquer statement do escopo.
-        if stmts.iter().any(|s| stmt_uses_as_constructor(s, &name)) {
-            continue;
-        }
+        // (cross-runtime #344) A CAPTURING nested fn-decl used as a constructor
+        // (`function Ctor(){ this.x = capturedParam }` + `new Ctor()`) MUST
+        // become a closure so the capture resolves — `new <local-fn-value>()`
+        // and `<local>.prototype` now handle the converted form (new_expr.rs /
+        // mod.rs). The old guard left it a fn-decl → "undefined variable" on the
+        // captured name. (Non-capturing fn-decls never reach here — the
+        // `!captures` check above skips them, so named constructors are intact.)
         if let Stmt::Decl(Decl::Fn(fd)) = &mut stmts[i] {
             let ident = fd.ident.clone();
             let function = std::mem::replace(
@@ -248,48 +250,6 @@ fn collect_decl_names_shallow(stmt: &Stmt, out: &mut HashSet<String>) {
     if let Stmt::Decl(Decl::Fn(fd)) = stmt {
         out.insert(fd.ident.sym.to_string());
     }
-}
-
-/// True se `name` eh usada como construtor — `new name(...)` ou
-/// `name.prototype` — em qualquer expressao do statement.
-fn stmt_uses_as_constructor(stmt: &Stmt, name: &str) -> bool {
-    let mut found = false;
-    visit_exprs_in_stmt_ref(stmt, &mut |e| {
-        match e {
-            Expr::New(n) => {
-                if let Expr::Ident(id) = n.callee.as_ref() {
-                    if id.sym.as_str() == name {
-                        found = true;
-                    }
-                }
-                // `new (X as any)()` — peel.
-                let mut c = n.callee.as_ref();
-                loop {
-                    match c {
-                        Expr::Paren(p) => c = &p.expr,
-                        Expr::TsAs(a) => c = &a.expr,
-                        Expr::TsNonNull(a) => c = &a.expr,
-                        Expr::Ident(id) if id.sym.as_str() == name => {
-                            found = true;
-                            break;
-                        }
-                        _ => break,
-                    }
-                }
-            }
-            Expr::Member(m) => {
-                if let (Expr::Ident(id), swc_ecma_ast::MemberProp::Ident(p)) =
-                    (m.obj.as_ref(), &m.prop)
-                {
-                    if id.sym.as_str() == name && p.sym.as_str() == "prototype" {
-                        found = true;
-                    }
-                }
-            }
-            _ => {}
-        }
-    });
-    found
 }
 
 /// True se o statement referencia o ident `name` (em qualquer expressao).

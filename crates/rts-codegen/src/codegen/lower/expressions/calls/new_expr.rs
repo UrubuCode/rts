@@ -628,6 +628,60 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         return Ok(TypedVal::new(inst_h, ValTy::Handle));
     }
 
+    // (cross-runtime #344) `new <local>()` where the local holds a function
+    // VALUE (a closure bound to a const — e.g. tsc __extends's captured `Ctor`,
+    // which captures an outer param so it became a closure, not a named user
+    // fn). Allocate the instance, install its prototype, invoke the function
+    // handle with `this` via the thread-local slot, return the instance.
+    if !ctx.classes.contains_key(&class_name)
+        && !ctx.user_fns.contains_key(&class_name)
+    {
+        if let Some(fn_tv) = ctx.read_local(&class_name) {
+            let fn_h = ctx.coerce_to_i64(fn_tv).val;
+            let map_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_MAP_NEW", &[], Some(cl::I64))?;
+            let mi = ctx.builder.ins().call(map_new, &[]);
+            let inst_h = ctx.builder.inst_results(mi)[0];
+            // __proto__ = fn.prototype (FUNCTION_PROTOTYPE_GET lazily allocs).
+            let proto_get =
+                ctx.get_extern("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET", &[cl::I64], Some(cl::I64))?;
+            let pi = ctx.builder.ins().call(proto_get, &[fn_h]);
+            let proto_h = ctx.builder.inst_results(pi)[0];
+            let map_set = ctx.get_extern(
+                "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                None,
+            )?;
+            let (pk, pl) = ctx.emit_str_literal(b"__proto__")?;
+            ctx.builder.ins().call(map_set, &[inst_h, pk, pl, proto_h]);
+            // Push `this`, build args, invoke the handle (INVOKE_AUTO detects
+            // Function handle vs raw addr; bound captures travel via the handle).
+            let push_fn = ctx.get_extern("__RTS_FN_RT_THIS_PUSH", &[cl::I64], None)?;
+            ctx.builder.ins().call(push_fn, &[inst_h]);
+            let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+            let ai = ctx.builder.ins().call(vec_new, &[]);
+            let args_h = ctx.builder.inst_results(ai)[0];
+            let vec_push =
+                ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+            for a in new_expr.args.as_ref().map(|v| v.as_slice()).unwrap_or(&[]) {
+                if a.spread.is_some() {
+                    return Err(anyhow!("spread em `new <fn-value>` nao suportado"));
+                }
+                let tv = lower_expr(ctx, &a.expr)?;
+                let v = ctx.coerce_to_i64(tv).val;
+                ctx.builder.ins().call(vec_push, &[args_h, v]);
+            }
+            let invoke = ctx.get_extern(
+                "__RTS_FN_RT_INVOKE_AUTO",
+                &[cl::I64, cl::I64, cl::I64],
+                Some(cl::I64),
+            )?;
+            ctx.builder.ins().call(invoke, &[fn_h, inst_h, args_h]);
+            let pop_fn = ctx.get_extern("__RTS_FN_RT_THIS_POP", &[], None)?;
+            ctx.builder.ins().call(pop_fn, &[]);
+            return Ok(TypedVal::new(inst_h, ValTy::Handle));
+        }
+    }
+
     let meta = ctx
         .classes
         .get(&class_name)
