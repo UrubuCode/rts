@@ -535,6 +535,13 @@ pub struct GenStateData {
     /// body) e ao despachar o throw. `.throw(e)` suspenso dentro da try salta
     /// para esse estado com `e` em `pending_val` (lido via CAUGHT).
     pub catch_state: i64,
+    /// (cross-runtime #392) async generator (`async function*`): combina yield +
+    /// await. `.next()` (AGEN_NEXT) bombeia ate o proximo yield/done e devolve
+    /// Promise<{value,done}> ja' resolvida.
+    pub is_async_gen: bool,
+    /// (cross-runtime #392) Promise do `.next()` corrente do async gen, resolvida
+    /// com `{value,done}` ao alcancar o proximo yield/done.
+    pub next_promise: Option<std::sync::Arc<PromiseSlot>>,
 }
 
 /// State enum dos algoritmos suportados em `Entry::Hasher`. Wrap em Box

@@ -385,6 +385,18 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         if matches!(a.op, AssignOp::Assign) {
             if let Expr::Call(c) = a.right.as_ref() {
                 if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
+                    // (cross-runtime #392) `it = g()` onde `g` eh generator fn
+                    // (sync OU async gen). Cobre o bind in-SM (async fn -> state
+                    // machine emite `const it = g()` como ASSIGN ao slot, nao
+                    // decl). Sem isto `it.next()` cai no dispatch generico (async
+                    // gen: promise que nunca settla -> hang).
+                    if let Expr::Ident(fid) = callee.as_ref() {
+                        if crate::codegen::lower::compile::program::is_generator_fn(
+                            fid.sym.as_str(),
+                        ) {
+                            ctx.generator_vars.insert(id.id.sym.to_string());
+                        }
+                    }
                     if let Expr::Member(m) = callee.as_ref() {
                         if let MemberProp::Computed(cp) = &m.prop {
                             if let Expr::Member(sm) = cp.expr.as_ref() {

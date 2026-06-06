@@ -110,6 +110,22 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_STATE(handle: u64) -> i64 {
     with_slot(handle, -1, |slot| promise_slot::current_state(slot) as i64)
 }
 
+/// (cross-runtime #392) `await <value>` com passthrough: se `handle` eh uma
+/// Promise, bloqueia ate settle e devolve o valor (igual PROMISE_WAIT, propaga
+/// reject via error slot); senao devolve o proprio handle inalterado. Usado pelo
+/// `for await (const v of arr)` para aguardar CADA elemento (array de Promises),
+/// sem quebrar o caso non-Promise (valores ja' resolvidos de async gen drain).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
+    use crate::namespaces::gc::handles::{Entry, with_entry};
+    let is_promise = with_entry(handle, |e| matches!(e, Some(Entry::PromiseAsync(_))));
+    if is_promise {
+        __RTS_FN_NS_PROMISE_WAIT(handle)
+    } else {
+        handle as i64
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(handle: u64) -> i64 {
     // Clona o Arc fora do `with_entry` pra liberar o lock do shard
@@ -383,6 +399,20 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
     let snapshot: Option<Vec<i64>> = with_entry(iterable, |e| match e {
         Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
         _ => None,
+    });
+    // (cross-runtime #392) async generator handle: drena via GEN_SM_DRAIN (que
+    // bombeia os awaits internos e coleta os yields num Vec). Suporta agora
+    // `Array.fromAsync(asyncGen())`.
+    let snapshot = snapshot.or_else(|| {
+        let is_gen = with_entry(iterable, |e| matches!(e, Some(Entry::GenState(_))));
+        if !is_gen {
+            return None;
+        }
+        let vec_h = crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(iterable);
+        with_entry(vec_h, |e| match e {
+            Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
+            _ => None,
+        })
     });
     let Some(items) = snapshot else {
         // Async iterable / outros tipos — retorna Promise rejected.

@@ -251,7 +251,8 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 for (i, a) in call.args.iter().enumerate() {
                     if i == 0
                         && (sym == "__RTS_FN_NS_GC_GEN_SM_NEW"
-                            || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW")
+                            || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW"
+                            || sym == "__RTS_FN_NS_GC_AGEN_NEW")
                     {
                         if let Expr::Ident(fid) = a.expr.as_ref() {
                             let addr = emit_user_fn_addr(ctx, fid.sym.as_str())?;
@@ -269,6 +270,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     let vt = if sym == "__RTS_FN_NS_GC_GEN_SM_NEW"
                         || sym == "__RTS_FN_NS_GC_ASYNC_SM_NEW"
                         || sym == "__RTS_FN_NS_GC_ASYNC_SM_START"
+                        || sym == "__RTS_FN_NS_GC_AGEN_NEW"
                     {
                         ValTy::Handle
                     } else {
@@ -4494,6 +4496,8 @@ fn gen_sm_sentinel(
         ("__RTS_ASYNC_SM_SUSPEND", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", Some(cl::I64))),
         ("__RTS_ASYNC_SM_AWAITED", 1) => Some(("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", Some(cl::I64))),
         ("__RTS_ASYNC_SM_RESOLVE", 2) => Some(("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", Some(cl::I64))),
+        // (cross-runtime #392) async generator: ctor lazy.
+        ("__RTS_AGEN_NEW", 2) => Some(("__RTS_FN_NS_GC_AGEN_NEW", Some(cl::I64))),
         _ => None,
     }
 }

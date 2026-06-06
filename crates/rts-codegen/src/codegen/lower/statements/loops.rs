@@ -374,7 +374,20 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         .read_local(&counter_name)
         .ok_or_else(|| anyhow!("for-of counter sumiu"))?;
     let inst = ctx.builder.ins().call(get_fref, &[handle, i_now.val]);
-    let elem = ctx.builder.inst_results(inst)[0];
+    let mut elem = ctx.builder.inst_results(inst)[0];
+    // (cross-runtime #392) `for await (const v of arr)`: aguarda CADA elemento.
+    // AWAIT_VALUE faz passthrough de non-Promises (valores ja' resolvidos de um
+    // async gen drain) e wait+valor de Promises (array de Promises). JS spec:
+    // for-await aguarda cada valor produzido pelo iterador.
+    if for_of.is_await {
+        let await_fn = ctx.get_extern(
+            "__RTS_FN_NS_PROMISE_AWAIT_VALUE",
+            &[cl::I64],
+            Some(cl::I64),
+        )?;
+        let ai = ctx.builder.ins().call(await_fn, &[elem]);
+        elem = ctx.builder.inst_results(ai)[0];
+    }
     ctx.write_local(&bind_name, elem)?;
 
     // (cross-runtime #222) Bind simples de for-of sem tipo Handle estatico:

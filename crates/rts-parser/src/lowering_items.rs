@@ -186,6 +186,27 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
             }
         }
         Decl::Fn(fn_decl) => {
+            // (cross-runtime #392) `async function*` -> async generator lazy SM
+            // (yield + await combinados). `.next()` devolve Promise<{value,done}>.
+            // ANTES do generator sync e do eager-buffer (que nao fazem await/
+            // .next()/throw lazy). Inelegivel => cai nos caminhos abaixo.
+            if fn_decl.function.is_generator
+                && fn_decl.function.is_async
+                && async_sm_enabled()
+            {
+                if let Some((ctor, state_fn)) = crate::generator_sm::try_build_async_gen(
+                    &fn_decl.ident.sym.to_string(),
+                    &fn_decl.function,
+                ) {
+                    let mut sf = lower_fn_decl(cm, &state_fn);
+                    sf.return_type = Some("i64".to_string());
+                    let mut cf = lower_fn_decl(cm, &ctor);
+                    cf.return_type = Some("i64".to_string());
+                    out.push(Item::Function(sf));
+                    out.push(Item::Function(cf));
+                    return;
+                }
+            }
             // (#477) Generator elegivel -> state-machine lazy (2 fns). Caso
             // contrario, caminho normal (eager-buffer para generators).
             if fn_decl.function.is_generator {

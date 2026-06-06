@@ -96,8 +96,56 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     let nslots = builder.locals.len() as f64;
 
     // ── Constructor: g(params) { aloca GenState, escreve params, retorna h } ──
-    let ctor = build_ctor(name, &params, &ctor_params, &state_fn_name, nslots);
+    let ctor = build_ctor(name, &params, &ctor_params, &state_fn_name, nslots, "__RTS_GEN_SM_NEW");
     // ── State fn: __gen_state_<name>(__g) { switch sobre estado } ─────────────
+    let state_fn = build_state_fn(&state_fn_name, &builder)?;
+
+    Some((ctor, state_fn))
+}
+
+/// (cross-runtime #392) `async function*` — async generator lazy. Combina o SM de
+/// generator (yield) com o de async fn (await): `is_async=true` faz lower_stmt
+/// tratar await como suspensao; o yield gera valores. Ctor usa `__RTS_AGEN_NEW`;
+/// `.next()` devolve Promise<{value,done}>. SEM gate `body_needs_lazy` (async gens
+/// precisam do SM mesmo finitos — eager nao faz .next()/await/throw lazy).
+pub fn try_build_async_gen(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
+    let body = function.body.as_ref()?;
+    SM_SPAN.with(|c| c.set(body.span));
+
+    let mut params: Vec<String> = Vec::new();
+    let mut ctor_params: Vec<Param> = Vec::new();
+    for p in &function.params {
+        match &p.pat {
+            Pat::Ident(id) => {
+                params.push(id.id.sym.to_string());
+                ctor_params.push(p.clone());
+            }
+            Pat::Assign(asn) => match asn.left.as_ref() {
+                Pat::Ident(id) => {
+                    params.push(id.id.sym.to_string());
+                    ctor_params.push(p.clone());
+                }
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+
+    let mut builder = SmBuilder::new();
+    builder.is_async = true;
+    builder.is_async_gen = true;
+    for p in &params {
+        builder.intern_local(p);
+    }
+
+    let entry = builder.new_state();
+    let exit = builder.lower_seq(&body.stmts, entry)?;
+    builder.set_done(exit, None);
+
+    let state_fn_name = format!("__agen_state_{}", name);
+    let nslots = builder.locals.len() as f64;
+
+    let ctor = build_ctor(name, &params, &ctor_params, &state_fn_name, nslots, "__RTS_AGEN_NEW");
     let state_fn = build_state_fn(&state_fn_name, &builder)?;
 
     Some((ctor, state_fn))
@@ -249,13 +297,17 @@ struct SmBuilder {
     /// (#207) True quando construindo a SM de uma `async function` (await=
     /// suspensao); muda os terminais (SUSPEND/RESOLVE em vez de YIELD/DONE).
     is_async: bool,
+    /// (cross-runtime #392) async generator (`async function*`): is_async tambem
+    /// true, mas o terminal Done usa GEN_SM_DONE (gera {value,done:true}) e os
+    /// loops com await internos sao permitidos (gate em try_lower_await_stmt).
+    is_async_gen: bool,
     /// Contador de temporarios sinteticos unicos (yield* delegation).
     tmp_counter: usize,
 }
 
 impl SmBuilder {
     fn new() -> Self {
-        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false, tmp_counter: 0 }
+        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false, is_async_gen: false, tmp_counter: 0 }
     }
 
     fn intern_local(&mut self, name: &str) -> usize {
@@ -770,6 +822,14 @@ impl SmBuilder {
                 if r.arg.as_deref().map(expr_has_await).unwrap_or(false) {
                     return None;
                 }
+                Some(None)
+            }
+            // (cross-runtime #392) SO' para async generators: loops com await no
+            // corpo sao lowerados pelo arm estrutural (For/While/DoWhile), que
+            // processa o corpo state-by-state (cada await interno vira suspensao
+            // via este mesmo try_lower_await_stmt). Gate em `is_async_gen` pra
+            // NAO mudar o caminho de async functions puras (regrediu 365/303/64).
+            Stmt::For(_) | Stmt::While(_) | Stmt::DoWhile(_) if self.is_async_gen => {
                 Some(None)
             }
             // Qualquer outro statement que contenha await => inelegivel fatia 1.
@@ -1351,15 +1411,14 @@ fn build_ctor(
     ctor_params: &[Param],
     state_fn_name: &str,
     nslots: f64,
+    new_fn: &str,
 ) -> FnDecl {
     let mut stmts: Vec<Stmt> = Vec::new();
-    // const __g = __RTS_GEN_SM_NEW(<state_fn>, nslots);
+    // const __g = <new_fn>(<state_fn>, nslots);  (sync: __RTS_GEN_SM_NEW;
+    // async gen: __RTS_AGEN_NEW)
     stmts.push(let_decl(
         G,
-        call(
-            "__RTS_GEN_SM_NEW",
-            vec![ident_expr(state_fn_name), num_expr(nslots)],
-        ),
+        call(new_fn, vec![ident_expr(state_fn_name), num_expr(nslots)]),
     ));
     // escreve params nos slots 0..n (pelo NOME — o default ja' foi aplicado
     // ao binding pelo expand_default_args sobre a assinatura do ctor).
@@ -1515,7 +1574,9 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
             }
             Trans::Done(ret) => {
                 let ret_expr = ret.clone().unwrap_or_else(undef_expr);
-                let term = if builder.is_async {
+                // async gen (is_async_gen): Done usa GEN_SM_DONE (.next resolve
+                // {value:ret,done:true}); async fn pura: ASYNC_SM_RESOLVE.
+                let term = if builder.is_async && !builder.is_async_gen {
                     "__RTS_ASYNC_SM_RESOLVE"
                 } else {
                     "__RTS_GEN_SM_DONE"
@@ -1565,7 +1626,7 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
     }
 
     // else final: done(undefined) / resolve(undefined) p/ async.
-    let final_term = if builder.is_async {
+    let final_term = if builder.is_async && !builder.is_async_gen {
         "__RTS_ASYNC_SM_RESOLVE"
     } else {
         "__RTS_GEN_SM_DONE"

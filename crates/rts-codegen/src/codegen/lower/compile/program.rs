@@ -1874,7 +1874,9 @@ fn fn_body_declares_gen_buf(body: &[Statement]) -> bool {
                     if let Some(Expr::Call(c)) = d.init.as_deref() {
                         if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
                             if let Expr::Ident(fid) = callee.as_ref() {
-                                if fid.sym.as_str() == "__RTS_GEN_SM_NEW" {
+                                if fid.sym.as_str() == "__RTS_GEN_SM_NEW"
+                                    || fid.sym.as_str() == "__RTS_AGEN_NEW"
+                                {
                                     return true;
                                 }
                             }

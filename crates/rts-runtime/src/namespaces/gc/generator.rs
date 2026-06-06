@@ -175,6 +175,8 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         awaited_rejected: false,
         sent: UNDEFINED,
         catch_state: -1,
+        is_async_gen: false,
+        next_promise: None,
     })))
 }
 
@@ -275,6 +277,12 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT_SENT(h: u64, arg: i64) -> u64 {
 /// Se ja' terminado, devolve `{value:undefined, done:true}` sem reinvocar.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_NEXT(h: u64) -> u64 {
+    // (cross-runtime #392) async generator: `.next()` devolve Promise<{value,
+    // done}>; `await it.next()` desempacota e o for-await aguarda. Sync gen segue.
+    let is_agen = with_entry(h, |e| matches!(e, Some(Entry::GenState(g)) if g.is_async_gen));
+    if is_agen {
+        return __RTS_FN_NS_GC_AGEN_NEXT(h);
+    }
     let (fn_ptr, already_done) = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => (g.fn_ptr, g.done),
         _ => (0u64, true),
@@ -482,6 +490,43 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_END_FINALLY(h: u64) -> i64 {
 /// state-machine (finito). O valor de `return X` NAO entra (semantica iterador).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64 {
+    // (cross-runtime #392) async generator: drena via AGEN_NEXT (que bombeia
+    // alem dos awaits internos e devolve Promise<{value,done}> ja' resolvida).
+    // Coleta os valores yieldados num Vec; se o corpo lancar, AGEN_NEXT rejeita
+    // -> PROMISE_WAIT seta o error slot -> paramos (o for-of itera o que ja' foi
+    // coletado e o try/catch ao redor pega a excecao no fall-through). Sem isto
+    // a drena chamaria a state-fn crua e empurraria os dummies dos awaits (0).
+    let is_agen = with_entry(h, |e| matches!(e, Some(Entry::GenState(g)) if g.is_async_gen));
+    if is_agen {
+        let mut out: Vec<i64> = Vec::new();
+        loop {
+            let done = with_entry(h, |e| match e {
+                Some(Entry::GenState(g)) => g.done,
+                _ => true,
+            });
+            if done {
+                break;
+            }
+            let p = __RTS_FN_NS_GC_AGEN_NEXT(h);
+            let result_map = crate::namespaces::promise::ops::__RTS_FN_NS_PROMISE_WAIT(p);
+            // Throw dentro do corpo: AGEN_NEXT rejeitou -> error slot setado.
+            if crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET() != 0 {
+                break;
+            }
+            let (val, dn) = with_entry(result_map as u64, |e| match e {
+                Some(Entry::Map(m)) => (
+                    m.get("value").copied().unwrap_or(UNDEFINED),
+                    m.get("done").copied() == Some(BOOL_TRUE),
+                ),
+                _ => (UNDEFINED, true),
+            });
+            if dn {
+                break;
+            }
+            out.push(val);
+        }
+        return alloc_entry(Entry::Vec(Box::new(out)));
+    }
     let fn_ptr = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.fn_ptr,
         _ => 0,
@@ -543,7 +588,136 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_NEW(fn_ptr: u64, nslots: i64) -> u64 {
         awaited_rejected: false,
         sent: UNDEFINED,
         catch_state: -1,
+        is_async_gen: false,
+        next_promise: None,
     })))
+}
+
+/// (cross-runtime #392) `__RTS_AGEN_NEW(fn_ptr, nslots)` — aloca um async
+/// generator lazy: yield (gera valores) + await (suspende). Lazy: nao roda nada
+/// ate o 1o `.next()`. `is_async=true` habilita SUSPEND/AWAITED; `is_async_gen`
+/// roteia o driver `agen_step`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEW(fn_ptr: u64, nslots: i64) -> u64 {
+    let n = if nslots < 0 { 0 } else { nslots as usize };
+    alloc_entry(Entry::GenState(Box::new(GenStateData {
+        fn_ptr,
+        state: 0,
+        frame: vec![0i64; n],
+        ret: UNDEFINED,
+        done: false,
+        finally_state: -1,
+        pending_kind: 0,
+        pending_val: UNDEFINED,
+        is_async: true,
+        result_promise: None,
+        pending_await: None,
+        awaited_val: UNDEFINED,
+        awaited_rejected: false,
+        sent: UNDEFINED,
+        catch_state: -1,
+        is_async_gen: true,
+        next_promise: None,
+    })))
+}
+
+/// (cross-runtime #392) `gen.next()` de um async generator: devolve uma
+/// `Promise<{value,done}>` JA' RESOLVIDA. Dispara o driver e, se o corpo
+/// suspende num `await` interno, BOMBEIA o event loop (microtasks/timers) ate a
+/// next_promise settle — mesmo padrao do `promise.wait`. Isso evita o deadlock
+/// onde o caller (`await it.next()`) e o await interno do gen dependem do mesmo
+/// drain: aqui o drain roda inline antes de retornar.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEXT(h: u64) -> u64 {
+    use crate::namespaces::gc::promise_slot;
+    let result = promise_slot::new_pending();
+    let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
+    let already_done = with_entry_mut(h, |e| match e {
+        Some(Entry::GenState(g)) => {
+            g.next_promise = Some(result.clone());
+            g.done
+        }
+        _ => true,
+    });
+    if already_done {
+        let r = make_result(UNDEFINED, true);
+        promise_slot::resolve(&result, r as i64);
+        return result_handle;
+    }
+    agen_step(h);
+    // Bombeia ate a next_promise settle (gen suspendeu em await interno).
+    if promise_slot::current_state(&result) == promise_slot::STATE_PENDING {
+        use std::time::{Duration, Instant};
+        use crate::namespaces::globals::timers::instance as timers;
+        let cap = Instant::now() + Duration::from_secs(5);
+        while promise_slot::current_state(&result) == promise_slot::STATE_PENDING {
+            crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+            timers::pump_due_macrotasks();
+            if promise_slot::current_state(&result) != promise_slot::STATE_PENDING {
+                break;
+            }
+            let now = Instant::now();
+            if now >= cap {
+                break;
+            }
+            if let Some(next) = timers::next_macrotask_deadline() {
+                let wake = next.min(cap);
+                if wake > now {
+                    std::thread::sleep((wake - now).min(Duration::from_millis(20)));
+                }
+            } else {
+                // Sem timers pendentes: pequena cedencia pra tasks tokio
+                // (Promise.resolve/all resolvidas por threads) settarem.
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+    result_handle
+}
+
+/// Driver do async generator: invoca a state-fn (avanca ate o proximo yield,
+/// await, ou done). Suspendeu em await => enfileira retomada (next_promise fica
+/// pendente). Alcancou yield/done => resolve a next_promise com {value,done}
+/// (ou rejeita se o corpo lancou).
+fn agen_step(h: u64) {
+    use crate::namespaces::gc::promise_slot;
+    let fn_ptr = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => g.fn_ptr,
+        _ => 0,
+    });
+    if fn_ptr == 0 {
+        return;
+    }
+    let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let rv = {
+        let _aw = crate::runtime::async_rt::AsyncWorkerGuard::enter();
+        state_fn(h)
+    };
+    let (done, pending, np) = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => {
+            (g.done, g.pending_await.clone(), g.next_promise.clone())
+        }
+        _ => (true, None, None),
+    });
+    if let Some(src) = pending {
+        crate::namespaces::globals::text_encoding::instance::enqueue_microtask_async_resume(h, src);
+        return;
+    }
+    if let Some(np) = np {
+        let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
+        if err != 0 {
+            crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+            promise_slot::reject(&np, err as i64);
+        } else {
+            let res = make_result(rv, done);
+            promise_slot::resolve(&np, res as i64);
+        }
+        with_entry_mut(h, |e| {
+            if let Some(Entry::GenState(g)) = e {
+                g.next_promise = None;
+            }
+        });
+    }
 }
 
 /// `__RTS_GEN_SM_ASYNC_START(h)` — aloca a promise-resultado pendente, guarda no
@@ -568,6 +742,13 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_START(h: u64) -> u64 {
 /// um AsyncResume sobre a awaited; se terminou (done), settla a result_promise.
 fn async_sm_step(h: u64) {
     use crate::namespaces::gc::promise_slot;
+    // (cross-runtime #392) async generator: driver proprio (resolve a Promise do
+    // .next() corrente a cada yield, nao apenas no done).
+    let is_agen = with_entry(h, |e| matches!(e, Some(Entry::GenState(g)) if g.is_async_gen));
+    if is_agen {
+        agen_step(h);
+        return;
+    }
     let fn_ptr = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.fn_ptr,
         _ => 0,

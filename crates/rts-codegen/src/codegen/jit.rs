@@ -197,6 +197,8 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_NEXT);
     add_fn!("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_DELEGATE_DONE);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_NEW", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_NEW);
+    add_fn!("__RTS_FN_NS_GC_AGEN_NEW", crate::namespaces::gc::generator::__RTS_FN_NS_GC_AGEN_NEW);
+    add_fn!("__RTS_FN_NS_GC_AGEN_NEXT", crate::namespaces::gc::generator::__RTS_FN_NS_GC_AGEN_NEXT);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_FGET", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_FGET);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_FSET", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_FSET);
     add_fn!("__RTS_FN_NS_GC_GEN_SM_STATE", crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_STATE);
@@ -1299,6 +1301,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROMISE_REJECT", pr::__RTS_FN_NS_PROMISE_REJECT);
         add_fn!("__RTS_FN_NS_PROMISE_STATE", pr::__RTS_FN_NS_PROMISE_STATE);
         add_fn!("__RTS_FN_NS_PROMISE_WAIT", pr::__RTS_FN_NS_PROMISE_WAIT);
+        add_fn!("__RTS_FN_NS_PROMISE_AWAIT_VALUE", pr::__RTS_FN_NS_PROMISE_AWAIT_VALUE);
         add_fn!("__RTS_FN_NS_PROMISE_TRY_VALUE", pr::__RTS_FN_NS_PROMISE_TRY_VALUE);
         add_fn!("__RTS_FN_NS_PROMISE_TAKE_ERROR", pr::__RTS_FN_NS_PROMISE_TAKE_ERROR);
         add_fn!("__RTS_FN_NS_PROMISE_THEN_NS", pr::__RTS_FN_NS_PROMISE_THEN_NS);
