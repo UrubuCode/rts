@@ -17,6 +17,22 @@ use super::emit_user_fn_addr;
 use crate::codegen::lower::compile::class::class_init_name;
 use super::lower_call;
 
+/// (cross-runtime #378) True if `class_name` is a user class whose `extends`
+/// chain reaches the builtin `Array`.
+pub(crate) fn class_extends_array(ctx: &FnCtx, class_name: &str) -> bool {
+    let mut cur = class_name.to_string();
+    let mut depth = 0;
+    while depth < 32 {
+        match ctx.classes.get(&cur).and_then(|m| m.super_class.clone()) {
+            Some(s) if s == "Array" => return true,
+            Some(s) => cur = s,
+            None => return false,
+        }
+        depth += 1;
+    }
+    false
+}
+
 pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Result<TypedVal> {
     // (#264) Peel TsAs/Paren etc para suportar `new (Animal as any)(...)`.
     let mut callee_expr: &Expr = new_expr.callee.as_ref();
@@ -621,6 +637,39 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         return Err(anyhow!(
             "classe abstract `{class_name}` nao pode ser instanciada via `new`"
         ));
+    }
+
+    // (cross-runtime #378) Array subclass (`class PowerArray extends Array`):
+    // the instance is backed by a Vec carrying the elements — `new
+    // PowerArray(1,2,3,4)` is `[1,2,3,4]`. Class identity for `pa.method()` /
+    // `pa instanceof PowerArray` comes from codegen's static type
+    // (local_class_ty), and a derived array (`pa.map(...)`) is a plain
+    // unregistered Vec, so Symbol.species naturally yields a plain Array.
+    // (Only the no-explicit-constructor case; args become the elements.)
+    if class_extends_array(ctx, &class_name) {
+        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(vec_new, &[]);
+        let vec_h = ctx.builder.inst_results(inst)[0];
+        let vec_push =
+            ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+        let user_args = new_expr.args.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
+        for a in user_args {
+            if a.spread.is_some() {
+                return Err(anyhow!("spread em `new` de subclasse de Array nao suportado"));
+            }
+            let tv = lower_expr(ctx, &a.expr)?;
+            let v = match tv.ty {
+                ValTy::Bool => ctx.coerce_to_handle(tv)?.val,
+                ValTy::F64 => ctx.builder.ins().bitcast(
+                    cl::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    tv.val,
+                ),
+                _ => ctx.coerce_to_i64(tv).val,
+            };
+            ctx.builder.ins().call(vec_push, &[vec_h, v]);
+        }
+        return Ok(TypedVal::new(vec_h, ValTy::Handle));
     }
 
     // Dual-path #147 passos 5-7: classes opt-in alocam via `gc.instance_*`

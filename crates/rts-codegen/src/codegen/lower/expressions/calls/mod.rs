@@ -1067,6 +1067,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             return Ok(tv);
                         }
                     }
+                    // (cross-runtime #378) Array-subclass instance: a method NOT
+                    // defined on the subclass (reduce/map/join/filter/...) routes
+                    // to the Array builtin on the backing Vec. Covers both
+                    // `this.reduce(...)` inside a method and `pa.map(...)`
+                    // externally.
+                    if self::new_expr::class_extends_array(ctx, &class_name)
+                        && resolve_method_owner(ctx, &class_name, &method_name).is_none()
+                    {
+                        let recv_tv = lower_expr(ctx, &m.obj)?;
+                        let recv = ctx.coerce_to_i64(recv_tv).val;
+                        if let Some(tv) = lower_array_builtin(ctx, &method_name, recv, call)? {
+                            return Ok(tv);
+                        }
+                    }
                     // Global class instance methods (e.g. Date.getFullYear())
                     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
                         // Overload por aridade: prefere o membro cujo numero de
