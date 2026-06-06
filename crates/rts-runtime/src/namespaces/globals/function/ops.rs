@@ -578,7 +578,25 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
     let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind) =
         match read_function_data(handle) {
             Some(d) => d,
-            None => return 0,
+            None => {
+                // (cross-runtime #344) `handle` is not a Function entry. If it is
+                // a VALID GC handle of some other kind (Map/Vec/...), it is not
+                // callable → 0. Otherwise it is a RAW func_addr (a fn-value passed
+                // through `any` and invoked via `.call`/`.apply` — e.g. a 0-arg or
+                // non-f64-param fn that isn't in FN_KINDS_REGISTRY). Invoke it
+                // directly, mirroring INVOKE_AUTO's raw-fn_ptr fallback. Without
+                // this, `f.call(null)` on such a param returned 0 instead of
+                // invoking f.
+                let is_valid_handle = with_entry(handle, |e| e.is_some());
+                if is_valid_handle {
+                    return 0;
+                }
+                let args = read_args_vec(args_handle);
+                crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
+                let r = unsafe { invoke_n(handle, &args) };
+                crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+                return r;
+            }
         };
 
     let mut all_args = bound_args;
