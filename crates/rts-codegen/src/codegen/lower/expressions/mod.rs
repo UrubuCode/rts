@@ -288,6 +288,22 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         }
         _ => {}
     }
+    // (#360) `globalThis` em posicao de VALOR -> handle do Map singleton. Assim
+    // `const g = globalThis; g.x = v` ou um param ligado a globalThis
+    // (`(function(_root){ _root._lib = ... })(globalThis)`) gravam/leem no mesmo
+    // Map que `globalThis.x`. (Leituras `globalThis.X` e `globalThis[k]` sao
+    // interceptadas antes, entao identidade de builtins nao eh afetada.)
+    if name == "globalThis" {
+        use cranelift_codegen::ir::InstBuilder;
+        let gt_fn = ctx.get_extern(
+            "__RTS_FN_RT_GLOBAL_THIS_MAP",
+            &[],
+            Some(cranelift_codegen::ir::types::I64),
+        )?;
+        let inst = ctx.builder.ins().call(gt_fn, &[]);
+        let h = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(h, ValTy::Handle));
+    }
     // (cross-runtime #304/#310) Global JS classes/namespaces (Promise, Date,
     // Error, console, etc.) referenciadas como valor — retorna handle
     // sentinel de string com o nome. Suficiente para `Promise.try.call(...)`,
@@ -441,22 +457,36 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
             }
             if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
                 if obj_id.sym.as_str() == "globalThis" {
-                    if let MemberProp::Computed(c) = &m.prop {
-                        use cranelift_codegen::ir::InstBuilder;
-                        use cranelift_codegen::ir::types as cl;
-                        let key_tv = lower_expr(ctx, &c.expr)?;
-                        let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                    use cranelift_codegen::ir::InstBuilder;
+                    use cranelift_codegen::ir::types as cl;
+                    // Chave: computed (`globalThis[k]`) ou ident (`globalThis.x`).
+                    // (#360) O ident-case faltava — `globalThis.foo = v` nao
+                    // persistia (read checa o Map singleton mas write nao
+                    // gravava nele) -> read devolvia 0.
+                    let key: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> =
+                        match &m.prop {
+                            MemberProp::Computed(c) => {
+                                let key_tv = lower_expr(ctx, &c.expr)?;
+                                let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                                let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                                let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                                let p_inst = ctx.builder.ins().call(str_ptr, &[key_h]);
+                                let kp = ctx.builder.inst_results(p_inst)[0];
+                                let l_inst = ctx.builder.ins().call(str_len, &[key_h]);
+                                let kl = ctx.builder.inst_results(l_inst)[0];
+                                Some((kp, kl))
+                            }
+                            MemberProp::Ident(prop) => {
+                                Some(ctx.emit_str_literal(prop.sym.as_bytes())?)
+                            }
+                            _ => None,
+                        };
+                    if let Some((kp, kl)) = key {
                         let val_tv = lower_expr(ctx, &a.right)?;
                         let val = ctx.coerce_to_i64(val_tv).val;
                         let gt_fn = ctx.get_extern("__RTS_FN_RT_GLOBAL_THIS_MAP", &[], Some(cl::I64))?;
                         let gt_inst = ctx.builder.ins().call(gt_fn, &[]);
                         let gt = ctx.builder.inst_results(gt_inst)[0];
-                        let str_ptr = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
-                        let str_len = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
-                        let p_inst = ctx.builder.ins().call(str_ptr, &[key_h]);
-                        let kp = ctx.builder.inst_results(p_inst)[0];
-                        let l_inst = ctx.builder.ins().call(str_len, &[key_h]);
-                        let kl = ctx.builder.inst_results(l_inst)[0];
                         let set_fn = ctx.get_extern(
                             "__RTS_FN_NS_COLLECTIONS_MAP_SET",
                             &[cl::I64, cl::I64, cl::I64, cl::I64],
