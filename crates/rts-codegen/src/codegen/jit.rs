@@ -625,6 +625,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_FUNCTION_NAME", __RTS_FN_GL_FUNCTION_NAME);
     add_fn!("__RTS_FN_GL_FUNCTION_LENGTH", __RTS_FN_GL_FUNCTION_LENGTH);
     add_fn!("__RTS_FN_GL_FUNCTION_TO_STRING", __RTS_FN_GL_FUNCTION_TO_STRING);
+    {
+        use crate::namespaces::globals::function::props::{
+            __RTS_FN_RT_FUNCTION_GET_PROP, __RTS_FN_RT_FUNCTION_SET_PROP,
+            __RTS_FN_RT_FUNCTION_TO_STRING_DYN,
+        };
+        add_fn!("__RTS_FN_RT_FUNCTION_SET_PROP", __RTS_FN_RT_FUNCTION_SET_PROP);
+        add_fn!("__RTS_FN_RT_FUNCTION_GET_PROP", __RTS_FN_RT_FUNCTION_GET_PROP);
+        add_fn!("__RTS_FN_RT_FUNCTION_TO_STRING_DYN", __RTS_FN_RT_FUNCTION_TO_STRING_DYN);
+    }
     add_fn!("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET", __RTS_FN_GL_FUNCTION_PROTOTYPE_GET);
     add_fn!("__RTS_FN_GL_FUNCTION_PROTOTYPE_SET", __RTS_FN_GL_FUNCTION_PROTOTYPE_SET);
     add_fn!("__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE", __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE);
@@ -696,8 +705,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC", __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC);
     }
     {
-        use crate::namespaces::gc::string_pool::__RTS_FN_RT_TYPEOF_HANDLE;
+        use crate::namespaces::gc::string_pool::{
+            __RTS_FN_RT_TYPEOF_HANDLE, __RTS_FN_RT_TYPEOF_MEMBER_FALLBACK,
+        };
         add_fn!("__RTS_FN_RT_TYPEOF_HANDLE", __RTS_FN_RT_TYPEOF_HANDLE);
+        add_fn!("__RTS_FN_RT_TYPEOF_MEMBER_FALLBACK", __RTS_FN_RT_TYPEOF_MEMBER_FALLBACK);
     }
     {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE;

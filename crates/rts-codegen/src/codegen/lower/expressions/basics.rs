@@ -460,6 +460,38 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
                 }
             }
         }
+        // (cross-runtime #359) `typeof obj[key]` with a computed string key
+        // (`obj["constructor"]` / `obj[_k]`): a key naming an Object.prototype
+        // method reports "function" even when absent as an own property.
+        // TYPEOF_MEMBER_FALLBACK applies that only when the access resolved to
+        // nothing, so `typeof arr[i]` and present keys keep correct typeof.
+        if let swc_ecma_ast::MemberProp::Computed(cp) = &m.prop {
+            if matches!(cp.expr.as_ref(), Expr::Ident(_) | Expr::Lit(Lit::Str(_))) {
+                use cranelift_codegen::ir::InstBuilder;
+                let val_tv = lower_expr(ctx, operand)?;
+                let v = ctx.coerce_to_i64(val_tv).val;
+                let key_tv = lower_expr(ctx, &cp.expr)?;
+                let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                let kp_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
+                let kl_fn = ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
+                let kp = {
+                    let i = ctx.builder.ins().call(kp_fn, &[key_h]);
+                    ctx.builder.inst_results(i)[0]
+                };
+                let kl = {
+                    let i = ctx.builder.ins().call(kl_fn, &[key_h]);
+                    ctx.builder.inst_results(i)[0]
+                };
+                let helper = ctx.get_extern(
+                    "__RTS_FN_RT_TYPEOF_MEMBER_FALLBACK",
+                    &[cl::I64, cl::I64, cl::I64],
+                    Some(cl::I64),
+                )?;
+                let inst = ctx.builder.ins().call(helper, &[v, kp, kl]);
+                let r = ctx.builder.inst_results(inst)[0];
+                return Ok(TypedVal::new(r, ValTy::Handle));
+            }
+        }
     }
     let tv = lower_expr(ctx, operand)?;
     // Handle pode ser string OU symbol/function/object/etc. Em vez de

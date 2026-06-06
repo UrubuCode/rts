@@ -620,6 +620,41 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
     alloc_entry(Entry::String(kind.as_bytes().to_vec()))
 }
 
+/// (cross-runtime #359) `typeof obj[key]` fallback. The codegen lowers the
+/// member access to `value`; when it resolves to nothing (absent own property —
+/// `0` / undefined / null / hole) AND `key` names a method that every object
+/// inherits from `Object.prototype`, JS reports `"function"`. Otherwise defers
+/// to the normal `TYPEOF_HANDLE(value)` so arrays / present keys keep correct
+/// results (`typeof arr[0]` -> "number").
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_TYPEOF_MEMBER_FALLBACK(
+    value: i64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> u64 {
+    let absent = value == 0
+        || value == i64::MIN + 2
+        || value == i64::MIN + 3
+        || value == i64::MIN + 4;
+    if absent && key_len > 0 && !key_ptr.is_null() {
+        let key = unsafe { std::slice::from_raw_parts(key_ptr, key_len as usize) };
+        let is_proto = matches!(
+            key,
+            b"constructor"
+                | b"toString"
+                | b"valueOf"
+                | b"hasOwnProperty"
+                | b"isPrototypeOf"
+                | b"propertyIsEnumerable"
+                | b"toLocaleString"
+        );
+        if is_proto {
+            return alloc_entry(Entry::String(b"function".to_vec()));
+        }
+    }
+    __RTS_FN_RT_TYPEOF_HANDLE(value as u64)
+}
+
 /// `<handle>.toString()` runtime dispatch baseado no tipo da Entry.
 /// Cobre casos que o codegen nao despacha estaticamente:
 /// - Entry::Symbol -> "Symbol(desc)" / "Symbol()"

@@ -467,6 +467,39 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     }
                 }
             }
+            // (cross-runtime #359) `(f as any).<prop> = value` where `f` is a
+            // user function — install a custom own-property on the function.
+            // Functions are objects in JS; RTS stores the prop in a name-keyed
+            // side-table that `f.toString()` consults. Only for bare user-fn
+            // idents (not typed vars / handles), to avoid hijacking ordinary
+            // object field assignment.
+            if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
+                let nm = obj_id.sym.as_str();
+                if ctx.user_fns.contains_key(nm) && ctx.var_ty(nm).is_none() {
+                    if let MemberProp::Ident(prop) = &m.prop {
+                        // `prototype`/`name`/`length` are real function own
+                        // properties with dedicated machinery (proto chains,
+                        // FUNCTION_PROTOTYPE_SET) — never hijack those.
+                        if matches!(prop.sym.as_str(), "prototype" | "name" | "length") {
+                            // fall through to the existing handling below
+                        } else {
+                        use cranelift_codegen::ir::types as cl;
+                        use cranelift_codegen::ir::InstBuilder;
+                        let (np, nl) = ctx.emit_str_literal(nm.as_bytes())?;
+                        let (pp, pl) = ctx.emit_str_literal(prop.sym.as_bytes())?;
+                        let val_tv = lower_expr(ctx, &a.right)?;
+                        let val = ctx.coerce_to_i64(val_tv).val;
+                        let set_fn = ctx.get_extern(
+                            "__RTS_FN_RT_FUNCTION_SET_PROP",
+                            &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+                            None,
+                        )?;
+                        ctx.builder.ins().call(set_fn, &[np, nl, pp, pl, val]);
+                        return Ok(TypedVal::new(val, ValTy::I64));
+                        }
+                    }
+                }
+            }
             if let Expr::Ident(obj_id) = peel(m.obj.as_ref()) {
                 if obj_id.sym.as_str() == "globalThis" {
                     use cranelift_codegen::ir::InstBuilder;

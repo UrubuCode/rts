@@ -1138,14 +1138,17 @@ pub(super) fn lower_function_method_call(
     // 3. Despacha por metodo.
     match method {
         "toString" => {
-            // Dispatch runtime — TO_STRING_HANDLE inspeciona Entry
-            // (Symbol/Function/String/Vec/Map) e formata corretamente.
-            let to_str_fn = ctx.get_extern(
-                "__RTS_FN_RT_TO_STRING_HANDLE",
-                &[cl::I64],
+            // (cross-runtime #359) Custom `toString` own-property override:
+            // FUNCTION_TO_STRING_DYN(name, fn_handle) invokes an installed
+            // override (set via `(f as any).toString = ...`) or falls back to
+            // the native TO_STRING_HANDLE formatting.
+            let (np, nl) = ctx.emit_str_literal(fn_name.as_bytes())?;
+            let dyn_fn = ctx.get_extern(
+                "__RTS_FN_RT_FUNCTION_TO_STRING_DYN",
+                &[cl::I64, cl::I64, cl::I64],
                 Some(cl::I64),
             )?;
-            let inst = ctx.builder.ins().call(to_str_fn, &[fn_handle]);
+            let inst = ctx.builder.ins().call(dyn_fn, &[np, nl, fn_handle]);
             let r = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(r, ValTy::Handle)))
         }

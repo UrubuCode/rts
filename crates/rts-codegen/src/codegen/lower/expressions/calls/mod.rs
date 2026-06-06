@@ -1099,6 +1099,35 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                 }
+                // (cross-runtime #359) `(<userFn> as any).call/apply/bind/toString(...)`
+                // — the `as any` cast makes m.obj a TsAs (not Ident), so without
+                // this it falls into the generic numeric/string method block
+                // below and mishandles the function (`.toString()` → garbage
+                // handle). Peel the cast and route bare user-fn idents to the
+                // dedicated function-method path, identical to uncast `f.toString()`.
+                if matches!(method_name.as_str(), "call" | "apply" | "bind" | "toString") {
+                    let mut oe: &Expr = m.obj.as_ref();
+                    loop {
+                        match oe {
+                            Expr::Paren(p) => oe = &p.expr,
+                            Expr::TsAs(a) => oe = &a.expr,
+                            Expr::TsTypeAssertion(a) => oe = &a.expr,
+                            Expr::TsConstAssertion(a) => oe = &a.expr,
+                            Expr::TsNonNull(n) => oe = &n.expr,
+                            _ => break,
+                        }
+                    }
+                    if let Expr::Ident(id) = oe {
+                        let nm = id.sym.as_str();
+                        if ctx.user_fns.contains_key(nm) && ctx.var_ty(nm).is_none() {
+                            if let Some(tv) =
+                                self::new_expr::lower_function_method_call(ctx, nm, &method_name, call)?
+                            {
+                                return Ok(tv);
+                            }
+                        }
+                    }
+                }
                 // Numeric/string instance methods on literal/computed expressions:
                 // (1000).toString(), (3.14).toFixed(2), "hi".toUpperCase().
                 // Only when obj is NOT a plain Ident (those are handled via qualified_member_name
