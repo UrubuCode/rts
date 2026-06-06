@@ -57,6 +57,12 @@ pub fn finish_cycle() {
     //   invalid return addresses simply miss the registry lookup and are skipped.
     unsafe { mark_stack_roots() };
 
+    // (cross-runtime #344/#393) Mark handles held only by pending microtasks
+    // (async/Promise callback closures, generator drives) — they live in the
+    // heap microtask queue, not on any scanned stack, so without this a GC tick
+    // during synchronous code sweeps live async state.
+    crate::namespaces::globals::text_encoding::instance::mark_microtask_roots();
+
     sweep_all_shards();
 }
 
