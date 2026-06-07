@@ -5,10 +5,16 @@ on:
     branches: ["main"]
     tags: ["v*"]
   pull_request:
+  schedule:
+    # Segunda 03:00 UTC — roda o build + cross-runtime semanalmente para pegar
+    # regressoes em deps (Bun/Node) sem depender de um push.
+    - cron: "0 3 * * 1"
   workflow_dispatch:
 
 permissions:
-  contents: write  # criar release em push para main
+  contents: write       # criar release em push para main + badge cross-runtime
+  issues: write         # cross-runtime: auto-create de issue em divergencia
+  pull-requests: write  # cross-runtime: comentar em PR
 
 jobs:
   version:
@@ -127,6 +133,18 @@ jobs:
           echo 'import { io } from "rts"; io.print("smoke ok");' > /tmp/smoke.ts
           target/release/rts compile /tmp/smoke.ts /tmp/smoke_bin
           /tmp/smoke_bin
+
+  # Reuses the Linux binary from `build` (no recompile). Runs as part of this
+  # workflow so it keeps the PR/push context its badge/issue/comment steps need.
+  cross-runtime:
+    needs: [version, build]
+    uses: ./.github/workflows/cross-runtime.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
 
   release:
     # So' cria release em push para main (nao em PRs nem dispatch).
