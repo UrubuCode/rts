@@ -11,6 +11,13 @@ edition = "2024"
 [lib]
 crate-type = ["rlib", "staticlib"]
 
+[features]
+# Habilita o backend ASIO (Windows, baixa latência) no namespace `asio_audio`.
+# Off por padrão: exige o ASIO SDK da Steinberg + LLVM/libclang no build, e o
+# código `asio_audio` só é compilado quando esta feature está ativa.
+# Ative com: cargo build --features rts-runtime/asio  (ou -p rts-runtime --features asio)
+asio = ["cpal/asio"]
+
 [dependencies]
 rts-abi = { path = "../rts-abi" }
 anyhow = "1.0"
@@ -42,3 +49,7 @@ ureq = { version = "2.12", default-features = true }
 slotmap = "1"
 rustc-hash = "1.1"
 time = { version = "0.3", features = ["local-offset"] }
+# audio namespace — low-level device I/O. Default backend is pure Rust
+# (WASAPI/CoreAudio/ALSA); no system libs to redistribute. ASIO is a separate
+# opt-in path (feature `asio`) and is NOT enabled by default.
+cpal = "0.18"

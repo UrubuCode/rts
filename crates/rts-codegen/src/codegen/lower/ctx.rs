@@ -572,6 +572,15 @@ pub struct FnCtx<'m, 'fb> {
     /// (elem_bytes, signed, is_float).
     pub local_ta_view: HashMap<String, (i64, i64, i64)>,
 
+    /// (audio/float-array) Vars de array normal (Vec) cujo tipo de ELEMENTO
+    /// escalar e' conhecido como F64 — registrado SOMENTE quando o init e' um
+    /// array literal comprovadamente todo-float (e.g. `[0.0, 1.5]`). Para esses,
+    /// `arr[i]` faz `bitcast i64->f64` na leitura e bits-f64 na escrita
+    /// (simetrico), espelhando `local_ta_view` com is_float. NUNCA registrado a
+    /// partir da anotacao `: number[]` sozinha (number cobre int e float; muitas
+    /// fixtures guardam inteiros logicos), evitando corromper arrays de inteiros.
+    pub local_array_elem_ty: HashMap<String, ValTy>,
+
     /// Counter para gerar nomes únicos de locals temporários em
     /// optional chain calls aninhadas (#481). Usado por
     /// `lower_opt_chain` quando o receiver é uma expressão complexa
@@ -662,6 +671,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             local_string_vars: std::collections::HashSet::new(),
             generator_vars: std::collections::HashSet::new(),
             local_ta_view: HashMap::new(),
+            local_array_elem_ty: HashMap::new(),
             local_nested_obj_field_types: HashMap::new(),
             opt_chain_temp_counter: 0,
             current_fn_name: String::new(),

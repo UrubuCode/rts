@@ -48,6 +48,19 @@ pub const MEMBERS: &[NamespaceMember] = &[
         pure: false,
     },
     NamespaceMember {
+        name: "write_bytes",
+        kind: MemberKind::Function,
+        symbol: "__RTS_FN_NS_FS_WRITE_BYTES",
+        args: &[AbiType::StrPtr, AbiType::U64, AbiType::I64],
+        returns: AbiType::I64,
+        doc: "Writes raw bytes from a buffer pointer to `path`, truncating. For \
+               binary data (audio/PCM); pair with buffer.ptr() + buffer.len(). \
+               Returns bytes written or -1.",
+        ts_signature: "write_bytes(path: string, bufPtr: number, len: number): number",
+        intrinsic: None,
+        pure: false,
+    },
+    NamespaceMember {
         name: "append",
         kind: MemberKind::Function,
         symbol: "__RTS_FN_NS_FS_APPEND",

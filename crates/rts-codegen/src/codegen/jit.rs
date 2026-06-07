@@ -904,6 +904,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_FS_READ_ALL", read::__RTS_FN_NS_FS_READ_ALL);
     add_fn!("__RTS_FN_NS_FS_READ_TEXT", read::__RTS_FN_NS_FS_READ_TEXT);
     add_fn!("__RTS_FN_NS_FS_WRITE", write::__RTS_FN_NS_FS_WRITE);
+    add_fn!(
+        "__RTS_FN_NS_FS_WRITE_BYTES",
+        write::__RTS_FN_NS_FS_WRITE_BYTES
+    );
     add_fn!("__RTS_FN_NS_FS_APPEND", write::__RTS_FN_NS_FS_APPEND);
     add_fn!("__RTS_FN_NS_FS_EXISTS", metadata::__RTS_FN_NS_FS_EXISTS);
     add_fn!("__RTS_FN_NS_FS_IS_FILE", metadata::__RTS_FN_NS_FS_IS_FILE);
@@ -2077,6 +2081,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         buf::__RTS_FN_NS_BUFFER_READ_F64
     );
     add_fn!(
+        "__RTS_FN_NS_BUFFER_READ_F32",
+        buf::__RTS_FN_NS_BUFFER_READ_F32
+    );
+    add_fn!(
         "__RTS_FN_NS_BUFFER_WRITE_U8",
         buf::__RTS_FN_NS_BUFFER_WRITE_U8
     );
@@ -2091,6 +2099,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!(
         "__RTS_FN_NS_BUFFER_WRITE_F64",
         buf::__RTS_FN_NS_BUFFER_WRITE_F64
+    );
+    add_fn!(
+        "__RTS_FN_NS_BUFFER_WRITE_F32",
+        buf::__RTS_FN_NS_BUFFER_WRITE_F32
     );
     add_fn!("__RTS_FN_NS_BUFFER_COPY", buf::__RTS_FN_NS_BUFFER_COPY);
     add_fn!("__RTS_FN_NS_BUFFER_FILL", buf::__RTS_FN_NS_BUFFER_FILL);
@@ -2517,6 +2529,102 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_BIGFLOAT_NEG", __RTS_FN_NS_BIGFLOAT_NEG);
     add_fn!("__RTS_FN_NS_BIGFLOAT_SQRT", __RTS_FN_NS_BIGFLOAT_SQRT);
     add_fn!("__RTS_FN_NS_BIGFLOAT_FREE", __RTS_FN_NS_BIGFLOAT_FREE);
+
+    // ── namespaces::audio ─────────────────────────────────────────────
+    {
+        use crate::namespaces::audio::ops as audio;
+        add_fn!(
+            "__RTS_FN_NS_AUDIO_DEFAULT_SAMPLE_RATE",
+            audio::__RTS_FN_NS_AUDIO_DEFAULT_SAMPLE_RATE
+        );
+        add_fn!(
+            "__RTS_FN_NS_AUDIO_DEFAULT_CHANNELS",
+            audio::__RTS_FN_NS_AUDIO_DEFAULT_CHANNELS
+        );
+        add_fn!(
+            "__RTS_FN_NS_AUDIO_OPEN_OUTPUT",
+            audio::__RTS_FN_NS_AUDIO_OPEN_OUTPUT
+        );
+        add_fn!(
+            "__RTS_FN_NS_AUDIO_SAMPLE_RATE",
+            audio::__RTS_FN_NS_AUDIO_SAMPLE_RATE
+        );
+        add_fn!("__RTS_FN_NS_AUDIO_CHANNELS", audio::__RTS_FN_NS_AUDIO_CHANNELS);
+        add_fn!("__RTS_FN_NS_AUDIO_IS_OPEN", audio::__RTS_FN_NS_AUDIO_IS_OPEN);
+        add_fn!(
+            "__RTS_FN_NS_AUDIO_AVAILABLE_FRAMES",
+            audio::__RTS_FN_NS_AUDIO_AVAILABLE_FRAMES
+        );
+        add_fn!(
+            "__RTS_FN_NS_AUDIO_QUEUED_FRAMES",
+            audio::__RTS_FN_NS_AUDIO_QUEUED_FRAMES
+        );
+        add_fn!("__RTS_FN_NS_AUDIO_WRITE", audio::__RTS_FN_NS_AUDIO_WRITE);
+        add_fn!(
+            "__RTS_FN_NS_AUDIO_MASTER_VOLUME",
+            audio::__RTS_FN_NS_AUDIO_MASTER_VOLUME
+        );
+        add_fn!("__RTS_FN_NS_AUDIO_UNDERRUNS", audio::__RTS_FN_NS_AUDIO_UNDERRUNS);
+        add_fn!("__RTS_FN_NS_AUDIO_CLOSE", audio::__RTS_FN_NS_AUDIO_CLOSE);
+    }
+
+    // ── namespaces::asio_audio (feature `asio`) ───────────────────────
+    #[cfg(feature = "asio")]
+    {
+        use crate::namespaces::asio_audio::ops as asio;
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_IS_AVAILABLE",
+            asio::__RTS_FN_NS_ASIO_AUDIO_IS_AVAILABLE
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_DEFAULT_SAMPLE_RATE",
+            asio::__RTS_FN_NS_ASIO_AUDIO_DEFAULT_SAMPLE_RATE
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_DEFAULT_CHANNELS",
+            asio::__RTS_FN_NS_ASIO_AUDIO_DEFAULT_CHANNELS
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_OPEN_OUTPUT",
+            asio::__RTS_FN_NS_ASIO_AUDIO_OPEN_OUTPUT
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_SAMPLE_RATE",
+            asio::__RTS_FN_NS_ASIO_AUDIO_SAMPLE_RATE
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_CHANNELS",
+            asio::__RTS_FN_NS_ASIO_AUDIO_CHANNELS
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_IS_OPEN",
+            asio::__RTS_FN_NS_ASIO_AUDIO_IS_OPEN
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_AVAILABLE_FRAMES",
+            asio::__RTS_FN_NS_ASIO_AUDIO_AVAILABLE_FRAMES
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_QUEUED_FRAMES",
+            asio::__RTS_FN_NS_ASIO_AUDIO_QUEUED_FRAMES
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_WRITE",
+            asio::__RTS_FN_NS_ASIO_AUDIO_WRITE
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_MASTER_VOLUME",
+            asio::__RTS_FN_NS_ASIO_AUDIO_MASTER_VOLUME
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_UNDERRUNS",
+            asio::__RTS_FN_NS_ASIO_AUDIO_UNDERRUNS
+        );
+        add_fn!(
+            "__RTS_FN_NS_ASIO_AUDIO_CLOSE",
+            asio::__RTS_FN_NS_ASIO_AUDIO_CLOSE
+        );
+    }
 
     // ── namespaces::ui ────────────────────────────────────────────────
     {

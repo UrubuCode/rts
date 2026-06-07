@@ -27,7 +27,52 @@ pub(crate) fn expr_is_frac_float_lit(e: &Expr) -> bool {
     }
 }
 
+/// (audio/float-array) `expr` eh um literal numerico ESCRITO como float (tem
+/// `.` ou expoente no source: `0.0`, `1.5`, `2e3`)? Diferente de
+/// `expr_is_frac_float_lit`, isto reconhece `0.0`/`3.0` (float-valued inteiros)
+/// como float — necessario para inferir que `[0.0, 1.0]` e' um array de floats
+/// mesmo quando os valores nao tem parte fracionaria. Usa o campo `raw` da SWC.
+pub(crate) fn expr_is_float_written_lit(e: &Expr) -> bool {
+    match e {
+        Expr::Lit(Lit::Num(n)) => n
+            .raw
+            .as_ref()
+            .map(|r| r.as_bytes().iter().any(|&b| b == b'.' || b == b'e' || b == b'E'))
+            .unwrap_or_else(|| n.value.fract() != 0.0),
+        Expr::Unary(u) if matches!(u.op, swc_ecma_ast::UnaryOp::Minus) => {
+            expr_is_float_written_lit(&u.arg)
+        }
+        Expr::Paren(p) => expr_is_float_written_lit(&p.expr),
+        _ => false,
+    }
+}
+
+/// (audio/float-array) Um array literal e' "todo-float" quando tem ao menos um
+/// elemento e TODOS os elementos sao literais numericos escritos como float
+/// (sem spread, sem holes, sem mistura com int/string/etc). Esses arrays sao
+/// registrados com elem-type F64 para leitura/escrita simetricas via bitcast.
+pub(crate) fn array_lit_is_all_float(arr: &swc_ecma_ast::ArrayLit) -> bool {
+    if arr.elems.is_empty() {
+        return false;
+    }
+    for elem in &arr.elems {
+        match elem {
+            Some(e) if e.spread.is_none() => {
+                if !expr_is_float_written_lit(&e.expr) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
 pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> Result<TypedVal> {
+    // (audio/float-array) Array literal todo-float: guarda BITS de f64 em TODOS
+    // os elementos (inclusive `0.0`/`3.0`, que nao sao fracionarios), pra que a
+    // leitura tipada (local_array_elem_ty==F64) bitcaste de volta sem perda.
+    let all_float = array_lit_is_all_float(arr);
     let new_fn = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
     let inst = ctx.builder.ins().call(new_fn, &[]);
     let handle = ctx.builder.inst_results(inst)[0];
@@ -102,10 +147,12 @@ pub(super) fn lower_array_lit(ctx: &mut FnCtx, arr: &swc_ecma_ast::ArrayLit) -> 
                     // i64::MIN + b: b=0 -> MIN (false), b=1 -> MIN+1 (true)
                     let min = ctx.builder.ins().iconst(cl::I64, i64::MIN);
                     ctx.builder.ins().iadd(min, b)
-                } else if matches!(tv.ty, ValTy::F64) && is_frac_lit {
+                } else if matches!(tv.ty, ValTy::F64) && (is_frac_lit || all_float) {
                     // (#1275) Float fracionario literal: armazena os BITS f64.
                     // Leitura (TPL_COERCE_VEC_SLOT/inspect_slot/join) reinterpreta
                     // via heuristica >2^53 -> from_bits. `[1.5,2.5]` -> 1.5,2.5.
+                    // (audio/float-array) Em array todo-float, bitcasta TODOS os
+                    // elementos f64 (inclusive `0.0`/`3.0`), pra leitura tipada.
                     ctx.builder.ins().bitcast(
                         cl::I64,
                         cranelift_codegen::ir::MemFlags::new(),
@@ -1775,6 +1822,23 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                     )?;
                     let inst = ctx.builder.ins().call(get_fn, &[obj_handle, idx]);
                     let v = ctx.builder.inst_results(inst)[0];
+                    // (audio/float-array) Se o array tem elem-type F64 conhecido
+                    // (init array literal todo-float), o slot guarda BITS de f64
+                    // — reinterpreta via bitcast e devolve F64 estatico (nao
+                    // ambiguo). Espelha o caminho local_ta_view com is_float.
+                    if let Expr::Ident(obj_id) = m.obj.as_ref() {
+                        if matches!(
+                            ctx.local_array_elem_ty.get(obj_id.sym.as_str()),
+                            Some(ValTy::F64)
+                        ) {
+                            let f = ctx.builder.ins().bitcast(
+                                cl::F64,
+                                cranelift_codegen::ir::MemFlags::new(),
+                                v,
+                            );
+                            return Ok(TypedVal::new(f, ValTy::F64));
+                        }
+                    }
                     // Slot pode ser i64 puro (number) ou handle (string/obj).
                     // Marca como ambiguo p/ `===` e operadores em geral
                     // (var_member_call_values), e como vec-slot p/ template

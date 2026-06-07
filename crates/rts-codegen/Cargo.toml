@@ -3,6 +3,10 @@ name = "rts-codegen"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Propaga o backend ASIO até o runtime. Ver crates/rts-runtime/Cargo.toml.
+asio = ["rts-runtime/asio"]
+
 [dependencies]
 rts-abi = { path = "../rts-abi" }
 rts-linker = { path = "../rts-linker" }

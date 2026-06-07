@@ -12,15 +12,19 @@ runs:
     - name: Install stable toolchain
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Install FLTK system deps (Linux)
+    - name: Install FLTK + audio (ALSA) system deps (Linux)
       if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
+        # FLTK (ui namespace) + ALSA (audio namespace, via cpal -> alsa-sys).
+        # alsa-sys precisa de libasound2-dev + pkg-config para localizar a lib;
+        # sem isso o build do rts-runtime quebra no Linux ao linkar o cpal.
         sudo apt-get install -y \
           libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev \
           libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev \
-          libglu1-mesa-dev libfontconfig1-dev libcairo2-dev jq
+          libglu1-mesa-dev libfontconfig1-dev libcairo2-dev jq \
+          libasound2-dev pkg-config
 
     - name: Cache cargo build
       uses: Swatinem/rust-cache@v2

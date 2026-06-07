@@ -26,6 +26,12 @@ crate-type = ["rlib"]
 name = "rts"
 path = "src/main.rs"
 
+[features]
+# Backend ASIO (Windows, baixa latência) no namespace `asio_audio`.
+# Build com: cargo build --release --features asio
+# Requer ASIO SDK da Steinberg + LLVM (LIBCLANG_PATH) + driver ASIO instalado.
+asio = ["rts-codegen/asio", "rts-runtime/asio"]
+
 [dependencies]
 rts-ast = { path = "crates/rts-ast" }
 rts-diagnostics = { path = "crates/rts-diagnostics" }

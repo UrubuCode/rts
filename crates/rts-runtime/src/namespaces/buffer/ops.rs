@@ -193,6 +193,37 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_F64(handle: u64, offset: i64, val: f6
     });
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_BUFFER_READ_F32(handle: u64, offset: i64) -> f64 {
+    with_buffer(handle, f64::NAN, |b| {
+        if offset < 0 {
+            return f64::NAN;
+        }
+        let start = offset as usize;
+        let end = start.saturating_add(4);
+        if end > b.len() {
+            return f64::NAN;
+        }
+        let bytes: [u8; 4] = b[start..end].try_into().unwrap();
+        f32::from_le_bytes(bytes) as f64
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_F32(handle: u64, offset: i64, val: f64) {
+    with_buffer_mut(handle, (), |b| {
+        if offset < 0 {
+            return;
+        }
+        let start = offset as usize;
+        let end = start.saturating_add(4);
+        if end > b.len() {
+            return;
+        }
+        b[start..end].copy_from_slice(&(val as f32).to_le_bytes());
+    });
+}
+
 // ── Bulk ops ─────────────────────────────────────────────────────────
 
 /// Copia `len` bytes de `src[src_off..]` para `dst[dst_off..]`.

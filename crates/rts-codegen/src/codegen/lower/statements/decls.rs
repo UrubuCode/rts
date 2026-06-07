@@ -142,6 +142,13 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             // array. Marca pra preferir lower_array_builtin.
             if let swc_ecma_ast::Expr::Array(arr_lit) = init_peeled {
                 ctx.local_array_vars.insert(name.clone());
+                // (audio/float-array) `const a = [0.0, 1.5]` todo-float → registra
+                // elem-type F64 pra leitura/escrita simetricas via bitcast. So'
+                // quando o literal e' comprovadamente todo escrito como float;
+                // arrays de int (`[1,2,3]`) e mistos seguem o caminho i64 atual.
+                if crate::codegen::lower::expressions::members::array_lit_is_all_float(arr_lit) {
+                    ctx.local_array_elem_ty.insert(name.clone(), ValTy::F64);
+                }
                 // (#341/elo-f64) `const ps = [new P(...), new P(...)]` sem
                 // anotacao `: P[]`. Infere a classe do elemento a partir dos
                 // `new ClassName()` do literal, para que o bind de for-of
