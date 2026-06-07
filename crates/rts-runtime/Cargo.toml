@@ -3,6 +3,14 @@ name = "rts-runtime"
 version = "0.1.0"
 edition = "2024"
 
+# rlib: linked into the `rts` bin for the JIT path.
+# staticlib: cargo bundles all deps + the __RTS_* extern "C" symbols into one
+#   archive (librts_runtime.a / rts_runtime.lib) that the AOT linker pulls in.
+#   This replaces the fragile hand-rolled rustc invocation in build.rs that
+#   could not reliably disambiguate duplicate dependency rlib variants on CI.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
 [dependencies]
 rts-abi = { path = "../rts-abi" }
 anyhow = "1.0"

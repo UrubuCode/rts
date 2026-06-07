@@ -13,7 +13,19 @@ pub(crate) static RUNTIME_ARCHIVE: &[u8] =
 ///
 /// This is a global user-level cache: all projects share the same file.
 /// Re-extraction only happens when `rts` itself is rebuilt with a new runtime.
+/// Marker written by `build.rs` when the rts-runtime staticlib was not available
+/// at compile time (must match the placeholder bytes there).
+const PLACEHOLDER_MAGIC: &[u8] = b"!<arch>\nRTS_PLACEHOLDER";
+
 pub(crate) fn ensure_artifacts() -> Result<PathBuf> {
+    if RUNTIME_ARCHIVE == PLACEHOLDER_MAGIC {
+        anyhow::bail!(
+            "runtime archive is a placeholder — it was not built when `rts` was \
+             compiled. AOT (`rts compile`) needs the full runtime staticlib. \
+             Build it with `cargo build -p rts-runtime` (matching the profile), \
+             then rebuild `rts`. JIT (`rts run`) does not require this."
+        );
+    }
     let path = artifacts_path()?;
 
     if let Some(parent) = path.parent() {

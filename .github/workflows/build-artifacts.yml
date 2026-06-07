@@ -59,7 +59,12 @@ jobs:
       - name: Build release
         env:
           RTS_BUILD_VERSION: ${{ needs.version.outputs.version }}
-        run: cargo build --release
+        # Two-step: Cargo only emits rts-runtime's `staticlib` output (the AOT
+        # runtime archive that build.rs embeds) when rts-runtime is a direct
+        # target, so build it first; then the `rts` build.rs picks it up.
+        run: |
+          cargo build --release -p rts-runtime
+          cargo build --release
 
       - name: Smoke test — rts run (JIT)
         run: target/release/rts run bench/pi_machin.ts
