@@ -5,6 +5,9 @@
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
 pub mod alloc;
+pub mod audio;
+#[cfg(feature = "asio")]
+pub mod asio_audio;
 pub mod globals;
 pub mod atomic;
 pub mod trace;

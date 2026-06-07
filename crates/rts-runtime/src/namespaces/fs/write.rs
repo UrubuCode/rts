@@ -34,6 +34,37 @@ pub extern "C" fn __RTS_FN_NS_FS_WRITE(
     }
 }
 
+/// Writes raw bytes from a buffer pointer to `path`, truncating existing
+/// contents. Unlike [`__RTS_FN_NS_FS_WRITE`] (which takes a TS string and stops
+/// at embedded NULs in practice), this takes a raw `(ptr, len)` region — ideal
+/// for binary data such as audio sample files (WAV/PCM). Pair with
+/// `buffer.ptr(handle)` + `buffer.len(handle)`.
+///
+/// Returns bytes written, or `-1` on error.
+///
+/// # Safety
+/// `data_ptr` must reference live memory of at least `data_len` bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FS_WRITE_BYTES(
+    path_ptr: *const u8,
+    path_len: i64,
+    data_ptr: u64,
+    data_len: i64,
+) -> i64 {
+    let Some(path) = (unsafe { path_from_abi(path_ptr, path_len) }) else {
+        return -1;
+    };
+    if data_ptr == 0 || data_len < 0 {
+        return -1;
+    }
+    // SAFETY: caller contract requires live data for `data_len` bytes.
+    let data = unsafe { std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    match std::fs::write(path, data) {
+        Ok(()) => data_len,
+        Err(_) => -1,
+    }
+}
+
 /// Appends `data` to the file at `path`, creating it if missing.
 /// Returns bytes written, or `-1` on error.
 ///
