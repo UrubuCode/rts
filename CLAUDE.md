@@ -438,12 +438,23 @@ use).
 
 ```bash
 cargo test --lib                                              # Rust unit tests
+cargo build --release -p rts-runtime                          # AOT runtime archive (see note)
 cargo build --release                                         # release build
 $env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts            # JIT
 $env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts out # AOT
 $env:RUST_BACKTRACE="full"; target/release/rts.exe test tests/foo.test.ts # TS suite
 target/release/rts.exe apis                                   # list APIs
 ```
+
+**AOT archive is a two-step build.** `rts-runtime` is `crate-type =
+["rlib","staticlib"]`; Cargo bundles all deps + every `__RTS_*` symbol into the
+staticlib that `build.rs` embeds for AOT linking. Cargo only emits that staticlib
+when `rts-runtime` is a *direct* target, so build it first (`cargo build
+-p rts-runtime`) before building `rts`. Skipping it does NOT break the build or
+JIT — `build.rs` embeds a placeholder and `rts run` works; only `rts compile`
+(AOT) errors with a "rebuild the runtime archive" message until the staticlib
+exists. The two-step replaced a fragile build.rs that hand-picked dependency
+rlibs and could not disambiguate duplicate variants on CI (serde_core/time).
 
 **Mandatory:** always set `RUST_BACKTRACE=full` before running `rts.exe`.
 Without it crashes show a shallow stack; the crash handler (`src/crash.rs`)
