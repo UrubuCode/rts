@@ -41,8 +41,7 @@ scan.
 
 ## GC — mark+sweep with Cranelift stack maps
 
-**Current state:** the `gc-arena = "0.5"` crate is declared in `Cargo.toml` but
-**not actually integrated**. The real system is precise mark+sweep using
+**Current state:** precise mark+sweep using
 Cranelift's `UserStackMap`, with a conservative scanner via `SuspendThread +
 GetThreadContext` to cover all RTS threads registered in `thread_registry`.
 Details:
@@ -57,10 +56,6 @@ Details:
   Win32 API). Do not use `gs:[0x10]` — in some contexts it returns StackBase <
   RSP, leaving the scanner marking nothing and the sweep collecting live handles
   (bug PR #400)
-
-**Real migration to gc-arena** (issue #393) would be a large refactor: all 25+
-`Entry` variants would need to derive `Collect`, with a `Mutation<'gc>` token
-crossing the JIT — incompatible with the current flat extern "C" ABI. Deferred.
 
 ## Runtime vs Compile
 

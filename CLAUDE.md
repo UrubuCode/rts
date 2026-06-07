@@ -305,15 +305,13 @@ opaque u64; Rust-rich types (Arc<T>, Channel, JoinHandle, JITModule) live in the
 shard map keyed by that id, or in GC handles with a lifetime guard.
 
 ### GC — mark+sweep with Cranelift stack maps
-`gc-arena` is declared in Cargo.toml but **not integrated**. Real system is
-precise mark+sweep using Cranelift `UserStackMap`, with conservative scan via
+GC is precise mark+sweep using Cranelift `UserStackMap`, with conservative scan via
 `SuspendThread + GetThreadContext` for all registered threads. Codegen calls
 `declare_value_needs_stack_map(val)`; `jit.rs` registers return-PCs in
 `stack_map_registry`. Every `GC_TICK_INTERVAL = 256` allocs, `finish_cycle()`
 runs `mark_stack_roots()` + `sweep_all_shards()`. `mark_stack_roots()` on Windows
 uses `GetCurrentThreadStackLimits` (Win32) — **not** `gs:[0x10]` (TIB.StackBase
 sometimes < RSP → scanner marks nothing → live handles collected; bug PR #400).
-Real gc-arena migration (#393) is a large refactor, deferred.
 
 ### State
 No central state system — each namespace owns its own via `Arc<Mutex<T>>`

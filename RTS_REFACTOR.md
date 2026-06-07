@@ -164,7 +164,7 @@ Mais `inline` em fixed-point (max 4 iters) entre lower e
 - [x] **Narrow canonicalization integrada ao optimize()** — pass `narrow` agora roda como primeira etapa do pipeline padrão (commit `91517d9`) e é **idempotente** (commit `ee4a539`) — chamadas em fixed-point não acumulam masks. Permite uso com inline.
 - [x] **SIMD V128 minimo** — `HirType::V128(VecKind)` (I8x16/I16x8/I32x4/I64x2/F32x4/F64x2) + `Inst::VSplat`/`VExtractLane`/`VInsertLane`/`VAdd`/`VSub`/`VMul` baixados direto pra ops vetoriais nativas Cranelift (commit `4846f93`). Falta exposicao TS-side (builtin `rts:simd`) — follow-up.
 - [x] **ValTy I8/I16/U8/U16 + i8/i16/u8/u16 first-class TS** — variantes ValTy adicionadas (`ee4a539`), `from_annotation` reconhece, `mir_param_compatible` rota narrow pelo MIR, `hir_to_cl` mapeia narrow→I64 evitando UB em shifts, novo pass `narrow_return` insere sign-extend no boundary signed (commit `ffa3af2`). Validado end-to-end: `addI8(127,1) = -128`, `addU8(200,100) = 44`, `mulI16(32767,2) = -2`.
-- [~] **Escape analysis**: **won't-fix no design atual**. Handles RTS são u64 opacos via `HandleTable` global (slab shard-aware). "Escape" é por construção: qualquer alocação já entra na tabela global, e StackAlloc não substitui esse backend sem reescrever a ABI extern "C" + 25+ variantes de `Entry`. Ganho real só viria com migração para gc-arena (issue #393, adiada por incompatibilidade com `extern "C"` plano). Reabrir quando/se a migração acontecer.
+- [~] **Escape analysis**: **won't-fix no design atual**. Handles RTS são u64 opacos via `HandleTable` global (slab shard-aware). "Escape" é por construção: qualquer alocação já entra na tabela global, e StackAlloc não substitui esse backend sem reescrever a ABI extern "C" + 25+ variantes de `Entry`.
 
 ---
 

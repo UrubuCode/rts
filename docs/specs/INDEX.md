@@ -101,13 +101,6 @@ historica; nao os tome como guia para novo codigo.
 
 Itens acompanhados em `RTS_REFACTOR.md`:
 
-- **gc-arena ainda nao integrado** — issue #393. Apesar do
-  `gc-arena = "0.5"` no Cargo.toml e referencias em comentarios, a
-  `HandleTable` atual e' slotmap+Mutex sharded com mark+sweep proprio
-  via stack maps Cranelift. `collect_debt`/`finish_cycle` redirecionam
-  para esse mark+sweep, nao para gc-arena. Migracao real exige refator
-  grande (todas as 25+ variantes de `Entry` precisam derivar `Collect`
-  + `Mutation<'gc>` token cruzando JIT, incompativel com ABI atual).
 - Semantica de modulos top-level.
 - Pipeline sem stubs de funcao.
 - Link fallback multi-objeto.
