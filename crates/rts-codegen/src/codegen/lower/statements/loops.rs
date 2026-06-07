@@ -349,6 +349,35 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         }
     }
 
+    // (bug #2) for-of over a class-field array (`for (const it of this.items)`
+    // where `items: CartItem[]`): infer the element class from the field's
+    // declared type and give the bind that class. Without it the bind is
+    // untyped, so `it.method()` mis-dispatches on a corrupted receiver → trap
+    // (ud2). Only the Ident (local var) case was handled above.
+    if let swc_ecma_ast::Expr::Member(m) = for_of.right.as_ref() {
+        if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
+            let recv_class: Option<String> = match m.obj.as_ref() {
+                swc_ecma_ast::Expr::This(_) => ctx.current_class.clone(),
+                swc_ecma_ast::Expr::Ident(oid) => ctx
+                    .local_class_ty
+                    .get(oid.sym.as_str())
+                    .cloned()
+                    .or_else(|| ctx.global_class_ty.get(oid.sym.as_str()).cloned()),
+                _ => None,
+            };
+            if let Some(rc) = recv_class {
+                if let Some(meta) = ctx.classes.get(&rc) {
+                    if let Some(ann) = meta.field_class_names.get(prop.sym.as_str()) {
+                        let elem = ann.trim().strip_suffix("[]").unwrap_or(ann.trim());
+                        if ctx.classes.contains_key(elem) {
+                            ctx.local_class_ty.insert(bind_name.clone(), elem.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let counter_name = format!("__rts_for_of_i_{:p}", &for_of.span);
     ctx.declare_local(&counter_name, ValTy::I64, zero);
 

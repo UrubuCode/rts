@@ -1443,6 +1443,18 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         lower_bin(ctx, &bin)?
     };
 
+    // (bug #3 reassign) `ValTy::Handle` is overloaded for STRING and CLASS
+    // INSTANCE. When the target is a known class instance, the rhs i64 already
+    // IS the instance handle — store it RAW. Routing it through the string
+    // coercion below (TPL_COERCE_AUTO / coerce_to_handle, taken because a
+    // method result like `a = a.add(x)` is an ambiguous i64 and the var is
+    // Handle) mangles the handle, so the fields read back zeroed (n=0/s=null).
+    // The `let b = a.add(x)` (new-decl) path stores raw and was unaffected.
+    if ctx.local_class_ty.contains_key(&name) {
+        ctx.write_local(&name, rhs_val.val)?;
+        return Ok(rhs_val);
+    }
+
     let coerced = match ctx.var_ty(&name) {
         Some(ValTy::I32) => ctx.coerce_to_i32(rhs_val),
         Some(ValTy::I64) => ctx.coerce_to_i64(rhs_val),

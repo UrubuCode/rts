@@ -3,6 +3,15 @@ name = "rts-runtime"
 version = "0.1.0"
 edition = "2024"
 
+# (#runtime-dedup) Also emit a staticlib so the AOT runtime archive is produced
+# by cargo with a single, consistent dependency resolution. The previous manual
+# `rustc --extern` archive build (in the root build.rs) could not unify the
+# serde / serde_json / json5 ecosystem (many duplicate rlib variants in deps/),
+# and drifted ~360 symbols behind because it compiled a stale `src/namespaces`
+# copy. build.rs now just locates this cargo-built artifact.
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [dependencies]
 rts-abi = { path = "../rts-abi" }
 anyhow = "1.0"
