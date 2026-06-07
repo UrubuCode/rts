@@ -412,7 +412,7 @@ pub fn mark_microtask_roots() {
         |s: &std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>| {
             mark_handle(promise_slot::current_value(s) as u64);
         };
-    let mut mark_task = |t: &Microtask| {
+    let mark_task = |t: &Microtask| {
             match t {
                 Microtask::Bare(fp) => mark_handle(*fp),
                 Microtask::SettledThen { fn_ptr, bound, value, result_slot, .. } => {

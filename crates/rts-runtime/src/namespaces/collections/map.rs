@@ -1626,13 +1626,6 @@ pub(crate) fn mark_non_enumerable(handle: u64, key: &str) {
         .insert((handle, key.to_string()));
 }
 
-pub(crate) fn unmark_non_enumerable(handle: u64, key: &str) {
-    non_enumerable_set()
-        .lock()
-        .unwrap()
-        .remove(&(handle, key.to_string()));
-}
-
 /// (#208) `Object.defineProperty(obj, key, descriptor)`.
 /// Suporta `{ value: x }` e `{ enumerable: false }`. Demais
 /// (get/set/writable/configurable) caem em PR separada.
