@@ -2787,6 +2787,7 @@ dependencies = [
  "rayon",
  "regex",
  "rts-abi",
+ "rts-macro",
  "rustc-hash 1.1.0",
  "rustls",
  "serde",

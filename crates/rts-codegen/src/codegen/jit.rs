@@ -1247,7 +1247,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::hint ──────────────────────────────────────────────
     {
-        use crate::namespaces::hint::ops as ht;
+        use crate::namespaces::hint as ht;
         add_fn!("__RTS_FN_NS_HINT_SPIN_LOOP", ht::__RTS_FN_NS_HINT_SPIN_LOOP);
         add_fn!(
             "__RTS_FN_NS_HINT_BLACK_BOX_I64",
