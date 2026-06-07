@@ -1209,6 +1209,28 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                         || matches!(key_tv.ty, ValTy::I32);
                     if is_clear_num {
                         let idx = ctx.coerce_to_i64(key_tv).val;
+                        // (audio/float-array) Array com elem-type F64 conhecido:
+                        // armazena os BITS de f64 (simetrico com a leitura, que
+                        // bitcasta de volta). Sem isso `a[i] = floatVar` guardaria
+                        // fcvt-truncado e a leitura bitcast veria lixo.
+                        let store_val = if matches!(m.obj.as_ref(), Expr::Ident(id)
+                            if matches!(ctx.local_array_elem_ty.get(id.sym.as_str()), Some(ValTy::F64)))
+                        {
+                            if rhs_i64_is_f64_bits {
+                                // ja' carrega bits de f64 (literal float ou destino f64)
+                                rhs_i64
+                            } else {
+                                // RHS inteiro/ambiguo: converte pra f64 e guarda bits
+                                let f = to_f64(ctx, TypedVal::new(rhs_i64, ValTy::I64));
+                                ctx.builder.ins().bitcast(
+                                    cranelift_codegen::ir::types::I64,
+                                    cranelift_codegen::ir::MemFlags::new(),
+                                    f,
+                                )
+                            }
+                        } else {
+                            rhs_i64
+                        };
                         let vec_set = ctx.get_extern(
                             "__RTS_FN_NS_COLLECTIONS_VEC_SET",
                             &[
@@ -1218,7 +1240,7 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                             ],
                             None,
                         )?;
-                        ctx.builder.ins().call(vec_set, &[obj_h, idx, rhs_i64]);
+                        ctx.builder.ins().call(vec_set, &[obj_h, idx, store_val]);
                     } else {
                         // (#753) Symbol/handle key -> OBJ_SET dispatcher
                         // (Vec/Map em runtime + repr canonica de Symbol).
