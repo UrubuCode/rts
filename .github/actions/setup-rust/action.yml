@@ -24,3 +24,12 @@ runs:
 
     - name: Cache cargo build
       uses: Swatinem/rust-cache@v2
+      with:
+        # Share ONE cache across every job/workflow on the same OS (the default
+        # keys per job, fragmenting the cache). One job warms it, the rest reuse.
+        shared-key: rts-${{ runner.os }}
+        # Only `main` writes the canonical cache; PRs restore it read-only.
+        # GitHub scopes caches by branch — a PR can read the base/default branch
+        # cache but not another PR's, so keeping main warm is what lets every PR
+        # skip recompiling the heavy deps (cranelift, swc, actix, fltk).
+        save-if: ${{ github.ref == 'refs/heads/main' }}
