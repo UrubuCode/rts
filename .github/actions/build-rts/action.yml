@@ -13,7 +13,12 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Build rts-runtime staticlib + rts
+    # On Windows we MUST NOT use git-bash: it puts `C:\Program Files\Git\usr\bin`
+    # ahead on PATH, so rustc picks up MSYS `link.exe` instead of the MSVC linker
+    # and the build script fails to link. pwsh keeps the MSVC env (msvc-dev-cmd)
+    # intact.
+    - name: Build (Unix)
+      if: runner.os != 'Windows'
       shell: bash
       run: |
         if [ "${{ inputs.profile }}" = "release" ]; then
@@ -23,3 +28,19 @@ runs:
           cargo build -p rts-runtime
           cargo build
         fi
+
+    - name: Build (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        if ('${{ inputs.profile }}' -eq 'release') {
+          cargo build --release -p rts-runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } else {
+          cargo build -p rts-runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
