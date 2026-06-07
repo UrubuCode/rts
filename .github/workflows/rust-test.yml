@@ -32,6 +32,14 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      # The AOT runtime archive embedded by build.rs is the rts-runtime staticlib
+      # crate-type, which cargo only emits when rts-runtime is built as a primary
+      # workspace member. A bare `cargo run -p rts` builds it as a dependency
+      # (rlib only), leaving the staticlib absent and failing build.rs. A
+      # whole-workspace `cargo build` produces it.
+      - name: Build workspace (produces rts-runtime staticlib)
+        run: cargo build
+
       - name: Run RTS test runner
         run: cargo run -- test
 
