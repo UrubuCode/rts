@@ -400,6 +400,30 @@
 }
 ,
 {
+  "name": "397_array_holes_mutation",
+  "status": "rts_diverge",
+  "bun": "seen=0=0,1=11,2=2\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false",
+  "node": "seen=0=0,1=11,2=2\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false",
+  "rts": "seen=0=0,1=11,2=2,3=undefined,4=undefined\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false"
+}
+,
+{
+  "name": "405_sort_comparator_weird_returns",
+  "status": "rts_diverge",
+  "bun": "1b,1d,2a,2c\n1,10,2,3",
+  "node": "1b,1d,2a,2c\n1,10,2,3",
+  "rts": "2a,1b,2c,1d\n1,2,3,10"
+}
+,
+{
+  "name": "418_array_species_subclass",
+  "status": "rts_error",
+  "bun": "true:false:2,4,6\ntrue:true:2,3",
+  "node": "true:false:2,4,6\ntrue:true:2,3",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
   "name": "45_array_iterators_deep",
   "status": "pass",
   "bun": "keys=0,1,2\nvalues=aa,bb,cc\nentries=0:aa,1:bb,2:cc\nfindLast=2\nfindLastIndex=3",
@@ -421,6 +445,150 @@
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "rts": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
+}
+,
+{
+  "name": "claude-at-fractional-and-negative",
+  "status": "rts_diverge",
+  "bun": "20\n50\n40\nundefined\nundefined\n10\n10\n30\n20",
+  "node": "20\n50\n40\nundefined\nundefined\n10\n10\n30\n20",
+  "rts": "20\n50\n40\nundefined\nundefined\n10\n10\nundefined\n20"
+}
+,
+{
+  "name": "claude-copywithin-negative-args",
+  "status": "pass",
+  "bun": "4,5,3,4,5\n4,2,3,4,5\n1,2,3,1,2\n1,2,3,3,4\n1,4,3,4,5\n0,1,0,1,2\n1,2,3,4,5",
+  "node": "4,5,3,4,5\n4,2,3,4,5\n1,2,3,1,2\n1,2,3,3,4\n1,4,3,4,5\n0,1,0,1,2\n1,2,3,4,5",
+  "rts": "4,5,3,4,5\n4,2,3,4,5\n1,2,3,1,2\n1,2,3,3,4\n1,4,3,4,5\n0,1,0,1,2\n1,2,3,4,5"
+}
+,
+{
+  "name": "claude-flat-deep-and-infinity",
+  "status": "rts_diverge",
+  "bun": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]",
+  "node": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]",
+  "rts": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,null,2,null,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]"
+}
+,
+{
+  "name": "claude-from-thisarg-and-mapfn",
+  "status": "rts_error",
+  "bun": "3,6,9\n0,1,4\na-b-c\n4\n5,7,9\n1,2,3",
+  "node": "3,6,9\n0,1,4\na-b-c\n4\n5,7,9\n1,2,3",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-holes-join-string-indexers",
+  "status": "rts_diverge",
+  "bun": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
+  "node": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
+  "rts": "1--3\n--2\n1,2,3\n,,\n3\ntrue\n3\n,"
+}
+,
+{
+  "name": "claude-holes-map-filter-foreach",
+  "status": "pass",
+  "bun": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5",
+  "node": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5",
+  "rts": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5"
+}
+,
+{
+  "name": "claude-indexof-nan-and-negzero",
+  "status": "rts_diverge",
+  "bun": "-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity",
+  "node": "-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity",
+  "rts": "-1\ntrue\n-1\n0\n0\ntrue\nfalse\nInfinity"
+}
+,
+{
+  "name": "claude-indexof-strict-no-coercion",
+  "status": "rts_diverge",
+  "bun": "0\n1\ntrue\n4\n6\n7\nfalse\nfalse",
+  "node": "0\n1\ntrue\n4\n6\n7\nfalse\nfalse",
+  "rts": "0\n1\ntrue\n0\n-1\n7\nfalse\nfalse"
+}
+,
+{
+  "name": "claude-reduce-no-init-edges",
+  "status": "rts_diverge",
+  "bun": "60\n|30|20|10\n42\n4\ntrue\n99",
+  "node": "60\n|30|20|10\n42\n4\ntrue\n99",
+  "rts": "60\n|30|20|10\n42\n-4e-323\n99"
+}
+,
+{
+  "name": "claude-sort-comparator-nan-returns",
+  "status": "rts_diverge",
+  "bun": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
+  "node": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
+  "rts": "4,2,6,1,3,5\n2,4,6,1,3,5\nc,a,b"
+}
+,
+{
+  "name": "claude-sort-numbers-lexicographic",
+  "status": "rts_diverge",
+  "bun": "1,10,100,13,2,21,3\n5,50,500,9,90\n-1,-10,-2,0,1\n1.125,1.25,1.5,11",
+  "node": "1,10,100,13,2,21,3\n5,50,500,9,90\n-1,-10,-2,0,1\n1.125,1.25,1.5,11",
+  "rts": "1,2,3,10,13,21,100\n5,9,50,90,500\n-10,-2,-1,0,1\n11,1.125,1.25,1.5"
+}
+,
+{
+  "name": "codex_array_concat_spreadable_edges",
+  "status": "rts_diverge",
+  "bun": "6\n1,2,a,b,3|4,z\ntrue",
+  "node": "6\n1,2,a,b,3|4,z\ntrue",
+  "rts": "7\n1,2,a,b,3,4,z\nfalse"
+}
+,
+{
+  "name": "codex_array_from_iterator_close_on_throw",
+  "status": "rts_diverge",
+  "bun": "stop\nnext0,next1,next2,return",
+  "node": "stop\nnext0,next1,next2,return",
+  "rts": ""
+}
+,
+{
+  "name": "codex_array_iterator_reused_result_object",
+  "status": "rts_diverge",
+  "bun": "0,1,2",
+  "node": "0,1,2",
+  "rts": "0"
+}
+,
+{
+  "name": "codex_array_length_define_traps",
+  "status": "rts_diverge",
+  "bun": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
+  "node": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
+  "rts": "after-define=4:1|2|3|4:0,1,2,3\nafter-trunc=2:1|2:0,1\nfinal=2:1|2"
+}
+,
+{
+  "name": "codex_array_methods_thisarg_mutation",
+  "status": "rts_error",
+  "bun": "3,6,9,120\n1,2,3,40,99\n1,2,3",
+  "node": "3,6,9,120\n1,2,3,40,99\n1,2,3",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_array_reduce_mutation_window",
+  "status": "rts_diverge",
+  "bun": "sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2",
+  "node": "sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2",
+  "rts": "sum=-6e-323\nseen=0:1,1:undefined,2:3,3:4\nkeys=0,1,2"
+}
+,
+{
+  "name": "codex_sparse_array_spread_vs_from",
+  "status": "rts_diverge",
+  "bun": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
+  "node": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
+  "rts": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n0,1,2"
 }
 ,
 {
@@ -456,6 +624,22 @@
 }
 ,
 {
+  "name": "codex_bigint_asuintn_edges",
+  "status": "rts_diverge",
+  "bun": "255\n-1\n0\n7\nffffffffffffffff",
+  "node": "255\n-1\n0\n7\nffffffffffffffff",
+  "rts": "255\n-1\n0\n7\n7fffffffffffffff"
+}
+,
+{
+  "name": "codex_bigint_typedarray_clamp_wrap",
+  "status": "rts_diverge",
+  "bun": "-1,-9223372036854775808,9223372036854775807\n18446744073709551615,0,5",
+  "node": "-1,-9223372036854775808,9223372036854775807\n18446744073709551615,0,5",
+  "rts": "-1,9223372036854775807,false\n-1,9223372036854775807,5"
+}
+,
+{
   "name": "175_boolean_constructor",
   "status": "pass",
   "bun": "valueOf_true=true\nvalueOf_false=false\ntoString_true=true\ntoString_false=false\nbool_1=true\nbool_0=false\nbool_str=true\nbool_empty=false\nbool_null=false\nbool_undef=false",
@@ -469,6 +653,14 @@
   "bun": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
   "node": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true",
   "rts": "valueOf=true\nsame_type=true\nobj_type=true\nfalse=false\nprimitive=true\nsame=true"
+}
+,
+{
+  "name": "codex_primitive_wrappers_truthiness",
+  "status": "rts_diverge",
+  "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
+  "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
+  "rts": "truthy:number:number:281474976710657\ntruthy:number:number:281474976710658\ntruthy:number:number:281474976710660\n:562949953421364"
 }
 ,
 {
@@ -560,11 +752,27 @@
 }
 ,
 {
+  "name": "415_error_subclass_stack_name",
+  "status": "rts_diverge",
+  "bun": "MyError\ntop\ntrue\ntrue\ntrue",
+  "node": "MyError\ntop\ntrue\ntrue\ntrue",
+  "rts": "MyError\ntop\nfalse\ntrue\nfalse"
+}
+,
+{
   "name": "47_error_instanceof_deep",
   "status": "pass",
   "bun": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
   "node": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true",
   "rts": "name=TypeError\nmsg=bad\ncode=17\nis_custom=true\nis_type=true\nis_error=true"
+}
+,
+{
+  "name": "codex_aggregate_error_iterable_order",
+  "status": "pass",
+  "bun": "AggregateError:many\n3\na,plain,3",
+  "node": "AggregateError:many\n3\na,plain,3",
+  "rts": "AggregateError:many\n3\na,plain,3"
 }
 ,
 {
@@ -696,6 +904,46 @@
 }
 ,
 {
+  "name": "407_class_static_private_brand",
+  "status": "pass",
+  "bun": "C1/2\nC2/2\n2\ntrue:false",
+  "node": "C1/2\nC2/2\n2\ntrue:false",
+  "rts": "C1/2\nC2/2\n2\ntrue:false"
+}
+,
+{
+  "name": "codex_class_computed_private_static_order",
+  "status": "rts_error",
+  "bun": "5\n4:6\nkey:a|key:m|key:b|static-a|private-static|static-b",
+  "node": "5\n4:6\nkey:a|key:m|key:b|static-a|private-static|static-b",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_class_super_field_order",
+  "status": "rts_diverge",
+  "bun": "derived:derived-y\nbefore-super|base-field|base-ctor:base|derived-field|derived-y:derived|after-super:derived:derived-y",
+  "node": "derived:derived-y\nbefore-super|base-field|base-ctor:base|derived-field|derived-y:derived|after-super:derived:derived-y",
+  "rts": "base:derived-y\nderived-field|derived-y:derived|before-super|base-field|base-ctor:base|after-super:base:derived-y"
+}
+,
+{
+  "name": "codex_instanceof_custom_hasinstance",
+  "status": "pass",
+  "bun": "true\nfalse\nfalse",
+  "node": "true\nfalse\nfalse",
+  "rts": "true\nfalse\nfalse"
+}
+,
+{
+  "name": "codex_super_getter_setter_receiver",
+  "status": "rts_diverge",
+  "bun": "x:base-set:base-get\nx:base-set",
+  "node": "x:base-set:base-get\nx:base-set",
+  "rts": "281474976710677\nx:base-set"
+}
+,
+{
   "name": "166_weakmap_weakset",
   "status": "pass",
   "bun": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false",
@@ -776,6 +1024,14 @@
 }
 ,
 {
+  "name": "406_map_set_key_identity_edges",
+  "status": "rts_diverge",
+  "bun": "4\nnan2\nzero:zero\no1:o2\n4:true:true",
+  "node": "4\nnan2\nzero:zero\no1:o2\n4:true:true",
+  "rts": "2\nnan2\nzero:zero\nundefined:undefined\n4:true:true"
+}
+,
+{
   "name": "89_groupby",
   "status": "pass",
   "bun": "obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2",
@@ -789,6 +1045,38 @@
   "bun": "union=1,2,3,4\ninter=3\ndiff=1,2",
   "node": "union=1,2,3,4\ninter=3\ndiff=1,2",
   "rts": "union=1,2,3,4\ninter=3\ndiff=1,2"
+}
+,
+{
+  "name": "codex_map_iteration_mutation",
+  "status": "rts_diverge",
+  "bun": "a1,c3,d4,e5\na,c,d,e",
+  "node": "a1,c3,d4,e5\na,c,d,e",
+  "rts": "a1,b2,c3\na,c,d,e"
+}
+,
+{
+  "name": "codex_map_key_mutation_identity",
+  "status": "rts_diverge",
+  "bun": "old\nundefined\n2\n2,2",
+  "node": "old\nundefined\n2\n2,2",
+  "rts": "undefined\nundefined\n0"
+}
+,
+{
+  "name": "codex_set_iteration_mutation",
+  "status": "rts_diverge",
+  "bun": "1,3,4,5\n1,3,4,5",
+  "node": "1,3,4,5\n1,3,4,5",
+  "rts": "1,2,3\n1,3,4,5"
+}
+,
+{
+  "name": "codex_weakmap_invalid_keys",
+  "status": "rts_diverge",
+  "bun": "7:true\nwm:TypeError\nws:TypeError",
+  "node": "7:true\nwm:TypeError\nws:TypeError",
+  "rts": "7:true"
 }
 ,
 {
@@ -880,11 +1168,27 @@
 }
 ,
 {
+  "name": "414_date_overflow_utc",
+  "status": "rts_diverge",
+  "bun": "2021-02-02T02:02:02.000Z\n2021-1-2\nInvalid Date\ntrue",
+  "node": "2021-02-02T02:02:02.000Z\n2021-1-2\nInvalid Date\ntrue",
+  "rts": "2021-02-02T02:02:02.000Z\n2021-1-2\n[object Object]\nfalse"
+}
+,
+{
   "name": "43_date_setters_deep",
   "status": "pass",
   "bun": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
   "node": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
   "rts": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8"
+}
+,
+{
+  "name": "codex_date_utc_setter_overflow",
+  "status": "rts_diverge",
+  "bun": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z",
+  "node": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z",
+  "rts": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T00:00:00.000Z"
 }
 ,
 {
@@ -912,6 +1216,22 @@
 }
 ,
 {
+  "name": "codex_textdecoder_fatal_ignorebom",
+  "status": "rts_error",
+  "bun": "A\n65279\nTypeError",
+  "node": "A\n65279\nTypeError",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_textencoder_encodeinto_partial",
+  "status": "rts_error",
+  "bun": "3:5\n65,240,159,153,130\nA🙂",
+  "node": "3:5\n65,240,159,153,130\nA🙂",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
   "name": "285_queuemicrotask_order",
   "status": "pass",
   "bun": "order=sync|qm|then|timeout",
@@ -929,10 +1249,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -973,38 +1293,6 @@
   "bun": "ab=true:x\nto=true:TimeoutError",
   "node": "ab=true:x\nto=true:TimeoutError",
   "rts": "ab=true:x\nto=true:TimeoutError"
-}
-,
-{
-  "name": "1357_nested_fn_producer_consumer_ok",
-  "status": "pass",
-  "bun": "filled=20 final_queued=20 rounds=4",
-  "node": "filled=20 final_queued=20 rounds=4",
-  "rts": "filled=20 final_queued=20 rounds=4"
-}
-,
-{
-  "name": "1357_nested_fn_same_name",
-  "status": "rts_error",
-  "bun": "a=1\nb=2",
-  "node": "a=1\nb=2",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "1357_nested_fn_sibling_call",
-  "status": "rts_error",
-  "bun": "drained=8 remaining=0 iters=1",
-  "node": "drained=8 remaining=0 iters=1",
-  "rts": "__RUNTIME_ERROR__"
-}
-,
-{
-  "name": "1357b_closure_capture_let_loop",
-  "status": "rts_error",
-  "bun": "0,1,2\n0,1,2",
-  "node": "0,1,2\n0,1,2",
-  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1072,6 +1360,14 @@
 }
 ,
 {
+  "name": "411_function_arguments_aliasing",
+  "status": "bun_node_diverge",
+  "bun": "a:b\nY:X:a",
+  "node": "A:B\nY:X:a",
+  "rts": "a:b\nY:X:a"
+}
+,
+{
   "name": "41_closures_deep",
   "status": "pass",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
@@ -1085,6 +1381,158 @@
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=12"
+}
+,
+{
+  "name": "claude-ackermann-deep-recursion",
+  "status": "rts_diverge",
+  "bun": "1\n3\n9\n61",
+  "node": "1\n3\n9\n61",
+  "rts": "1\n2\n2\n2"
+}
+,
+{
+  "name": "claude-closure-capture-let-loop",
+  "status": "rts_error",
+  "bun": "0,1,2\n0,1,2",
+  "node": "0,1,2\n0,1,2",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-closure-mutates-captured",
+  "status": "pass",
+  "bun": "1\n2\n3\n1\n4",
+  "node": "1\n2\n3\n1\n4",
+  "rts": "1\n2\n3\n1\n4"
+}
+,
+{
+  "name": "claude-compose-reassigned-binding",
+  "status": "rts_error",
+  "bun": "12\n11\n3\n5",
+  "node": "12\n11\n3\n5",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-curry-chain",
+  "status": "pass",
+  "bun": "10\n100\n41",
+  "node": "10\n100\n41",
+  "rts": "10\n100\n41"
+}
+,
+{
+  "name": "claude-default-param-prev",
+  "status": "pass",
+  "bun": "6\n22\n111\n30\n3,4\n3,9",
+  "node": "6\n22\n111\n30\n3,4\n3,9",
+  "rts": "6\n22\n111\n30\n3,4\n3,9"
+}
+,
+{
+  "name": "claude-let-vs-var-loop-closures",
+  "status": "rts_diverge",
+  "bun": "0\n1\n2\n3\n3\n3",
+  "node": "0\n1\n2\n3\n3\n3",
+  "rts": "3\n3\n3\n3\n3\n3"
+}
+,
+{
+  "name": "claude-mutual-recursion",
+  "status": "pass",
+  "bun": "true\nfalse\nfalse\ntrue\ntrue\ntrue",
+  "node": "true\nfalse\nfalse\ntrue\ntrue\ntrue",
+  "rts": "true\nfalse\nfalse\ntrue\ntrue\ntrue"
+}
+,
+{
+  "name": "claude-nested-closure-multilevel",
+  "status": "pass",
+  "bun": "6\n60\n106\n108",
+  "node": "6\n60\n106\n108",
+  "rts": "6\n60\n106\n108"
+}
+,
+{
+  "name": "claude-nested-fn-producer-consumer-ok",
+  "status": "pass",
+  "bun": "filled=20 final_queued=20 rounds=4",
+  "node": "filled=20 final_queued=20 rounds=4",
+  "rts": "filled=20 final_queued=20 rounds=4"
+}
+,
+{
+  "name": "claude-nested-fn-same-name",
+  "status": "rts_error",
+  "bun": "a=1\nb=2",
+  "node": "a=1\nb=2",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-nested-fn-sibling-call",
+  "status": "rts_error",
+  "bun": "drained=8 remaining=0 iters=1",
+  "node": "drained=8 remaining=0 iters=1",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-nested-loop-let-closures",
+  "status": "rts_diverge",
+  "bun": "0 1 10 11 20 21",
+  "node": "0 1 10 11 20 21",
+  "rts": ""
+}
+,
+{
+  "name": "claude-per-iter-let-mutable-state",
+  "status": "rts_diverge",
+  "bun": "1\n2\n2\n3\n6",
+  "node": "1\n2\n2\n3\n6",
+  "rts": "4\n8\n4\n4\n8"
+}
+,
+{
+  "name": "claude-shared-closure-var",
+  "status": "pass",
+  "bun": "10\n20\n0\n99\n119",
+  "node": "10\n20\n0\n99\n119",
+  "rts": "10\n20\n0\n99\n119"
+}
+,
+{
+  "name": "claude-var-and-fn-hoisting",
+  "status": "rts_diverge",
+  "bun": "undefined\n5\nfunction\n42\n42",
+  "node": "undefined\n5\nfunction\n42\n42",
+  "rts": ""
+}
+,
+{
+  "name": "codex_bound_constructor_new_target",
+  "status": "rts_error",
+  "bun": "2:5:7\ntrue\ntrue",
+  "node": "2:5:7\ntrue\ntrue",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_closure_eval_mutates_outer",
+  "status": "rts_error",
+  "bun": "3\n5\n5",
+  "node": "3\n5\n5",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_function_constructor_scope",
+  "status": "rts_error",
+  "bun": "missing\n5",
+  "node": "missing\n5",
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1160,6 +1608,46 @@
 }
 ,
 {
+  "name": "codex_async_generator_yield_await_finally",
+  "status": "rts_diverge",
+  "bun": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
+  "node": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
+  "rts": "{\"value\":\"a\",\"done\":false}\nnull\n{\"value\":\"ret\",\"done\":true}"
+}
+,
+{
+  "name": "codex_generator_delegation_exception_path",
+  "status": "rts_error",
+  "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
+  "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_generator_finally_return",
+  "status": "pass",
+  "bun": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}",
+  "node": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}",
+  "rts": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}"
+}
+,
+{
+  "name": "codex_generator_throw_recovery",
+  "status": "pass",
+  "bun": "{\"value\":\"start\",\"done\":false}\n{\"value\":\"caught:boom\",\"done\":false}\n{\"value\":\"done\",\"done\":true}",
+  "node": "{\"value\":\"start\",\"done\":false}\n{\"value\":\"caught:boom\",\"done\":false}\n{\"value\":\"done\",\"done\":true}",
+  "rts": "{\"value\":\"start\",\"done\":false}\n{\"value\":\"caught:boom\",\"done\":false}\n{\"value\":\"done\",\"done\":true}"
+}
+,
+{
+  "name": "codex_yield_star_iterator_return_chain",
+  "status": "rts_diverge",
+  "bun": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
+  "node": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
+  "rts": "{\"done\":true}\n{\"value\":\"bye\",\"done\":true}\nouter-after:undefined"
+}
+,
+{
   "name": "59_intl_basics",
   "status": "pass",
   "bun": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
@@ -1205,6 +1693,22 @@
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "rts": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c"
+}
+,
+{
+  "name": "409_for_of_iterator_close",
+  "status": "rts_diverge",
+  "bun": "3\nnext0,next1,next2,return",
+  "node": "3\nnext0,next1,next2,return",
+  "rts": "0"
+}
+,
+{
+  "name": "codex_async_iterator_break_close",
+  "status": "rts_diverge",
+  "bun": "1\nnext0,next1,return-start,return-end",
+  "node": "1\nnext0,next1,return-start,return-end",
+  "rts": "0"
 }
 ,
 {
@@ -1272,11 +1776,43 @@
 }
 ,
 {
+  "name": "403_json_replacer_array_order",
+  "status": "rts_diverge",
+  "bun": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}",
+  "node": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}",
+  "rts": "{\"c\":3,\"a\":1,\"a\":1}\n[{\"c\":3,\"a\":1,\"a\":1},{\"c\":5,\"a\":4,\"a\":4}]\n{\"01\":\"zero-one\",\"a\":\"aye\"}"
+}
+,
+{
   "name": "50_json_deep",
   "status": "pass",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"
+}
+,
+{
+  "name": "codex_json_parse_reviver_delete_root",
+  "status": "pass",
+  "bun": "{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object",
+  "node": "{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object",
+  "rts": "{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object"
+}
+,
+{
+  "name": "codex_json_stringify_propertylist_objects",
+  "status": "rts_diverge",
+  "bun": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
+  "node": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
+  "rts": "{\"a\":\"A\"}\n[{\"a\":1}]"
+}
+,
+{
+  "name": "codex_json_tojson_replacer_interaction",
+  "status": "rts_diverge",
+  "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
+  "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94740974039867}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -1560,6 +2096,14 @@
 }
 ,
 {
+  "name": "codex_structuredclone_transfer_detach",
+  "status": "rts_diverge",
+  "bun": "0\n4\n1,2,3,4",
+  "node": "0\n4\n1,2,3,4",
+  "rts": "4\n0\n1,2,3,4"
+}
+,
+{
   "name": "07_number_methods",
   "status": "pass",
   "bun": "MAX_SAFE=9007199254740991\nMIN_SAFE=-9007199254740991\nisNaN(NaN)=true\nisNaN(0)=false\nisFinite(0)=true\nisFinite(Inf)=false\nisInteger(0.5)=false\nisInteger(42)=true\nisSafeInteger(42)=true\nparseInt(42)=42\nparseInt(42abc)=42\nparseInt(0xff)=255\nparseInt(10,2)=2\n(3.14).toFixed(1)=3.1\n(0.1+0.2).toFixed(1)=0.3\n1/0=Infinity\n-1/0=-Infinity\n0/0=NaN",
@@ -1581,22 +2125,6 @@
   "bun": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
   "node": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
   "rts": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false"
-}
-,
-{
-  "name": "1357c_plus_null_undefined_coercion",
-  "status": "rts_diverge",
-  "bun": "NaN\n1\nNaN\n0\nNaN\n2\n0",
-  "node": "NaN\n1\nNaN\n0\nNaN\n2\n0",
-  "rts": "1nullundefined\n1null\nnull\nnullnull\nnull\n2\nfalsenull"
-}
-,
-{
-  "name": "1357d_integer_precision_above_safe",
-  "status": "rts_diverge",
-  "bun": "9007199254740992\n9007199254740992\n9007199254740992\n0.30000000000000004\nfalse",
-  "node": "9007199254740992\n9007199254740992\n9007199254740992\n0.30000000000000004\nfalse",
-  "rts": "9007199254740992\n9007199254740993\n9007199254740992\n0.30000000000000004\nfalse"
 }
 ,
 {
@@ -1704,6 +2232,14 @@
 }
 ,
 {
+  "name": "413_number_toString_rounding_boundaries",
+  "status": "rts_diverge",
+  "bun": "1e+21\n100000000000000000000\n1e-7\n0.000001\n1000000000000000100\n0.0000012345\n1.00\n12345.7",
+  "node": "1e+21\n100000000000000000000\n1e-7\n0.000001\n1000000000000000100\n0.0000012345\n1.00\n12345.7",
+  "rts": "9223372036854775807\n9223372036854775807\n1e-7\n0.000001\n7.832953389245899e-242\n0.0000012345\n1.00\n12345.7"
+}
+,
+{
   "name": "44_bitwise_unsigned",
   "status": "pass",
   "bun": "ushr_a=4\nushr_b=4294967295\nushr_c=2147483644\nushr_d=1",
@@ -1733,6 +2269,230 @@
   "bun": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
   "node": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
   "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2"
+}
+,
+{
+  "name": "claude-arith-operators-tonumber-strings",
+  "status": "rts_diverge",
+  "bun": "5\n20\n2.5\n2\n10\nNaN\n102\n102\n3\n3\nNaN\n10",
+  "node": "5\n20\n2.5\n2\n10\nNaN\n102\n102\n3\n3\nNaN\n10",
+  "rts": "5\n20\n2.5\n2\n10\nNaN\n102\n102\n3\nNaN\n9223372036854776000\n10"
+}
+,
+{
+  "name": "claude-array-loose-equality",
+  "status": "rts_diverge",
+  "bun": "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue",
+  "node": "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue",
+  "rts": "true\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue"
+}
+,
+{
+  "name": "claude-array-object-in-plus",
+  "status": "pass",
+  "bun": "\n[object Object]\n12\n1,23,4\n1\n12\n1\n31\nx\nx[object Object]",
+  "node": "\n[object Object]\n12\n1,23,4\n1\n12\n1\n31\nx\nx[object Object]",
+  "rts": "\n[object Object]\n12\n1,23,4\n1\n12\n1\n31\nx\nx[object Object]"
+}
+,
+{
+  "name": "claude-bitwise-to-int32",
+  "status": "rts_diverge",
+  "bun": "-1\n-1\n-6\n-2147483648\n0\n1\n4294967295\n3\n-3\n0\n0\n-2147483648\n-1\n0\n2147483647",
+  "node": "-1\n-1\n-6\n-2147483648\n0\n1\n4294967295\n3\n-3\n0\n0\n-2147483648\n-1\n0\n2147483647",
+  "rts": "-1\n-1\n-6\n2147483648\n4294967296\n4294967297\n4294967295\n3\n-3\n0\n9223372036854775807\n2147483648\n4294967295\n0\n-2147483649"
+}
+,
+{
+  "name": "claude-boolean-arithmetic-coercion",
+  "status": "pass",
+  "bun": "2\n1\n0\n2\n10\n3\n0\n1\n6\ntruefalse",
+  "node": "2\n1\n0\n2\n10\n3\n0\n1\n6\ntruefalse",
+  "rts": "2\n1\n0\n2\n10\n3\n0\n1\n6\ntruefalse"
+}
+,
+{
+  "name": "claude-float-repr-precision",
+  "status": "pass",
+  "bun": "0.30000000000000004\nfalse\n0.19999999999999998\n0.30000000000000004\n3.3000000000000003\n0.1\n100000000000000000000\n1e+21\n0.000001\n1e-7\n123456789.12345679\n5e-324\n2.220446049250313e-16",
+  "node": "0.30000000000000004\nfalse\n0.19999999999999998\n0.30000000000000004\n3.3000000000000003\n0.1\n100000000000000000000\n1e+21\n0.000001\n1e-7\n123456789.12345679\n5e-324\n2.220446049250313e-16",
+  "rts": "0.30000000000000004\nfalse\n0.19999999999999998\n0.30000000000000004\n3.3000000000000003\n0.1\n100000000000000000000\n1e+21\n0.000001\n1e-7\n123456789.12345679\n5e-324\n2.220446049250313e-16"
+}
+,
+{
+  "name": "claude-int-above-2pow53",
+  "status": "rts_diverge",
+  "bun": "9007199254740991\ntrue\n9007199254740992\n9007199254740992\n9007199254740992\n9007199254740994\nfalse\ntrue\n18014398509481984\n10000000000000000\nfalse",
+  "node": "9007199254740991\ntrue\n9007199254740992\n9007199254740992\n9007199254740992\n9007199254740994\nfalse\ntrue\n18014398509481984\n10000000000000000\nfalse",
+  "rts": "9007199254740991\ntrue\n9007199254740992\n9007199254740992\n9007199254740992\n9007199254740994\nfalse\ntrue\n18014398509481985\n10000000000000000\nfalse"
+}
+,
+{
+  "name": "claude-integer-precision-above-safe",
+  "status": "rts_diverge",
+  "bun": "9007199254740992\n9007199254740992\n9007199254740992\n0.30000000000000004\nfalse",
+  "node": "9007199254740992\n9007199254740992\n9007199254740992\n0.30000000000000004\nfalse",
+  "rts": "9007199254740992\n9007199254740993\n9007199254740992\n0.30000000000000004\nfalse"
+}
+,
+{
+  "name": "claude-loose-vs-strict-string-number",
+  "status": "pass",
+  "bun": "true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue",
+  "node": "true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue",
+  "rts": "true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue"
+}
+,
+{
+  "name": "claude-math-ceil-floor-neg-zero",
+  "status": "rts_diverge",
+  "bun": "true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3",
+  "node": "true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3",
+  "rts": "true\n0\n0\ntrue\n-2\n2\nfalse\n0\n0\n1.5\nNaN\n-2\n0.5\n4\n3"
+}
+,
+{
+  "name": "claude-math-round-neg-zero",
+  "status": "rts_diverge",
+  "bun": "-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN",
+  "node": "-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN",
+  "rts": "0\nfalse\n1\n-1\n3\n-2\n0\nfalse\n-4\n4\ntrue\n-1\n0\ntrue\nNaN"
+}
+,
+{
+  "name": "claude-nan-infinity-comparison",
+  "status": "pass",
+  "bun": "false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue",
+  "node": "false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue",
+  "rts": "false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue"
+}
+,
+{
+  "name": "claude-negative-zero-identity",
+  "status": "rts_diverge",
+  "bun": "false\ntrue\ntrue\n-Infinity\nInfinity\n-Infinity\n0\n0\n0\ntrue\n0\ntrue",
+  "node": "false\ntrue\ntrue\n-Infinity\nInfinity\n-Infinity\n0\n0\n0\ntrue\n0\ntrue",
+  "rts": "false\ntrue\ntrue\n-Infinity\nInfinity\nInfinity\n0\n0\n0\nfalse\n0\ntrue"
+}
+,
+{
+  "name": "claude-null-undefined-relational-asymmetry",
+  "status": "rts_diverge",
+  "bun": "true\nfalse\nfalse\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse",
+  "node": "true\nfalse\nfalse\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse",
+  "rts": "true\nfalse\nfalse\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue"
+}
+,
+{
+  "name": "claude-number-of-strings",
+  "status": "pass",
+  "bun": "0\n0\n31\n5\n15\n42\n1000\nInfinity\n-Infinity\nNaN\n8\n0.5\n5\n0\n10\nNaN",
+  "node": "0\n0\n31\n5\n15\n42\n1000\nInfinity\n-Infinity\nNaN\n8\n0.5\n5\n0\n10\nNaN",
+  "rts": "0\n0\n31\n5\n15\n42\n1000\nInfinity\n-Infinity\nNaN\n8\n0.5\n5\n0\n10\nNaN"
+}
+,
+{
+  "name": "claude-parse-float-edge",
+  "status": "pass",
+  "bun": "3.14\n0.5\n1000\n0.0012\nInfinity\n-Infinity\n0\nNaN\n5\n3.14\n1\n12\n7.5",
+  "node": "3.14\n0.5\n1000\n0.0012\nInfinity\n-Infinity\n0\nNaN\n5\n3.14\n1\n12\n7.5",
+  "rts": "3.14\n0.5\n1000\n0.0012\nInfinity\n-Infinity\n0\nNaN\n5\n3.14\n1\n12\n7.5"
+}
+,
+{
+  "name": "claude-parse-int-radix-prefix",
+  "status": "pass",
+  "bun": "31\n31\n31\n42\n8\n0\n0\n35\n2\n-255\n123\n123\nNaN\nNaN\n4",
+  "node": "31\n31\n31\n42\n8\n0\n0\n35\n2\n-255\n123\n123\nNaN\nNaN\n4",
+  "rts": "31\n31\n31\n42\n8\n0\n0\n35\n2\n-255\n123\n123\nNaN\nNaN\n4"
+}
+,
+{
+  "name": "claude-plus-null-undefined-coercion",
+  "status": "rts_diverge",
+  "bun": "NaN\n1\nNaN\n0\nNaN\n2\n0",
+  "node": "NaN\n1\nNaN\n0\nNaN\n2\n0",
+  "rts": "1nullundefined\n1null\nnull\nnullnull\nnull\n2\nfalsenull"
+}
+,
+{
+  "name": "claude-switch-strict-no-coercion",
+  "status": "rts_diverge",
+  "bun": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother",
+  "node": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother",
+  "rts": "num one\nstr one\nnum one\nnum one\nnull\nundefined\nnum one\nstr one\nother"
+}
+,
+{
+  "name": "claude-to-fixed-rounding",
+  "status": "rts_diverge",
+  "bun": "0.1\n1.00\n2.00\n1\n2\n3\n0.00\n123.46\n-2\n8.57\n1.25\n0.000\n1e+21",
+  "node": "0.1\n1.00\n2.00\n1\n2\n3\n0.00\n123.46\n-2\n8.57\n1.25\n0.000\n1e+21",
+  "rts": "0.1\n1.00\n2.00\n1\n2\n3\n0.00\n123.46\n-2\n8.57\n1.25\n0.000\n1000000000000000000000.00"
+}
+,
+{
+  "name": "claude-to-precision-exponential",
+  "status": "pass",
+  "bun": "123.5\n1.2e+2\n0.00012\n0.000012\n1.2e+3\n100.00\n1.23e+5\n4.5e-4\n5e+0\n2.550e+2\n0.00e+0\n-12.3",
+  "node": "123.5\n1.2e+2\n0.00012\n0.000012\n1.2e+3\n100.00\n1.23e+5\n4.5e-4\n5e+0\n2.550e+2\n0.00e+0\n-12.3",
+  "rts": "123.5\n1.2e+2\n0.00012\n0.000012\n1.2e+3\n100.00\n1.23e+5\n4.5e-4\n5e+0\n2.550e+2\n0.00e+0\n-12.3"
+}
+,
+{
+  "name": "claude-toprimitive-valueof-vs-tostring",
+  "status": "rts_diverge",
+  "bun": "15\n20\n10\nstr\n71\n14\n4\n9\ntrue",
+  "node": "15\n20\n10\nstr\n71\n14\n4\n9\ntrue",
+  "rts": "[object Object]5\nNaN\n[object Object]\n[object Object]\n[object Object]1\nNaN\n[object Object]1\n[object Object]\nfalse"
+}
+,
+{
+  "name": "claude-unary-minus-coercion",
+  "status": "rts_diverge",
+  "bun": "-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16",
+  "node": "-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16",
+  "rts": "-5\n5\n-1\n0\n0\n0\nNaN\n0\n-5\nNaN\n3\n-16"
+}
+,
+{
+  "name": "claude-unary-plus-coercion",
+  "status": "rts_diverge",
+  "bun": "42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n-0",
+  "node": "42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n-0",
+  "rts": "42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n0"
+}
+,
+{
+  "name": "claude-unsigned-right-shift",
+  "status": "pass",
+  "bun": "4294967295\n2147483647\n1073741822\n-2\n-2147483648\n1\n2\n1\n2147483648\n4294967295\n5\n1\n1",
+  "node": "4294967295\n2147483647\n1073741822\n-2\n-2147483648\n1\n2\n1\n2147483648\n4294967295\n5\n1\n1",
+  "rts": "4294967295\n2147483647\n1073741822\n-2\n-2147483648\n1\n2\n1\n2147483648\n4294967295\n5\n1\n1"
+}
+,
+{
+  "name": "codex_bitwise_shift_count_masking",
+  "status": "rts_diverge",
+  "bun": "1\n2\n-4\n2147483644\n-1\n1",
+  "node": "1\n2\n-4\n2147483644\n-1\n1",
+  "rts": "1\n2\n-4\n2147483644\n1\n1"
+}
+,
+{
+  "name": "codex_negative_zero_propagation",
+  "status": "pass",
+  "bun": "true\n0\n-Infinity\ntrue\ntrue\n[0,0]",
+  "node": "true\n0\n-Infinity\ntrue\ntrue\n[0,0]",
+  "rts": "true\n0\n-Infinity\ntrue\ntrue\n[0,0]"
+}
+,
+{
+  "name": "codex_numeric_relational_coercion",
+  "status": "rts_diverge",
+  "bun": "true\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue\nfalse",
+  "node": "true\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue\nfalse",
+  "rts": "true\nfalse\ntrue\nfalse\nfalse\ntrue\ntrue\nfalse"
 }
 ,
 {
@@ -2048,11 +2808,43 @@
 }
 ,
 {
+  "name": "396_property_key_coercion",
+  "status": "rts_diverge",
+  "bun": "seven\ntoString\nbool\nplain\n8:seven-index:0|1|2|7",
+  "node": "seven\ntoString\nbool\nplain\n8:seven-index:0|1|2|7",
+  "rts": "0\n\n0\n0\n3:0:0|1|2"
+}
+,
+{
+  "name": "408_object_spread_getter_order",
+  "status": "rts_diverge",
+  "bun": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
+  "node": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
+  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"c\":4}\nz,b,a,c"
+}
+,
+{
   "name": "40_object_deep",
   "status": "pass",
   "bun": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
   "node": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
   "rts": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false"
+}
+,
+{
+  "name": "416_proxy_receiver_setter_this",
+  "status": "rts_diverge",
+  "bun": "new:set\nnew:set:get\ntrue",
+  "node": "new:set\nnew:set:get\ntrue",
+  "rts": "base\nnew\ntrue"
+}
+,
+{
+  "name": "419_property_enumeration_mutation",
+  "status": "rts_diverge",
+  "bun": "a,p1,p2\na,c\ntrue",
+  "node": "a,p1,p2\na,c\ntrue",
+  "rts": "a,b,p1,p2\na,c\ntrue"
 }
 ,
 {
@@ -2077,6 +2869,190 @@
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "rts": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c"
+}
+,
+{
+  "name": "claude-delete-return-value",
+  "status": "pass",
+  "bun": "true\ntrue\nfalse true\ntrue\n3\nfalse\n1,,3\nundefined\ntrue\n{\"inner\":{}}\ntrue\ntrue\nfalse",
+  "node": "true\ntrue\nfalse true\ntrue\n3\nfalse\n1,,3\nundefined\ntrue\n{\"inner\":{}}\ntrue\ntrue\nfalse",
+  "rts": "true\ntrue\nfalse true\ntrue\n3\nfalse\n1,,3\nundefined\ntrue\n{\"inner\":{}}\ntrue\ntrue\nfalse"
+}
+,
+{
+  "name": "claude-destr-default-side-effect",
+  "status": "pass",
+  "bun": "10\n-2\n-3\ny,z\n5 200 300\ny,z,q,r",
+  "node": "10\n-2\n-3\ny,z\n5 200 300\ny,z,q,r",
+  "rts": "10\n-2\n-3\ny,z\n5 200 300\ny,z,q,r"
+}
+,
+{
+  "name": "claude-destr-nested-default-order",
+  "status": "pass",
+  "bun": "1 1 1\nc,e\n5 1\ndefault-n,o",
+  "node": "1 1 1\nc,e\n5 1\ndefault-n,o",
+  "rts": "1 1 1\nc,e\n5 1\ndefault-n,o"
+}
+,
+{
+  "name": "claude-in-array-holes-and-proto",
+  "status": "rts_diverge",
+  "bun": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
+  "node": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
+  "rts": "true false true\n3\ntrue\ntrue\ntrue\nfalse\ntrue false\ntrue\nfalse\nfalse\ntrue false"
+}
+,
+{
+  "name": "claude-in-inherited-vs-own",
+  "status": "rts_error",
+  "bun": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse",
+  "node": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-json-replacer-and-indent",
+  "status": "rts_diverge",
+  "bun": "{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}",
+  "node": "{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}",
+  "rts": "{\"a\":2,\"1\":4}\n{\n  \"b\": 1,\n  \"a\": 2,\n  \"2\": 3,\n  \"1\": 4\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}"
+}
+,
+{
+  "name": "claude-json-stringify-special-values",
+  "status": "rts_diverge",
+  "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
+  "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
+  "rts": "{\"b\":94260125999122,\"c\":1}\n[null,94260125999113,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94260125999104\nnull\nnull\n{\"a\":null}"
+}
+,
+{
+  "name": "claude-json-tojson-hook",
+  "status": "rts_diverge",
+  "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
+  "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
+  "rts": "{\"value\":42,\"toJSON\":94618248589360}\n{\"nested\":{\"value\":42,\"toJSON\":94618248589360},\"plain\":1}\n[{\"value\":42,\"toJSON\":94618248589360},{\"value\":42,\"toJSON\":94618248589360}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94618248589346}\n{\"a\":[1,2,3]}"
+}
+,
+{
+  "name": "claude-keys-numeric-order",
+  "status": "pass",
+  "bun": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5",
+  "node": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5",
+  "rts": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5"
+}
+,
+{
+  "name": "claude-spread-getter-to-data",
+  "status": "rts_diverge",
+  "bun": "1\n2\n2\ntrue\n1\ntrue true true",
+  "node": "1\n2\n2\ntrue\n1\ntrue true true",
+  "rts": "1\n2\n2\ntrue\n0\nnull 0 0"
+}
+,
+{
+  "name": "claude-spread-override-order",
+  "status": "rts_diverge",
+  "bun": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
+  "node": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
+  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,last\n\n{\"a\":1}\n{}"
+}
+,
+{
+  "name": "claude-typeof-edge-cases",
+  "status": "rts_error",
+  "bun": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
+  "node": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_define_property_defaults",
+  "status": "rts_diverge",
+  "bun": "1,false,false,false\n\n1\nTypeError",
+  "node": "1,false,false,false\n\n1\nTypeError",
+  "rts": "1,true,true,true\nx\n2"
+}
+,
+{
+  "name": "codex_object_assign_setter_order",
+  "status": "rts_diverge",
+  "bun": "true\n2\nget-a|set-a:1|get-b|set-a:3",
+  "node": "true\n2\nget-a|set-a:1|get-b|set-a:3",
+  "rts": "true\n2\nget-b"
+}
+,
+{
+  "name": "codex_object_create_null_json_keys",
+  "status": "pass",
+  "bun": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]",
+  "node": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]",
+  "rts": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]"
+}
+,
+{
+  "name": "codex_object_define_accessor_delete",
+  "status": "rts_diverge",
+  "bun": "10:10:x\ntrue\n9:10:x",
+  "node": "10:10:x\ntrue\n9:10:x",
+  "rts": "10:10:\ntrue\n18:18:"
+}
+,
+{
+  "name": "codex_object_extensibility_assign",
+  "status": "rts_diverge",
+  "bun": "false\nfalse\nfalse\na",
+  "node": "false\nfalse\nfalse\na",
+  "rts": "false\ntrue\nfalse\na,c"
+}
+,
+{
+  "name": "codex_ownkeys_order_symbols",
+  "status": "rts_diverge",
+  "bun": "1,2,b,a,c,Symbol(s1),Symbol(s2)\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
+  "node": "1,2,b,a,c,Symbol(s1),Symbol(s2)\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
+  "rts": "b,a,c\nb,a,c\n[object Object],[object Object]"
+}
+,
+{
+  "name": "codex_proxy_construct_apply_newtarget",
+  "status": "rts_error",
+  "bun": "13\n5:proxy:true:true",
+  "node": "13\n5:proxy:true:true",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_proxy_descriptor_virtual_property",
+  "status": "pass",
+  "bun": "virtual\n42\n{\"virtual\":42}",
+  "node": "virtual\n42\n{\"virtual\":42}",
+  "rts": "virtual\n42\n{\"virtual\":42}"
+}
+,
+{
+  "name": "codex_proxy_invariant_nonconfigurable",
+  "status": "rts_diverge",
+  "bun": "TypeError\n1",
+  "node": "TypeError\n1",
+  "rts": "1"
+}
+,
+{
+  "name": "codex_proxy_revocable_edges",
+  "status": "rts_error",
+  "bun": "1\nget:TypeError\nkeys:TypeError",
+  "node": "1\nget:TypeError\nkeys:TypeError",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_reflect_set_prototype_cycle",
+  "status": "rts_diverge",
+  "bun": "true\ntrue\nfalse\nfalse",
+  "node": "true\ntrue\nfalse\nfalse",
+  "rts": "true\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -2136,6 +3112,46 @@
 }
 ,
 {
+  "name": "420_state_machine_parser",
+  "status": "rts_error",
+  "bun": "14\n15\n28",
+  "node": "14\n15\n28",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_event_emitter_once_mutation",
+  "status": "rts_error",
+  "bun": "a1,once1,a2,late2",
+  "node": "a1,once1,a2,late2",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_lru_cache_map_order",
+  "status": "rts_error",
+  "bun": "1\nc3,a1,d4\n-1",
+  "node": "1\nc3,a1,d4\n-1",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_memoized_recursive_closure",
+  "status": "rts_error",
+  "bun": "55\n0,1,2,3,4,5,6,7,8,9,10",
+  "node": "55\n0,1,2,3,4,5,6,7,8,9,10",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_parser_backtracking_tokens",
+  "status": "pass",
+  "bun": "abc@3|ab@5\nab@2|abc@5",
+  "node": "abc@3|ab@5\nab@2|abc@5",
+  "rts": "abc@3|ab@5\nab@2|abc@5"
+}
+,
+{
   "name": "116_promise_finally",
   "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
@@ -2184,6 +3200,14 @@
 }
 ,
 {
+  "name": "410_promise_thenable_assimilation",
+  "status": "rts_diverge",
+  "bun": "then|value:ok|next",
+  "node": "then|value:ok|next",
+  "rts": "value:[object Object]|281474976710667"
+}
+,
+{
   "name": "42_promise_deep",
   "status": "pass",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
@@ -2205,6 +3229,38 @@
   "bun": "value=ok",
   "node": "value=ok",
   "rts": "value=ok"
+}
+,
+{
+  "name": "codex_promise_all_order_thenables",
+  "status": "rts_diverge",
+  "bun": "slow,fast,then\nslow-start|thenable|slow-end",
+  "node": "slow,fast,then\nslow-start|thenable|slow-end",
+  "rts": ""
+}
+,
+{
+  "name": "codex_promise_any_rejection_order",
+  "status": "rts_diverge",
+  "bun": "AggregateError\na,b,c",
+  "node": "AggregateError\na,b,c",
+  "rts": "0\nnull"
+}
+,
+{
+  "name": "codex_promise_finally_thenable",
+  "status": "rts_diverge",
+  "bun": "finally|thenable|value",
+  "node": "finally|thenable|value",
+  "rts": "finally|value"
+}
+,
+{
+  "name": "codex_promise_reentrant_then_order",
+  "status": "rts_error",
+  "bun": "a,b,d,c",
+  "node": "a,b,d,c",
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2280,6 +3336,14 @@
 }
 ,
 {
+  "name": "404_regexp_replace_named_callback",
+  "status": "rts_diverge",
+  "bun": "RED@0=11 BLUE@7=21\n[a]ab[a]a",
+  "node": "RED@0=11 BLUE@7=21\n[a]ab[a]a",
+  "rts": "@:=NaN @:=NaN\n[a]ab[a]a"
+}
+,
+{
   "name": "70_regex_indices",
   "status": "pass",
   "bun": "indices=[[1,4],[2,3],[3,4]]",
@@ -2301,6 +3365,30 @@
   "bun": "words=café|λ\nchars=A|😀|B\nnamed=λ",
   "node": "words=café|λ\nchars=A|😀|B\nnamed=λ",
   "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
+}
+,
+{
+  "name": "codex_regex_indices_named_groups",
+  "status": "pass",
+  "bun": "aaab:2\n[2,6]\n[2,5]\naaa",
+  "node": "aaab:2\n[2,6]\n[2,5]\naaa",
+  "rts": "aaab:2\n[2,6]\n[2,5]\naaa"
+}
+,
+{
+  "name": "codex_regex_replace_zero_length_global",
+  "status": "pass",
+  "bun": "|a|b\n0:0,1:0",
+  "node": "|a|b\n0:0,1:0",
+  "rts": "|a|b\n0:0,1:0"
+}
+,
+{
+  "name": "codex_regex_sticky_lastindex_unicode",
+  "status": "rts_diverge",
+  "bun": "true:3\ntrue:5\nfalse:0\nabc:5",
+  "node": "true:3\ntrue:5\nfalse:0\nabc:5",
+  "rts": "true:1\ntrue:1\ntrue:1\nabc:5"
 }
 ,
 {
@@ -2640,11 +3728,139 @@
 }
 ,
 {
+  "name": "412_unicode_surrogate_iteration",
+  "status": "rts_diverge",
+  "bun": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂",
+  "node": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂",
+  "rts": "len=4\nchars=\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂B"
+}
+,
+{
   "name": "91_string_wellformed",
   "status": "pass",
   "bun": "wf=false\nfix=�",
   "node": "wf=false\nfix=�",
   "rts": "wf=false\nfix=�"
+}
+,
+{
+  "name": "claude-at-negative-index",
+  "status": "rts_diverge",
+  "bun": "h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n1\nundefined",
+  "node": "h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n1\nundefined",
+  "rts": "h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n2\nundefined"
+}
+,
+{
+  "name": "claude-codepoint-iteration-emoji",
+  "status": "rts_diverge",
+  "bun": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
+  "node": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
+  "rts": "4\n3\n[\"a\",\"ð\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2"
+}
+,
+{
+  "name": "claude-concat-type-coercion",
+  "status": "pass",
+  "bun": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
+  "node": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
+  "rts": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull"
+}
+,
+{
+  "name": "claude-locale-compare",
+  "status": "pass",
+  "bun": "0\n0\n-1\n1\n1\n1\n-1\n1\n-1\n-1\n1",
+  "node": "0\n0\n-1\n1\n1\n1\n-1\n1\n-1\n-1\n1",
+  "rts": "0\n0\n-1\n1\n1\n1\n-1\n1\n-1\n-1\n1"
+}
+,
+{
+  "name": "claude-lone-surrogate-iteration",
+  "status": "rts_diverge",
+  "bun": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
+  "node": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
+  "rts": "5\n5\n[97,65533,65533,65533,98]\n3 undefined\n1 128512\n6 6\ntrue\ntrue"
+}
+,
+{
+  "name": "claude-normalize-forms",
+  "status": "pass",
+  "bun": "1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2",
+  "node": "1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2",
+  "rts": "1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2"
+}
+,
+{
+  "name": "claude-padstart-unicode",
+  "status": "rts_diverge",
+  "bun": "[005]\n[**café]\n[ababx]\n[ab12121]\n[abc]\n[yoy]\n2 3\n[-🎉]\n4\nd83d dc9a d83d 120\n5\nd83d dd25",
+  "node": "[005]\n[**café]\n[ababx]\n[ab12121]\n[abc]\n[yoy]\n2 3\n[-🎉]\n4\nd83d dc9a d83d 120\n5\nd83d dd25",
+  "rts": "[005]\n[**café]\n[ababx]\n[ab12121]\n[abc]\n[yoy]\n2 4\n[--🎉]\n7\nd83d dc9a d83d 56474\n9\nd83d dd25"
+}
+,
+{
+  "name": "claude-replace-capture-groups",
+  "status": "rts_diverge",
+  "bun": "02/01/2023\nSmith John\na[b]c\naBcaBc\nhelolo\nhehelo\nprice: $100\na0a1a2\n1x2y\n[t]est\nnomatch\n-a-b-c-",
+  "node": "02/01/2023\nSmith John\na[b]c\naBcaBc\nhelolo\nhehelo\nprice: $100\na0a1a2\n1x2y\n[t]est\nnomatch\n-a-b-c-",
+  "rts": "02/01/2023\nSmith John\na[$&]c\naBcaBc\nhe$'lo\nhe$`lo\nprice: $100\nanulla1a2\n1x2y\n[t]est\nnomatch\n-a-b-c-"
+}
+,
+{
+  "name": "claude-split-regex-limit",
+  "status": "pass",
+  "bun": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]",
+  "node": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]",
+  "rts": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]"
+}
+,
+{
+  "name": "claude-string-relational-compare",
+  "status": "pass",
+  "bun": "true\nfalse\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\nfalse\ntrue\ntrue\ntrue\ntrue\n10,9,Cherry,apple,banana",
+  "node": "true\nfalse\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\nfalse\ntrue\ntrue\ntrue\ntrue\n10,9,Cherry,apple,banana",
+  "rts": "true\nfalse\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\nfalse\ntrue\ntrue\ntrue\ntrue\n10,9,Cherry,apple,banana"
+}
+,
+{
+  "name": "claude-template-literal-coercion",
+  "status": "rts_diverge",
+  "bun": "val=T\narr=1,2,3\nnested=1,2,3,4\no2=only-str\nT and 43\nnull=null undef=undefined\nsym=S",
+  "node": "val=T\narr=1,2,3\nnested=1,2,3,4\no2=only-str\nT and 43\nnull=null undef=undefined\nsym=S",
+  "rts": "val=[object Object]\narr=1,2,3\nnested=1,2,3,4\no2=[object Object]\n[object Object] and [object Object]1\nnull=null undef=undefined\nsym=[object Object]"
+}
+,
+{
+  "name": "claude-tostring-vs-valueof-hint",
+  "status": "rts_diverge",
+  "bun": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n[object Object]\n[object Object]\n[object Object]",
+  "node": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n[object Object]\n[object Object]\n[object Object]",
+  "rts": "[object Object]\n[object Object]\n[object Object]\n[object Object]\n[object Object]1\n281474976710656\n[object Object],[object Object]\n[object Object]\n[object Object]\n[object Object]\n281474976710687"
+}
+,
+{
+  "name": "codex_string_normalize_equivalence",
+  "status": "pass",
+  "bun": "false\ntrue\ntrue\n2:1",
+  "node": "false\ntrue\ntrue\n2:1",
+  "rts": "false\ntrue\ntrue\n2:1"
+}
+,
+{
+  "name": "codex_string_replace_dollar_tokens",
+  "status": "rts_diverge",
+  "bun": "def-123-abc\nabc[abc][123][def]def\n$-x-$2\na-b",
+  "node": "def-123-abc\nabc[abc][123][def]def\n$-x-$2\na-b",
+  "rts": "def-123-abc\nabc[$`][$&][$']def\n$-x-\na-b"
+}
+,
+{
+  "name": "codex_string_split_captures_limits",
+  "status": "rts_diverge",
+  "bun": "a|1|b|22|c\na|1|b|22\na|b\n🙂|x",
+  "node": "a|1|b|22|c\na|1|b|22\na|b\n🙂|x",
+  "rts": "a|1|b|22|c\na|1|b|22\n|a\n|🙂|x|"
 }
 ,
 {
@@ -2704,11 +3920,43 @@
 }
 ,
 {
+  "name": "402_template_toPrimitive_order",
+  "status": "rts_diverge",
+  "bun": "S\nSx\n7\nprim:string|prim:default|prim:number",
+  "node": "S\nSx\n7\nprim:string|prim:default|prim:number",
+  "rts": "[object Object]\nSx\n7\nprim:default|prim:number"
+}
+,
+{
   "name": "54_symbol_registry",
   "status": "pass",
   "bun": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
   "node": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
   "rts": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9"
+}
+,
+{
+  "name": "codex_symbol_match_custom",
+  "status": "rts_diverge",
+  "bun": "M:3\nABC:x",
+  "node": "M:3\nABC:x",
+  "rts": "null\nabc"
+}
+,
+{
+  "name": "codex_symbol_toStringTag_custom",
+  "status": "rts_diverge",
+  "bun": "[object Object]\n[object Custom]\n[object Box]",
+  "node": "[object Object]\n[object Custom]\n[object Box]",
+  "rts": "[object Object]\n[object Object]\n[object Object]"
+}
+,
+{
+  "name": "codex_symbol_unscopables_with",
+  "status": "rts_error",
+  "bun": "10:2",
+  "node": "10:2",
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3000,6 +4248,190 @@
 }
 ,
 {
+  "name": "398_destructure_rest_computed_keys",
+  "status": "rts_error",
+  "bun": "l=3\nright=12\nv=5\nrest=extra:{\"extra\":9}\narray=1,11,3|4,len=2",
+  "node": "l=3\nright=12\nv=5\nrest=extra:{\"extra\":9}\narray=1,11,3|4,len=2",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "399_default_param_temporal_order",
+  "status": "rts_error",
+  "bun": "2,3,4\n2,10,12\n2,3,20\n5:5:5\n5:5:5",
+  "node": "2,3,4\n2,10,12\n2,3,20\n5:5:5\n5:5:5",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "400_eval_scope_edges",
+  "status": "rts_error",
+  "bun": "local:missing\n7",
+  "node": "local:missing\n7",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "401_switch_strict_equality_edges",
+  "status": "rts_diverge",
+  "bun": "zero\nzero\nstr-zero\nfalse\nnan-default",
+  "node": "zero\nzero\nstr-zero\nfalse\nnan-default",
+  "rts": "zero\nzero\nstr-zero\nzero\nzero"
+}
+,
+{
+  "name": "417_nested_optional_call_this_binding",
+  "status": "pass",
+  "bun": "5\n9\n12\nundefined",
+  "node": "5\n9\n12\nundefined",
+  "rts": "5\n9\n12\nundefined"
+}
+,
+{
+  "name": "claude-assign-target-order",
+  "status": "rts_diverge",
+  "bun": "3\nobj1,key2,val3\n1,0,0\n1\n11",
+  "node": "3\nobj1,key2,val3\n1,0,0\n1\n11",
+  "rts": "3\nobj1,val3,key2\n0,0,0\n1\n1"
+}
+,
+{
+  "name": "claude-comma-operator",
+  "status": "pass",
+  "bun": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4",
+  "node": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4",
+  "rts": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4"
+}
+,
+{
+  "name": "claude-delete-operator",
+  "status": "rts_diverge",
+  "bun": "true\n1,undefined,3\nfalse\ntrue\n3\nundefined\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse",
+  "node": "true\n1,undefined,3\nfalse\ntrue\n3\nundefined\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse",
+  "rts": "true\n1,0,3\nfalse\ntrue\n3\nundefined\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse"
+}
+,
+{
+  "name": "claude-eval-order-args",
+  "status": "pass",
+  "bun": "1,2,3\n123\n1,2,3,7,4\n3",
+  "node": "1,2,3\n123\n1,2,3,7,4\n3",
+  "rts": "1,2,3\n123\n1,2,3,7,4\n3"
+}
+,
+{
+  "name": "claude-exponent-assoc",
+  "status": "pass",
+  "bun": "512\n64\n256\n2\n-4\n8\n9\n0.25\n10",
+  "node": "512\n64\n256\n2\n-4\n8\n9\n0.25\n10",
+  "rts": "512\n64\n256\n2\n-4\n8\n9\n0.25\n10"
+}
+,
+{
+  "name": "claude-logical-assign-short",
+  "status": "pass",
+  "bun": "2\n0\n7\n5\n3\n8\nA,C,E",
+  "node": "2\n0\n7\n5\n3\n8\nA,C,E",
+  "rts": "2\n0\n7\n5\n3\n8\nA,C,E"
+}
+,
+{
+  "name": "claude-nested-ternary",
+  "status": "pass",
+  "bun": "A\nB\nC\nF\nac\n2\n2\nfallback",
+  "node": "A\nB\nC\nF\nac\n2\n2\nfallback",
+  "rts": "A\nB\nC\nF\nac\n2\n2\nfallback"
+}
+,
+{
+  "name": "claude-optional-chain-call",
+  "status": "rts_error",
+  "bun": "undefined\nundefined\nget\nundefined\nundefined\nx\nundefined\nundefined",
+  "node": "undefined\nundefined\nget\nundefined\nundefined\nx\nundefined\nundefined",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-optional-chain-short",
+  "status": "rts_error",
+  "bun": "undefined\nundefined\nundefined\n42\nundefined\nundefined",
+  "node": "undefined\nundefined\nundefined\n42\nundefined\nundefined",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "claude-pre-post-increment",
+  "status": "pass",
+  "bun": "5\n6\n7\n7\n4\n3\n10,11,13\n13\n2\n1\n0",
+  "node": "5\n6\n7\n7\n4\n3\n10,11,13\n13\n2\n1\n0",
+  "rts": "5\n6\n7\n7\n4\n3\n10,11,13\n13\n2\n1\n0"
+}
+,
+{
+  "name": "claude-short-circuit-no-eval",
+  "status": "rts_diverge",
+  "bun": "false\nA\ntrue\nA,C\n9\nA,C,E,F\n0\nA,C,E,F,G",
+  "node": "false\nA\ntrue\nA,C\n9\nA,C,E,F\n0\nA,C,E,F,G",
+  "rts": "0\nA\n1\nA,C\n9\nA,C,E,F\n5\nA,C,E,F,G,H"
+}
+,
+{
+  "name": "claude-void-operator",
+  "status": "pass",
+  "bun": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined",
+  "node": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined",
+  "rts": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined"
+}
+,
+{
+  "name": "codex_computed_assignment_order",
+  "status": "rts_diverge",
+  "bun": "7\nbase,key,val",
+  "node": "7\nbase,key,val",
+  "rts": "7\nval,base,key"
+}
+,
+{
+  "name": "codex_destructuring_iterator_close_on_default_throw",
+  "status": "rts_error",
+  "bun": "default\nnext0,return",
+  "node": "default\nnext0,return",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_for_in_shadowed_var_closure",
+  "status": "rts_error",
+  "bun": "a1,b2,c3\nc,c,c",
+  "node": "a1,b2,c3\nc,c,c",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_logical_assignment_getter_once",
+  "status": "rts_diverge",
+  "bun": "7\nget:0|set:5|get:5|set:7|get:7",
+  "node": "7\nget:0|set:5|get:5|set:7|get:7",
+  "rts": "7\nget:0|set:5|get:5|set:7|get:7|set:7"
+}
+,
+{
+  "name": "codex_optional_delete",
+  "status": "rts_diverge",
+  "bun": "true\nfalse\ntrue\ntrue\n3:1,,3:false",
+  "node": "true\nfalse\ntrue\ntrue\n3:1,,3:false",
+  "rts": "true\ntrue\ntrue\ntrue\n3:1,2,3:true"
+}
+,
+{
+  "name": "codex_try_finally_control_flow",
+  "status": "rts_error",
+  "bun": "finally\ntry:catch\nfin0\nfin1\ndone",
+  "node": "finally\ntry:catch\nfin0\nfin1\ndone",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
   "name": "204_typedarray_basic",
   "status": "pass",
   "bun": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
@@ -3064,6 +4496,38 @@
 }
 ,
 {
+  "name": "codex_dataview_nan_payload_canonical",
+  "status": "pass",
+  "bun": "true\ntrue",
+  "node": "true\ntrue",
+  "rts": "true\ntrue"
+}
+,
+{
+  "name": "codex_dataview_offsets_endian_mix",
+  "status": "rts_error",
+  "bun": "00 00 12 34 78 56 fe ff ff ff 00 00\n1234\n5678\n-2",
+  "node": "00 00 12 34 78 56 fe ff ff ff 00 00\n1234\n5678\n-2",
+  "rts": "__RUNTIME_ERROR__"
+}
+,
+{
+  "name": "codex_typedarray_set_overlap",
+  "status": "rts_diverge",
+  "bun": "1,2,1,2,3,4\n127,-128,127,4",
+  "node": "1,2,1,2,3,4\n127,-128,127,4",
+  "rts": "1,2,3,4,5,6\n127,128,-129,260"
+}
+,
+{
+  "name": "codex_typedarray_subarray_shared_sort",
+  "status": "rts_diverge",
+  "bun": "2,3,4\n5,2,3,4,1\n5,9,3,4,1",
+  "node": "2,3,4\n5,2,3,4,1\n5,9,3,4,1",
+  "rts": "2,3,4\n5,4,3,2,1\n5,4,3,2,1"
+}
+,
+{
   "name": "107_url_edge_cases",
   "status": "pass",
   "bun": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
@@ -3101,6 +4565,30 @@
   "bun": "query=x=1+2&x=3",
   "node": "query=x=1+2&x=3",
   "rts": "query=x=1+2&x=3"
+}
+,
+{
+  "name": "codex_url_percent_invalid_sequences",
+  "status": "pass",
+  "bun": "/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz",
+  "node": "/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz",
+  "rts": "/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz"
+}
+,
+{
+  "name": "codex_url_relative_resolution",
+  "status": "rts_diverge",
+  "bun": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
+  "node": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
+  "rts": "null\nnull\nnull\nnull\nnull"
+}
+,
+{
+  "name": "codex_urlsearchparams_live_sort",
+  "status": "rts_diverge",
+  "bun": "https://x.test/path?a=1&b=2&b=1&c=hello+world\n2,1\nz=9",
+  "node": "https://x.test/path?a=1&b=2&b=1&c=hello+world\n2,1\nz=9",
+  "rts": "https://x.test/path?b=2&a=1&b=1\n2,1\na=1&b=2&b=1&c=hello+world"
 }
 ,
 {
@@ -3151,4 +4639,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":394,"pass":373,"rts_diverge":2,"bun_node_diverge":16,"errors":3,"rejected":0}}
+],"summary":{"total":580,"pass":422,"rts_diverge":108,"bun_node_diverge":17,"errors":33,"rejected":0}}
