@@ -911,7 +911,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_VALUES_ITER(this_arr: i64) -> i64 {
 pub extern "C" fn __RTS_FN_GL_ARRAY_ITERATOR_FN() -> u64 {
     use crate::namespaces::gc::handles::FunctionData;
     alloc_entry(Entry::Function(Box::new(FunctionData {
-        fn_ptr: __RTS_FN_GL_ARRAY_VALUES_ITER as u64,
+        fn_ptr: __RTS_FN_GL_ARRAY_VALUES_ITER as *const () as u64,
         arity: 1,
         name: "[Symbol.iterator]".into(),
         bound_this: 0,

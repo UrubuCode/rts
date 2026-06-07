@@ -780,7 +780,7 @@ mod tests_response_then {
     #[test]
     fn then_wraps_string_result_in_promise() {
         let h = make_response("hello");
-        let cb = cb_returns_string as usize as u64;
+        let cb = cb_returns_string as *const () as u64;
         let result = __RTS_FN_GL_FETCH_RESPONSE_THEN(h, cb);
         let is_promise = with_entry(result, |entry| {
             matches!(entry, Some(Entry::PromiseAsync(_)))
@@ -797,7 +797,7 @@ mod tests_response_then {
     #[test]
     fn then_passthrough_when_callback_returns_promise() {
         let h = make_response("x");
-        let cb = cb_returns_promise as usize as u64;
+        let cb = cb_returns_promise as *const () as u64;
         let result = __RTS_FN_GL_FETCH_RESPONSE_THEN(h, cb);
         let is_promise = with_entry(result, |entry| {
             matches!(entry, Some(Entry::PromiseAsync(_)))

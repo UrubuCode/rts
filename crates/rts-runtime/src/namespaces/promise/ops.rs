@@ -57,22 +57,6 @@ fn resolve_callback_ptr(fp: u64) -> (u64, Vec<i64>, bool, i64) {
     resolved.unwrap_or((fp, Vec::new(), false, 0))
 }
 
-/// Invoca um ponteiro de fn extern "C" com 0 ou 1 arg, prepende
-/// bound_args. Retorna i64. Limite de aridade total = 8 (limite do
-/// trampolim em globals/function/ops).
-unsafe fn invoke_callback(fn_ptr: u64, bound: &[i64], extra: Option<i64>) -> i64 {
-    let mut args: Vec<i64> = bound.to_vec();
-    if let Some(v) = extra {
-        args.push(v);
-    }
-    // (cross-runtime closures) Consulta o registry de ABI: callbacks com param
-    // `number` agora compilam como `(f64)->...`; invocá-los via ABI i64 crua
-    // (transmute) segfaultava. invoke_fn_ptr_with_registry usa invoke_typed com
-    // os param_kinds reais (e normaliza args number-cru), ou invoke_n quando a
-    // fn é toda-i64 (comportamento idêntico ao transmute de antes).
-    crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_PENDING() -> u64 {
     let slot = promise_slot::new_pending();
@@ -688,8 +672,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: u64, args_vec_handle: u6
         // Combina bound (de bind) + extra_args do caller.
         let mut all: Vec<i64> = bound;
         all.extend(extra_args);
-        // invoke_callback aceita 0 ou 1 extra; aqui ja' temos tudo
-        // empacotado, entao desempacotamos manualmente.
+        // Tudo ja' empacotado em `all`, invocamos diretamente.
         let r = unsafe { invoke_callback_full(fn_ptr, &all) };
         // Checa error slot pra detectar throw dentro do body.
         let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
