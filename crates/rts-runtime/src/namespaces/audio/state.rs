@@ -21,11 +21,11 @@
 //! thread RT.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{BufferSize, SampleFormat, StreamConfig};
+use cpal::SampleFormat;
 
 /// Ring buffer de samples f32 intercalados (interleaved por canal).
 /// Produtor: TS (via `write`). Consumidor: callback de áudio (thread RT).
@@ -74,9 +74,15 @@ pub fn default_output_config() -> (u32, u16) {
 
 /// Abre um stream de saída. Retorna o handle (>0) ou 0 em falha.
 ///
-/// `sample_rate`/`channels` em 0 → usa o default do device. `capacity_frames`
-/// limita o ring (backpressure); 0 → default de ~500ms.
-pub fn open_output(sample_rate: u32, channels: u16, capacity_frames: usize) -> u64 {
+/// IMPORTANTE: o device é SEMPRE aberto com a config NATIVA do default
+/// (`default_output_config`). Os parâmetros `sample_rate`/`channels` pedidos
+/// NÃO forçam o device — no WASAPI shared o device é preso ao formato do mixer,
+/// e forçar valores != nativo faz o callback do cpal rodar fora de tempo-real
+/// (o ring nunca acumula, `available_frames` mente, e o áudio fica picotado —
+/// bug diagnosticado 2026-06). O TS descobre o rate/canais reais via
+/// `sample_rate()`/`channels()` e adapta (resample/upmix), como o player de WAV
+/// já faz. `capacity_frames` limita o ring (backpressure); 0 → ~500ms.
+pub fn open_output(_sample_rate: u32, _channels: u16, capacity_frames: usize) -> u64 {
     let host = cpal::default_host();
     let Some(device) = host.default_output_device() else {
         return 0;
@@ -91,43 +97,30 @@ pub fn open_output(sample_rate: u32, channels: u16, capacity_frames: usize) -> u
         return 0;
     }
 
-    let sr = if sample_rate == 0 {
-        default_cfg.sample_rate()
-    } else {
-        sample_rate
-    };
-    let ch = if channels == 0 {
-        default_cfg.channels()
-    } else {
-        channels
-    };
-    let cap_frames = if capacity_frames == 0 {
-        (sr as usize / 2).max(1) // ~500ms
+    // Config NATIVA — garante callback em tempo-real. `config()` carrega o
+    // buffer_size correto do device, não BufferSize::Default arbitrário.
+    let stream_config = default_cfg.config();
+    let real_sr = default_cfg.sample_rate();
+    let real_ch = default_cfg.channels();
+    let real_cap = if capacity_frames == 0 {
+        (real_sr as usize / 2).max(1) // ~500ms
     } else {
         capacity_frames
     };
 
-    let ring: Ring = Arc::new(Mutex::new(VecDeque::with_capacity(cap_frames * ch as usize)));
+    let ring: Ring = Arc::new(Mutex::new(VecDeque::with_capacity(real_cap * real_ch as usize)));
     let master_gain = Arc::new(Mutex::new(1.0_f32));
     let underruns = Arc::new(AtomicU64::new(0));
     let stop = Arc::new(AtomicBool::new(false));
     let ready = Arc::new((Mutex::new(None::<bool>), std::sync::Condvar::new()));
-    // Rate/canais efetivos: a thread pode cair no fallback do device se o pedido
-    // for rejeitado (típico no WASAPI shared, preso ao rate do mixer).
-    let effective_sr = Arc::new(AtomicU32::new(sr));
-    let effective_ch = Arc::new(std::sync::atomic::AtomicU16::new(ch));
-    let default_sr = default_cfg.sample_rate();
-    let default_ch = default_cfg.channels();
 
-    // A thread de áudio é dona do `cpal::Stream` (!Send). Ela monta o stream,
-    // dá play, e dorme até `stop`. O callback só drena o ring.
+    // A thread de áudio é dona do `cpal::Stream` (!Send). Ela monta o stream
+    // com a config nativa, dá play, e dorme até `stop`. O callback só drena.
     let ring_t = ring.clone();
     let gain_t = master_gain.clone();
     let under_t = underruns.clone();
     let stop_t = stop.clone();
     let ready_t = ready.clone();
-    let eff_sr_t = effective_sr.clone();
-    let eff_ch_t = effective_ch.clone();
 
     let thread = std::thread::spawn(move || {
         let signal_ready = |ok: bool| {
@@ -136,53 +129,40 @@ pub fn open_output(sample_rate: u32, channels: u16, capacity_frames: usize) -> u
             cv.notify_all();
         };
 
-        // Constrói o stream para (try_sr, try_ch). Fechado sobre os Arcs do ring.
-        let build = |try_sr: u32, try_ch: u16| {
-            let ring_cb = ring_t.clone();
-            let gain_cb = gain_t.clone();
-            let under_cb = under_t.clone();
-            let err_fn = |e| eprintln!("[audio] stream error: {e}");
-            device.build_output_stream::<f32, _, _>(
-                StreamConfig {
-                    channels: try_ch,
-                    sample_rate: try_sr,
-                    buffer_size: BufferSize::Default,
-                },
-                move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let g = *gain_cb.lock().unwrap();
-                    let mut r = ring_cb.lock().unwrap();
-                    for s in out.iter_mut() {
-                        match r.pop_front() {
-                            Some(v) => *s = v * g,
-                            None => {
-                                under_cb.fetch_add(1, Ordering::Relaxed);
-                                *s = 0.0;
-                            }
+        let ring_cb = ring_t.clone();
+        let gain_cb = gain_t.clone();
+        let under_cb = under_t.clone();
+        let err_fn = |e| eprintln!("[audio] stream error: {e}");
+        let stream = device.build_output_stream::<f32, _, _>(
+            stream_config,
+            move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let g = *gain_cb.lock().unwrap();
+                let mut r = ring_cb.lock().unwrap();
+                for s in out.iter_mut() {
+                    match r.pop_front() {
+                        Some(v) => *s = v * g,
+                        None => {
+                            under_cb.fetch_add(1, Ordering::Relaxed);
+                            *s = 0.0;
                         }
                     }
-                },
-                err_fn,
-                None,
-            )
-        };
-
-        // Tenta o pedido; se falhar, cai no rate/canais default do device.
-        let (stream, used_sr, used_ch) = match build(sr, ch) {
-            Ok(s) => (s, sr, ch),
-            Err(_) => match build(default_sr, default_ch) {
-                Ok(s) => (s, default_sr, default_ch),
-                Err(_) => {
-                    signal_ready(false);
-                    return;
                 }
             },
+            err_fn,
+            None,
+        );
+
+        let stream = match stream {
+            Ok(s) => s,
+            Err(_) => {
+                signal_ready(false);
+                return;
+            }
         };
         if stream.play().is_err() {
             signal_ready(false);
             return;
         }
-        eff_sr_t.store(used_sr, Ordering::Release);
-        eff_ch_t.store(used_ch, Ordering::Release);
         signal_ready(true);
 
         // Mantém o Stream vivo até close(). Polling leve — o áudio roda no
@@ -208,15 +188,6 @@ pub fn open_output(sample_rate: u32, channels: u16, capacity_frames: usize) -> u
         let _ = thread.join();
         return 0;
     }
-
-    // Lê o rate/canais EFETIVOS (podem diferir do pedido por fallback).
-    let real_sr = effective_sr.load(Ordering::Acquire);
-    let real_ch = effective_ch.load(Ordering::Acquire);
-    let real_cap = if capacity_frames == 0 {
-        (real_sr as usize / 2).max(1)
-    } else {
-        cap_frames
-    };
 
     let handle = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let out = OutputHandle {
