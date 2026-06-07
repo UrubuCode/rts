@@ -1,0 +1,11 @@
+console.log("a".localeCompare("a"));
+console.log("apple".localeCompare("apple"));
+console.log(Math.sign("a".localeCompare("b")));
+console.log(Math.sign("b".localeCompare("a")));
+console.log(Math.sign("z".localeCompare("a")));
+console.log(Math.sign("A".localeCompare("a")));
+console.log(Math.sign("10".localeCompare("9")));
+console.log(Math.sign("café".localeCompare("cafe")));
+console.log(Math.sign("".localeCompare("a")));
+console.log(Math.sign("abc".localeCompare("abd")));
+console.log(Math.sign("Z".localeCompare("a")));

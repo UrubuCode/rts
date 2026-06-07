@@ -1,0 +1,12 @@
+console.log(-"5");
+console.log(-"-5");
+console.log(-true);
+console.log(-false);
+console.log(-null);
+console.log(-"");
+console.log(-"abc");
+console.log(-[]);
+console.log(-[5]);
+console.log(-[1, 2]);
+console.log(- -3);
+console.log(-"0x10");

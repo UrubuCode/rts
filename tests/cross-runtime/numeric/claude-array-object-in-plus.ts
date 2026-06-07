@@ -1,0 +1,10 @@
+console.log([] + []);
+console.log([] + {});
+console.log([1] + [2]);
+console.log([1, 2] + [3, 4]);
+console.log(1 + []);
+console.log(1 + [2]);
+console.log([] + 1);
+console.log([3] + 1);
+console.log("x" + []);
+console.log("x" + {});

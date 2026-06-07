@@ -1,0 +1,18 @@
+const o = { a: 1, b: 2 };
+console.log(delete o.a);
+console.log(delete o.nonexistent);
+console.log("a" in o, "b" in o);
+const arr = [1, 2, 3];
+console.log(delete arr[1]);
+console.log(arr.length);
+console.log(1 in arr);
+console.log(String(arr));
+console.log(arr[1]);
+const nested = { inner: { deep: 5 } };
+console.log(delete nested.inner.deep);
+console.log(JSON.stringify(nested));
+console.log(delete (1 + 1));
+const dyn = { foo: 1 };
+const key = "foo";
+console.log(delete dyn[key]);
+console.log("foo" in dyn);

@@ -1,0 +1,11 @@
+console.log(null == undefined);
+console.log(null === undefined);
+console.log(null == 0);
+console.log(undefined == 0);
+console.log(null >= 0);
+console.log(null > 0);
+console.log(null <= 0);
+console.log(undefined >= 0);
+console.log(0 == false);
+console.log("" == false);
+console.log(null == false);

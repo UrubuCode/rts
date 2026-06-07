@@ -1,0 +1,12 @@
+const a = [1, , 3];
+console.log(a.join("-"));
+const b = [undefined, null, 2];
+console.log(b.join("-"));
+console.log([1, 2, 3].join());
+const sparse = Array(3);
+console.log(sparse.join(","));
+console.log(sparse.length);
+console.log(0 in sparse);
+const c = [, , ,];
+console.log(c.length);
+console.log(String([null, undefined]));

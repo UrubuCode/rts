@@ -1,0 +1,15 @@
+const proto = { inherited: 1 };
+const obj = Object.create(proto);
+obj.own = 2;
+console.log("own" in obj);
+console.log("inherited" in obj);
+console.log(obj.hasOwnProperty("own"));
+console.log(obj.hasOwnProperty("inherited"));
+console.log("toString" in obj);
+console.log(obj.hasOwnProperty("toString"));
+console.log("length" in []);
+console.log("push" in []);
+console.log([].hasOwnProperty("push"));
+console.log(0 in [42]);
+console.log(0 in [undefined]);
+console.log(0 in new Array(3));

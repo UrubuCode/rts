@@ -1,0 +1,12 @@
+const obj = { valueOf() { return 10; }, toString() { return "str"; } };
+console.log(obj + 5);
+console.log(obj * 2);
+console.log("" + obj);
+console.log(`${obj}`);
+const onlyStr = { toString() { return "7"; } };
+console.log(onlyStr + 1);
+console.log(onlyStr * 2);
+const both = { valueOf() { return 3; }, toString() { return "9"; } };
+console.log(both + 1);
+console.log(`${both}`);
+console.log(both == 3);

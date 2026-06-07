@@ -1,0 +1,13 @@
+// toPrecision e toExponential: notacao e arredondamento
+console.log((123.456).toPrecision(4));   // "123.5"
+console.log((123.456).toPrecision(2));   // "1.2e+2"
+console.log((0.0001234).toPrecision(2)); // "0.00012"
+console.log((0.00001234).toPrecision(2));// "0.000012"
+console.log((1234.5).toPrecision(2));    // "1.2e+3"
+console.log((100).toPrecision(5));       // "100.00"
+console.log((123456).toExponential(2));  // "1.23e+5"
+console.log((0.00045).toExponential(1)); // "4.5e-4"
+console.log((5).toExponential());        // "5e+0"
+console.log((255).toExponential(3));     // "2.550e+2"
+console.log((0).toExponential(2));       // "0.00e+0"
+console.log((-12.34).toPrecision(3));    // "-12.3"

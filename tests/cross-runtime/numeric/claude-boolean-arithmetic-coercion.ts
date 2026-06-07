@@ -1,0 +1,10 @@
+console.log(true + true);
+console.log(true + false);
+console.log(false + false);
+console.log(true + 1);
+console.log(false + 10);
+console.log(true * 3);
+console.log(false * 5);
+console.log(true - false);
+console.log((true + true) * (true + true + true));
+console.log("" + true + false);

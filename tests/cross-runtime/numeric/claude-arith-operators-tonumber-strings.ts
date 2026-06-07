@@ -1,0 +1,12 @@
+console.log("10" - 5);
+console.log("10" * "2");
+console.log("10" / "4");
+console.log("6" % "4");
+console.log("10" - "");
+console.log("abc" - 1);
+console.log("10" + 5 - 3);
+console.log(10 + "5" - 3);
+console.log("3" * true);
+console.log("3" - null);
+console.log("3" - undefined);
+console.log(" 12 " - 2);

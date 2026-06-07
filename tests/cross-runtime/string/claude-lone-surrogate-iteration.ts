@@ -1,0 +1,14 @@
+const lone = "a\uD83Db";
+console.log(lone.length);
+console.log([...lone].length);
+const arr = [...lone].map(c => c.codePointAt(0));
+console.log(JSON.stringify(arr));
+const surr = "\uD83D";
+console.log(surr.length, surr.codePointAt(0));
+const pair = "\u{1F600}";
+console.log([...pair].length, pair.codePointAt(0));
+console.log("\uDE00\uD83D".length, [..."\uDE00\uD83D"].length);
+const reversed = [..."\u{1F600}x"].reverse().join("");
+console.log(reversed === "x\u{1F600}");
+const broken = [..."a\u{1F600}b"].reverse().join("");
+console.log(broken === "b\u{1F600}a");

@@ -1,0 +1,12 @@
+console.log("2023-01-02".replace(/(\d+)-(\d+)-(\d+)/, "$3/$2/$1"));
+console.log("John Smith".replace(/(\w+)\s(\w+)/, "$2 $1"));
+console.log("abc".replace(/b/, "[$&]"));
+console.log("abcabc".replace(/b/g, "B"));
+console.log("hello".replace(/l/, "$'"));
+console.log("hello".replace(/l/, "$`"));
+console.log("price: 100".replace(/(\d+)/, "$$$1"));
+console.log("aaa".replace(/a/g, (m, i) => `${m}${i}`));
+console.log("x1y2".replace(/(\w)(\d)/g, (_, a, b) => b + a));
+console.log("test".replace(/(?<first>t)/, "[$<first>]"));
+console.log("nomatch".replace(/(z)/, "$1$2"));
+console.log("abc".replaceAll("", "-"));

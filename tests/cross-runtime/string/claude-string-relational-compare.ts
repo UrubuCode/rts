@@ -1,0 +1,16 @@
+console.log("a" < "b");
+console.log("b" < "a");
+console.log("apple" < "banana");
+console.log("Z" < "a");
+console.log("10" < "9");
+console.log("abc" < "abd");
+console.log("abc" < "ab");
+console.log("ab" < "abc");
+console.log("" < "a");
+console.log("café" < "cafz");
+console.log("\u{1F600}" < "a");
+console.log("z" < "\u{1F600}");
+console.log("A" > "0");
+console.log("apple" <= "apple");
+console.log("Apple" < "apple");
+console.log(["banana", "apple", "Cherry", "10", "9"].sort().join(","));

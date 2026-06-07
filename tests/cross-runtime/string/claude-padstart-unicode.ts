@@ -1,0 +1,14 @@
+console.log("[" + "5".padStart(3, "0") + "]");
+console.log("[" + "café".padStart(6, "*") + "]");
+console.log("[" + "x".padStart(5, "ab") + "]");
+console.log("[" + "ab".padEnd(7, "12") + "]");
+console.log("[" + "abc".padStart(2, "x") + "]");
+console.log("[" + "".padStart(3, "yo") + "]");
+console.log("\u{1F389}".length, "\u{1F389}".padStart(3, "-").length);
+console.log("[" + "\u{1F389}".padStart(3, "-") + "]");
+const sp = "x".padStart(4, "\u{1F49A}");
+console.log(sp.length);
+console.log(sp.charCodeAt(0).toString(16), sp.charCodeAt(1).toString(16), sp.charCodeAt(2).toString(16), sp.charCodeAt(3));
+const sp2 = "n".padStart(5, "\u{1F49A}\u{1F525}");
+console.log(sp2.length);
+console.log(sp2.charCodeAt(0).toString(16), sp2.charCodeAt(3).toString(16));

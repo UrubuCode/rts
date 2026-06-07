@@ -1,0 +1,15 @@
+let obj: any = { a: 1, b: 2, c: 3 };
+console.log(delete obj.b);
+console.log(obj.a + "," + obj.b + "," + obj.c);
+console.log("b" in obj);
+let arr: any = [10, 20, 30];
+console.log(delete arr[1]);
+console.log(arr.length);
+console.log(arr[1]);
+console.log(1 in arr);
+console.log(delete obj.nonexistent);
+let nested: any = { p: { q: 7 } };
+console.log(delete nested.p.q);
+console.log("q" in nested.p);
+console.log(delete obj["a"]);
+console.log("a" in obj);

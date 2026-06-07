@@ -1,0 +1,12 @@
+const a = "é";
+const b = "é";
+console.log(a.length, b.length);
+console.log(a === b);
+console.log(a.normalize("NFC") === b.normalize("NFC"));
+console.log(a.normalize("NFD") === b.normalize("NFD"));
+console.log(a.normalize("NFC").length, a.normalize("NFD").length);
+console.log("ﬁ".normalize("NFKC"));
+console.log("①".normalize("NFKC"));
+console.log("½".normalize("NFKC"));
+console.log("A".normalize("NFC") === "A");
+console.log("ẛ̣".normalize("NFC").length);

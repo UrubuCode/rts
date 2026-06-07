@@ -1,0 +1,13 @@
+console.log(2 ** 3 ** 2);
+console.log((2 ** 3) ** 2);
+console.log(2 ** 2 ** 3);
+console.log(4 ** 0.5);
+console.log(-(2 ** 2));
+let a = 2;
+a **= 3;
+console.log(a);
+let b = 3;
+b **= 2 ** 1;
+console.log(b);
+console.log(2 ** -2);
+console.log(10 ** 1 ** 0);

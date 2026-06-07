@@ -1,0 +1,15 @@
+console.log(typeof null);
+console.log(typeof undefined);
+console.log(typeof function () {});
+console.log(typeof Symbol());
+console.log(typeof Symbol.iterator);
+console.log(typeof 1);
+console.log(typeof "s");
+console.log(typeof true);
+console.log(typeof {});
+console.log(typeof []);
+console.log(typeof class {});
+console.log(typeof NaN);
+console.log(typeof (() => {}));
+console.log(typeof Math);
+console.log(typeof typeof null);

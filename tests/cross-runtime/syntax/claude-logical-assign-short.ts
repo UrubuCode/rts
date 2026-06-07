@@ -1,0 +1,21 @@
+let log: string[] = [];
+function rhs(tag: string, val: number): number { log.push(tag); return val; }
+let a = 1;
+a &&= rhs("A", 2);
+console.log(a);
+let b = 0;
+b &&= rhs("B", 9);
+console.log(b);
+let c: any = null;
+c ??= rhs("C", 7);
+console.log(c);
+let d: any = 5;
+d ??= rhs("D", 99);
+console.log(d);
+let e = 0;
+e ||= rhs("E", 3);
+console.log(e);
+let f = 8;
+f ||= rhs("F", 100);
+console.log(f);
+console.log(log.join(","));

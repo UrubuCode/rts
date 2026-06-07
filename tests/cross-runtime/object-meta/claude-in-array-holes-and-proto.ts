@@ -1,0 +1,16 @@
+const sparse = [1, , 3];
+console.log(0 in sparse, 1 in sparse, 2 in sparse);
+console.log(sparse.length);
+console.log("length" in sparse);
+const o = { a: undefined };
+console.log("a" in o);
+console.log(o.a === undefined);
+console.log("hasOwnProperty" in o);
+const child = Object.create({ p: 1 });
+console.log("p" in child, child.hasOwnProperty("p"));
+console.log("p" in Object.create(child));
+console.log("constructor" in {});
+console.log("toString" in {});
+const noProto = Object.create(null);
+noProto.x = 1;
+console.log("x" in noProto, "toString" in noProto);

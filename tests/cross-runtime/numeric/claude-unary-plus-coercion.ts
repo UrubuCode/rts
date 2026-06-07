@@ -1,0 +1,13 @@
+console.log(+"42");
+console.log(+"  7  ");
+console.log(+"");
+console.log(+"3.14");
+console.log(+"0x1F");
+console.log(+"1e3");
+console.log(+"   ");
+console.log(+"12px");
+console.log(+true);
+console.log(+false);
+console.log(+null);
+console.log(+"Infinity");
+console.log(+"-0");

@@ -1,0 +1,14 @@
+let obj: any = null;
+let r1 = obj?.a.b.c;
+console.log(r1);
+let r2 = obj?.fn();
+console.log(r2);
+let outer: any = { inner: null };
+let r3 = outer.inner?.deep.value;
+console.log(r3);
+let a: any = { b: { c: () => 42 } };
+console.log(a?.b?.c?.());
+let nul: any = undefined;
+console.log(nul?.["key"]);
+let host: any = { m: null };
+console.log(host?.m?.(123));

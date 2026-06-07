@@ -1,0 +1,10 @@
+console.log("a" + 1 + true);
+console.log(1 + 2 + "x" + 3 + 4);
+console.log("" + [1, 2, 3]);
+console.log("" + {});
+console.log("" + [null, undefined, 1]);
+console.log("" + [[1], [2, [3]]]);
+console.log("n" + null + "u" + undefined);
+console.log("b" + true + false);
+console.log("" + (1 / 0) + "," + (-1 / 0) + "," + (0 / 0));
+console.log("x".concat("y", 1 as any, true as any, null as any));

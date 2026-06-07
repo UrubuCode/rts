@@ -1,0 +1,16 @@
+const s = "hello";
+console.log(s.at(0));
+console.log(s.at(-1));
+console.log(s.at(-2));
+console.log(s.at(4));
+console.log(String(s.at(5)));
+console.log(s.at(-5));
+console.log(String(s.at(-6)));
+console.log(String(s.at(10)));
+console.log(s.at(-0));
+const emoji = "a\u{1F600}b";
+console.log(emoji.at(0));
+console.log(emoji.at(-1));
+console.log(emoji.at(1).charCodeAt(0).toString(16));
+console.log(emoji.at(1).length);
+console.log(String(emoji.at(100)));

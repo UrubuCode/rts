@@ -1,0 +1,14 @@
+const o = {};
+o.b = 1;
+o["2"] = 2;
+o.a = 3;
+o["10"] = 4;
+o["1"] = 5;
+o.c = 6;
+o["0"] = 7;
+console.log(Object.keys(o).join(","));
+const lit = { z: 1, "5": 2, y: 3, "3": 4, x: 5, "100": 6 };
+console.log(Object.keys(lit).join(","));
+console.log(Object.values(lit).join(","));
+const mixed = { "01": 1, "1": 2, "-1": 3, "1.5": 4, "9": 5 };
+console.log(Object.keys(mixed).join(","));

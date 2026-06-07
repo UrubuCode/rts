@@ -1,0 +1,16 @@
+const s = "a\u{1F600}b";
+console.log(s.length);
+console.log([...s].length);
+console.log(JSON.stringify([...s]));
+let byFor = "";
+for (const ch of s) byFor += ch + "|";
+console.log(byFor);
+const cps: number[] = [];
+for (const ch of s) cps.push(ch.codePointAt(0)!);
+console.log(JSON.stringify(cps));
+console.log(s.charCodeAt(1).toString(16));
+console.log(s.charCodeAt(2).toString(16));
+console.log(s.codePointAt(1));
+console.log(String.fromCodePoint(0x1F600) === "\u{1F600}");
+console.log(Array.from("\u{1F468}‍\u{1F469}").length);
+console.log([..."é"].length);

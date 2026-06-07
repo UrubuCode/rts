@@ -1,0 +1,13 @@
+const a = [1, , 3, , 5];
+console.log(a.length);
+const doubled = a.map(x => x * 2);
+console.log(doubled.length);
+console.log(1 in doubled);
+console.log(doubled.join(","));
+console.log(String(doubled));
+let count = 0;
+a.forEach(() => { count++; });
+console.log(count);
+const filtered = a.filter(() => true);
+console.log(filtered.length);
+console.log(filtered.join(","));

@@ -1,0 +1,11 @@
+console.log(JSON.stringify("a,b,c".split(",")));
+console.log(JSON.stringify("a1b2c3".split(/\d/)));
+console.log(JSON.stringify("a1b2c3".split(/\d/, 2)));
+console.log(JSON.stringify("a,b,c,d".split(",", 2)));
+console.log(JSON.stringify("hello".split("")));
+console.log(JSON.stringify("".split(",")));
+console.log(JSON.stringify("abc".split(/(b)/)));
+console.log(JSON.stringify("a-b-c".split(/(-)/)));
+console.log(JSON.stringify("2023-01-02".split(/(\d+)/)));
+console.log(JSON.stringify("xxx".split(/x*/)));
+console.log(JSON.stringify("abc".split(undefined as any)));

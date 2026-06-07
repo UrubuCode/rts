@@ -1,0 +1,10 @@
+const a = [1, NaN, 3, NaN, 5];
+console.log(a.indexOf(NaN));
+console.log(a.includes(NaN));
+console.log(a.lastIndexOf(NaN));
+const b = [0, -0, 1];
+console.log(b.indexOf(-0));
+console.log(b.indexOf(0));
+console.log(b.includes(-0));
+console.log(Object.is(b[1], -0));
+console.log(1 / b[1]);
