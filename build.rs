@@ -6,7 +6,12 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
-    let entry = manifest.join("src").join("namespaces").join("rt_all.rs");
+    let entry = manifest
+        .join("crates")
+        .join("rts-runtime")
+        .join("src")
+        .join("namespaces")
+        .join("rt_all.rs");
 
     // Output name: rustc uses the crate name for staticlib output when -o is explicit.
     // We request a plain `.a`; on Windows rust-lld also accepts COFF `.a` archives.
@@ -44,6 +49,26 @@ fn main() {
     if let Some(h) = rlib_hash(&anchor_rlib, "libactix_web-") {
         anchor_hashes.insert(h.to_string());
     }
+    // PRIMARY anchor: the archive now compiles the canonical `rts-runtime`
+    // namespace tree, so every dependency MUST resolve to the exact variant
+    // (version + feature set) that `rts-runtime` itself was built against —
+    // otherwise we get skew like ureq 2 vs 3, `time` without `local-offset`,
+    // or a serde_core that json5 wasn't compiled for. The rts_runtime rlib
+    // references precisely those variants' hashes.
+    //
+    // `strict_hashes` keeps ONLY rts_runtime's references. The serde family is
+    // resolved against it (not the broad `anchor_hashes` union) because release
+    // builds carry two `serde_core` variants — a host one pulled by actix's
+    // proc-macro chain and the target one rts_runtime/json5 link. The broad
+    // union contains both, so a plain lookup can grab the host variant and break
+    // json5's `Deserialize` impls (E0277). The strict set contains only the
+    // target variant.
+    let strict_hashes: HashSet<String> = find_rlib_named(&deps_dir, "librts_runtime-")
+        .map(|r| extract_referenced_hashes(&r))
+        .unwrap_or_default();
+    for h in &strict_hashes {
+        anchor_hashes.insert(h.clone());
+    }
     // Tokio is target-only and pulled by actix-web; use it as a secondary
     // anchor source so deps not directly referenced by actix_web (rayon, regex,
     // rustls, webpki_roots, fltk transitives) still get a robust hash set on
@@ -62,6 +87,17 @@ fn main() {
             )
         })
     };
+    // Strict resolver for the serde family: only rts_runtime's exact variants,
+    // never the host proc-macro variant. Falls back to the broad lookup if the
+    // strict set is empty (e.g. rts_runtime rlib not found yet).
+    let must_find_strict = |prefix: &str, role: &str| -> PathBuf {
+        if !strict_hashes.is_empty() {
+            if let Some(p) = find_rlib_with_anchor(&deps_dir, prefix, &strict_hashes) {
+                return p;
+            }
+        }
+        must_find(prefix, role)
+    };
     let rts_abi_rlib = must_find("librts_abi-", "abi");
     let fltk_rlib = must_find("libfltk-", "ui");
     let regex_rlib = must_find("libregex-", "regex");
@@ -69,9 +105,9 @@ fn main() {
     let rayon_core_rlib = must_find("librayon_core-", "parallel");
     let rustls_rlib = must_find("librustls-", "tls");
     let webpki_roots_rlib = must_find("libwebpki_roots-", "tls");
-    let serde_json_rlib = must_find("libserde_json-", "json");
-    let serde_rlib = must_find("libserde-", "json");
-    let serde_core_rlib = must_find("libserde_core-", "json");
+    let serde_json_rlib = must_find_strict("libserde_json-", "json");
+    let serde_rlib = must_find_strict("libserde-", "json");
+    let serde_core_rlib = must_find_strict("libserde_core-", "json");
     let indexmap_rlib = must_find("libindexmap-", "collections");
     let hashbrown_rlib = must_find("libhashbrown-", "collections");
     let equivalent_rlib = must_find("libequivalent-", "collections");
@@ -135,6 +171,36 @@ fn main() {
     cmd.arg("--extern")
         .arg(format!("tokio={}", tokio_rlib.display()));
 
+    // Remaining direct dependencies of the canonical `rts-runtime` namespace
+    // source. The archive now compiles the full namespace tree (mirroring
+    // rts-runtime's lib.rs), so every crate the namespaces `use` must be
+    // resolvable here. Anchor-aware lookup with mtime fallback (single-variant
+    // target-only crates take the fallback path).
+    // json5 links serde_core directly, so resolve it strictly too (same reason
+    // as the serde family above).
+    let json5_rlib = must_find_strict("libjson5-", "json");
+    cmd.arg("--extern")
+        .arg(format!("json5={}", json5_rlib.display()));
+    let extra_externs: &[(&str, &str, &str)] = &[
+        ("anyhow", "libanyhow-", "errors"),
+        ("sha2", "libsha2-", "crypto"),
+        ("fancy_regex", "libfancy_regex-", "regex"),
+        ("unicode_normalization", "libunicode_normalization-", "string"),
+        ("actix_rt", "libactix_rt-", "http_server"),
+        ("colored", "libcolored-", "fmt"),
+        ("notify", "libnotify-", "runtime"),
+        ("flate2", "libflate2-", "compress"),
+        ("tar", "libtar-", "archive"),
+        ("ureq", "libureq-", "fetch"),
+        ("slotmap", "libslotmap-", "gc"),
+        ("rustc_hash", "librustc_hash-", "collections"),
+        ("time", "libtime-", "date"),
+    ];
+    for (name, prefix, role) in extra_externs {
+        let rlib = must_find(prefix, role);
+        cmd.arg("--extern").arg(format!("{name}={}", rlib.display()));
+    }
+
     let status = cmd
         .status()
         .unwrap_or_else(|e| panic!("failed to invoke rustc for runtime_support: {e}"));
@@ -149,42 +215,11 @@ fn main() {
     // embed-bitcode=no above removes bitcode from our own objects; this handles the rest.
     strip_bitcode_from_archive(&output);
 
-    println!("cargo:rerun-if-changed=src/namespaces/gc/");
-    println!("cargo:rerun-if-changed=src/namespaces/io/");
-    println!("cargo:rerun-if-changed=src/namespaces/json/");
-    println!("cargo:rerun-if-changed=src/namespaces/date/");
-    println!("cargo:rerun-if-changed=src/namespaces/fs/");
-    println!("cargo:rerun-if-changed=src/namespaces/math/");
-    println!("cargo:rerun-if-changed=src/namespaces/num/");
-    println!("cargo:rerun-if-changed=src/namespaces/mem/");
-    println!("cargo:rerun-if-changed=src/namespaces/backtrace/");
-    println!("cargo:rerun-if-changed=src/namespaces/alloc/");
-    println!("cargo:rerun-if-changed=src/namespaces/bigfloat/");
-    println!("cargo:rerun-if-changed=src/namespaces/time/");
-    println!("cargo:rerun-if-changed=src/namespaces/env/");
-    println!("cargo:rerun-if-changed=src/namespaces/path/");
-    println!("cargo:rerun-if-changed=src/namespaces/buffer/");
-    println!("cargo:rerun-if-changed=src/namespaces/string/");
-    println!("cargo:rerun-if-changed=src/namespaces/process/");
-    println!("cargo:rerun-if-changed=src/namespaces/ptr/");
-    println!("cargo:rerun-if-changed=src/namespaces/os/");
-    println!("cargo:rerun-if-changed=src/namespaces/collections/");
-    println!("cargo:rerun-if-changed=src/namespaces/hash/");
-    println!("cargo:rerun-if-changed=src/namespaces/hint/");
-    println!("cargo:rerun-if-changed=src/namespaces/fmt/");
-    println!("cargo:rerun-if-changed=src/namespaces/crypto/");
-    println!("cargo:rerun-if-changed=src/namespaces/regex/");
-    println!("cargo:rerun-if-changed=src/namespaces/ui/");
-    println!("cargo:rerun-if-changed=src/namespaces/runtime/");
-    println!("cargo:rerun-if-changed=src/namespaces/atomic/");
-    println!("cargo:rerun-if-changed=src/namespaces/sync/");
-    println!("cargo:rerun-if-changed=src/namespaces/thread/");
-    println!("cargo:rerun-if-changed=src/namespaces/parallel/");
-    println!("cargo:rerun-if-changed=src/namespaces/net/");
-    println!("cargo:rerun-if-changed=src/namespaces/tls/");
-    println!("cargo:rerun-if-changed=src/namespaces/http_server/");
-    println!("cargo:rerun-if-changed=src/namespaces/rt_all.rs");
-    println!("cargo:rerun-if-changed=src/nodespace/");
+    // The archive now compiles the canonical namespace source directly from
+    // `rts-runtime` (no more stale `src/namespaces` copy). Watch the whole tree
+    // plus the shared tokio runtime module the namespaces depend on.
+    println!("cargo:rerun-if-changed=crates/rts-runtime/src/namespaces/");
+    println!("cargo:rerun-if-changed=crates/rts-runtime/src/runtime/");
     println!("cargo:rerun-if-changed=build.rs");
 }
 
