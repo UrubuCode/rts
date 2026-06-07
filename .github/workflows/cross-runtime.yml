@@ -1,18 +1,19 @@
 name: Cross-Runtime Parity
 
+# Reusable workflow: called by "Build Artifacts" after the `build` job, so it
+# reuses the already-compiled rts binary instead of building its own. The caller
+# owns the push/PR/schedule triggers and grants the permissions below.
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-  schedule:
-    # Semanal segunda 00:00 BRT (03:00 UTC) para detectar regressoes
-    # em deps (Bun/Node) sem afetar horario comercial.
-    - cron: "0 3 * * 1"
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: "Artifact version tag produced by the build job"
+        required: true
+        type: string
 
 permissions:
-  contents: write    # auto-update do README
-  issues: write      # auto-create de issue em divergencia
+  contents: write       # auto-update do README badge
+  issues: write         # auto-create de issue em divergencia
   pull-requests: write  # comentar em PR
 
 jobs:
@@ -37,10 +38,19 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Build RTS (release)
-        uses: ./.github/actions/build-rts
+      # Reuse the binary the `build` job already compiled (no recompile here).
+      - name: Download rts binary
+        uses: actions/download-artifact@v4
         with:
-          profile: release
+          name: rts-${{ inputs.version }}-Linux-X64
+          path: bin
+
+      - name: Stage binary
+        run: |
+          mkdir -p target/release
+          f=$(find bin -type f | head -1)
+          cp "$f" target/release/rts
+          chmod +x target/release/rts
 
       - name: Run cross-runtime check
         id: cross
