@@ -1,8 +1,10 @@
 name: Setup Rust
 description: >
-  Shared toolchain setup for every RTS job — stable Rust, platform build deps
-  (FLTK on Linux, MSVC env on Windows) and the cargo build cache. Run it right
-  after `actions/checkout`.
+  Shared toolchain setup for every RTS job — stable Rust, FLTK build deps on
+  Linux, and the cargo build cache. Run it right after `actions/checkout`.
+  NOTE: Windows MSVC env (ilammy/msvc-dev-cmd) is intentionally NOT here — the
+  env vars it exports via GITHUB_ENV do not propagate out of a composite action
+  reliably, so the only job that builds on Windows sets it up directly.
 
 runs:
   using: composite
@@ -19,10 +21,6 @@ runs:
           libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev \
           libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev \
           libglu1-mesa-dev libfontconfig1-dev libcairo2-dev jq
-
-    - name: Setup MSVC env (Windows)
-      if: runner.os == 'Windows'
-      uses: ilammy/msvc-dev-cmd@v1
 
     - name: Cache cargo build
       uses: Swatinem/rust-cache@v2

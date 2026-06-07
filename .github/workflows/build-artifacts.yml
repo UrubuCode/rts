@@ -45,6 +45,13 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      # MSVC env must be a job step: env it exports via GITHUB_ENV does not
+      # propagate out of a composite action, so the bundled link.exe stays off
+      # PATH and build.rs fails to link.
+      - name: Setup MSVC env (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Build release
         uses: ./.github/actions/build-rts
         with:
