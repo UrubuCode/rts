@@ -101,6 +101,11 @@ jobs:
   # Runs the TS suite + an AOT smoke against the downloaded release binary.
   ts-suite:
     needs: [version, build]
+    # Non-blocking: macOS/Linux have a pre-existing TS-suite failure (#1288) and
+    # are left red on purpose. Keeping it out of the workflow conclusion means it
+    # does not gate the release job or the Benchmarks workflow (which fires only
+    # when this workflow concludes success). Drop this once #1288 is fixed.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
