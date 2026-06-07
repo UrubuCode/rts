@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="RTS — TypeScript que voa" width="220" />
+<img src=".github/imgs/logo.png" alt="RTS — TypeScript que voa" width="220" />
 
 # `rts_`
 
@@ -355,7 +355,6 @@ Compatibilidade completa com Node está em #226 (epic tracking).
 
 ## 📚 Documentação
 
-- 📘 [`BLOG_POST.md`](BLOG_POST.md) — visão geral pra dev externo
 - 🛠️ [`CLAUDE.md`](CLAUDE.md) — arquitetura interna + regras do codebase
 - 📖 [`docs/specs/`](docs/specs/) — specs técnicas de features
 - 🗺️ [`RTS_REFACTOR.md`](RTS_REFACTOR.md) — plano canônico do refator em workspace de crates
