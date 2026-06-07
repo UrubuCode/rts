@@ -63,9 +63,23 @@ fn main() {
     // union contains both, so a plain lookup can grab the host variant and break
     // json5's `Deserialize` impls (E0277). The strict set contains only the
     // target variant.
-    let strict_hashes: HashSet<String> = find_rlib_named(&deps_dir, "librts_runtime-")
+    let mut strict_hashes: HashSet<String> = find_rlib_named(&deps_dir, "librts_runtime-")
         .map(|r| extract_referenced_hashes(&r))
         .unwrap_or_default();
+    // serde_core is a TRANSITIVE dep (via serde), so its hash is not in
+    // rts_runtime's direct-dep references — the strict set would miss it and the
+    // serde_core lookup would fall back to the broad union, which on CI Windows
+    // (two serde_core variants: host proc-macro + target) picked the host one and
+    // broke json5's Deserialize impls (E0277). json5 and serde_json are
+    // target-only single-variant crates that DIRECTLY reference the target
+    // serde_core, so folding their references pins the correct variant.
+    for prefix in ["libjson5-", "libserde_json-"] {
+        if let Some(r) = find_rlib_named(&deps_dir, prefix) {
+            for h in extract_referenced_hashes(&r) {
+                strict_hashes.insert(h);
+            }
+        }
+    }
     for h in &strict_hashes {
         anchor_hashes.insert(h.clone());
     }
@@ -196,8 +210,13 @@ fn main() {
         ("rustc_hash", "librustc_hash-", "collections"),
         ("time", "libtime-", "date"),
     ];
+    // All of these are direct deps of rts-runtime, so their exact (version +
+    // feature) variant is pinned in `strict_hashes`. Resolve strictly so e.g.
+    // `time` lands on the `local-offset`-enabled build (UtcOffset::
+    // current_local_offset, E0599 otherwise) and `ureq` on the 2.x rts-runtime
+    // links rather than a stray 3.x in the deps dir.
     for (name, prefix, role) in extra_externs {
-        let rlib = must_find(prefix, role);
+        let rlib = must_find_strict(prefix, role);
         cmd.arg("--extern").arg(format!("{name}={}", rlib.display()));
     }
 
