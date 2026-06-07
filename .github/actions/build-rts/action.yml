@@ -1,0 +1,25 @@
+name: Build RTS
+description: >
+  Build the `rts` binary. The AOT runtime archive is a two-step build: Cargo only
+  emits rts-runtime's `staticlib` output (which build.rs embeds) when rts-runtime
+  is a direct target, so it is built first, then the `rts` bin picks it up.
+
+inputs:
+  profile:
+    description: "release | dev"
+    required: false
+    default: release
+
+runs:
+  using: composite
+  steps:
+    - name: Build rts-runtime staticlib + rts
+      shell: bash
+      run: |
+        if [ "${{ inputs.profile }}" = "release" ]; then
+          cargo build --release -p rts-runtime
+          cargo build --release
+        else
+          cargo build -p rts-runtime
+          cargo build
+        fi

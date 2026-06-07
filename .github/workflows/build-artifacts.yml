@@ -33,38 +33,22 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     runs-on: ${{ matrix.os }}
+    # Job-level so the build composite's cargo invocation sees it (step-level env
+    # on a `uses:` step is not forwarded into composite action steps).
+    env:
+      RTS_BUILD_VERSION: ${{ needs.version.outputs.version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install FLTK system deps (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxext-dev libxft-dev libxinerama-dev \
-            libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev \
-            libglu1-mesa-dev libfontconfig1-dev libcairo2-dev
-
-      - name: Setup MSVC env (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+        uses: ./.github/actions/setup-rust
 
       - name: Build release
-        env:
-          RTS_BUILD_VERSION: ${{ needs.version.outputs.version }}
-        # Two-step: Cargo only emits rts-runtime's `staticlib` output (the AOT
-        # runtime archive that build.rs embeds) when rts-runtime is a direct
-        # target, so build it first; then the `rts` build.rs picks it up.
-        run: |
-          cargo build --release -p rts-runtime
-          cargo build --release
+        uses: ./.github/actions/build-rts
+        with:
+          profile: release
 
       - name: Smoke test — rts run (JIT)
         run: target/release/rts run bench/pi_machin.ts
