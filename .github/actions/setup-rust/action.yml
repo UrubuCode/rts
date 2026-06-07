@@ -1,0 +1,35 @@
+name: Setup Rust
+description: >
+  Shared toolchain setup for every RTS job — stable Rust, FLTK build deps on
+  Linux, and the cargo build cache. Run it right after `actions/checkout`.
+  NOTE: Windows MSVC env (ilammy/msvc-dev-cmd) is intentionally NOT here — the
+  env vars it exports via GITHUB_ENV do not propagate out of a composite action
+  reliably, so the only job that builds on Windows sets it up directly.
+
+runs:
+  using: composite
+  steps:
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install FLTK system deps (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev \
+          libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev \
+          libglu1-mesa-dev libfontconfig1-dev libcairo2-dev jq
+
+    - name: Cache cargo build
+      uses: Swatinem/rust-cache@v2
+      with:
+        # Share ONE cache across every job/workflow on the same OS (the default
+        # keys per job, fragmenting the cache). One job warms it, the rest reuse.
+        shared-key: rts-${{ runner.os }}
+        # Only `main` writes the canonical cache; PRs restore it read-only.
+        # GitHub scopes caches by branch — a PR can read the base/default branch
+        # cache but not another PR's, so keeping main warm is what lets every PR
+        # skip recompiling the heavy deps (cranelift, swc, actix, fltk).
+        save-if: ${{ github.ref == 'refs/heads/main' }}

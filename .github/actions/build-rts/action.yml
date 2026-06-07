@@ -1,0 +1,46 @@
+name: Build RTS
+description: >
+  Build the `rts` binary. The AOT runtime archive is a two-step build: Cargo only
+  emits rts-runtime's `staticlib` output (which build.rs embeds) when rts-runtime
+  is a direct target, so it is built first, then the `rts` bin picks it up.
+
+inputs:
+  profile:
+    description: "release | dev"
+    required: false
+    default: release
+
+runs:
+  using: composite
+  steps:
+    # On Windows we MUST NOT use git-bash: it puts `C:\Program Files\Git\usr\bin`
+    # ahead on PATH, so rustc picks up MSYS `link.exe` instead of the MSVC linker
+    # and the build script fails to link. pwsh keeps the MSVC env (msvc-dev-cmd)
+    # intact.
+    - name: Build (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        if [ "${{ inputs.profile }}" = "release" ]; then
+          cargo build --release -p rts-runtime
+          cargo build --release
+        else
+          cargo build -p rts-runtime
+          cargo build
+        fi
+
+    - name: Build (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        if ('${{ inputs.profile }}' -eq 'release') {
+          cargo build --release -p rts-runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } else {
+          cargo build -p rts-runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
