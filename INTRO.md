@@ -140,8 +140,7 @@ target/release/rts.exe compile -p meu_programa.ts saida
 ./saida.exe
 ```
 
-Exemplos prontos em `examples/`. Documentação detalhada em `README.md`
-e `BLOG_POST.md`.
+Exemplos prontos em `examples/`. Documentação detalhada em `README.md`.
 
 ## RTS vs concorrentes — onde RTS ganha
 
@@ -349,7 +348,6 @@ de C**, sem abrir mão da sintaxe. E dá. Os números provam.
 
 **Quer ver o código?** github.com/UrubuCode/rts
 
-**Quer entender mais?** Leia `BLOG_POST.md` (técnico) ou `README.md`
-(referência completa).
+**Quer entender mais?** Leia `README.md` (referência completa).
 
 **Tem dúvida?** Abre uma issue no GitHub.

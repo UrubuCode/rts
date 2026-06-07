@@ -1345,7 +1345,6 @@ Maior ganho: código TS natural sem anotações + código de baixo nível (buffe
 ## Referências
 
 - `docs/specs/cranelift-explications.md` — guia completo da API Cranelift 0.131
-- `PERRY_ANALYSIS.md` — análise comparativa PerryTS vs RTS
 - `docs/specs/silent-parallelism.md` — passes AST a migrar para `rts-parser`
 - `docs/specs/async-promise-function.md` — subsistema async (permanece em `rts-runtime`)
 - Issues: #90 (block params), #96 (otimizações pendentes), #97 (function pointers)
