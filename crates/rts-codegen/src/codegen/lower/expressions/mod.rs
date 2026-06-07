@@ -1069,13 +1069,22 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         // inteiro (`a: number = 100`) ou vem de chamada de metodo
         // (`this.#k = this.#toKelvin(c)`).
         let dest_field_is_f64 = assign_target_field_is_f64(ctx, m);
+        // (audio/float-array) Alvo eh `arr[i]` onde `arr` eh array local
+        // registrado com elem-type F64? Entao o RHS — mesmo sendo expressao
+        // (nao literal), e.g. `ph[i] + freq[i]/sr` — carrega um valor f64 que
+        // precisa ser GUARDADO como bits de f64 (bitcast), nunca truncado via
+        // fcvt_to_sint_sat. Sem isto, write de soma de slots f64 trunca a fracao.
+        let dest_is_f64_array = matches!(&m.prop, MemberProp::Computed(_))
+            && matches!(m.obj.as_ref(), Expr::Ident(id)
+                if matches!(ctx.local_array_elem_ty.get(id.sym.as_str()), Some(ValTy::F64)));
         // True quando `rhs_i64` carrega os BITS de um f64 (via bitcast), nao
         // um inteiro logico. Usado no dispatch de setter virtual para escolher
         // bitcast vs fcvt ao coagir para um param F64 (cross-runtime 38 vs
         // super_field_setter, que trata `number` como i64 logico).
         let rhs_i64_is_f64_bits = dest_field_is_f64
             || (matches!(rhs.ty, ValTy::F64)
-                && rhs_is_non_integer_float_lit(final_rhs_expr.as_ref()));
+                && (rhs_is_non_integer_float_lit(final_rhs_expr.as_ref())
+                    || dest_is_f64_array));
         let rhs_i64 = if dest_field_is_f64 {
             let f = to_f64(ctx, rhs);
             ctx.builder.ins().bitcast(
@@ -1084,14 +1093,17 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                 f,
             )
         } else if matches!(rhs.ty, ValTy::F64)
-            && rhs_is_non_integer_float_lit(final_rhs_expr.as_ref())
+            && (rhs_is_non_integer_float_lit(final_rhs_expr.as_ref()) || dest_is_f64_array)
         {
             // (#1051) RHS literal float nao-inteiro em campo sem F64 conhecido
             // (objeto generico). INSPECT/TPL_COERCE_AUTO detectam |v|>2^53.
+            // (audio/float-array) Ou RHS f64 (qualquer expressao) num array F64:
+            // guarda os bits de f64 via bitcast (a leitura tipada desfaz).
+            let f = to_f64(ctx, rhs);
             ctx.builder.ins().bitcast(
                 cranelift_codegen::ir::types::I64,
                 cranelift_codegen::ir::MemFlags::new(),
-                rhs.val,
+                f,
             )
         } else {
             ctx.coerce_to_i64(rhs).val
@@ -1205,8 +1217,15 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     // (literal Num) -> VEC_SET direto. Caso ambiguo (param,
                     // member call result, I64 marcado) cai em OBJ_SET que
                     // detecta tipo (Vec usa numeric, Map usa key handle).
+                    // (audio/float-array) Indice F64 (contador float, e.g.
+                    // `for(let k=0.0;...) arr[k]=...`) tambem eh numerico — mas
+                    // so' roteia direto pra VEC_SET quando o array eh F64-registrado
+                    // (dest_is_f64_array), pra nao mudar a semantica de `obj[floatKey]`
+                    // em objetos genericos (onde key vira property string). coerce_to_i64
+                    // converte F64->i64 via fcvt, dando o indice inteiro correto.
                     let is_clear_num = matches!(c.expr.as_ref(), Expr::Lit(Lit::Num(_)))
-                        || matches!(key_tv.ty, ValTy::I32);
+                        || matches!(key_tv.ty, ValTy::I32)
+                        || (matches!(key_tv.ty, ValTy::F64) && dest_is_f64_array);
                     if is_clear_num {
                         let idx = ctx.coerce_to_i64(key_tv).val;
                         // (audio/float-array) Array com elem-type F64 conhecido:
