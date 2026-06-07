@@ -2739,6 +2739,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rts-abi",
+ "syn",
+]
+
+[[package]]
 name = "rts-mir"
 version = "0.1.0"
 dependencies = [

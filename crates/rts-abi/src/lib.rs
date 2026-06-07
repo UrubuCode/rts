@@ -5,6 +5,7 @@ pub mod js_error;
 pub mod member;
 pub mod signature;
 pub mod symbols;
+pub mod ty;
 pub mod types;
 
 pub use global_class::GlobalClassSpec;
