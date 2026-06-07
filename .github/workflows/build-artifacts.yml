@@ -91,6 +91,43 @@ jobs:
           path: dist/rts-*
           if-no-files-found: error
 
+  # Reuse the binary `build` already compiled — no second toolchain/compile.
+  # Runs the TS suite + an AOT smoke against the downloaded release binary.
+  ts-suite:
+    needs: [version, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download rts binary
+        uses: actions/download-artifact@v4
+        with:
+          name: rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          path: bin
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p target/release
+          f=$(find bin -type f | head -1)
+          cp "$f" target/release/rts
+          chmod +x target/release/rts
+
+      - name: TS suite
+        run: target/release/rts test
+
+      - name: AOT smoke (rts compile)
+        shell: bash
+        run: |
+          echo 'import { io } from "rts"; io.print("smoke ok");' > /tmp/smoke.ts
+          target/release/rts compile /tmp/smoke.ts /tmp/smoke_bin
+          /tmp/smoke_bin
+
   release:
     # So' cria release em push para main (nao em PRs nem dispatch).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
