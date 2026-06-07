@@ -154,7 +154,6 @@ em for-of, em catch, alias `{a: b}`.
 | #301 | var hoisting em fn user | Conflito hoist + var assign — refator declare_local |
 | #304 | toString/valueOf em coercao implicita | Obj literal precisa reify fn como Function handle |
 | #305 | Integer overflow JS spec (i64 wraparound vs f64) | Refator todos os ops aritmeticos |
-| #393 | Integrar gc-arena | 25+ variantes Entry derivar Collect |
 | #411 | Async/await thread-per-fn modelo Node | Promise + event loop |
 | #419 | GC roots completos | Refator scanner |
 | #477 | Generator infinito | State machine real |
