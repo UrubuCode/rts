@@ -1,9 +1,17 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use sha2::{Digest, Sha256};
+
 fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let output = out.join("runtime_support.a");
+    // Embedded artifacts: zstd-compressed archive + sha256 of the *decompressed*
+    // bytes. The compressed blob keeps the shipped `rts` binary small
+    // (~99MB -> ~18MB); the sha lets `ensure_artifacts` skip decompression when
+    // `~/.rts/artifacts.a` is already up to date.
+    let output_zst = out.join("runtime_support.a.zst");
+    let sha_file = out.join("runtime_support.sha256");
 
     // The AOT runtime-support archive is now produced by Cargo itself:
     // `rts-runtime` is built with `crate-type = ["rlib", "staticlib"]`, so Cargo
@@ -57,13 +65,20 @@ fn main() {
             // Strip LLVM bitcode sections so platform linkers (Apple ld) don't
             // trip on bitcode embedded in pre-compiled dependency rlibs.
             strip_bitcode_from_archive(&output);
+            // Compress for embedding + record the decompressed sha256.
+            let raw =
+                std::fs::read(&output).unwrap_or_else(|e| panic!("read {}: {e}", output.display()));
+            std::fs::write(&sha_file, format!("{:x}", Sha256::digest(&raw)))
+                .unwrap_or_else(|e| panic!("write {}: {e}", sha_file.display()));
+            zstd_to(&raw, &output_zst);
             println!("cargo:rerun-if-changed={}", lib.display());
         }
         None => {
-            // PLACEHOLDER_MAGIC must match runtime_objects.rs.
-            std::fs::write(&output, b"!<arch>\nRTS_PLACEHOLDER").unwrap_or_else(|e| {
-                panic!("failed to write placeholder archive {}: {e}", output.display())
-            });
+            // Placeholder: no staticlib at compile time. The .zst is never
+            // decompressed because the sha sentinel makes ensure_artifacts bail.
+            std::fs::write(&sha_file, "PLACEHOLDER")
+                .unwrap_or_else(|e| panic!("write placeholder sha {}: {e}", sha_file.display()));
+            zstd_to(b"", &output_zst);
             println!(
                 "cargo:warning=rts-runtime staticlib not found in {} — embedding a \
                  placeholder. JIT (`rts run`) works; for AOT (`rts compile`) run \
@@ -88,6 +103,14 @@ fn profile_dir_from_out_dir(out_dir: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn zstd_to(raw: &[u8], dest: &Path) {
+    // Level 19: near-max ratio, still reasonable build-time cost. Decompression
+    // speed is level-independent and only runs once (first AOT extraction).
+    let zst =
+        zstd::encode_all(raw, 19).unwrap_or_else(|e| panic!("zstd-compress runtime archive: {e}"));
+    std::fs::write(dest, zst).unwrap_or_else(|e| panic!("write {}: {e}", dest.display()));
 }
 
 fn strip_bitcode_from_archive(archive: &Path) {
