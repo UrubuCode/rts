@@ -1131,67 +1131,67 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         use crate::namespaces::crypto::*;
         add_fn!(
             "__RTS_FN_NS_CRYPTO_RANDOM_BYTES",
-            random::__RTS_FN_NS_CRYPTO_RANDOM_BYTES
+            __RTS_FN_NS_CRYPTO_RANDOM_BYTES
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_RANDOM_I64",
-            random::__RTS_FN_NS_CRYPTO_RANDOM_I64
+            __RTS_FN_NS_CRYPTO_RANDOM_I64
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_RANDOM_BUFFER",
-            random::__RTS_FN_NS_CRYPTO_RANDOM_BUFFER
+            __RTS_FN_NS_CRYPTO_RANDOM_BUFFER
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
-            random::__RTS_FN_NS_CRYPTO_RANDOM_UUID
+            __RTS_FN_NS_CRYPTO_RANDOM_UUID
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_HASH_NEW",
-            hash::__RTS_FN_NS_CRYPTO_HASH_NEW
+            __RTS_FN_NS_CRYPTO_HASH_NEW
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR",
-            hash::__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR
+            __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES",
-            hash::__RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES
+            __RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX",
-            hash::__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX
+            __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64",
-            hash::__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64
+            __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_SHA256_STR",
-            hash::__RTS_FN_NS_CRYPTO_SHA256_STR
+            __RTS_FN_NS_CRYPTO_SHA256_STR
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_SHA256_BYTES",
-            hash::__RTS_FN_NS_CRYPTO_SHA256_BYTES
+            __RTS_FN_NS_CRYPTO_SHA256_BYTES
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_SHA256_DIGEST",
-            hash::__RTS_FN_NS_CRYPTO_SHA256_DIGEST
+            __RTS_FN_NS_CRYPTO_SHA256_DIGEST
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_HEX_ENCODE",
-            encode::__RTS_FN_NS_CRYPTO_HEX_ENCODE
+            __RTS_FN_NS_CRYPTO_HEX_ENCODE
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_HEX_DECODE",
-            encode::__RTS_FN_NS_CRYPTO_HEX_DECODE
+            __RTS_FN_NS_CRYPTO_HEX_DECODE
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_BASE64_ENCODE",
-            encode::__RTS_FN_NS_CRYPTO_BASE64_ENCODE
+            __RTS_FN_NS_CRYPTO_BASE64_ENCODE
         );
         add_fn!(
             "__RTS_FN_NS_CRYPTO_BASE64_DECODE",
-            encode::__RTS_FN_NS_CRYPTO_BASE64_DECODE
+            __RTS_FN_NS_CRYPTO_BASE64_DECODE
         );
     }
 
