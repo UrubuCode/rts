@@ -732,7 +732,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // Boolean class
     {
-        use crate::namespaces::globals::boolean::rt::*;
+        use crate::namespaces::globals::boolean::*;
         add_fn!("__RTS_FN_GL_BOOLEAN_COERCE", __RTS_FN_GL_BOOLEAN_COERCE);
         add_fn!("__RTS_FN_GL_BOOLEAN_TO_STRING", __RTS_FN_GL_BOOLEAN_TO_STRING);
         add_fn!("__RTS_FN_GL_BOOLEAN_VALUE_OF", __RTS_FN_GL_BOOLEAN_VALUE_OF);
