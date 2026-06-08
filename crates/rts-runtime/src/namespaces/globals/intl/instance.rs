@@ -7,7 +7,7 @@
 //! Instance methods read those back and format with fixed English rules,
 //! sufficient to be byte-identical to Node for the supported test cases.
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

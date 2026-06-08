@@ -50,10 +50,12 @@ impl Parse for NsAttr {
     }
 }
 
-/// `#[rts_class(<Name>)]` with optional `prefix = "..."` (symbol stem) and
-/// `spec = "..."` (aggregated const name) overrides.
+/// `#[rts_class(<Ident>)]` with optional `name = "..."` (JS class name when it
+/// can't be a bare ident, e.g. `"Intl.NumberFormat"`), `prefix = "..."` (symbol
+/// stem) and `spec = "..."` (aggregated const name) overrides.
 struct ClassAttr {
     name: Ident,
+    class_name: Option<String>,
     prefix: Option<String>,
     spec: Option<String>,
 }
@@ -61,6 +63,7 @@ struct ClassAttr {
 impl Parse for ClassAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let name: Ident = input.parse()?;
+        let mut class_name = None;
         let mut prefix = None;
         let mut spec = None;
         while input.peek(Token![,]) {
@@ -68,15 +71,25 @@ impl Parse for ClassAttr {
             let key: Ident = input.parse()?;
             input.parse::<Token![=]>()?;
             let val: syn::LitStr = input.parse()?;
-            if key == "prefix" {
+            if key == "name" {
+                class_name = Some(val.value());
+            } else if key == "prefix" {
                 prefix = Some(val.value());
             } else if key == "spec" {
                 spec = Some(val.value());
             } else {
-                return Err(syn::Error::new(key.span(), "expected `prefix` or `spec`"));
+                return Err(syn::Error::new(
+                    key.span(),
+                    "expected `name`, `prefix` or `spec`",
+                ));
             }
         }
-        Ok(ClassAttr { name, prefix, spec })
+        Ok(ClassAttr {
+            name,
+            class_name,
+            prefix,
+            spec,
+        })
     }
 }
 
@@ -487,13 +500,17 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
 pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ClassAttr {
         name: class,
+        class_name,
         prefix,
         spec,
     } = syn::parse_macro_input!(attr as ClassAttr);
     let imp = syn::parse_macro_input!(item as ItemImpl);
 
-    let class_str = class.to_string();
-    let class_upper = class_str.to_uppercase();
+    let ident_str = class.to_string();
+    let class_upper = ident_str.to_uppercase();
+    // The JS-visible class name (the spec's `name` field) — may differ from the
+    // Rust ident (e.g. `"Intl.NumberFormat"` for ident `IntlNumberFormat`).
+    let class_str = class_name.unwrap_or_else(|| ident_str.clone());
     // `prefix` overrides the symbol stem (`__RTS_FN_GL_<PREFIX>_<FN>`) and
     // `spec` the aggregated const name — for classes whose snake-cased symbols
     // (`DOM_EXCEPTION`, `FINREG`) or const (`FINALIZATION_REGISTRY_CLASS_SPEC`)
