@@ -2530,7 +2530,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::asio_audio (feature `asio`) ───────────────────────
     #[cfg(feature = "asio")]
     {
-        use crate::namespaces::asio_audio::ops as asio;
+        use crate::namespaces::asio_audio as asio;
         add_fn!(
             "__RTS_FN_NS_ASIO_AUDIO_IS_AVAILABLE",
             asio::__RTS_FN_NS_ASIO_AUDIO_IS_AVAILABLE
