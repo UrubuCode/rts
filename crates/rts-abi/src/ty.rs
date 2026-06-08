@@ -31,3 +31,9 @@ pub type I32 = i32;
 pub type F64 = f64;
 /// Boolean at the extern "C" boundary (0/1 in an i8).
 pub type Bool = i8;
+
+/// Marker token for a UTF-8 string parameter. `#[rts_fn]` expands a `Str` arg
+/// into two ABI slots `(ptr: *const u8, len: i64)` and reconstructs an `&str`
+/// before the body runs — this type is never instantiated. Valid only as a
+/// parameter (string results are returned as a `Handle`).
+pub enum Str {}

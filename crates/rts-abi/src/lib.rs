@@ -4,6 +4,7 @@ pub mod handles;
 pub mod js_error;
 pub mod member;
 pub mod signature;
+pub mod str_abi;
 pub mod symbols;
 pub mod ty;
 pub mod types;
