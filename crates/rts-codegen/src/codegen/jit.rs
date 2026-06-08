@@ -1989,7 +1989,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_LENGTH_UTF16",     rt::__RTS_FN_GL_STRING_LENGTH_UTF16);
 
     // ── namespaces::globals::number ───────────────────────────────────
-    use crate::namespaces::globals::number::rt as num_rt;
+    use crate::namespaces::globals::number as num_rt;
     add_fn!("__RTS_FN_GL_NUMBER_NEW_FROM",    num_rt::__RTS_FN_GL_NUMBER_NEW_FROM);
     add_fn!("__RTS_FN_GL_NUMBER_NEW_EMPTY",   num_rt::__RTS_FN_GL_NUMBER_NEW_EMPTY);
     add_fn!("__RTS_FN_GL_NUMBER_NEW_BOXED",   num_rt::__RTS_FN_GL_NUMBER_NEW_BOXED);

@@ -1025,12 +1025,12 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 return super::emit_user_fn_addr(ctx, &orig);
             }
         }
-        // Number.* constants — valores vêm de globals::number::abi::number_const_value,
+        // Number.* constants — valores vêm de globals::number::number_const_value,
         // sem hardcode aqui. Codegen emite f64const inline para zero overhead.
         if let Some(prop) = qualified.strip_prefix("Number.") {
             use cranelift_codegen::ir::InstBuilder;
             use crate::codegen::lower::ctx::ValTy;
-            if let Some(v) = crate::namespaces::globals::number::abi::number_const_value(prop) {
+            if let Some(v) = crate::namespaces::globals::number::number_const_value(prop) {
                 let cv = ctx.builder.ins().f64const(v);
                 return Ok(TypedVal::new(cv, ValTy::F64));
             }
