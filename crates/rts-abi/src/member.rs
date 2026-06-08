@@ -99,6 +99,30 @@ pub enum MemberKind {
     InstanceGetter,
 }
 
+/// Concatenates two member slices into one fixed-size array at const time.
+///
+/// Used by namespaces whose members are declared across multiple `#[rts_namespace(ns, part)]`
+/// impl blocks (e.g. `collections` splits `map`/`vec` into separate files). `N`
+/// must equal `a.len() + b.len()`; a mismatch is a const-eval out-of-bounds error
+/// at compile time. Both slices must be non-empty (the array seed is `a[0]`).
+pub const fn concat_members<const N: usize>(
+    a: &[NamespaceMember],
+    b: &[NamespaceMember],
+) -> [NamespaceMember; N] {
+    let mut out = [a[0]; N];
+    let mut i = 0;
+    while i < a.len() {
+        out[i] = a[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < b.len() {
+        out[a.len() + j] = b[j];
+        j += 1;
+    }
+    out
+}
+
 /// A registered namespace exposed through the new ABI.
 #[derive(Debug, Clone, Copy)]
 pub struct NamespaceSpec {

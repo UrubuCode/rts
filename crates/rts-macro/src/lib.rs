@@ -19,7 +19,36 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{FnArg, Ident, ImplItem, ItemImpl, Pat, ReturnType, Type};
+use syn::parse::{Parse, ParseStream};
+use syn::{FnArg, Ident, ImplItem, ItemImpl, Pat, ReturnType, Token, Type};
+
+/// `#[rts_namespace(<name>)]` or `#[rts_namespace(<name>, part)]`.
+///
+/// `part` marks an impl block that contributes members to a namespace split
+/// across several files (e.g. `collections` = `map` + `vec`): the block emits
+/// its externs + a `pub const MEMBERS`, but NOT the `SPEC` — a single owning
+/// module aggregates the parts via `rts_abi::concat_members`.
+struct NsAttr {
+    name: Ident,
+    part: bool,
+}
+
+impl Parse for NsAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        let mut part = false;
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            let kw: Ident = input.parse()?;
+            if kw == "part" {
+                part = true;
+            } else {
+                return Err(syn::Error::new(kw.span(), "expected `part`"));
+            }
+        }
+        Ok(NsAttr { name, part })
+    }
+}
 
 /// Maps the last path segment of a Rust type to `(AbiType variant, TS type)`.
 /// Returns `None` for unrecognised tokens.
@@ -151,7 +180,7 @@ fn default_return(ret_variant: &str) -> proc_macro2::TokenStream {
 /// `#[rts_namespace(<name>)]` on an `impl` block. See module docs.
 #[proc_macro_attribute]
 pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let ns = syn::parse_macro_input!(attr as Ident);
+    let NsAttr { name: ns, part } = syn::parse_macro_input!(attr as NsAttr);
     let imp = syn::parse_macro_input!(item as ItemImpl);
 
     let ns_str = ns.to_string();
@@ -302,18 +331,29 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
         });
     }
 
+    // A `part` impl emits only externs + MEMBERS; the owning module aggregates
+    // the parts into one SPEC via `rts_abi::concat_members`. A non-part impl
+    // emits the full triple (externs + MEMBERS + SPEC) as before.
+    let spec = if part {
+        quote! {}
+    } else {
+        quote! {
+            /// Derived namespace spec — replaces the hand-written `SPEC` const.
+            pub const SPEC: ::rts_abi::NamespaceSpec = ::rts_abi::NamespaceSpec {
+                name: #ns_str,
+                doc: #spec_doc,
+                members: MEMBERS,
+            };
+        }
+    };
+
     let out = quote! {
         #(#externs)*
 
         /// Derived namespace members (`#[rts_namespace]`). Source of truth.
         pub const MEMBERS: &[::rts_abi::NamespaceMember] = &[ #(#members),* ];
 
-        /// Derived namespace spec — replaces the hand-written `SPEC` const.
-        pub const SPEC: ::rts_abi::NamespaceSpec = ::rts_abi::NamespaceSpec {
-            name: #ns_str,
-            doc: #spec_doc,
-            members: MEMBERS,
-        };
+        #spec
     };
     out.into()
 }
