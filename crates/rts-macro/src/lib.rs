@@ -369,6 +369,13 @@ struct ClassFnOpts {
     is_ctor: bool,
     name: Option<String>,
     ts: Option<String>,
+    /// Full symbol override — for members whose Rust fn ident can't match the
+    /// canonical symbol (e.g. JS `for`, a Rust keyword, → `__RTS_FN_GL_SYMBOL_FOR`).
+    symbol: Option<String>,
+    /// When set, `Str` params bind to `Option<&str>` (null/invalid → `None`,
+    /// no early return) instead of `&str`. For optional-string args like
+    /// `new Symbol(description?)` where null means "absent", not "fail".
+    opt_str: bool,
     pure: bool,
     intrinsic: Option<Ident>,
 }
@@ -395,6 +402,8 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
         is_ctor,
         name: None,
         ts: None,
+        symbol: None,
+        opt_str: false,
         pure: false,
         intrinsic: None,
     };
@@ -404,6 +413,8 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
     let _ = attr.parse_nested_meta(|m| {
         if m.path.is_ident("pure") {
             opts.pure = true;
+        } else if m.path.is_ident("opt_str") {
+            opts.opt_str = true;
         } else if m.path.is_ident("name") {
             let v = m.value()?;
             let s: syn::LitStr = v.parse()?;
@@ -412,6 +423,10 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
             let v = m.value()?;
             let s: syn::LitStr = v.parse()?;
             opts.ts = Some(s.value());
+        } else if m.path.is_ident("symbol") {
+            let v = m.value()?;
+            let s: syn::LitStr = v.parse()?;
+            opts.symbol = Some(s.value());
         } else if m.path.is_ident("intrinsic") {
             let v = m.value()?;
             let id: Ident = v.parse()?;
@@ -453,7 +468,10 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         let span = f.sig.ident.span();
         let fn_name = f.sig.ident.to_string();
-        let symbol = format!("__RTS_FN_GL_{class_upper}_{}", fn_name.to_uppercase());
+        let symbol = opts
+            .symbol
+            .clone()
+            .unwrap_or_else(|| format!("__RTS_FN_GL_{class_upper}_{}", fn_name.to_uppercase()));
         let sym_ident = Ident::new(&symbol, span);
         let doc = doc_of(&f.attrs);
 
@@ -502,12 +520,20 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let p_ptr = Ident::new(&format!("{pname}_ptr"), pname_ident.span());
                 let p_len = Ident::new(&format!("{pname}_len"), pname_ident.span());
                 extern_inputs.push(quote! { #p_ptr: *const u8, #p_len: i64 });
-                str_prelude.push(quote! {
-                    let #pname_ident = match unsafe { ::rts_abi::str_abi::from_abi(#p_ptr, #p_len) } {
-                        ::core::option::Option::Some(s) => s,
-                        ::core::option::Option::None => #default_ret,
-                    };
-                });
+                if opts.opt_str {
+                    // Optional string: bind the raw `Option<&str>` (null/invalid
+                    // → None), let the body decide.
+                    str_prelude.push(quote! {
+                        let #pname_ident = unsafe { ::rts_abi::str_abi::from_abi(#p_ptr, #p_len) };
+                    });
+                } else {
+                    str_prelude.push(quote! {
+                        let #pname_ident = match unsafe { ::rts_abi::str_abi::from_abi(#p_ptr, #p_len) } {
+                            ::core::option::Option::Some(s) => s,
+                            ::core::option::Option::None => #default_ret,
+                        };
+                    });
+                }
             } else {
                 extern_inputs.push(quote! { #pt });
             }

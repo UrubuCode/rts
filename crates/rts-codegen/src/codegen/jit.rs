@@ -715,7 +715,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::symbol (#216) ───────────────────────────
     {
-        use crate::namespaces::globals::symbol::rt::*;
+        use crate::namespaces::globals::symbol::*;
         add_fn!("__RTS_FN_GL_SYMBOL_NEW", __RTS_FN_GL_SYMBOL_NEW);
         add_fn!("__RTS_FN_GL_SYMBOL_FOR", __RTS_FN_GL_SYMBOL_FOR);
         add_fn!("__RTS_FN_GL_SYMBOL_KEY_FOR", __RTS_FN_GL_SYMBOL_KEY_FOR);

@@ -51,7 +51,7 @@ fn decode_symbol_key(k: &str) -> Option<u64> {
 /// `Symbol.iterator` (handle sticky cacheado em globals/symbol/rt).
 fn key_is_well_known_iterator(k: &str) -> bool {
     match decode_symbol_key(k) {
-        Some(h) => h == crate::namespaces::globals::symbol::rt::__RTS_FN_GL_SYMBOL_ITERATOR(),
+        Some(h) => h == crate::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR(),
         None => false,
     }
 }
