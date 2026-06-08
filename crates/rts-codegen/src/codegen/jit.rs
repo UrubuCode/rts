@@ -2284,51 +2284,51 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::thread ────────────────────────────────────────────
     {
-        use crate::namespaces::thread::{info as thread_info, join as thread_join, spawn as thread_spawn};
+        use crate::namespaces::thread::*;
         add_fn!(
             "__RTS_FN_NS_THREAD_SPAWN",
-            thread_spawn::__RTS_FN_NS_THREAD_SPAWN
+            __RTS_FN_NS_THREAD_SPAWN
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_SPAWN_WITH_UD",
-            thread_spawn::__RTS_FN_NS_THREAD_SPAWN_WITH_UD
+            __RTS_FN_NS_THREAD_SPAWN_WITH_UD
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_SPAWN_DETACHED",
-            thread_spawn::__RTS_FN_NS_THREAD_SPAWN_DETACHED
+            __RTS_FN_NS_THREAD_SPAWN_DETACHED
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_SPAWN_ASYNC",
-            crate::namespaces::thread::async_spawn::__RTS_FN_NS_THREAD_SPAWN_ASYNC
+            __RTS_FN_NS_THREAD_SPAWN_ASYNC
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN",
-            crate::namespaces::thread::async_spawn::__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN
+            __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_JOIN_ASYNC",
-            crate::namespaces::thread::async_spawn::__RTS_FN_NS_THREAD_JOIN_ASYNC
+            __RTS_FN_NS_THREAD_JOIN_ASYNC
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_SCOPE",
-            thread_spawn::__RTS_FN_NS_THREAD_SCOPE
+            __RTS_FN_NS_THREAD_SCOPE
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_SCOPE_WITH_UD",
-            thread_spawn::__RTS_FN_NS_THREAD_SCOPE_WITH_UD
+            __RTS_FN_NS_THREAD_SCOPE_WITH_UD
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_JOIN",
-            thread_join::__RTS_FN_NS_THREAD_JOIN
+            __RTS_FN_NS_THREAD_JOIN
         );
         add_fn!(
             "__RTS_FN_NS_THREAD_DETACH",
-            thread_join::__RTS_FN_NS_THREAD_DETACH
+            __RTS_FN_NS_THREAD_DETACH
         );
-        add_fn!("__RTS_FN_NS_THREAD_ID", thread_info::__RTS_FN_NS_THREAD_ID);
+        add_fn!("__RTS_FN_NS_THREAD_ID", __RTS_FN_NS_THREAD_ID);
         add_fn!(
             "__RTS_FN_NS_THREAD_SLEEP_MS",
-            thread_info::__RTS_FN_NS_THREAD_SLEEP_MS
+            __RTS_FN_NS_THREAD_SLEEP_MS
         );
     }
 
