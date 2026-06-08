@@ -2334,7 +2334,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::parallel ──────────────────────────────────────────
     {
-        use crate::namespaces::parallel::ops as parallel_ops;
+        use crate::namespaces::parallel as parallel_ops;
         add_fn!(
             "__RTS_FN_NS_PARALLEL_MAP",
             parallel_ops::__RTS_FN_NS_PARALLEL_MAP
