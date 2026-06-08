@@ -82,7 +82,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::time::SPEC,
     &crate::namespaces::env::SPEC,
     &crate::namespaces::path::SPEC,
-    &crate::namespaces::buffer::abi::SPEC,
+    &crate::namespaces::buffer::SPEC,
     &crate::namespaces::ffi::SPEC,
     &crate::namespaces::atomic::SPEC,
     &crate::namespaces::sync::SPEC,

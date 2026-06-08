@@ -2007,7 +2007,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_NUMBER_TO_STRING_RADIX",  num_rt::__RTS_FN_GL_NUMBER_TO_STRING_RADIX);
 
     // ── namespaces::buffer ────────────────────────────────────────────
-    use crate::namespaces::buffer::ops as buf;
+    use crate::namespaces::buffer as buf;
     add_fn!("__RTS_FN_NS_BUFFER_ALLOC", buf::__RTS_FN_NS_BUFFER_ALLOC);
     // ArrayBuffer / DataView (globals, backing buffer ns)
     add_fn!("__RTS_FN_GL_ARRAY_BUFFER_NEW", buf::__RTS_FN_GL_ARRAY_BUFFER_NEW);
