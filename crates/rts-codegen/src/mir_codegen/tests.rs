@@ -803,7 +803,7 @@ fn smoke_strlit_calls_io_stdout_write() {
 
     let mut module = make_jit_with_externs(&[(
         "__RTS_FN_NS_IO_STDOUT_WRITE",
-        rts_runtime::namespaces::io::stdout::__RTS_FN_NS_IO_STDOUT_WRITE as *const u8,
+        rts_runtime::namespaces::io::__RTS_FN_NS_IO_STDOUT_WRITE as *const u8,
     )]);
     let mir = host_conv(mir);
     let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
@@ -1685,6 +1685,16 @@ fn compile_source_via_compile_program(
     let _ = builder.symbol(
         "__RTS_FN_NS_MATH_PI",
         rts_runtime::namespaces::math::__RTS_FN_NS_MATH_PI as *const u8,
+    );
+    // compile_program injeta instrumentação de frame stack (trace.push_frame /
+    // pop_frame) nas user fns; o JIT precisa resolver esses símbolos.
+    let _ = builder.symbol(
+        "__RTS_FN_NS_TRACE_PUSH_FRAME",
+        rts_runtime::namespaces::trace::__RTS_FN_NS_TRACE_PUSH_FRAME as *const u8,
+    );
+    let _ = builder.symbol(
+        "__RTS_FN_NS_TRACE_POP_FRAME",
+        rts_runtime::namespaces::trace::__RTS_FN_NS_TRACE_POP_FRAME as *const u8,
     );
     let mut module = JITModule::new(builder);
 
