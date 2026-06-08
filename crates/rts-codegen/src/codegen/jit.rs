@@ -897,40 +897,40 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::fs ────────────────────────────────────────────────
     use crate::namespaces::fs::*;
-    add_fn!("__RTS_FN_NS_FS_READ", read::__RTS_FN_NS_FS_READ);
-    add_fn!("__RTS_FN_NS_FS_READ_ALL", read::__RTS_FN_NS_FS_READ_ALL);
-    add_fn!("__RTS_FN_NS_FS_READ_TEXT", read::__RTS_FN_NS_FS_READ_TEXT);
-    add_fn!("__RTS_FN_NS_FS_WRITE", write::__RTS_FN_NS_FS_WRITE);
+    add_fn!("__RTS_FN_NS_FS_READ", __RTS_FN_NS_FS_READ);
+    add_fn!("__RTS_FN_NS_FS_READ_ALL", __RTS_FN_NS_FS_READ_ALL);
+    add_fn!("__RTS_FN_NS_FS_READ_TEXT", __RTS_FN_NS_FS_READ_TEXT);
+    add_fn!("__RTS_FN_NS_FS_WRITE", __RTS_FN_NS_FS_WRITE);
     add_fn!(
         "__RTS_FN_NS_FS_WRITE_BYTES",
-        write::__RTS_FN_NS_FS_WRITE_BYTES
+        __RTS_FN_NS_FS_WRITE_BYTES
     );
-    add_fn!("__RTS_FN_NS_FS_APPEND", write::__RTS_FN_NS_FS_APPEND);
-    add_fn!("__RTS_FN_NS_FS_EXISTS", metadata::__RTS_FN_NS_FS_EXISTS);
-    add_fn!("__RTS_FN_NS_FS_IS_FILE", metadata::__RTS_FN_NS_FS_IS_FILE);
-    add_fn!("__RTS_FN_NS_FS_IS_DIR", metadata::__RTS_FN_NS_FS_IS_DIR);
-    add_fn!("__RTS_FN_NS_FS_SIZE", metadata::__RTS_FN_NS_FS_SIZE);
+    add_fn!("__RTS_FN_NS_FS_APPEND", __RTS_FN_NS_FS_APPEND);
+    add_fn!("__RTS_FN_NS_FS_EXISTS", __RTS_FN_NS_FS_EXISTS);
+    add_fn!("__RTS_FN_NS_FS_IS_FILE", __RTS_FN_NS_FS_IS_FILE);
+    add_fn!("__RTS_FN_NS_FS_IS_DIR", __RTS_FN_NS_FS_IS_DIR);
+    add_fn!("__RTS_FN_NS_FS_SIZE", __RTS_FN_NS_FS_SIZE);
     add_fn!(
         "__RTS_FN_NS_FS_MODIFIED_MS",
-        metadata::__RTS_FN_NS_FS_MODIFIED_MS
+        __RTS_FN_NS_FS_MODIFIED_MS
     );
-    add_fn!("__RTS_FN_NS_FS_CREATE_DIR", dir::__RTS_FN_NS_FS_CREATE_DIR);
+    add_fn!("__RTS_FN_NS_FS_CREATE_DIR", __RTS_FN_NS_FS_CREATE_DIR);
     add_fn!(
         "__RTS_FN_NS_FS_CREATE_DIR_ALL",
-        dir::__RTS_FN_NS_FS_CREATE_DIR_ALL
+        __RTS_FN_NS_FS_CREATE_DIR_ALL
     );
-    add_fn!("__RTS_FN_NS_FS_REMOVE_DIR", dir::__RTS_FN_NS_FS_REMOVE_DIR);
+    add_fn!("__RTS_FN_NS_FS_REMOVE_DIR", __RTS_FN_NS_FS_REMOVE_DIR);
     add_fn!(
         "__RTS_FN_NS_FS_REMOVE_DIR_ALL",
-        dir::__RTS_FN_NS_FS_REMOVE_DIR_ALL
+        __RTS_FN_NS_FS_REMOVE_DIR_ALL
     );
     add_fn!(
         "__RTS_FN_NS_FS_REMOVE_FILE",
-        ops::__RTS_FN_NS_FS_REMOVE_FILE
+        __RTS_FN_NS_FS_REMOVE_FILE
     );
-    add_fn!("__RTS_FN_NS_FS_RENAME", ops::__RTS_FN_NS_FS_RENAME);
-    add_fn!("__RTS_FN_NS_FS_COPY", ops::__RTS_FN_NS_FS_COPY);
-    add_fn!("__RTS_FN_NS_FS_READDIR", dir::__RTS_FN_NS_FS_READDIR);
+    add_fn!("__RTS_FN_NS_FS_RENAME", __RTS_FN_NS_FS_RENAME);
+    add_fn!("__RTS_FN_NS_FS_COPY", __RTS_FN_NS_FS_COPY);
+    add_fn!("__RTS_FN_NS_FS_READDIR", __RTS_FN_NS_FS_READDIR);
 
     // ── namespaces::math ──────────────────────────────────────────────
     use crate::namespaces::math::*;
