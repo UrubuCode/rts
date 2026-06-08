@@ -198,7 +198,11 @@ fn str_from_parts(ptr: i64, len: i64) -> &'static str {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_CAN_PARSE(ptr: i64, len: i64) -> i64 {
     let raw = str_from_parts(ptr, len);
-    if ParsedUrl::parse(raw).is_some() { 1 } else { 0 }
+    if ParsedUrl::parse(raw).is_some() {
+        1
+    } else {
+        0
+    }
 }
 
 /// URL.canParse(href, base) — true se href resolve relativo a base.
@@ -206,23 +210,43 @@ pub extern "C" fn __RTS_FN_GL_URL_CAN_PARSE(ptr: i64, len: i64) -> i64 {
 /// com base + "/" + href; retorna true se algum parsa.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_CAN_PARSE_BASE(
-    href_ptr: i64, href_len: i64,
-    base_ptr: i64, base_len: i64,
+    href_ptr: i64,
+    href_len: i64,
+    base_ptr: i64,
+    base_len: i64,
 ) -> i64 {
     let href = str_from_parts(href_ptr, href_len);
     let base = str_from_parts(base_ptr, base_len);
     // Tenta parse direto primeiro (href ja absoluto).
-    if ParsedUrl::parse(href).is_some() { return 1; }
+    if ParsedUrl::parse(href).is_some() {
+        return 1;
+    }
     // base precisa parsar.
-    let Some(base_url) = ParsedUrl::parse(base) else { return 0 };
+    let Some(base_url) = ParsedUrl::parse(base) else {
+        return 0;
+    };
     // Resolve href relativo a base. Para "/x" + "https://example.com",
     // retorna "https://example.com/x". Para path complexo, usa join naive.
     let combined = if href.starts_with('/') {
-        format!("{}://{}{}", base_url.protocol.trim_end_matches(':'), base_url.host(), href)
+        format!(
+            "{}://{}{}",
+            base_url.protocol.trim_end_matches(':'),
+            base_url.host(),
+            href
+        )
     } else {
-        format!("{}://{}/{}", base_url.protocol.trim_end_matches(':'), base_url.host(), href)
+        format!(
+            "{}://{}/{}",
+            base_url.protocol.trim_end_matches(':'),
+            base_url.host(),
+            href
+        )
     };
-    if ParsedUrl::parse(&combined).is_some() { 1 } else { 0 }
+    if ParsedUrl::parse(&combined).is_some() {
+        1
+    } else {
+        0
+    }
 }
 
 /// (#67) `new URL(relative, base)` — resolve URL relativa contra base.
@@ -313,27 +337,49 @@ fn url_field(handle: u64, idx: usize) -> u64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_HREF(h: u64) -> u64     { url_field(h, 0) }
+pub extern "C" fn __RTS_FN_GL_URL_HREF(h: u64) -> u64 {
+    url_field(h, 0)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_PROTOCOL(h: u64) -> u64 { url_field(h, 1) }
+pub extern "C" fn __RTS_FN_GL_URL_PROTOCOL(h: u64) -> u64 {
+    url_field(h, 1)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_HOST(h: u64) -> u64     { url_field(h, 2) }
+pub extern "C" fn __RTS_FN_GL_URL_HOST(h: u64) -> u64 {
+    url_field(h, 2)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_HOSTNAME(h: u64) -> u64 { url_field(h, 3) }
+pub extern "C" fn __RTS_FN_GL_URL_HOSTNAME(h: u64) -> u64 {
+    url_field(h, 3)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_PORT(h: u64) -> u64     { url_field(h, 4) }
+pub extern "C" fn __RTS_FN_GL_URL_PORT(h: u64) -> u64 {
+    url_field(h, 4)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_PATHNAME(h: u64) -> u64 { url_field(h, 5) }
+pub extern "C" fn __RTS_FN_GL_URL_PATHNAME(h: u64) -> u64 {
+    url_field(h, 5)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_SEARCH(h: u64) -> u64   { url_field(h, 6) }
+pub extern "C" fn __RTS_FN_GL_URL_SEARCH(h: u64) -> u64 {
+    url_field(h, 6)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_HASH(h: u64) -> u64     { url_field(h, 7) }
+pub extern "C" fn __RTS_FN_GL_URL_HASH(h: u64) -> u64 {
+    url_field(h, 7)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_ORIGIN(h: u64) -> u64   { url_field(h, 8) }
+pub extern "C" fn __RTS_FN_GL_URL_ORIGIN(h: u64) -> u64 {
+    url_field(h, 8)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_USERNAME(h: u64) -> u64 { url_field(h, 9) }
+pub extern "C" fn __RTS_FN_GL_URL_USERNAME(h: u64) -> u64 {
+    url_field(h, 9)
+}
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_PASSWORD(h: u64) -> u64 { url_field(h, 10) }
+pub extern "C" fn __RTS_FN_GL_URL_PASSWORD(h: u64) -> u64 {
+    url_field(h, 10)
+}
 
 /// (#373) `url.searchParams` — constroi URLSearchParams a partir do
 /// `search` da URL. (cross-runtime #55) Cacheado por URL handle para que
@@ -469,7 +515,9 @@ pub extern "C" fn __RTS_FN_GL_URL_TO_STRING(handle: u64) -> u64 {
                 } else {
                     let mut s = String::from("?");
                     for (i, (k, v)) in pairs.iter().enumerate() {
-                        if i > 0 { s.push('&'); }
+                        if i > 0 {
+                            s.push('&');
+                        }
                         s.push_str(&percent_encode_form(k));
                         s.push('=');
                         s.push_str(&percent_encode_form(v));
@@ -506,8 +554,9 @@ fn percent_encode_form(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for &b in s.as_bytes() {
         match b {
-            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
-            | b'*' | b'-' | b'.' | b'_' => out.push(b as char),
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => {
+                out.push(b as char)
+            }
             b' ' => out.push('+'),
             _ => out.push_str(&format!("%{:02X}", b)),
         }
@@ -547,8 +596,18 @@ fn url_decode(s: &str) -> String {
         if b == b'%' && i + 2 < bytes.len() {
             let h = bytes[i + 1];
             let l = bytes[i + 2];
-            let hv = match h { b'0'..=b'9' => Some(h - b'0'), b'a'..=b'f' => Some(h - b'a' + 10), b'A'..=b'F' => Some(h - b'A' + 10), _ => None };
-            let lv = match l { b'0'..=b'9' => Some(l - b'0'), b'a'..=b'f' => Some(l - b'a' + 10), b'A'..=b'F' => Some(l - b'A' + 10), _ => None };
+            let hv = match h {
+                b'0'..=b'9' => Some(h - b'0'),
+                b'a'..=b'f' => Some(h - b'a' + 10),
+                b'A'..=b'F' => Some(h - b'A' + 10),
+                _ => None,
+            };
+            let lv = match l {
+                b'0'..=b'9' => Some(l - b'0'),
+                b'a'..=b'f' => Some(l - b'a' + 10),
+                b'A'..=b'F' => Some(l - b'A' + 10),
+                _ => None,
+            };
             if let (Some(hv), Some(lv)) = (hv, lv) {
                 out.push((hv << 4) | lv);
                 i += 3;
@@ -656,11 +715,7 @@ pub extern "C" fn __RTS_FN_GL_USP_NEW(init_ptr: i64, init_len: i64) -> u64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_GET(
-    self_h: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> u64 {
+pub extern "C" fn __RTS_FN_GL_USP_GET(self_h: u64, key_ptr: *const u8, key_len: i64) -> u64 {
     if key_ptr.is_null() || key_len < 0 {
         return 0;
     }
@@ -684,11 +739,7 @@ pub extern "C" fn __RTS_FN_GL_USP_GET(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_HAS(
-    self_h: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> i64 {
+pub extern "C" fn __RTS_FN_GL_USP_HAS(self_h: u64, key_ptr: *const u8, key_len: i64) -> i64 {
     if key_ptr.is_null() || key_len < 0 {
         return 0;
     }
@@ -700,7 +751,9 @@ pub extern "C" fn __RTS_FN_GL_USP_HAS(
         let mut i = 0;
         while i + 1 < slots.len() {
             if let Some(k) = key_str_of_handle(slots[i]) {
-                if k == key { return 1; }
+                if k == key {
+                    return 1;
+                }
             }
             i += 2;
         }
@@ -729,9 +782,7 @@ pub extern "C" fn __RTS_FN_GL_USP_SET(
     let val_bytes: Vec<u8> = if value_ptr == 0 || value_len <= 0 {
         Vec::new()
     } else {
-        unsafe {
-            std::slice::from_raw_parts(value_ptr as *const u8, value_len as usize).to_vec()
-        }
+        unsafe { std::slice::from_raw_parts(value_ptr as *const u8, value_len as usize).to_vec() }
     };
     let val_h = alloc_entry(Entry::String(val_bytes)) as i64;
     with_usp_pairs_mut(self_h, (), |slots| {
@@ -768,11 +819,7 @@ pub extern "C" fn __RTS_FN_GL_USP_SET(
 
 /// (#373) `usp.delete(key)` — remove TODAS as ocorrencias da key.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_DELETE(
-    self_h: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> u64 {
+pub extern "C" fn __RTS_FN_GL_USP_DELETE(self_h: u64, key_ptr: *const u8, key_len: i64) -> u64 {
     if key_ptr.is_null() || key_len < 0 {
         return self_h;
     }
@@ -811,15 +858,12 @@ pub extern "C" fn __RTS_FN_GL_USP_APPEND(
     if key_ptr.is_null() || key_len < 0 {
         return self_h;
     }
-    let key_bytes: Vec<u8> = unsafe {
-        std::slice::from_raw_parts(key_ptr, key_len as usize).to_vec()
-    };
+    let key_bytes: Vec<u8> =
+        unsafe { std::slice::from_raw_parts(key_ptr, key_len as usize).to_vec() };
     let val_bytes: Vec<u8> = if value_ptr == 0 || value_len <= 0 {
         Vec::new()
     } else {
-        unsafe {
-            std::slice::from_raw_parts(value_ptr as *const u8, value_len as usize).to_vec()
-        }
+        unsafe { std::slice::from_raw_parts(value_ptr as *const u8, value_len as usize).to_vec() }
     };
     let kh = alloc_entry(Entry::String(key_bytes)) as i64;
     let vh = alloc_entry(Entry::String(val_bytes)) as i64;
@@ -833,11 +877,7 @@ pub extern "C" fn __RTS_FN_GL_USP_APPEND(
 /// (#373/#80) `usp.getAll(key)` — retorna todos os values da key, na
 /// ordem em que foram appended.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_GET_ALL(
-    self_h: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> u64 {
+pub extern "C" fn __RTS_FN_GL_USP_GET_ALL(self_h: u64, key_ptr: *const u8, key_len: i64) -> u64 {
     if key_ptr.is_null() || key_len < 0 {
         return alloc_entry(Entry::Vec(Box::new(Vec::new())));
     }

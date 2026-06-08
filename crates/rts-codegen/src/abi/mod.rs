@@ -3,7 +3,7 @@ pub use rts_abi::*;
 pub mod signature;
 
 pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
-    &crate::namespaces::globals::string::abi::STRING_CLASS_SPEC,
+    &crate::namespaces::globals::string::STRING_CLASS_SPEC,
     &crate::namespaces::globals::number::NUMBER_CLASS_SPEC,
     &crate::namespaces::globals::date::abi::CLASS_SPEC,
     &crate::namespaces::globals::regexp::REGEXP_CLASS_SPEC,
@@ -21,8 +21,8 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::fetch::RESPONSE_CLASS_SPEC,
     &crate::namespaces::globals::fetch::REQUEST_CLASS_SPEC,
     &crate::namespaces::globals::fetch::PROMISE_CLASS_SPEC,
-    &crate::namespaces::globals::url::class_spec::URL_CLASS_SPEC,
-    &crate::namespaces::globals::url::class_spec::URLSP_CLASS_SPEC,
+    &crate::namespaces::globals::url::URL_CLASS_SPEC,
+    &crate::namespaces::globals::url::URLSP_CLASS_SPEC,
     &crate::namespaces::globals::function::FUNCTION_CLASS_SPEC,
     &crate::namespaces::globals::symbol::SYMBOL_CLASS_SPEC,
     &crate::namespaces::globals::boolean::BOOLEAN_CLASS_SPEC,
@@ -86,7 +86,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::ffi::SPEC,
     &crate::namespaces::atomic::SPEC,
     &crate::namespaces::sync::SPEC,
-    &crate::namespaces::globals::string::abi::SPEC,
+    &crate::namespaces::globals::string::SPEC,
     &crate::namespaces::process::SPEC,
     &crate::namespaces::promise::SPEC,
     &crate::namespaces::ptr::SPEC,
@@ -113,7 +113,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::globals::fetch::SPEC,
     &crate::namespaces::globals::text_encoding::SPEC,
     &crate::namespaces::globals::performance::SPEC,
-    &crate::namespaces::globals::url::abi::SPEC,
+    &crate::namespaces::globals::url::SPEC,
     &crate::namespaces::globals::global_this::SPEC,
     &crate::namespaces::events::SPEC,
 ];

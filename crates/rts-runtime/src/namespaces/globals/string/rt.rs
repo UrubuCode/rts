@@ -41,9 +41,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_NEW_FROM(handle: u64) -> u64 {
 /// string original.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_NEW_BOXED(handle: u64) -> u64 {
-    crate::namespaces::gc::handles::alloc_entry(
-        crate::namespaces::gc::handles::Entry::StringBox(handle),
-    )
+    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::StringBox(
+        handle,
+    ))
 }
 
 /// (cross-runtime #244) StringBox.valueOf() / toString() — recupera o
@@ -116,8 +116,12 @@ pub extern "C" fn __RTS_FN_GL_STRING_LAST_INDEX_OF(recv: u64, needle: u64) -> i6
 /// - resto: busca a partir de fromIndex em chars Unicode
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_INDEX_OF_FROM(recv: u64, needle: u64, from: i64) -> i64 {
-    let Some(s) = handle_to_str(recv) else { return -1; };
-    let Some(n) = handle_to_str(needle) else { return -1; };
+    let Some(s) = handle_to_str(recv) else {
+        return -1;
+    };
+    let Some(n) = handle_to_str(needle) else {
+        return -1;
+    };
     let len = s.chars().count() as i64;
     let from_clamped = from.max(0).min(len);
     if n.is_empty() {
@@ -147,8 +151,12 @@ pub extern "C" fn __RTS_FN_GL_STRING_INDEX_OF_FROM(recv: u64, needle: u64, from:
 /// - busca a ultima ocorrencia cujo INICIO seja <= fromIndex
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_LAST_INDEX_OF_FROM(recv: u64, needle: u64, from: i64) -> i64 {
-    let Some(s) = handle_to_str(recv) else { return -1; };
-    let Some(n) = handle_to_str(needle) else { return -1; };
+    let Some(s) = handle_to_str(recv) else {
+        return -1;
+    };
+    let Some(n) = handle_to_str(needle) else {
+        return -1;
+    };
     let len = s.chars().count() as i64;
     let from_clamped = from.max(0).min(len);
     if n.is_empty() {
@@ -225,7 +233,11 @@ pub extern "C" fn __RTS_FN_GL_STRING_STARTS_WITH_AT(recv: u64, prefix: u64, pos:
     let (Some(s), Some(p)) = (handle_to_str(recv), handle_to_str(prefix)) else {
         return 0;
     };
-    let start = if pos < 0 { 0 } else { (pos as usize).min(s.len()) };
+    let start = if pos < 0 {
+        0
+    } else {
+        (pos as usize).min(s.len())
+    };
     s[start..].starts_with(p) as i64
 }
 
@@ -235,7 +247,11 @@ pub extern "C" fn __RTS_FN_GL_STRING_ENDS_WITH_AT(recv: u64, suffix: u64, end_po
     let (Some(s), Some(p)) = (handle_to_str(recv), handle_to_str(suffix)) else {
         return 0;
     };
-    let end = if end_pos < 0 { 0 } else { (end_pos as usize).min(s.len()) };
+    let end = if end_pos < 0 {
+        0
+    } else {
+        (end_pos as usize).min(s.len())
+    };
     s[..end].ends_with(p) as i64
 }
 
@@ -246,10 +262,16 @@ pub extern "C" fn __RTS_FN_GL_STRING_ENDS_WITH_AT(recv: u64, suffix: u64, end_po
 /// Em surrogate pair (emoji etc.), `charAt(0)` retorna o high surrogate isolado
 /// (codifica como char invalido na saida UTF-8, igual Bun/Node).
 pub extern "C" fn __RTS_FN_GL_STRING_CHAR_AT(recv: u64, idx: i64) -> u64 {
-    let Some(s) = handle_to_str(recv) else { return alloc_str("") };
-    if idx < 0 { return alloc_str(""); }
+    let Some(s) = handle_to_str(recv) else {
+        return alloc_str("");
+    };
+    if idx < 0 {
+        return alloc_str("");
+    }
     let units: Vec<u16> = s.encode_utf16().collect();
-    let Some(&unit) = units.get(idx as usize) else { return alloc_str("") };
+    let Some(&unit) = units.get(idx as usize) else {
+        return alloc_str("");
+    };
     // Tenta decodificar como char valido (BMP nao-surrogate); surrogate isolado
     // vira REPLACEMENT CHARACTER (U+FFFD) — bate com `console.log` de Bun/Node
     // que mostra "�" para surrogate orfao.
@@ -266,8 +288,12 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_AT(recv: u64, idx: i64) -> u64 {
 /// indice i (0-based, em code units). NaN (representado como -1 aqui)
 /// quando fora de range.
 pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT(recv: u64, idx: i64) -> i64 {
-    let Some(s) = handle_to_str(recv) else { return -1 };
-    if idx < 0 { return -1; }
+    let Some(s) = handle_to_str(recv) else {
+        return -1;
+    };
+    if idx < 0 {
+        return -1;
+    }
     let units: Vec<u16> = s.encode_utf16().collect();
     units.get(idx as usize).map(|&u| u as i64).unwrap_or(-1)
 }
@@ -275,8 +301,12 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT(recv: u64, idx: i64) -> i64 {
 /// `str.charCodeAt(idx)` — JS spec: retorna NaN (f64) fora de range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT_F64(recv: u64, idx: i64) -> f64 {
-    let Some(s) = handle_to_str(recv) else { return f64::NAN };
-    if idx < 0 { return f64::NAN; }
+    let Some(s) = handle_to_str(recv) else {
+        return f64::NAN;
+    };
+    if idx < 0 {
+        return f64::NAN;
+    }
     let units: Vec<u16> = s.encode_utf16().collect();
     match units.get(idx as usize) {
         Some(&u) => u as f64,
@@ -291,14 +321,21 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT_F64(recv: u64, idx: i64) -> f6
 /// marca callsite como ambiguo).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> i64 {
-    let undef = || crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-        b"undefined".as_ptr(), 9
-    ) as i64;
-    let Some(s) = handle_to_str(recv) else { return undef(); };
-    if idx < 0 { return undef(); }
+    let undef = || {
+        crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(b"undefined".as_ptr(), 9)
+            as i64
+    };
+    let Some(s) = handle_to_str(recv) else {
+        return undef();
+    };
+    if idx < 0 {
+        return undef();
+    }
     let units: Vec<u16> = s.encode_utf16().collect();
     let i = idx as usize;
-    let Some(&first) = units.get(i) else { return undef(); };
+    let Some(&first) = units.get(i) else {
+        return undef();
+    };
     // High surrogate seguido de low: combina.
     if (0xD800..=0xDBFF).contains(&first) {
         if let Some(&second) = units.get(i + 1) {
@@ -316,12 +353,19 @@ pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> i64 {
 /// OOB returns the string "undefined" per JS spec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_AT(recv: u64, idx: i64) -> u64 {
-    let Some(s) = handle_to_str(recv) else { return alloc_str("undefined") };
+    let Some(s) = handle_to_str(recv) else {
+        return alloc_str("undefined");
+    };
     let count = s.chars().count() as i64;
     let i = if idx < 0 { count + idx } else { idx };
-    if i < 0 || i >= count { return alloc_str("undefined"); }
+    if i < 0 || i >= count {
+        return alloc_str("undefined");
+    }
     match s.chars().nth(i as usize) {
-        Some(ch) => { let mut buf = [0u8; 4]; alloc_str(ch.encode_utf8(&mut buf)) }
+        Some(ch) => {
+            let mut buf = [0u8; 4];
+            alloc_str(ch.encode_utf8(&mut buf))
+        }
         None => alloc_str("undefined"),
     }
 }
@@ -331,7 +375,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_AT(recv: u64, idx: i64) -> u64 {
 /// str.slice(start, end) — negative indices count from end.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_SLICE(recv: u64, start: i64, end: i64) -> u64 {
-    let Some(s) = handle_to_str(recv) else { return alloc_str("") };
+    let Some(s) = handle_to_str(recv) else {
+        return alloc_str("");
+    };
     let count = s.chars().count() as i64;
     let norm = |i: i64| -> usize {
         let n = if i < 0 { count + i } else { i };
@@ -339,7 +385,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_SLICE(recv: u64, start: i64, end: i64) -> u
     };
     let si = norm(start);
     let ei = norm(end);
-    if si >= ei { return alloc_str(""); }
+    if si >= ei {
+        return alloc_str("");
+    }
     let result: String = s.chars().skip(si).take(ei - si).collect();
     alloc_str(&result)
 }
@@ -347,15 +395,23 @@ pub extern "C" fn __RTS_FN_GL_STRING_SLICE(recv: u64, start: i64, end: i64) -> u
 /// str.substring(start, end) — like slice but negatives clamp to 0, swaps if start>end.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_SUBSTRING(recv: u64, start: i64, end: i64) -> u64 {
-    let Some(s) = handle_to_str(recv) else { return alloc_str("") };
+    let Some(s) = handle_to_str(recv) else {
+        return alloc_str("");
+    };
     let count = s.chars().count() as i64;
     let clamp = |i: i64| i.clamp(0, count) as usize;
     let (si, ei) = {
         let a = clamp(start);
         let b = clamp(end);
-        if a <= b { (a, b) } else { (b, a) }
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
     };
-    if si >= ei { return alloc_str(""); }
+    if si >= ei {
+        return alloc_str("");
+    }
     let result: String = s.chars().skip(si).take(ei - si).collect();
     alloc_str(&result)
 }
@@ -363,7 +419,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_SUBSTRING(recv: u64, start: i64, end: i64) 
 /// str.substr(start, length) — deprecated start+count form.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_SUBSTR(recv: u64, start: i64, length: i64) -> u64 {
-    let Some(s) = handle_to_str(recv) else { return alloc_str("") };
+    let Some(s) = handle_to_str(recv) else {
+        return alloc_str("");
+    };
     let count = s.chars().count() as i64;
     let si = (if start < 0 { count + start } else { start }).clamp(0, count) as usize;
     let take = if length < 0 { 0 } else { length as usize };
@@ -406,7 +464,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_TRIM_END(recv: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_REPEAT(recv: u64, n: i64) -> u64 {
     let s = handle_to_str(recv).unwrap_or("");
-    if n <= 0 { return alloc_str(""); }
+    if n <= 0 {
+        return alloc_str("");
+    }
     alloc_str(&s.repeat(n as usize))
 }
 
@@ -436,7 +496,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_PAD_START(recv: u64, target_len: i64, pad: 
     let s = handle_to_str(recv).unwrap_or("");
     let fill = handle_to_str(pad).unwrap_or(" ");
     let count = s.chars().count() as i64;
-    if count >= target_len || fill.is_empty() { return recv; }
+    if count >= target_len || fill.is_empty() {
+        return recv;
+    }
     let needed = (target_len - count) as usize;
     let pad_chars: Vec<char> = fill.chars().collect();
     let prefix: String = pad_chars.iter().cycle().take(needed).collect();
@@ -448,7 +510,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_PAD_END(recv: u64, target_len: i64, pad: u6
     let s = handle_to_str(recv).unwrap_or("");
     let fill = handle_to_str(pad).unwrap_or(" ");
     let count = s.chars().count() as i64;
-    if count >= target_len || fill.is_empty() { return recv; }
+    if count >= target_len || fill.is_empty() {
+        return recv;
+    }
     let needed = (target_len - count) as usize;
     let pad_chars: Vec<char> = fill.chars().collect();
     let suffix: String = pad_chars.iter().cycle().take(needed).collect();
@@ -486,7 +550,11 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_LIMIT(recv: u64, sep: u64, limit: i64
     let s = handle_to_str(recv).unwrap_or("");
     let delim = handle_to_str(sep).unwrap_or("");
     let vec_h = unsafe { __RTS_FN_NS_COLLECTIONS_VEC_NEW() };
-    let take = if limit < 0 { usize::MAX } else { limit as usize };
+    let take = if limit < 0 {
+        usize::MAX
+    } else {
+        limit as usize
+    };
     if delim.is_empty() {
         for c in s.chars().take(take) {
             let mut buf = [0u8; 4];
@@ -543,14 +611,20 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
     // Para Map/Vec/etc, mantem passthrough (handle vai pra coercao
     // em concat/template via TPL_COERCE_AUTO).
     use crate::namespaces::gc::handles::{with_entry, Entry};
-    enum Kind { NeedsFormat, Unwrap(u64), Passthrough }
+    enum Kind {
+        NeedsFormat,
+        Unwrap(u64),
+        Passthrough,
+    }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Symbol { .. }) | Some(Entry::Function(_)) => Kind::NeedsFormat,
         Some(Entry::StringBox(h)) => Kind::Unwrap(*h),
         _ => Kind::Passthrough,
     });
     match kind {
-        Kind::NeedsFormat => crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE(handle),
+        Kind::NeedsFormat => {
+            crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE(handle)
+        }
         Kind::Unwrap(inner) => inner,
         Kind::Passthrough => handle,
     }
@@ -560,14 +634,18 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
 pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(handle: u64) -> i64 {
     use crate::namespaces::gc::handles::{with_entry, Entry};
     with_entry(handle, |e| {
-        let Some(Entry::String(b)) = e else { return 1_i64 };
+        let Some(Entry::String(b)) = e else {
+            return 1_i64;
+        };
         // Lone surrogates em WTF-8: 0xED seguido de 0xA0-0xBF indica surrogate.
         // Surrogate pairs validos nao aparecem como WTF-8 na representacao interna.
         let bytes = b.as_slice();
         let mut i = 0usize;
         while i < bytes.len() {
-            if i + 3 <= bytes.len() && bytes[i] == 0xED
-                && bytes[i + 1] >= 0xA0 && bytes[i + 1] <= 0xBF
+            if i + 3 <= bytes.len()
+                && bytes[i] == 0xED
+                && bytes[i + 1] >= 0xA0
+                && bytes[i + 1] <= 0xBF
             {
                 return 0_i64;
             }
@@ -579,16 +657,20 @@ pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(handle: u64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_TO_WELL_FORMED(handle: u64) -> u64 {
-    use crate::namespaces::gc::handles::{with_entry, Entry, alloc_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
     let replacement = [0xEFu8, 0xBF, 0xBD]; // U+FFFD
     let result = with_entry(handle, |e| {
-        let Some(Entry::String(b)) = e else { return None };
+        let Some(Entry::String(b)) = e else {
+            return None;
+        };
         let bytes = b.as_slice();
         let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
         let mut i = 0usize;
         while i < bytes.len() {
-            if i + 3 <= bytes.len() && bytes[i] == 0xED
-                && bytes[i + 1] >= 0xA0 && bytes[i + 1] <= 0xBF
+            if i + 3 <= bytes.len()
+                && bytes[i] == 0xED
+                && bytes[i + 1] >= 0xA0
+                && bytes[i + 1] <= 0xBF
             {
                 out.extend_from_slice(&replacement);
                 i += 3;
@@ -610,7 +692,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_WELL_FORMED(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_NORMALIZE(recv: u64, form_h: u64) -> u64 {
     use unicode_normalization::UnicodeNormalization;
-    let Some(s) = handle_to_str(recv) else { return recv; };
+    let Some(s) = handle_to_str(recv) else {
+        return recv;
+    };
     let form = handle_to_str(form_h).unwrap_or("NFC");
     let normalized = match form {
         "NFD" => s.nfd().collect::<String>(),

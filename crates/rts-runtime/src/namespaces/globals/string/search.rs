@@ -78,7 +78,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH(
     p_ptr: *const u8,
     p_len: i64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, alloc_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, Entry};
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
         return 0;
     };
@@ -102,7 +102,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
     s_len: i64,
     regex_handle: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{with_entry, Entry, alloc_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return 0;
     };
@@ -129,14 +129,23 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
             } else {
                 match rts_rx.engine.captures(&s_owned) {
                     Some(caps) => {
-                        let index = caps.groups.first().and_then(|o| o.as_ref()).map(|m| m.start).unwrap_or(0);
+                        let index = caps
+                            .groups
+                            .first()
+                            .and_then(|o| o.as_ref())
+                            .map(|m| m.start)
+                            .unwrap_or(0);
                         let items: Vec<Option<Vec<u8>>> = caps
                             .groups
                             .iter()
                             .map(|o| o.as_ref().map(|m| m.text.clone().into_bytes()))
                             .collect();
                         let names = rts_rx.engine.capture_names();
-                        MatchResultExt::First { items, index, names }
+                        MatchResultExt::First {
+                            items,
+                            index,
+                            names,
+                        }
                     }
                     None => MatchResultExt::None,
                 }
@@ -145,8 +154,14 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
         _ => MatchResultExt::None,
     });
     match mr {
-        MatchResultExt::First { items, index, names } => {
-            if items.is_empty() { return 0; }
+        MatchResultExt::First {
+            items,
+            index,
+            names,
+        } => {
+            if items.is_empty() {
+                return 0;
+            }
             // Retorna Map com chaves "0","1",... + "index" + "input" + "length" + "groups".
             let mut map: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
             for (i, opt) in items.iter().enumerate() {
@@ -181,7 +196,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
             alloc_entry(Entry::Map(Box::new(map)))
         }
         MatchResultExt::All(items) => {
-            if items.is_empty() { return 0; }
+            if items.is_empty() {
+                return 0;
+            }
             let slots: Vec<i64> = items
                 .into_iter()
                 .map(|bytes| alloc_entry(Entry::String(bytes)) as i64)
@@ -206,7 +223,11 @@ pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_REGEX(
     };
     let s_owned = s.to_string();
     with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rx)) => rx.engine.find(&s_owned).map(|m| m.start as i64).unwrap_or(-1),
+        Some(Entry::Regex(rx)) => rx
+            .engine
+            .find(&s_owned)
+            .map(|m| m.start as i64)
+            .unwrap_or(-1),
         _ => -1,
     })
 }
@@ -220,7 +241,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
     regex_handle: u64,
     replacement_h: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{with_entry, Entry, alloc_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return 0;
     };
@@ -230,7 +251,8 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
     let repl = with_entry(replacement_h, |e| match e {
         Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
         _ => None,
-    }).unwrap_or_default();
+    })
+    .unwrap_or_default();
     // (#1086) JS spec: `$<name>` interpola o named capture group; Rust
     // regex crate usa `${name}`. Converte sintaxe antes de chamar replace.
     fn js_to_rust_replacement(s: &str) -> String {
@@ -298,7 +320,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL(
     p_ptr: *const u8,
     p_len: i64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, alloc_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, Entry};
     let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
         return empty_vec();
@@ -324,10 +346,12 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
     s_len: i64,
     regex_handle: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
     use indexmap::IndexMap;
     let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
-    let Some(s) = str_from_abi(s_ptr, s_len) else { return empty_vec(); };
+    let Some(s) = str_from_abi(s_ptr, s_len) else {
+        return empty_vec();
+    };
     let s_owned = s.to_string();
     type MatchInfo = (
         Vec<Option<String>>,
@@ -340,96 +364,124 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
         Some(Entry::Regex(rts_rx)) => {
             let has_indices = rts_rx.flags.contains('d');
             let names: Vec<Option<String>> = rts_rx.engine.capture_names();
-            rts_rx.engine.captures_all(&s_owned).into_iter().map(|caps| {
-                let groups: Vec<Option<String>> = caps
-                    .groups
-                    .iter()
-                    .map(|o| o.as_ref().map(|m| m.text.clone()))
-                    .collect();
-                let named: Vec<(String, Option<String>)> = names
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, n)| {
-                        n.as_ref().map(|name| {
-                            (name.clone(), caps.groups.get(i).and_then(|o| o.as_ref()).map(|m| m.text.clone()))
+            rts_rx
+                .engine
+                .captures_all(&s_owned)
+                .into_iter()
+                .map(|caps| {
+                    let groups: Vec<Option<String>> = caps
+                        .groups
+                        .iter()
+                        .map(|o| o.as_ref().map(|m| m.text.clone()))
+                        .collect();
+                    let named: Vec<(String, Option<String>)> = names
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, n)| {
+                            n.as_ref().map(|name| {
+                                (
+                                    name.clone(),
+                                    caps.groups
+                                        .get(i)
+                                        .and_then(|o| o.as_ref())
+                                        .map(|m| m.text.clone()),
+                                )
+                            })
                         })
-                    })
-                    .collect();
-                let idx = caps.groups.first().and_then(|o| o.as_ref()).map(|m| m.start).unwrap_or(0);
-                let indices = if has_indices {
-                    Some(
-                        caps.groups
-                            .iter()
-                            .map(|o| o.as_ref().map(|m| (m.start, m.end)))
-                            .collect::<Vec<_>>(),
-                    )
-                } else { None };
-                (groups, named, idx, indices, names.clone())
-            }).collect()
+                        .collect();
+                    let idx = caps
+                        .groups
+                        .first()
+                        .and_then(|o| o.as_ref())
+                        .map(|m| m.start)
+                        .unwrap_or(0);
+                    let indices = if has_indices {
+                        Some(
+                            caps.groups
+                                .iter()
+                                .map(|o| o.as_ref().map(|m| (m.start, m.end)))
+                                .collect::<Vec<_>>(),
+                        )
+                    } else {
+                        None
+                    };
+                    (groups, named, idx, indices, names.clone())
+                })
+                .collect()
         }
         _ => Vec::new(),
     });
-    let outer: Vec<i64> = infos.into_iter().map(|(groups, named, idx, indices_opt, names)| {
-        let mut map: IndexMap<String, i64> = IndexMap::new();
-        for (i, opt) in groups.iter().enumerate() {
-            let v = match opt {
-                Some(s) => alloc_entry(Entry::String(s.clone().into_bytes())) as i64,
-                None => i64::MIN + 2,
-            };
-            map.insert(i.to_string(), v);
-        }
-        map.insert("length".to_string(), groups.len() as i64);
-        map.insert("index".to_string(), idx as i64);
-        let input_h = alloc_entry(Entry::String(s_owned.as_bytes().to_vec())) as i64;
-        map.insert("input".to_string(), input_h);
-        let groups_v = if named.is_empty() {
-            i64::MIN + 2
-        } else {
-            let mut gmap: IndexMap<String, i64> = IndexMap::new();
-            for (n, opt) in named {
+    let outer: Vec<i64> = infos
+        .into_iter()
+        .map(|(groups, named, idx, indices_opt, names)| {
+            let mut map: IndexMap<String, i64> = IndexMap::new();
+            for (i, opt) in groups.iter().enumerate() {
                 let v = match opt {
-                    Some(s) => alloc_entry(Entry::String(s.into_bytes())) as i64,
+                    Some(s) => alloc_entry(Entry::String(s.clone().into_bytes())) as i64,
                     None => i64::MIN + 2,
                 };
-                gmap.insert(n, v);
+                map.insert(i.to_string(), v);
             }
-            alloc_entry(Entry::Map(Box::new(gmap))) as i64
-        };
-        map.insert("groups".to_string(), groups_v);
-        // (#1087) indices Map quando flag 'd' setada.
-        let indices_v = match indices_opt {
-            Some(vec) => {
-                let mut imap: IndexMap<String, i64> = IndexMap::new();
-                for (i, opt) in vec.iter().enumerate() {
-                    let pair_h: i64 = match opt {
-                        Some((s, e)) => alloc_entry(Entry::Vec(Box::new(vec![*s as i64, *e as i64]))) as i64,
+            map.insert("length".to_string(), groups.len() as i64);
+            map.insert("index".to_string(), idx as i64);
+            let input_h = alloc_entry(Entry::String(s_owned.as_bytes().to_vec())) as i64;
+            map.insert("input".to_string(), input_h);
+            let groups_v = if named.is_empty() {
+                i64::MIN + 2
+            } else {
+                let mut gmap: IndexMap<String, i64> = IndexMap::new();
+                for (n, opt) in named {
+                    let v = match opt {
+                        Some(s) => alloc_entry(Entry::String(s.into_bytes())) as i64,
                         None => i64::MIN + 2,
                     };
-                    imap.insert(i.to_string(), pair_h);
+                    gmap.insert(n, v);
                 }
-                imap.insert("length".to_string(), vec.len() as i64);
-                let any_named = names.iter().any(|n| n.is_some());
-                let g_v: i64 = if any_named {
-                    let mut gmap: IndexMap<String, i64> = IndexMap::new();
-                    for (i, name_opt) in names.iter().enumerate() {
-                        if let Some(name) = name_opt {
-                            let pair_h: i64 = match vec.get(i).and_then(|o| *o) {
-                                Some((s, e)) => alloc_entry(Entry::Vec(Box::new(vec![s as i64, e as i64]))) as i64,
-                                None => i64::MIN + 2,
-                            };
-                            gmap.insert(name.clone(), pair_h);
-                        }
+                alloc_entry(Entry::Map(Box::new(gmap))) as i64
+            };
+            map.insert("groups".to_string(), groups_v);
+            // (#1087) indices Map quando flag 'd' setada.
+            let indices_v = match indices_opt {
+                Some(vec) => {
+                    let mut imap: IndexMap<String, i64> = IndexMap::new();
+                    for (i, opt) in vec.iter().enumerate() {
+                        let pair_h: i64 = match opt {
+                            Some((s, e)) => {
+                                alloc_entry(Entry::Vec(Box::new(vec![*s as i64, *e as i64]))) as i64
+                            }
+                            None => i64::MIN + 2,
+                        };
+                        imap.insert(i.to_string(), pair_h);
                     }
-                    alloc_entry(Entry::Map(Box::new(gmap))) as i64
-                } else { i64::MIN + 2 };
-                imap.insert("groups".to_string(), g_v);
-                alloc_entry(Entry::Map(Box::new(imap))) as i64
-            }
-            None => i64::MIN + 2,
-        };
-        map.insert("indices".to_string(), indices_v);
-        alloc_entry(Entry::Map(Box::new(map))) as i64
-    }).collect();
+                    imap.insert("length".to_string(), vec.len() as i64);
+                    let any_named = names.iter().any(|n| n.is_some());
+                    let g_v: i64 = if any_named {
+                        let mut gmap: IndexMap<String, i64> = IndexMap::new();
+                        for (i, name_opt) in names.iter().enumerate() {
+                            if let Some(name) = name_opt {
+                                let pair_h: i64 = match vec.get(i).and_then(|o| *o) {
+                                    Some((s, e)) => {
+                                        alloc_entry(Entry::Vec(Box::new(vec![s as i64, e as i64])))
+                                            as i64
+                                    }
+                                    None => i64::MIN + 2,
+                                };
+                                gmap.insert(name.clone(), pair_h);
+                            }
+                        }
+                        alloc_entry(Entry::Map(Box::new(gmap))) as i64
+                    } else {
+                        i64::MIN + 2
+                    };
+                    imap.insert("groups".to_string(), g_v);
+                    alloc_entry(Entry::Map(Box::new(imap))) as i64
+                }
+                None => i64::MIN + 2,
+            };
+            map.insert("indices".to_string(), indices_v);
+            alloc_entry(Entry::Map(Box::new(map))) as i64
+        })
+        .collect();
     alloc_entry(Entry::Vec(Box::new(outer)))
 }
 
@@ -443,8 +495,10 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
     regex_handle: u64,
     fn_handle: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
-    let Some(s) = str_from_abi(s_ptr, s_len) else { return 0; };
+    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+    let Some(s) = str_from_abi(s_ptr, s_len) else {
+        return 0;
+    };
     let s_owned = s.to_string();
 
     // Coleta matches primeiro para nao ter borrow mutavel simultaneo.
@@ -453,17 +507,24 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
             let caps_iter: Vec<_> = if rts_rx.global {
                 rts_rx.engine.captures_all(&s_owned)
             } else {
-                rts_rx.engine.captures(&s_owned).map(|c| vec![c]).unwrap_or_default()
+                rts_rx
+                    .engine
+                    .captures(&s_owned)
+                    .map(|c| vec![c])
+                    .unwrap_or_default()
             };
-            caps_iter.into_iter().map(|caps| {
-                let full = caps.groups.first().and_then(|o| o.clone()).unwrap();
-                let groups: Vec<String> = caps
-                    .groups
-                    .iter()
-                    .map(|o| o.as_ref().map(|m| m.text.clone()).unwrap_or_default())
-                    .collect();
-                (full.start, full.end, groups)
-            }).collect()
+            caps_iter
+                .into_iter()
+                .map(|caps| {
+                    let full = caps.groups.first().and_then(|o| o.clone()).unwrap();
+                    let groups: Vec<String> = caps
+                        .groups
+                        .iter()
+                        .map(|o| o.as_ref().map(|m| m.text.clone()).unwrap_or_default())
+                        .collect();
+                    (full.start, full.end, groups)
+                })
+                .collect()
         }
         _ => Vec::new(),
     });
@@ -487,9 +548,10 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
         result.push_str(std::str::from_utf8(&bytes[last_end..*start]).unwrap_or(""));
 
         // Aloca handles para todos os grupos (match, p1, p2, ...) + offset + input.
-        let group_handles: Vec<i64> = groups.iter().map(|g| {
-            alloc_entry(Entry::String(g.as_bytes().to_vec())) as i64
-        }).collect();
+        let group_handles: Vec<i64> = groups
+            .iter()
+            .map(|g| alloc_entry(Entry::String(g.as_bytes().to_vec())) as i64)
+            .collect();
 
         // Chama callback(match, ...captureGroups, offset, inputString).
         // JS spec: fn(match, p1, p2, ..., offset, string).
@@ -500,16 +562,25 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
             match group_handles.len() {
                 1 => {
                     // sem grupos: fn(match, offset, string)
-                    let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
+                    let f: extern "C" fn(i64, i64, i64) -> i64 =
+                        std::mem::transmute(raw_fn_ptr as usize);
                     f(group_handles[0], offset_i64, input_h)
                 }
                 2 => {
-                    let f: extern "C" fn(i64, i64, i64, i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
+                    let f: extern "C" fn(i64, i64, i64, i64) -> i64 =
+                        std::mem::transmute(raw_fn_ptr as usize);
                     f(group_handles[0], group_handles[1], offset_i64, input_h)
                 }
                 3 => {
-                    let f: extern "C" fn(i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
-                    f(group_handles[0], group_handles[1], group_handles[2], offset_i64, input_h)
+                    let f: extern "C" fn(i64, i64, i64, i64, i64) -> i64 =
+                        std::mem::transmute(raw_fn_ptr as usize);
+                    f(
+                        group_handles[0],
+                        group_handles[1],
+                        group_handles[2],
+                        offset_i64,
+                        input_h,
+                    )
                 }
                 _ => {
                     // fallback: just match
@@ -534,10 +605,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
 
 /// `str.split(regex_handle)` — divide string usando regex.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX(
-    recv: u64,
-    regex_handle: u64,
-) -> u64 {
+pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX(recv: u64, regex_handle: u64) -> u64 {
     __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(recv, regex_handle, i64::MAX)
 }
 
@@ -548,7 +616,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
     regex_handle: u64,
     limit: i64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
     use crate::namespaces::globals::string::rt::alloc_str;
     unsafe extern "C" {
         fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> u64;
@@ -558,8 +626,14 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
         Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
         _ => None,
     });
-    let Some(s) = s_opt else { return alloc_entry(Entry::Vec(Box::new(Vec::new()))); };
-    let lim = if limit < 0 { usize::MAX } else { limit as usize };
+    let Some(s) = s_opt else {
+        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    };
+    let lim = if limit < 0 {
+        usize::MAX
+    } else {
+        limit as usize
+    };
     // (#1086) JS spec: split com regex que tem capture groups inclui os
     // matches dos grupos no resultado, intercalados com as partes. Ex:
     // \"a1b2c3\".split(/(\\d)/) -> [\"a\", \"1\", \"b\", \"2\", \"c\", \"3\", \"\"].
@@ -571,12 +645,16 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
             let mut out: Vec<Option<String>> = Vec::new();
             let mut last_end = 0usize;
             for caps in all_caps {
-                if out.len() >= lim { break; }
+                if out.len() >= lim {
+                    break;
+                }
                 let full = caps.groups.first().and_then(|o| o.clone()).unwrap();
                 out.push(Some(s[last_end..full.start].to_owned()));
                 if has_groups {
                     for i in 1..caps.groups.len() {
-                        if out.len() >= lim { break; }
+                        if out.len() >= lim {
+                            break;
+                        }
                         out.push(caps.groups[i].as_ref().map(|m| m.text.clone()));
                     }
                 }
