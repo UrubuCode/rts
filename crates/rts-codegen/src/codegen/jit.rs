@@ -880,7 +880,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_USP_SORT", __RTS_FN_GL_USP_SORT);
 
     // ── namespaces::date ──────────────────────────────────────────────
-    use crate::namespaces::date::ops::*;
+    use crate::namespaces::date::*;
     add_fn!("__RTS_FN_NS_DATE_NOW_MS", __RTS_FN_NS_DATE_NOW_MS);
     add_fn!("__RTS_FN_NS_DATE_FROM_ISO", __RTS_FN_NS_DATE_FROM_ISO);
     add_fn!("__RTS_FN_NS_DATE_PARSE_F64", __RTS_FN_NS_DATE_PARSE_F64);

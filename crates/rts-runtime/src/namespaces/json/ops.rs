@@ -540,7 +540,7 @@ fn is_undefined_value(v: i64) -> bool {
 
 /// Helper: formata DateMs como ISO string entre aspas para JSON.
 fn date_iso_quoted(ms: i64) -> String {
-    let (y, mo, d, h, mi, s, mil) = super::super::date::ops::date_unpack(ms);
+    let (y, mo, d, h, mi, s, mil) = super::super::date::date_unpack(ms);
     format!(
         "\"{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z\"",
         y, mo + 1, d, h, mi, s, mil
