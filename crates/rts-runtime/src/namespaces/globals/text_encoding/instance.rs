@@ -28,8 +28,7 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_DECODE(buf_handle: u64) -> u64 {
     }
 }
 
-const B64_ALPHA: &[u8] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64_ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fn b64_encode(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity((bytes.len() + 2) / 3 * 4);
@@ -74,7 +73,11 @@ fn b64_decode(s: &[u8]) -> Option<Vec<u8>> {
             _ => None,
         }
     }
-    let s: Vec<u8> = s.iter().copied().filter(|&c| c != b'\n' && c != b'\r').collect();
+    let s: Vec<u8> = s
+        .iter()
+        .copied()
+        .filter(|&c| c != b'\n' && c != b'\r')
+        .collect();
     if s.len() % 4 != 0 {
         return None;
     }
@@ -117,10 +120,7 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_ATOB(ptr: i64, len: i64) -> u64 {
 /// flags. Slots que parecem handles validos sao clonados recursivamente.
 /// `visited` mapeia handle_original -> handle_clone para suportar
 /// self-references (JS spec do structuredClone preserva ciclos).
-fn clone_handle_deep(
-    handle: u64,
-    visited: &mut std::collections::HashMap<u64, u64>,
-) -> u64 {
+fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u64>) -> u64 {
     if let Some(&existing) = visited.get(&handle) {
         return existing;
     }
@@ -155,7 +155,9 @@ fn clone_handle_deep(
         Some(Entry::Regex(r)) => Some(Entry::Regex(r.clone())),
         _ => None,
     });
-    let Some(entry) = entry_clone else { return handle; };
+    let Some(entry) = entry_clone else {
+        return handle;
+    };
     let new_h = alloc_entry(entry);
     visited.insert(handle, new_h);
     // Preserva kind flags
@@ -170,12 +172,18 @@ fn clone_handle_deep(
             for (k, v) in pairs {
                 let v_u = v as u64;
                 if v_u > 0xFFFF_FFFF {
-                    let v_kind = with_entry(v_u, |e| matches!(
-                        e,
-                        Some(Entry::Map(_)) | Some(Entry::Vec(_)) | Some(Entry::String(_))
-                        | Some(Entry::Buffer(_)) | Some(Entry::Json(_))
-                        | Some(Entry::DateMs(_)) | Some(Entry::Regex(_))
-                    ));
+                    let v_kind = with_entry(v_u, |e| {
+                        matches!(
+                            e,
+                            Some(Entry::Map(_))
+                                | Some(Entry::Vec(_))
+                                | Some(Entry::String(_))
+                                | Some(Entry::Buffer(_))
+                                | Some(Entry::Json(_))
+                                | Some(Entry::DateMs(_))
+                                | Some(Entry::Regex(_))
+                        )
+                    });
                     if v_kind {
                         let cloned = clone_handle_deep(v_u, visited);
                         m.insert(k, cloned as i64);
@@ -187,12 +195,18 @@ fn clone_handle_deep(
             for slot in v.iter_mut() {
                 let s_u = *slot as u64;
                 if s_u > 0xFFFF_FFFF {
-                    let v_kind = with_entry(s_u, |e| matches!(
-                        e,
-                        Some(Entry::Map(_)) | Some(Entry::Vec(_)) | Some(Entry::String(_))
-                        | Some(Entry::Buffer(_)) | Some(Entry::Json(_))
-                        | Some(Entry::DateMs(_)) | Some(Entry::Regex(_))
-                    ));
+                    let v_kind = with_entry(s_u, |e| {
+                        matches!(
+                            e,
+                            Some(Entry::Map(_))
+                                | Some(Entry::Vec(_))
+                                | Some(Entry::String(_))
+                                | Some(Entry::Buffer(_))
+                                | Some(Entry::Json(_))
+                                | Some(Entry::DateMs(_))
+                                | Some(Entry::Regex(_))
+                        )
+                    });
                     if v_kind {
                         *slot = clone_handle_deep(s_u, visited) as i64;
                     }
@@ -351,7 +365,11 @@ pub fn enqueue_microtask_pending_then(
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut().push(Microtask::PendingThen {
-            source, fn_ptr, bound, is_catch, result_slot,
+            source,
+            fn_ptr,
+            bound,
+            is_catch,
+            result_slot,
         })
     });
 }
@@ -366,7 +384,10 @@ pub fn enqueue_microtask_pending_then2(
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut().push(Microtask::PendingThen2 {
-            source, on_ful, on_rej, result_slot,
+            source,
+            on_ful,
+            on_rej,
+            result_slot,
         })
     });
 }
@@ -378,7 +399,11 @@ pub fn enqueue_microtask_pending_finally(
     result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
-        q.borrow_mut().push(Microtask::PendingFinally { source, fn_ptr, result_slot })
+        q.borrow_mut().push(Microtask::PendingFinally {
+            source,
+            fn_ptr,
+            result_slot,
+        })
     });
 }
 
@@ -390,7 +415,8 @@ pub fn enqueue_microtask_async_resume(
     source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
-        q.borrow_mut().push(Microtask::AsyncResume { gen_handle, source })
+        q.borrow_mut()
+            .push(Microtask::AsyncResume { gen_handle, source })
     });
 }
 
@@ -408,50 +434,73 @@ pub fn enqueue_microtask_async_resume(
 pub fn mark_microtask_roots() {
     use crate::namespaces::gc::handles::mark_handle;
     use crate::namespaces::gc::promise_slot;
-    let mark_slot =
-        |s: &std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>| {
-            mark_handle(promise_slot::current_value(s) as u64);
-        };
-    let mark_task = |t: &Microtask| {
-            match t {
-                Microtask::Bare(fp) => mark_handle(*fp),
-                Microtask::SettledThen { fn_ptr, bound, value, result_slot, .. } => {
-                    mark_handle(*fn_ptr);
-                    for b in bound {
-                        mark_handle(*b as u64);
-                    }
-                    mark_handle(*value as u64);
-                    mark_slot(result_slot);
-                }
-                Microtask::SettledFinally { fn_ptr, value, result_slot, .. } => {
-                    mark_handle(*fn_ptr);
-                    mark_handle(*value as u64);
-                    mark_slot(result_slot);
-                }
-                Microtask::PendingThen { source, fn_ptr, bound, result_slot, .. } => {
-                    mark_slot(source);
-                    mark_handle(*fn_ptr);
-                    for b in bound {
-                        mark_handle(*b as u64);
-                    }
-                    mark_slot(result_slot);
-                }
-                Microtask::PendingThen2 { source, on_ful, on_rej, result_slot } => {
-                    mark_slot(source);
-                    mark_handle(*on_ful);
-                    mark_handle(*on_rej);
-                    mark_slot(result_slot);
-                }
-                Microtask::PendingFinally { source, fn_ptr, result_slot } => {
-                    mark_slot(source);
-                    mark_handle(*fn_ptr);
-                    mark_slot(result_slot);
-                }
-                Microtask::AsyncResume { gen_handle, source } => {
-                    mark_handle(*gen_handle);
-                    mark_slot(source);
-                }
+    let mark_slot = |s: &std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>| {
+        mark_handle(promise_slot::current_value(s) as u64);
+    };
+    let mark_task = |t: &Microtask| match t {
+        Microtask::Bare(fp) => mark_handle(*fp),
+        Microtask::SettledThen {
+            fn_ptr,
+            bound,
+            value,
+            result_slot,
+            ..
+        } => {
+            mark_handle(*fn_ptr);
+            for b in bound {
+                mark_handle(*b as u64);
             }
+            mark_handle(*value as u64);
+            mark_slot(result_slot);
+        }
+        Microtask::SettledFinally {
+            fn_ptr,
+            value,
+            result_slot,
+            ..
+        } => {
+            mark_handle(*fn_ptr);
+            mark_handle(*value as u64);
+            mark_slot(result_slot);
+        }
+        Microtask::PendingThen {
+            source,
+            fn_ptr,
+            bound,
+            result_slot,
+            ..
+        } => {
+            mark_slot(source);
+            mark_handle(*fn_ptr);
+            for b in bound {
+                mark_handle(*b as u64);
+            }
+            mark_slot(result_slot);
+        }
+        Microtask::PendingThen2 {
+            source,
+            on_ful,
+            on_rej,
+            result_slot,
+        } => {
+            mark_slot(source);
+            mark_handle(*on_ful);
+            mark_handle(*on_rej);
+            mark_slot(result_slot);
+        }
+        Microtask::PendingFinally {
+            source,
+            fn_ptr,
+            result_slot,
+        } => {
+            mark_slot(source);
+            mark_handle(*fn_ptr);
+            mark_slot(result_slot);
+        }
+        Microtask::AsyncResume { gen_handle, source } => {
+            mark_handle(*gen_handle);
+            mark_slot(source);
+        }
     };
     MICROTASK_QUEUE.with(|q| {
         for t in q.borrow().iter() {
@@ -475,8 +524,7 @@ pub fn drain_microtasks() {
     let mut stall = 0u32;
     const STALL_LIMIT: u32 = 10_000;
     loop {
-        let queue: Vec<Microtask> =
-            MICROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
+        let queue: Vec<Microtask> = MICROTASK_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
         if queue.is_empty() {
             break;
         }
@@ -496,14 +544,23 @@ pub fn drain_microtasks() {
                 // Fallback: resolve os PendingThen restantes via spawn_blocking
                 // (caminho thread original) p/ Promises que dependem de I/O.
                 for task in queue {
-                    if let Microtask::PendingThen { source, fn_ptr, bound, is_catch, result_slot } = task {
+                    if let Microtask::PendingThen {
+                        source,
+                        fn_ptr,
+                        bound,
+                        is_catch,
+                        result_slot,
+                    } = task
+                    {
                         let rt = crate::runtime::async_rt::handle();
                         rt.spawn_blocking(move || {
                             let (st, value) = promise_slot::wait_blocking(&source);
                             let fulfilled = st == promise_slot::STATE_FULFILLED;
                             let runs = if is_catch { !fulfilled } else { fulfilled };
                             if runs && fn_ptr != 0 {
-                                let r = unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
+                                let r = unsafe {
+                                    invoke_microtask_callback(fn_ptr, &bound, Some(value))
+                                };
                                 promise_slot::resolve(&result_slot, r);
                             } else if fulfilled {
                                 promise_slot::resolve(&result_slot, value);
@@ -511,7 +568,12 @@ pub fn drain_microtasks() {
                                 promise_slot::reject(&result_slot, value);
                             }
                         });
-                    } else if let Microtask::PendingFinally { source, fn_ptr, result_slot } = task {
+                    } else if let Microtask::PendingFinally {
+                        source,
+                        fn_ptr,
+                        result_slot,
+                    } = task
+                    {
                         let rt = crate::runtime::async_rt::handle();
                         rt.spawn_blocking(move || {
                             let (st, value) = promise_slot::wait_blocking(&source);
@@ -524,7 +586,13 @@ pub fn drain_microtasks() {
                                 promise_slot::reject(&result_slot, value);
                             }
                         });
-                    } else if let Microtask::PendingThen2 { source, on_ful, on_rej, result_slot } = task {
+                    } else if let Microtask::PendingThen2 {
+                        source,
+                        on_ful,
+                        on_rej,
+                        result_slot,
+                    } = task
+                    {
                         let rt = crate::runtime::async_rt::handle();
                         rt.spawn_blocking(move || {
                             let (st, value) = promise_slot::wait_blocking(&source);
@@ -588,9 +656,8 @@ pub fn drain_microtasks() {
                         if fn_ptr == 0 {
                             promise_slot::resolve(&result_slot, value);
                         } else {
-                            let r = unsafe {
-                                invoke_microtask_callback(fn_ptr, &bound, Some(value))
-                            };
+                            let r =
+                                unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
                             promise_slot::resolve(&result_slot, r);
                         }
                     } else {
@@ -605,9 +672,7 @@ pub fn drain_microtasks() {
                     result_slot,
                 } => {
                     if fn_ptr != 0 {
-                        let _ = unsafe {
-                            invoke_microtask_callback(fn_ptr, &[], None)
-                        };
+                        let _ = unsafe { invoke_microtask_callback(fn_ptr, &[], None) };
                     }
                     if fulfilled {
                         promise_slot::resolve(&result_slot, value);
@@ -630,7 +695,11 @@ pub fn drain_microtasks() {
                         // proximo tick. Preserva ordem FIFO entre chains.
                         MICROTASK_QUEUE.with(|q| {
                             q.borrow_mut().push(Microtask::PendingThen {
-                                source, fn_ptr, bound, is_catch, result_slot,
+                                source,
+                                fn_ptr,
+                                bound,
+                                is_catch,
+                                result_slot,
                             })
                         });
                     } else {
@@ -639,9 +708,8 @@ pub fn drain_microtasks() {
                         // .then: roda no fulfilled; .catch: roda no rejected.
                         let runs = if is_catch { !fulfilled } else { fulfilled };
                         if runs && fn_ptr != 0 {
-                            let r = unsafe {
-                                invoke_microtask_callback(fn_ptr, &bound, Some(value))
-                            };
+                            let r =
+                                unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
                             promise_slot::resolve(&result_slot, r);
                         } else if fulfilled {
                             promise_slot::resolve(&result_slot, value);
@@ -650,12 +718,18 @@ pub fn drain_microtasks() {
                         }
                     }
                 }
-                Microtask::PendingFinally { source, fn_ptr, result_slot } => {
+                Microtask::PendingFinally {
+                    source,
+                    fn_ptr,
+                    result_slot,
+                } => {
                     let st = promise_slot::current_state(&source);
                     if !settled_at_start[idx] {
                         MICROTASK_QUEUE.with(|q| {
                             q.borrow_mut().push(Microtask::PendingFinally {
-                                source, fn_ptr, result_slot,
+                                source,
+                                fn_ptr,
+                                result_slot,
                             })
                         });
                     } else {
@@ -672,11 +746,19 @@ pub fn drain_microtasks() {
                 }
                 // (cross-runtime #393/#116) `.then(onFul, onRej)` instance,
                 // source pending — variante 2-callback determinista.
-                Microtask::PendingThen2 { source, on_ful, on_rej, result_slot } => {
+                Microtask::PendingThen2 {
+                    source,
+                    on_ful,
+                    on_rej,
+                    result_slot,
+                } => {
                     if !settled_at_start[idx] {
                         MICROTASK_QUEUE.with(|q| {
                             q.borrow_mut().push(Microtask::PendingThen2 {
-                                source, on_ful, on_rej, result_slot,
+                                source,
+                                on_ful,
+                                on_rej,
+                                result_slot,
                             })
                         });
                     } else {
@@ -687,9 +769,7 @@ pub fn drain_microtasks() {
                         if cb != 0 {
                             // .then(f) sucesso e .catch(g)/onRej recuperam:
                             // result resolved com o retorno do callback.
-                            let r = unsafe {
-                                invoke_microtask_callback(cb, &[], Some(value))
-                            };
+                            let r = unsafe { invoke_microtask_callback(cb, &[], Some(value)) };
                             promise_slot::resolve(&result_slot, r);
                         } else if fulfilled {
                             promise_slot::resolve(&result_slot, value);
@@ -706,7 +786,8 @@ pub fn drain_microtasks() {
                         // awaited ainda nao settlou: re-enfileira no FIM da fila
                         // para re-checar no proximo ciclo do drain.
                         MICROTASK_QUEUE.with(|q| {
-                            q.borrow_mut().push(Microtask::AsyncResume { gen_handle, source })
+                            q.borrow_mut()
+                                .push(Microtask::AsyncResume { gen_handle, source })
                         });
                     } else {
                         let value = promise_slot::current_value(&source);
@@ -732,11 +813,7 @@ pub fn drain_microtasks() {
 /// (`Promise.resolve(4).then((n:number)=>n+1)`). invoke_fn_ptr_with_registry usa
 /// invoke_typed com os param_kinds reais (e normaliza args number-cru), ou
 /// invoke_n quando a fn é toda-i64 (idêntico ao transmute de antes).
-unsafe fn invoke_microtask_callback(
-    fn_ptr: u64,
-    bound: &[i64],
-    extra: Option<i64>,
-) -> i64 {
+unsafe fn invoke_microtask_callback(fn_ptr: u64, bound: &[i64], extra: Option<i64>) -> i64 {
     let mut args: Vec<i64> = bound.to_vec();
     if let Some(v) = extra {
         args.push(v);
@@ -763,11 +840,7 @@ pub extern "C" fn __RTS_FN_GL_TEXTDEC_NEW(_label_ptr: i64, _label_len: i64) -> u
 // Instance method variants: (self_handle, ptr, len) — self ignored.
 // Usados pelos GlobalClassSpec (encode/decode em receiver this).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE_INSTANCE(
-    _self_h: u64,
-    ptr: i64,
-    len: i64,
-) -> u64 {
+pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE_INSTANCE(_self_h: u64, ptr: i64, len: i64) -> u64 {
     __RTS_FN_GL_TEXTENC_ENCODE(ptr, len)
 }
 

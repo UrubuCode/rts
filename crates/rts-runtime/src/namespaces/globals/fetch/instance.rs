@@ -48,10 +48,7 @@ fn map_get_headers(map_h: u64) -> Vec<(String, String)> {
     }
     // Collect (key, value_handle) pairs first, then resolve each string handle
     let pairs: Vec<(String, u64)> = with_entry(headers_h, |entry| match entry {
-        Some(Entry::Map(m)) => m
-            .iter()
-            .map(|(k, &v)| (k.clone(), v as u64))
-            .collect(),
+        Some(Entry::Map(m)) => m.iter().map(|(k, &v)| (k.clone(), v as u64)).collect(),
         _ => vec![],
     });
     pairs
@@ -61,9 +58,7 @@ fn map_get_headers(map_h: u64) -> Vec<(String, String)> {
                 return None;
             }
             with_entry(sh, |entry| match entry {
-                Some(Entry::String(b)) => {
-                    Some((k, String::from_utf8_lossy(b).into_owned()))
-                }
+                Some(Entry::String(b)) => Some((k, String::from_utf8_lossy(b).into_owned())),
                 _ => None,
             })
         })
@@ -202,9 +197,9 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
                         Vec::new(),
                         value,
                         true, // sempre invoca callback como "resolved" para
-                              // que o retorno vire resolve(result). Reject
-                              // path do on_rej tambem segue spec: callback
-                              // de catch recupera, resultado eh resolved.
+                        // que o retorno vire resolve(result). Reject
+                        // path do on_rej tambem segue spec: callback
+                        // de catch recupera, resultado eh resolved.
                         result,
                     );
                 }
@@ -218,7 +213,10 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));
             crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_then2(
-                arc, on_ful, on_rej, result_clone,
+                arc,
+                on_ful,
+                on_rej,
+                result_clone,
             );
             result_handle
         }
@@ -289,7 +287,9 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));
             crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_finally(
-                arc, fp, result_clone,
+                arc,
+                fp,
+                result_clone,
             );
             result_handle
         }
@@ -317,7 +317,6 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE_EMPTY() -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
-    
     let kind = with_entry(value, |entry| match entry {
         Some(Entry::Promise(v)) => Some(*v),
         Some(Entry::PromiseAsync(_)) => Some(i64::MIN), // sentinela: ja e' Promise
@@ -325,7 +324,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
     });
     match kind {
         Some(i64::MIN) => value as i64, // PromiseAsync — passthrough do handle
-        Some(v) => v,                    // Entry::Promise legacy — extrai inline
+        Some(v) => v,                   // Entry::Promise legacy — extrai inline
         None => {
             // Valor regular: cria PromiseAsync ja fulfilled.
             let slot = crate::namespaces::gc::promise_slot::new_fulfilled(value as i64);
@@ -366,7 +365,8 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
         } else {
             None
         }
-    }).unwrap_or((fp, Vec::new()));
+    })
+    .unwrap_or((fp, Vec::new()));
     let retval = unsafe {
         use std::mem::transmute;
         match bound.len() {
@@ -453,7 +453,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
 /// Helper: cria Function handle que ao ser invocado chama resolve/reject
 /// no slot armazenado em bound_args[0].
 fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry};
+    use crate::namespaces::gc::handles::{alloc_entry, Entry, FunctionData};
     let fn_ptr = if is_resolve {
         __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE as *const () as usize as u64
     } else {
@@ -462,7 +462,9 @@ fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
     alloc_entry(Entry::Function(Box::new(FunctionData {
         fn_ptr,
         arity: 1,
-        name: (if is_resolve { "resolve" } else { "reject" }).to_string().into_boxed_str(),
+        name: (if is_resolve { "resolve" } else { "reject" })
+            .to_string()
+            .into_boxed_str(),
         bound_this: 0,
         has_bound_this: false,
         bound_args: vec![promise_h as i64],
@@ -481,7 +483,7 @@ fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
 /// Trampolim resolve — invocado via FUNCTION_CALL com [promise_h, value].
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE(promise_h: i64, value: i64) -> i64 {
-    use crate::namespaces::gc::{handles::Entry, handles::with_entry, promise_slot};
+    use crate::namespaces::gc::{handles::with_entry, handles::Entry, promise_slot};
     let slot = with_entry(promise_h as u64, |e| match e {
         Some(Entry::PromiseAsync(s)) => Some(s.clone()),
         _ => None,
@@ -494,7 +496,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE(promise_h: i64, val
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT(promise_h: i64, value: i64) -> i64 {
-    use crate::namespaces::gc::{handles::Entry, handles::with_entry, promise_slot};
+    use crate::namespaces::gc::{handles::with_entry, handles::Entry, promise_slot};
     let slot = with_entry(promise_h as u64, |e| match e {
         Some(Entry::PromiseAsync(s)) => Some(s.clone()),
         _ => None,
@@ -524,7 +526,11 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_STATUS(h: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_OK(h: u64) -> i8 {
     let status = with_response(h, |r| r.status).unwrap_or(0);
-    if (200..300).contains(&status) { 1 } else { 0 }
+    if (200..300).contains(&status) {
+        1
+    } else {
+        0
+    }
 }
 
 /// response.statusText → string handle (e.g. "OK", "Not Found")
@@ -532,12 +538,20 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_OK(h: u64) -> i8 {
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT(h: u64) -> u64 {
     let status = with_response(h, |r| r.status).unwrap_or(0);
     let text = match status {
-        200 => "OK", 201 => "Created", 204 => "No Content",
-        301 => "Moved Permanently", 302 => "Found", 304 => "Not Modified",
-        400 => "Bad Request", 401 => "Unauthorized", 403 => "Forbidden",
-        404 => "Not Found", 405 => "Method Not Allowed",
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        304 => "Not Modified",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
         429 => "Too Many Requests",
-        500 => "Internal Server Error", 502 => "Bad Gateway",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
         503 => "Service Unavailable",
         _ => "",
     };
@@ -547,8 +561,7 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT(h: u64) -> u64 {
 /// response.url → string handle
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_URL(h: u64) -> u64 {
-    let url = with_response(h, |r| r.url.as_bytes().to_vec())
-        .unwrap_or_default();
+    let url = with_response(h, |r| r.url.as_bytes().to_vec()).unwrap_or_default();
     alloc_entry(Entry::String(url))
 }
 
@@ -575,8 +588,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_TEXT(h: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_JSON(h: u64) -> u64 {
     let body = with_response(h, |r| r.body.clone()).unwrap_or_default();
-    let json_val = serde_json::from_slice::<serde_json::Value>(&body)
-        .unwrap_or(serde_json::Value::Null);
+    let json_val =
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap_or(serde_json::Value::Null);
     alloc_entry(Entry::Json(Box::new(json_val)))
 }
 
@@ -624,11 +637,7 @@ fn opt_str_field(map_h: u64, key: &str) -> Option<u64> {
 
 /// new Response(body, init) — body string + init.headers/status.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_NEW(
-    body_ptr: i64,
-    body_len: i64,
-    init_h: u64,
-) -> u64 {
+pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_NEW(body_ptr: i64, body_len: i64, init_h: u64) -> u64 {
     use indexmap::IndexMap;
     let body = str_from_parts(body_ptr, body_len).to_owned();
     let body_h = alloc_entry(Entry::String(body.into_bytes())) as i64;
@@ -670,8 +679,8 @@ pub extern "C" fn __RTS_FN_GL_REQUEST_NEW(url_ptr: i64, url_len: i64, init_h: u6
     let url_h = alloc_entry(Entry::String(url.into_bytes())) as i64;
     let method_h = opt_str_field(init_h, "method")
         .unwrap_or_else(|| alloc_entry(Entry::String(b"GET".to_vec())));
-    let body_h = opt_str_field(init_h, "body")
-        .unwrap_or_else(|| alloc_entry(Entry::String(Vec::new())));
+    let body_h =
+        opt_str_field(init_h, "body").unwrap_or_else(|| alloc_entry(Entry::String(Vec::new())));
     let mut m: IndexMap<String, i64> = IndexMap::new();
     m.insert("url".to_string(), url_h);
     m.insert("method".to_string(), method_h as i64);
@@ -769,7 +778,10 @@ mod tests_response_then {
         let is_promise = with_entry(result, |entry| {
             matches!(entry, Some(Entry::PromiseAsync(_)))
         });
-        assert!(is_promise, "RESPONSE_THEN(h, 0) deveria retornar PromiseAsync");
+        assert!(
+            is_promise,
+            "RESPONSE_THEN(h, 0) deveria retornar PromiseAsync"
+        );
     }
 
     extern "C" fn cb_returns_string(_h: i64) -> i64 {
@@ -785,7 +797,10 @@ mod tests_response_then {
         let is_promise = with_entry(result, |entry| {
             matches!(entry, Some(Entry::PromiseAsync(_)))
         });
-        assert!(is_promise, "Resultado de String deve ser wrappado em PromiseAsync");
+        assert!(
+            is_promise,
+            "Resultado de String deve ser wrappado em PromiseAsync"
+        );
     }
 
     extern "C" fn cb_returns_promise(h: i64) -> i64 {
