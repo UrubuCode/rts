@@ -31,7 +31,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::weakset::WEAKSET_CLASS_SPEC,
     &crate::namespaces::globals::weakref::WEAKREF_CLASS_SPEC,
     &crate::namespaces::globals::finalization_registry::FINALIZATION_REGISTRY_CLASS_SPEC,
-    &crate::namespaces::globals::headers::abi::HEADERS_CLASS_SPEC,
+    &crate::namespaces::globals::headers::HEADERS_CLASS_SPEC,
     &crate::namespaces::globals::abort::abi::ABORT_CONTROLLER_CLASS_SPEC,
     &crate::namespaces::globals::abort::abi::ABORT_SIGNAL_CLASS_SPEC,
     &crate::namespaces::globals::event_target::EVENT_TARGET_CLASS_SPEC,

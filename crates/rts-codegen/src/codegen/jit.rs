@@ -563,7 +563,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::headers (#289) ───────────────────────────
     {
-        use crate::namespaces::globals::headers::instance::*;
+        use crate::namespaces::globals::headers::*;
         add_fn!("__RTS_FN_GL_HEADERS_NEW", __RTS_FN_GL_HEADERS_NEW);
         add_fn!("__RTS_FN_GL_HEADERS_NEW_FROM", __RTS_FN_GL_HEADERS_NEW_FROM);
         add_fn!("__RTS_FN_GL_HEADERS_APPEND", __RTS_FN_GL_HEADERS_APPEND);
