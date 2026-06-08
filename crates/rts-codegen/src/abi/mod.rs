@@ -115,7 +115,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::globals::performance::abi::SPEC,
     &crate::namespaces::globals::url::abi::SPEC,
     &crate::namespaces::globals::global_this::abi::SPEC,
-    &crate::namespaces::events::abi::SPEC,
+    &crate::namespaces::events::SPEC,
 ];
 
 pub fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {

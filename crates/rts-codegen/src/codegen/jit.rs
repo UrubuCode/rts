@@ -1273,22 +1273,22 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::events ────────────────────────────────────────────
     {
-        use crate::namespaces::events::ops as ev;
+        use crate::namespaces::events as ev;
         add_fn!("__RTS_FN_NS_EVENTS_EMITTER_NEW", ev::__RTS_FN_NS_EVENTS_EMITTER_NEW);
         add_fn!("__RTS_FN_NS_EVENTS_EMITTER_FREE", ev::__RTS_FN_NS_EVENTS_EMITTER_FREE);
         add_fn!("__RTS_FN_NS_EVENTS_ON", ev::__RTS_FN_NS_EVENTS_ON);
         add_fn!("__RTS_FN_NS_EVENTS_OFF", ev::__RTS_FN_NS_EVENTS_OFF);
-        add_fn!("__RTS_FN_NS_EVENTS_REMOVE_ALL", ev::__RTS_FN_NS_EVENTS_REMOVE_ALL);
+        add_fn!("__RTS_FN_NS_EVENTS_REMOVE_ALL_LISTENERS", ev::__RTS_FN_NS_EVENTS_REMOVE_ALL_LISTENERS);
         add_fn!("__RTS_FN_NS_EVENTS_LISTENER_COUNT", ev::__RTS_FN_NS_EVENTS_LISTENER_COUNT);
         add_fn!("__RTS_FN_NS_EVENTS_EMIT0", ev::__RTS_FN_NS_EVENTS_EMIT0);
         add_fn!("__RTS_FN_NS_EVENTS_EMIT1", ev::__RTS_FN_NS_EVENTS_EMIT1);
         add_fn!(
             "__RTS_FN_NS_EVENTS_EMIT0_ASYNC",
-            crate::namespaces::events::async_emit::__RTS_FN_NS_EVENTS_EMIT0_ASYNC
+            ev::__RTS_FN_NS_EVENTS_EMIT0_ASYNC
         );
         add_fn!(
             "__RTS_FN_NS_EVENTS_EMIT1_ASYNC",
-            crate::namespaces::events::async_emit::__RTS_FN_NS_EVENTS_EMIT1_ASYNC
+            ev::__RTS_FN_NS_EVENTS_EMIT1_ASYNC
         );
     }
 
