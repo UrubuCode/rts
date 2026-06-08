@@ -67,7 +67,7 @@ pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
 }
 
 pub const SPECS: &[&NamespaceSpec] = &[
-    &crate::namespaces::gc::abi::SPEC,
+    &crate::namespaces::gc::SPEC,
     &crate::namespaces::io::SPEC,
     &crate::namespaces::json::SPEC,
     &crate::namespaces::date::SPEC,
