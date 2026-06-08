@@ -536,7 +536,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::event_target (#63) ───────────────────────
     {
-        use crate::namespaces::globals::event_target::instance::*;
+        use crate::namespaces::globals::event_target::*;
         add_fn!("__RTS_FN_GL_EVENT_TARGET_NEW", __RTS_FN_GL_EVENT_TARGET_NEW);
         add_fn!("__RTS_FN_GL_EVENT_TARGET_ADD_LISTENER", __RTS_FN_GL_EVENT_TARGET_ADD_LISTENER);
         add_fn!("__RTS_FN_GL_EVENT_TARGET_REMOVE_LISTENER", __RTS_FN_GL_EVENT_TARGET_REMOVE_LISTENER);
