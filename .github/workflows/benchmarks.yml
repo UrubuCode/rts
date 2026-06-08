@@ -51,7 +51,10 @@ jobs:
       - name: Download Windows RTS artifact
         uses: actions/download-artifact@v4
         with:
-          name: rts-Windows-X64
+          # Build Artifacts uploads as `rts-<version>-Windows-X64`; match by
+          # pattern since this workflow_run trigger has no version input.
+          pattern: rts-*-Windows-X64
+          merge-multiple: true
           path: rts-bin
           run-id: ${{ steps.build.outputs.run_id }}
           github-token: ${{ github.token }}

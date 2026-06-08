@@ -40,7 +40,6 @@ rustls = { version = "0.23", default-features = false, features = [
 webpki-roots = "1"
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 actix-rt = "2"
-fltk = { version = "1", features = ["fltk-bundled"] }
 indexmap = "2.14.0"
 colored = "2.1"
 notify = "6.1"

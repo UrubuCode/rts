@@ -69,7 +69,6 @@ swc_ecma_parser = "39.0.0"
 slotmap = "1"
 rustc-hash = "1.1"
 notify = "6.1"
-fltk = { version = "1", features = ["fltk-bundled"] }
 regex = "1"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "1"
@@ -81,7 +80,6 @@ zstd = "0.13.3"
 
 [build-dependencies]
 sha2 = "0.10"
-fltk = { version = "1", features = ["fltk-bundled"] }
 regex = "1"
 rayon = "1.10"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }

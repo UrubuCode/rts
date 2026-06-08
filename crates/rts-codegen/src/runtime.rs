@@ -98,5 +98,5 @@ const RTS_PENDING_APIS: &[&str] = &[
 const RTS_EXPORTS: &[&str] = &[
     "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "isize", "usize", "f32", "f64",
     "bool", "str", "fs", "io", "math", "bigfloat", "time", "env", "path", "buffer", "string",
-    "process", "os", "collections", "hash", "fmt", "crypto", "ui",
+    "process", "os", "collections", "hash", "fmt", "crypto",
 ];

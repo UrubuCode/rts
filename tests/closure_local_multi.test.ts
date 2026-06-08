@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { ui, io, gc } from "rts";
+import { io, gc } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -11,12 +11,10 @@ function print(value: string): void {
 function setup(): void {
     let a: number = 100;
     let b: number = 200;
-    const btn = ui.button_new(0, 0, 1, 1, "");
     const cb = () => {
         a = a + 1;
         b = b + 10;
     };
-    ui.widget_set_callback(btn, cb);
     cb();
     cb();
     const ha = gc.string_from_i64(a);
@@ -25,8 +23,6 @@ function setup(): void {
     print(hb); gc.string_free(hb); // 220
 }
 
-const app = ui.app_new();
-const win = ui.window_new(10, 10, "x");
 setup();
 
 describe("fixture:closure_local_multi", () => {

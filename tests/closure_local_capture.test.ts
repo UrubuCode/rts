@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { ui, io, gc } from "rts";
+import { io, gc } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -12,11 +12,9 @@ function print(value: string): void {
 
 function setup(): void {
     let count: number = 0;
-    const btn = ui.button_new(0, 0, 1, 1, "");
     const cb = () => {
         count = count + 1;
     };
-    ui.widget_set_callback(btn, cb);
     cb();
     cb();
     cb();
@@ -24,8 +22,6 @@ function setup(): void {
     print(h); gc.string_free(h); // 3
 }
 
-const app = ui.app_new();
-const win = ui.window_new(10, 10, "x");
 setup();
 
 describe("fixture:closure_local_capture", () => {
