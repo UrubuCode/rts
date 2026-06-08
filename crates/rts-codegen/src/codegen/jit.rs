@@ -934,76 +934,76 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::math ──────────────────────────────────────────────
     use crate::namespaces::math::*;
-    add_fn!("__RTS_FN_NS_MATH_FLOOR", basic::__RTS_FN_NS_MATH_FLOOR);
-    add_fn!("__RTS_FN_NS_MATH_CEIL", basic::__RTS_FN_NS_MATH_CEIL);
-    add_fn!("__RTS_FN_NS_MATH_ROUND", basic::__RTS_FN_NS_MATH_ROUND);
-    add_fn!("__RTS_FN_NS_MATH_TRUNC", basic::__RTS_FN_NS_MATH_TRUNC);
-    add_fn!("__RTS_FN_NS_MATH_SQRT", basic::__RTS_FN_NS_MATH_SQRT);
-    add_fn!("__RTS_FN_NS_MATH_CBRT", basic::__RTS_FN_NS_MATH_CBRT);
-    add_fn!("__RTS_FN_NS_MATH_POW", basic::__RTS_FN_NS_MATH_POW);
-    add_fn!("__RTS_FN_NS_MATH_EXP", basic::__RTS_FN_NS_MATH_EXP);
-    add_fn!("__RTS_FN_NS_MATH_LN", basic::__RTS_FN_NS_MATH_LN);
-    add_fn!("__RTS_FN_NS_MATH_LOG2", basic::__RTS_FN_NS_MATH_LOG2);
-    add_fn!("__RTS_FN_NS_MATH_LOG10", basic::__RTS_FN_NS_MATH_LOG10);
-    add_fn!("__RTS_FN_NS_MATH_ABS_F64", basic::__RTS_FN_NS_MATH_ABS_F64);
-    add_fn!("__RTS_FN_NS_MATH_ABS_I64", basic::__RTS_FN_NS_MATH_ABS_I64);
+    add_fn!("__RTS_FN_NS_MATH_FLOOR", __RTS_FN_NS_MATH_FLOOR);
+    add_fn!("__RTS_FN_NS_MATH_CEIL", __RTS_FN_NS_MATH_CEIL);
+    add_fn!("__RTS_FN_NS_MATH_ROUND", __RTS_FN_NS_MATH_ROUND);
+    add_fn!("__RTS_FN_NS_MATH_TRUNC", __RTS_FN_NS_MATH_TRUNC);
+    add_fn!("__RTS_FN_NS_MATH_SQRT", __RTS_FN_NS_MATH_SQRT);
+    add_fn!("__RTS_FN_NS_MATH_CBRT", __RTS_FN_NS_MATH_CBRT);
+    add_fn!("__RTS_FN_NS_MATH_POW", __RTS_FN_NS_MATH_POW);
+    add_fn!("__RTS_FN_NS_MATH_EXP", __RTS_FN_NS_MATH_EXP);
+    add_fn!("__RTS_FN_NS_MATH_LN", __RTS_FN_NS_MATH_LN);
+    add_fn!("__RTS_FN_NS_MATH_LOG2", __RTS_FN_NS_MATH_LOG2);
+    add_fn!("__RTS_FN_NS_MATH_LOG10", __RTS_FN_NS_MATH_LOG10);
+    add_fn!("__RTS_FN_NS_MATH_ABS_F64", __RTS_FN_NS_MATH_ABS_F64);
+    add_fn!("__RTS_FN_NS_MATH_ABS_I64", __RTS_FN_NS_MATH_ABS_I64);
     // (#208) Math extras.
-    add_fn!("__RTS_FN_NS_MATH_SIGN", basic::__RTS_FN_NS_MATH_SIGN);
-    add_fn!("__RTS_FN_NS_MATH_HYPOT", basic::__RTS_FN_NS_MATH_HYPOT);
-    add_fn!("__RTS_FN_NS_MATH_EXPM1", basic::__RTS_FN_NS_MATH_EXPM1);
-    add_fn!("__RTS_FN_NS_MATH_LOG1P", basic::__RTS_FN_NS_MATH_LOG1P);
-    add_fn!("__RTS_FN_NS_MATH_FROUND", basic::__RTS_FN_NS_MATH_FROUND);
-    add_fn!("__RTS_FN_NS_MATH_F16ROUND", basic::__RTS_FN_NS_MATH_F16ROUND);
-    add_fn!("__RTS_FN_NS_MATH_SINH", basic::__RTS_FN_NS_MATH_SINH);
-    add_fn!("__RTS_FN_NS_MATH_COSH", basic::__RTS_FN_NS_MATH_COSH);
-    add_fn!("__RTS_FN_NS_MATH_TANH", basic::__RTS_FN_NS_MATH_TANH);
-    add_fn!("__RTS_FN_NS_MATH_ASINH", basic::__RTS_FN_NS_MATH_ASINH);
-    add_fn!("__RTS_FN_NS_MATH_ACOSH", basic::__RTS_FN_NS_MATH_ACOSH);
-    add_fn!("__RTS_FN_NS_MATH_ATANH", basic::__RTS_FN_NS_MATH_ATANH);
-    add_fn!("__RTS_FN_NS_MATH_IMUL", basic::__RTS_FN_NS_MATH_IMUL);
-    add_fn!("__RTS_FN_NS_MATH_CLZ32", basic::__RTS_FN_NS_MATH_CLZ32);
-    add_fn!("__RTS_FN_NS_MATH_SIN", trig::__RTS_FN_NS_MATH_SIN);
-    add_fn!("__RTS_FN_NS_MATH_COS", trig::__RTS_FN_NS_MATH_COS);
-    add_fn!("__RTS_FN_NS_MATH_TAN", trig::__RTS_FN_NS_MATH_TAN);
-    add_fn!("__RTS_FN_NS_MATH_ASIN", trig::__RTS_FN_NS_MATH_ASIN);
-    add_fn!("__RTS_FN_NS_MATH_ACOS", trig::__RTS_FN_NS_MATH_ACOS);
-    add_fn!("__RTS_FN_NS_MATH_ATAN", trig::__RTS_FN_NS_MATH_ATAN);
-    add_fn!("__RTS_FN_NS_MATH_ATAN2", trig::__RTS_FN_NS_MATH_ATAN2);
-    add_fn!("__RTS_FN_NS_MATH_MIN_F64", minmax::__RTS_FN_NS_MATH_MIN_F64);
-    add_fn!("__RTS_FN_NS_MATH_MAX_F64", minmax::__RTS_FN_NS_MATH_MAX_F64);
-    add_fn!("__RTS_FN_NS_MATH_MIN_I64", minmax::__RTS_FN_NS_MATH_MIN_I64);
-    add_fn!("__RTS_FN_NS_MATH_MAX_I64", minmax::__RTS_FN_NS_MATH_MAX_I64);
+    add_fn!("__RTS_FN_NS_MATH_SIGN", __RTS_FN_NS_MATH_SIGN);
+    add_fn!("__RTS_FN_NS_MATH_HYPOT", __RTS_FN_NS_MATH_HYPOT);
+    add_fn!("__RTS_FN_NS_MATH_EXPM1", __RTS_FN_NS_MATH_EXPM1);
+    add_fn!("__RTS_FN_NS_MATH_LOG1P", __RTS_FN_NS_MATH_LOG1P);
+    add_fn!("__RTS_FN_NS_MATH_FROUND", __RTS_FN_NS_MATH_FROUND);
+    add_fn!("__RTS_FN_NS_MATH_F16ROUND", __RTS_FN_NS_MATH_F16ROUND);
+    add_fn!("__RTS_FN_NS_MATH_SINH", __RTS_FN_NS_MATH_SINH);
+    add_fn!("__RTS_FN_NS_MATH_COSH", __RTS_FN_NS_MATH_COSH);
+    add_fn!("__RTS_FN_NS_MATH_TANH", __RTS_FN_NS_MATH_TANH);
+    add_fn!("__RTS_FN_NS_MATH_ASINH", __RTS_FN_NS_MATH_ASINH);
+    add_fn!("__RTS_FN_NS_MATH_ACOSH", __RTS_FN_NS_MATH_ACOSH);
+    add_fn!("__RTS_FN_NS_MATH_ATANH", __RTS_FN_NS_MATH_ATANH);
+    add_fn!("__RTS_FN_NS_MATH_IMUL", __RTS_FN_NS_MATH_IMUL);
+    add_fn!("__RTS_FN_NS_MATH_CLZ32", __RTS_FN_NS_MATH_CLZ32);
+    add_fn!("__RTS_FN_NS_MATH_SIN", __RTS_FN_NS_MATH_SIN);
+    add_fn!("__RTS_FN_NS_MATH_COS", __RTS_FN_NS_MATH_COS);
+    add_fn!("__RTS_FN_NS_MATH_TAN", __RTS_FN_NS_MATH_TAN);
+    add_fn!("__RTS_FN_NS_MATH_ASIN", __RTS_FN_NS_MATH_ASIN);
+    add_fn!("__RTS_FN_NS_MATH_ACOS", __RTS_FN_NS_MATH_ACOS);
+    add_fn!("__RTS_FN_NS_MATH_ATAN", __RTS_FN_NS_MATH_ATAN);
+    add_fn!("__RTS_FN_NS_MATH_ATAN2", __RTS_FN_NS_MATH_ATAN2);
+    add_fn!("__RTS_FN_NS_MATH_MIN_F64", __RTS_FN_NS_MATH_MIN_F64);
+    add_fn!("__RTS_FN_NS_MATH_MAX_F64", __RTS_FN_NS_MATH_MAX_F64);
+    add_fn!("__RTS_FN_NS_MATH_MIN_I64", __RTS_FN_NS_MATH_MIN_I64);
+    add_fn!("__RTS_FN_NS_MATH_MAX_I64", __RTS_FN_NS_MATH_MAX_I64);
     add_fn!(
         "__RTS_FN_NS_MATH_CLAMP_F64",
-        minmax::__RTS_FN_NS_MATH_CLAMP_F64
+        __RTS_FN_NS_MATH_CLAMP_F64
     );
     add_fn!(
         "__RTS_FN_NS_MATH_CLAMP_I64",
-        minmax::__RTS_FN_NS_MATH_CLAMP_I64
+        __RTS_FN_NS_MATH_CLAMP_I64
     );
     add_fn!(
         "__RTS_FN_NS_MATH_RANDOM_F64",
-        random::__RTS_FN_NS_MATH_RANDOM_F64
+        __RTS_FN_NS_MATH_RANDOM_F64
     );
     add_fn!(
         "__RTS_FN_NS_MATH_RANDOM_I64_RANGE",
-        random::__RTS_FN_NS_MATH_RANDOM_I64_RANGE
+        __RTS_FN_NS_MATH_RANDOM_I64_RANGE
     );
-    add_fn!("__RTS_FN_NS_MATH_SEED", random::__RTS_FN_NS_MATH_SEED);
-    add_fn!("__RTS_FN_NS_MATH_PI", consts::__RTS_FN_NS_MATH_PI);
-    add_fn!("__RTS_FN_NS_MATH_E", consts::__RTS_FN_NS_MATH_E);
+    add_fn!("__RTS_FN_NS_MATH_SEED", __RTS_FN_NS_MATH_SEED);
+    add_fn!("__RTS_FN_NS_MATH_PI", __RTS_FN_NS_MATH_PI);
+    add_fn!("__RTS_FN_NS_MATH_E", __RTS_FN_NS_MATH_E);
     add_fn!(
         "__RTS_FN_NS_MATH_INFINITY",
-        consts::__RTS_FN_NS_MATH_INFINITY
+        __RTS_FN_NS_MATH_INFINITY
     );
-    add_fn!("__RTS_FN_NS_MATH_NAN", consts::__RTS_FN_NS_MATH_NAN);
+    add_fn!("__RTS_FN_NS_MATH_NAN", __RTS_FN_NS_MATH_NAN);
     // (#208) Math constants extras.
-    add_fn!("__RTS_FN_NS_MATH_SQRT2", consts::__RTS_FN_NS_MATH_SQRT2);
-    add_fn!("__RTS_FN_NS_MATH_SQRT1_2", consts::__RTS_FN_NS_MATH_SQRT1_2);
-    add_fn!("__RTS_FN_NS_MATH_LN2", consts::__RTS_FN_NS_MATH_LN2);
-    add_fn!("__RTS_FN_NS_MATH_LN10", consts::__RTS_FN_NS_MATH_LN10);
-    add_fn!("__RTS_FN_NS_MATH_LOG2E", consts::__RTS_FN_NS_MATH_LOG2E);
-    add_fn!("__RTS_FN_NS_MATH_LOG10E", consts::__RTS_FN_NS_MATH_LOG10E);
+    add_fn!("__RTS_FN_NS_MATH_SQRT2", __RTS_FN_NS_MATH_SQRT2);
+    add_fn!("__RTS_FN_NS_MATH_SQRT1_2", __RTS_FN_NS_MATH_SQRT1_2);
+    add_fn!("__RTS_FN_NS_MATH_LN2", __RTS_FN_NS_MATH_LN2);
+    add_fn!("__RTS_FN_NS_MATH_LN10", __RTS_FN_NS_MATH_LN10);
+    add_fn!("__RTS_FN_NS_MATH_LOG2E", __RTS_FN_NS_MATH_LOG2E);
+    add_fn!("__RTS_FN_NS_MATH_LOG10E", __RTS_FN_NS_MATH_LOG10E);
 
     // ── namespaces::num ───────────────────────────────────────────────
     {

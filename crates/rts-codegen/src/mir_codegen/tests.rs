@@ -715,7 +715,7 @@ fn smoke_ts_to_native_via_mir_calls_math_sqrt() {
     // JIT with the runtime symbol registered.
     let mut module = make_jit_with_externs(&[(
         "__RTS_FN_NS_MATH_SQRT",
-        rts_runtime::namespaces::math::basic::__RTS_FN_NS_MATH_SQRT as *const u8,
+        rts_runtime::namespaces::math::__RTS_FN_NS_MATH_SQRT as *const u8,
     )]);
     let mir = host_conv(mir);
     let id = super::lower::lower_mir_func(&mut module, &mir).expect("lower");
@@ -874,7 +874,7 @@ fn smoke_member_math_pi_returns_constant() {
     let mut hir_scope = rts_hir::scope::Scope::new();
     let mut module = make_jit_with_externs(&[(
         "__RTS_FN_NS_MATH_PI",
-        rts_runtime::namespaces::math::consts::__RTS_FN_NS_MATH_PI as *const u8,
+        rts_runtime::namespaces::math::__RTS_FN_NS_MATH_PI as *const u8,
     )]);
     let mut id_opt = None;
     for item in &program.items {
@@ -1684,7 +1684,7 @@ fn compile_source_via_compile_program(
     // testes simples que usam só aritmetica, normalmente nao precisamos.
     let _ = builder.symbol(
         "__RTS_FN_NS_MATH_PI",
-        rts_runtime::namespaces::math::consts::__RTS_FN_NS_MATH_PI as *const u8,
+        rts_runtime::namespaces::math::__RTS_FN_NS_MATH_PI as *const u8,
     );
     let mut module = JITModule::new(builder);
 

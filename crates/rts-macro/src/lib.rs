@@ -60,7 +60,7 @@ fn doc_of(attrs: &[syn::Attribute]) -> String {
     lines.join("\n")
 }
 
-/// Parsed `#[rts_fn(...)]` / `#[rts_const(...)]` options.
+/// Parsed `#[rts_fn(...)]` / `#[rts_const(...)]` / `#[rts_alias(...)]` options.
 struct FnOpts {
     ts: Option<String>,
     pure: bool,
@@ -71,26 +71,38 @@ struct FnOpts {
     /// string arg is null / invalid UTF-8. Overrides the typed-zero default —
     /// e.g. `on_null = i64::MIN`, `on_null = f64::NAN`, `on_null = -1`.
     on_null: Option<proc_macro2::TokenStream>,
+    /// `intrinsic = <Variant>` → `intrinsic: Some(Intrinsic::<Variant>)`.
+    intrinsic: Option<Ident>,
+    /// `#[rts_alias(of = <name>)]` — emits a member pointing at `<name>`'s
+    /// symbol WITHOUT emitting an extern (the canonical fn already owns it).
+    alias_of: Option<String>,
 }
 
 fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
-    let (attr, is_const) = attrs
+    let (attr, is_const, is_alias) = attrs
         .iter()
         .find(|a| a.path().is_ident("rts_fn"))
-        .map(|a| (a, false))
+        .map(|a| (a, false, false))
         .or_else(|| {
             attrs
                 .iter()
                 .find(|a| a.path().is_ident("rts_const"))
-                .map(|a| (a, true))
+                .map(|a| (a, true, false))
+        })
+        .or_else(|| {
+            attrs
+                .iter()
+                .find(|a| a.path().is_ident("rts_alias"))
+                .map(|a| (a, false, true))
         })?;
     let mut opts = FnOpts {
         ts: None,
         pure: false,
         is_const,
         on_null: None,
+        intrinsic: None,
+        alias_of: if is_alias { Some(String::new()) } else { None },
     };
-    // `#[rts_fn]` (no args) → Path meta; `#[rts_fn(...)]` → List.
     if matches!(attr.meta, syn::Meta::Path(_)) {
         return Some(opts);
     }
@@ -105,6 +117,15 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
             let v = m.value()?;
             let e: syn::Expr = v.parse()?;
             opts.on_null = Some(quote! { #e });
+        } else if m.path.is_ident("intrinsic") {
+            let v = m.value()?;
+            let id: Ident = v.parse()?;
+            opts.intrinsic = Some(id);
+        } else if m.path.is_ident("of") {
+            // `#[rts_alias(of = ln)]` — the canonical fn name.
+            let v = m.value()?;
+            let id: Ident = v.parse()?;
+            opts.alias_of = Some(id.to_string());
         }
         Ok(())
     });
@@ -149,7 +170,12 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
         let span = f.sig.ident.span();
         let name = f.sig.ident.to_string();
         let name_upper = name.to_uppercase();
-        let symbol = format!("__RTS_FN_NS_{ns_upper}_{name_upper}");
+        // An alias points at the canonical fn's symbol (`of = <name>`); a normal
+        // member owns `__RTS_FN_NS_<NS>_<NAME>`.
+        let symbol = match &opts.alias_of {
+            Some(target) => format!("__RTS_FN_NS_{ns_upper}_{}", target.to_uppercase()),
+            None => format!("__RTS_FN_NS_{ns_upper}_{name_upper}"),
+        };
         let sym_ident = Ident::new(&symbol, span);
         let doc = doc_of(&f.attrs);
 
@@ -241,16 +267,25 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
         };
         let pure = opts.pure;
 
-        // Emit the extern "C" symbol — Str prelude, then the user body verbatim.
-        let output = &f.sig.output;
-        let block = &f.block;
-        externs.push(quote! {
-            #[unsafe(no_mangle)]
-            pub extern "C" fn #sym_ident(#(#extern_inputs),*) #output {
-                #(#str_prelude)*
-                #block
-            }
-        });
+        // An alias emits NO extern — it reuses the canonical fn's symbol.
+        let is_alias = opts.alias_of.is_some();
+        if !is_alias {
+            // Emit the extern "C" symbol — Str prelude, then the user body verbatim.
+            let output = &f.sig.output;
+            let block = &f.block;
+            externs.push(quote! {
+                #[unsafe(no_mangle)]
+                pub extern "C" fn #sym_ident(#(#extern_inputs),*) #output {
+                    #(#str_prelude)*
+                    #block
+                }
+            });
+        }
+
+        let intrinsic_tok = match &opts.intrinsic {
+            Some(variant) => quote! { Some(::rts_abi::Intrinsic::#variant) },
+            None => quote! { None },
+        };
 
         members.push(quote! {
             ::rts_abi::NamespaceMember {
@@ -261,7 +296,7 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
                 returns: ::rts_abi::AbiType::#ret_ident,
                 doc: #doc,
                 ts_signature: #ts_sig,
-                intrinsic: None,
+                intrinsic: #intrinsic_tok,
                 pure: #pure,
             }
         });
