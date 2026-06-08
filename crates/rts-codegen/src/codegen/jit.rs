@@ -433,7 +433,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     }
 
     {
-        use crate::namespaces::globals::message_channel::instance::*;
+        use crate::namespaces::globals::message_channel::*;
         add_fn!("__RTS_FN_GL_MESSAGE_CHANNEL_NEW", __RTS_FN_GL_MESSAGE_CHANNEL_NEW);
         add_fn!("__RTS_FN_GL_MESSAGE_CHANNEL_PORT1", __RTS_FN_GL_MESSAGE_CHANNEL_PORT1);
         add_fn!("__RTS_FN_GL_MESSAGE_CHANNEL_PORT2", __RTS_FN_GL_MESSAGE_CHANNEL_PORT2);
