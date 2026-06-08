@@ -2141,96 +2141,94 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
 
     // ── namespaces::atomic ────────────────────────────────────────────
-    use crate::namespaces::atomic::{
-        bool as atomic_bool, fence as atomic_fence, float as atomic_float, int as atomic_int,
-    };
+    use crate::namespaces::atomic::*;
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_NEW",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_NEW
+        __RTS_FN_NS_ATOMIC_I64_NEW
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_LOAD",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_LOAD
+        __RTS_FN_NS_ATOMIC_I64_LOAD
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_STORE",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_STORE
+        __RTS_FN_NS_ATOMIC_I64_STORE
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_FETCH_ADD",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_ADD
+        __RTS_FN_NS_ATOMIC_I64_FETCH_ADD
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_FETCH_SUB",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_SUB
+        __RTS_FN_NS_ATOMIC_I64_FETCH_SUB
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_FETCH_AND",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_AND
+        __RTS_FN_NS_ATOMIC_I64_FETCH_AND
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_FETCH_OR",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_OR
+        __RTS_FN_NS_ATOMIC_I64_FETCH_OR
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_FETCH_XOR",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_FETCH_XOR
+        __RTS_FN_NS_ATOMIC_I64_FETCH_XOR
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_SWAP",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_SWAP
+        __RTS_FN_NS_ATOMIC_I64_SWAP
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_I64_CAS",
-        atomic_int::__RTS_FN_NS_ATOMIC_I64_CAS
+        __RTS_FN_NS_ATOMIC_I64_CAS
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_BOOL_NEW",
-        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_NEW
+        __RTS_FN_NS_ATOMIC_BOOL_NEW
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_BOOL_LOAD",
-        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_LOAD
+        __RTS_FN_NS_ATOMIC_BOOL_LOAD
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_BOOL_STORE",
-        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_STORE
+        __RTS_FN_NS_ATOMIC_BOOL_STORE
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_BOOL_SWAP",
-        atomic_bool::__RTS_FN_NS_ATOMIC_BOOL_SWAP
+        __RTS_FN_NS_ATOMIC_BOOL_SWAP
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_F64_NEW",
-        atomic_float::__RTS_FN_NS_ATOMIC_F64_NEW
+        __RTS_FN_NS_ATOMIC_F64_NEW
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_F64_LOAD",
-        atomic_float::__RTS_FN_NS_ATOMIC_F64_LOAD
+        __RTS_FN_NS_ATOMIC_F64_LOAD
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_F64_STORE",
-        atomic_float::__RTS_FN_NS_ATOMIC_F64_STORE
+        __RTS_FN_NS_ATOMIC_F64_STORE
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_F64_FETCH_ADD",
-        atomic_float::__RTS_FN_NS_ATOMIC_F64_FETCH_ADD
+        __RTS_FN_NS_ATOMIC_F64_FETCH_ADD
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_F64_SWAP",
-        atomic_float::__RTS_FN_NS_ATOMIC_F64_SWAP
+        __RTS_FN_NS_ATOMIC_F64_SWAP
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_FENCE_ACQUIRE",
-        atomic_fence::__RTS_FN_NS_ATOMIC_FENCE_ACQUIRE
+        __RTS_FN_NS_ATOMIC_FENCE_ACQUIRE
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_FENCE_RELEASE",
-        atomic_fence::__RTS_FN_NS_ATOMIC_FENCE_RELEASE
+        __RTS_FN_NS_ATOMIC_FENCE_RELEASE
     );
     add_fn!(
         "__RTS_FN_NS_ATOMIC_FENCE_SEQ_CST",
-        atomic_fence::__RTS_FN_NS_ATOMIC_FENCE_SEQ_CST
+        __RTS_FN_NS_ATOMIC_FENCE_SEQ_CST
     );
 
     // ── namespaces::sync ──────────────────────────────────────────────
