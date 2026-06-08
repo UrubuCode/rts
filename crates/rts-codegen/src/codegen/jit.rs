@@ -1862,11 +1862,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::tls ───────────────────────────────────────────────
     {
-        use crate::namespaces::tls::{client, io};
-        add_fn!("__RTS_FN_NS_TLS_CLIENT", client::__RTS_FN_NS_TLS_CLIENT);
-        add_fn!("__RTS_FN_NS_TLS_CLOSE", client::__RTS_FN_NS_TLS_CLOSE);
-        add_fn!("__RTS_FN_NS_TLS_SEND", io::__RTS_FN_NS_TLS_SEND);
-        add_fn!("__RTS_FN_NS_TLS_RECV", io::__RTS_FN_NS_TLS_RECV);
+        use crate::namespaces::tls::*;
+        add_fn!("__RTS_FN_NS_TLS_CLIENT", __RTS_FN_NS_TLS_CLIENT);
+        add_fn!("__RTS_FN_NS_TLS_CLOSE", __RTS_FN_NS_TLS_CLOSE);
+        add_fn!("__RTS_FN_NS_TLS_SEND", __RTS_FN_NS_TLS_SEND);
+        add_fn!("__RTS_FN_NS_TLS_RECV", __RTS_FN_NS_TLS_RECV);
     }
 
     // ── namespaces::globals::string ───────────────────────────────────
@@ -2632,7 +2632,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── Libc ──────────────────────────────────────────────────────────
     // ── namespaces::http_server ─────────────────────────────────────
     {
-        use crate::namespaces::http_server::ops::*;
+        use crate::namespaces::http_server::*;
         add_fn!("__RTS_FN_NS_HTTP_SERVER_SERVE", __RTS_FN_NS_HTTP_SERVER_SERVE);
         add_fn!("__RTS_FN_NS_HTTP_SERVER_REQ_METHOD", __RTS_FN_NS_HTTP_SERVER_REQ_METHOD);
         add_fn!("__RTS_FN_NS_HTTP_SERVER_REQ_PATH", __RTS_FN_NS_HTTP_SERVER_REQ_PATH);
