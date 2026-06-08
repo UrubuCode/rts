@@ -6,7 +6,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::string::abi::STRING_CLASS_SPEC,
     &crate::namespaces::globals::number::abi::NUMBER_CLASS_SPEC,
     &crate::namespaces::globals::date::abi::CLASS_SPEC,
-    &crate::namespaces::globals::regexp::abi::CLASS_SPEC,
+    &crate::namespaces::globals::regexp::REGEXP_CLASS_SPEC,
     &crate::namespaces::globals::error::abi::CLASS_SPEC,
     &crate::namespaces::globals::error::abi::TYPE_ERROR_CLASS_SPEC,
     &crate::namespaces::globals::error::abi::RANGE_ERROR_CLASS_SPEC,

@@ -359,7 +359,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_EE_EVENT_NAMES", __RTS_FN_GL_EE_EVENT_NAMES);
 
     // ── namespaces::globals::regexp (RegExp global class) ────────────
-    use crate::namespaces::globals::regexp::instance::*;
+    use crate::namespaces::globals::regexp::*;
     add_fn!("__RTS_FN_GL_REGEXP_NEW", __RTS_FN_GL_REGEXP_NEW);
     add_fn!("__RTS_FN_GL_REGEXP_NEW_WITH_FLAGS", __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS);
     add_fn!("__RTS_FN_GL_REGEXP_TEST", __RTS_FN_GL_REGEXP_TEST);

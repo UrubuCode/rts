@@ -406,6 +406,9 @@ struct ClassFnOpts {
     /// no early return) instead of `&str`. For optional-string args like
     /// `new Symbol(description?)` where null means "absent", not "fail".
     opt_str: bool,
+    /// When set, emit the member but NOT an extern — its `symbol` names a fn
+    /// owned by another namespace (e.g. `Number.parseInt` → fmt). Body ignored.
+    external: bool,
     pure: bool,
     intrinsic: Option<Ident>,
 }
@@ -434,6 +437,7 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
         ts: None,
         symbol: None,
         opt_str: false,
+        external: false,
         pure: false,
         intrinsic: None,
     };
@@ -445,6 +449,8 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
             opts.pure = true;
         } else if m.path.is_ident("opt_str") {
             opts.opt_str = true;
+        } else if m.path.is_ident("external") {
+            opts.external = true;
         } else if m.path.is_ident("name") {
             let v = m.value()?;
             let s: syn::LitStr = v.parse()?;
@@ -598,15 +604,21 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
             None => quote! { None },
         };
 
-        let output = &f.sig.output;
-        let block = &f.block;
-        externs.push(quote! {
-            #[unsafe(no_mangle)]
-            pub extern "C" fn #sym_ident(#(#extern_inputs),*) #output {
-                #(#str_prelude)*
-                #block
-            }
-        });
+        // `external` members reference an extern owned by another namespace
+        // (e.g. `Number.parseInt` → `__RTS_FN_NS_FMT_PARSE_I64`): emit the member
+        // pointing at the foreign symbol but NO extern (it already exists; a
+        // second `#[no_mangle]` would collide). The fn body is ignored.
+        if !opts.external {
+            let output = &f.sig.output;
+            let block = &f.block;
+            externs.push(quote! {
+                #[unsafe(no_mangle)]
+                pub extern "C" fn #sym_ident(#(#extern_inputs),*) #output {
+                    #(#str_prelude)*
+                    #block
+                }
+            });
+        }
 
         members.push(quote! {
             ::rts_abi::NamespaceMember {
