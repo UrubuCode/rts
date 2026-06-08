@@ -4,7 +4,9 @@
 //! (`start` callback / `transform`) enqueues chunks before any `read()` runs,
 //! so `read()` can resolve a Promise immediately with the next buffered chunk.
 
-use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry, with_entry_mut};
+use crate::namespaces::gc::handles::{
+    alloc_entry, with_entry, with_entry_mut, Entry, FunctionData,
+};
 use crate::namespaces::gc::promise_slot;
 use indexmap::IndexMap;
 
@@ -108,7 +110,10 @@ fn call_fn(fn_handle: i64, extra: &[i64]) {
 fn make_result(value: i64, done: bool) -> u64 {
     let mut m: IndexMap<String, i64> = IndexMap::new();
     m.insert("value".to_string(), value);
-    m.insert("done".to_string(), if done { BOOL_TRUE } else { BOOL_FALSE });
+    m.insert(
+        "done".to_string(),
+        if done { BOOL_TRUE } else { BOOL_FALSE },
+    );
     alloc_entry(Entry::Map(Box::new(m)))
 }
 
@@ -415,9 +420,7 @@ fn deflate_bytes(data: &[u8]) -> Vec<u8> {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_COMPRESSION_STREAM_NEW(fmt_ptr: u64, fmt_len: i64) -> u64 {
     let fmt = if fmt_ptr != 0 && fmt_len > 0 {
-        let bytes = unsafe {
-            std::slice::from_raw_parts(fmt_ptr as *const u8, fmt_len as usize)
-        };
+        let bytes = unsafe { std::slice::from_raw_parts(fmt_ptr as *const u8, fmt_len as usize) };
         std::str::from_utf8(bytes).unwrap_or("gzip").to_owned()
     } else {
         "gzip".to_owned()
