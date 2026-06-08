@@ -102,7 +102,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     #[cfg(feature = "asio")]
     &crate::namespaces::asio_audio::abi::SPEC,
     &crate::namespaces::runtime::abi::SPEC,
-    &crate::namespaces::test::abi::SPEC,
+    &crate::namespaces::test::SPEC,
     &crate::namespaces::thread::abi::SPEC,
     &crate::namespaces::parallel::abi::SPEC,
     &crate::namespaces::tls::abi::SPEC,

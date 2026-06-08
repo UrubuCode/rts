@@ -2598,7 +2598,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::test ─────────────────────────────────────────────
     {
-        use crate::namespaces::test::runner::*;
+        use crate::namespaces::test::*;
         add_fn!(
             "__RTS_FN_NS_TEST_CORE_SUITE_BEGIN",
             __RTS_FN_NS_TEST_CORE_SUITE_BEGIN

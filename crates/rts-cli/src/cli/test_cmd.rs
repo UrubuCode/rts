@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use crate::compile_options::CompileOptions;
-use crate::namespaces::test::runner;
+use crate::namespaces::test as runner;
 
 pub fn command(path: Option<String>) -> Result<()> {
     let root = match path {
