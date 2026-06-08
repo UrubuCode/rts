@@ -4,7 +4,7 @@
 //! with `name` set to the appropriate class name. All instance methods are
 //! shared (same symbol `__RTS_FN_GL_ERROR_*`).
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -168,15 +168,25 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR(handle: u64) -> i64 {
 /// instancia user (Map) carregar o name "TypeError" via super constructor.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_len: i64) -> i64 {
-    if name_ptr == 0 || name_len <= 0 { return 0; }
+    if name_ptr == 0 || name_len <= 0 {
+        return 0;
+    }
     let want = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
-    let want_s = match std::str::from_utf8(want) { Ok(s) => s, Err(_) => return 0 };
+    let want_s = match std::str::from_utf8(want) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
     // (cross-runtime #47) Snapshot da string do name DENTRO do mesmo
     // outer with_entry — evita race com GC entre lookups (se err virou
     // unreachable, o name handle pode ser reciclado antes do segundo
     // lookup). Tambem cobre deadlock potencial quando handle e name_h
     // estao no mesmo shard.
-    enum Kind { ErrorMatch(bool), MapName(u64), MapNameStr(Vec<u8>), NotError }
+    enum Kind {
+        ErrorMatch(bool),
+        MapName(u64),
+        MapNameStr(Vec<u8>),
+        NotError,
+    }
     let kind = with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { name, .. }) => Kind::ErrorMatch(name == want_s),
         Some(Entry::Map(m)) => {
@@ -202,12 +212,23 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
         other => other,
     };
     match kind {
-        Kind::ErrorMatch(b) => if b { 1 } else { 0 },
+        Kind::ErrorMatch(b) => {
+            if b {
+                1
+            } else {
+                0
+            }
+        }
         Kind::MapNameStr(b) => {
-            if b.as_slice() == want_s.as_bytes() { return 1; }
+            if b.as_slice() == want_s.as_bytes() {
+                return 1;
+            }
             // (cross-runtime #47) Walk class hierarchy via registry:
             // CustomTypeError extends TypeError → instanceof TypeError = true.
-            let cur = match std::str::from_utf8(&b) { Ok(s) => s, Err(_) => return 0 };
+            let cur = match std::str::from_utf8(&b) {
+                Ok(s) => s,
+                Err(_) => return 0,
+            };
             if crate::namespaces::gc::class_registry::is_descendant_of(cur, want_s) {
                 return 1;
             }
@@ -216,7 +237,11 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
             let class_name = with_entry(handle, |entry| match entry {
                 Some(Entry::Map(m)) => {
                     let class_h = m.get("__rts_class").copied().unwrap_or(0) as u64;
-                    if class_h == 0 { None } else { Some(class_h) }
+                    if class_h == 0 {
+                        None
+                    } else {
+                        Some(class_h)
+                    }
                 }
                 _ => None,
             });
@@ -280,8 +305,8 @@ pub extern "C" fn __RTS_FN_GL_ERROR_STACK(handle: u64) -> u64 {
         format!("{name}: {msg}")
     };
     // (#745) Stack salvo pelo ERROR_CLEAR (ver gc/error.rs ERR_STACKS).
-    let stack_text: String = crate::namespaces::gc::error::stack_for_handle(handle)
-        .unwrap_or_default();
+    let stack_text: String =
+        crate::namespaces::gc::error::stack_for_handle(handle).unwrap_or_default();
     let s = if stack_text.is_empty() {
         header
     } else {
