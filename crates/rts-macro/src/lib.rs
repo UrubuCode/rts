@@ -31,22 +31,35 @@ use syn::{FnArg, Ident, ImplItem, ItemImpl, Pat, ReturnType, Token, Type};
 struct NsAttr {
     name: Ident,
     part: bool,
+    /// Symbol stem override — replaces the default `NS_<NS_UPPER>` between
+    /// `__RTS_FN_` and `_<NAME>`. For GL-scoped "namespaces" whose symbols are
+    /// `__RTS_FN_GL_PERF_*` etc (e.g. `performance` → `sym = "GL_PERF"`).
+    sym: Option<String>,
 }
 
 impl Parse for NsAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let name: Ident = input.parse()?;
         let mut part = false;
-        if input.peek(Token![,]) {
+        let mut sym = None;
+        while input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
-            let kw: Ident = input.parse()?;
-            if kw == "part" {
+            // bare `part` flag, or `sym = "..."`.
+            if input.peek(Token![=]) {
+                // not reachable — handled below by key lookahead
+            }
+            let key: Ident = input.parse()?;
+            if key == "part" {
                 part = true;
+            } else if key == "sym" {
+                input.parse::<Token![=]>()?;
+                let v: syn::LitStr = input.parse()?;
+                sym = Some(v.value());
             } else {
-                return Err(syn::Error::new(kw.span(), "expected `part`"));
+                return Err(syn::Error::new(key.span(), "expected `part` or `sym`"));
             }
         }
-        Ok(NsAttr { name, part })
+        Ok(NsAttr { name, part, sym })
     }
 }
 
@@ -148,6 +161,13 @@ struct FnOpts {
     /// `#[rts_alias(of = <name>)]` — emits a member pointing at `<name>`'s
     /// symbol WITHOUT emitting an extern (the canonical fn already owns it).
     alias_of: Option<String>,
+    /// `name = "..."` — JS-visible member name when it differs from the fn ident
+    /// (e.g. camelCase `timeOrigin` for fn `time_origin`).
+    name: Option<String>,
+    /// `symbol = "..."` — full symbol override when the derived
+    /// `__RTS_FN_<STEM>_<FN_IDENT>` doesn't match (e.g. `time_origin` → the
+    /// canonical `__RTS_FN_GL_PERF_TIME_ORIGIN`).
+    symbol: Option<String>,
 }
 
 fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
@@ -174,6 +194,8 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
         on_null: None,
         intrinsic: None,
         alias_of: if is_alias { Some(String::new()) } else { None },
+        name: None,
+        symbol: None,
     };
     if matches!(attr.meta, syn::Meta::Path(_)) {
         return Some(opts);
@@ -181,6 +203,14 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
     let _ = attr.parse_nested_meta(|m| {
         if m.path.is_ident("pure") {
             opts.pure = true;
+        } else if m.path.is_ident("name") {
+            let v = m.value()?;
+            let s: syn::LitStr = v.parse()?;
+            opts.name = Some(s.value());
+        } else if m.path.is_ident("symbol") {
+            let v = m.value()?;
+            let s: syn::LitStr = v.parse()?;
+            opts.symbol = Some(s.value());
         } else if m.path.is_ident("ts") {
             let v = m.value()?;
             let s: syn::LitStr = v.parse()?;
@@ -223,11 +253,17 @@ fn default_return(ret_variant: &str) -> proc_macro2::TokenStream {
 /// `#[rts_namespace(<name>)]` on an `impl` block. See module docs.
 #[proc_macro_attribute]
 pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let NsAttr { name: ns, part } = syn::parse_macro_input!(attr as NsAttr);
+    let NsAttr {
+        name: ns,
+        part,
+        sym,
+    } = syn::parse_macro_input!(attr as NsAttr);
     let imp = syn::parse_macro_input!(item as ItemImpl);
 
     let ns_str = ns.to_string();
     let ns_upper = ns_str.to_uppercase();
+    // Symbol stem: `NS_<NS>` by default, or the `sym = "..."` override (GL-scoped).
+    let sym_stem = sym.unwrap_or_else(|| format!("NS_{ns_upper}"));
     let spec_doc = doc_of(&imp.attrs);
 
     let mut externs = Vec::new();
@@ -240,13 +276,19 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
         };
 
         let span = f.sig.ident.span();
-        let name = f.sig.ident.to_string();
-        let name_upper = name.to_uppercase();
+        let fn_ident_str = f.sig.ident.to_string();
+        // JS-visible member name: `name = "..."` override else the fn ident.
+        let name = opts.name.clone().unwrap_or_else(|| fn_ident_str.clone());
+        let name_upper = fn_ident_str.to_uppercase();
         // An alias points at the canonical fn's symbol (`of = <name>`); a normal
-        // member owns `__RTS_FN_NS_<NS>_<NAME>`.
-        let symbol = match &opts.alias_of {
-            Some(target) => format!("__RTS_FN_NS_{ns_upper}_{}", target.to_uppercase()),
-            None => format!("__RTS_FN_NS_{ns_upper}_{name_upper}"),
+        // member owns `__RTS_FN_<STEM>_<FN_IDENT>` (or the `symbol = "..."` override).
+        let symbol = if let Some(s) = &opts.symbol {
+            s.clone()
+        } else {
+            match &opts.alias_of {
+                Some(target) => format!("__RTS_FN_{sym_stem}_{}", target.to_uppercase()),
+                None => format!("__RTS_FN_{sym_stem}_{name_upper}"),
+            }
         };
         let sym_ident = Ident::new(&symbol, span);
         let doc = doc_of(&f.attrs);

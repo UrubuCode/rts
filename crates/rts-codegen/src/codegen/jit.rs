@@ -840,7 +840,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE", __RTS_FN_GL_TEXTDEC_DECODE_INSTANCE);
 
     // ── namespaces::globals::performance ─────────────────────────────
-    use crate::namespaces::globals::performance::instance::*;
+    use crate::namespaces::globals::performance::*;
     add_fn!("__RTS_FN_GL_PERF_NOW", __RTS_FN_GL_PERF_NOW);
     add_fn!("__RTS_FN_GL_PERF_TIME_ORIGIN", __RTS_FN_GL_PERF_TIME_ORIGIN);
 
