@@ -1321,10 +1321,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{\"toJSON\":94726444176187}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94921930711867}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -3036,7 +3036,7 @@
   "status": "rts_diverge",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "{\"b\":94269329920018,\"c\":1}\n[null,94269329920009,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94269329920000\nnull\nnull\n{\"a\":null}"
+  "rts": "{\"b\":94837930938386,\"c\":1}\n[null,94837930938377,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94837930938368\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42,\"toJSON\":94424200069168}\n{\"nested\":{\"value\":42,\"toJSON\":94424200069168},\"plain\":1}\n[{\"value\":42,\"toJSON\":94424200069168},{\"value\":42,\"toJSON\":94424200069168}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94424200069154}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42,\"toJSON\":94584316977200}\n{\"nested\":{\"value\":42,\"toJSON\":94584316977200},\"plain\":1}\n[{\"value\":42,\"toJSON\":94584316977200},{\"value\":42,\"toJSON\":94584316977200}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94584316977186}\n{\"a\":[1,2,3]}"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":427,"rts_diverge":125,"bun_node_diverge":17,"errors":40,"rejected":0}}
+],"summary":{"total":609,"pass":426,"rts_diverge":126,"bun_node_diverge":17,"errors":40,"rejected":0}}
