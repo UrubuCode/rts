@@ -2491,7 +2491,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::audio ─────────────────────────────────────────────
     {
-        use crate::namespaces::audio::ops as audio;
+        use crate::namespaces::audio as audio;
         add_fn!(
             "__RTS_FN_NS_AUDIO_DEFAULT_SAMPLE_RATE",
             audio::__RTS_FN_NS_AUDIO_DEFAULT_SAMPLE_RATE
