@@ -512,7 +512,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::blob (#74/#75) ───────────────────────────
     {
-        use crate::namespaces::globals::blob::instance::*;
+        use crate::namespaces::globals::blob::*;
         add_fn!("__RTS_FN_GL_BLOB_NEW", __RTS_FN_GL_BLOB_NEW);
         add_fn!("__RTS_FN_GL_BLOB_NEW_EMPTY", __RTS_FN_GL_BLOB_NEW_EMPTY);
         add_fn!("__RTS_FN_GL_BLOB_SIZE", __RTS_FN_GL_BLOB_SIZE);
