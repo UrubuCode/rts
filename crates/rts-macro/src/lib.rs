@@ -67,6 +67,10 @@ struct FnOpts {
     /// `true` when declared with `#[rts_const]` — a zero-arg member exposed as
     /// a `MemberKind::Constant` (accessed without parens, no TS arg list).
     is_const: bool,
+    /// Custom early-return expression for the `Str` reconstruction guard when a
+    /// string arg is null / invalid UTF-8. Overrides the typed-zero default —
+    /// e.g. `on_null = i64::MIN`, `on_null = f64::NAN`, `on_null = -1`.
+    on_null: Option<proc_macro2::TokenStream>,
 }
 
 fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
@@ -84,6 +88,7 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
         ts: None,
         pure: false,
         is_const,
+        on_null: None,
     };
     // `#[rts_fn]` (no args) → Path meta; `#[rts_fn(...)]` → List.
     if matches!(attr.meta, syn::Meta::Path(_)) {
@@ -96,6 +101,10 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
             let v = m.value()?;
             let s: syn::LitStr = v.parse()?;
             opts.ts = Some(s.value());
+        } else if m.path.is_ident("on_null") {
+            let v = m.value()?;
+            let e: syn::Expr = v.parse()?;
+            opts.on_null = Some(quote! { #e });
         }
         Ok(())
     });
@@ -152,19 +161,22 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
                     return err(
                         span,
                         "Str is not a valid return type — return Handle (a GC string handle)",
-                    )
+                    );
                 }
                 Some((abi, tsty)) => (abi, tsty),
                 None => {
                     return err(
                         span,
                         "unsupported return type — use a token from rts_abi::ty",
-                    )
+                    );
                 }
             },
         };
         let ret_ident = Ident::new(ret_variant, span);
-        let default_ret = default_return(ret_variant);
+        let default_ret = match &opts.on_null {
+            Some(expr) => quote! { return #expr },
+            None => default_return(ret_variant),
+        };
 
         // Derive args: AbiType + TS param + extern slots (Str → ptr+len) + the
         // `&str` reconstruction prelude injected before the user body.
@@ -180,7 +192,10 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
                 );
             };
             let Some((abi, tsty)) = type_token(&pt.ty) else {
-                return err(span, "unsupported parameter type — use a token from rts_abi::ty (Handle/U64/I64/I32/F64/Bool/Str)");
+                return err(
+                    span,
+                    "unsupported parameter type — use a token from rts_abi::ty (Handle/U64/I64/I32/F64/Bool/Str)",
+                );
             };
             let Pat::Ident(pi) = &*pt.pat else {
                 return err(span, "rts_fn parameters must be simple identifiers");

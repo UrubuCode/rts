@@ -301,10 +301,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_GC_LIVE_COUNT", __RTS_FN_NS_GC_LIVE_COUNT);
 
     // ── namespaces::io ────────────────────────────────────────────────
-    use crate::namespaces::io::print::*;
-    use crate::namespaces::io::stderr::*;
-    use crate::namespaces::io::stdin::*;
-    use crate::namespaces::io::stdout::*;
+    use crate::namespaces::io::*;
     add_fn!("__RTS_FN_NS_IO_PRINT", __RTS_FN_NS_IO_PRINT);
     add_fn!("__RTS_FN_NS_IO_EPRINT", __RTS_FN_NS_IO_EPRINT);
     add_fn!("__RTS_FN_NS_IO_STDOUT_WRITE", __RTS_FN_NS_IO_STDOUT_WRITE);
@@ -1201,33 +1198,21 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::fmt ───────────────────────────────────────────────
     {
         use crate::namespaces::fmt::*;
-        add_fn!(
-            "__RTS_FN_NS_FMT_PARSE_I64",
-            parse::__RTS_FN_NS_FMT_PARSE_I64
-        );
+        add_fn!("__RTS_FN_NS_FMT_PARSE_I64", __RTS_FN_NS_FMT_PARSE_I64);
         // (#208) parseInt JS-spec com radix.
         add_fn!(
             "__RTS_FN_NS_FMT_PARSE_INT_RADIX",
-            parse::__RTS_FN_NS_FMT_PARSE_INT_RADIX
+            __RTS_FN_NS_FMT_PARSE_INT_RADIX
         );
-        add_fn!(
-            "__RTS_FN_NS_FMT_PARSE_F64",
-            parse::__RTS_FN_NS_FMT_PARSE_F64
-        );
-        add_fn!(
-            "__RTS_FN_NS_FMT_PARSE_BOOL",
-            parse::__RTS_FN_NS_FMT_PARSE_BOOL
-        );
-        add_fn!("__RTS_FN_NS_FMT_FMT_I64", format::__RTS_FN_NS_FMT_FMT_I64);
-        add_fn!("__RTS_FN_NS_FMT_FMT_F64", format::__RTS_FN_NS_FMT_FMT_F64);
-        add_fn!("__RTS_FN_NS_FMT_FMT_BOOL", format::__RTS_FN_NS_FMT_FMT_BOOL);
-        add_fn!("__RTS_FN_NS_FMT_FMT_HEX", format::__RTS_FN_NS_FMT_FMT_HEX);
-        add_fn!("__RTS_FN_NS_FMT_FMT_BIN", format::__RTS_FN_NS_FMT_FMT_BIN);
-        add_fn!("__RTS_FN_NS_FMT_FMT_OCT", format::__RTS_FN_NS_FMT_FMT_OCT);
-        add_fn!(
-            "__RTS_FN_NS_FMT_FMT_F64_PREC",
-            format::__RTS_FN_NS_FMT_FMT_F64_PREC
-        );
+        add_fn!("__RTS_FN_NS_FMT_PARSE_F64", __RTS_FN_NS_FMT_PARSE_F64);
+        add_fn!("__RTS_FN_NS_FMT_PARSE_BOOL", __RTS_FN_NS_FMT_PARSE_BOOL);
+        add_fn!("__RTS_FN_NS_FMT_FMT_I64", __RTS_FN_NS_FMT_FMT_I64);
+        add_fn!("__RTS_FN_NS_FMT_FMT_F64", __RTS_FN_NS_FMT_FMT_F64);
+        add_fn!("__RTS_FN_NS_FMT_FMT_BOOL", __RTS_FN_NS_FMT_FMT_BOOL);
+        add_fn!("__RTS_FN_NS_FMT_FMT_HEX", __RTS_FN_NS_FMT_FMT_HEX);
+        add_fn!("__RTS_FN_NS_FMT_FMT_BIN", __RTS_FN_NS_FMT_FMT_BIN);
+        add_fn!("__RTS_FN_NS_FMT_FMT_OCT", __RTS_FN_NS_FMT_FMT_OCT);
+        add_fn!("__RTS_FN_NS_FMT_FMT_F64_PREC", __RTS_FN_NS_FMT_FMT_F64_PREC);
     }
 
     // ── namespaces::hash ──────────────────────────────────────────────
@@ -2117,42 +2102,42 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
 
     // ── namespaces::ffi ───────────────────────────────────────────────
-    use crate::namespaces::ffi::{cstr as ffi_cstr, cstring as ffi_cstring, osstr as ffi_osstr};
+    use crate::namespaces::ffi::*;
     add_fn!(
         "__RTS_FN_NS_FFI_CSTR_FROM_PTR",
-        ffi_cstr::__RTS_FN_NS_FFI_CSTR_FROM_PTR
+        __RTS_FN_NS_FFI_CSTR_FROM_PTR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTR_LEN",
-        ffi_cstr::__RTS_FN_NS_FFI_CSTR_LEN
+        __RTS_FN_NS_FFI_CSTR_LEN
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTR_TO_STR",
-        ffi_cstr::__RTS_FN_NS_FFI_CSTR_TO_STR
+        __RTS_FN_NS_FFI_CSTR_TO_STR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTRING_NEW",
-        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_NEW
+        __RTS_FN_NS_FFI_CSTRING_NEW
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTRING_PTR",
-        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_PTR
+        __RTS_FN_NS_FFI_CSTRING_PTR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTRING_FREE",
-        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_FREE
+        __RTS_FN_NS_FFI_CSTRING_FREE
     );
     add_fn!(
         "__RTS_FN_NS_FFI_OSSTR_FROM_STR",
-        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_FROM_STR
+        __RTS_FN_NS_FFI_OSSTR_FROM_STR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_OSSTR_TO_STR",
-        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_TO_STR
+        __RTS_FN_NS_FFI_OSSTR_TO_STR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_OSSTR_FREE",
-        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_FREE
+        __RTS_FN_NS_FFI_OSSTR_FREE
     );
 
     // ── namespaces::atomic ────────────────────────────────────────────
@@ -2461,19 +2446,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::env ───────────────────────────────────────────────
     use crate::namespaces::env::*;
-    add_fn!("__RTS_FN_NS_ENV_GET_VAR", vars::__RTS_FN_NS_ENV_GET_VAR);
-    add_fn!("__RTS_FN_NS_ENV_SET_VAR", vars::__RTS_FN_NS_ENV_SET_VAR);
-    add_fn!(
-        "__RTS_FN_NS_ENV_REMOVE_VAR",
-        vars::__RTS_FN_NS_ENV_REMOVE_VAR
-    );
-    add_fn!(
-        "__RTS_FN_NS_ENV_ARGS_COUNT",
-        args::__RTS_FN_NS_ENV_ARGS_COUNT
-    );
-    add_fn!("__RTS_FN_NS_ENV_ARG_AT", args::__RTS_FN_NS_ENV_ARG_AT);
-    add_fn!("__RTS_FN_NS_ENV_CWD", cwd::__RTS_FN_NS_ENV_CWD);
-    add_fn!("__RTS_FN_NS_ENV_SET_CWD", cwd::__RTS_FN_NS_ENV_SET_CWD);
+    add_fn!("__RTS_FN_NS_ENV_GET_VAR", __RTS_FN_NS_ENV_GET_VAR);
+    add_fn!("__RTS_FN_NS_ENV_SET_VAR", __RTS_FN_NS_ENV_SET_VAR);
+    add_fn!("__RTS_FN_NS_ENV_REMOVE_VAR", __RTS_FN_NS_ENV_REMOVE_VAR);
+    add_fn!("__RTS_FN_NS_ENV_ARGS_COUNT", __RTS_FN_NS_ENV_ARGS_COUNT);
+    add_fn!("__RTS_FN_NS_ENV_ARG_AT", __RTS_FN_NS_ENV_ARG_AT);
+    add_fn!("__RTS_FN_NS_ENV_CWD", __RTS_FN_NS_ENV_CWD);
+    add_fn!("__RTS_FN_NS_ENV_SET_CWD", __RTS_FN_NS_ENV_SET_CWD);
 
     // ── namespaces::time ──────────────────────────────────────────────
     use crate::namespaces::time::*;
