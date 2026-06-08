@@ -44,10 +44,7 @@ pub extern "C" fn __RTS_FN_RT_CONSOLE_SET_OVERRIDE(
 /// `console.<method>(...)` call site — devolve o handle do override ou 0
 /// (nativo). O codegen, se != 0, invoca via INVOKE_AUTO com os args.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_CONSOLE_GET_OVERRIDE(
-    method_ptr: *const u8,
-    method_len: i64,
-) -> i64 {
+pub extern "C" fn __RTS_FN_RT_CONSOLE_GET_OVERRIDE(method_ptr: *const u8, method_len: i64) -> i64 {
     let method = read_method(method_ptr, method_len);
     CONSOLE_OVERRIDES.with(|c| c.borrow().get(&method).map(|(h, _)| *h).unwrap_or(0))
 }
@@ -60,9 +57,7 @@ pub extern "C" fn __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC(
     method_len: i64,
 ) -> i64 {
     let method = read_method(method_ptr, method_len);
-    CONSOLE_OVERRIDES.with(|c| {
-        c.borrow().get(&method).map(|(_, v)| *v as i64).unwrap_or(0)
-    })
+    CONSOLE_OVERRIDES.with(|c| c.borrow().get(&method).map(|(_, v)| *v as i64).unwrap_or(0))
 }
 
 fn read_method(ptr: *const u8, len: i64) -> String {

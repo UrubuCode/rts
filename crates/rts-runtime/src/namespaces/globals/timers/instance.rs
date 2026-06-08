@@ -1,4 +1,7 @@
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread;
 use std::time::Duration;
 
@@ -49,7 +52,15 @@ fn next_macrotask_seq() -> u64 {
 fn enqueue_macrotask(fp: u64, flag: Arc<AtomicBool>, handle: u64, delay_ms: u64) {
     let deadline = std::time::Instant::now() + Duration::from_millis(delay_ms);
     let seq = next_macrotask_seq();
-    MACROTASK_QUEUE.with(|q| q.borrow_mut().push(Macrotask { fp, flag, handle, deadline, seq }));
+    MACROTASK_QUEUE.with(|q| {
+        q.borrow_mut().push(Macrotask {
+            fp,
+            flag,
+            handle,
+            deadline,
+            seq,
+        })
+    });
 }
 
 /// Menor deadline entre macrotasks pendentes nao-canceladas (None se vazia).
@@ -115,7 +126,9 @@ pub fn drain_macrotasks() {
     let cap = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         pump_due_macrotasks();
-        let Some(next) = next_macrotask_deadline() else { break };
+        let Some(next) = next_macrotask_deadline() else {
+            break;
+        };
         if next > cap {
             break;
         }
@@ -139,7 +152,9 @@ pub fn pump_until(target: std::time::Instant) {
         if now >= target {
             break;
         }
-        let wake = next_macrotask_deadline().map(|d| d.min(target)).unwrap_or(target);
+        let wake = next_macrotask_deadline()
+            .map(|d| d.min(target))
+            .unwrap_or(target);
         let now2 = std::time::Instant::now();
         if wake > now2 {
             thread::sleep(wake - now2);
@@ -211,7 +226,11 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_CLEAR_TIMEOUT(handle: u64) {
 pub extern "C" fn __RTS_FN_GL_TIMERS_SET_INTERVAL(fp: u64, interval_ms: i64) -> u64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     let flag = cancelled.clone();
-    let ms = if interval_ms > 0 { interval_ms as u64 } else { 1 };
+    let ms = if interval_ms > 0 {
+        interval_ms as u64
+    } else {
+        1
+    };
 
     let handle = alloc_entry(Entry::Env(vec![0]));
 
@@ -259,7 +278,10 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_IMMEDIATE(fp: u64) -> u64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     let ran = Arc::new(AtomicBool::new(false));
     let handle = alloc_entry(Entry::Env(vec![0]));
-    immediate_queue().lock().unwrap().push((fp, cancelled.clone(), ran.clone()));
+    immediate_queue()
+        .lock()
+        .unwrap()
+        .push((fp, cancelled.clone(), ran.clone()));
     // (#207 timer ordering) NAO spawna thread — setImmediate enfileira e roda
     // na "check phase" via drain_immediates (apos microtasks drenarem). O
     // thread::spawn antigo corria em paralelo e podia rodar ANTES das
@@ -280,9 +302,7 @@ pub fn drain_immediates() {
             break;
         }
         for (fp, cancelled, ran) in batch {
-            if !cancelled.load(Ordering::Relaxed) && fp != 0
-                && !ran.swap(true, Ordering::AcqRel)
-            {
+            if !cancelled.load(Ordering::Relaxed) && fp != 0 && !ran.swap(true, Ordering::AcqRel) {
                 invoke_timer_cb(fp);
             }
         }

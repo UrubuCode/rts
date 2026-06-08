@@ -26,7 +26,10 @@ fn is_uri_component_safe(b: u8) -> bool {
 /// Reserved: ; / ? : @ & = + $ , #
 fn is_uri_safe(b: u8) -> bool {
     is_uri_component_safe(b)
-        || matches!(b, b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b',' | b'#')
+        || matches!(
+            b,
+            b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b',' | b'#'
+        )
 }
 
 #[unsafe(no_mangle)]
@@ -58,7 +61,10 @@ pub extern "C" fn __RTS_FN_GL_DECODE_URI(ptr: i64, len: i64) -> u64 {
             let lo = (bytes[i + 2] as char).to_digit(16);
             if let (Some(h), Some(l)) = (hi, lo) {
                 let b = (h * 16 + l) as u8;
-                if matches!(b, b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b',' | b'#') {
+                if matches!(
+                    b,
+                    b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b',' | b'#'
+                ) {
                     out.extend_from_slice(&bytes[i..i + 3]);
                 } else {
                     out.push(b);

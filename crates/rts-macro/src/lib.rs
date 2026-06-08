@@ -161,6 +161,10 @@ struct FnOpts {
     /// `#[rts_alias(of = <name>)]` — emits a member pointing at `<name>`'s
     /// symbol WITHOUT emitting an extern (the canonical fn already owns it).
     alias_of: Option<String>,
+    /// `external` — emit the member but NOT an extern; its `symbol = "..."`
+    /// names a fn owned by another namespace (e.g. the `JSON`/`JSON5` globals
+    /// reusing `__RTS_FN_NS_JSON_*`). The fn body is ignored.
+    external: bool,
     /// `name = "..."` — JS-visible member name when it differs from the fn ident
     /// (e.g. camelCase `timeOrigin` for fn `time_origin`).
     name: Option<String>,
@@ -194,6 +198,7 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
         on_null: None,
         intrinsic: None,
         alias_of: if is_alias { Some(String::new()) } else { None },
+        external: false,
         name: None,
         symbol: None,
     };
@@ -203,6 +208,8 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
     let _ = attr.parse_nested_meta(|m| {
         if m.path.is_ident("pure") {
             opts.pure = true;
+        } else if m.path.is_ident("external") {
+            opts.external = true;
         } else if m.path.is_ident("name") {
             let v = m.value()?;
             let s: syn::LitStr = v.parse()?;
@@ -381,9 +388,10 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
         };
         let pure = opts.pure;
 
-        // An alias emits NO extern — it reuses the canonical fn's symbol.
+        // An alias (canonical-symbol reuse) or an `external` member (foreign-
+        // namespace symbol) emits NO extern.
         let is_alias = opts.alias_of.is_some();
-        if !is_alias {
+        if !is_alias && !opts.external {
             // Emit the extern "C" symbol — Str prelude, then the user body verbatim.
             let output = &f.sig.output;
             let block = &f.block;
