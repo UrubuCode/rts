@@ -635,17 +635,17 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
         });
     }
 
+    // Members are inlined into the spec (not a named `MEMBERS` const) so that
+    // a single file can host SEVERAL `#[rts_class]` impls (e.g. EventTarget +
+    // Event, AbortController + AbortSignal) without colliding on the const name.
     let out = quote! {
         #(#externs)*
-
-        /// Derived class members (`#[rts_class]`). Source of truth.
-        pub const MEMBERS: &[::rts_abi::NamespaceMember] = &[ #(#members),* ];
 
         /// Derived global-class spec — replaces the hand-written `*_CLASS_SPEC`.
         pub const #spec_ident: ::rts_abi::GlobalClassSpec = ::rts_abi::GlobalClassSpec {
             name: #class_str,
             doc: #spec_doc,
-            members: MEMBERS,
+            members: &[ #(#members),* ],
         };
     };
     out.into()
