@@ -4,8 +4,10 @@
 //! por aridade ate 8. Funciona porque user fns com address taken usam
 //! default_call_conv (SystemV/Win64), igual extern "C" Rust.
 
+use crate::namespaces::gc::handles::{
+    alloc_entry, with_entry, with_entry_mut, Entry, FunctionData,
+};
 use std::sync::{Arc, Mutex, OnceLock};
-use crate::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry, with_entry_mut};
 
 pub struct CompiledFn {
     pub fn_ptr: u64,
@@ -34,9 +36,7 @@ unsafe fn invoke_n(fn_ptr: u64, args: &[i64]) -> i64 {
 /// O buffer `args` precisa viver durante a chamada; o shim NAO pode reter o ptr.
 unsafe fn invoke_packed(shim_ptr: u64, args: &[i64]) -> i64 {
     use std::mem::transmute;
-    let shim = unsafe {
-        transmute::<u64, extern "C" fn(*const i64, i64) -> i64>(shim_ptr)
-    };
+    let shim = unsafe { transmute::<u64, extern "C" fn(*const i64, i64) -> i64>(shim_ptr) };
     shim(args.as_ptr(), args.len() as i64)
 }
 
@@ -48,12 +48,7 @@ unsafe fn invoke_packed(shim_ptr: u64, args: &[i64]) -> i64 {
 /// Suporta combinações comuns para métodos de classe RTS:
 /// `(i64, ...mixed) -> mixed`. Assume primeiro param i64 (this) quando
 /// has_this_param dispara em CALL.
-unsafe fn invoke_typed(
-    fn_ptr: u64,
-    args: &[i64],
-    param_kinds: &[u8],
-    return_kind: u8,
-) -> i64 {
+unsafe fn invoke_typed(fn_ptr: u64, args: &[i64], param_kinds: &[u8], return_kind: u8) -> i64 {
     // (cross-runtime #799) return_kind=4 (void) cai pro caminho i64 —
     // o retorno e' descartado pelo caller e a Win64 fastcall ABI nao
     // tem prologue diferente entre `() -> i64` e `()` para essa
@@ -166,20 +161,224 @@ unsafe fn invoke_all_i64(fn_ptr: u64, args: &[i64]) -> i64 {
             1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(a(0)),
             2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(a(0), a(1)),
             3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2)),
-            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3)),
-            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4)),
-            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5)),
-            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6)),
-            8 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7)),
-            9 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8)),
-            10 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9)),
-            11 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10)),
-            12 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11)),
-            13 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12)),
-            14 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12), a(13)),
-            15 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12), a(13), a(14)),
-            16 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9), a(10), a(11), a(12), a(13), a(14), a(15)),
-            n => panic!("invoke_all_i64: aridade {n} > 16 nao suportada (curry/fn extremamente profundo)"),
+            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+            ),
+            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+            ),
+            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+            ),
+            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+                a(6),
+            ),
+            8 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(
+                fn_ptr,
+            )(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7)),
+            9 => {
+                transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(
+                    fn_ptr,
+                )(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8))
+            }
+            10 => transmute::<
+                u64,
+                extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64,
+            >(fn_ptr)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7), a(8), a(9)),
+            11 => transmute::<
+                u64,
+                extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64,
+            >(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+                a(6),
+                a(7),
+                a(8),
+                a(9),
+                a(10),
+            ),
+            12 => transmute::<
+                u64,
+                extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64,
+            >(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+                a(6),
+                a(7),
+                a(8),
+                a(9),
+                a(10),
+                a(11),
+            ),
+            13 => transmute::<
+                u64,
+                extern "C" fn(
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                ) -> i64,
+            >(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+                a(6),
+                a(7),
+                a(8),
+                a(9),
+                a(10),
+                a(11),
+                a(12),
+            ),
+            14 => transmute::<
+                u64,
+                extern "C" fn(
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                ) -> i64,
+            >(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+                a(6),
+                a(7),
+                a(8),
+                a(9),
+                a(10),
+                a(11),
+                a(12),
+                a(13),
+            ),
+            15 => transmute::<
+                u64,
+                extern "C" fn(
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                ) -> i64,
+            >(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+                a(6),
+                a(7),
+                a(8),
+                a(9),
+                a(10),
+                a(11),
+                a(12),
+                a(13),
+                a(14),
+            ),
+            16 => transmute::<
+                u64,
+                extern "C" fn(
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                ) -> i64,
+            >(fn_ptr)(
+                a(0),
+                a(1),
+                a(2),
+                a(3),
+                a(4),
+                a(5),
+                a(6),
+                a(7),
+                a(8),
+                a(9),
+                a(10),
+                a(11),
+                a(12),
+                a(13),
+                a(14),
+                a(15),
+            ),
+            n => panic!(
+                "invoke_all_i64: aridade {n} > 16 nao suportada (curry/fn extremamente profundo)"
+            ),
         }
     }
 }
@@ -345,7 +544,17 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY(
     has_this_param: i32,
 ) -> u64 {
     __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
-        fn_ptr, arity, name_ptr, name_len, is_arrow, has_this_param, 0, 0, 0, 0, 0,
+        fn_ptr,
+        arity,
+        name_ptr,
+        name_len,
+        is_arrow,
+        has_this_param,
+        0,
+        0,
+        0,
+        0,
+        0,
     )
 }
 
@@ -365,8 +574,17 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND(
     has_bound_this: i32,
 ) -> u64 {
     __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
-        fn_ptr, arity, name_ptr, name_len, is_arrow, has_this_param,
-        bound_this, has_bound_this, 0, 0, 0,
+        fn_ptr,
+        arity,
+        name_ptr,
+        name_len,
+        is_arrow,
+        has_this_param,
+        bound_this,
+        has_bound_this,
+        0,
+        0,
+        0,
     )
 }
 
@@ -537,7 +755,9 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         param_kinds: Vec::new(),
         return_kind: 0,
         packed_shim: 0,
-        source: Some(format!("function anonymous({}) {{\n{}\n}}", params_str, body_str).into_boxed_str()),
+        source: Some(
+            format!("function anonymous({}) {{\n{}\n}}", params_str, body_str).into_boxed_str(),
+        ),
         keep_alive: Some(compiled.keep_alive),
         prototype_handle: 0,
         rest_param_idx: -1,
@@ -548,9 +768,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
     // (#218 phase2) Proxy callable: redireciona pra trap apply ou forward.
-    if let Some((target, handler)) =
-        crate::namespaces::globals::proxy::ops::resolve_proxy(handle)
-    {
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
         return crate::namespaces::globals::proxy::ops::dispatch_apply(
             target,
             handler,
@@ -566,7 +784,9 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
     // (handle valido nunca colide com um fn_ptr). Sem isto devolvia 0.
     {
         let kinds = {
-            let reg = fn_kinds_registry().read().unwrap_or_else(|e| e.into_inner());
+            let reg = fn_kinds_registry()
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             reg.get(&handle).cloned()
         };
         if let Some((param_kinds, return_kind)) = kinds {
@@ -575,29 +795,37 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
             return unsafe { invoke_typed(handle, &args, &param_kinds, return_kind) };
         }
     }
-    let (fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind) =
-        match read_function_data(handle) {
-            Some(d) => d,
-            None => {
-                // (cross-runtime #344) `handle` is not a Function entry. If it is
-                // a VALID GC handle of some other kind (Map/Vec/...), it is not
-                // callable → 0. Otherwise it is a RAW func_addr (a fn-value passed
-                // through `any` and invoked via `.call`/`.apply` — e.g. a 0-arg or
-                // non-f64-param fn that isn't in FN_KINDS_REGISTRY). Invoke it
-                // directly, mirroring INVOKE_AUTO's raw-fn_ptr fallback. Without
-                // this, `f.call(null)` on such a param returned 0 instead of
-                // invoking f.
-                let is_valid_handle = with_entry(handle, |e| e.is_some());
-                if is_valid_handle {
-                    return 0;
-                }
-                let args = read_args_vec(args_handle);
-                crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
-                let r = unsafe { invoke_n(handle, &args) };
-                crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
-                return r;
+    let (
+        fn_ptr,
+        bound_args,
+        has_bound_this,
+        bound_this,
+        is_arrow,
+        has_this_param,
+        param_kinds,
+        return_kind,
+    ) = match read_function_data(handle) {
+        Some(d) => d,
+        None => {
+            // (cross-runtime #344) `handle` is not a Function entry. If it is
+            // a VALID GC handle of some other kind (Map/Vec/...), it is not
+            // callable → 0. Otherwise it is a RAW func_addr (a fn-value passed
+            // through `any` and invoked via `.call`/`.apply` — e.g. a 0-arg or
+            // non-f64-param fn that isn't in FN_KINDS_REGISTRY). Invoke it
+            // directly, mirroring INVOKE_AUTO's raw-fn_ptr fallback. Without
+            // this, `f.call(null)` on such a param returned 0 instead of
+            // invoking f.
+            let is_valid_handle = with_entry(handle, |e| e.is_some());
+            if is_valid_handle {
+                return 0;
             }
-        };
+            let args = read_args_vec(args_handle);
+            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
+            let r = unsafe { invoke_n(handle, &args) };
+            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+            return r;
+        }
+    };
 
     let mut all_args = bound_args;
     all_args.extend(read_args_vec(args_handle));
@@ -676,11 +904,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
 
 /// `fn.apply(thisArg, argsArray)`. Mesmo dispatch de call.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY(
-    handle: u64,
-    this_arg: i64,
-    args_handle: u64,
-) -> i64 {
+pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
     __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, args_handle)
 }
 
@@ -721,8 +945,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
                 // `f64_to_i64(v as f64)`, que DUPLO-convertia args ja'-bits
                 // (f64bits(2.0) tratado como int 4617e15 -> satura i64::MAX).
                 let as_f = f64::from_bits(v as u64);
-                let looks_bits = as_f == 0.0
-                    || (as_f.is_finite() && as_f.abs() >= 1e-200 && as_f.abs() < 1e200);
+                let looks_bits =
+                    as_f == 0.0 || (as_f.is_finite() && as_f.abs() >= 1e-200 && as_f.abs() < 1e200);
                 if looks_bits {
                     v
                 } else {
@@ -736,10 +960,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
     // (cross-runtime #799) Variadic fold: callee binario f64 (Math.max/min)
     // chamado com N > 2 args — JS spec exige varargs; RTS ABI binaria nao
     // tem como expressar diretamente. Foldamos via chamadas sucessivas.
-    if param_kinds.len() == 2
-        && param_kinds == vec![1u8, 1u8]
-        && converted.len() > 2
-    {
+    if param_kinds.len() == 2 && param_kinds == vec![1u8, 1u8] && converted.len() > 2 {
         let mut acc = converted[0];
         for &x in &converted[1..] {
             let single = alloc_entry(Entry::Vec(Box::new(vec![acc, x])));
@@ -775,8 +996,21 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
             None
         }
     });
-    let Some((fn_ptr, arity, name, mut bound_args, is_arrow, has_this_param, param_kinds, return_kind, source, keep_alive, had_bound_this, prev_bound_this, packed_shim)) =
-        original
+    let Some((
+        fn_ptr,
+        arity,
+        name,
+        mut bound_args,
+        is_arrow,
+        has_this_param,
+        param_kinds,
+        return_kind,
+        source,
+        keep_alive,
+        had_bound_this,
+        prev_bound_this,
+        packed_shim,
+    )) = original
     else {
         return 0;
     };
@@ -847,8 +1081,8 @@ static FN_KINDS_REGISTRY: std::sync::OnceLock<
     std::sync::RwLock<std::collections::HashMap<u64, (Vec<u8>, u8)>>,
 > = std::sync::OnceLock::new();
 
-fn fn_kinds_registry(
-) -> &'static std::sync::RwLock<std::collections::HashMap<u64, (Vec<u8>, u8)>> {
+fn fn_kinds_registry() -> &'static std::sync::RwLock<std::collections::HashMap<u64, (Vec<u8>, u8)>>
+{
     FN_KINDS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
 }
 
@@ -885,8 +1119,7 @@ static FN_DEFAULTS_REGISTRY: std::sync::OnceLock<
     std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>>,
 > = std::sync::OnceLock::new();
 
-fn fn_defaults_registry(
-) -> &'static std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>> {
+fn fn_defaults_registry() -> &'static std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>> {
     FN_DEFAULTS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
 }
 
@@ -900,10 +1133,9 @@ pub extern "C" fn __RTS_FN_RT_REGISTER_FN_DEFAULTS(
     if fn_ptr == 0 || defaults_ptr == 0 || defaults_len <= 0 {
         return;
     }
-    let defs: Vec<i64> = unsafe {
-        std::slice::from_raw_parts(defaults_ptr as *const i64, defaults_len as usize)
-    }
-    .to_vec();
+    let defs: Vec<i64> =
+        unsafe { std::slice::from_raw_parts(defaults_ptr as *const i64, defaults_len as usize) }
+            .to_vec();
     let mut reg = fn_defaults_registry()
         .write()
         .unwrap_or_else(|e| e.into_inner());
@@ -917,7 +1149,9 @@ fn pad_with_defaults(args: &mut Vec<i64>, fn_ptr: u64, arity: usize) {
         return;
     }
     let defs = {
-        let reg = fn_defaults_registry().read().unwrap_or_else(|e| e.into_inner());
+        let reg = fn_defaults_registry()
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         reg.get(&fn_ptr).cloned()
     };
     while args.len() < arity {
@@ -950,8 +1184,7 @@ pub(crate) fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
     // ter param `number`/f64), despacha pelo caminho de handle: prepend bound,
     // normaliza, invoke_typed com os kinds do handle. Sem isto o invoke_n abaixo
     // saltava para o valor do handle (0x1000...) → ACCESS_VIOLATION.
-    if let Some((real_ptr, bound, _hbt, _bt, _arrow, _htp, kinds, rk)) =
-        read_function_data(fn_ptr)
+    if let Some((real_ptr, bound, _hbt, _bt, _arrow, _htp, kinds, rk)) = read_function_data(fn_ptr)
     {
         let mut a = bound;
         a.extend_from_slice(args);
@@ -982,23 +1215,25 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
     static SINGLETON: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
     *SINGLETON.get_or_init(|| {
         let proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
-        let ctor_stub = alloc_entry(Entry::Function(Box::new(crate::namespaces::gc::handles::FunctionData {
-            fn_ptr: 0,
-            arity: 0,
-            name: "Object".into(),
-            bound_this: 0,
-            has_bound_this: false,
-            bound_args: Vec::new(),
-            is_arrow: false,
-            has_this_param: false,
-            param_kinds: Vec::new(),
-            return_kind: 0,
-            packed_shim: 0,
-            source: None,
-            keep_alive: None,
-            prototype_handle: 0,
-            rest_param_idx: -1,
-        })));
+        let ctor_stub = alloc_entry(Entry::Function(Box::new(
+            crate::namespaces::gc::handles::FunctionData {
+                fn_ptr: 0,
+                arity: 0,
+                name: "Object".into(),
+                bound_this: 0,
+                has_bound_this: false,
+                bound_args: Vec::new(),
+                is_arrow: false,
+                has_this_param: false,
+                param_kinds: Vec::new(),
+                return_kind: 0,
+                packed_shim: 0,
+                source: None,
+                keep_alive: None,
+                prototype_handle: 0,
+                rest_param_idx: -1,
+            },
+        )));
         crate::namespaces::collections::map::with_map_mut(proto, (), |m| {
             m.insert("constructor".to_string(), ctor_stub as i64);
         });
@@ -1081,9 +1316,8 @@ pub extern "C" fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> 
     if target_proto == 0 {
         return 0;
     }
-    let read_proto = |h: u64| -> i64 {
-        with_map_mut(h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0))
-    };
+    let read_proto =
+        |h: u64| -> i64 { with_map_mut(h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) };
     // Anda a __proto__ chain da instancia.
     let mut current = read_proto(instance_h);
     let mut depth = 0u32;
@@ -1106,11 +1340,7 @@ pub extern "C" fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> 
 /// `this_arg` so eh empilhado quando callee eh Function handle (caminho
 /// classes). Args vem de Vec<i64> handle.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(
-    callee: i64,
-    this_arg: i64,
-    args_handle: u64,
-) -> i64 {
+pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64 {
     invoke_auto_impl(callee, this_arg, args_handle, None)
 }
 
@@ -1194,9 +1424,9 @@ fn convert_f64bits_args_to_i64(args_handle: u64) -> u64 {
             }
         })
         .collect();
-    crate::namespaces::gc::handles::alloc_entry(
-        crate::namespaces::gc::handles::Entry::Vec(Box::new(conv)),
-    )
+    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+        Box::new(conv),
+    ))
 }
 
 fn invoke_auto_impl(
@@ -1218,8 +1448,16 @@ fn invoke_auto_impl(
         );
     }
     // Tenta como handle Function primeiro.
-    if let Some((fn_ptr, bound_args, has_bound_this, bound_this, is_arrow, has_this_param, param_kinds, return_kind)) =
-        read_function_data(callee as u64)
+    if let Some((
+        fn_ptr,
+        bound_args,
+        has_bound_this,
+        bound_this,
+        is_arrow,
+        has_this_param,
+        param_kinds,
+        return_kind,
+    )) = read_function_data(callee as u64)
     {
         let mut all_args = bound_args;
         all_args.extend(read_args_vec(args_handle));
@@ -1337,7 +1575,9 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NAME(handle: u64) -> u64 {
 pub extern "C" fn __RTS_FN_GL_FUNCTION_LENGTH(handle: u64) -> i64 {
     with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
-            (d.arity as i64).saturating_sub(d.bound_args.len() as i64).max(0)
+            (d.arity as i64)
+                .saturating_sub(d.bound_args.len() as i64)
+                .max(0)
         } else {
             0
         }
