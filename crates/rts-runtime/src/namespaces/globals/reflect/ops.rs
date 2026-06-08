@@ -240,7 +240,9 @@ mod tests {
         let key = alloc_str("x");
         let desc = __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(obj, key);
         assert_ne!(desc, 0);
-        // Confere que tem value=42 e flags=1.
+        // Confere que tem value=42 e flags = JS true (sentinel i64::MIN + 1,
+        // #795/#749 — o descriptor sintetizado retorna booleans JS, nao 0/1).
+        let bool_true: i64 = i64::MIN + 1;
         let value = with_entry(desc, |e| match e {
             Some(Entry::Map(m)) => m.get("value").copied(),
             _ => None,
@@ -250,16 +252,23 @@ mod tests {
             Some(Entry::Map(m)) => m.get("writable").copied(),
             _ => None,
         });
-        assert_eq!(writable, Some(1));
+        assert_eq!(writable, Some(bool_true));
     }
 
     #[test]
-    fn missing_property_returns_zero() {
+    fn missing_property_returns_undefined() {
+        // (#795) JS spec: getOwnPropertyDescriptor de prop ausente retorna
+        // `undefined`, materializado como handle da string "undefined" (nao 0).
         let m: IndexMap<String, i64> = IndexMap::new();
         let obj = alloc_entry(Entry::Map(Box::new(m)));
         let key = alloc_str("nope");
         let desc = __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(obj, key);
-        assert_eq!(desc, 0);
+        assert_ne!(desc, 0);
+        let s = with_entry(desc, |e| match e {
+            Some(Entry::String(bytes)) => Some(bytes.clone()),
+            _ => None,
+        });
+        assert_eq!(s, Some(b"undefined".to_vec()));
     }
 
     #[test]

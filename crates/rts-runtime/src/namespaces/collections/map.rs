@@ -2193,14 +2193,19 @@ mod object_tests {
     }
 
     #[test]
-    fn entries_returns_pairs_sorted() {
+    fn entries_returns_pairs_in_insertion_order() {
+        // JS spec: Object.entries / Map.entries preservam ordem de INSERCAO
+        // (IndexMap), nao ordem alfabetica. Insercao: b, a, c → b primeiro.
         let m = map_with(&[("b", 2), ("a", 1), ("c", 3)]);
         let entries = __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(m);
         let outer = read_vec(entries);
         assert_eq!(outer.len(), 3);
         let p0 = read_vec(outer[0] as u64);
-        assert_eq!(read_str(p0[0] as u64).unwrap(), "a");
-        assert_eq!(p0[1], 1);
+        assert_eq!(read_str(p0[0] as u64).unwrap(), "b");
+        assert_eq!(p0[1], 2);
+        let p1 = read_vec(outer[1] as u64);
+        assert_eq!(read_str(p1[0] as u64).unwrap(), "a");
+        assert_eq!(p1[1], 1);
     }
 
     #[test]
