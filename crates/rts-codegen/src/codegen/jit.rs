@@ -1080,7 +1080,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::trace ─────────────────────────────────────────────
     {
-        use crate::namespaces::trace::ops as tr;
+        use crate::namespaces::trace as tr;
         add_fn!(
             "__RTS_FN_NS_TRACE_PUSH_FRAME",
             tr::__RTS_FN_NS_TRACE_PUSH_FRAME
@@ -2232,54 +2232,54 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
 
     // ── namespaces::sync ──────────────────────────────────────────────
-    use crate::namespaces::sync::{mutex as sync_mutex, once as sync_once, rwlock as sync_rwlock};
+    use crate::namespaces::sync::*;
     add_fn!(
         "__RTS_FN_NS_SYNC_MUTEX_NEW",
-        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_NEW
+        __RTS_FN_NS_SYNC_MUTEX_NEW
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_MUTEX_LOCK",
-        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_LOCK
+        __RTS_FN_NS_SYNC_MUTEX_LOCK
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_MUTEX_TRY_LOCK",
-        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_TRY_LOCK
+        __RTS_FN_NS_SYNC_MUTEX_TRY_LOCK
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_MUTEX_SET",
-        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_SET
+        __RTS_FN_NS_SYNC_MUTEX_SET
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_MUTEX_UNLOCK",
-        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_UNLOCK
+        __RTS_FN_NS_SYNC_MUTEX_UNLOCK
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_MUTEX_FREE",
-        sync_mutex::__RTS_FN_NS_SYNC_MUTEX_FREE
+        __RTS_FN_NS_SYNC_MUTEX_FREE
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_RWLOCK_NEW",
-        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_NEW
+        __RTS_FN_NS_SYNC_RWLOCK_NEW
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_RWLOCK_READ",
-        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_READ
+        __RTS_FN_NS_SYNC_RWLOCK_READ
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_RWLOCK_WRITE",
-        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_WRITE
+        __RTS_FN_NS_SYNC_RWLOCK_WRITE
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_RWLOCK_UNLOCK",
-        sync_rwlock::__RTS_FN_NS_SYNC_RWLOCK_UNLOCK
+        __RTS_FN_NS_SYNC_RWLOCK_UNLOCK
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_ONCE_NEW",
-        sync_once::__RTS_FN_NS_SYNC_ONCE_NEW
+        __RTS_FN_NS_SYNC_ONCE_NEW
     );
     add_fn!(
         "__RTS_FN_NS_SYNC_ONCE_CALL",
-        sync_once::__RTS_FN_NS_SYNC_ONCE_CALL
+        __RTS_FN_NS_SYNC_ONCE_CALL
     );
 
     // ── namespaces::thread ────────────────────────────────────────────

@@ -13,11 +13,20 @@ thread_local! {
 }
 
 pub fn push(file: String, fn_name: String, line: u32, col: u32) {
-    FRAMES.with(|f| f.borrow_mut().push(Frame { file, fn_name, line, col }));
+    FRAMES.with(|f| {
+        f.borrow_mut().push(Frame {
+            file,
+            fn_name,
+            line,
+            col,
+        })
+    });
 }
 
 pub fn pop() {
-    FRAMES.with(|f| { f.borrow_mut().pop(); });
+    FRAMES.with(|f| {
+        f.borrow_mut().pop();
+    });
 }
 
 pub fn depth() -> usize {
