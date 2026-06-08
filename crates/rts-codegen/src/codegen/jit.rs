@@ -525,7 +525,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::dom_exception (#77) ──────────────────────
     {
-        use crate::namespaces::globals::dom_exception::instance::*;
+        use crate::namespaces::globals::dom_exception::*;
         add_fn!("__RTS_FN_GL_DOM_EXCEPTION_NEW", __RTS_FN_GL_DOM_EXCEPTION_NEW);
         add_fn!("__RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY", __RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY);
         add_fn!("__RTS_FN_GL_DOM_EXCEPTION_NEW_MSG", __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG);
@@ -742,7 +742,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // (cross-runtime #742) BigInt.asIntN / asUintN helpers staticos.
     {
-        use crate::namespaces::globals::bigint::rt::*;
+        use crate::namespaces::globals::bigint::*;
         add_fn!("__RTS_FN_GL_BIGINT_AS_INT_N", __RTS_FN_GL_BIGINT_AS_INT_N);
         add_fn!("__RTS_FN_GL_BIGINT_AS_UINT_N", __RTS_FN_GL_BIGINT_AS_UINT_N);
     }
@@ -758,7 +758,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::weakmap (#217 v0) ───────────────────────
     {
-        use crate::namespaces::globals::weakmap::rt::*;
+        use crate::namespaces::globals::weakmap::*;
         add_fn!("__RTS_FN_GL_WEAKMAP_NEW", __RTS_FN_GL_WEAKMAP_NEW);
         add_fn!("__RTS_FN_GL_WEAKMAP_SET", __RTS_FN_GL_WEAKMAP_SET);
         add_fn!("__RTS_FN_GL_WEAKMAP_GET", __RTS_FN_GL_WEAKMAP_GET);
@@ -768,7 +768,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::weakset (#217 v0) ───────────────────────
     {
-        use crate::namespaces::globals::weakset::rt::*;
+        use crate::namespaces::globals::weakset::*;
         add_fn!("__RTS_FN_GL_WEAKSET_NEW", __RTS_FN_GL_WEAKSET_NEW);
         add_fn!("__RTS_FN_GL_WEAKSET_ADD", __RTS_FN_GL_WEAKSET_ADD);
         add_fn!("__RTS_FN_GL_WEAKSET_HAS", __RTS_FN_GL_WEAKSET_HAS);
@@ -777,14 +777,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::weakref (#685 v0) ────────────────────────
     {
-        use crate::namespaces::globals::weakref::rt::*;
+        use crate::namespaces::globals::weakref::*;
         add_fn!("__RTS_FN_GL_WEAKREF_NEW", __RTS_FN_GL_WEAKREF_NEW);
         add_fn!("__RTS_FN_GL_WEAKREF_DEREF", __RTS_FN_GL_WEAKREF_DEREF);
     }
 
     // ── namespaces::globals::finalization_registry (#685 v0) ──────────
     {
-        use crate::namespaces::globals::finalization_registry::rt::*;
+        use crate::namespaces::globals::finalization_registry::*;
         add_fn!("__RTS_FN_GL_FINREG_NEW", __RTS_FN_GL_FINREG_NEW);
         add_fn!("__RTS_FN_GL_FINREG_REGISTER", __RTS_FN_GL_FINREG_REGISTER);
         add_fn!("__RTS_FN_GL_FINREG_UNREGISTER", __RTS_FN_GL_FINREG_UNREGISTER);

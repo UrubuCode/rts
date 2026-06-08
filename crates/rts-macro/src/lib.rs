@@ -50,6 +50,36 @@ impl Parse for NsAttr {
     }
 }
 
+/// `#[rts_class(<Name>)]` with optional `prefix = "..."` (symbol stem) and
+/// `spec = "..."` (aggregated const name) overrides.
+struct ClassAttr {
+    name: Ident,
+    prefix: Option<String>,
+    spec: Option<String>,
+}
+
+impl Parse for ClassAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        let mut prefix = None;
+        let mut spec = None;
+        while input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            let key: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            let val: syn::LitStr = input.parse()?;
+            if key == "prefix" {
+                prefix = Some(val.value());
+            } else if key == "spec" {
+                spec = Some(val.value());
+            } else {
+                return Err(syn::Error::new(key.span(), "expected `prefix` or `spec`"));
+            }
+        }
+        Ok(ClassAttr { name, prefix, spec })
+    }
+}
+
 /// Maps the last path segment of a Rust type to `(AbiType variant, TS type)`.
 /// Returns `None` for unrecognised tokens.
 fn type_token(ty: &Type) -> Option<(&'static str, &'static str)> {
@@ -449,13 +479,25 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
 /// class members) lists only the explicit params.
 #[proc_macro_attribute]
 pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let class = syn::parse_macro_input!(attr as Ident);
+    let ClassAttr {
+        name: class,
+        prefix,
+        spec,
+    } = syn::parse_macro_input!(attr as ClassAttr);
     let imp = syn::parse_macro_input!(item as ItemImpl);
 
     let class_str = class.to_string();
     let class_upper = class_str.to_uppercase();
+    // `prefix` overrides the symbol stem (`__RTS_FN_GL_<PREFIX>_<FN>`) and
+    // `spec` the aggregated const name — for classes whose snake-cased symbols
+    // (`DOM_EXCEPTION`, `FINREG`) or const (`FINALIZATION_REGISTRY_CLASS_SPEC`)
+    // don't match the bare uppercased class name.
+    let sym_prefix = prefix.unwrap_or_else(|| class_upper.clone());
     let spec_doc = doc_of(&imp.attrs);
-    let spec_ident = Ident::new(&format!("{class_upper}_CLASS_SPEC"), class.span());
+    let spec_ident = Ident::new(
+        &spec.unwrap_or_else(|| format!("{class_upper}_CLASS_SPEC")),
+        class.span(),
+    );
 
     let mut externs = Vec::new();
     let mut members = Vec::new();
@@ -471,7 +513,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
         let symbol = opts
             .symbol
             .clone()
-            .unwrap_or_else(|| format!("__RTS_FN_GL_{class_upper}_{}", fn_name.to_uppercase()));
+            .unwrap_or_else(|| format!("__RTS_FN_GL_{sym_prefix}_{}", fn_name.to_uppercase()));
         let sym_ident = Ident::new(&symbol, span);
         let doc = doc_of(&f.attrs);
 
