@@ -547,7 +547,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::abort (#62) ──────────────────────────────
     {
-        use crate::namespaces::globals::abort::instance::*;
+        use crate::namespaces::globals::abort::*;
         add_fn!("__RTS_FN_GL_ABORT_CONTROLLER_NEW", __RTS_FN_GL_ABORT_CONTROLLER_NEW);
         add_fn!("__RTS_FN_GL_ABORT_CONTROLLER_SIGNAL", __RTS_FN_GL_ABORT_CONTROLLER_SIGNAL);
         add_fn!("__RTS_FN_GL_ABORT_CONTROLLER_ABORT", __RTS_FN_GL_ABORT_CONTROLLER_ABORT);
