@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{\"toJSON\":94413732254523}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94614250316603}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -3036,7 +3036,7 @@
   "status": "rts_diverge",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "{\"b\":94463568379922,\"c\":1}\n[null,94463568379913,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94463568379904\nnull\nnull\n{\"a\":null}"
+  "rts": "{\"b\":94013204955154,\"c\":1}\n[null,94013204955145,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94013204955136\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42,\"toJSON\":94800813809712}\n{\"nested\":{\"value\":42,\"toJSON\":94800813809712},\"plain\":1}\n[{\"value\":42,\"toJSON\":94800813809712},{\"value\":42,\"toJSON\":94800813809712}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94800813809698}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42,\"toJSON\":93870454181936}\n{\"nested\":{\"value\":42,\"toJSON\":93870454181936},\"plain\":1}\n[{\"value\":42,\"toJSON\":93870454181936},{\"value\":42,\"toJSON\":93870454181936}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":93870454181922}\n{\"a\":[1,2,3]}"
 }
 ,
 {
