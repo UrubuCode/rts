@@ -1254,7 +1254,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::regex ─────────────────────────────────────────────
     {
-        use crate::namespaces::regex::ops as rx;
+        use crate::namespaces::regex as rx;
         add_fn!("__RTS_FN_NS_REGEX_COMPILE", rx::__RTS_FN_NS_REGEX_COMPILE);
         add_fn!("__RTS_FN_NS_REGEX_FREE", rx::__RTS_FN_NS_REGEX_FREE);
         add_fn!("__RTS_FN_NS_REGEX_TEST", rx::__RTS_FN_NS_REGEX_TEST);
@@ -1822,23 +1822,23 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::process ───────────────────────────────────────────
     {
         use crate::namespaces::process::*;
-        add_fn!("__RTS_FN_NS_PROCESS_EXIT", exit::__RTS_FN_NS_PROCESS_EXIT);
-        add_fn!("__RTS_FN_NS_PROCESS_ABORT", exit::__RTS_FN_NS_PROCESS_ABORT);
-        add_fn!("__RTS_FN_NS_PROCESS_PID", info::__RTS_FN_NS_PROCESS_PID);
+        add_fn!("__RTS_FN_NS_PROCESS_EXIT", __RTS_FN_NS_PROCESS_EXIT);
+        add_fn!("__RTS_FN_NS_PROCESS_ABORT", __RTS_FN_NS_PROCESS_ABORT);
+        add_fn!("__RTS_FN_NS_PROCESS_PID", __RTS_FN_NS_PROCESS_PID);
         add_fn!(
             "__RTS_FN_NS_PROCESS_ARGS_COUNT",
-            info::__RTS_FN_NS_PROCESS_ARGS_COUNT
+            __RTS_FN_NS_PROCESS_ARGS_COUNT
         );
         add_fn!(
             "__RTS_FN_NS_PROCESS_ARG_AT",
-            info::__RTS_FN_NS_PROCESS_ARG_AT
+            __RTS_FN_NS_PROCESS_ARG_AT
         );
         add_fn!(
             "__RTS_FN_NS_PROCESS_SPAWN",
-            spawn::__RTS_FN_NS_PROCESS_SPAWN
+            __RTS_FN_NS_PROCESS_SPAWN
         );
-        add_fn!("__RTS_FN_NS_PROCESS_WAIT", spawn::__RTS_FN_NS_PROCESS_WAIT);
-        add_fn!("__RTS_FN_NS_PROCESS_KILL", spawn::__RTS_FN_NS_PROCESS_KILL);
+        add_fn!("__RTS_FN_NS_PROCESS_WAIT", __RTS_FN_NS_PROCESS_WAIT);
+        add_fn!("__RTS_FN_NS_PROCESS_KILL", __RTS_FN_NS_PROCESS_KILL);
     }
 
     // ── namespaces::net ───────────────────────────────────────────────

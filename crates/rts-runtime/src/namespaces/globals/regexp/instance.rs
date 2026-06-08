@@ -39,10 +39,13 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_INDICES_GROUPS(vec_handle: u64) -> u64 {
 /// `new RegExp(pattern)` — no flags.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_REGEXP_NEW(pat_ptr: i64, pat_len: i64) -> u64 {
-    crate::namespaces::regex::ops::__RTS_FN_NS_REGEX_COMPILE(
+    // Non-null empty ptr (len 0): the migrated `compile` reconstructs flags via
+    // str_abi::from_abi, which treats a NULL ptr as failure (returns 0). A
+    // non-null zero-length ptr reconstructs to "" — the intended "no flags".
+    crate::namespaces::regex::__RTS_FN_NS_REGEX_COMPILE(
         pat_ptr as *const u8,
         pat_len,
-        std::ptr::null(),
+        "".as_ptr(),
         0,
     )
 }
@@ -55,7 +58,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS(
     flag_ptr: i64,
     flag_len: i64,
 ) -> u64 {
-    crate::namespaces::regex::ops::__RTS_FN_NS_REGEX_COMPILE(
+    crate::namespaces::regex::__RTS_FN_NS_REGEX_COMPILE(
         pat_ptr as *const u8,
         pat_len,
         flag_ptr as *const u8,
@@ -68,7 +71,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS(
 /// `re.test(str)` — returns 1 if match, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_REGEXP_TEST(handle: u64, ptr: i64, len: i64) -> i64 {
-    crate::namespaces::regex::ops::__RTS_FN_NS_REGEX_TEST(
+    crate::namespaces::regex::__RTS_FN_NS_REGEX_TEST(
         handle,
         ptr as *const u8,
         len,

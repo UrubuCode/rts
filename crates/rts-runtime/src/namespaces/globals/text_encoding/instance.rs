@@ -133,7 +133,7 @@ fn clone_handle_deep(
             _ => None,
         });
         if let Some((src, flags)) = rx_info {
-            let new_h = crate::namespaces::regex::ops::__RTS_FN_NS_REGEX_COMPILE(
+            let new_h = crate::namespaces::regex::__RTS_FN_NS_REGEX_COMPILE(
                 src.as_ptr(),
                 src.len() as i64,
                 flags.as_ptr(),
