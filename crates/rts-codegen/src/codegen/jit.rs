@@ -1080,7 +1080,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::trace ─────────────────────────────────────────────
     {
-        use crate::namespaces::trace::ops as tr;
+        use crate::namespaces::trace as tr;
         add_fn!(
             "__RTS_FN_NS_TRACE_PUSH_FRAME",
             tr::__RTS_FN_NS_TRACE_PUSH_FRAME

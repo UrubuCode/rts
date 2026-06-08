@@ -76,7 +76,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::net::abi::SPEC,
     &crate::namespaces::num::SPEC,
     &crate::namespaces::mem::SPEC,
-    &crate::namespaces::trace::abi::SPEC,
+    &crate::namespaces::trace::SPEC,
     &crate::namespaces::alloc::SPEC,
     &crate::namespaces::bigfloat::abi::SPEC,
     &crate::namespaces::time::SPEC,
