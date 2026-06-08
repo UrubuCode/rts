@@ -346,7 +346,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_JSON_OBJECT_HAS", __RTS_FN_NS_JSON_OBJECT_HAS);
 
     // ── namespaces::globals::events (EventEmitter global class) ──────
-    use crate::namespaces::globals::events::instance::*;
+    use crate::namespaces::globals::events::*;
     add_fn!("__RTS_FN_GL_EE_NEW", __RTS_FN_GL_EE_NEW);
     add_fn!("__RTS_FN_GL_EE_NEW_ASYNC", __RTS_FN_GL_EE_NEW_ASYNC);
     add_fn!("__RTS_FN_GL_EE_ON", __RTS_FN_GL_EE_ON);
