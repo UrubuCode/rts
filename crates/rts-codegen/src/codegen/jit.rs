@@ -2462,7 +2462,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_TIME_SLEEP_NS", __RTS_FN_NS_TIME_SLEEP_NS);
 
     // ── namespaces::bigfloat ──────────────────────────────────────────
-    use crate::namespaces::bigfloat::ops::*;
+    use crate::namespaces::bigfloat::*;
     add_fn!("__RTS_FN_NS_BIGFLOAT_ZERO", __RTS_FN_NS_BIGFLOAT_ZERO);
     add_fn!(
         "__RTS_FN_NS_BIGFLOAT_FROM_F64",
