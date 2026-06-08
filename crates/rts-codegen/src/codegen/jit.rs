@@ -2117,42 +2117,39 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
 
     // ── namespaces::ffi ───────────────────────────────────────────────
-    use crate::namespaces::ffi::{cstr as ffi_cstr, cstring as ffi_cstring, osstr as ffi_osstr};
+    use crate::namespaces::ffi as ffi_ns;
     add_fn!(
         "__RTS_FN_NS_FFI_CSTR_FROM_PTR",
-        ffi_cstr::__RTS_FN_NS_FFI_CSTR_FROM_PTR
+        ffi_ns::__RTS_FN_NS_FFI_CSTR_FROM_PTR
     );
-    add_fn!(
-        "__RTS_FN_NS_FFI_CSTR_LEN",
-        ffi_cstr::__RTS_FN_NS_FFI_CSTR_LEN
-    );
+    add_fn!("__RTS_FN_NS_FFI_CSTR_LEN", ffi_ns::__RTS_FN_NS_FFI_CSTR_LEN);
     add_fn!(
         "__RTS_FN_NS_FFI_CSTR_TO_STR",
-        ffi_cstr::__RTS_FN_NS_FFI_CSTR_TO_STR
+        ffi_ns::__RTS_FN_NS_FFI_CSTR_TO_STR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTRING_NEW",
-        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_NEW
+        ffi_ns::__RTS_FN_NS_FFI_CSTRING_NEW
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTRING_PTR",
-        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_PTR
+        ffi_ns::__RTS_FN_NS_FFI_CSTRING_PTR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_CSTRING_FREE",
-        ffi_cstring::__RTS_FN_NS_FFI_CSTRING_FREE
+        ffi_ns::__RTS_FN_NS_FFI_CSTRING_FREE
     );
     add_fn!(
         "__RTS_FN_NS_FFI_OSSTR_FROM_STR",
-        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_FROM_STR
+        ffi_ns::__RTS_FN_NS_FFI_OSSTR_FROM_STR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_OSSTR_TO_STR",
-        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_TO_STR
+        ffi_ns::__RTS_FN_NS_FFI_OSSTR_TO_STR
     );
     add_fn!(
         "__RTS_FN_NS_FFI_OSSTR_FREE",
-        ffi_osstr::__RTS_FN_NS_FFI_OSSTR_FREE
+        ffi_ns::__RTS_FN_NS_FFI_OSSTR_FREE
     );
 
     // ── namespaces::atomic ────────────────────────────────────────────
