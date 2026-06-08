@@ -3,7 +3,7 @@
 //! Each `Date` instance is stored as `Entry::DateMs(i64)` in the HandleTable,
 //! where the i64 is milliseconds since Unix epoch (UTC).
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -144,8 +144,7 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_STRING(handle: u64) -> u64 {
     let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
     let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     let mon_names = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     let s = format!(
         "{} {} {:02} {:04} {:02}:{:02}:{:02} GMT+0000 (Coordinated Universal Time)",
@@ -263,8 +262,7 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_UTC_STRING(handle: u64) -> u64 {
     let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
     let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     let mon_names = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     let s = format!(
         "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
@@ -296,8 +294,7 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_DATE_STRING(handle: u64) -> u64 {
     let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
     let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     let mon_names = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     let s = format!(
         "{} {} {:02} {:04}",

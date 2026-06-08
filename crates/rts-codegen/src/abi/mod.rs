@@ -5,7 +5,7 @@ pub mod signature;
 pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::string::STRING_CLASS_SPEC,
     &crate::namespaces::globals::number::NUMBER_CLASS_SPEC,
-    &crate::namespaces::globals::date::abi::CLASS_SPEC,
+    &crate::namespaces::globals::date::CLASS_SPEC,
     &crate::namespaces::globals::regexp::REGEXP_CLASS_SPEC,
     &crate::namespaces::globals::error::CLASS_SPEC,
     &crate::namespaces::globals::error::TYPE_ERROR_CLASS_SPEC,
