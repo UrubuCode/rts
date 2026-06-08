@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{\"toJSON\":93852259255099}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94061998035771}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -3036,7 +3036,7 @@
   "status": "rts_diverge",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "{\"b\":94625819910162,\"c\":1}\n[null,94625819910153,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94625819910144\nnull\nnull\n{\"a\":null}"
+  "rts": "{\"b\":94191688986642,\"c\":1}\n[null,94191688986633,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94191688986624\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42,\"toJSON\":94311170482224}\n{\"nested\":{\"value\":42,\"toJSON\":94311170482224},\"plain\":1}\n[{\"value\":42,\"toJSON\":94311170482224},{\"value\":42,\"toJSON\":94311170482224}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94311170482210}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42,\"toJSON\":94125542473776}\n{\"nested\":{\"value\":42,\"toJSON\":94125542473776},\"plain\":1}\n[{\"value\":42,\"toJSON\":94125542473776},{\"value\":42,\"toJSON\":94125542473776}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94125542473762}\n{\"a\":[1,2,3]}"
 }
 ,
 {
@@ -3404,7 +3404,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "0\nnull"
+  "rts": ""
 }
 ,
 {
