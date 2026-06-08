@@ -315,7 +315,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     );
 
     // ── namespaces::json ──────────────────────────────────────────────
-    use crate::namespaces::json::ops::*;
+    use crate::namespaces::json::*;
     add_fn!("__RTS_FN_NS_JSON_PARSE", __RTS_FN_NS_JSON_PARSE);
     add_fn!("__RTS_FN_NS_JSON_PARSE_REVIVER", __RTS_FN_NS_JSON_PARSE_REVIVER);
     add_fn!("__RTS_FN_NS_JSON_PARSE5", __RTS_FN_NS_JSON_PARSE5);
